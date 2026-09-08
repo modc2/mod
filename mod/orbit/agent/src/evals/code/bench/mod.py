@@ -215,12 +215,12 @@ def test_percent_discount():
     assert c.total() == 18.0
 
 
-def test_discount_stacks_once():
+def test_the_same_code_twice_applies_twice():
     c = Cart()
     c.add("pen", 10.0)
     c.apply_discount("SAVE10")
     c.apply_discount("SAVE10")
-    assert c.total() == 9.0
+    assert c.total() == 8.1
 
 
 def test_unknown_code_raises():
@@ -280,7 +280,12 @@ class Eval:
             "setup": {"files": {"duration.py": DUR_SRC, "test_duration.py": DUR_VISIBLE}},
             "scorers": [
                 {"type": "tests", "cmd": PYTEST, "hidden": {"test_duration.py": DUR_HIDDEN}},
-                # the fix is one operator; deleting the guard clauses is not a fix
+                # half the hidden suite passes on the buggy fixture, so partial
+                # credit alone would pay an agent that read the code and left:
+                # the line with the bug in it has to be gone
+                {"type": "file_not_contains", "path": "duration.py",
+                 "text": "total = int(number) * UNITS[ch]"},
+                # ...and the fix is one operator; deleting the guards is not a fix
                 {"type": "file_regex", "path": "duration.py", "pattern": r"unknown unit"},
             ],
         },

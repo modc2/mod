@@ -172,31 +172,44 @@ def field(matches: Iterable[Dict[str, Any]], model: str,
     rows.sort(key=lambda r: (-r["elo"], -r["score"], r["agent"]))
     for i, r in enumerate(rows, 1):
         r["rank"] = i
+    spread = _spread(rows)
+    # a gap between averages taken on different tasks is not a claim about
+    # design, so the tier does not get to say it separates anybody
+    spread["separates"] = spread["separates"] and common is not None
     return {
         "model": model,
         "provider": next((m.get("provider") for m in mine if m.get("provider")), None),
         "free": sum(float(m.get("cost") or 0.0) for m in mine) <= 0,
         "agents": rows,
         # the tasks every ranked agent played here — the ones the comparison
-        # actually rests on
-        "tasks": sorted(common),
-        "task_titles": {k: (titles or {}).get(k, k) for k in sorted(common)},
+        # actually rests on. Empty means they never all played the same one,
+        # and the ranking below is each agent's own average instead
+        "tasks": sorted(common or []),
+        "comparable": common is not None,
+        "task_titles": {k: (titles or {}).get(k, k) for k in sorted(common or [])},
         "matches": len(_played(mine)),
         "voids": len(mine) - len(_played(mine)),
-        **_spread(rows),
+        **spread,
         "per_task": _per_task(mine, titles),
     }
 
 
-def _common_tasks(by_agent: Dict[str, List[Dict[str, Any]]]) -> set:
-    """The tasks every agent in the group played. Empty means nothing is
-    comparable yet, and the caller falls back to each agent's own average."""
+def _common_tasks(by_agent: Dict[str, List[Dict[str, Any]]]) -> Optional[set]:
+    """The tasks every agent in the group played, or None when there are none.
+
+    None is the honest answer to "what did they all play", not a filter that
+    matches nothing — a field whose agents drifted onto different rotations
+    over several seasons has an empty intersection, and scoring everyone over
+    it would hand the whole tier a flat zero. The caller falls back to each
+    agent's own average and flags the tier `comparable: false`, which says the
+    same thing without inventing a number.
+    """
     sets = [{str(m.get("task")) for m in _played(rows)}
             for rows in by_agent.values() if _played(rows)]
     if not sets:
-        return set()
+        return None
     common = set.intersection(*sets)
-    return common if common else set()
+    return common or None
 
 
 def _spread(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -278,6 +291,8 @@ def board(matches: Iterable[Dict[str, Any]], min_agents: int = 2) -> List[Dict[s
         played = _played(rows)
         cost = sum(float(m.get("cost") or 0.0) for m in played)
         scores = [float(m.get("score") or 0.0) for m in played]
+        spread = _spread(agents)
+        spread["separates"] = spread["separates"] and common is not None
         out.append({
             "model": model,
             "provider": next((m.get("provider") for m in rows if m.get("provider")), None),
@@ -286,8 +301,11 @@ def board(matches: Iterable[Dict[str, Any]], min_agents: int = 2) -> List[Dict[s
             "agents": [a["agent"] for a in agents],
             "matches": len(played),
             "voids": len(rows) - len(played),
-            "tasks": sorted(common),
-            "tasks_n": len(common),
+            "tasks": sorted(common or []),
+            "tasks_n": len(common or []),
+            # false = no task the whole field played here, so the spread is
+            # over averages that were taken on different work
+            "comparable": common is not None,
             "pass_rate": round(sum(1 for m in played if m.get("passed"))
                                / max(1, len(played)), 3),
             "avg_seconds": round(_mean([float(m.get("seconds") or 0.0) for m in played]), 2),
@@ -296,7 +314,7 @@ def board(matches: Iterable[Dict[str, Any]], min_agents: int = 2) -> List[Dict[s
             "cost_per_match": round(cost / max(1, len(played)), 6),
             "leader": agents[0] if agents else None,
             "last": max((float(m.get("ts") or 0) for m in rows), default=0),
-            **_spread(agents),
+            **spread,
         })
     # the tier that separates designs most, first — that is the one worth
     # running a framework against

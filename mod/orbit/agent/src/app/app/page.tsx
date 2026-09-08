@@ -2809,14 +2809,14 @@ export default function Home() {
                 <div className="p-2 rounded-md bg-black/30 border border-white/10 font-mono text-[11px] leading-relaxed text-gray-200 break-words select-all">
                   {localId.phrase}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => copy(localId.phrase!)}
-                    className="px-2 py-1 rounded-md text-[10px] border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/15 transition">
-                    copy phrase
-                  </button>
-                  <span className="text-[9px] text-gray-600 leading-tight">
-                    restores this address in any browser — and in MetaMask
-                  </span>
+                <button onClick={() => copy(localId.phrase!)}
+                  className="w-full px-2 py-1.5 rounded-md text-[10px] border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/15 transition">
+                  copy phrase
+                </button>
+                <div className="text-[9px] text-gray-600 leading-relaxed">
+                  These twelve words are the wallet. Anyone who reads them owns this
+                  address; anyone who has them can restore it in another browser — or
+                  in MetaMask.
                 </div>
               </div>
             )}

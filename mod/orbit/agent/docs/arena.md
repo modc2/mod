@@ -231,7 +231,69 @@ One agent, one set of tasks, every model in turn. Two things about it:
   per-task score a newcomer's qualifier is measured against, on the strength
   of whichever model happened to play last.
 
-The same matches read a third way give the **task board**: every task that
+## The tier board — what the design was worth
+
+The model board holds the agent still and moves the model, which ranks
+models. The **tier board** does the opposite: it holds the model still and
+moves the agent, because the question a framework is actually judged on is
+not which model wins but how much of the score the *design* was doing.
+
+That question has a sharp edge to it. A frontier model solves the task
+whatever the prompt says, so on a big model every agent lands on roughly the
+same number and the board separates nobody. Take the model down a tier and
+the prompt, the toolbox and the step budget become most of the score. **The
+cheap tier is where agent design is visible**, and it is also where a
+framework can be tested at a hundredth of the price.
+
+A **tier round** is the gauntlet inverted:
+
+```
+POST /arena/tier {model, provider?, agents?, tasks?, steps?, rate?}
+```
+
+One model, every agent, the same tasks and the same budget. It names its
+model for the same reason a gauntlet does (FREE MODE would resolve its own
+pick and ignore the id), so it is host-only and spends the host's key —
+usually a fraction of a cent per match, which is the whole argument for it.
+Its matches are recorded but **not rated against the agents** (`rate=False`,
+overridable): the main board is one model deep, and a haiku-tier score
+folded into it would read as an agent regression that never happened.
+
+`arena/tiers.py` reads the log back three ways, none of them stored:
+
+| read | what it answers |
+|---|---|
+| `GET /arena/tier?model=` | one tier in full — the agents ranked inside it, then task by task, so you can see *which* task did the separating |
+| `GET /arena/tiers` | every tier, widest **spread** first — best design minus worst on that model |
+| `GET /arena/tier/matrix?ref=` | agents × models, with **retention**: the share of its reference-model score each design keeps when the model shrinks |
+
+`spread` is the column the board exists for. Under 0.05 the tier is flagged
+`separates: false` and listed under `flat` — every design scored the same
+there, so the model is doing the work and that tier ranks nobody, whatever
+its Elo column says.
+
+Rating inside a tier is the model board's controlled group with the axis
+swapped: one bucket is one season, one task, one **model**, and the agent is
+the only thing that moves. An agent that never met another inside a tier is
+`rated: false` rather than ranked on a comparison nobody made.
+
+Two honesty rules run through all of it:
+
+- an agent is ranked on the tasks **the whole field played** on that model,
+  not on whatever each one happened to draw. Its own average over everything
+  it played is still there as `avg_score`; the ranking uses `score`.
+- retention is computed only over the tasks **both cells actually played**.
+  An agent with three tasks on the cheap model and eight on the expensive
+  one has not lost 60% of its score, and a board that said so would be worse
+  than no board. No shared task, no ratio — the cell says nothing instead.
+
+Retention is the number that says whether a design is portable. Two agents
+can tie on the frontier model and be thirty points apart the moment the
+model gets small, and that gap is the design. The matrix names both ends:
+`portable` (keeps ≥90%) and `carried` (keeps <60% — most of its score was
+the big model, not the prompt).
+
+The same matches read a fourth way give the **task board**: every task that
 has been played, hardest first, with the models that played it ranked
 underneath and a `spread` column — best model minus worst. A task everybody
 scores the same on ranks nobody, and that is the number that says so.
@@ -314,6 +376,14 @@ GET  /arena/models           the same matches ranked by model: score, latency,
                              throughput, spend — plus the catalog to play
 GET  /arena/model?model=     one model's record (query param: ids have slashes)
 GET  /arena/board/tasks      per task, the models that played it, ranked
+GET  /arena/tiers            every tier: one model with the whole field on it,
+                             widest design-spread first, + the retention matrix
+GET  /arena/tier?model=      one tier: the agents ranked inside that model
+GET  /arena/tier/matrix?ref= agents x models, what each design keeps when the
+                             model gets cheaper
+POST /arena/tier             admin: {model, provider?, agents?, tasks?, steps?,
+                             rate?} — the gauntlet inverted: one model, every
+                             agent, so the design is the only variable
 POST /arena/gauntlet         admin: {models[], agent?, tasks?, steps?} — one
                              agent, one task set, N models. Names its models,
                              so unlike a round it can spend on paid ones
@@ -356,6 +426,12 @@ m agent/arena/qualify agent=mynewagent
 m agent/arena/set_config period_hours=6
 m agent/arena/custom                             # the hand-written tasks
 m agent/arena/matches limit=10
+
+# the model held still, the agent moved
+m agent/arena/run_tier model=anthropic/claude-haiku-4.5   # the field, one model
+m agent/arena/tier_board                         # every tier, widest spread first
+m agent/arena/tier_card model=anthropic/claude-haiku-4.5
+m agent/arena/tier_matrix                        # what each design keeps
 ```
 
 Through `forward()` (what the API and other modules call):
@@ -364,6 +440,9 @@ Through `forward()` (what the API and other modules call):
 m agent/forward action=arena
 m agent/forward action=arena_run agent=builder task=agentic/files#0   # admin
 m agent/forward action=arena_config period_hours=6                    # admin
+m agent/forward action=arena_tiers                                    # the board
+m agent/forward action=arena_tier model=openai/gpt-4o-mini            # one tier
+m agent/forward action=arena_tier_run model=openai/gpt-4o-mini        # admin
 m agent/forward action=arena_scheduler on=false                       # admin
 ```
 

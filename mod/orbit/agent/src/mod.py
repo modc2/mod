@@ -2136,6 +2136,10 @@ class Mod(Agent):
                                 # the same matches read by model: what each one
                                 # scored, how fast it was, what it burned
                                 'arena_models', 'arena_model', 'arena_task_board',
+                                # ...and read by tier: the model held still and
+                                # the agent moved, which is how much the design
+                                # itself was worth at that price point
+                                'arena_tiers', 'arena_tier', 'arena_tier_matrix',
                                 'key_info', 'balance',
                                 'credits', 'credit_deposit', 'credit_price',
                                 # vaults self-scope to the caller's verified
@@ -2170,6 +2174,9 @@ class Mod(Agent):
                                # ...and a gauntlet spends them on a named model,
                                # which is the one place the board runs paid ones
                                'arena_gauntlet',
+                               # a tier round does the same on one named model:
+                               # the whole field, held at one price point
+                               'arena_tier_run',
                                # our agent on openarena's board: they run it on
                                # our key, so the host decides
                                'openarena_enter',
@@ -2982,6 +2989,7 @@ class Mod(Agent):
             recall, episodes, facts, exchanges, memory_state,
             arena, arena_tasks, arena_matches, arena_card, arena_status,
             arena_models, arena_model, arena_task_board,
+            arena_tiers, arena_tier (model=), arena_tier_matrix (ref=),
             openarena, openarena_task, openarena_sources,
             credits, credit_price (network=),
             credit_deposit (tx_hash=, network=base|ethereum, provider=openrouter|venice)
@@ -3024,6 +3032,10 @@ class Mod(Agent):
             arena_run   - Play a match (agent=, task=) or a whole round
             arena_gauntlet - Rank models against each other: one agent, one
                               task set, N models (models=, agent=, tasks=)
+            arena_tier_run - The inverse: every agent on ONE named model, so
+                              the design is the only variable (model=, agents=,
+                              tasks=, steps=). Point it at a cheap model to see
+                              which prompts were doing the work.
             arena_qualify - Score a newcomer against the incumbents (agent=)
             arena_config  - Set the board's knobs (enabled=, free=, period_hours=…)
             arena_scheduler - Start/stop the background board process (on=)
@@ -3134,6 +3146,14 @@ class Mod(Agent):
             'arena_model': lambda: self.arena.forward('model',
                                                       model=kwargs.get('model', '')),
             'arena_task_board': lambda: self.arena.forward('task_board'),
+            # the same matches read by tier — one model, every agent — plus the
+            # catalog, because picking the cheap model is the whole workflow
+            'arena_tiers': lambda: {**self.arena.forward('tiers'),
+                                    'catalog': self.arena_model_options()},
+            'arena_tier': lambda: self.arena.forward('tier',
+                                                     model=kwargs.get('model', '')),
+            'arena_tier_matrix': lambda: self.arena.forward('tier_matrix',
+                                                            ref=kwargs.get('ref')),
             # hand-written tasks: draft one with the task-builder agent, store
             # it under your address, remove your own
             'arena_task_draft': lambda: self.arena_task_draft(
@@ -3281,6 +3301,16 @@ class Mod(Agent):
                 agent=kwargs.get('agent'), tasks=kwargs.get('tasks'),
                 steps=kwargs.get('steps'), free=bool(kwargs.get('free', False)),
                 reason=kwargs.get('reason', 'gauntlet')),
+            # a tier round names its model too, and for the same reason: the
+            # question is what the design is worth on THAT model, so it cannot
+            # be answered by FREE MODE picking one
+            'arena_tier_run': lambda: self.arena.forward(
+                'tier_run', model=kwargs.get('model', ''),
+                provider=kwargs.get('provider'), agents=kwargs.get('agents'),
+                tasks=kwargs.get('tasks'), steps=kwargs.get('steps'),
+                free=bool(kwargs.get('free', False)),
+                rate=bool(kwargs.get('rate', False)),
+                reason=kwargs.get('reason')),
             # openarena calls back into /run to make our entrant play, which
             # spends the host's key — so entering one is the host's call
             'openarena_enter': lambda: self.arena_oa_enter(

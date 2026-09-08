@@ -94,6 +94,44 @@ type TaskRow = {
   leader?: string | null; leader_icon?: string | null; leader_score: number
   agent_spread: number; unplayed?: boolean
 }
+// the same log read by tier: the model held still, the agent moved
+type TierAgent = {
+  agent: string; rank: number; elo: number; rated: boolean; h2h: number
+  wins: number; losses: number; draws: number; matches: number; voids: number
+  score: number; avg_score: number; best_score: number; pass_rate: number
+  avg_seconds: number; sec_per_step: number; steps: number; tokens: number
+  avg_tokens: number; cost: number; cost_per_point: number; tasks: string[]; last: number
+}
+type TierRow = {
+  rank: number; model: string; provider?: string | null; free: boolean
+  agents_n: number; agents: string[]; matches: number; voids: number
+  tasks: string[]; tasks_n: number; pass_rate: number; avg_seconds: number
+  tokens: number; cost: number; cost_per_match: number
+  leader?: TierAgent | null
+  spread: number; best?: string | null; worst?: string | null
+  avg_score: number; separates: boolean; last: number
+}
+type TierField = Omit<TierRow, 'agents'> & {
+  agents: TierAgent[]
+  task_titles?: Record<string, string>
+  per_task: { task: string; title: string; suite?: string; n: number
+              avg_score: number; spread: number; best?: string | null
+              agents: { agent: string; score: number }[] }[]
+}
+type MatrixCell = { model: string; n: number; tasks?: number; score: number | null
+                    vs_ref?: number | null; ref_score?: number | null
+                    shared?: number; retention: number | null }
+type MatrixPayload = {
+  ref?: string | null; models: string[]; agents: string[]
+  rows: { agent: string; cells: MatrixCell[]; ref_score: number | null
+          retention: number | null; tiers: number }[]
+  portable: string[]; carried: string[]
+}
+type TiersPayload = {
+  tiers: TierRow[]; matrix: MatrixPayload; agents: string[]
+  tasks: { key: string; title: string; suite: string }[]
+  round_tasks: string[]; flat: string[]; catalog: Candidate[]
+}
 // what a gauntlet may be pointed at — every provider's list, keys or no keys
 type Candidate = { model: string; provider: string; ready: boolean; free: boolean; hint?: string | null }
 type ModelsPayload = {
@@ -200,12 +238,20 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
 
   // which board the main pane is: the agents, the models underneath them, or
   // the tasks both are measured on
-  const [view, setView] = useState<'agents' | 'models' | 'tasks'>('agents')
+  const [view, setView] = useState<'agents' | 'models' | 'tiers' | 'tasks'>('agents')
   const [mods, setMods] = useState<ModelsPayload | null>(null)
   const [pickedModel, setPickedModel] = useState<string | null>(null)
   const [modelCard, setModelCard] = useState<ModelCard | null>(null)
   const [taskRows, setTaskRows] = useState<TaskRow[]>([])
   const [openTask, setOpenTask] = useState<string | null>(null)
+  const [tiers, setTiers] = useState<TiersPayload | null>(null)
+  const [openTier, setOpenTier] = useState<string | null>(null)
+  const [tierField, setTierField] = useState<TierField | null>(null)
+  const [showMatrix, setShowMatrix] = useState(true)
+  const [showTierRun, setShowTierRun] = useState(false)
+  const [tierRun, setTierRun] = useState<
+    { model: string; task: string; steps: number; provider: string; filter: string }>(
+    { model: '', task: '', steps: 0, provider: 'openrouter', filter: '' })
   const [showGauntlet, setShowGauntlet] = useState(false)
   const [gauntlet, setGauntlet] = useState<
     { agent: string; task: string; steps: number; models: string[]; provider: string; filter: string }>(
@@ -237,6 +283,10 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
       fetch(`${API_URL}/arena/models`, { signal }).then(r => r.json())
         .then(d => setMods(d?.error ? null : { catalog: [], models: [], ...d })).catch(() => {})
     }
+    if (view === 'tiers') {
+      fetch(`${API_URL}/arena/tiers`, { signal }).then(r => r.json())
+        .then(d => setTiers(d?.error ? null : { tiers: [], catalog: [], flat: [], ...d })).catch(() => {})
+    }
     // the rail's task pane wears each task's leader too, so the board is
     // fetched for either surface that shows it
     if (view === 'tasks' || pane === 'tasks') {
@@ -264,6 +314,14 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
     fetch(`${API_URL}/arena/model?model=${encodeURIComponent(pickedModel)}`)
       .then(r => r.json()).then(d => setModelCard(d?.error ? null : d)).catch(() => {})
   }, [pickedModel, matches.length])
+
+  // a tier is opened, not picked: the row expands into the agents ranked
+  // inside it, so the whole point of the board is one click away
+  useEffect(() => {
+    if (!openTier) { setTierField(null); return }
+    fetch(`${API_URL}/arena/tier?model=${encodeURIComponent(openTier)}`)
+      .then(r => r.json()).then(d => setTierField(d?.error ? null : d)).catch(() => {})
+  }, [openTier, matches.length])
 
   const post = async (path: string, body: any) => {
     setBusy(true); setErr(null)
@@ -353,10 +411,11 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
     <div className="border-b border-white/[0.06] px-4 py-2.5 flex items-center gap-4 flex-wrap shrink-0">
       <span className="text-[11px] uppercase tracking-[0.22em] text-emerald-300 shrink-0">arena</span>
 
-      {/* one match log, three ways to read it: who won, what they ran on,
-          what they were asked to do */}
+      {/* one match log, four ways to read it: who won, what they ran on,
+          how much the design was worth at a price point, and what they were
+          asked to do */}
       <div className="tab-strip gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
-        {(['agents', 'models', 'tasks'] as const).map(v => (
+        {(['agents', 'models', 'tiers', 'tasks'] as const).map(v => (
           <button key={v} onClick={() => setView(v)}
             className={`tab-btn px-2.5 py-1 rounded-md uppercase tracking-wider transition ${
               view === v ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-600 hover:text-gray-300'
@@ -381,6 +440,13 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                 showConfig ? 'text-emerald-300' : 'text-gray-600 hover:text-gray-300'}`}>
               settings
             </button>
+            {view === 'tiers' && (
+              <button onClick={() => setShowTierRun(v => !v)}
+                className={`uppercase tracking-wider transition ${
+                  showTierRun ? 'text-emerald-300' : 'text-gray-600 hover:text-gray-300'}`}>
+                tier round
+              </button>
+            )}
             {view === 'models' && (
               <button onClick={() => { setShowGauntlet(v => !v); setView('models') }}
                 className={`uppercase tracking-wider transition ${
@@ -668,6 +734,231 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
     </div>
   )
 
+  // ── the retention matrix ──────────────────────────────────────────
+  //
+  // Agents down the side, models across the top, and in the cells what each
+  // design KEEPS when the model gets cheaper — read only over the tasks both
+  // cells actually played. Two agents can tie on the frontier model and be
+  // thirty points apart the moment it shrinks, and that gap is the design.
+  const matrixPane = tiers?.matrix && (
+    <div className="border-t border-white/[0.06] px-3 py-3 space-y-2">
+      <div className="flex items-center gap-3 text-[10px] flex-wrap">
+        <span className="section-label text-gray-500">retention</span>
+        <span className="text-gray-600">
+          share of the score kept against <span className="text-gray-400">{tiers.matrix.ref || '—'}</span>, over shared tasks only
+        </span>
+        {tiers.matrix.portable.length > 0 && (
+          <span className="text-emerald-400/70">travels: {tiers.matrix.portable.join(', ')}</span>
+        )}
+        {tiers.matrix.carried.length > 0 && (
+          <span className="text-amber-400/70"
+            title="most of this design's score was the big model, not the prompt">
+            carried: {tiers.matrix.carried.join(', ')}
+          </span>
+        )}
+      </div>
+      <div className="overflow-x-auto no-scrollbar">
+        <table className="board text-[10px]">
+          <thead>
+            <tr>
+              <th className="text-left">agent</th>
+              {tiers.matrix.models.map(m => (
+                <th key={m} className="text-right max-w-[120px] truncate" title={m}>
+                  {m === tiers.matrix.ref ? `${m} (ref)` : m}
+                </th>
+              ))}
+              <th className="text-right">keeps</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tiers.matrix.rows.map(r => (
+              <tr key={r.agent}>
+                <td className="text-gray-200 max-w-[160px] truncate">{r.agent}</td>
+                {r.cells.map(c => (
+                  <td key={c.model} className="text-right tabular-nums"
+                    title={c.n
+                      ? `${c.n} match${c.n > 1 ? 'es' : ''}${c.shared ? ` · ${c.shared} task${c.shared > 1 ? 's' : ''} shared with the reference` : ''}`
+                      : 'never played here'}>
+                    {c.score === null
+                      ? <span className="text-gray-700">—</span>
+                      : <span className={c.retention !== null && c.retention < 0.6 ? 'text-amber-400/80'
+                                         : c.retention !== null && c.retention >= 0.9 ? 'text-emerald-300/90'
+                                         : 'text-gray-400'}>{pct(c.score)}</span>}
+                  </td>
+                ))}
+                <td className="text-right tabular-nums">
+                  {r.retention === null
+                    ? <span className="text-gray-700" title="no task played on both this model and the reference">—</span>
+                    : <span className={r.retention >= 0.9 ? 'text-emerald-300'
+                                       : r.retention < 0.6 ? 'text-amber-400/80' : 'text-gray-300'}>
+                        {pct(r.retention)}
+                      </span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
+  // ── the tier board ────────────────────────────────────────────────
+  //
+  // The model board asks which model won. This asks the question a framework
+  // is actually judged on: on THIS model, how far apart were the designs? A
+  // frontier model scores the task whatever the prompt says, so a tier where
+  // every agent lands on the same number is the model doing the work — and the
+  // cheap tier at the top of this board, with the widest spread, is the one
+  // worth developing against.
+  const tierBoard = (
+    <div className="flex-1 min-w-0 overflow-y-auto no-scrollbar">
+      {(tiers?.tiers?.length ?? 0) === 0 ? (
+        <Empty title="no tier has been played"
+          body="a tier is one model with the whole field on it — the agent is the only thing that moves, so the gap between the best and worst design is what the design was worth there. Point one at a cheap model and the prompts stop being decoration."
+          hint={isHost ? 'TIER ROUND: pick a model, play every agent on it' : 'two agents have to meet on the same model'} />
+      ) : (
+        <>
+          <div className="px-3 py-2 text-[10px] text-gray-600 flex items-center gap-3 flex-wrap border-b border-white/[0.05]">
+            <span className={tiers!.tiers.some(t => t.separates) ? 'text-gray-500' : 'text-amber-400/80'}>
+              {tiers!.tiers.filter(t => t.separates).length} of {tiers!.tiers.length} tiers separate the field
+            </span>
+            {tiers!.flat.length > 0 && (
+              <span className="text-gray-600 truncate max-w-[420px]"
+                title="every design scored the same here — this model is doing the work, not the prompt">
+                flat: {tiers!.flat.join(', ')}
+              </span>
+            )}
+            <button onClick={() => setShowMatrix(v => !v)}
+              className={`ml-auto uppercase tracking-wider transition ${
+                showMatrix ? 'text-emerald-300' : 'text-gray-600 hover:text-gray-300'}`}>
+              retention
+            </button>
+          </div>
+          <table className="board text-[11px]">
+            <thead>
+              <tr>
+                {['#', 'tier', 'spread', 'best design', 'worst', 'agents', 'tasks', 'avg score', 'matches', 'spent'].map(h => (
+                  <th key={h} className={['tier', 'best design', 'worst'].includes(h) ? 'text-left' : 'text-right'}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tiers!.tiers.map(t => (
+                <Fragment key={t.model}>
+                  <tr onClick={() => setOpenTier(openTier === t.model ? null : t.model)}
+                    className={`row-pick ${openTier === t.model ? 'row-on' : ''}`}>
+                    <td className="text-right w-10">
+                      <span className={t.separates && t.rank <= 3 ? `rank rank--${t.rank}` : 'rank'}>{t.rank}</span>
+                    </td>
+                    <td className="max-w-[260px]">
+                      <div className="flex items-baseline gap-1.5 min-w-0">
+                        <span className={`text-gray-600 transition-transform shrink-0 ${
+                          openTier === t.model ? 'rotate-90' : ''}`}>›</span>
+                        <span className="text-gray-100 truncate" title={t.model}>{t.model}</span>
+                        {t.free && <span className="text-[9px] text-emerald-400/70 uppercase tracking-wider">free</span>}
+                      </div>
+                      <div className="text-[9px] text-gray-600 truncate mt-0.5 pl-3">
+                        {t.provider ? `${t.provider} · ` : ''}{ago(t.last)}
+                      </div>
+                    </td>
+                    {/* the column the board exists for: best design minus
+                        worst, on the tasks all of them played */}
+                    <td className="text-right w-32">
+                      {t.separates
+                        ? <Score value={t.spread} />
+                        : <span className="text-gray-600 text-[10px] uppercase tracking-wider"
+                            title="every design landed within a rounding error — this tier ranks nobody">flat</span>}
+                    </td>
+                    <td className="max-w-[160px]">
+                      <span className="text-emerald-300/90 truncate">{t.best || '—'}</span>
+                    </td>
+                    <td className="max-w-[160px]">
+                      <span className="text-gray-600 truncate">{t.worst || '—'}</span>
+                    </td>
+                    <td className="text-right tabular-nums text-gray-500">{t.agents_n}</td>
+                    <td className="text-right tabular-nums text-gray-500"
+                      title={t.tasks.join(', ') || 'no task the whole field played'}>{t.tasks_n}</td>
+                    <td className="text-right w-24"><Score value={t.avg_score} w="w-10" /></td>
+                    <td className="text-right tabular-nums text-gray-500"
+                      title={t.voids ? `${t.voids} voided — provider failed, not scored` : undefined}>
+                      {t.matches}{t.voids > 0 && <span className="text-amber-400/70 text-[9px] ml-1">+{t.voids}</span>}
+                    </td>
+                    <td className="text-right tabular-nums text-gray-600"
+                      title={t.cost ? `$${t.cost_per_match.toFixed(4)} per match` : `${t.tokens.toLocaleString()} tokens`}>
+                      {t.cost ? `$${t.cost.toFixed(4)}` : toks(t.tokens) || '—'}
+                    </td>
+                  </tr>
+
+                  {/* opened: the leaderboard of designs inside that one model */}
+                  {openTier === t.model && (
+                    <tr className="bg-black/20">
+                      <td colSpan={10} className="px-4 py-2.5">
+                        {!tierField ? (
+                          <div className="text-[10px] text-gray-600">reading the tier…</div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="text-[10px] text-gray-600">
+                              ranked on {tierField.tasks.length
+                                ? `the ${tierField.tasks.length} task${tierField.tasks.length > 1 ? 's' : ''} every agent played here`
+                                : 'each agent’s own matches — no task the whole field has played yet'}
+                            </div>
+                            <div className="grid gap-1">
+                              {tierField.agents.map(a => (
+                                <div key={a.agent} className="flex items-center gap-2.5 text-[10px]">
+                                  <span className="w-5 text-right tabular-nums text-gray-600">{a.rank}</span>
+                                  <span className="w-32 truncate text-gray-200">{a.agent}</span>
+                                  <span className="w-12 text-right tabular-nums">
+                                    {a.rated
+                                      ? <span className="text-emerald-300">{a.elo.toFixed(0)}</span>
+                                      : <span className="text-gray-600" title="never met another agent on this model and task">—</span>}
+                                  </span>
+                                  <span className="flex-1 min-w-[80px]"><ScoreBar value={a.score} /></span>
+                                  <span className="w-10 text-right tabular-nums text-gray-300">{pct(a.score)}</span>
+                                  <span className="w-16 text-right tabular-nums text-gray-600"
+                                    title="matches where every check passed">{pct(a.pass_rate)} pass</span>
+                                  <span className="w-14 text-right tabular-nums text-gray-600">
+                                    {a.matches}m{a.voids ? <span className="text-amber-400/70"> +{a.voids}</span> : null}
+                                  </span>
+                                  <span className="w-16 text-right tabular-nums text-gray-600"
+                                    title={a.cost ? `$${a.cost.toFixed(4)}` : 'no charge on this tier'}>
+                                    {a.cost ? `$${a.cost.toFixed(4)}` : toks(a.tokens) || '—'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            {/* which task did the separating — a task the whole
+                                field aces or fails told you nothing */}
+                            {tierField.per_task?.length > 0 && (
+                              <div className="pt-1 border-t border-white/[0.05] space-y-1">
+                                {tierField.per_task.slice(0, 6).map(pt => (
+                                  <div key={pt.task} className="flex items-center gap-2 text-[10px]">
+                                    <span className="w-52 truncate text-gray-500" title={pt.task}>{pt.title}</span>
+                                    <span className="w-24 text-gray-600">
+                                      spread {pct(pt.spread)}
+                                    </span>
+                                    <span className="truncate text-gray-600">
+                                      {pt.agents.map(x => `${x.agent} ${pct(x.score)}`).join(' · ')}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+
+          {showMatrix && (tiers?.matrix?.rows?.length ?? 0) > 0 && matrixPane}
+        </>
+      )}
+    </div>
+  )
+
   // ── the task board ────────────────────────────────────────────────
   //
   // Hardest first, with each task's LEADER — the agent with the best standing
@@ -806,11 +1097,109 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
         <span className="ml-auto">
           rating is controlled: same season, same task, same agent. No such pairing = unrated, not ranked.
         </span>
+      ) : view === 'tiers' ? (
+        <span className="ml-auto">
+          one model, every agent — spread is best design minus worst, on the tasks they all played. A flat tier is the model doing the work, not the prompt.
+        </span>
       ) : (
         <span className="ml-auto">
           leader = the agent holding the best score on that task. spread is best minus worst — the column that says whether a task ranks anybody.
         </span>
       )}
+    </div>
+  )
+
+  // ── the tier round (host) ─────────────────────────────────────────
+  //
+  // The gauntlet inverted: one model, the whole field. It names its model for
+  // the same reason and spends the same key — but the reason to run it is that
+  // the model should be a SMALL one. A frontier model answers the task however
+  // the agent was written, so it is the cheap tier that says which prompt,
+  // which toolbox and which step budget were doing real work.
+  const tierPick = (tiers?.catalog || []).find(c => c.model === tierRun.model)
+  const tierRunPanel = showTierRun && isHost && view === 'tiers' && (
+    <div className="border-b border-white/[0.06] px-4 py-3 bg-white/[0.02] space-y-2 text-[10px]">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="uppercase tracking-wider text-gray-600">model</span>
+        <span className={`truncate max-w-[280px] ${tierRun.model ? 'text-gray-200' : 'text-gray-600'}`}>
+          {tierRun.model || 'pick one below'}
+        </span>
+        <label className="flex items-center gap-1.5">
+          <span className="uppercase tracking-wider text-gray-600">task</span>
+          <select value={tierRun.task} onChange={e => setTierRun(g => ({ ...g, task: e.target.value }))}
+            className="max-w-[260px] bg-white/[0.04] border border-white/[0.08] rounded-md px-1.5 py-1 text-gray-300 outline-none focus:border-emerald-500/40">
+            <option value="">this season's rotation ({tiers?.round_tasks?.length ?? status?.round_tasks?.length ?? 0})</option>
+            {(tiers?.tasks || []).map(t => <option key={t.key} value={t.key}>{t.title}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5">
+          <span className="uppercase tracking-wider text-gray-600">steps</span>
+          <input type="number" min={0} value={tierRun.steps || ''} placeholder={String(cfg.steps || 8)}
+            onChange={e => setTierRun(g => ({ ...g, steps: Number(e.target.value) }))}
+            className="w-16 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-1 text-gray-200 tabular-nums outline-none focus:border-emerald-500/40" />
+        </label>
+        <span className="text-gray-600">
+          {(tiers?.agents || status?.subjects || []).length} agents ×{' '}
+          {tierRun.task ? 1 : (tiers?.round_tasks?.length ?? status?.round_tasks?.length ?? 0)} tasks
+          {' = '}
+          {(tiers?.agents || status?.subjects || []).length
+            * (tierRun.task ? 1 : (tiers?.round_tasks?.length ?? status?.round_tasks?.length ?? 0))} matches
+        </span>
+        <button
+          disabled={busy || !!live || !tierRun.model
+                    || (tiers?.agents || status?.subjects || []).length < 2}
+          onClick={() => post('tier', {
+            model: tierRun.model,
+            provider: tierPick?.provider,
+            tasks: tierRun.task ? [tierRun.task] : undefined,
+            steps: tierRun.steps || undefined,
+          }).then(() => { setTiers(null); setOpenTier(tierRun.model); loadBoards() })}
+          className="lit-btn ml-auto px-2.5 py-1 rounded-md uppercase tracking-wider disabled:opacity-40">
+          {busy ? 'playing…' : 'run tier'}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {Array.from(new Set((tiers?.catalog || []).map(c => c.provider))).map(p => (
+          <button key={p} onClick={() => setTierRun(g => ({ ...g, provider: p }))}
+            className={`px-1.5 py-0.5 rounded-md uppercase tracking-wider transition ${
+              tierRun.provider === p ? 'text-emerald-300' : 'text-gray-600 hover:text-gray-300'
+            }`}>
+            {p}
+          </button>
+        ))}
+        <input value={tierRun.filter} placeholder="filter…"
+          onChange={e => setTierRun(g => ({ ...g, filter: e.target.value }))}
+          className="w-32 bg-white/[0.04] border border-white/[0.08] rounded-md px-2 py-0.5 text-gray-300 outline-none focus:border-emerald-500/40" />
+      </div>
+
+      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto no-scrollbar">
+        {(tiers?.catalog || [])
+          .filter(c => (c.model === tierRun.model
+                        || (c.provider === tierRun.provider
+                            && c.model.toLowerCase().includes(tierRun.filter.toLowerCase()))))
+          .map(c => (
+            <button key={`${c.provider}:${c.model}`} disabled={!c.ready}
+              title={c.ready ? (c.hint || c.provider) : `${c.provider} has no key — set one in the Builder`}
+              onClick={() => setTierRun(g => ({ ...g, model: g.model === c.model ? '' : c.model }))}
+              className={`px-1.5 py-0.5 rounded-md border transition disabled:opacity-30 ${
+                c.model === tierRun.model ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-200'
+                                          : 'border-white/[0.08] text-gray-500 hover:text-gray-300'
+              }`}>
+              {c.model}
+              {c.free && <span className="ml-1 text-[9px] text-emerald-400/70">free</span>}
+            </button>
+          ))}
+      </div>
+
+      <div className={`leading-relaxed ${tierPick && !tierPick.free ? 'text-amber-400/80' : 'text-gray-600'}`}>
+        {!tierRun.model
+          ? 'pick the model the whole field will play on — a small one, if the question is what the prompts are worth'
+          : tierPick && !tierPick.free
+            ? 'a named model is not FREE MODE: every match here bills the host\'s provider key — cheap per match, which is the point'
+            : 'zero-cost model — this ranks the designs for nothing but time'}
+        {' · '}kept off the agents' main board, so a cheap-tier score never reads as a regression
+      </div>
     </div>
   )
 
@@ -1372,6 +1761,7 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
     <div className="flex-1 min-h-0 flex flex-col library-bg">
       {head}
       {config}
+      {tierRunPanel}
       {gauntletPanel}
       {err && (
         <div className="px-4 py-1.5 text-[10px] text-red-400 bg-red-500/10 border-b border-red-500/20">{err}</div>
@@ -1385,7 +1775,8 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
         <div className="flex-1 min-w-0 flex flex-col">
           {statStrip}
           {podium}
-          {view === 'agents' ? leaderboard : view === 'models' ? modelBoard : taskBoard}
+          {view === 'agents' ? leaderboard : view === 'models' ? modelBoard
+            : view === 'tiers' ? tierBoard : taskBoard}
           {boardFoot}
           {view === 'agents' ? agentCard : modelCardPane}
         </div>
