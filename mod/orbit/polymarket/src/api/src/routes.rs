@@ -392,6 +392,11 @@ struct SyncConfigRequest {
     interval_minutes: Option<f64>,
     #[serde(rename = "intervalHours")]
     interval_hours: Option<f64>,
+    /// The leaderboards the background sweep keeps warm — `[{days, minPerDay,
+    /// pool}, …]`. Sent whole (a replace, not a merge): the list IS the
+    /// setting, and a per-entry patch has no stable identity to patch against.
+    /// Omitted leaves the current list running.
+    windows: Option<Vec<crate::sync::WarmWindow>>,
 }
 
 async fn sync_config(
@@ -402,7 +407,7 @@ async fn sync_config(
         .interval_secs
         .or_else(|| req.interval_minutes.map(|m| (m * 60.0).round() as u64))
         .or_else(|| req.interval_hours.map(|h| (h * 3600.0).round() as u64));
-    match state.sync.update(req.enabled, secs) {
+    match state.sync.update(req.enabled, secs, req.windows) {
         Ok(()) => Json(state.sync.status_json()).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,

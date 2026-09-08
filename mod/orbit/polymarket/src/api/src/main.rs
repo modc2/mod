@@ -153,7 +153,10 @@ async fn main() -> anyhow::Result<()> {
                 polymarket_api::sync::Trigger::Scheduled => warmup_sync.resync_after_secs(),
             };
             warmup_sync.mark_started(trigger);
-            let cycle = warmup_pipeline.warmup_cycle(min_age);
+            // The windows come from the schedule, re-read every cycle, so an
+            // owner adding "3D, ≥2 trades/day" to the warm list has it warmed
+            // on the next tick without a restart.
+            let cycle = warmup_pipeline.warmup_cycle(min_age, warmup_sync.windows());
             let panicked = std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err();
             if panicked {
                 tracing::error!(

@@ -29,6 +29,15 @@ interface Props {
   marketQuery: string;
   /** Supplied ⇒ the presets and the topic box can SET it, not just clear it. */
   onMarketQueryChange?: (q: string) => void;
+  /** The board's keyword filter (FiltersContext `search`, ?q=) — the plain
+      substring the leaderboard was searched with. It rides in from the row
+      you clicked, because the row's P&L and win rate were computed over the
+      markets it matched; dropping it here would mean the profile disagrees
+      with the list you decided from. Broader than TOPIC (no comma-OR, no
+      phrase-AND), which is why both are on the rail rather than merged. */
+  search: string;
+  /** Supplied ⇒ the keyword box can SET it, not just show it. */
+  onSearchChange?: (q: string) => void;
   category: CategorySlug;
   onCategoryChange?: (c: CategorySlug) => void;
   bar: TradeFilterBarState;
@@ -46,6 +55,8 @@ const OPEN_KEY = "poly8bit_profile_filters_open";
 export default function ProfileFilters({
   marketQuery,
   onMarketQueryChange,
+  search,
+  onSearchChange,
   category,
   onCategoryChange,
   bar,
@@ -82,19 +93,73 @@ export default function ProfileFilters({
     if (next !== marketQuery.trim()) onMarketQueryChange?.(next);
   };
 
+  // Same deal for the board's keyword — a local mirror so typing doesn't
+  // re-filter the whole tape per keystroke.
+  const [keyword, setKeyword] = useState(search);
+  useEffect(() => setKeyword(search), [search]);
+  const commitKeyword = () => {
+    const next = keyword.trim();
+    if (next !== search.trim()) onSearchChange?.(next);
+  };
+  const keywordEditable = !!onSearchChange;
+
   const preset = matchPreset(marketQuery);
   const editable = !!onMarketQueryChange;
   const categoryLabel =
     CATEGORIES.find((c) => c.slug === category)?.label ?? category.toUpperCase();
   const activeCount =
-    bar.count + (category ? 1 : 0) + (marketQuery.trim() ? 1 : 0);
+    bar.count + (category ? 1 : 0) + (marketQuery.trim() ? 1 : 0) + (search.trim() ? 1 : 0);
   const narrowing = matched < total;
 
   const clearAll = () => {
     bar.clear();
     onCategoryChange?.("");
     onMarketQueryChange?.("");
+    onSearchChange?.("");
   };
+
+  // The board's plain keyword. Rendered on its own line whenever it is ON —
+  // it narrows every number on this page, so it can never be folded out of
+  // sight — and inside the FILTERS fold when it is off, where it's an
+  // available control rather than a standing claim about what you're reading.
+  const keywordRow = (
+    <div className="flex items-center gap-1.5 flex-wrap px-3 py-2">
+      <span className="text-[12px] text-pixel-gray tracking-wider w-14 shrink-0">KEYWORD</span>
+      <input
+        type="text"
+        value={keyword}
+        disabled={!keywordEditable}
+        onChange={(e) => setKeyword(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitKeyword();
+          if (e.key === "Escape") setKeyword(search);
+        }}
+        onBlur={commitKeyword}
+        placeholder="the word you searched the board with"
+        title={
+          "The leaderboard's search box, still applied. Plain substring match " +
+          "on market titles \u2014 the board scored this trader on the markets it " +
+          "matched, so the page shows the same slice. Edit it here to re-aim " +
+          "without going back."
+        }
+        className={`pixel-input-sm w-64 text-[12px] font-mono ${
+          search.trim() ? "border-green-400 text-green-400" : ""
+        }`}
+      />
+      {search.trim() && (
+        <button
+          onClick={() => onSearchChange?.("")}
+          title="Drop the keyword — every market this trader traded"
+          className="pixel-btn text-[12px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+        >
+          ✕ ANY
+        </button>
+      )}
+      <span className="text-[10px] text-pixel-gray">
+        from the board you came from
+      </span>
+    </div>
+  );
 
   return (
     <div
@@ -182,12 +247,22 @@ export default function ProfileFilters({
         </button>
       </div>
 
+      {/* An ACTIVE keyword is never folded away — it is narrowing every stat
+          on the page, and a filter you can't see is the bug this file exists
+          for. */}
+      {search.trim() !== "" && (
+        <div className="border-t-2 border-pixel-border">{keywordRow}</div>
+      )}
+
       {/* ── Rows 2+: the presets, then the per-trade dimensions. The SAME bar
              the TRADES tape uses, so a slice means the same thing on both
              screens — minus its keyword chips and category buckets, which on
              this screen only repeat the topic row below. (A category set
              elsewhere still gates the page, still shows in the chip above, and
              is still set/cleared from the category-mix bars further down.) ── */}
+      {open && search.trim() === "" && keywordEditable && (
+        <div className="border-t-2 border-pixel-border">{keywordRow}</div>
+      )}
       {open && (
         <div className="flex items-center gap-1.5 flex-wrap px-3 py-2 border-t-2 border-pixel-border">
           <span className="text-[12px] text-pixel-gray tracking-wider w-14 shrink-0">PRESET</span>

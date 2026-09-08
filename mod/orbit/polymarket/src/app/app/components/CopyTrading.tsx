@@ -1072,8 +1072,16 @@ export default function CopyTrading({
             {/* Server-side schedule behind that "sync {age}" number — the API
                 re-warms the leaderboards hourly by default whether or not this
                 console is open. The chip lets the owner change the cadence,
-                pause it, or force a background run. */}
-            <SyncScheduleChip />
+                pause it, force a background run — and pick WHICH boards get
+                pre-built. `currentView` is this board's server cache key
+                (days · minPerDay · pool, exactly what loadPage sends), so the
+                panel can say whether what you're looking at is cached and
+                offer to add it if not. Change the DAYS or MIN-PER-DAY filter
+                to a combination nobody warmed and the board can only load
+                cold; this is where you fix that. */}
+            <SyncScheduleChip
+              currentView={{ days, minPerDay: minTradesPerDay, pool: 2000 }}
+            />
 
             {stratFilter && <button
               onClick={toggleStratFilter}

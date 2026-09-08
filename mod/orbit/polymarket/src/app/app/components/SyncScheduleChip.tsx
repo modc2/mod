@@ -15,7 +15,11 @@ import {
   runSyncNow,
   formatInterval,
   formatCountdown,
+  describeWindow,
+  windowKey,
+  hasWindow,
   type SyncSchedule,
+  type WarmWindow,
 } from "../lib/syncSchedule";
 
 const POLL_CLOSED_MS = 30_000;
@@ -26,7 +30,14 @@ function formatClock(unixSecs: number | null): string {
   return new Date(unixSecs * 1000).toLocaleTimeString();
 }
 
-export default function SyncScheduleChip() {
+interface Props {
+  /** The board the console is looking at RIGHT NOW — (days, minPerDay, pool)
+      is the server's cache key, so this is what "cache this view" adds to the
+      warm list. Omit and the panel only edits the list it already has. */
+  currentView?: WarmWindow;
+}
+
+export default function SyncScheduleChip({ currentView }: Props = {}) {
   const [sched, setSched] = useState<SyncSchedule | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -34,6 +45,9 @@ export default function SyncScheduleChip() {
   // The minutes box IS the control — seeded with the live server value so the
   // panel shows a number you can edit, not an empty box beside eight chips.
   const [minInput, setMinInput] = useState("");
+  // The ADD row — a draft window, kept as strings so a half-typed number
+  // isn't a validation error yet.
+  const [draft, setDraft] = useState({ days: "", minPerDay: "0", pool: "2000" });
   // Local seconds ticker so the countdown moves between polls.
   const [, setTick] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -92,7 +106,7 @@ export default function SyncScheduleChip() {
   }, [open]);
 
   const apply = useCallback(
-    async (patch: { enabled?: boolean; intervalSecs?: number }) => {
+    async (patch: { enabled?: boolean; intervalSecs?: number; windows?: WarmWindow[] }) => {
       setBusy(true);
       setError(null);
       try {
@@ -151,6 +165,45 @@ export default function SyncScheduleChip() {
     if (inRange && dirty) void apply({ intervalSecs: typedMin! * 60 });
   };
 
+  // ── The warm list ──
+  // A board answers instantly only if its (days, minPerDay, pool) triple was
+  // aggregated by a sweep. So this list is the real answer to "why is this
+  // filter still spinning": it isn't on it. Editing it is a whole-list
+  // replace, matching the server's PATCH semantics.
+  const windows = sched.windows;
+  const full = windows.length >= sched.maxWindows;
+  const setWindows = (next: WarmWindow[]) => void apply({ windows: next });
+  const removeWindow = (key: string) => {
+    const next = windows.filter((w) => windowKey(w) !== key);
+    // The server rejects an empty list (a sweep that warms nothing means
+    // every board goes cold) — say so here instead of round-tripping for it.
+    if (next.length === 0) {
+      setError("keep at least one window warm — an empty list means every board loads cold");
+      return;
+    }
+    setWindows(next);
+  };
+
+  const draftDays = Number(draft.days);
+  const draftPerDay = draft.minPerDay === "" ? 0 : Number(draft.minPerDay);
+  const draftPool = Number(draft.pool);
+  const draftWindow: WarmWindow | null =
+    Number.isFinite(draftDays) && draftDays >= 1 && draftDays <= sched.maxDays &&
+    Number.isFinite(draftPerDay) && draftPerDay >= 0 &&
+    Number.isFinite(draftPool) && draftPool >= sched.minPool && draftPool <= sched.maxPool
+      ? { days: draftDays, minPerDay: draftPerDay, pool: draftPool }
+      : null;
+  const draftDuplicate = !!draftWindow && hasWindow(windows, draftWindow);
+  const addDraft = () => {
+    if (!draftWindow || draftDuplicate || full) return;
+    setWindows([...windows, draftWindow]);
+    setDraft({ days: "", minPerDay: "0", pool: String(sched.maxPool) });
+  };
+
+  // The board on screen, when it isn't already warmed — the one-click version
+  // of the ADD row, and the reason most people will open this panel.
+  const currentWarm = currentView ? hasWindow(windows, currentView) : true;
+
   return (
     <div ref={rootRef} className="relative shrink-0">
       <button
@@ -202,8 +255,8 @@ export default function SyncScheduleChip() {
           </div>
 
           <p className="text-[11px] text-pixel-gray leading-snug">
-            The server re-pulls the 1/7/14/30-day trader leaderboards on this
-            cadence, in the background — no browser needed.
+            The server re-pulls the leaderboards below on this cadence, in the
+            background — no browser needed.
           </p>
 
           {/* One control: the number of minutes. */}
@@ -233,6 +286,132 @@ export default function SyncScheduleChip() {
           <p className={`text-[10px] font-mono ${badNumber ? "text-red-400" : "text-pixel-gray"}`}>
             {minMinutes}–{maxMinutes} minutes ({Math.round(sched.maxIntervalSecs / 86400)} days max)
           </p>
+
+          {/* ── CACHED VIEWS ──
+              Which filters answer from cache. A board whose window isn't here
+              was never aggregated, so opening it starts a ~10-minute rebuild
+              the fleet activator kills — it spins forever instead of loading.
+              Pinning the view you browse is what makes it instant. */}
+          <div className="border-t border-pixel-border pt-2 space-y-1.5">
+            <div className="flex items-baseline justify-between">
+              <span className="text-[12px] text-pixel-white tracking-wider">CACHED VIEWS</span>
+              <span className="text-[10px] font-mono text-pixel-gray">
+                {windows.length}/{sched.maxWindows}
+              </span>
+            </div>
+            <p className="text-[10px] text-pixel-gray leading-snug">
+              Only these DAYS · MIN-PER-DAY · POOL combinations are pre-built.
+              Any other filter loads cold — and usually doesn&apos;t finish.
+            </p>
+
+            <div className="space-y-1">
+              {windows.map((w) => {
+                const key = windowKey(w);
+                const isCurrent = currentView && windowKey(currentView) === key;
+                return (
+                  <div
+                    key={key}
+                    className={`flex items-center gap-1.5 font-mono text-[11px] px-1.5 py-0.5 border ${
+                      isCurrent
+                        ? "border-green-400/60 text-green-400 bg-green-400/10"
+                        : "border-pixel-border text-pixel-gray-light"
+                    }`}
+                    title={
+                      isCurrent
+                        ? "The board you're looking at — it answers from cache"
+                        : `Cache key ${key}`
+                    }
+                  >
+                    <span className="truncate">{describeWindow(w)}</span>
+                    <span className="flex-1" />
+                    {isCurrent && <span className="text-[10px] shrink-0">ON SCREEN</span>}
+                    <button
+                      onClick={() => removeWindow(key)}
+                      disabled={busy || windows.length <= 1}
+                      title={
+                        windows.length <= 1
+                          ? "The last window can't be removed — the sweep would warm nothing"
+                          : "Stop pre-building this board"
+                      }
+                      className="shrink-0 px-1 text-pixel-gray hover:text-red-400 disabled:opacity-30 disabled:hover:text-pixel-gray"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* One click for the common case: cache what I'm looking at. */}
+            {currentView && !currentWarm && (
+              <button
+                onClick={() => {
+                  if (full) {
+                    setError(`already warming ${sched.maxWindows} views — remove one first`);
+                    return;
+                  }
+                  setWindows([...windows, currentView]);
+                }}
+                disabled={busy}
+                className="pixel-btn w-full text-[11px] px-2 py-1 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
+                title="Pre-build this exact board every cycle so it loads from cache instead of rebuilding"
+              >
+                + CACHE THIS VIEW ({describeWindow(currentView)})
+              </button>
+            )}
+
+            {/* Any other combination, typed. */}
+            <div className="flex items-center gap-1 font-mono text-[11px]">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draft.days}
+                onChange={(e) => setDraft((d) => ({ ...d, days: e.target.value.replace(/[^0-9]/g, "") }))}
+                onKeyDown={(e) => { if (e.key === "Enter") addDraft(); }}
+                placeholder="D"
+                title={`Window in days (1–${sched.maxDays})`}
+                className="pixel-input-sm w-10 text-center text-[11px]"
+              />
+              <span className="text-pixel-gray">·</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={draft.minPerDay}
+                onChange={(e) => setDraft((d) => ({ ...d, minPerDay: e.target.value.replace(/[^0-9.]/g, "") }))}
+                onKeyDown={(e) => { if (e.key === "Enter") addDraft(); }}
+                title="Minimum trades per day a trader must average to enter the board"
+                className="pixel-input-sm w-12 text-center text-[11px]"
+              />
+              <span className="text-pixel-gray text-[10px]">/DAY</span>
+              <span className="text-pixel-gray">·</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={draft.pool}
+                onChange={(e) => setDraft((d) => ({ ...d, pool: e.target.value.replace(/[^0-9]/g, "") }))}
+                onKeyDown={(e) => { if (e.key === "Enter") addDraft(); }}
+                title={`Candidate pool size (${sched.minPool}–${sched.maxPool})`}
+                className="pixel-input-sm w-14 text-center text-[11px]"
+              />
+              <button
+                onClick={addDraft}
+                disabled={busy || !draftWindow || draftDuplicate || full}
+                title={
+                  full
+                    ? `Already warming ${sched.maxWindows} views — remove one first`
+                    : draftDuplicate
+                      ? "Already cached"
+                      : "Add this board to the warm list"
+                }
+                className="pixel-btn ml-auto text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white disabled:opacity-30"
+              >
+                ADD
+              </button>
+            </div>
+            <p className="text-[10px] font-mono text-pixel-gray">
+              each view is a full sweep — more views, longer cycle
+            </p>
+          </div>
 
           {/* Status */}
           <div className="border-t border-pixel-border pt-2 space-y-1 text-[11px] font-mono">

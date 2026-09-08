@@ -52,6 +52,11 @@ interface Props {
   // Supplied ⇒ the FILTERS bar renders the global category buckets and can
   // set them from here (same shared filter TRADERS/MARKETS/TRADES use).
   onCategoryChange?: (c: CategorySlug) => void;
+  // Supplied ⇒ the rail can SET `searchFilter`, not just receive it. The
+  // board's keyword is what its row stats were scored on, so it has to stay
+  // applied here — and a filter that narrows the page has to be one you can
+  // see and turn. Same shared FiltersContext `search` / ?q= the board uses.
+  onSearchChange?: (q: string) => void;
   // Strat trade-filter handoff: when set, every trade on this page is gated
   // through the copy engine's own tradeMatchesFilters — you see only the
   // trades the originating strat would mirror. Cleared via the chip's ✕.
@@ -179,6 +184,7 @@ export default function TraderProfile({
   onClearMarketQuery,
   onMarketQueryChange,
   onCategoryChange,
+  onSearchChange,
   stratFilters = null,
   stratFilterName = "",
   onClearStratFilters,
@@ -826,6 +832,8 @@ export default function TraderProfile({
       <ProfileFilters
         marketQuery={marketQuery}
         onMarketQueryChange={onMarketQueryChange}
+        search={searchFilter}
+        onSearchChange={onSearchChange}
         category={categoryFilter}
         onCategoryChange={onCategoryChange}
         bar={bar}

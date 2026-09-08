@@ -42,7 +42,7 @@ function TraderPageInner() {
   const params = useParams();
   const router = useRouter();
   const {
-    daysAgo, setSearch, category, setCategory, marketQuery, setMarketQuery, reloadKey,
+    daysAgo, search, setSearch, category, setCategory, marketQuery, setMarketQuery, reloadKey,
   } = useFilters();
   const { auth } = useAuth();
   const eoa = getOwnerAddress() ?? auth.address ?? null;
@@ -55,13 +55,29 @@ function TraderPageInner() {
     MAX_LOOKBACK_DAYS,
   );
 
-  // Clear the global search on mount — this page has no search box (trade
-  // filtering is click-a-market instead), so a query carried over from the
-  // traders list would otherwise linger invisibly in the shared context.
-  const cleared = useRef(false);
+  // The keyword you found this trader with STAYS ON.
+  //
+  // This page used to wipe the shared search on mount, on the theory that a
+  // page with no search box shouldn't hold an invisible query. But the board
+  // scores each row on ONLY the markets matching that keyword (the server
+  // recomputes P&L, volume and win rate over them — routes.rs
+  // `apply_pagination`), so clicking a row you picked for its "election"
+  // record and landing on their whole tape means none of the numbers you
+  // decided on are the numbers on screen. The filter rail below now renders
+  // and edits it, so it is neither invisible nor one-way: it's a KEYWORD box
+  // sitting next to the TOPIC box, on every profile.
+  //
+  // One exception: a 40-hex address. The TopBar search box doubles as a
+  // teleport (type an address, press Enter, land here), which leaves the
+  // address itself in `search` — and as a market-title keyword it matches
+  // nothing, so it would empty the whole profile. Treat arriving-by-address
+  // as arriving with no keyword.
+  const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
+  const searchFilter = ADDR_RE.test(search.trim()) ? "" : search;
+  const clearedAddr = useRef(false);
   useEffect(() => {
-    if (!cleared.current) {
-      cleared.current = true;
+    if (!clearedAddr.current && ADDR_RE.test(search.trim())) {
+      clearedAddr.current = true;
       setSearch("");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -338,6 +354,11 @@ function TraderPageInner() {
           onDaysChange={changeDays}
           categoryFilter={category}
           onCategoryChange={setCategory}
+          // The board's keyword filter, still applied and still editable here
+          // — see the note above. `useUrlSync` keeps it in ?q= so the slice is
+          // shareable and survives a reload.
+          searchFilter={searchFilter}
+          onSearchChange={setSearch}
           // The topic keyword the leaderboard was filtered by (?mq=, carried
           // over by CopyTrading's row click). The list scored this trader on
           // matching markets only; the profile now shows the same slice, so

@@ -36,7 +36,17 @@ impl PipelineState {
     /// ago. The scheduler derives that from the owner's cadence (sync.rs) —
     /// a fixed 55min threshold would make a 15-minute cadence skip every
     /// window and silently never sync. `0` forces a full re-pull.
-    pub async fn warmup_cycle(&self, min_age_secs: i64) {
+    /// Rebuild and cache every leaderboard on `windows`.
+    ///
+    /// The list is the OWNER's (sync.rs `WarmWindow`), not a constant here:
+    /// these three numbers are the pipeline cache key, so a window that isn't
+    /// on the list is a board that was never aggregated — and a board that was
+    /// never aggregated can't be read back, because the cold rebuild it
+    /// triggers takes ~10 minutes and the fleet activator stops this process
+    /// after ~60s idle. "Which filters load instantly" is therefore exactly
+    /// "which filters are on this list", which is why it is configurable.
+    /// Empty falls back to the built-in 1/7/14/30D windows.
+    pub async fn warmup_cycle(&self, min_age_secs: i64, windows: Vec<crate::sync::WarmWindow>) {
         {
             let mut running = self.warmup_running.write();
             if *running {
@@ -64,7 +74,15 @@ impl PipelineState {
         // on-schedule tick never skips a combo that is about to fall due.
         let now = chrono::Utc::now().timestamp();
 
-        let mut combos = vec![(1u32, 0.0, 2000u32), (7, 0.0, 2000), (14, 0.0, 2000), (30, 0.0, 2000)];
+        let windows = if windows.is_empty() {
+            crate::sync::default_windows()
+        } else {
+            windows
+        };
+        let mut combos: Vec<(u32, f64, u32)> = windows
+            .iter()
+            .map(|w| (w.days, w.min_per_day, w.pool))
+            .collect();
 
         // STALEST FIRST — not 1D, 7D, 14D, 30D in that order.
         //

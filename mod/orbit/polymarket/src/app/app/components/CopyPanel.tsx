@@ -154,6 +154,11 @@ function CopyBookBody() {
   const togglePick = (address: string) =>
     setPicked((p) => (p.includes(address) ? p.filter((a) => a !== address) : [...p, address]));
   const targets = picked.length ? rows.filter((r) => pickedSet.has(r.address)) : [];
+  useEffect(() => {
+    // Below two rows there is no checkbox to un-tick, so a stale pick would
+    // strand the bulk bar over a desk that doesn't need one.
+    if (rows.length < 2) setPicked((p) => (p.length ? [] : p));
+  }, [rows.length]);
 
   // ── Sections. Each is its own mount, because each has its own cost. ──
   const [measureOpen, setMeasureOpen] = useState(false);
@@ -220,9 +225,9 @@ function CopyBookBody() {
       <div className="px-3 pb-1.5 flex items-baseline gap-1.5">
         <span
           className="text-[15px] font-mono font-semibold tabular-nums text-pixel-white"
-          title={`${fmtUsd(totals?.allocatedUsd, 2)} allocated across ${totals?.traders ?? 0} trader(s)`}
+          title={`${fmtUsd(allocated, 2)} allocated across ${totals?.traders ?? 0} trader(s)`}
         >
-          {fmtUsd(totals?.allocatedUsd, 0)}
+          {fmtUsd(allocated, 0)}
         </span>
         <span className="text-[10px] font-mono text-pixel-gray">
           on {totals?.traders ?? 0} trader{(totals?.traders ?? 0) === 1 ? "" : "s"}
@@ -241,66 +246,85 @@ function CopyBookBody() {
         )}
       </div>
 
-      {/* ── Bankroll: the size of the desk, and one gesture to spread it ── */}
-      <div className="px-3 pb-1.5 flex items-center gap-1.5">
-        <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">
-          BANKROLL $
-        </span>
-        <input
-          className="pixel-input-sm input-xs w-[62px] font-mono"
-          value={bankrollDraft}
-          inputMode="decimal"
-          onChange={(e) => setBankrollDraft(e.target.value)}
-          onBlur={() => {
-            const v = Number(bankrollDraft);
-            if (Number.isFinite(v) && v >= 0 && v !== book?.bankroll) void setBankrollUsd(v);
-          }}
-          title="The desk's target size. Advisory — the engine budgets per allocation."
-        />
+      {/* ── The desk against the WALLET. A size the balance cannot cover is
+             the single fact this column used to omit. ── */}
+      {short && allocated > 0 && (
         <button
-          className="pixel-btn btn-xs"
-          disabled={busy !== null || !book?.bankroll}
-          onClick={() => void rebalance("equal")}
-          title="Give every enabled trader the same dollars"
+          onClick={() => window.dispatchEvent(new Event(OPEN_MONEY_EVENT))}
+          className="mx-3 mb-1.5 w-[calc(100%-1.5rem)] text-left text-[9.5px] font-mono text-amber-400 hover:text-amber-300 leading-snug"
+          title="Your Polymarket balance is smaller than what the desk is sized at. REAL orders will be cut down to what's there. Click to top up."
         >
-          SPLIT EVENLY
+          your wallet has {fmtUsd(funded)} — REAL orders size down to that
+          <span className="block underline">TOP UP →</span>
         </button>
-        <Link
-          href="/copy/basket"
-          className="ml-auto text-[9.5px] font-mono tracking-[0.1em] text-pixel-gray hover:text-cyan-300 shrink-0"
-          title="Size the whole set at once: different amounts per trader, replayed together, with the equal-split counterfactual"
-        >
-          BASKET →
-        </Link>
-      </div>
+      )}
 
-      {/* ── Desk-wide run controls ── */}
-      <div className="px-3 pb-1.5 flex items-center gap-1.5">
-        <ModeSwitch
-          mode={deskMode}
-          canGoLive={(totals?.allocatedUsd ?? 0) > 0}
-          onPick={(m) => arm("", m)}
-        />
-        <button
-          className="pixel-btn btn-xs flex-1"
-          disabled={busy !== null || !eoa || rows.length === 0}
-          onClick={() => {
-            if (deskMode === "LIVE" && !confirmGoLive(`all ${rows.length} traders`, totals?.allocatedUsd ?? 0)) return;
-            void start(undefined, deskMode);
-          }}
-          title={eoa ? `Start every enabled trader in ${deskMode}` : "Sign in a wallet first"}
-        >
-          ▶ START ALL
-        </button>
-        <button
-          className="pixel-btn btn-xs border-red-400/60 text-red-400"
-          disabled={busy !== null || !eoa || running === 0}
-          onClick={() => void stop()}
-          title="Stop every running session"
-        >
-          ■ STOP ALL
-        </button>
-      </div>
+      {/* ── Bulk apparatus. Only with a roster to act on: over ONE trader,
+             every control here is a second copy of that row's own. ── */}
+      {many && (
+        <>
+          <div className="px-3 pb-1.5 flex items-center gap-1.5">
+            <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">
+              SPLIT $
+            </span>
+            <input
+              className="pixel-input-sm input-xs w-[62px] font-mono"
+              value={bankrollDraft}
+              inputMode="decimal"
+              onChange={(e) => setBankrollDraft(e.target.value)}
+              placeholder="total"
+              title="A total to divide across the book. It is not a budget — the engine budgets against each trader's own $."
+            />
+            <button
+              className="pixel-btn btn-xs"
+              disabled={busy !== null || !(Number(bankrollDraft) > 0)}
+              onClick={async () => {
+                const v = Number(bankrollDraft);
+                if (!Number.isFinite(v) || v <= 0) return;
+                if (v !== book?.bankroll) await setBankrollUsd(v);
+                await rebalance("equal");
+              }}
+              title={`Give each of the ${rows.length} traders the same share of this total`}
+            >
+              EVENLY
+            </button>
+            <Link
+              href="/copy/basket"
+              className="ml-auto text-[9.5px] font-mono tracking-[0.1em] text-pixel-gray hover:text-cyan-300 shrink-0"
+              title="Size the whole set at once: different amounts per trader, replayed together, with the equal-split counterfactual"
+            >
+              BASKET →
+            </Link>
+          </div>
+
+          <div className="px-3 pb-1.5 flex items-center gap-1.5">
+            <ModeSwitch
+              mode={deskMode}
+              canGoLive={allocated > 0}
+              onPick={(m) => arm("", m)}
+            />
+            <button
+              className="pixel-btn btn-xs flex-1"
+              disabled={busy !== null || !eoa || rows.length === 0}
+              onClick={() => {
+                if (deskMode === "LIVE" && !confirmGoLive(`all ${rows.length} traders`, allocated)) return;
+                void start(undefined, deskMode);
+              }}
+              title={eoa ? `Start every enabled trader in ${deskMode}` : "Sign in a wallet first"}
+            >
+              ▶ START ALL
+            </button>
+            <button
+              className="pixel-btn btn-xs border-red-400/60 text-red-400"
+              disabled={busy !== null || !eoa || running === 0}
+              onClick={() => void stop()}
+              title="Stop every running session"
+            >
+              ■ STOP ALL
+            </button>
+          </div>
+        </>
+      )}
 
       {error && (
         <div className="mx-3 mb-1.5 px-2 py-1 font-mono text-[10px] text-red-300 border border-red-400/40 rounded-[3px]">
@@ -317,7 +341,7 @@ function CopyBookBody() {
       {/* ── Bulk bar. Appears only with a selection: an always-on row of
              destructive buttons over a list is how the wrong trader gets
              dropped. ── */}
-      {picked.length > 0 && (
+      {many && picked.length > 0 && (
         <BulkBar
           count={picked.length}
           busy={busy !== null}
@@ -357,6 +381,7 @@ function CopyBookBody() {
               key={row.address}
               row={row}
               picked={pickedSet.has(row.address)}
+              selectable={many}
               onPick={() => togglePick(row.address)}
               busy={busy}
               mode={modeFor(row)}
@@ -439,11 +464,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div style={{ borderTop: "1px solid var(--border)" }} className="mt-2 pt-1">
+    // Indented and hairline-ruled: a full-width border at var(--border) is
+    // what the DRAWER's own sections (ACCOUNT, MONEY) wear, and wearing it
+    // here made these read as two more top-level panels instead of two parts
+    // of the copy block.
+    <div className="mt-1.5 ml-3 pl-2" style={{ borderLeft: "1px solid var(--border-strong)" }}>
       <button
         onClick={onToggle}
         aria-expanded={open}
-        className="w-full px-3 py-1 flex items-center gap-2 text-left hover:bg-pixel-white/[0.05] transition-colors"
+        className="w-full pr-3 py-1 flex items-center gap-2 text-left hover:bg-pixel-white/[0.05] transition-colors"
       >
         <span className="text-[9px] font-mono tracking-[0.14em] text-pixel-gray">{title}</span>
         <span className="text-[9px] font-mono text-pixel-gray/60 truncate">{hint}</span>
@@ -615,13 +644,15 @@ function AddTraders({
         title="Every 0x… in what you paste is added, each with the amount beside it. Shift+Enter for a new line."
       />
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">$</span>
+        <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">
+          EACH $
+        </span>
         <input
           className="pixel-input-sm input-xs w-[56px] font-mono"
           value={usd}
           inputMode="decimal"
           onChange={(e) => setUsd(e.target.value)}
-          title="Dollars behind EACH of them"
+          title="Dollars to give EACH trader you paste above. Traders already in the book keep their own $ — edit it on their row."
         />
         <button
           className="pixel-btn btn-xs"
@@ -681,12 +712,12 @@ function MeasureBlock({
   return (
     <div className="px-3 pb-1 space-y-1.5">
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">$</span>
+        <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">TRY $</span>
         <input
-          className="pixel-input-sm input-xs w-[62px] font-mono"
+          className="pixel-input-sm input-xs w-[52px] font-mono"
           value={simStr}
           inputMode="decimal"
-          placeholder="alloc"
+          placeholder="each"
           onChange={(e) => setSimStr(e.target.value)}
           title="Replay every row with THIS much behind the trader. Blank = each row's own allocation, which is the number the background worker already replayed."
         />
@@ -710,7 +741,7 @@ function MeasureBlock({
         <span className="text-[9px] font-mono text-pixel-gray leading-snug min-w-0 flex-1">
           {sim > 0
             ? `what ${fmtUsd(sim, 0)} behind each trader would have done over ${days}D`
-            : `each trader at their own allocation, over ${days}D`}
+            : `replayed at the $ you already gave each of them, over ${days}D`}
           {worker?.at ? "" : " · no worker pass yet"}
         </span>
         {/* Simulated a size and liked it? Fund exactly what was measured —
@@ -751,11 +782,13 @@ function MeasureBlock({
 
 /** One leader: the money, the switch, and the gate it copies under. */
 function CopyRow({
-  row, picked, onPick, busy, mode, canRun,
+  row, picked, selectable, onPick, busy, mode, canRun,
   onAllocate, onResume, onMode, onStart, onStop, onRemove,
 }: {
   row: CopyBookRow;
   picked: boolean;
+  /** Only a roster gets checkboxes — see the file header. */
+  selectable: boolean;
   onPick: () => void;
   busy: string | null;
   mode: TradingMode;
@@ -794,13 +827,15 @@ function CopyRow({
       style={picked ? { boxShadow: "inset 2px 0 0 rgb(var(--accent-2))" } : undefined}
     >
       <div className="flex items-center gap-1.5">
-        <input
-          type="checkbox"
-          checked={picked}
-          onChange={onPick}
-          className="shrink-0 accent-cyan-400 w-3 h-3"
-          title="Select for the bulk bar — fund, start, pause or drop several traders at once"
-        />
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={picked}
+            onChange={onPick}
+            className="shrink-0 accent-cyan-400 w-3 h-3"
+            title="Select for the bulk bar — fund, start, pause or drop several traders at once"
+          />
+        )}
         {running && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0"
@@ -928,6 +963,19 @@ function BacktestLine({
   }
   const verdict = bt.forward?.verdict;
   const marked = bt.settlement?.markedUsd ?? 0;
+  // Nothing traded. "+$0.00 0t IDLE ⚠" is four tokens for one fact, and IDLE
+  // sitting under the desk's NOT RUNNING reads as a run state, which it is
+  // not. Say the fact, and let the note say why.
+  if (bt.trades === 0) {
+    return (
+      <span
+        className="text-[9.5px] font-mono text-pixel-gray shrink-0"
+        title={bt.note ?? `No trade of theirs landed inside the last ${bt.days}D window.`}
+      >
+        no trades in {bt.days}D{bt.note && <span className="text-amber-400"> ⚠</span>}
+      </span>
+    );
+  }
   return (
     <span
       className="text-[9.5px] font-mono text-pixel-gray shrink-0 tabular-nums"
