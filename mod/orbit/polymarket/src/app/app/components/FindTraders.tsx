@@ -29,9 +29,10 @@ import { marketMatchesQuery } from "../lib/marketQuery";
 import { MARKET_TYPES, matchPreset } from "../lib/marketTypes";
 import { shortAddress } from "../lib/identityStrat";
 import {
-  DEFAULT_FORMULA, FORMULA_VARS, compileFormula, formatScore, scoreInputs, scoreIsUnknown,
+  DEFAULT_FORMULA, FORMULA_VARS, formatScore, scoreInputs, scoreIsUnknown,
   loadSavedFormula, matchScorePreset, saveFormula, scorePoolSortKey, scorePoolSortLabel,
 } from "../lib/scoreFormula";
+import { useCompiledScore } from "../lib/useScore";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
 import {
@@ -116,17 +117,16 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
   const [formula, setFormula] = useState<string>(DEFAULT_FORMULA);
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
-  const compiled = useMemo(() => compileFormula(formula), [formula]);
+  // Expression, JS function, or Python function — same compiler as the
+  // /traders board (Python runs in-browser via Pyodide). A FUNCTION score
+  // also filters: scoreFor → null drops the row.
+  const { compiled, lang: scoreLang, loading: scoreLoading, scoreFor } = useCompiledScore(formula);
+  const scoreFilters = scoreLang !== "expr" && !!compiled.fn;
   // The pool the formula re-ranks is server-ordered — by the preset's
   // `poolSort` when the formula IS a preset (its own metric, or the closest
   // server-side proxy for one the server can't rank), by Sharpe for
   // hand-written expressions.
   const scorePoolSort = scorePoolSortKey(formula);
-  const scoreFor = useCallback(
-    (t: TopTrader): number =>
-      compiled.fn ? compiled.fn(scoreInputs(t)) : Number.NEGATIVE_INFINITY,
-    [compiled],
-  );
 
   const [rows, setRows] = useState<TopTrader[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -262,8 +262,13 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
     if (!rows) return null;
     if (ran.sort !== "score") return rows;
     const dir = ran.order === "desc" ? -1 : 1;
-    return [...rows].sort((a, b) => dir * (scoreFor(a) - scoreFor(b))).slice(0, PAGE_SIZE);
-  }, [rows, ran.sort, ran.order, scoreFor]);
+    // A function score FILTERS too — null/None from the user's JS/Python
+    // drops the row before the re-rank.
+    const pool = scoreFilters ? rows.filter((t) => scoreFor(t) !== null) : rows;
+    return [...pool]
+      .sort((a, b) => dir * ((scoreFor(a) ?? Number.NEGATIVE_INFINITY) - (scoreFor(b) ?? Number.NEGATIVE_INFINITY)))
+      .slice(0, PAGE_SIZE);
+  }, [rows, ran.sort, ran.order, scoreFor, scoreFilters]);
 
   const profileHref = useCallback(
     (address: string) => {
@@ -277,7 +282,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
 
   const sortLabel =
     ran.sort === "score"
-      ? `SCORE = ${formula}`
+      ? `SCORE = ${formula.split("\n")[0]}${formula.includes("\n") ? " …" : ""}`
       : SORTS.find((s) => s.key === ran.sort)?.label ?? ran.sort;
 
   /** Check/uncheck one row. A fresh pick captures the current $ and the query
@@ -384,18 +389,29 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                     canSave={!compiled.error}
                     btnClass="pixel-btn btn-xs"
                   />
-                  <input
-                    className={`pixel-input-sm flex-1 min-w-[120px] font-mono text-[12px] ${compiled.error ? "border-red-400/70" : ""}`}
-                    value={formula}
-                    spellCheck={false}
-                    placeholder={DEFAULT_FORMULA}
-                    onChange={(e) => setFormula(e.target.value)}
-                    title={`Any expression of ${FORMULA_VARS.join(", ")} (and Math) — e.g. sharpe * Math.log(1 + volume)`}
-                  />
+                  {scoreLang === "expr" && !formula.includes("\n") ? (
+                    <input
+                      className={`pixel-input-sm flex-1 min-w-[120px] font-mono text-[12px] ${compiled.error ? "border-red-400/70" : ""}`}
+                      value={formula}
+                      spellCheck={false}
+                      placeholder={DEFAULT_FORMULA}
+                      onChange={(e) => setFormula(e.target.value)}
+                      title={`Any expression of ${FORMULA_VARS.join(", ")} (and Math) — e.g. sharpe * Math.log(1 + volume). Or write a full JS/Python function on the /traders board — it follows you here.`}
+                    />
+                  ) : (
+                    <textarea
+                      className={`pixel-input-sm flex-1 min-w-[200px] font-mono text-[12px] leading-snug resize-y ${compiled.error ? "border-red-400/70" : ""}`}
+                      value={formula}
+                      spellCheck={false}
+                      rows={Math.min(10, Math.max(3, formula.split("\n").length))}
+                      onChange={(e) => setFormula(e.target.value)}
+                      title="Your score function — return a number to rank the trader, null / None to hide them."
+                    />
+                  )}
                   <button
                     className="pixel-btn btn-xs"
                     onClick={() => setFormula(DEFAULT_FORMULA)}
-                    title="Back to the default — win rate"
+                    title="Back to the default score"
                   >
                     RST
                   </button>
@@ -488,11 +504,18 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
       )}
       {sort === "score" && (
         compiled.error ? (
-          <div className="font-mono text-[10px] text-red-400">formula: {compiled.error}</div>
+          <div className="font-mono text-[10px] text-red-400 whitespace-pre-wrap">formula: {compiled.error}</div>
+        ) : scoreLoading ? (
+          <div className="font-mono text-[9px] text-amber-400">
+            loading the in-browser Python runtime and compiling your function…
+          </div>
         ) : (
           <div className="font-mono text-[9px] text-pixel-gray">
-            your formula ranks the top {SCORE_POOL} by {scorePoolSortLabel(formula)} — variables: {FORMULA_VARS.join(" · ")}, plus Math.
-            Write your own ratio (pnl / volume) and + SAVE keeps it as a chip. Shared with the /traders board.
+            your {scoreLang === "expr" ? "formula" : `${scoreLang === "py" ? "Python" : "JS"} function`} ranks
+            the top {SCORE_POOL} by {scorePoolSortLabel(formula)} — variables: {FORMULA_VARS.join(" · ")}.
+            {scoreLang === "expr"
+              ? " Write your own ratio (pnl / volume) and + SAVE keeps it as a chip. Shared with the /traders board."
+              : ` Return a number = score, ${scoreLang === "py" ? "None" : "null"} = hide the trader. Runs in your browser; shared with the /traders board.`}
           </div>
         )
       )}

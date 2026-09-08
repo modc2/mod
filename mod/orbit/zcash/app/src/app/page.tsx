@@ -6,6 +6,7 @@ import { Button, C, Code, Copy, Field, Input, Note, Panel, Spinner, Stat } from 
 import { Ask, Learn } from './learn'
 import { PrivateBridge } from './private'
 import { PayWithWallet, UseWallet, WalletChip, WalletNetworks, useMetaMask } from './wallet'
+import { ActivityDrawer, ActivitySidebar, logActivity, useWide } from './activity'
 
 // Spending functions need the module token (~/.mod/zcash/server.secret,
 // printed by `m zcash/token`). Reads work without it.
@@ -98,38 +99,61 @@ export default function Page() {
 
   useEffect(() => { connect() }, [connect])
 
+  const wide = useWide()
+
   return (
     <main style={{
-      background: C.bg, color: C.text, minHeight: '100vh',
+      color: C.text, minHeight: '100vh',
+      background: `radial-gradient(1200px 480px at 50% -260px, ${C.gold}12, transparent 70%), ${C.bg}`,
       fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
       width: 0, minWidth: '100%',
     }}>
-      <div style={{ maxWidth: 980, margin: '0 auto', padding: '28px 20px 60px' }}>
-        <header style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 22 }}>
+      <div style={{
+        maxWidth: wide ? 1340 : 980, margin: '0 auto', padding: '28px 20px 60px',
+        display: 'flex', gap: 22, alignItems: 'flex-start',
+      }}>
+       <div style={{ flex: 1, minWidth: 0, maxWidth: 980 }}>
+        <header style={{
+          display: 'flex', alignItems: 'center', gap: 14, marginBottom: 22,
+          paddingBottom: 20, borderBottom: `1px solid ${C.line}`,
+        }}>
           <div style={{
-            width: 34, height: 34, borderRadius: '50%', background: C.gold,
+            width: 38, height: 38, borderRadius: '50%', background: C.gold,
             color: '#12141a', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 800, fontSize: 18, fontFamily: 'Georgia, serif',
+            fontWeight: 800, fontSize: 20, fontFamily: 'Georgia, serif',
+            boxShadow: `0 0 0 4px ${C.gold}22, 0 4px 14px ${C.gold}33`,
           }}>Z</div>
           <div style={{ flex: 1 }}>
-            <h1 style={{ margin: 0, fontSize: 19, fontWeight: 700 }}>Zcash</h1>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, letterSpacing: 0.2 }}>Zcash</h1>
             <div style={{ fontSize: 11.5, color: C.dim }}>
               explorer · wallet · shielded notes · cross-chain bridge
             </div>
           </div>
-          <div style={{ fontSize: 11, color: online === false ? C.red : online ? C.green : C.dim }}>
-            {online === null ? '○ starting' : online ? '● online' : '● API offline'}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 7, fontSize: 11,
+            padding: '5px 11px', borderRadius: 999, border: `1px solid ${C.line}`,
+            background: C.panel,
+            color: online === false ? C.red : online ? C.green : C.dim,
+          }}>
+            <span style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: online === false ? C.red : online ? C.green : C.dim,
+              boxShadow: online ? `0 0 6px ${C.green}` : undefined,
+            }} />
+            {online === null ? 'starting' : online ? 'online' : 'offline'}
           </div>
         </header>
 
         <nav style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
-              padding: '7px 15px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+              padding: '7px 15px', borderRadius: 999, fontSize: 12, fontWeight: 600,
               letterSpacing: 0.8, textTransform: 'uppercase', cursor: 'pointer',
+              transition: 'all .12s',
               background: tab === t ? C.gold : C.panel,
               color: tab === t ? '#12141a' : C.dim,
               border: `1px solid ${tab === t ? C.gold : C.line}`,
+              boxShadow: tab === t ? `0 2px 10px ${C.gold}44` : 'none',
             }}>{t}</button>
           ))}
         </nav>
@@ -157,7 +181,11 @@ export default function Page() {
         {tab === 'mcp' && <Mcp />}
 
         {caps && !['mcp', 'learn', 'ask'].includes(tab) && <Capabilities caps={caps} />}
+       </div>
+
+       {wide && <ActivitySidebar />}
       </div>
+      {!wide && <ActivityDrawer />}
     </main>
   )
 }
@@ -189,7 +217,14 @@ function Explorer({ online }: { online: boolean | null }) {
   const search = async () => {
     if (!q.trim()) return
     setBusy(true); setErr(''); setResult(null)
-    try { setResult(await call('search', { query: q.trim() })) }
+    try {
+      const r = await call('search', { query: q.trim() })
+      setResult(r)
+      logActivity({
+        kind: 'search', title: `Looked up ${r?.type || 'query'}`,
+        detail: q.trim(), ref: q.trim(),
+      })
+    }
     catch (e: any) { setErr(e.message) }
     finally { setBusy(false) }
   }
@@ -266,6 +301,27 @@ function Explorer({ online }: { online: boolean | null }) {
 
 // ── Wallet ──────────────────────────────────────────────────────────────────
 
+// Turn a wallet mutation into a timeline line. Reveal is logged as an event but
+// never carries the seed as a ref — it stays a note that the seed was shown.
+function logWallet(fn: string, args: any, r: any) {
+  const w = args?.name
+  switch (fn) {
+    case 'wallet_create':
+      return logActivity({ kind: 'wallet', title: 'Created wallet', detail: w })
+    case 'wallet_restore':
+      return logActivity({ kind: 'wallet', title: 'Restored wallet', detail: w })
+    case 'wallet_import':
+      return logActivity({ kind: 'import', title: 'Imported key', detail: `into ${w}` })
+    case 'wallet_new_address':
+      return logActivity({
+        kind: 'address', title: 'New address',
+        detail: r?.address || w, ref: r?.address,
+      })
+    case 'wallet_reveal':
+      return logActivity({ kind: 'reveal', title: 'Revealed seed', detail: w })
+  }
+}
+
 function Wallet() {
   const [wallets, setWallets] = useState<any[]>([])
   const [sel, setSel] = useState('')
@@ -300,6 +356,7 @@ function Wallet() {
     try {
       const r = await call(fn, args)
       setMsg(r); await refresh(); after?.()
+      logWallet(fn, args, r)
     } catch (e: any) { setErr(e.message) }
     finally { setBusy(false) }
   }
@@ -784,7 +841,13 @@ function ShieldedSend({ name, pw, caps }: { name: string, pw: string, caps: any 
         name, password: pw, to: to.trim(), amount: Number(amount),
         memo: memo || undefined, broadcast,
       })
-      if (broadcast) { setSent(r); loadSync() } else setPreview(r)
+      if (broadcast) {
+        setSent(r); loadSync()
+        logActivity({
+          kind: 'shielded', title: `Sent ${amount} ZEC shielded`,
+          detail: `to ${to.trim()}`, ref: r?.txid,
+        })
+      } else setPreview(r)
     } catch (e: any) { setErr(e.message) } finally { setBusy('') }
   }
 
@@ -1000,9 +1063,14 @@ function Send() {
   const broadcast = async () => {
     setBusy(true); setErr('')
     try {
-      setSent(await call('send', {
+      const r = await call('send', {
         name, password: pw, to: to.trim(), amount: Number(amount), broadcast: true,
-      }))
+      })
+      setSent(r)
+      logActivity({
+        kind: 'send', title: `Sent ${amount} ZEC`,
+        detail: `to ${to.trim()}`, ref: r?.txid,
+      })
       setPreview(null)
     } catch (e: any) { setErr(e.message) }
     finally { setBusy(false) }
@@ -1498,7 +1566,16 @@ function Bridge({ caps }: { caps: any }) {
 
   const doStart = async () => {
     setBusy(true); setErr('')
-    try { setOrder(await call('bridge_start', args())); setTrack(null) }
+    try {
+      const o = await call('bridge_start', args())
+      setOrder(o); setTrack(null)
+      logActivity({
+        kind: 'bridge',
+        title: `Bridge ${origin.symbol} → ${other.symbol}`,
+        detail: `deposit ${amount} ${origin.symbol}`,
+        ref: o?.deposit_address || o?.id,
+      })
+    }
     catch (e: any) { setErr(e.message) }
     finally { setBusy(false) }
   }

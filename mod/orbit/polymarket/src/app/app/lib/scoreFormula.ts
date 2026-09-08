@@ -111,6 +111,40 @@ const LEGACY_IMPLICIT_DEFAULTS = ["pnl / volume", "sharpe"];
 // default rather than a deliberate pick. Same treatment as the legacy ones.
 const V2_IMPLICIT_DEFAULT = "winRate";
 
+// ── Score LANGUAGES ──
+//
+// The score box accepts three shapes, detected from the text itself:
+//   expr — plain arithmetic over the variables ("100 * pnl / volume")
+//   js   — a real JS function: a body that `return`s, an arrow, or a named
+//          `function score(t) {…}`. Multi-line, if/else, the lot.
+//   py   — a real Python function (`def score(pnl, volume): …`), run in the
+//          browser via Pyodide (see pyScore.ts) — nothing is sent anywhere.
+// A FUNCTION does double duty: return a NUMBER and that's the trader's score;
+// return null / None / False and the trader is FILTERED off the board.
+export type ScoreLang = "expr" | "js" | "py";
+
+export function detectScoreLang(src: string): ScoreLang {
+  if (/(^|\n)\s*def\s+\w+\s*\(/.test(src)) return "py";
+  if (/^\s*function\b/.test(src) || /\breturn\b/.test(src) || /=>/.test(src)) return "js";
+  return "expr";
+}
+
+/** Starter the JS ƒ button drops in — a filter + a score in four lines. */
+export const JS_FN_TEMPLATE = `// return a number = score · return null = hide the trader
+if (volume < 100) return null; // too small to copy
+if (winRate >= 0 && winRate < 0.4) return null;
+return 100 * pnl / volume;`;
+
+/** Starter the PY ƒ button drops in. Name any subset of the variables as
+    parameters — or take one argument and read it as a dict. */
+export const PY_FN_TEMPLATE = `def score(pnl, volume, winRate, **rest):
+    # return a number = score · return None = hide the trader
+    if volume < 100:
+        return None  # too small to copy
+    if 0 <= winRate < 0.4:
+        return None
+    return 100 * pnl / volume`;
+
 export interface ScoreInputs {
   sharpe: number;
   pnl: number;
@@ -137,26 +171,58 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
   };
 }
 
-export function compileFormula(expr: string): {
-  fn: (t: ScoreInputs) => number;
-  error: null;
-} | { fn: null; error: string } {
+/** A compiled score: fn returns the trader's score, or NULL when the user's
+    FUNCTION filtered the trader out (returned null/None/False). Plain
+    expressions never return null — a bad value sinks as -Infinity, exactly
+    the old behavior. */
+export type ScoreFn = (t: ScoreInputs) => number | null;
+export interface CompiledScore { fn: ScoreFn | null; error: string | null }
+
+/** null/None/False/undefined → hidden; True → 1 (a pure predicate is a pure
+    filter); finite number → the score; anything else → hidden. */
+export function normalizeScoreReturn(v: unknown): number | null {
+  if (v === null || v === undefined || v === false) return null;
+  if (v === true) return 1;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  return null;
+}
+
+/** Compile an expr or JS score. Python compiles asynchronously in pyScore.ts —
+    this returns a "runtime loading" stub for it so sync callers stay sane. */
+export function compileScore(src: string): CompiledScore {
+  const lang = detectScoreLang(src);
+  if (lang === "py") return { fn: null, error: null };
   try {
-    const raw = new Function(
-      ...FORMULA_VARS, "Math",
-      `"use strict"; return (${expr});`,
-    ) as (...args: unknown[]) => unknown;
+    let raw: (...args: unknown[]) => unknown;
+    const named = /^\s*function\s+([A-Za-z_$][\w$]*)/.exec(src);
+    if (lang === "js" && named) {
+      // `function score(t) {…}` — gets ONE object with every variable.
+      const make = new Function(`"use strict"; ${src}; return ${named[1]};`)() as (t: ScoreInputs) => unknown;
+      raw = (...args: unknown[]) => make(Object.fromEntries(FORMULA_VARS.map((k, i) => [k, args[i]])) as unknown as ScoreInputs);
+    } else if (lang === "js" && /=>/.test(src) && !/\breturn\b/.test(src.split("=>")[0])) {
+      // Arrow form: `(t) => t.pnl / t.volume` — same one-object contract.
+      const make = new Function(`"use strict"; return (${src});`)() as (t: ScoreInputs) => unknown;
+      raw = (...args: unknown[]) => make(Object.fromEntries(FORMULA_VARS.map((k, i) => [k, args[i]])) as unknown as ScoreInputs);
+    } else if (lang === "js") {
+      // Function BODY — every variable is in scope, `return` your score.
+      raw = new Function(...FORMULA_VARS, "Math", `"use strict"; ${src}`) as (...args: unknown[]) => unknown;
+    } else {
+      raw = new Function(...FORMULA_VARS, "Math", `"use strict"; return (${src});`) as (...args: unknown[]) => unknown;
+    }
     const probe = raw(...FORMULA_VARS.map(() => 0), Math);
-    if (typeof probe !== "number" && !Number.isNaN(probe)) {
+    if (lang === "expr" && typeof probe !== "number" && !Number.isNaN(probe)) {
       return { fn: null, error: "formula must evaluate to a number" };
     }
     return {
       fn: (t) => {
         try {
-          const v = raw(...FORMULA_VARS.map((k) => t[k]), Math) as number;
-          return Number.isFinite(v) ? v : Number.NEGATIVE_INFINITY;
+          const v = raw(...FORMULA_VARS.map((k) => t[k]), Math);
+          if (lang === "js") return normalizeScoreReturn(v);
+          return typeof v === "number" && Number.isFinite(v) ? v : Number.NEGATIVE_INFINITY;
         } catch {
-          return Number.NEGATIVE_INFINITY;
+          // Expressions sink (visible, "---"); a function that THROWS on a
+          // trader treats them like a null — filtered, same as its contract.
+          return lang === "js" ? null : Number.NEGATIVE_INFINITY;
         }
       },
       error: null,
@@ -221,7 +287,9 @@ function sanitizeRatios(raw: unknown): SavedRatio[] {
   for (const r of raw) {
     if (typeof r !== "object" || r === null) continue;
     const name = String((r as SavedRatio).name ?? "").trim().slice(0, 24);
-    const formula = String((r as SavedRatio).formula ?? "").trim();
+    // Functions are formulas too — cap them so one saved chip can't eat the
+    // shared localStorage origin.
+    const formula = String((r as SavedRatio).formula ?? "").trim().slice(0, 4000);
     if (!name || !formula || seen.has(name.toUpperCase())) continue;
     seen.add(name.toUpperCase());
     out.push({ name, formula });
@@ -271,8 +339,12 @@ export function matchSavedRatio(formula: string, list: SavedRatio[]): SavedRatio
   return list.find((r) => r.formula === f) ?? null;
 }
 
-/** "pnl / volume" → "PNL/VOL" — the suggested chip name for a formula. */
+/** "pnl / volume" → "PNL/VOL" — the suggested chip name for a formula.
+    Functions don't compress into a readable token soup, so they suggest a
+    language-stamped name instead. */
 export function suggestRatioName(formula: string): string {
+  const lang = detectScoreLang(formula);
+  if (lang !== "expr") return lang === "py" ? "PY SCORE" : "JS SCORE";
   return formula
     .replace(/\s+/g, "")
     .replace(/Math\./g, "")

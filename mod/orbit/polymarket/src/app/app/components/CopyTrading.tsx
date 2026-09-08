@@ -21,10 +21,13 @@ import { fetchSyncSchedule } from "../lib/syncSchedule";
 import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCache";
 
 import {
-  DEFAULT_FORMULA, FORMULA_VARS, SCORE_VAR_HINTS, compileFormula, formatScore,
+  DEFAULT_FORMULA, FORMULA_VARS, SCORE_VAR_HINTS, formatScore,
   scoreInputs, scoreIsUnknown, loadSavedFormula, matchScorePreset, saveFormula,
-  scorePoolSortKey,
+  scorePoolSortKey, JS_FN_TEMPLATE, PY_FN_TEMPLATE,
 } from "../lib/scoreFormula";
+import { useCompiledScore } from "../lib/useScore";
+import { publishScores } from "../lib/scoreBus";
+import { usePicks } from "../lib/pickStore";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
 
@@ -91,7 +94,7 @@ export default function CopyTrading({
   days = 30,
   minTradesPerDay = 0,
   reloadKey = 0,
-  search = "",
+  search: searchInput = "",
   category = "",
   marketQuery = "",
   onSelect,
@@ -99,6 +102,15 @@ export default function CopyTrading({
   compact = false,
 }: CopyTradingProps = {}) {
   const router = useRouter();
+  // The TopBar box pushes context per KEYSTROKE — fetch on the settled word,
+  // not each letter. Without this, typing "bitcoin" fired seven paged reads
+  // and whichever response landed LAST owned the board (see loadSeqRef for
+  // the ordering guard; this just stops the storm that opened the window).
+  const [search, setSearchSettled] = useState(searchInput);
+  useEffect(() => {
+    const t = setTimeout(() => setSearchSettled(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [traders, setTraders] = useState<TopTrader[]>([]);
   // Full streamed dataset — used as a client-side fallback for search/category
   // filtering while the server cache is cold (during streaming, or after a
@@ -139,7 +151,7 @@ export default function CopyTrading({
   // blindly is worse than useless: "100 * pnl / volume" + "sharpe" is two
   // expressions with no operator between them, which compiles to nothing and
   // blanks the column the user was reading.
-  const formulaRef = useRef<HTMLInputElement | null>(null);
+  const formulaRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const insertVar = useCallback((v: string) => {
     const el = formulaRef.current;
     setFormula((f) => {
@@ -167,17 +179,16 @@ export default function CopyTrading({
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
 
-  const compiled = useMemo(() => compileFormula(formula), [formula]);
+  // Expression, JS function, or Python function — one hook compiles whatever
+  // the box holds (Python through in-browser Pyodide) and hands back a sync
+  // scoreFor. null = the user's FUNCTION filtered this trader out.
+  const { compiled, lang: scoreLang, loading: scoreLoading, scoreFor } = useCompiledScore(formula);
+  const scoreFilters = scoreLang !== "expr" && !!compiled.fn;
   // When the SCORE column pages server-side, a preset formula pages by its
   // `poolSort` — its own metric, or the closest server sort for one the
   // server can't rank (P&L/BUY pools by ROI); a hand-written formula falls
   // back to sharpe pool order and is re-ranked client-side when warm.
   const serverScoreSort = scorePoolSortKey(formula);
-  const scoreFor = useCallback(
-    (t: TopTrader): number =>
-      compiled.fn ? compiled.fn(scoreInputs(t)) : Number.NEGATIVE_INFINITY,
-    [compiled],
-  );
 
   // Header keyword search — a draft of the shared `marketQuery` filter, pushed
   // to context after a short debounce so each keystroke doesn't refire the
@@ -291,11 +302,19 @@ export default function CopyTrading({
     sortDir,
   );
 
+  // Monotonic id per loadPage call. Paged reads are not guaranteed to come
+  // back in the order they went out, and a slow response for the OLD filters
+  // landing after a fast one for the new filters used to repaint the board
+  // with stale rows (type a keyword → the pre-keyword page wins the race and
+  // the cards "don't refresh"). Only the newest call may touch state.
+  const loadSeqRef = useRef(0);
+
   // Server-side paginated fetch — used when cache is warm
   const loadPage = useCallback(
     async (opts: {
       pg?: number; sort?: string; order?: string; silent?: boolean; force?: boolean;
     } = {}) => {
+      const seq = ++loadSeqRef.current;
       const pg = opts.pg ?? pageRef.current;
       const sortKey = opts.sort || (traderSort === "score" ? serverScoreSort : traderSort);
       const orderKey = opts.order || sortDir;
@@ -325,6 +344,10 @@ export default function CopyTrading({
           minHistoryDays: Number(minHistoryDays) || undefined,
           force: opts.force,
         });
+        // A newer call went out while this one was in flight — its answer
+        // owns the board; this one is history. Report success so the caller
+        // doesn't fall back to streaming over a result nobody will show.
+        if (seq !== loadSeqRef.current) return true;
         if (result.cold) {
           // Cache is cold — fall back to streaming
           return false;
@@ -356,9 +379,12 @@ export default function CopyTrading({
         }
         return true;
       } catch {
-        return false;
+        // Superseded → true (the newer call handles its own failure path);
+        // a real failure of the CURRENT call → false, so streaming kicks in.
+        return seq !== loadSeqRef.current;
       } finally {
-        setRefreshing(false);
+        // A superseded call must not clear the spinner the newer one owns.
+        if (seq === loadSeqRef.current) setRefreshing(false);
       }
     },
     [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
@@ -714,6 +740,9 @@ export default function CopyTrading({
       if (minBuyVolume !== "" && Number.isFinite(mbv) && t.buyVolume < mbv) return false;
       const msv = Number(minSellVolume);
       if (minSellVolume !== "" && Number.isFinite(msv) && t.sellVolume < msv) return false;
+      // A FUNCTION score is also a filter: returning null/None from your JS
+      // or Python drops the trader from the board entirely.
+      if (scoreFilters && scoreFor(t) === null) return false;
       return true;
     });
     // Sort. When a category is selected, vibe-first (more in-category titles
@@ -731,7 +760,7 @@ export default function CopyTrading({
         const d = inCat(b.marketTitles) - inCat(a.marketTitles);
         if (d !== 0) return d;
       }
-      if (traderSort === "score") return dir * (scoreFor(a) - scoreFor(b));
+      if (traderSort === "score") return dir * (((scoreFor(a) ?? Number.NEGATIVE_INFINITY)) - ((scoreFor(b) ?? Number.NEGATIVE_INFINITY)));
       if (traderSort === "volume") return dir * (a.volume - b.volume);
       if (traderSort === "positions") return dir * (a.recentTrades - b.recentTrades);
       // Missing lastTradeTs → 0 so unknown-recency traders sink on desc.
@@ -744,7 +773,7 @@ export default function CopyTrading({
     });
     return list;
   }, [cacheWarm, streamedAll, search, category, marketQuery, minVolume, minPnl,
-      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor,
+      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor, scoreFilters,
       stratFilter, stratAddrs]);
 
   const sortedTraders = useMemo(() => {
@@ -753,17 +782,28 @@ export default function CopyTrading({
       return clientView.slice(start, start + PAGE_SIZE);
     }
     if (traderSort === "score" && cacheWarm) {
-      return [...traders].sort((a, b) => {
-        const cmp = scoreFor(a) - scoreFor(b);
+      // Function scores filter here too — this path serves the score sort
+      // before the full stream lands.
+      const pool = scoreFilters ? traders.filter((t) => scoreFor(t) !== null) : traders;
+      return [...pool].sort((a, b) => {
+        const cmp = (scoreFor(a) ?? Number.NEGATIVE_INFINITY) - (scoreFor(b) ?? Number.NEGATIVE_INFINITY);
         return sortDir === "desc" ? -cmp : cmp;
       });
     }
     return traders;
-  }, [clientView, page, traders, traderSort, sortDir, scoreFor, cacheWarm]);
+  }, [clientView, page, traders, traderSort, sortDir, scoreFor, scoreFilters, cacheWarm]);
 
   // When showing client-side filtered results, total reflects the filtered
   // size, not the streamed length.
   const visibleTotal = clientView ? clientView.length : totalTraders;
+
+  // How many traders the score FUNCTION alone hid (returned null/None) —
+  // printed in the editor, so a too-tight filter explains its own empty board.
+  const scoreHidden = useMemo(() => {
+    if (!scoreFilters) return 0;
+    const base = streamedAll.length > 0 ? streamedAll : traders;
+    return base.reduce((n, t) => n + (scoreFor(t) === null ? 1 : 0), 0);
+  }, [scoreFilters, streamedAll, traders, scoreFor]);
 
   // Reset page on filter/sort change
   useEffect(() => { setPage(0); }, [search, category, marketQuery, traderSort, sortDir,
@@ -924,6 +964,80 @@ export default function CopyTrading({
     { key: "positions", label: "TRADES", hint: "Positions taken in the window" },
   ];
 
+  // ── The score bus ──
+  //
+  // The side panel's bench roster and selection tray print the SAME score
+  // this board ranks on — one pipeline, published after each rank pass.
+  //
+  // The warm-cache path pages server-side, so the component often holds only
+  // the visible PAGE — while the bench holds eight names from anywhere on
+  // the board. Those get fetched one-by-one against the warm cache
+  // (search=<address> resolves a single row with the same windowed stats),
+  // remembered per (address, window), and folded into the publish. A name
+  // that isn't in the pool at all just stays "—" in the panel.
+  const { picks } = usePicks();
+  const [benchRows, setBenchRows] = useState<Map<string, TopTrader>>(new Map());
+  const benchTriedRef = useRef(new Set<string>());
+  useEffect(() => { setBenchRows(new Map()); }, [days]);
+  useEffect(() => {
+    const known = new Set(
+      (streamedAll.length > 0 ? streamedAll : traders).map((t) => t.address.toLowerCase()),
+    );
+    // The bench comes in as `selectedAddresses` (the page keeps it synced to
+    // the active strat); `stratAddrs` only fills when the STRAT filter is on.
+    const wanted = new Set<string>([
+      ...selectedAddresses.map((a) => a.toLowerCase()),
+      ...stratAddrs,
+      ...picks.map((p) => p.address.toLowerCase()),
+    ]);
+    const missing = [...wanted]
+      .filter((a) => !known.has(a) && !benchTriedRef.current.has(`${a}|${days}`))
+      .slice(0, 24);
+    if (missing.length === 0) return;
+    let dead = false;
+    void (async () => {
+      const found: [string, TopTrader][] = [];
+      for (const a of missing) {
+        benchTriedRef.current.add(`${a}|${days}`);
+        try {
+          const r = await fetchTradersPage({
+            days, minPerDay: minTradesPerDay, pool: 2000, pageSize: 1, search: a,
+          });
+          const row = r.traders?.[0];
+          if (row && row.address.toLowerCase() === a) found.push([a, row]);
+        } catch { /* cold cache or not in the pool — the row stays "—" */ }
+        if (dead) return;
+      }
+      if (found.length > 0 && !dead) {
+        setBenchRows((prev) => {
+          const next = new Map(prev);
+          for (const [a, row] of found) next.set(a, row);
+          return next;
+        });
+      }
+    })();
+    return () => { dead = true; };
+  }, [selectedAddresses, stratAddrs, picks, days, minTradesPerDay, streamedAll, traders]);
+
+  const scoreLabel = columns[0].label;
+  useEffect(() => {
+    if (!compiled.fn) return; // nothing compiled yet — keep the last snapshot
+    const base = streamedAll.length > 0 ? streamedAll : traders;
+    const entries: [string, number | null][] = [];
+    const seen = new Set<string>();
+    const push = (t: TopTrader) => {
+      const a = t.address.toLowerCase();
+      if (seen.has(a)) return;
+      seen.add(a);
+      if (scoreIsUnknown(formula, scoreInputs(t))) return; // "—", not a number
+      const sc = scoreFor(t);
+      if (sc === null || Number.isFinite(sc)) entries.push([a, sc]);
+    };
+    base.forEach(push); // board rows win over the per-address fallbacks
+    benchRows.forEach(push);
+    publishScores(scoreLabel, days, entries);
+  }, [compiled.fn, streamedAll, traders, benchRows, scoreFor, formula, scoreLabel, days]);
+
   // Filter input helpers
   const onInt = (set: (v: string) => void, max: number) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value;
@@ -986,11 +1100,14 @@ export default function CopyTrading({
       )}
       {/* ── Single-line header ── */}
       <div className="pixel-panel px-4 py-2.5">
-        {/* ONE line, never wrapped. When the right-hand cluster wrapped it took
-            a whole empty band with it: the title row went half-blank and the
-            SYNC group sat alone on a second line pushed right by ml-auto. The
-            keyword field is the only elastic item here — it shrinks instead. */}
-        <div className="flex items-center gap-3">
+        {/* Two columns, not one wrapping row. As a single flex-wrap row the
+            right-hand SYNC cluster would wrap whole and ml-auto would push it
+            to the far edge of an otherwise empty second line — half of row one
+            blank, half of row two blank. A grid keeps that cluster pinned
+            beside the title column at every width; the title column is what
+            reflows, and the keyword field stretches to eat whatever is left. */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
+          <div className="flex items-center gap-x-3 gap-y-2 flex-wrap min-w-0">
           {/* Title + days + count */}
           <span className="text-[15px] text-pixel-white tracking-wider shrink-0">TOP TRADERS</span>
 
@@ -1006,7 +1123,7 @@ export default function CopyTrading({
               it shouldn't hide behind a toggle). Matching traders keep only
               markets that hit the query, and P&L/VOL/TRADES are recomputed
               from just those markets server-side. */}
-          <div className="relative flex-1 min-w-[110px] max-w-[340px]">
+          <div className="relative flex-1 min-w-[110px] max-w-[420px]">
             <input
               type="text"
               value={kwDraft}
@@ -1043,8 +1160,10 @@ export default function CopyTrading({
             </span>
           )}
 
+          </div>
+
           {/* Right side: source + filters */}
-          <div className="ml-auto flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {/* Manual SYNC button — bypasses the 60s cache by routing
                 through the streaming path so the user sees enrichment
                 progress (`enriching 1240/2000`) instead of an opaque
@@ -1369,7 +1488,9 @@ export default function CopyTrading({
             >
               <span className="opacity-70">&fnof;</span>
               SCORE
-              <span className="font-mono max-w-[150px] truncate opacity-80 normal-case">{formula}</span>
+              <span className="font-mono max-w-[150px] truncate opacity-80 normal-case">
+                {scoreLang === "expr" ? formula : `${scoreLang === "py" ? "python" : "js"} ƒ · ${formula.split("\n")[0]}`}
+              </span>
             </button>
           </div>
 
@@ -1380,31 +1501,63 @@ export default function CopyTrading({
                 <ScoreRatioChips
                   formula={formula}
                   setFormula={setFormula}
-                  canSave={!compiled.error}
+                  canSave={!compiled.error && !scoreLoading}
                   btnClass="pixel-btn text-[12px] px-2 py-1 shrink-0"
                   idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
                 />
+                {/* Grow past a one-line expression: JS ƒ / PY ƒ drop in a real
+                    function — score AND filter in one — and the box becomes an
+                    editor to match. */}
+                <button
+                  onClick={() => setFormula(JS_FN_TEMPLATE)}
+                  title="Write the score as a JS function — return a number to rank, null to HIDE the trader. Multi-line, if/else, Math — all of it."
+                  className={`pixel-btn text-[12px] px-2 py-1 shrink-0 ${scoreLang === "js" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
+                >
+                  JS &fnof;
+                </button>
+                <button
+                  onClick={() => setFormula(PY_FN_TEMPLATE)}
+                  title="Write the score as a PYTHON function — def score(pnl, volume): return a number to rank, None to HIDE the trader. Runs in your browser (Pyodide), nothing leaves this tab."
+                  className={`pixel-btn text-[12px] px-2 py-1 shrink-0 ${scoreLang === "py" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
+                >
+                  PY &fnof;
+                </button>
                 {/* Validity rides INSIDE the box. As its own flex item the lone
                     ✓ was the one thing that wouldn't fit the row, so it wrapped
                     and bought an empty second line for a single glyph. */}
-                <div className="relative flex-1 min-w-[160px]">
-                  <input
-                    ref={formulaRef}
-                    type="text"
-                    value={formula}
-                    onChange={(e) => setFormula(e.target.value)}
-                    onKeyDown={onEnter}
-                    spellCheck={false}
-                    placeholder={DEFAULT_FORMULA}
-                    title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type."
-                    className={`pixel-input-sm w-full font-mono ${compiled.error ? "pr-[46%]" : "pr-6"}`}
-                  />
-                  {compiled.error
-                    ? <span
-                        title={compiled.error}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-red-400 max-w-[44%] truncate pointer-events-none"
-                      >ERR: {compiled.error.slice(0, 40)}</span>
-                    : <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-green-500 pointer-events-none">&#10003;</span>}
+                <div className="relative flex-1 min-w-[160px] basis-full sm:basis-auto">
+                  {scoreLang === "expr" && !formula.includes("\n") ? (
+                    <input
+                      ref={formulaRef as React.RefObject<HTMLInputElement | null>}
+                      type="text"
+                      value={formula}
+                      onChange={(e) => setFormula(e.target.value)}
+                      onKeyDown={onEnter}
+                      spellCheck={false}
+                      placeholder={DEFAULT_FORMULA}
+                      title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type. Or press JS ƒ / PY ƒ to write a full function."
+                      className={`pixel-input-sm w-full font-mono ${compiled.error ? "pr-[46%]" : "pr-6"}`}
+                    />
+                  ) : (
+                    <textarea
+                      ref={formulaRef as React.RefObject<HTMLTextAreaElement | null>}
+                      value={formula}
+                      onChange={(e) => setFormula(e.target.value)}
+                      spellCheck={false}
+                      rows={Math.min(12, Math.max(4, formula.split("\n").length + 1))}
+                      placeholder={PY_FN_TEMPLATE}
+                      title="Your score function. Return a number to rank the trader — return null / None to hide them from the board."
+                      className={`pixel-input-sm w-full font-mono leading-snug resize-y ${compiled.error ? "pr-8" : "pr-6"}`}
+                    />
+                  )}
+                  {scoreLoading
+                    ? <span className="absolute right-1.5 top-2 text-[12px] text-amber-400 pointer-events-none animate-pulse" title="Loading the in-browser Python runtime and compiling your function">PY…</span>
+                    : compiled.error
+                      ? <span
+                          title={compiled.error}
+                          className="absolute right-1.5 top-2 text-[12px] text-red-400 pointer-events-none"
+                        >ERR</span>
+                      : <span className="absolute right-1.5 top-2 text-[12px] text-green-500 pointer-events-none">&#10003;</span>}
                 </div>
                 <button
                   onClick={() => setFormula(DEFAULT_FORMULA)}
@@ -1414,6 +1567,12 @@ export default function CopyTrading({
                   RST
                 </button>
               </div>
+
+              {compiled.error && (
+                <div className="font-mono text-[11px] text-red-400 whitespace-pre-wrap break-words">
+                  {scoreLang === "py" ? "python: " : ""}{compiled.error}
+                </div>
+              )}
 
               {/* The variables, spelled out. A formula box with no vocabulary
                   beside it is a guessing game — and clicking one writes it,
@@ -1433,11 +1592,24 @@ export default function CopyTrading({
               </div>
 
               <div className="text-[11px] text-pixel-gray leading-snug">
-                Ranked on this expression, biggest first. + SAVE keeps it as
-                your own chip on every board.
+                {scoreLang === "expr" ? (
+                  <>Ranked on this expression, biggest first. + SAVE keeps it as
+                  your own chip on every board. Press <span className="font-mono">JS &fnof;</span> or{" "}
+                  <span className="font-mono">PY &fnof;</span> to write a full function instead —
+                  one that can also FILTER.</>
+                ) : (
+                  <>Your {scoreLang === "py" ? "Python" : "JS"} function runs in your browser on every
+                  trader: <span className="text-pixel-gray-light">return a number</span> = their score
+                  (ranked biggest first) · <span className="text-pixel-gray-light">return {scoreLang === "py" ? "None" : "null"}</span> = the
+                  trader is hidden from the board.
+                  {scoreLang === "py" && " Name any of the variables as parameters — def score(pnl, volume): — or take one argument and read it as a dict."}
+                  {scoreHidden > 0 && (
+                    <span className="text-amber-400"> Hiding {scoreHidden.toLocaleString()} trader{scoreHidden === 1 ? "" : "s"} right now.</span>
+                  )}</>
+                )}
                 {!scorePreset && serverScoreSort && (
                   <>
-                    {" "}A hand-written formula is scored in your browser, so it re-ranks the
+                    {" "}Scored in your browser, so it re-ranks the
                     pool this page pulled under <span className="font-mono text-pixel-gray-light">{serverScoreSort}</span> — widen the
                     filters if the trader you expect isn&apos;t in it.
                   </>
@@ -1468,7 +1640,10 @@ export default function CopyTrading({
               {pageTraders.map((trader, i) => {
                 const rowNum = safePage * PAGE_SIZE + i + 1;
                 const pnlColor = trader.pnl > 0 ? "text-green-400" : trader.pnl < 0 ? "text-red-400" : "text-pixel-gray-light";
-                const sc = scoreFor(trader);
+                // null = the user's score FUNCTION filtered this trader —
+                // only visible here in server-paged (cold) mode, where the
+                // client can't drop the row without breaking pagination.
+                const sc = scoreFor(trader) ?? Number.NaN;
                 // A preset score can be its metric's -1 "unknown" sentinel
                 // (nothing settled in the window) — that's no data, not a
                 // score of minus one.

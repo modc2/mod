@@ -74,13 +74,15 @@ function TraderPageInner() {
   // as arriving with no keyword.
   const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
   const searchFilter = ADDR_RE.test(search.trim()) ? "" : search;
-  const clearedAddr = useRef(false);
   useEffect(() => {
-    if (!clearedAddr.current && ADDR_RE.test(search.trim())) {
-      clearedAddr.current = true;
-      setSearch("");
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Watch `search`, don't sample it once on mount: the URL seed
+    // (useUrlSync effect #1) lands AFTER the first render, so a mount-only
+    // check read the pre-seed value and left the address parked in context.
+    // An address is never a legitimate market keyword, so clearing on sight
+    // can't eat a real search.
+    if (ADDR_RE.test(search.trim())) setSearch("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
   const address = String(
     Array.isArray(params.address) ? params.address[0] : params.address || "",

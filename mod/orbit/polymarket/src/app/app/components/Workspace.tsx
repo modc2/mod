@@ -21,7 +21,10 @@ import type { SavedIndex } from "../lib/types";
 
 type Mode = "BACKTEST" | "LIVE";
 
-export default function Workspace({ mode }: { mode: Mode }) {
+/** `bare` renders the workspace without its own TopBar/page framing — the
+    side panel's BACKTEST and LIVE tabs mount it inside the docked column,
+    which already has a header and its own scroll. */
+export default function Workspace({ mode, bare = false }: { mode: Mode; bare?: boolean }) {
   const [strat, setStrat] = useState<SavedIndex | null>(null);
 
   const refresh = useCallback(() => {
@@ -39,9 +42,9 @@ export default function Workspace({ mode }: { mode: Mode }) {
   const bench = strat ? strat.traders.filter((t) => t.enabled !== false).length : 0;
 
   return (
-    <div className="max-w-[1920px] mx-auto">
-      <TopBar showSearch={false} />
-      <div className="p-4 space-y-3">
+    <div className={bare ? "" : "max-w-[1920px] mx-auto"}>
+      {!bare && <TopBar showSearch={false} />}
+      <div className={bare ? "p-2 space-y-3" : "p-4 space-y-3"}>
         {/* No page-title strip here. It said "LIVE · running your bench
             against the live book · 8 traders" directly above a SETTINGS row
             that already named the strat, the bench and the window, directly

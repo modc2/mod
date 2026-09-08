@@ -25,7 +25,10 @@ export default function TopBar({
 }: TopBarProps) {
   const router = useRouter();
   const { search, setSearch } = useFilters();
-  const filterQs = useFilterParams();
+  // The teleport must not carry the typed ADDRESS along as ?q= — on the
+  // profile it's a market-title keyword that matches nothing and empties the
+  // page (and it's cleared from context below before the push anyway).
+  const filterQs = useFilterParams({ excludeSearch: true });
   const isAddrSearch = ADDR_RE.test(search.trim());
 
   const goToTrader = () => {

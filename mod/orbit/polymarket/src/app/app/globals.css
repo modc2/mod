@@ -1117,6 +1117,10 @@ input[type="radio"] {
 :root { --strat-dock: 0px; }
 @media (min-width: 1024px) {
   html[data-strat-dock="open"] { --strat-dock: 340px; }
+  /* The column's BACKTEST/LIVE tabs carry the full workspace — the dock
+     widens for them (UserSidebar sets data-strat-dock="wide"), leaving the
+     board at least ~38vw so browsing and testing share the screen. */
+  html[data-strat-dock="wide"] { --strat-dock: min(760px, 62vw); }
 }
 .dock-inset { transition: padding-right 0.18s ease-out; }
 /* The header lives INSIDE the inset, so the nav tabs have 340px less room

@@ -53,11 +53,50 @@ import CopyPanel from "./CopyPanel";
 import MoneyBlock, { OPEN_MONEY_EVENT } from "./MoneyBlock";
 import StratBlock, { OPEN_STRATS_EVENT } from "./StratBlock";
 import DeskRoster from "./DeskRoster";
+import IndexBench from "./IndexBench";
 import SelectionTray from "./SelectionTray";
+import Workspace from "./Workspace";
 
 /** Anything can ask for the column by name — the finder's "SHOW PANEL →"
     dispatches this when rows get checked with the column closed. */
 export const OPEN_SIDEBAR_EVENT = "poly-open-sidebar";
+
+// ── The column's TABS ──
+//
+// The console used to be three PAGES (TRADERS · BACKTEST · LIVE). The user
+// asked for one: the board fills the screen, and testing/running what you
+// picked is the side panel's job — tab between them without ever leaving
+// the traders you're browsing. So the column carries the rail now:
+//
+//   INDEX     the account, the money, the strat list, the bench you're
+//             building and the copy book — everything "who and how much"
+//   BACKTEST  the full workspace (CopyIndex) replaying the bench on history
+//   LIVE      the same workspace against the real book
+//
+// BACKTEST/LIVE mount the SAME Workspace the old routes rendered (bare —
+// no TopBar), and the docked column WIDENS for them (data-strat-dock="wide"
+// → globals.css) because an engine built for the main pane earns more than
+// 340px. /backtest and /live survive as forwarders into these tabs.
+export type SidebarTab = "INDEX" | "BACKTEST" | "LIVE";
+export const SIDEBAR_TAB_EVENT = "poly-sidebar-tab";
+const TAB_KEY = "poly_sidebar_tab";
+const TABS: SidebarTab[] = ["INDEX", "BACKTEST", "LIVE"];
+const TAB_HINTS: Record<SidebarTab, string> = {
+  INDEX: "Your wallets, your money, your strats and the bench of traders you picked to copy",
+  BACKTEST: "Replay the bench against history on simulated money — no wallet touched",
+  LIVE: "Run the bench against the real book with real money",
+};
+
+/** Open the side panel on a named tab from anywhere (the /backtest and /live
+    forwarders use this). Persists first so a not-yet-mounted column restores
+    onto the right tab. */
+export function requestSidebarTab(tab: SidebarTab): void {
+  try {
+    localStorage.setItem(TAB_KEY, tab);
+    localStorage.setItem(DOCK_KEY, "1");
+  } catch {}
+  window.dispatchEvent(new CustomEvent(SIDEBAR_TAB_EVENT, { detail: tab }));
+}
 
 const DOCK_MQ = "(min-width: 1024px)";
 const DOCK_KEY = "poly_user_sidebar";
@@ -72,6 +111,7 @@ export default function UserSidebar() {
   const pathname = usePathname() || "";
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
+  const [tab, setTab] = useState<SidebarTab>("INDEX");
   // Set when the wallet chip asks for the accounts block by name — the column
   // may not have been mounted yet when the event fired.
   const [accountsWanted, setAccountsWanted] = useState(false);
@@ -81,12 +121,21 @@ export default function UserSidebar() {
     setDocked(mq.matches);
     try {
       if (mq.matches && localStorage.getItem(DOCK_KEY) !== "0") setOpen(true);
+      const t = localStorage.getItem(TAB_KEY);
+      if (t === "INDEX" || t === "BACKTEST" || t === "LIVE") setTab(t);
     } catch {
       if (mq.matches) setOpen(true);
     }
     const onChange = (e: MediaQueryListEvent) => setDocked(e.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  const setTabPersisted = useCallback((next: SidebarTab) => {
+    setTab(next);
+    try {
+      localStorage.setItem(TAB_KEY, next);
+    } catch {}
   }, []);
 
   /** Open/close, remembering the choice. Written here rather than in an
@@ -100,33 +149,47 @@ export default function UserSidebar() {
   }, []);
 
   useEffect(() => {
-    const onOpen = () => { setAccountsWanted(true); setDrawer(true); };
+    const onOpen = () => { setAccountsWanted(true); setTabPersisted("INDEX"); setDrawer(true); };
     // Open WITHOUT forcing the accounts block — the caller wants the column
     // (the selection tray, the copy book, the money panel), not the wallet
     // list. MoneyBlock listens for OPEN_MONEY_EVENT itself and expands; this
     // only has to make sure there is a column for it to expand INSIDE, which
     // is why the same event is handled in both places rather than relayed.
     const onOpenPlain = () => setDrawer(true);
+    // A named-tab ask (the /backtest and /live forwarders, or anything else
+    // that wants a specific screen of the column).
+    const onTab = (e: Event) => {
+      const t = (e as CustomEvent).detail;
+      if (t === "INDEX" || t === "BACKTEST" || t === "LIVE") setTabPersisted(t);
+      setDrawer(true);
+    };
+    // The money/strat/accounts blocks all live on INDEX — an ask for one of
+    // them from another tab must also bring INDEX forward, or the block
+    // expands somewhere the user can't see.
+    const onIndexBlock = () => { setTabPersisted("INDEX"); setDrawer(true); };
     window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
     window.addEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
-    window.addEventListener(OPEN_MONEY_EVENT, onOpenPlain);
-    window.addEventListener(OPEN_STRATS_EVENT, onOpenPlain);
+    window.addEventListener(OPEN_MONEY_EVENT, onIndexBlock);
+    window.addEventListener(OPEN_STRATS_EVENT, onIndexBlock);
+    window.addEventListener(SIDEBAR_TAB_EVENT, onTab);
     return () => {
       window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
       window.removeEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
-      window.removeEventListener(OPEN_MONEY_EVENT, onOpenPlain);
-      window.removeEventListener(OPEN_STRATS_EVENT, onOpenPlain);
+      window.removeEventListener(OPEN_MONEY_EVENT, onIndexBlock);
+      window.removeEventListener(OPEN_STRATS_EVENT, onIndexBlock);
+      window.removeEventListener(SIDEBAR_TAB_EVENT, onTab);
     };
-  }, [setDrawer]);
+  }, [setDrawer, setTabPersisted]);
 
   // Inset the console for the docked column (CSS var, read by .crt-screen in
-  // layout.tsx and by BuildBadge).
+  // layout.tsx and by BuildBadge). BACKTEST/LIVE carry the full workspace, so
+  // the docked column takes the WIDE width for them (globals.css).
   useEffect(() => {
     const el = document.documentElement;
-    if (open && docked) el.dataset.stratDock = "open";
+    if (open && docked) el.dataset.stratDock = tab === "INDEX" ? "open" : "wide";
     else delete el.dataset.stratDock;
     return () => { delete el.dataset.stratDock; };
-  }, [open, docked]);
+  }, [open, docked, tab]);
 
   // Escape + scroll lock belong to the OVERLAY only. A docked column is
   // furniture: the page behind it stays scrollable, and Escape belongs to
@@ -155,21 +218,68 @@ export default function UserSidebar() {
   const column = (
     <>
       <AccountsPanel initialExpanded={accountsWanted} onClose={() => setDrawer(false)} />
+
+      {/* The rail. These were the console's top-level pages — now the board
+          stays put and the column tabs between building the index, replaying
+          it, and running it. */}
+      <div className="flex shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+        {TABS.map((t) => {
+          const active = t === tab;
+          return (
+            <button
+              key={t}
+              onClick={() => setTabPersisted(t)}
+              title={TAB_HINTS[t]}
+              className={`relative flex-1 px-2 py-2 text-[10.5px] font-semibold tracking-[0.16em] transition-colors ${
+                active
+                  ? t === "LIVE"
+                    ? "text-red-400 bg-red-400/10"
+                    : "text-green-400 bg-green-400/10"
+                  : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06]"
+              }`}
+            >
+              {t}
+              <span
+                className={`absolute left-2 right-2 bottom-0 h-[2px] rounded-full transition-opacity ${
+                  active
+                    ? t === "LIVE"
+                      ? "bg-red-400 opacity-100 shadow-[0_0_10px_rgba(248,113,113,0.7)]"
+                      : "bg-green-400 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]"
+                    : "opacity-0"
+                }`}
+              />
+            </button>
+          );
+        })}
+      </div>
+
       <div className="flex-1 overflow-y-auto">
-        {/* Money first, under the wallet it belongs to: top up, take out.
-            Collapsed to one line until you want it. */}
-        <MoneyBlock />
-        {/* HOW you copy, above WHO you copy: a strat is the bench plus the
-            sizing model, and the default one is a 1:1 index scaled by your
-            capital against each trader's book. The list is here because the
-            active strat is what BACKTEST and LIVE are pointed at, and a
-            console that hides which strategy is running is worse than one
-            that just shows you. */}
-        <StratBlock />
-        {/* The finder's checked shortlist — replayed, sized and committed
-            right here. Renders nothing while nothing is checked. */}
-        <SelectionTray />
-        {onDesk ? <DeskRoster /> : <CopyPanel />}
+        {tab === "INDEX" ? (
+          <>
+            {/* Money first, under the wallet it belongs to: top up, take out.
+                Collapsed to one line until you want it. */}
+            <MoneyBlock />
+            {/* HOW you copy, above WHO you copy: a strat is the bench plus the
+                sizing model, and the default one is a 1:1 index scaled by your
+                capital against each trader's book. The list is here because the
+                active strat is what BACKTEST and LIVE are pointed at, and a
+                console that hides which strategy is running is worse than one
+                that just shows you. */}
+            <StratBlock />
+            {/* The active strat's bench — every + ADD from the board, each
+                with its current board SCORE, toggled or removed right here. */}
+            <IndexBench />
+            {/* The finder's checked shortlist — replayed, sized and committed
+                right here. Renders nothing while nothing is checked. */}
+            <SelectionTray />
+            {onDesk ? <DeskRoster /> : <CopyPanel />}
+          </>
+        ) : (
+          /* The full workspace, bare (no TopBar) — the same component the
+             old /backtest and /live pages rendered. Keyed by tab so nothing
+             (a half-run replay, a subtab position) leaks between modes. */
+          <Workspace key={tab} mode={tab} bare />
+        )}
       </div>
     </>
   );
@@ -193,7 +303,9 @@ export default function UserSidebar() {
       <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.35)" }} />
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="absolute inset-y-0 right-0 w-[340px] max-w-[85vw] flex flex-col backdrop-blur-md"
+        className={`absolute inset-y-0 right-0 flex flex-col backdrop-blur-md ${
+          tab === "INDEX" ? "w-[340px] max-w-[85vw]" : "w-[760px] max-w-[95vw]"
+        }`}
         style={{
           background:
             "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.97), rgb(var(--pixel-bg-rgb)/0.95))",

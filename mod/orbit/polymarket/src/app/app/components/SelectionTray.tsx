@@ -34,6 +34,8 @@ import { addToDraft } from "../lib/basketDraft";
 import {
   clearPicks, removePick, setPickUsd, usePicks, type TraderPick,
 } from "../lib/pickStore";
+import { formatScore } from "../lib/scoreFormula";
+import { useScoreBoard, boardScoreFor, type ScoreBoard } from "../lib/scoreBus";
 
 function pickKey(p: TraderPick, days: number): string {
   return `${p.address}|${p.usd}|${p.marketQuery}|${days}`;
@@ -110,6 +112,7 @@ export default function SelectionTray() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { results, running } = useSelectionBacktests(picks, days);
+  const board = useScoreBoard();
 
   const done = picks
     .map((p) => results[pickKey(p, days)])
@@ -181,6 +184,7 @@ export default function SelectionTray() {
             bt={results[pickKey(p, days)]}
             replaying={running === pickKey(p, days)}
             busy={busy}
+            board={board}
           />
         ))}
       </div>
@@ -237,13 +241,14 @@ export default function SelectionTray() {
     The market gate and trade count live in the titles — a 340px column earns
     its keep by staying scannable. */
 function PickRow({
-  pick, days, bt, replaying, busy,
+  pick, days, bt, replaying, busy, board,
 }: {
   pick: TraderPick;
   days: number;
   bt?: HubBacktest;
   replaying: boolean;
   busy: boolean;
+  board: ScoreBoard;
 }) {
   const [draft, setDraft] = useState(String(pick.usd));
   useEffect(() => setDraft(String(pick.usd)), [pick.usd]);
@@ -270,6 +275,29 @@ function PickRow({
       >
         {shortAddress(pick.address)}
       </Link>
+      {(() => {
+        // The board's current score for this name — the same number the TOP
+        // TRADERS cards show, off the score bus. "—" = not in the last rank
+        // pass (or the user's score FUNCTION hid them).
+        const sc = boardScoreFor(board, pick.address);
+        const scCls = typeof sc !== "number"
+          ? "text-pixel-gray/70"
+          : sc > 0 ? "text-pixel-green" : sc < 0 ? "text-red-400" : "text-pixel-gray-light";
+        return (
+          <span
+            className={`text-[9px] tabular-nums shrink-0 ${scCls}`}
+            title={
+              typeof sc === "number"
+                ? `${board.label} = ${formatScore(sc)} on the board's ${board.days}D window`
+                : sc === null
+                  ? "Your score FUNCTION hides this trader"
+                  : "No board score for this name yet"
+            }
+          >
+            {typeof sc === "number" ? formatScore(sc) : "—"}
+          </span>
+        );
+      })()}
       <input
         className="pixel-input-sm input-xs w-14 font-mono text-[10px]"
         value={draft}
