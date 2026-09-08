@@ -1,7 +1,7 @@
 {
     "name": "wingman",
-    "version": "0.1.0",
-    "description": "A set of photos in, a dating-app-ready lineup out. Every photo is measured \u2014 faces found by an ONNX detector (UltraFace), face size and position, whether it is a headshot, a half-body, a full-body, a wide shot or a group; sharpness as Laplacian variance, exposure and contrast off the histogram, near-duplicates by perceptual hash, GPS coordinates hiding in EXIF \u2014 and each issue costs points with a sentence saying why. The lineup picks the best N in the order they should go up: one sharp solo face leads, then variety (portrait, full-body, headshot, a wider shot), duplicates collapse to the sharper one, a group shot goes late and at most once, and `gaps` names what the set is missing that no edit adds. Render crops face-aware to Tinder, Hinge or Bumble's card ratio (eyes ~40% down, headroom kept), polishes gently (autocontrast, exposure lift on dark frames, a light sharpen) and writes a JPEG with every byte of metadata stripped. No skin smoothing, no background replacement, no reshaping; expression and outfit are not scored because nothing here can see them, and the audit says so. Nothing leaves the box. Twelve MCP tools, a REST API and the console on one port.",
+    "version": "0.2.0",
+    "description": "A set of photos in, a dating-app-ready lineup out. Every photo is measured \u2014 faces found by an ONNX detector (UltraFace), face size and position, whether it is a headshot, a half-body, a full-body, a wide shot or a group; sharpness as Laplacian variance, exposure and contrast off the histogram, near-duplicates by perceptual hash, GPS coordinates hiding in EXIF \u2014 and each issue costs points with a sentence saying why. The lineup picks the best N in the order they should go up: one sharp solo face leads, then variety (portrait, full-body, headshot, a wider shot), duplicates collapse to the sharper one, a group shot goes late and at most once, and `gaps` names what the set is missing that no edit adds. Render crops face-aware to Tinder, Hinge or Bumble's card ratio (eyes ~40% down, headroom kept), polishes gently (autocontrast, exposure lift on dark frames, a light sharpen) and writes a JPEG with every byte of metadata stripped. No skin smoothing, no background replacement, no reshaping. Everything above is measured on this box and sends nothing anywhere. One verb breaks that on purpose: `read` sends a 768 px, metadata-free copy of each photo to a vision model on orbit/venice for the four things a histogram cannot reach \u2014 expression, whether the eyes are open and on the camera, mirror-selfie or not, setting and outfit \u2014 and across the set what repeats (same room, same shirt, nobody smiling) plus Hinge prompt openings grounded only in what the photos show. It is off unless called, every send is logged in the set's sent.json, and its answers live in `read_flags` with a `source` and never move a measured score. Fourteen MCP tools, a REST API and the console on one port.",
     "icon": "\u2708",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -15,7 +15,8 @@
         "api": "http://localhost:50830",
         "app": "http://localhost:50830/wingman",
         "mcp": "http://localhost:50830/mcp",
-        "face_model": "https://github.com/onnx/models/raw/main/validated/vision/body_analysis/ultraface/models/version-RFB-320.onnx"
+        "face_model": "https://github.com/onnx/models/raw/main/validated/vision/body_analysis/ultraface/models/version-RFB-320.onnx",
+        "venice": "http://localhost:9000/api/venice"
     },
     "presets": {
         "tinder": "4:5 \u2192 1080x1350",
@@ -30,10 +31,11 @@
         "sharpness": "Laplacian variance on a 640-wide grey copy; under 25 blurry, under 60 soft; the face crop is measured separately",
         "exposure": "mean luminance under 60 dark, over 200 bright; clipped pixels at both ends; std under 30 flat",
         "duplicates": "64-bit dHash, Hamming \u2264 10 collapses",
-        "privacy": "EXIF GPS flagged on intake; every render is written without exif, icc, xmp or thumbnail"
+        "privacy": "EXIF GPS flagged on intake; every render is written without exif, icc, xmp or thumbnail",
+        "read": "not a measurement \u2014 a vision model on orbit/venice, asked for expression, eyes, eye contact, shot type, subject clarity, setting, outfit, distractions; every answer carries source=read and costs nothing"
     },
     "lineup": "lead = sharp solo face 15-45% of frame, no bad issues, score \u2265 60; then portrait, full, headshot, scene; group after slot 3 and at most one; anything under min_score (35) is left out with its top issue named",
-    "state": "~/.mod/wingman/ (sets/<id>/{set.json,audit.json,src,out,thumb,wingman-<preset>.zip}, models/, token)",
+    "state": "~/.mod/wingman/ (sets/<id>/{set.json,audit.json,read.json,read-summary.json,sent.json,src,out,thumb,wingman-<preset>.zip}, models/, venice.json, token)",
     "endpoints": {
         "info": "GET /",
         "health": "GET /health",
@@ -50,14 +52,17 @@
         "export": "POST /export {set, preset?, n?, zoom?, polish?, quality?}",
         "img": "GET /img/:set/:photo?w= (thumbnail) | GET /img/:set/:photo/:preset (render)",
         "download": "GET /download/:set/:preset.zip",
-        "tools": "GET /tools"
+        "tools": "GET /tools",
+        "read": "POST /read {set, photo?, model?, force?, summary?} \u2014 the vision pass; THE ONE ROUTE THAT SENDS A PHOTO OUT | GET /read?set= (cached reads + the send log, no network)",
+        "venice": "GET /venice (is the read path live, is there a key) | POST /venice {url?, model?, enabled?} | GET /venice/models | POST /venice/key {key} | DELETE /venice/key"
     },
     "backend": "python: http.server + Pillow + numpy + onnxruntime",
     "requires": {
         "Pillow": "decoding, crop, resize, polish, JPEG out",
         "numpy": "sharpness, histogram, hashing, detector pre/post-processing",
         "onnxruntime": "the face detector (optional \u2014 a skin-colour fallback runs without it)",
-        "pillow-heif": "optional \u2014 HEIC straight from an iPhone"
+        "pillow-heif": "optional \u2014 HEIC straight from an iPhone",
+        "mod protocol": "optional \u2014 only `read` needs it, to sign the request to orbit/venice"
     },
     "tools": [
         "wingman_health",
@@ -111,5 +116,11 @@
         "reads": "a set is addressed by a 16-hex unguessable id; GET /sets (the list) answers only loopback callers or x-wingman-token from ~/.mod/wingman/token",
         "writes": "open on the same terms \u2014 this module holds personal photos, not keys or money; bind to 127.0.0.1 or put it behind the gateway's auth if it must be public"
     },
-    "schema": "QmVXLoQ11BJZZMz6qX3ZdtZf7cEm6X5tjraKwyh12AdZhx"
+    "schema": "QmfSAQ9zySfJicR8t4fhwpzyeKBsTh6by8kpSUWPiEEGBd",
+    "privacy": {
+        "default": "audit, lineup, render and export never open a socket; renders carry no exif, icc, xmp or thumbnail",
+        "read": "the one verb that sends. What leaves is re-encoded from decoded pixels at 768 px as JPEG \u2014 the original file never moves and no EXIF, GPS or ICC goes with it",
+        "receipt": "every send is appended to sets/<id>/sent.json before the request is made, so a refused send is counted too",
+        "off": "WINGMAN_VENICE=off, or `m wingman/venice enabled=0`, refuses every read"
+    }
 }

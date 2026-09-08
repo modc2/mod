@@ -17,6 +17,9 @@ class Polaris(Provider):
     pay = ('crypto', 'card')
     caps = ('search', 'rent', 'instances', 'status', 'stop', 'balance')
     key_env = ('POLARIS_KEY', 'POLARIS_API_KEY')
+    # The sibling `polaris` module owns this file; inherit it rather than
+    # making the operator paste the same key into two keystores.
+    key_files = ('~/.mod/polaris/api_key',)
     key_hint = 'polaris.computer → API key. The GPU catalog is public.'
 
     def search(self, f):
@@ -38,15 +41,21 @@ class Polaris(Provider):
         return [o for o in out if f.match(o)]
 
     def rent(self, ref, name='mod', hours=None, image=None, ssh_key=None, **opts):
-        body = {'gpu_type': ref, 'name': name}
+        # `gpu_type` is the catalog's display name, not its slug id, and the key
+        # field is ssh_public_key — ssh_key is silently ignored upstream, which
+        # provisions a box nobody can log into.
+        body = {'gpu_type': ref, 'name': name, 'use_spot': True}
         if image:
             body['image'] = image
         if ssh_key:
-            body['ssh_key'] = ssh_key
+            body['ssh_public_key'] = ssh_key
         body.update(opts)
         r = self.post('/compute/instances', body)
-        return instance(self.name, r.get('id') or r.get('instance_id'), name=name,
-                        status=r.get('status') or 'creating', raw=r)
+        # The answer is {success, message, instances:[…]}, never a bare instance.
+        made = (r.get('instances') or [{}])[0] if isinstance(r, dict) else {}
+        return instance(self.name, made.get('id') or r.get('id') or r.get('instance_id'),
+                        name=made.get('name') or name,
+                        status=made.get('status') or 'provisioning', raw=r)
 
     def instances(self):
         r = self.get('/compute/instances', auth=True)
@@ -57,12 +66,28 @@ class Polaris(Provider):
         return {'stopped': ref, 'result': self.delete(f'/compute/instances/{ref}')}
 
     def balance(self):
-        c = self.get('/credits', auth=True)
-        return {'provider': self.name, 'balance_usd': num(c.get('credits', c.get('balance'))),
-                'unit': 'USD', 'raw': c}
+        # /credits does not exist upstream — the balance lives under /billing,
+        # and arrives as balance_usd (sometimes as a "$25.00" string).
+        c = self.get('/billing/credits', auth=True) or {}
+        usd = c.get('balance_usd')
+        if isinstance(usd, str):
+            usd = usd.replace('$', '').replace(',', '').strip()
+        micros = num(c.get('balance_micros'))
+        return {'provider': self.name,
+                'balance_usd': num(usd, micros / 1e6 if micros is not None else None),
+                'unit': 'USD', 'status': c.get('account_status'), 'raw': c}
 
     def _inst(self, i):
+        ip = i.get('ip') or i.get('public_ip') or i.get('ssh_host')
+        port = i.get('ssh_port') or 22
+        ssh = i.get('ssh_command')
+        if not ssh and ip:
+            ssh = f"ssh {i.get('ssh_user') or 'root'}@{ip}"
+            if str(port) != '22':
+                ssh += f' -p {port}'
         return instance(self.name, i.get('id'), name=i.get('name'),
-                        status=i.get('status'), usd_hr=num(i.get('price_per_hour')),
-                        gpu=i.get('gpu_type'), ssh=i.get('ssh_command'),
+                        status=i.get('status'),
+                        usd_hr=num(i.get('hourly_cost'), num(i.get('price_per_hour'))),
+                        gpu=i.get('gpu_type'), ssh=ssh,
+                        url=i.get('access_url') if i.get('access_url') not in ('N/A', '') else None,
                         created=i.get('created_at'), raw=i)

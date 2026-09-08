@@ -3,7 +3,7 @@
   "description": "mod api",
   "version": "0.1.0",
   "urls": {
-    "api": "http://localhost:8000"
+    "api": "http://localhost:50950"
   },
-  "port": 8000
+  "port": 50950
 }

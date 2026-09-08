@@ -113,7 +113,9 @@ export default function StratBlock() {
               {summary.active}
             </span>
           )}
-          <span className="text-[10px] font-mono text-pixel-gray shrink-0">{summary.count}</span>
+          <span className="text-[10px] font-mono text-pixel-gray shrink-0" title={`${summary.count} saved strat(s)`}>
+            {summary.count} saved
+          </span>
           <span className={`text-[9px] text-pixel-gray transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
         </span>
       </button>
@@ -296,12 +298,14 @@ function StratList() {
               >
                 ASK
               </button>
+              {/* Text, not a glyph: U+2442 has no coverage in the console's
+                  font on this host and rendered as tofu. */}
               <button
                 onClick={(e) => { e.stopPropagation(); fork(idx.id); }}
-                className="text-[11px] text-pixel-gray hover:text-green-400 shrink-0"
+                className="text-[9.5px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 shrink-0"
                 title={`Fork "${idx.name}" — an independent copy, stopped and un-funded`}
               >
-                ⑂
+                FORK
               </button>
               {isRunning ? (
                 <button
@@ -390,8 +394,8 @@ function StratList() {
                 </span>
                 <span className="block text-[9.5px] leading-snug text-pixel-gray/80 line-clamp-3">{t.description}</span>
               </span>
-              <span className="text-[9.5px] font-mono shrink-0 mt-0.5 opacity-60 group-hover:opacity-100 group-hover:text-green-400">
-                ⑂
+              <span className="text-[9.5px] font-mono font-semibold tracking-[0.08em] shrink-0 mt-0.5 opacity-60 group-hover:opacity-100 group-hover:text-green-400">
+                FORK
               </span>
             </button>
           ))}

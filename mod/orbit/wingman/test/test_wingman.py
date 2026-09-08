@@ -204,7 +204,10 @@ def test_mcp_transport_and_tools(set_id):
                        'params': {'protocolVersion': '2025-06-18'}})
     assert init['result']['serverInfo']['name'] == 'wingman'
     tools = mcp.handle({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})['result']['tools']
-    assert len(tools) == 12 and all(t['name'].startswith('wingman_') for t in tools)
+    assert len(tools) == len(mcp.TOOLS)
+    assert all(t['name'].startswith('wingman_') for t in tools)
+    assert {'wingman_audit', 'wingman_lineup', 'wingman_export',
+            'wingman_read'} <= {t['name'] for t in tools}
     r = mcp.handle({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call',
                     'params': {'name': 'wingman_lineup', 'arguments': {'set': set_id, 'n': 3}}})
     assert not r['result']['isError'] and len(r['result']['structuredContent']['slots']) <= 3

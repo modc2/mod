@@ -305,11 +305,19 @@ class Polaris:
         the upstream ignores query parameters and returns all of them."""
         rows = (self.get('/models', ttl=CACHE_TTL) or {}).get('models') or []
         total = len(rows)
-        out = [{'id': m.get('id'), 'name': m.get('name'), 'provider': m.get('provider'),
+        out = []
+        for m in rows:
+            price_in, price_out = _token_price(m.get('prompt_price')), \
+                _token_price(m.get('completion_price'))
+            out.append({
+                'id': m.get('id'), 'name': m.get('name'), 'provider': m.get('provider'),
                 'context': m.get('context_length'),
-                'usd_per_token_in': num(m.get('prompt_price')),
-                'usd_per_token_out': num(m.get('completion_price'))}
-               for m in rows]
+                'usd_per_token_in': price_in, 'usd_per_token_out': price_out,
+                # A router picks the model, and the price, at request time. Its
+                # cost is unknown here — reporting it as a number would be a lie
+                # whichever number we picked.
+                'pricing': 'routed' if price_in is None and price_out is None
+                           and m.get('prompt_price') is not None else 'fixed'})
         if provider:
             wanted = {p.strip().lower() for p in str(provider).split(',') if p.strip()}
             out = [m for m in out if (m['provider'] or '').lower() in wanted]
@@ -552,6 +560,18 @@ class Polaris:
 
 def _clean(v):
     return None if v in ('N/A', '', None) else v
+
+
+def _token_price(v):
+    """A per-token price, or None when there is not really one.
+
+    The upstream carries OpenRouter's catalog, where a router model prices at
+    -1 to mean "decided when the request is routed". Passed through as a
+    number it reads as a $1,000,000-per-million-token credit and sorts to the
+    top of every cheapest-first list.
+    """
+    p = num(v)
+    return None if p is None or p < 0 else p
 
 
 def _instance(i):

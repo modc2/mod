@@ -39,7 +39,9 @@ def info():
         'version': mcp.version(),
         'what': 'a set of photos in, a dating-app-ready lineup out — measured, '
                 'face-aware crops to each app\'s card ratio, metadata stripped, '
-                'nothing retouched and nothing uploaded anywhere',
+                'nothing retouched. Every route runs here except POST /read, '
+                'which shows a stripped copy to a vision model on orbit/venice '
+                'for the things a measurement cannot reach',
         'presets': E.PRESETS,
         'store': E.SETS_DIR,
         'detector': E.detector(),
@@ -65,6 +67,16 @@ def info():
             'GET /img/<set>/<photo>': 'w= — JPEG thumbnail of the source',
             'GET /img/<set>/<photo>/<preset>': 'the rendered JPEG',
             'GET /download/<set>/<preset>.zip': 'the export',
+            'POST /read': '{set, photo?, model?, force?, summary?} — ask a vision '
+                          'model on orbit/venice what the measurements cannot see: '
+                          'expression, eyes, shot type, setting, outfit, what the '
+                          'set repeats. THE ONE ROUTE THAT SENDS A PHOTO OUT',
+            'GET /read': 'set= — reads already on disk, and the send log; no network',
+            'GET /venice': 'is the read path live, and does it have a key to spend',
+            'POST /venice': '{url?, model?, enabled?} — configure or switch it off',
+            'GET /venice/models': 'the vision-capable models a read can use',
+            'POST /venice/key': '{key} — file your own Venice key (BYOK)',
+            'DELETE /venice/key': 'forget it',
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
             f'GET {BASE}': 'browser console',
@@ -174,6 +186,38 @@ def route(method, path, query, body, trusted=False):
         return E.export(set_arg(), preset=arg('preset'), n=num('n', 6),
                         zoom=arg('zoom') or 'auto', polish_mode=arg('polish') or 'auto',
                         quality=num('quality', 90), force=flag('force'))
+    # ── venice: the one path that sends a photo out ──────────────────────
+    if path == '/read':
+        V = E.venice_module()
+        if method == 'GET':                       # cache only, nothing sent
+            sid = E.resolve_set(set_arg())
+            return {'set': sid, 'photos': list(V.cached(sid).values()),
+                    'summary': E._read_json(os.path.join(
+                        E._set_dir(sid), 'read-summary.json'), None),
+                    'sent': V.sends(sid)}
+        return V.read(set_arg(), photo=arg('photo'), model=arg('model'),
+                      force=flag('force'), summary=flag('summary', True),
+                      limit=num('limit', 0) or None)
+    if path == '/venice':
+        V = E.venice_module()
+        if method == 'POST':
+            if not trusted:
+                raise WingmanError('changing the venice settings needs loopback or '
+                                   'x-wingman-token', status=403)
+            return V.configure(url=arg('url'), model=arg('model'),
+                               enabled=arg('enabled'))
+        return V.status()
+    if path == '/venice/models':
+        V = E.venice_module()
+        return V.models(vision_only=flag('vision', True))
+    if path == '/venice/key':
+        V = E.venice_module()
+        if not trusted:
+            raise WingmanError('the venice key is set from this box only — loopback '
+                               'or x-wingman-token', status=403)
+        if method == 'DELETE':
+            return V.forget_key()
+        return V.set_key(arg('key'))
     raise WingmanError(f'no route {path} — GET / lists them', 404)
 
 

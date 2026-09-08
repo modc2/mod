@@ -135,8 +135,8 @@
     <span class="chip" id="c-set"><b>no set</b></span>
     <span class="chip" id="c-photos"><b>0</b>&nbsp;photos</span>
     <span class="chip" id="c-det"><b>…</b></span>
-    <span class="chip hot"><b>local only</b>&nbsp;nothing uploaded</span>
-    <span class="chip"><b>12</b>&nbsp;mcp tools</span>
+    <span class="chip hot" id="c-sent" title="every tab but READ runs on this box"><b>0</b>&nbsp;photos sent</span>
+    <span class="chip" id="c-tools"><b>14</b>&nbsp;mcp tools</span>
     <span class="theme" id="theme">
       <i data-t="castle" style="background:#fcbc3c"></i>
       <i data-t="night" style="background:#2038ec"></i>
@@ -152,6 +152,7 @@
   <button data-tab="lineup">lineup</button>
   <button data-tab="render">render</button>
   <button data-tab="export">export</button>
+  <button data-tab="read">read</button>
   <button data-tab="mcp">mcp</button>
 </nav>
 <div id="status"></div>
@@ -256,10 +257,46 @@
   </div>
 </section>
 
+<section id="read">
+  <div class="panel">
+    <h2>read <span class="badge warn">sends</span></h2>
+    <p class="note">Every other tab runs on this box and sends nothing anywhere. This one
+      does not. It shows a <b>768&nbsp;px, metadata-free copy</b> of each photo to a vision
+      model on <b>orbit/venice</b> and asks the four questions a histogram cannot answer —
+      what the expression is, whether the eyes are open and on the camera, whether it reads
+      as a mirror selfie, what the setting and outfit are — and then, across the set, what
+      repeats. The original file never moves and no GPS goes with it. Every send is logged
+      below. Nothing here changes a score.</p>
+    <div id="read-state" class="banner"></div>
+    <div class="row">
+      <button class="btn gold" id="read-run">read this set</button>
+      <button class="btn" id="read-force">re-read</button>
+      <label class="dim">model <select id="read-model"><option value="">default</option></select></label>
+      <button class="btn sm" id="read-off">switch sending off</button>
+    </div>
+    <div id="read-out"></div>
+  </div>
+  <div class="panel">
+    <h2>what has left this box</h2>
+    <p class="note">Written before each request goes out, so a refused send is counted too.</p>
+    <div id="read-sent"></div>
+  </div>
+  <div class="panel">
+    <h2>the key</h2>
+    <p class="note">The read spends a Venice key filed under this box's address. It is held
+      by the venice module, encrypted at rest — wingman never stores it.</p>
+    <div class="row">
+      <input id="read-key" type="password" placeholder="Venice API key" style="min-width:280px">
+      <button class="btn" id="read-key-save">save</button>
+      <button class="btn sm" id="read-key-rm">forget</button>
+    </div>
+  </div>
+</section>
+
 <section id="mcp">
   <div class="panel">
     <h2>mcp</h2>
-    <p class="note">Twelve tools on <code>POST /mcp</code>, the same handlers the buttons on
+    <p class="note">Fourteen tools on <code>POST /mcp</code>, the same handlers the buttons on
       this page call. Point an agent at it and it can do everything here, including telling
       you what the set is missing.</p>
     <pre id="mcp-cfg"></pre>
@@ -296,7 +333,7 @@ const imgUrl = (pid, preset, w) => `${API}/img/${SET}/${pid}` + (preset ? `/${pr
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
-  ({audit: showAudit, render: showRenders, mcp: mcpTab}[b.dataset.tab] || (() => {}))();
+  ({audit: showAudit, render: showRenders, mcp: mcpTab, read: readTab}[b.dataset.tab] || (() => {}))();
 });
 document.querySelectorAll('#theme i').forEach(i => i.onclick = () => {
   document.documentElement.dataset.theme = i.dataset.t; localStorage.setItem('wingman.theme', i.dataset.t);
@@ -309,6 +346,11 @@ document.querySelectorAll('#theme i').forEach(i => i.onclick = () => {
 async function boot() {
   try { const h = await api('/health');
     $('#c-det').innerHTML = `<b>${esc(h.detector.name)}</b>`; $('#c-det').className = 'chip ' + (h.detector.ok ? 'hot' : 'warn');
+    const n = (h.read && h.read.sends && h.read.sends.count) || 0;
+    $('#c-sent').innerHTML = `<b>${n}</b>&nbsp;photos sent`;
+    $('#c-sent').className = 'chip ' + (n ? 'warn' : 'hot');
+    $('#c-sent').title = n ? 'READ has sent ' + n + ' photo(s) to venice — see the read tab'
+                           : 'nothing has ever left this box';
     PRESETS = h.presets ? Object.fromEntries(h.presets.map(p => [p, p])) : {};
   } catch (e) { status('api unreachable: ' + e.message, 'bad'); }
   try { const p = await api('/presets'); PRESETS = p.presets;
@@ -485,6 +527,91 @@ $('#x-run').onclick = async () => {
 };
 
 // ── mcp ──
+// ── read: the one tab that sends ──
+let VSTATE = null;
+
+async function readTab() {
+  const el = $('#read-state');
+  el.className = 'banner'; el.textContent = 'asking venice…';
+  try { VSTATE = await api('/venice'); } catch (e) { el.className = 'banner bad'; el.textContent = e.message; return; }
+  const v = VSTATE;
+  const why = !v.enabled ? 'sending is switched off' + (v.locked_by_env ? ' by WINGMAN_VENICE=off in the environment' : '')
+    : !v.reachable ? 'venice is not reachable at ' + v.url + (v.error ? ' — ' + v.error : '')
+    : !(v.has_key || v.paid_available) ? 'venice has no key to spend for ' + (v.address || 'this box') + ' — save one below'
+    : '';
+  el.className = 'banner' + (why ? ' bad' : '');
+  el.innerHTML = why ? esc('cannot read: ' + why)
+    : `ready · <b>${esc(v.model)}</b> via ${esc(v.url)} · ${v.sends.count} photo(s) sent from this box so far`;
+  $('#read-run').disabled = $('#read-force').disabled = !!why;
+  $('#read-off').textContent = v.enabled ? 'switch sending off' : 'switch sending on';
+  if (v.reachable && $('#read-model').options.length < 2) {
+    try { const m = await api('/venice/models');
+      $('#read-model').innerHTML = '<option value="">default — ' + esc(v.model) + '</option>' +
+        m.models.map(x => `<option value="${esc(x.id)}">${esc(x.id)}</option>`).join('');
+    } catch (e) {}
+  }
+  if (SET) showReads(await api('/read?set=' + SET).catch(() => null));
+}
+
+function showReads(r) {
+  if (!r) return;
+  const rows = r.photos || [];
+  $('#read-out').innerHTML = rows.length ? `<table><tr><th></th><th>photo</th><th>what it shows</th><th>flags</th></tr>` +
+    rows.map(a => `<tr><td><img src="${imgUrl(a.photo, null, 160)}"></td>
+      <td>${esc(a.name)}<div class="faint">${esc(a.model || '')}</div></td>
+      <td class="dim">${esc(a.expression)} · eyes ${esc(a.eyes)} · ${esc(a.eye_contact)} · ${esc(a.shot)}
+        <div class="faint">${esc(a.setting)}${a.outfit ? ' · ' + esc(a.outfit) : ''}</div>
+        <div>${esc(a.reads_as)}</div></td>
+      <td>${(a.flags || []).map(f => `<span class="issue ${f.severity}">${f.severity === 'bad' ? '■' : f.severity === 'warn' ? '▲' : '·'} ${esc(f.text)}</span>`).join('') || '<span class="faint">none</span>'}</td></tr>`).join('') +
+    '</table>' : '<p class="faint">nothing read yet.</p>';
+  if (r.summary) {
+    const su = r.summary;
+    $('#read-out').innerHTML += `<div class="panel" style="margin-top:14px"><h2>the set</h2>
+      <p class="dim">${esc(su.reads_as)}</p>
+      ${su.repetition && su.repetition.length ? '<p class="warn">repeats: ' + su.repetition.map(esc).join(' · ') + '</p>' : ''}
+      ${su.missing && su.missing.length ? '<p class="gold">missing: ' + su.missing.map(esc).join(' · ') + '</p>' : ''}
+      ${su.prompt_hooks && su.prompt_hooks.length ? '<table><tr><th>prompt</th><th>from which photo</th></tr>' +
+        su.prompt_hooks.map(h => `<tr><td class="gold">${esc(h.prompt)}</td><td class="dim">${esc(h.hook)}</td></tr>`).join('') + '</table>' : ''}</div>`;
+  }
+  const log = (r.sent && r.sent.log) || [];
+  $('#read-sent').innerHTML = log.length ? '<table><tr><th>when</th><th>photo</th><th>bytes</th><th>px</th><th>model</th><th>outcome</th></tr>' +
+    log.slice().reverse().map(x => `<tr><td class="faint">${new Date(x.time * 1000).toLocaleString()}</td><td>${esc(x.name)}</td>
+      <td>${(x.bytes / 1024).toFixed(0)} kB</td><td class="faint">${(x.px || []).join('×')}</td>
+      <td class="faint">${esc(x.model)}</td><td class="${x.outcome === 'read' ? 'hot' : 'warn'}">${esc(x.outcome)}</td></tr>`).join('') + '</table>'
+    : '<p class="faint">no photo from this set has ever left this box.</p>';
+}
+
+async function runRead(force) {
+  if (!SET) return status('pick a set first', 'bad');
+  status('reading ' + (META ? META.photos.length : '') + ' photo(s) — this sends them', '');
+  try { const r = await api('/read', {method: 'POST', body: {set: SET, force: force || undefined}});
+    showReads({...r, sent: r.sent});
+    status(`read ${r.photos.length} photo(s)` + (r.errors.length ? `, ${r.errors.length} failed` : ''), r.errors.length ? 'warn' : 'ok');
+    readTab();
+  } catch (e) { status(e.message, 'bad'); }
+}
+
+$('#read-run').onclick = () => runRead(false);
+$('#read-force').onclick = () => runRead(true);
+$('#read-off').onclick = async () => {
+  try { await api('/venice', {method: 'POST', body: {enabled: VSTATE && VSTATE.enabled ? '0' : '1'}}); readTab(); }
+  catch (e) { status(e.message, 'bad'); }
+};
+$('#read-model').onchange = async e => {
+  if (!e.target.value) return;
+  try { await api('/venice', {method: 'POST', body: {model: e.target.value}}); readTab(); }
+  catch (err) { status(err.message, 'bad'); }
+};
+$('#read-key-save').onclick = async () => {
+  const k = $('#read-key').value.trim(); if (!k) return;
+  try { await api('/venice/key', {method: 'POST', body: {key: k}}); $('#read-key').value = ''; status('key saved with venice', 'ok'); readTab(); }
+  catch (e) { status(e.message, 'bad'); }
+};
+$('#read-key-rm').onclick = async () => {
+  try { await api('/venice/key', {method: 'DELETE'}); status('key forgotten', 'ok'); readTab(); }
+  catch (e) { status(e.message, 'bad'); }
+};
+
 async function mcpTab() {
   $('#mcp-cfg').textContent = JSON.stringify({mcpServers: {wingman: {type: 'http', url: location.origin + API.replace(/\/_api$/, '') + '/mcp'}}}, null, 2);
   try { const t = await api('/tools');

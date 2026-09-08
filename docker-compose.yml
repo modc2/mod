@@ -1,15 +1,44 @@
+# The mod protocol sandbox.
+#
+#   docker compose up -d          # or: m docker/boot
+#   docker exec -it mod bash      # or: m docker/enter
+#
+# The tree is mounted, not baked, so edits on the host are live inside.
+# State (~/.mod) is deliberately NOT the host's: the container gets its own
+# keys and registry so a fleet started in here cannot reap the host's.
+# Set it to ${HOME}/.mod only if you actually want them to share identity.
 networks:
   default:
     external: true
     name: modnet
+
 services:
   mod:
     container_name: mod
-    image: mod
-    ports:
-    - 3000:3000
+    image: mod:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["idle"]
     restart: unless-stopped
-    shm_size: 100g
+    shm_size: 8g
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - MOD_DOCKER=1
+      - MOD_DIR=/root/mod
+      - MOD_STATE_SHARED=0
+    ports:
+      # The host already runs a gateway on :3000 — two caddies on one port is
+      # the split-brain that 404s the whole fleet, so the sandbox lands on 3010.
+      - "3010:3000"
+      - "3011:3001"
+      - "8010:8000"
+      # Band that `m docker/serve <mod>` allocates from for mods run inside.
+      - "50950-50969:50950-50969"
     volumes:
-    - ~/mod:/root/mod
-    - ~/.mod:/root/.mod
+      - "${HOME}/mod:/root/mod"
+      - "mod-state:/root/.mod"
+
+volumes:
+  mod-state:

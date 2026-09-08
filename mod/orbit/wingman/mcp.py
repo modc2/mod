@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""wingman mcp — twelve tools for turning a folder of photos into a profile.
+"""wingman mcp — fourteen tools for turning a folder of photos into a profile.
 
 Ordered the way the work goes: get photos in, audit them, ask for a lineup,
 render for an app, export. `wingman_lineup` is the one that matters; the rest
 exist so its choices can be inspected, argued with and reproduced.
+
+Thirteen of them never touch the network. `wingman_read` is the exception
+and says so in its own description.
 
 Self-contained JSON-RPC 2.0 on the standard library, no `mcp` package.
 
@@ -44,9 +47,16 @@ INSTRUCTIONS = (
     'outfit, setting. Say so when you relay a score. Faces are found by an '
     'ONNX detector (UltraFace) — when `detector` says skin-heuristic the boxes '
     'are guesses and the crops should be checked. Nothing is retouched: no '
-    'skin smoothing, no background replacement, no reshaping. Nothing leaves '
-    'the machine; a set is addressed by an unguessable id, which is the only '
-    'thing protecting it, so do not paste ids where they will be read.'
+    'skin smoothing, no background replacement, no reshaping. '
+    'Every tool above runs on this machine and sends nothing anywhere. '
+    'wingman_read is the exception and the only one: it sends a 768 px, '
+    'metadata-free copy of each photo to orbit/venice for the four things a '
+    'measurement cannot reach — expression, eyes, shot type, setting — plus '
+    'what the set repeats. Ask before you call it; its answers arrive as '
+    '`read`/`read_flags` with a `source`, they never move a score, and every '
+    'send is logged in the set\'s sent.json. '
+    'A set is addressed by an unguessable id, which is the only thing '
+    'protecting it, so do not paste ids where they will be read.'
 )
 
 
@@ -125,6 +135,24 @@ def _t_remove(a):
 
 def _t_delete(a):
     return E.delete_set(a['set'])
+
+
+def _t_read(a):
+    V = E.venice_module()
+    return V.read(a['set'], photo=a.get('photo'), model=a.get('model'),
+                  force=bool(a.get('force')),
+                  summary=a.get('summary', True) is not False,
+                  limit=a.get('limit'))
+
+
+def _t_venice(a):
+    V = E.venice_module()
+    if any(a.get(k) is not None for k in ('url', 'model', 'enabled')):
+        return V.configure(url=a.get('url'), model=a.get('model'),
+                           enabled=a.get('enabled'))
+    if a.get('models'):
+        return V.models()
+    return V.status()
 
 
 TOOLS = {
@@ -233,6 +261,38 @@ TOOLS = {
         'description': 'Delete a whole set — sources, renders, audits, zips.',
         'inputSchema': {'type': 'object', 'properties': {'set': _SET}, 'required': ['set']},
         'handler': _t_delete},
+    'wingman_read': {
+        'description': 'The half a measurement cannot reach: ask a vision model on '
+                       'orbit/venice what each photo actually shows — expression, '
+                       'whether the eyes are open and on the camera, mirror selfie or '
+                       'not, whether a stranger can tell which person is you, setting, '
+                       'outfit, what is cluttering the frame — plus, across the set, '
+                       'what repeats (same room, same shirt, nobody smiling) and Hinge '
+                       'prompt openings grounded in what the photos show. '
+                       'THIS IS THE ONE TOOL THAT SENDS A PHOTO OUT OF THIS BOX: a '
+                       '768 px re-encoded copy with all metadata gone, logged in the '
+                       'set\'s sent.json. Its findings are labelled `read`/`read_flags`, '
+                       'carry a `source`, and never change a measured score. Needs a '
+                       'Venice key on file (wingman_venice says whether there is one).',
+        'inputSchema': {'type': 'object', 'properties': {
+            'set': _SET, 'photo': _PHOTO,
+            'model': _str('vision model id (default qwen3-vl-235b-a22b)'),
+            'summary': _bool('also ask what the SET repeats and is missing (default true)'),
+            'limit': _num('read only the first N photos'),
+            'force': _bool('re-read even if cached')}, 'required': ['set']},
+        'handler': _t_read},
+    'wingman_venice': {
+        'description': 'The state of the read path: is orbit/venice reachable, which '
+                       'address it sees this box as, whether there is a key to spend, '
+                       'which model reads a photo, and how many photos have been sent. '
+                       'Pass url=/model=/enabled= to change it — enabled=0 switches '
+                       'sending off entirely. models=true lists the vision models.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'url': _str('the venice gateway (default http://localhost:9000/api/venice)'),
+            'model': _str('the model a read uses'),
+            'enabled': _bool('false switches every read off'),
+            'models': _bool('list vision-capable models instead')}},
+        'handler': _t_venice},
 }
 
 

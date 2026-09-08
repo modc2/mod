@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>polaris · mod</title>
+<style>
+  :root {
+    --bg:#07090d; --panel:#0d1117; --line:#1c2430; --line2:#2a3646;
+    --ink:#e6edf3; --dim:#8b98a8; --faint:#5c6675;
+    --go:#3fb950; --warn:#d29922; --stop:#f85149; --star:#7d95ff;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--ink);
+    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  a { color:var(--star); }
+  header {
+    display:flex; align-items:baseline; gap:14px; flex-wrap:wrap;
+    padding:14px 18px; border-bottom:1px solid var(--line); background:var(--panel);
+    position:sticky; top:0; z-index:5;
+  }
+  h1 { margin:0; font-size:15px; letter-spacing:.22em; font-weight:600; }
+  h1 span { color:var(--star); }
+  .sub { color:var(--faint); font-size:11px; }
+  .spacer { flex:1; }
+  .stat { color:var(--dim); font-size:11px; white-space:nowrap; }
+  .stat b { color:var(--ink); font-weight:600; }
+  .stat.hot b { color:var(--warn); }
+  nav { display:flex; gap:2px; padding:0 12px; border-bottom:1px solid var(--line);
+        background:var(--panel); overflow-x:auto; }
+  nav button {
+    background:none; border:0; border-bottom:2px solid transparent; color:var(--dim);
+    font:inherit; letter-spacing:.16em; padding:10px 14px; cursor:pointer; white-space:nowrap;
+  }
+  nav button:hover { color:var(--ink); }
+  nav button[aria-selected="true"] { color:var(--ink); border-bottom-color:var(--star); }
+  main { padding:18px; max-width:1180px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+  input, select, button.act {
+    background:var(--bg); border:1px solid var(--line2); color:var(--ink);
+    font:inherit; padding:6px 9px; border-radius:3px;
+  }
+  input::placeholder { color:var(--faint); }
+  button.act { cursor:pointer; letter-spacing:.1em; }
+  button.act:hover { border-color:var(--star); color:var(--star); }
+  button.act.danger:hover { border-color:var(--stop); color:var(--stop); }
+  button.act:disabled { opacity:.4; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; }
+  th {
+    text-align:left; font-weight:500; color:var(--faint); font-size:11px;
+    letter-spacing:.1em; padding:6px 10px; border-bottom:1px solid var(--line);
+  }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr:hover td { background:#0e141c; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .muted { color:var(--dim); }
+  .tag {
+    display:inline-block; padding:1px 7px; border-radius:9px; font-size:11px;
+    border:1px solid var(--line2); color:var(--dim);
+  }
+  .tag.go { color:var(--go); border-color:#1c3a24; }
+  .tag.warn { color:var(--warn); border-color:#3d3418; }
+  .tag.stop { color:var(--stop); border-color:#43221f; }
+  .card {
+    border:1px solid var(--line); border-radius:4px; background:var(--panel);
+    padding:14px 16px; margin-bottom:12px;
+  }
+  .card h2 { margin:0 0 10px; font-size:12px; letter-spacing:.18em; color:var(--dim); font-weight:500; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; }
+  .kv { color:var(--faint); font-size:11px; letter-spacing:.08em; }
+  .kv b { display:block; color:var(--ink); font-size:16px; letter-spacing:0; font-weight:600; margin-top:3px; }
+  .note { color:var(--faint); font-size:11px; margin:10px 0 0; }
+  .err {
+    border:1px solid #43221f; background:#180d0d; color:#ff9d95;
+    padding:9px 12px; border-radius:3px; margin-bottom:12px; white-space:pre-wrap;
+  }
+  pre { background:#05070a; border:1px solid var(--line); border-radius:3px;
+        padding:11px; overflow:auto; max-height:420px; color:var(--dim); margin:0; }
+  code { color:var(--star); }
+  .empty { color:var(--faint); padding:26px 0; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>✦</span> POLARIS</h1>
+  <span class="sub">polaris.computer · via mod</span>
+  <span class="spacer"></span>
+  <span class="stat" id="s-balance">balance —</span>
+  <span class="stat" id="s-burn">burn —</span>
+  <span class="stat" id="s-runway">runway —</span>
+  <button class="act" id="refresh">REFRESH</button>
+</header>
+
+<nav id="tabs">
+  <button data-tab="catalog" aria-selected="true">CATALOG</button>
+  <button data-tab="running">RUNNING</button>
+  <button data-tab="deploys">DEPLOYMENTS</button>
+  <button data-tab="models">MODELS</button>
+  <button data-tab="account">ACCOUNT</button>
+</nav>
+
+<main>
+  <div id="err" class="err" hidden></div>
+  <div id="view"></div>
+</main>
+
+<script>
+// The console talks to its own origin: /polaris/_api/… behind the gateway,
+// /_api/… when the module is served bare. Both are stripped by api.py.
+const ROOT = location.pathname.replace(/\/+$/, '');
+const API = (ROOT.endsWith('/polaris') ? ROOT : '') + '/_api';
+// Set by api.py only for a request that proved it was the operator's.
+const TOKEN = window.__POLARIS_TOKEN || localStorage.getItem('polaris.token') || '';
+
+const $ = (s, r = document) => r.querySelector(s);
+const view = $('#view'), errBox = $('#err');
+let tab = 'catalog', state = {};
+
+const money = v => v == null ? '—' : '$' + Number(v).toFixed(Number(v) < 1 ? 3 : 2);
+// Token prices are tiny; per-million is the unit anyone actually compares in.
+const perM = (v, kind) => v == null
+  ? (kind === 'routed' ? '<span class="tag">routed</span>' : '—')
+  : '$' + (v * 1e6).toFixed(2);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function call(path, opts = {}) {
+  const headers = { 'content-type': 'application/json' };
+  if (TOKEN) headers.authorization = 'Bearer ' + TOKEN;
+  const res = await fetch(API + path, { ...opts, headers });
+  const body = await res.json().catch(() => ({ error: res.statusText }));
+  if (!res.ok) throw new Error([body.error, body.hint].filter(Boolean).join(' — '));
+  return body;
+}
+
+function fail(e) {
+  errBox.hidden = false;
+  errBox.textContent = e.message || String(e);
+}
+function clear() { errBox.hidden = true; }
+
+function statusTag(s) {
+  const v = (s || '').toLowerCase();
+  const cls = ['running', 'active'].includes(v) ? 'go'
+    : ['provisioning', 'pending', 'deploying', 'starting', 'low_balance'].includes(v) ? 'warn'
+    : ['failed', 'terminated', 'restricted', 'error'].includes(v) ? 'stop' : '';
+  return `<span class="tag ${cls}">${esc(s || 'unknown')}</span>`;
+}
+
+// ── header ──
+
+async function header() {
+  try {
+    const s = await call('/status');
+    state.status = s;
+    const bal = s.credits && s.credits.balance_usd;
+    $('#s-balance').innerHTML = `balance <b>${money(bal)}</b> ${
+      s.credits && s.credits.status ? statusTag(s.credits.status) : ''}`;
+    $('#s-burn').innerHTML = `burn <b>${money(s.burn_usd_hr)}</b>/hr`;
+    $('#s-burn').className = 'stat' + (s.burn_usd_hr ? ' hot' : '');
+    $('#s-runway').innerHTML = s.hours_of_runway != null
+      ? `runway <b>${s.hours_of_runway}h</b>` : 'runway <b>—</b>';
+  } catch (e) {
+    $('#s-balance').innerHTML = `<span class="muted">${esc(e.message).slice(0, 90)}</span>`;
+  }
+}
+
+// ── tabs ──
+
+const TABS = { catalog, running, deploys, models, account };
+
+async function render() {
+  clear();
+  view.innerHTML = '<div class="empty">loading…</div>';
+  try { await TABS[tab](); } catch (e) { view.innerHTML = ''; fail(e); }
+}
+
+async function catalog() {
+  const q = state.cat || { kind: '', max: '', gpu: '' };
+  const p = new URLSearchParams({ available_only: '1', limit: '60' });
+  if (q.kind) p.set('kind', q.kind);
+  if (q.max) p.set('max_usd_hr', q.max);
+  if (q.gpu) p.set('gpu', q.gpu);
+  const d = await call('/gpus?' + p);
+  view.innerHTML = `
+    <div class="bar">
+      <input id="f-gpu" placeholder="name contains…" value="${esc(q.gpu)}" size="16">
+      <select id="f-kind">
+        <option value="">gpu + cpu</option>
+        <option value="gpu"${q.kind === 'gpu' ? ' selected' : ''}>gpu only</option>
+        <option value="cpu"${q.kind === 'cpu' ? ' selected' : ''}>cpu only</option>
+      </select>
+      <input id="f-max" placeholder="max $/hr" value="${esc(q.max)}" size="8">
+      <button class="act" id="f-go">FILTER</button>
+      <span class="muted">${d.count} available</span>
+    </div>
+    ${d.count ? `<table><thead><tr>
+      <th>TYPE</th><th>ARCH</th><th class="num">VRAM</th>
+      <th class="num">SPOT $/HR</th><th class="num">ON-DEMAND</th><th></th>
+    </tr></thead><tbody>${d.gpus.map(g => `<tr>
+      <td>${esc(g.name)}</td>
+      <td class="muted">${esc(g.arch || (g.is_cpu ? 'cpu' : ''))}</td>
+      <td class="num muted">${g.is_cpu ? esc(g.memory || '') : (g.vram_gb || 0) + 'G'}</td>
+      <td class="num">${money(g.usd_hr_spot)}</td>
+      <td class="num muted">${money(g.usd_hr_on_demand)}</td>
+      <td class="num"><button class="act" data-rent="${esc(g.gpu_type)}">RENT</button></td>
+    </tr>`).join('')}</tbody></table>`
+      : '<div class="empty">nothing available matching that</div>'}
+    <p class="note">Prices are per hour, billed per second. Renting spends real
+    credits — you are shown the quote and asked to confirm before anything runs.</p>`;
+
+  $('#f-go').onclick = () => {
+    state.cat = { gpu: $('#f-gpu').value.trim(), kind: $('#f-kind').value,
+                  max: $('#f-max').value.trim() };
+    render();
+  };
+  view.querySelectorAll('[data-rent]').forEach(b => b.onclick = () => rent(b.dataset.rent));
+}
+
+async function rent(gpuType) {
+  clear();
+  let q;
+  try {
+    q = await call('/quote?' + new URLSearchParams({ gpu_type: gpuType, hours: '1' }));
+  } catch (e) { return fail(e); }
+  const name = prompt(
+    `${q.name}\n${money(q.usd_hr)}/hr — about ${money(q.estimate_usd)} for the first hour.\n` +
+    `Billing runs per second until you STOP it, not for one hour.\n\n` +
+    `Name this instance to go ahead (Cancel to stop):`, 'mod');
+  if (!name) return;
+  try {
+    const r = await call('/rent', { method: 'POST', body: JSON.stringify(
+      { gpu_type: gpuType, name, hours: 1, confirm: true }) });
+    state.tab = 'running';
+    setTab('running');
+    await header();
+    alert(r.message || 'provisioning — it takes 1-3 minutes to get an address');
+  } catch (e) { fail(e); }
+}
+
+async function running() {
+  const d = await call('/instances');
+  view.innerHTML = `
+    <div class="bar">
+      <span class="muted">${d.count} instance${d.count === 1 ? '' : 's'}</span>
+      <span class="muted">·</span>
+      <span class="muted">burning ${money(d.burn_usd_hr)}/hr</span>
+    </div>
+    ${d.count ? `<table><thead><tr>
+      <th>NAME</th><th>TYPE</th><th>STATUS</th><th>ACCESS</th>
+      <th class="num">$/HR</th><th></th>
+    </tr></thead><tbody>${d.instances.map(i => `<tr>
+      <td>${esc(i.name || i.id)}<div class="kv">${esc(i.id || '')}</div></td>
+      <td class="muted">${esc(i.gpu_type || '')}</td>
+      <td>${statusTag(i.status)}</td>
+      <td class="muted">${i.ssh ? `<code>${esc(i.ssh)}</code>` : '<span class="muted">no address yet</span>'}
+        ${i.access_url ? `<div><a href="${esc(i.access_url)}" target="_blank" rel="noopener">terminal ↗</a></div>` : ''}</td>
+      <td class="num">${money(i.usd_hr)}</td>
+      <td class="num"><button class="act danger" data-stop="${esc(i.id)}"
+        data-name="${esc(i.name || i.id)}">STOP</button></td>
+    </tr>`).join('')}</tbody></table>`
+      : `<div class="empty">nothing running — nothing billing</div>`}
+    <p class="note">STOP terminates the instance. That is what ends the billing;
+    anything on the box that was not saved elsewhere is lost.</p>`;
+
+  view.querySelectorAll('[data-stop]').forEach(b => b.onclick = async () => {
+    if (!confirm(`Terminate ${b.dataset.name}?\n\nThis ends the billing and destroys the box.`)) return;
+    b.disabled = true;
+    try {
+      await call('/stop', { method: 'POST', body: JSON.stringify({ instance_id: b.dataset.stop }) });
+      await render(); await header();
+    } catch (e) { b.disabled = false; fail(e); }
+  });
+}
+
+async function deploys() {
+  const d = await call('/deployments');
+  view.innerHTML = `
+    <div class="bar"><span class="muted">${d.count} deployment${d.count === 1 ? '' : 's'},
+      ${d.running} running</span></div>
+    ${d.count ? `<table><thead><tr>
+      <th>NAME</th><th>TEMPLATE</th><th>STATUS</th><th>ENDPOINT</th>
+      <th>CREATED</th><th></th>
+    </tr></thead><tbody>${d.deployments.map(x => `<tr>
+      <td>${esc(x.name || x.id)}<div class="kv">${esc(x.type || '')}</div></td>
+      <td class="muted">${esc(x.template || '')}</td>
+      <td>${statusTag(x.status)}</td>
+      <td class="muted">${x.endpoint
+        ? (String(x.endpoint).startsWith('http')
+          ? `<a href="${esc(x.endpoint)}" target="_blank" rel="noopener">open ↗</a>`
+          : `<code>${esc(x.endpoint)}</code>`)
+        : '—'}</td>
+      <td class="muted">${esc((x.created || '').slice(0, 10))}</td>
+      <td class="num"><button class="act" data-logs="${esc(x.id)}">LOGS</button></td>
+    </tr>`).join('')}</tbody></table><div id="logbox"></div>`
+      : '<div class="empty">no deployments</div>'}`;
+
+  view.querySelectorAll('[data-logs]').forEach(b => b.onclick = async () => {
+    const box = $('#logbox');
+    box.innerHTML = '<div class="card"><h2>LOGS</h2><pre>loading…</pre></div>';
+    try {
+      const l = await call('/logs?' + new URLSearchParams({ deployment_id: b.dataset.logs, tail: '200' }));
+      box.innerHTML = `<div class="card"><h2>LOGS · ${esc(b.dataset.logs)}</h2>
+        <pre>${esc(l.logs || '(empty)')}</pre></div>`;
+    } catch (e) { box.innerHTML = ''; fail(e); }
+  });
+}
+
+async function models() {
+  const q = state.mod || { q: '', provider: '' };
+  const p = new URLSearchParams({ limit: '50', sort: 'price' });
+  if (q.q) p.set('q', q.q);
+  if (q.provider) p.set('provider', q.provider);
+  const d = await call('/models?' + p);
+  view.innerHTML = `
+    <div class="bar">
+      <input id="m-q" placeholder="model contains…" value="${esc(q.q)}" size="18">
+      <select id="m-p"><option value="">every provider</option>
+        ${d.providers.map(pv => `<option value="${esc(pv)}"${pv === q.provider ? ' selected' : ''}>${esc(pv)}</option>`).join('')}
+      </select>
+      <button class="act" id="m-go">FILTER</button>
+      <span class="muted">${d.matched} of ${d.total} models</span>
+    </div>
+    <table><thead><tr>
+      <th>MODEL</th><th>PROVIDER</th><th class="num">CONTEXT</th>
+      <th class="num">$/M IN</th><th class="num">$/M OUT</th>
+    </tr></thead><tbody>${d.models.map(m => `<tr>
+      <td>${esc(m.name || m.id)}<div class="kv">${esc(m.id)}</div></td>
+      <td class="muted">${esc(m.provider || '')}</td>
+      <td class="num muted">${m.context ? (m.context / 1000).toFixed(0) + 'k' : '—'}</td>
+      <td class="num">${perM(m.usd_per_token_in, m.pricing)}</td>
+      <td class="num">${perM(m.usd_per_token_out, m.pricing)}</td>
+    </tr>`).join('')}</tbody></table>
+    <p class="note">Polaris's inference catalog — prices shown per million tokens.
+    A router model prices at request time, so it is shown as <span class="tag">routed</span>
+    rather than a number. This is the model list, not a chat endpoint.</p>`;
+
+  $('#m-go').onclick = () => {
+    state.mod = { q: $('#m-q').value.trim(), provider: $('#m-p').value };
+    render();
+  };
+}
+
+async function account() {
+  const [acct, credits, usage, tpl] = await Promise.all([
+    call('/account'), call('/credits'), call('/usage'), call('/templates')]);
+  const pct = acct.storage_bytes_limit
+    ? Math.round(100 * (acct.storage_bytes_used || 0) / acct.storage_bytes_limit) : 0;
+  view.innerHTML = `
+    <div class="card"><h2>ACCOUNT</h2><div class="grid">
+      <div class="kv">WHO<b>${esc(acct.name || acct.handle || '—')}</b></div>
+      <div class="kv">TIER<b>${esc(acct.tier || '—')}</b></div>
+      <div class="kv">BALANCE<b>${money(credits.balance_usd)}</b></div>
+      <div class="kv">STATUS<b>${statusTag(credits.status)}</b></div>
+      <div class="kv">COMPUTE HOURS<b>${acct.compute_hours_used ?? '—'}</b></div>
+      <div class="kv">DEPLOYMENT CAP<b>${acct.max_deployments ?? '—'}</b></div>
+      <div class="kv">STORAGE<b>${pct}%</b></div>
+      <div class="kv">API REQUESTS<b>${(usage.requests && usage.requests.total_requests) ?? '—'}</b></div>
+    </div></div>
+    <div class="card"><h2>TEMPLATES · ${tpl.count} ONE-CLICK IMAGES</h2>
+      <table><thead><tr><th>ID</th><th>NAME</th><th>CATEGORY</th><th class="num">PORT</th></tr></thead>
+      <tbody>${tpl.templates.map(t => `<tr>
+        <td><code>${esc(t.id)}</code></td><td>${esc(t.name)}</td>
+        <td class="muted">${esc(t.category || '')}</td>
+        <td class="num muted">${esc(t.port ?? '')}</td>
+      </tr>`).join('')}</tbody></table>
+    </div>
+    <div class="card"><h2>CREDIT LEDGER</h2><pre id="ledger">loading…</pre></div>`;
+  try {
+    const h = await call('/history?limit=12');
+    $('#ledger').textContent = (h.entries || []).map(e =>
+      `${(e.created_at || '').slice(0, 19)}  ${String(e.entry_type || '').padEnd(7)} ` +
+      `${money(e.amount_usd).padStart(8)}  ${e.source_type || ''}`).join('\n') || '(empty)';
+  } catch (e) { $('#ledger').textContent = e.message; }
+}
+
+// ── wiring ──
+
+function setTab(name, push = true) {
+  if (!TABS[name]) name = 'catalog';
+  tab = name;
+  document.querySelectorAll('#tabs button').forEach(b =>
+    b.setAttribute('aria-selected', String(b.dataset.tab === name)));
+  // The hash makes a view linkable — "look at #running" is a URL, not a
+  // sentence — and survives the reload after a rent or a stop.
+  if (push && location.hash.slice(1) !== name) location.hash = name;
+  render();
+}
+
+document.querySelectorAll('#tabs button').forEach(b =>
+  b.onclick = () => setTab(b.dataset.tab));
+window.addEventListener('hashchange', () => setTab(location.hash.slice(1), false));
+$('#refresh').onclick = () => { render(); header(); };
+
+header();
+setTab(location.hash.slice(1) || 'catalog', false);
+setInterval(header, 30000);
+</script>
+</body>
+</html>

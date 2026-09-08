@@ -11,7 +11,7 @@ m wingman/export <set> preset=tinder        # the lineup zipped in slot order + 
 m wingman/serve                             # console, API and MCP on :50830
 ```
 
-API `:50830` (`/api/wingman`) · console `/wingman` · MCP `POST /mcp` (12 tools)
+API `:50830` (`/api/wingman`) · console `/wingman` · MCP `POST /mcp` (14 tools)
 
 ## What it does
 
@@ -108,9 +108,53 @@ anything about you, whether it looks like you. No number here claims to know
 these, and `audit` returns `not_measured` saying so. A high score means the
 photo is technically sound; it does not mean it is a good photo of you.
 
+## The read — the one verb that sends
+
+The list above is not a small list. "Every photo is the same grey hoodie in the
+same kitchen and nobody in any of them is smiling" is a worse profile than a
+soft focus, and no histogram will ever find it. So there is one verb, and only
+one, that asks something that can see.
+
+```
+m wingman/venice                            # is the read path live, is there a key
+m wingman/venice_key <your-venice-key>      # BYOK, filed with the venice module
+m wingman/read <set>                        # ← this sends
+m wingman/venice enabled=0                  # off; WINGMAN_VENICE=off also wins
+```
+
+`read` shows each photo to a vision model on [orbit/venice](../venice) and asks
+for the five things a measurement cannot reach, then asks one more question
+about the set as a whole:
+
+| per photo | across the set |
+|---|---|
+| expression · eyes open/closed/sunglasses · looking at the camera or not | what repeats — same setting, same outfit, same shot type, nobody smiling |
+| shot type — selfie, mirror selfie, taken by someone, timer | what a new photo should add |
+| whether a stranger can tell which person is you | Hinge prompt openings, grounded only in what these photos actually show |
+| setting, outfit, activity, what is cluttering the frame | |
+
+The terms it runs on, which are the point:
+
+* **Nothing goes out unless you call `read`.** `audit`, `lineup`, `render` and
+  `export` never open a socket — they read what `read` already left on disk.
+  There is a test that breaks the transport and asserts they still work.
+* **The original never moves.** What leaves is re-encoded from decoded pixels
+  at 768 px as a JPEG: no EXIF, so no GPS, no ICC, no thumbnail, no maker note.
+* **There is a receipt**, written *before* the request, so a send that venice
+  refuses is still counted. `sets/<id>/sent.json`, and the header of the
+  console says how many photos have ever left.
+* **The score does not move.** Findings arrive as `read_flags`, each with
+  `source: read` and no `cost`. `score` stays exactly `100 − Σ issue.cost`.
+* Identity is a wallet-signed mod-protocol token; venice spends **your** Venice
+  key, filed under this box's address and held encrypted by venice, not here.
+
+Everything it returns is a model's opinion and is labelled as one — `said_by`
+is on every read. Treat "expression: neutral" as a second opinion worth
+checking, not as a measurement.
+
 ## Privacy
 
-Photos never leave this machine. A set is addressed by a 16-hex unguessable id
+Apart from `read` above, photos never leave this machine. A set is addressed by a 16-hex unguessable id
 and that id is the only thing protecting it — the URL is the key. `GET /sets`
 (the list) answers only loopback callers or requests carrying
 `x-wingman-token` from `~/.mod/wingman/token`; the console picks the token up
@@ -119,10 +163,12 @@ port off the network entirely, or put it behind the gateway's auth.
 
 ## Console
 
-`/wingman` — six tabs: **photos** (drop a folder, see face boxes), **audit**
+`/wingman` — seven tabs: **photos** (drop a folder, see face boxes), **audit**
 (every issue, with its cost), **lineup** (the slots, the left-out, the gaps),
 **render** (source next to the result, the crop and the polish spelled out),
-**export** (the zip), **mcp** (the tools and the guide).
+**export** (the zip), **read** (the vision pass, the send log, and the key),
+**mcp** (the tools and the guide). The chip in the header counts how many
+photos have ever left the box, and reads `0 photos sent` until one does.
 
 ## MCP
 
@@ -132,7 +178,11 @@ port off the network entirely, or put it behind the gateway's auth.
 
 `wingman_health` · `wingman_guide` · `wingman_sets` · `wingman_new` ·
 `wingman_add` · `wingman_audit` · `wingman_faces` · `wingman_lineup` ·
-`wingman_render` · `wingman_export` · `wingman_remove` · `wingman_delete`
+`wingman_render` · `wingman_export` · `wingman_remove` · `wingman_delete` ·
+`wingman_read` · `wingman_venice`
+
+Thirteen of the fourteen run entirely on this box. `wingman_read` is the one
+that sends, and its description says so in the first line an agent reads.
 
 ## State
 
@@ -140,8 +190,12 @@ port off the network entirely, or put it behind the gateway's auth.
 ~/.mod/wingman/
   models/version-RFB-320.onnx     the face detector, fetched once
   token                           owner token for listing sets remotely
+  venice.json                     read path: gateway url, model, on/off
   sets/<id>/set.json              photos and their intake metadata
   sets/<id>/audit.json            cached measurements (version-stamped)
+  sets/<id>/read.json             what a vision model said, if you asked
+  sets/<id>/read-summary.json     what the set repeats, and prompt hooks
+  sets/<id>/sent.json             every photo that has left, and its outcome
   sets/<id>/src/                  originals, untouched
   sets/<id>/out/<photo>-<preset>.jpg (+ .json report)
   sets/<id>/thumb/                console thumbnails

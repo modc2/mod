@@ -11,12 +11,20 @@ does the part a program can do and says so about the part it cannot.
     m wingman/lineup <set> n=6                 # the best six, in order, with gaps
     m wingman/render <set> preset=hinge        # face-aware crops, polished, EXIF gone
     m wingman/export <set> preset=tinder       # the lineup zipped in slot order
+    m wingman/read <set>                       # the part a measurement cannot reach
     m wingman/serve                            # console, API and MCP on :50830
 
 Measured, not felt: faces are found by a detector (UltraFace on onnxruntime),
-sharpness is the Laplacian variance, exposure is the histogram. Expression,
-outfit, setting — not scored, because nothing here can see them. No skin is
-smoothed, no background is replaced, and nothing leaves this box.
+sharpness is the Laplacian variance, exposure is the histogram. No skin is
+smoothed, no background is replaced, and every verb above but one runs here
+and sends nothing anywhere.
+
+The one is `read`. Expression, eye contact, outfit, setting and whether every
+photo is the same shirt in the same room are real weaknesses that no histogram
+reaches, so `read` sends a 768 px, metadata-free copy of each photo to a vision
+model on orbit/venice and brings back what it saw. It is off unless you call
+it, it is logged, and its answers are kept in their own field and never move a
+measured score.
 """
 
 import json
@@ -37,8 +45,10 @@ class Mod:
     Audit each photo (faces, sharpness, exposure, duplicates, GPS in EXIF),
     pick the best N in the order they should go up with the gaps named, then
     crop face-aware to each app's card ratio, polish gently and strip every
-    byte of metadata. Twelve MCP tools, a REST API and a console on one port.
-    Local only; nothing retouched; nothing uploaded.
+    byte of metadata. Fourteen MCP tools, a REST API and a console on one port.
+    Nothing is retouched. Everything is measured here; `read` is the one verb
+    that sends a photo out, to orbit/venice, for the things a measurement
+    cannot reach — expression, eyes, setting, what the set repeats.
     """
 
     def __init__(self, port=None, **kwargs):
@@ -148,6 +158,33 @@ class Mod:
         import engine
         return engine.export(set, preset=preset, n=n, zoom=zoom, polish_mode=polish,
                              quality=quality, force=force)
+
+    # ── the read: the one verb that sends ────────────────────────
+
+    def read(self, set, photo=None, model=None, force=False, summary=True, limit=None):
+        """What the measurements cannot see — expression, eyes, shot type, setting,
+        outfit, what the set repeats — from a vision model on orbit/venice.
+        This sends a 768 px, metadata-free copy of each photo out of this box and
+        logs every send in the set's sent.json. Nothing else here sends anything."""
+        import engine
+        return engine.venice_module().read(set, photo=photo, model=model, force=force,
+                           summary=summary, limit=limit)
+
+    def venice(self, url=None, model=None, enabled=None, models=False):
+        """The read path: reachable, which address, is there a key, which model,
+        how many photos have gone. Pass url=/model=/enabled= to change it."""
+        import engine
+        V = engine.venice_module()
+        if any(v is not None for v in (url, model, enabled)):
+            return V.configure(url=url, model=model, enabled=enabled)
+        return V.models() if models else V.status()
+
+    def venice_key(self, key=None, forget=False):
+        """File your own Venice key (BYOK) under this box's address, or forget it.
+        The key is stored by the venice module, encrypted at rest — not here."""
+        import engine
+        V = engine.venice_module()
+        return V.forget_key() if forget or not key else V.set_key(key)
 
     # ── surfaces ─────────────────────────────────────────────────
 

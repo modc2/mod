@@ -17,7 +17,10 @@ The pipeline:
     render  → face-aware crop to an app's card ratio, gentle polish, EXIF gone
     export  → a zip in slot order, with the report that justifies it
 
-No face is retouched. No background is replaced. Nothing leaves this box.
+No face is retouched. No background is replaced. Nothing in this file opens a
+socket except the one-time fetch of the face model — the vision pass that does
+send a photo lives in `venice.py`, behind its own verb, and everything here
+only ever reads the cache it leaves behind.
 """
 
 import base64
@@ -28,6 +31,7 @@ import math
 import os
 import secrets
 import shutil
+import sys
 import time
 import urllib.request
 import zipfile
@@ -99,7 +103,10 @@ GUIDE = {
     'privacy': 'phone photos carry GPS coordinates in EXIF; every render here '
                'strips all metadata',
     'not_measured': 'expression, eye contact, outfit, setting, whether it '
-                    'looks like you — no number here claims to know these',
+                    'looks like you — no number here claims to know these. '
+                    '`read` asks a vision model on orbit/venice about the '
+                    'first four; its answers are labelled and never enter a '
+                    'score, and it is the one verb that sends a photo out',
 }
 
 
@@ -741,24 +748,65 @@ def _verdict(a):
     return 'usable'
 
 
+def venice_module():
+    """Our own `venice.py`, resolved by path.
+
+    `import venice` would work today and break the day anything puts another
+    `venice` earlier on sys.path — which, on a box running a module actually
+    called venice, is not a hypothetical. Load it by file and cache it under a
+    name nothing else will claim."""
+    mod = sys.modules.get('wingman.venice')
+    if mod is not None:
+        return mod
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'venice.py')
+    spec = importlib.util.spec_from_file_location('wingman.venice', path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules['wingman.venice'] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        sys.modules.pop('wingman.venice', None)
+        raise
+    return mod
+
+
+def _read_cache(set_id, rows):
+    """Fold in whatever `read` already put on disk for these photos. Cache
+    only — auditing never opens a socket, so the promise that nothing leaves
+    the box holds for every verb except `read` itself."""
+    try:
+        return venice_module().attach(set_id, rows)
+    except Exception:
+        return rows, None
+
+
 def audit(set_ref, photo=None, force=False):
     meta = get_set(set_ref)
     photos = [_photo(meta, photo)] if photo else meta['photos']
     rows = [audit_photo(meta, p, force=force) for p in photos]
+    rows, read_info = _read_cache(meta['id'], rows)
     rows_sorted = sorted(rows, key=lambda a: -a['score'])
     roles = {}
     for a in rows:
         roles[a['role']] = roles.get(a['role']) or 0
         roles[a['role']] += 1
-    return {
+    keep = ('photo', 'name', 'w', 'h', 'role', 'score', 'lead_ok', 'verdict',
+            'issues', 'face_count', 'face_fraction', 'sharpness', 'luminance',
+            'faces', 'detector')
+    out = {
         'set': meta['id'], 'name': meta['name'], 'detector': detector()['name'],
-        'photos': [{k: a[k] for k in ('photo', 'name', 'w', 'h', 'role', 'score',
-                                     'lead_ok', 'verdict', 'issues', 'face_count',
-                                     'face_fraction', 'sharpness', 'luminance',
-                                     'faces', 'detector')} for a in rows_sorted],
+        'photos': [{**{k: a[k] for k in keep},
+                    **({'read': a['read'], 'read_flags': a['read_flags']}
+                       if 'read' in a else {})} for a in rows_sorted],
         'roles': roles, 'lead_candidates': sum(1 for a in rows if a['lead_ok']),
         'not_measured': GUIDE['not_measured'],
     }
+    if read_info:
+        out['read'] = dict(read_info, note='`read` fields come from a language model '
+                           'that was shown a copy of the photo, not from a '
+                           'measurement; no score above was changed by them')
+    return out
 
 
 # ── lineup ───────────────────────────────────────────────────────────────
@@ -860,6 +908,10 @@ def lineup(set_ref, n=6, dup_bits=10, min_score=35, allow_group=True, force=Fals
     if len(slots) < min(n, 4):
         gaps.append(f'only {len(slots)} usable photos for {n} slots — the set needs '
                     'more raw material, not more editing')
+    try:                    # what a read already on disk says the set repeats
+        gaps.extend(venice_module().gaps(meta['id'], [s['photo'] for s in slots]))
+    except Exception:
+        pass
     return {'set': meta['id'], 'name': meta['name'], 'n': n, 'slots': slots,
             'left_out': left, 'gaps': gaps, 'detector': detector()['name'],
             'rule': 'lead = sharp solo face 12-55% of frame, sharp and lit; then portrait, full, '
@@ -1143,10 +1195,19 @@ def health():
     except Exception:
         cms = False
     _ensure()
+    try:                                   # config + receipts only, no network
+        V = venice_module()
+        read = dict(V.config(), sends=V.sends())
+    except Exception as e:
+        read = {'enabled': False, 'error': str(e)}
     return {'ok': True, 'pillow': PIL.__version__, 'numpy': np.__version__,
             'onnxruntime': ort_v, 'heif': HEIF, 'icc': cms, 'detector': detector(),
             'state': STATE_DIR, 'sets': len(os.listdir(SETS_DIR)),
             'presets': list(PRESETS), 'limits': {'max_bytes': MAX_BYTES,
                                                  'max_photos': MAX_PHOTOS},
-            'privacy': 'photos never leave this box; renders carry no metadata; '
-                       'a set is reachable only by its unguessable id'}
+            'read': read,
+            'privacy': 'measuring, cropping and exporting happen here and only '
+                       'here; renders carry no metadata; a set is reachable only '
+                       'by its unguessable id. `read` is the one verb that sends '
+                       f'a photo out — {read.get("sends", {}).get("count", 0)} have '
+                       'gone so far, each one logged in the set\'s sent.json'}

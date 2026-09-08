@@ -135,6 +135,35 @@ export default function CopyTrading({
   // score is normally a preset chip and the expression only matters when you
   // are writing one.
   const [showScore, setShowScore] = useState(false);
+  // The formula box, so a VARIABLES chip lands where the caret is. Appending
+  // blindly is worse than useless: "100 * pnl / volume" + "sharpe" is two
+  // expressions with no operator between them, which compiles to nothing and
+  // blanks the column the user was reading.
+  const formulaRef = useRef<HTMLInputElement | null>(null);
+  const insertVar = useCallback((v: string) => {
+    const el = formulaRef.current;
+    setFormula((f) => {
+      const at = el && el.selectionStart !== null ? el.selectionStart : f.length;
+      const end = el && el.selectionEnd !== null ? el.selectionEnd : at;
+      const before = f.slice(0, at);
+      const after = f.slice(end);
+      // Pad only where a token would otherwise fuse with its neighbour —
+      // "pnl / " + "volume" must not become "pnl / volume " and
+      // "…/ volume" + "sharpe" must not become "volumesharpe".
+      const lead = before !== "" && !/[\s(]$/.test(before) ? " " : "";
+      const tail = after !== "" && !/^[\s)]/.test(after) ? " " : "";
+      const ins = lead + v + tail;
+      const next = before + ins + after;
+      // Restore the caret after React re-renders with the new value —
+      // otherwise it jumps to the end and the next chip lands in the wrong
+      // place.
+      if (el) {
+        const caret = at + lead.length + v.length;
+        requestAnimationFrame(() => { el.focus(); el.setSelectionRange(caret, caret); });
+      }
+      return next;
+    });
+  }, []);
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
 
@@ -1352,6 +1381,7 @@ export default function CopyTrading({
                   idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
                 />
                 <input
+                  ref={formulaRef}
                   type="text"
                   value={formula}
                   onChange={(e) => setFormula(e.target.value)}
@@ -1381,8 +1411,8 @@ export default function CopyTrading({
                 {FORMULA_VARS.map((v) => (
                   <button
                     key={v}
-                    onClick={() => setFormula((f) => (f.trim() === "" ? v : `${f.trimEnd()} ${v}`))}
-                    title={`${SCORE_VAR_HINTS[v]} — click to append to the formula`}
+                    onClick={() => insertVar(v)}
+                    title={`${SCORE_VAR_HINTS[v]} — click to drop it in at the cursor`}
                     className="pixel-btn text-[11px] px-1.5 py-0.5 font-mono border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60"
                   >
                     {v}
