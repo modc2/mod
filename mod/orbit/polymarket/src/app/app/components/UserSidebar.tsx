@@ -9,7 +9,7 @@
 // eight strategies is selected" but "whose trades am I copying, with how
 // much, and would that much have worked".
 //
-// Three blocks, in the order the decision is made:
+// Four blocks, in the order the decision is made:
 //
 //   ACCOUNT  (AccountsPanel)  — every wallet this browser has signed in as and
 //                               the USDC each holds. It carries the column's
@@ -20,6 +20,11 @@
 //                               it; money is a drawer, not a destination. Any
 //                               screen that finds itself short fires
 //                               OPEN_MONEY_EVENT and this opens over it.
+//   STRATS   (StratBlock)     — the saved strategies, and which one BACKTEST
+//                               and LIVE are looking at. The default one is a
+//                               TRADER INDEX: every trade the bench makes,
+//                               copied 1:1 and scaled by your capital against
+//                               that trader's own book.
 //   COPY     (CopyPanel)      — the copy book: pick a leader, set the dollars
 //                               behind them, replay $N over the last M days,
 //                               start or stop each one.
@@ -46,6 +51,7 @@ import { useEmbedded } from "../lib/embedded";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 import CopyPanel from "./CopyPanel";
 import MoneyBlock, { OPEN_MONEY_EVENT } from "./MoneyBlock";
+import StratBlock, { OPEN_STRATS_EVENT } from "./StratBlock";
 import DeskRoster from "./DeskRoster";
 import SelectionTray from "./SelectionTray";
 
@@ -104,10 +110,12 @@ export default function UserSidebar() {
     window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
     window.addEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
     window.addEventListener(OPEN_MONEY_EVENT, onOpenPlain);
+    window.addEventListener(OPEN_STRATS_EVENT, onOpenPlain);
     return () => {
       window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
       window.removeEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
       window.removeEventListener(OPEN_MONEY_EVENT, onOpenPlain);
+      window.removeEventListener(OPEN_STRATS_EVENT, onOpenPlain);
     };
   }, [setDrawer]);
 
@@ -151,6 +159,13 @@ export default function UserSidebar() {
         {/* Money first, under the wallet it belongs to: top up, take out.
             Collapsed to one line until you want it. */}
         <MoneyBlock />
+        {/* HOW you copy, above WHO you copy: a strat is the bench plus the
+            sizing model, and the default one is a 1:1 index scaled by your
+            capital against each trader's book. The list is here because the
+            active strat is what BACKTEST and LIVE are pointed at, and a
+            console that hides which strategy is running is worse than one
+            that just shows you. */}
+        <StratBlock />
         {/* The finder's checked shortlist — replayed, sized and committed
             right here. Renders nothing while nothing is checked. */}
         <SelectionTray />

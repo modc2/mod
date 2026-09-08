@@ -330,7 +330,7 @@ this module already serves verbatim, not a source in its own right.
 It runs on the host's own Claude account, so a guest gets 12 questions an hour
 per address, two at a time (`PLINYVILLE_CHAT_RATE`, `_CONCURRENCY`, `_TIMEOUT`;
 a `PLINYVILLE_CHAT_TOKEN` bearer lifts the cap). No `claude` on the box is not
-an error either — `GET /chat` says so, and the console's ASK strip goes red
+an error either — `GET /chat` says so, and the console's ASK pill goes red
 instead of offering a button that spins forever.
 
 ## About plinyworld (read this)
@@ -567,8 +567,9 @@ The token is resolved fresh on every call, in this order:
 Because it is read per call and not at import, dropping a token in reaches a
 server that is already running; no restart. A classic PAT with **no scopes** is
 enough — this module only reads public repos. `GET /api/plinyville/rate` reports
-the budget (checking it is itself free), and the app shows a strip when the
-budget is anonymous or running low. The repo cache lives in
+the budget (checking it is itself free), and the app shows a `GH 35/60` pill
+in the header when the budget is anonymous or running low — its tooltip carries
+the numbers, and clicking it copies the command above. The repo cache lives in
 `~/.mod/pliny/state.json`.
 
 ## Layout

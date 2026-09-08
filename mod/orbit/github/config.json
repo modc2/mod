@@ -26,6 +26,7 @@
         "repo",
         "readme",
         "trending",
+        "daily",
         "rate",
         "cache",
         "clear_cache",
@@ -50,5 +51,5 @@
         "root_log"
     ],
     "key": "github",
-    "schema": "QmPazGUeujKCCJishXTNhKzKKBi1HdMmh4wUskwVC4ojCD"
+    "schema": "QmfSWoNfUUcgvRTYWs9uG9vpKPSczaouFq3VPMr8p22ReW"
 }

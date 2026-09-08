@@ -95,13 +95,13 @@ against *that key's* GitHub connection; a read without one runs anonymously.
 
 ## App + API
 
-One zero-dependency server on **:50520** serves the console (`/`) and the JSON
+One zero-dependency server on **:50770** serves the console (`/`) and the JSON
 API (`/api/*`), tolerating the gateway prefix either way, so caddy auto-routes
 `modc2.com/github` (app) and `modc2.com/api/github` (API) from `config.json`
 (`route: true`).
 
 ```bash
-m github/serve      # background, :50520
+m github/serve      # background, :50770
 m github/worker     # …under pm2 instead
 m github/kill
 ```
@@ -113,10 +113,35 @@ GET  /api/expand?query=…
 GET  /api/repo?repo=owner/name
 GET  /api/readme?repo=owner/name&n=4000
 GET  /api/trending?language=python&days=7
+GET  /api/daily?n=12
 GET  /api/rate  /api/cache  /api/access  /api/whoami  /api/info
 POST /api/clear_cache  /api/connect  /api/oauth        (auth: write)
 POST /api/grant  /api/revoke                           (auth: admin)
 ```
+
+## Repos of the day
+
+The console shows a board before anyone has typed anything, because an empty
+search box is a bad first screen. `m github/daily` builds it from two keyless
+searches — **new this week** (`created:>7d`, most stars first) and **shipping
+now** (`stars:>500 pushed:>2d`, most recently pushed) — and picks one repo out
+of the newcomers using the date as the seed, so the pick of the day is the same
+repo for everybody all day and a different one tomorrow.
+
+GitHub has no public trending API; these are ordinary searches with their query
+printed next to the rail, not a ranking anybody should read more into. The
+board is cached an hour: two of the ten anonymous searches a minute belong to
+the visitor's question, not the wallpaper. When both rails are rate-limited the
+last good board is served, labelled `last good board`, rather than an empty
+page.
+
+```bash
+m github/daily            # {date, pick, rails, languages}
+m github/daily fresh=1    # skip the hour-long cache
+```
+
+The language chips are counted over the repos the rails actually show, so
+clicking `Rust 8` leaves eight cards on screen.
 
 ## Cache
 
@@ -137,6 +162,7 @@ m github                                    # info
 m github/repo huggingface/transformers      # one repo, keyless
 m github/readme torvalds/linux n=2000
 m github/trending language=python days=7
+m github/daily                              # the console front page
 m github/candidates "…"                     # stage 2 only, unranked
 ```
 

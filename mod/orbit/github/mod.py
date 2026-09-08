@@ -91,6 +91,8 @@ RAW = 'https://raw.githubusercontent.com'
 TOKEN_TTL = 3600                          # seconds a signed token stays valid
 CACHE_TTL = 900                           # seconds a search stays warm
 README_TTL = 86400                        # READMEs move slower than rankings
+TRENDING_TTL = 1800                       # trending is a board, not a query
+DAILY_TTL = 3600                          # the front page costs search calls
 MAX_CACHE = 400                           # entries kept before the oldest go
 EMBED_MODEL = os.environ.get('GITHUB_EMBED_MODEL', 'all-MiniLM-L6-v2')
 AGENT_MOD = 'agent'                       # optional query rewriter
@@ -558,17 +560,93 @@ class Mod:
                     homepage=data.get('homepage'), size=data.get('size'))
 
     def trending(self, language: str = None, days: int = 7, n: int = 20,
-                 address: str = None) -> dict:
+                 address: str = None, fresh: bool = False) -> dict:
         """What is getting stars lately — GitHub has no public trending API, so
         this is 'created recently, sorted by stars', which is the honest
-        approximation you can build keylessly."""
+        approximation you can build keylessly. Cached, because the anonymous
+        search budget is ten calls a minute and a board is not a question."""
+        key = f'trending:{language or "*"}:{int(days)}:{int(n)}'
+        if not fresh:
+            hit = self._cached(key, TRENDING_TTL)
+            if hit is not None:
+                return dict(hit, cached=True)
         since = time.strftime('%Y-%m-%d', time.gmtime(time.time() - int(days) * 86400))
         q = f'created:>{since}' + (f' language:{language}' if language else '')
         data, _h = self._get(f'{API}/search/repositories', address=address,
                              params={'q': q, 'sort': 'stars', 'order': 'desc',
                                      'per_page': int(n)})
-        return {'window_days': int(days), 'language': language,
-                'repos': [self._row(r) for r in data.get('items', [])]}
+        return self._store(key, {'window_days': int(days), 'language': language,
+                                 'repos': [self._row(r) for r in data.get('items', [])]})
+
+    # --- the front page -----------------------------------------------------
+
+    DAILY_RAILS = (
+        ('new this week', 'created:>{week}', 'stars',
+         'first pushed in the last seven days, most stars first'),
+        ('shipping now', 'pushed:>{recent} stars:>500', 'updated',
+         'repos with real users that were pushed to in the last hours'),
+    )
+
+    def daily(self, n: int = 12, address: str = None, fresh: bool = False) -> dict:
+        """Repos of the day — what the console shows before anyone has typed a
+        question. Two keyless searches (this week's newcomers, and mid-size
+        repos that shipped in the last two days) become the rails, and the pick
+        of the day is drawn from the newcomers with the date as the seed: the
+        same repo for everybody all day, a different one tomorrow.
+
+        Held for an hour in the same cache the searches use — the anonymous
+        search budget is ten calls a minute, and a front page that spent two of
+        them per visitor would starve the thing people actually came for.
+        """
+        day = time.strftime('%Y-%m-%d', time.gmtime())
+        key = f'daily:{day}:{int(n)}'
+        if not fresh:
+            hit = self._cached(key, DAILY_TTL)
+            if hit is not None:
+                return dict(hit, cached=True)
+        week = time.strftime('%Y-%m-%d', time.gmtime(time.time() - 7 * 86400))
+        recent = time.strftime('%Y-%m-%d', time.gmtime(time.time() - 2 * 86400))
+        rails, errors, pool = [], [], []
+        for title, template, order, why in self.DAILY_RAILS:
+            q = template.format(week=week, recent=recent)
+            try:
+                data, _h = self._get(f'{API}/search/repositories', address=address,
+                                     params={'q': q, 'sort': order, 'order': 'desc',
+                                             'per_page': 50})
+                repos = [self._row(r) for r in data.get('items', [])
+                         if not r.get('archived')]
+            except Exception as e:
+                errors.append(f'{title}: {e}')   # a starved rail is not a dead page
+                continue
+            pool += repos
+            shown = repos[:int(n)]
+            rails.append({'title': title, 'why': why, 'query': q, 'repos': shown})
+        # count over what the rails actually show — a chip that says 'Rust 8'
+        # and then filters down to one card is a lie about the page
+        counts = {}
+        for r in [x for rail in rails for x in rail['repos']]:
+            if r.get('language'):
+                counts[r['language']] = counts.get(r['language'], 0) + 1
+        fresh_pool = (rails[0]['repos'] if rails and rails[0]['title'] == 'new this week'
+                      else (pool[:20] if pool else []))
+        pick = fresh_pool[int(day.replace('-', '')) % len(fresh_pool)] if fresh_pool else None
+        out = {'date': day, 'pick': pick, 'rails': rails, 'errors': errors,
+               'languages': [{'language': k, 'repos': v} for k, v in
+                             sorted(counts.items(), key=lambda kv: -kv[1])[:8]
+                             if v > 1 or len(counts) < 4],
+               'ttl': DAILY_TTL, 'cached': False, 'stale': False,
+               'note': 'GitHub has no public trending API — these are keyless '
+                       'searches, honestly labelled'}
+        if rails:
+            return self._store(key, out)
+        # every rail starved (ten searches a minute, anonymous) — yesterday's
+        # board, plainly labelled, beats an empty page
+        c = self._cache()
+        old_keys = sorted((k for k in c if k.startswith('daily:')),
+                          key=lambda k: -c[k].get('t', 0))
+        if old_keys:
+            return dict(c[old_keys[0]]['v'], stale=True, cached=True, errors=errors)
+        return out
 
     def rate(self, address: str = None) -> dict:
         """Rate limit left — the number that decides whether to log in."""
@@ -1060,7 +1138,8 @@ class Mod:
             '/api/expand': ('expand', ('query', 'agent')),
             '/api/repo': ('repo', ('repo',)),
             '/api/readme': ('readme', ('repo', 'n', 'branch')),
-            '/api/trending': ('trending', ('language', 'days', 'n')),
+            '/api/trending': ('trending', ('language', 'days', 'n', 'fresh')),
+            '/api/daily': ('daily', ('n', 'fresh')),
             '/api/rate': ('rate', ()), '/api/cache': ('cache', ()),
             '/api/access': ('access', ()), '/api/github': ('github', ('address',)),
             '/api/root': ('root', ('repo',)),
@@ -1140,7 +1219,7 @@ class Mod:
                 kw = {k: coerce(k, q[k]) for k in names if k in q}
                 # reads are open, but they run against the caller's own GitHub
                 # connection when they sent a token
-                if fn in ('search', 'similar', 'repo', 'trending', 'rate'):
+                if fn in ('search', 'similar', 'repo', 'trending', 'daily', 'rate'):
                     who = gh._token_address(dict(self.headers))
                     if who and 'address' not in kw:
                         kw['address'] = who
@@ -1203,7 +1282,7 @@ class Mod:
             'port': APP_PORT,
             'url': f'http://localhost:{APP_PORT}',
             'fns': ['search', 'similar', 'expand', 'candidates', 'rank', 'repo', 'readme',
-                    'trending', 'rate', 'cache', 'clear_cache', 'oauth', 'connect',
+                    'trending', 'daily', 'rate', 'cache', 'clear_cache', 'oauth', 'connect',
                     'disconnect', 'github', 'access', 'grant', 'revoke', 'token',
                     'whoami', 'serve', 'kill', 'worker', 'stop_worker', 'info'],
             'try': 'm github/search "run untrusted wasm in a sandbox"',
@@ -1214,59 +1293,303 @@ INDEX_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><title>github — semantic repo search</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{--bg:#0d1117;--fg:#e6edf3;--dim:#8b949e;--line:#30363d;--accent:#f0883e;--card:#161b22}
+:root{--bg:#0d1117;--fg:#e6edf3;--dim:#8b949e;--faint:#6e7681;--line:#30363d;
+  --accent:#f0883e;--card:#161b22;--card2:#1c2128;--good:#3fb950;--err:#f85149}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
-header{padding:20px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:baseline}
-h1{margin:0;font-size:16px;letter-spacing:.08em}
-header span{color:var(--dim);font-size:12px}
-main{max-width:900px;margin:0 auto;padding:20px}
-form{display:flex;gap:8px;margin-bottom:8px}
-input,select,button{background:var(--card);color:var(--fg);border:1px solid var(--line);
-  border-radius:6px;padding:10px 12px;font:inherit}
-input[type=text]{flex:1}
-button{border-color:var(--accent);color:var(--accent);cursor:pointer}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:14px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+a{color:inherit}
+header{position:sticky;top:0;z-index:5;background:rgba(13,17,23,.92);
+  backdrop-filter:blur(6px);border-bottom:1px solid var(--line);
+  padding:14px 20px;display:flex;gap:12px;align-items:baseline}
+h1{margin:0;font-size:15px;letter-spacing:.1em}
+h1 b{color:var(--accent);font-weight:400}
+header .tag{color:var(--dim);font-size:12px}
+header .sp{flex:1}
+.pill{border:1px solid var(--line);border-radius:999px;padding:3px 10px;
+  font-size:11px;color:var(--dim);white-space:nowrap;text-decoration:none}
+.pill b{color:var(--fg);font-weight:600}
+.pill.low{border-color:var(--err);color:var(--err)}
+main{max-width:1080px;margin:0 auto;padding:22px 20px 64px}
+form{display:flex;gap:8px}
+.box{flex:1;display:flex;gap:8px;background:var(--card);border:1px solid var(--line);
+  border-radius:10px;padding:4px 4px 4px 14px;align-items:center}
+.box:focus-within{border-color:var(--accent)}
+input{background:none;border:0;color:var(--fg);font:inherit;padding:10px 0;outline:none}
+#q{flex:1;font-size:15px}
+#lang{width:110px;border-left:1px solid var(--line);padding-left:12px;font-size:13px}
+input::placeholder{color:var(--faint)}
+button{background:var(--card);color:var(--accent);border:1px solid var(--accent);
+  border-radius:10px;padding:10px 18px;font:inherit;cursor:pointer}
 button:hover{background:var(--accent);color:#0d1117}
-.meta{color:var(--dim);font-size:12px;margin:10px 0 18px;min-height:18px}
-.repo{border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:10px;background:var(--card)}
-.repo a{color:var(--accent);text-decoration:none;font-weight:600}
-.repo p{margin:6px 0;color:var(--fg)}
-.tags{color:var(--dim);font-size:12px}
-.score{float:right;color:var(--dim);font-size:12px}
-.err{color:#f85149}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--dim);
+  border-radius:999px;padding:4px 11px;font-size:11.5px;cursor:pointer}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip.on{border-color:var(--accent);color:var(--accent);background:rgba(240,136,62,.1)}
+.chip b{color:var(--fg);font-weight:600}
+.meta{color:var(--dim);font-size:12px;margin:18px 0 14px;
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.meta:empty{display:none;margin:0}
+.meta .q{color:var(--fg)}
+.meta .x{cursor:pointer;border:1px solid var(--line);border-radius:6px;
+  padding:1px 8px;color:var(--dim)}
+.meta .x:hover{color:var(--accent);border-color:var(--accent)}
+.err{color:var(--err)}
+h2{margin:0;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+.secthead{display:flex;gap:12px;align-items:baseline;margin:30px 0 12px;
+  border-top:1px solid var(--line);padding-top:16px}
+.secthead .why{color:var(--faint);font-size:11.5px}
+.secthead .sp{flex:1}
+.grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.repo{border:1px solid var(--line);border-radius:10px;padding:13px 14px;
+  background:var(--card);display:flex;flex-direction:column;gap:7px;min-width:0}
+.repo:hover{border-color:#484f58;background:var(--card2)}
+.repo .top{display:flex;gap:8px;align-items:baseline}
+.repo .rank{color:var(--faint);font-size:11px;min-width:18px}
+.repo .name{color:var(--accent);text-decoration:none;font-weight:600;
+  overflow-wrap:anywhere;flex:1;min-width:0}
+.repo .name:hover{text-decoration:underline}
+.repo .score{margin-left:auto;color:var(--faint);font-size:11px;flex:none}
+.repo p{margin:0;color:var(--fg);font-size:13px;overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.repo .foot{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  color:var(--dim);font-size:11.5px;margin-top:auto;padding-top:2px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint);display:inline-block;
+  margin-right:5px;vertical-align:middle}
+.topics{display:flex;flex-wrap:wrap;gap:5px}
+.topic{border:1px solid var(--line);border-radius:999px;padding:1px 8px;
+  font-size:10.5px;color:var(--dim);cursor:pointer}
+.topic:hover{color:var(--accent);border-color:var(--accent)}
+.sim{margin-left:auto;color:var(--faint);cursor:pointer;font-size:11px}
+.sim:hover{color:var(--accent)}
+.pick{border:1px solid var(--accent);border-radius:12px;background:
+  linear-gradient(180deg,rgba(240,136,62,.09),rgba(240,136,62,0) 70%),var(--card);
+  padding:20px;display:flex;flex-direction:column;gap:10px}
+.pick .kicker{color:var(--accent);font-size:11px;letter-spacing:.18em}
+.pick .name{font-size:22px;font-weight:600;color:var(--fg);text-decoration:none;
+  overflow-wrap:anywhere}
+.pick .name:hover{color:var(--accent)}
+.pick p{margin:0;font-size:14px;max-width:70ch}
+.pick .foot{color:var(--dim);font-size:12px;display:flex;gap:14px;flex-wrap:wrap}
+.skel{border:1px solid var(--line);border-radius:10px;background:var(--card);
+  height:104px;animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:.75}}
+.empty{color:var(--dim);font-size:13px;padding:10px 0}
+@media(max-width:640px){form{flex-wrap:wrap}#lang{width:80px}main{padding:16px 12px 48px}}
 </style></head><body>
-<header><h1>github</h1><span>semantic repo search — no key, no login</span></header>
+<header>
+  <h1><b>&#9673;</b> github</h1>
+  <span class="tag">semantic repo search &mdash; no key, no login</span>
+  <span class="sp"></span>
+  <span class="pill" id="rate" title="anonymous GitHub search budget">&middot;&middot;&middot;</span>
+</header>
 <main>
 <form id="f">
-  <input type="text" id="q" placeholder="describe what you are looking for…" autofocus>
-  <input type="text" id="lang" placeholder="language" size="8">
+  <div class="box">
+    <input type="text" id="q" placeholder="describe what you are looking for&hellip;" autofocus>
+    <input type="text" id="lang" placeholder="language">
+  </div>
   <button type="submit">search</button>
 </form>
+<div class="chips" id="examples"></div>
 <div class="meta" id="meta"></div>
-<div id="out"></div>
+<section id="results" hidden><div class="grid" id="out"></div></section>
+<section id="home"></section>
 </main>
 <script>
 const base = location.pathname.replace(/\\/$/,'');
 const el = id => document.getElementById(id);
-el('f').onsubmit = async e => {
-  e.preventDefault();
-  const q = el('q').value.trim(); if(!q) return;
-  el('meta').textContent = 'searching…'; el('out').innerHTML = '';
-  const p = new URLSearchParams({query:q, n:20});
-  if (el('lang').value.trim()) p.set('language', el('lang').value.trim());
+const esc = s => (s||'').replace(/[<>&"]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const num = n => n>=10000 ? Math.round(n/1000)+'k' : (n||0).toLocaleString('en-US');
+const LANG = {JavaScript:'#f1e05a',TypeScript:'#3178c6',Python:'#3572A5',Rust:'#dea584',
+  Go:'#00ADD8',C:'#555555','C++':'#f34b7d',Java:'#b07219',Ruby:'#701516',Zig:'#ec915c',
+  Shell:'#89e051',HTML:'#e34c26',CSS:'#563d7c',Swift:'#F05138',Kotlin:'#A97BFF',
+  Jupyter_Notebook:'#DA5B0B',Solidity:'#AA6746',Lua:'#000080',Elixir:'#6e4a7e'};
+const ago = t => {
+  if(!t) return '';
+  const d = (Date.now() - new Date(t)) / 86400000;
+  if(d < 1) return 'today';
+  if(d < 2) return 'yesterday';
+  if(d < 31) return Math.round(d)+'d ago';
+  if(d < 365) return Math.round(d/30)+'mo ago';
+  return Math.round(d/365)+'y ago';
+};
+
+const EXAMPLES = [
+  'run untrusted wasm in a sandbox',
+  'vector database written in rust',
+  'terminal ui framework for go',
+  'tiny http server with no dependencies',
+  'local first sync engine',
+  'parse pdfs into structured json',
+];
+
+function card(x, i, opts={}){
+  const c = LANG[(x.language||'').replace(/ /g,'_')] || '#6e7681';
+  const topics = (x.topics||[]).slice(0,4).map(t =>
+    `<span class="topic" data-topic="${esc(t)}">${esc(t)}</span>`).join('');
+  return `<div class="repo">
+    <div class="top">
+      ${opts.rank ? `<span class="rank">${i+1}</span>` : ''}
+      <a class="name" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name)}</a>
+      ${x.score!=null ? `<span class="score" title="rank score">${x.score}</span>` : ''}
+    </div>
+    ${x.description ? `<p>${esc(x.description)}</p>` : ''}
+    ${topics ? `<div class="topics">${topics}</div>` : ''}
+    <div class="foot">
+      <span>&#9733; ${num(x.stars)}</span>
+      ${x.language ? `<span><i class="dot" style="background:${c}"></i>${esc(x.language)}</span>` : ''}
+      ${x.license && x.license!=='NOASSERTION' ? `<span>${esc(x.license)}</span>` : ''}
+      <span title="last push">&#8635; ${ago(x.pushed_at)}</span>
+      <span class="sim" data-similar="${esc(x.name)}">similar &rarr;</span>
+    </div></div>`;
+}
+
+function skeletons(n){
+  el('out').innerHTML = Array.from({length:n}, () => '<div class="skel"></div>').join('');
+  el('results').hidden = false; el('home').hidden = true;
+}
+
+// --- the front page: repos of the day ------------------------------------
+let DAILY = null;
+
+async function home(){
+  el('results').hidden = true; el('home').hidden = false;
+  el('meta').textContent = '';
+  if(DAILY) return paint(DAILY, el('lang').value.trim());
+  el('home').innerHTML = `<div class="secthead"><h2>repos of the day</h2></div>
+    <div class="grid">${'<div class="skel"></div>'.repeat(3)}</div>`;
   try{
-    const r = await fetch(`${base}/api/search?${p}`);
+    const d = await (await fetch(`${base}/api/daily?n=12`)).json();
+    if(d.error) throw new Error(d.error);
+    DAILY = d; paint(d, el('lang').value.trim());
+  }catch(err){
+    el('home').innerHTML = `<div class="secthead"><h2>repos of the day</h2></div>
+      <div class="empty err">${esc(err.message)} &mdash; search still works.</div>`;
+  }
+}
+
+function paint(d, lang){
+  const keep = r => !lang || (r.language||'').toLowerCase() === lang.toLowerCase();
+  const p = d.pick;
+  const langs = (d.languages||[]).map(l =>
+    `<span class="chip${lang && lang.toLowerCase()===l.language.toLowerCase() ? ' on' : ''}"
+       data-lang="${esc(l.language)}"><b>${esc(l.language)}</b> ${l.repos}</span>`).join('');
+  const rails = (d.rails||[]).map(r => {
+    const repos = r.repos.filter(keep);
+    return `<div class="secthead"><h2>${esc(r.title)}</h2>
+      <span class="why">${esc(r.why)}${lang ? ' &middot; ' + esc(lang) + ' only' : ''}</span></div>
+      ${repos.length ? `<div class="grid">${repos.map((x,i)=>card(x,i)).join('')}</div>`
+        : `<div class="empty">no ${esc(lang)} in this rail today &mdash; ask a question instead.</div>`}`;
+  }).join('');
+  el('home').innerHTML = `
+    <div class="secthead"><h2>repos of the day</h2>
+      <span class="why">${esc(d.date)} &middot; two keyless searches, redrawn hourly</span>
+      <span class="sp"></span>
+      <span class="why">${d.stale ? 'last good board' : d.cached ? 'cached' : 'fresh'}</span></div>
+    ${p ? `<div class="pick">
+      <span class="kicker">PICK OF THE DAY</span>
+      <a class="name" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>
+      <p>${esc(p.description) || '<span style="color:var(--dim)">no description &mdash; open it and find out</span>'}</p>
+      <div class="topics">${(p.topics||[]).slice(0,8).map(t=>`<span class="topic" data-topic="${esc(t)}">${esc(t)}</span>`).join('')}</div>
+      <div class="foot"><span>&#9733; ${num(p.stars)}</span>
+        ${p.language?`<span><i class="dot" style="background:${LANG[(p.language||'').replace(/ /g,'_')]||'#6e7681'}"></i>${esc(p.language)}</span>`:''}
+        <span>born ${ago(p.created_at)}</span>
+        <span>&#8635; ${ago(p.pushed_at)}</span>
+        <span class="sim" data-similar="${esc(p.name)}">more like this &rarr;</span></div>
+    </div>` : ''}
+    ${langs ? `<div class="secthead"><h2>languages moving today</h2>
+        <span class="why">click one to keep only those</span></div>
+      <div class="chips">${langs}</div>` : ''}
+    ${rails}
+    ${(d.errors||[]).length ? `<div class="empty err">${d.errors.map(esc).join(' &middot; ')}</div>` : ''}`;
+}
+
+// --- search ---------------------------------------------------------------
+async function run(query, language, opts={}){
+  el('q').value = query; el('lang').value = language || '';
+  skeletons(9);
+  el('meta').innerHTML = `<span>searching&hellip;</span><span class="q">${esc(query)}</span>`;
+  const p = new URLSearchParams({query, n:24});
+  if(language) p.set('language', language);
+  try{
+    const r = await fetch(`${base}/api/${opts.similar ? 'similar' : 'search'}?` +
+      (opts.similar ? new URLSearchParams({repo:query, n:24}) : p));
     const d = await r.json();
     if(d.error) throw new Error(d.error);
-    el('meta').textContent =
-      `${d.returned}/${d.candidates} candidates · ${d.ranker} · ${d.took}s · queries: ${d.queries.join(' | ')}`;
-    el('out').innerHTML = d.results.map(x => `
-      <div class="repo"><span class="score">${x.score}</span>
-        <a href="${x.url}" target="_blank" rel="noopener">${x.name}</a>
-        <p>${(x.description||'').replace(/[<>&]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</p>
-        <div class="tags">★ ${x.stars} · ${x.language||'—'}${x.topics.length?' · '+x.topics.slice(0,6).join(', '):''}</div>
-      </div>`).join('');
-  }catch(err){ el('meta').innerHTML = `<span class="err">${err.message}</span>`; }
+    el('meta').innerHTML =
+      `<span class="x" id="back">&larr; today</span>` +
+      `<span class="q">${esc(opts.similar ? 'like ' + query : query)}</span>` +
+      `<span>${d.returned}/${d.candidates} candidates &middot; ${d.ranker} &middot; ${d.took}s</span>` +
+      `<span title="the lexical queries your question became">${esc((d.queries||[]).join(' | '))}</span>`;
+    el('out').innerHTML = d.results.length
+      ? d.results.map((x,i)=>card(x,i,{rank:true})).join('')
+      : '<div class="empty">nothing came back &mdash; try fewer words, or drop the language filter.</div>';
+    rate();
+  }catch(err){
+    el('meta').innerHTML = `<span class="x" id="back">&larr; today</span><span class="err">${esc(err.message)}</span>`;
+    el('out').innerHTML = '';
+  }
+}
+
+async function rate(){
+  try{
+    const d = await (await fetch(`${base}/api/rate`)).json();
+    const s = d.search || {};
+    el('rate').innerHTML = `search <b>${s.remaining}</b>/${s.limit}` +
+      (d.authenticated ? ' &middot; signed in' : '');
+    el('rate').classList.toggle('low', s.remaining === 0);
+    el('rate').title = s.remaining === 0
+      ? `anonymous budget spent — resets in ${s.resets_in}s`
+      : 'anonymous GitHub search budget';
+  }catch(e){}
+}
+
+// --- wiring ---------------------------------------------------------------
+el('examples').innerHTML = EXAMPLES.map(e=>`<span class="chip" data-q="${esc(e)}">${esc(e)}</span>`).join('');
+
+function go(query, language, opts){
+  const p = new URLSearchParams();
+  if(opts && opts.similar) p.set('similar', query); else if(query) p.set('q', query);
+  if(language) p.set('lang', language);
+  history.pushState({}, '', p.toString() ? `?${p}` : location.pathname);
+  route();
+}
+
+function route(){
+  const p = new URLSearchParams(location.search);
+  const sim = p.get('similar');
+  if(sim) return run(sim, null, {similar:true});
+  if(p.get('q')) return run(p.get('q'), p.get('lang'));
+  el('q').value = ''; home();
+}
+
+el('f').onsubmit = e => {
+  e.preventDefault();
+  const q = el('q').value.trim();
+  q ? go(q, el('lang').value.trim()) : go('');
 };
+document.addEventListener('click', e => {
+  // closest(), not target: the chips carry a <b> that would swallow the click
+  const t = e.target.closest('[data-q],[data-similar],[data-topic],[data-lang],#back');
+  if(!t) return;
+  if(t.dataset.q) return go(t.dataset.q, el('lang').value.trim());
+  if(t.dataset.similar) return go(t.dataset.similar, null, {similar:true});
+  if(t.dataset.topic) return go(t.dataset.topic, el('lang').value.trim());
+  if(t.dataset.lang){
+    const same = el('lang').value.trim().toLowerCase() === t.dataset.lang.toLowerCase();
+    el('lang').value = same ? '' : t.dataset.lang;
+    const q = el('q').value.trim();
+    return q ? go(q, el('lang').value) : (el('results').hidden ? paint(DAILY, el('lang').value) : go(''));
+  }
+  if(t.id === 'back') return go('');
+});
+document.addEventListener('keydown', e => {
+  if(e.key === '/' && document.activeElement !== el('q')){ e.preventDefault(); el('q').focus(); }
+  if(e.key === 'Escape'){ el('q').blur(); go(''); }
+});
+window.onpopstate = route;
+route(); rate(); setInterval(rate, 30000);
 </script></body></html>
 """

@@ -21,8 +21,9 @@ import { fetchSyncSchedule } from "../lib/syncSchedule";
 import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCache";
 
 import {
-  DEFAULT_FORMULA, compileFormula, formatScore, scoreInputs, scoreIsUnknown,
-  loadSavedFormula, matchScorePreset, saveFormula, scorePoolSortKey,
+  DEFAULT_FORMULA, FORMULA_VARS, SCORE_VAR_HINTS, compileFormula, formatScore,
+  scoreInputs, scoreIsUnknown, loadSavedFormula, matchScorePreset, saveFormula,
+  scorePoolSortKey,
 } from "../lib/scoreFormula";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
@@ -130,6 +131,10 @@ export default function CopyTrading({
 
   const [showFilters, setShowFilters] = useState(false);
   const [formula, setFormula] = useState<string>(DEFAULT_FORMULA);
+  // The formula editor on the RANK BY rail — folded by default, because the
+  // score is normally a preset chip and the expression only matters when you
+  // are writing one.
+  const [showScore, setShowScore] = useState(false);
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
 
@@ -916,8 +921,7 @@ export default function CopyTrading({
     + (minVolume !== "100" && minVolume !== "" ? 1 : 0)
     + (minPerDay !== "0" && minPerDay !== "" ? 1 : 0)
     + (ctxCategory ? 1 : 0)
-    + (ctxMarketQuery ? 1 : 0)
-    + (formula !== DEFAULT_FORMULA ? 1 : 0);
+    + (ctxMarketQuery ? 1 : 0);
 
   // Stats summary (computed from current page — approximate when paginated)
   const pagePnl = traders.reduce((s, t) => s + t.pnl, 0);
@@ -1209,25 +1213,11 @@ export default function CopyTrading({
               ))}
             </div>
 
-            {/* Score formula — preset chips parameterize the metric, and the
-                input shows a preset is just a formula you can keep editing. */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <label className="text-[12px] text-pixel-gray tracking-wider shrink-0">SCORE =</label>
-              <ScoreRatioChips
-                formula={formula}
-                setFormula={setFormula}
-                canSave={!compiled.error}
-                btnClass="pixel-btn text-[12px] px-2 py-1 shrink-0"
-                idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
-              />
-              <input type="text" value={formula} onChange={(e) => setFormula(e.target.value)} onKeyDown={onEnter} spellCheck={false}
-                placeholder={DEFAULT_FORMULA} className="pixel-input-sm flex-1 min-w-[140px] font-mono" />
-              <button onClick={() => setFormula(DEFAULT_FORMULA)} title="Back to the default — win rate"
-                className="pixel-btn text-[12px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0">RST</button>
-              {compiled.error
-                ? <span className="text-[12px] text-red-400 shrink-0 truncate max-w-[160px]">ERR: {compiled.error.slice(0, 30)}</span>
-                : <span className="text-[12px] text-green-500 shrink-0">&#10003;</span>}
-            </div>
+            {/* The SCORE formula is NOT here. It is a RANKING, not a filter —
+                it hides nobody, it decides the order — and buried in this
+                drawer nobody found out the board's first chip was an
+                expression they could rewrite. It lives on the RANK BY rail,
+                under the chip it names. */}
 
             {/* Reset all */}
             <div className="flex items-center justify-end">
@@ -1324,7 +1314,95 @@ export default function CopyTrading({
                 <SortArrow active={traderSort === col.key} dir={sortDir} />
               </button>
             ))}
+
+            {/* ── YOUR OWN SCORE ──
+                The first chip on this rail is not a fixed column: it is an
+                expression over the trader's numbers, and "ROI" is just the
+                preset that happens to be loaded. That was true before and
+                completely invisible — the editor was inside the FILTERS
+                drawer, three clicks from the ranking it controls. So the
+                formula sits here, next to the chip it names, folded to one
+                line until you want to change it. */}
+            <button
+              onClick={() => setShowScore((v) => !v)}
+              title={`The score behind ${columns[0].label} = ${formula}. Click to write your own — any expression over the trader's numbers.`}
+              className={`pixel-btn text-[11px] px-2 py-0.5 ml-auto flex items-center gap-1.5 transition-colors ${
+                showScore
+                  ? "border-pixel-white text-pixel-white"
+                  : scorePreset
+                  ? "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                  : "border-green-500/60 text-green-400"
+              }`}
+            >
+              <span className="opacity-70">&fnof;</span>
+              SCORE
+              <span className="font-mono max-w-[150px] truncate opacity-80 normal-case">{formula}</span>
+            </button>
           </div>
+
+          {showScore && (
+            <div className="pixel-panel p-2.5 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="text-[12px] text-pixel-gray tracking-wider shrink-0">SCORE =</label>
+                <ScoreRatioChips
+                  formula={formula}
+                  setFormula={setFormula}
+                  canSave={!compiled.error}
+                  btnClass="pixel-btn text-[12px] px-2 py-1 shrink-0"
+                  idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
+                />
+                <input
+                  type="text"
+                  value={formula}
+                  onChange={(e) => setFormula(e.target.value)}
+                  onKeyDown={onEnter}
+                  spellCheck={false}
+                  placeholder={DEFAULT_FORMULA}
+                  title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type."
+                  className="pixel-input-sm flex-1 min-w-[160px] font-mono"
+                />
+                <button
+                  onClick={() => setFormula(DEFAULT_FORMULA)}
+                  title="Back to the default score"
+                  className="pixel-btn text-[12px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0"
+                >
+                  RST
+                </button>
+                {compiled.error
+                  ? <span className="text-[12px] text-red-400 shrink-0 truncate max-w-[200px]">ERR: {compiled.error.slice(0, 40)}</span>
+                  : <span className="text-[12px] text-green-500 shrink-0">&#10003;</span>}
+              </div>
+
+              {/* The variables, spelled out. A formula box with no vocabulary
+                  beside it is a guessing game — and clicking one writes it,
+                  so the row doubles as the way in. */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0">VARIABLES</span>
+                {FORMULA_VARS.map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => setFormula((f) => (f.trim() === "" ? v : `${f.trimEnd()} ${v}`))}
+                    title={`${SCORE_VAR_HINTS[v]} — click to append to the formula`}
+                    className="pixel-btn text-[11px] px-1.5 py-0.5 font-mono border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60"
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+
+              <div className="text-[11px] text-pixel-gray leading-snug">
+                Ranked on this expression, biggest first. + SAVE keeps it as
+                your own chip on every board.
+                {!scorePreset && serverScoreSort && (
+                  <>
+                    {" "}A hand-written formula is scored in your browser, so it re-ranks the
+                    pool this page pulled under <span className="font-mono text-pixel-gray-light">{serverScoreSort}</span> — widen the
+                    filters if the trader you expect isn&apos;t in it.
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {pageTraders.length === 0 ? (
             <div className="pixel-panel p-8 text-center text-[13px] text-pixel-gray">

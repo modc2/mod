@@ -320,8 +320,14 @@ def _sprite_css(name: str, px: int, art: str) -> str:
     dots = ','.join(f'{x * px}px {y * px}px 0 currentColor'
                     for y, row in enumerate(rows)
                     for x, ch in enumerate(row) if ch == '#')
+    sm = max(1, px - 1)
+    dots_sm = ','.join(f'{x * sm}px {y * sm}px 0 currentColor'
+                       for y, row in enumerate(rows)
+                       for x, ch in enumerate(row) if ch == '#')
     return (f'  .spr-{name}{{width:{w * px}px;height:{h * px}px}}\n'
-            f'  .spr-{name}::before{{width:{px}px;height:{px}px;box-shadow:{dots}}}\n')
+            f'  .spr-{name}::before{{width:{px}px;height:{px}px;box-shadow:{dots}}}\n'
+            f'  .spr-{name}.sm{{width:{w * sm}px;height:{h * sm}px}}\n'
+            f'  .spr-{name}.sm::before{{width:{sm}px;height:{sm}px;box-shadow:{dots_sm}}}\n')
 
 
 SPRITE_CSS = ('  .spr{position:relative;display:inline-block;flex:none;vertical-align:-2px}\n'
@@ -603,19 +609,30 @@ INDEX_HTML = _skin(r"""<!doctype html>
   @media(max-width:1280px){.brand .sub{display:none}}
   @media(max-width:900px){.row{flex-wrap:wrap}.row>.pill{max-width:46vw}}
   main{max-width:1240px;margin:0 auto;padding:14px 14px 48px}
-  /* the exhibit and the mcp endpoint ride as slim strips, not banners: the
-     market is the page. Detail lives behind the toggles. */
-  .strips{display:flex;gap:9px;flex-wrap:wrap;margin:0 0 11px}
-  .strip{display:flex;gap:10px;align-items:center;padding:7px 8px 7px 11px;
-    border:var(--bw) solid var(--line);background:var(--panel);box-shadow:3px 3px 0 var(--line);
-    font:16px/1.1 var(--f-bd);color:var(--muted)}
-  .strip .t{display:flex;gap:8px;align-items:center;font:9px/1 var(--f-hd);color:var(--text)}
-  .strip.warn{border-color:var(--danger);box-shadow:3px 3px 0 var(--danger)}
-  .strip.warn .t{color:var(--danger)}
-  .strip code{color:var(--accent2)}
+  /* ── the actions row ──
+     The exhibit, the MCP endpoint, the arcade, the agent and the GitHub budget
+     used to ride above the market as five full-width strips — a band of chrome
+     taller than the first row of cartridges, all of it prose for one toggle.
+     They collapse into the header as pills on its second line: the pill carries
+     the one number that matters, the panel it opens carries the sentence, and
+     the wall now starts at the top of the page. */
+  .acts{margin-top:9px;gap:7px;flex-wrap:wrap}
+  .acts>.pill{max-width:none}
+  .acts .pill b{font:9px/1 var(--f-hd);color:var(--text)}
+  .acts .pill.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent);
+    box-shadow:3px 3px 0 var(--line2)}
+  .acts .pill.on b{color:var(--on-accent)}
+  .acts .pill.bad b{color:var(--danger)}
+  .acts .pill.bad.on{background:var(--danger);color:var(--bg);border-color:var(--danger)}
+  .acts .pill.bad.on b{color:var(--bg)}
   .facts{display:none;margin:0 0 12px;padding:13px 15px;
     border:var(--bw) solid var(--danger);background:var(--panel);box-shadow:5px 5px 0 var(--danger)}
   .facts.on{display:block}
+  /* RUN comes off the strip and onto the panel the pill opens, above the
+     mechanism it is a demonstration of - and outside the fetched body, so it
+     is still there when /exhibit is the thing that failed. */
+  .facts-top{display:flex;gap:12px;align-items:center;margin:0 0 9px}
+  .facts-top h4{margin:0}
   .facts h4{margin:13px 0 6px;font-size:9px;color:var(--warn);text-transform:uppercase}
   .facts h4:first-child{margin-top:0}
   .facts ul{margin:0;padding-left:20px;color:var(--muted);font-size:17px;line-height:1.35}
@@ -739,36 +756,39 @@ INDEX_HTML = _skin(r"""<!doctype html>
     <input id="q" placeholder="filter repos" oninput="render()"/>
     <button class="btn" onclick="load(true)">RELOAD</button>
   </div>
+  <!-- ── the five toggles that used to be five banners ──
+       PLINYWORLD opens what the PoC does (and the way to run it), MCP the
+       endpoint, ARCADE filters the wall down to the ones you can press play
+       on, ASK opens the agent, and GH appears only when the GitHub budget is
+       worth knowing about. A pill lights up while its panel is open. -->
+  <div class="row acts">
+    <button id="exhibitpill" class="pill bad" onclick="toggleFacts()"
+      title="PLINYWORLD - a clipboard-hijack PoC, served defanged. click for what it does"
+      ><span class="spr spr-skull sm"></span>PLINYWORLD</button>
+    <button id="mcppill" class="pill" onclick="toggleMcp()"
+      title="one connection, every repo its own tool">MCP <b id="mcpn">?</b></button>
+    <!-- a third of the corpus is not prose, it is an app. those ones run here. -->
+    <button id="arcadepill" class="pill" onclick="toggleArcade()" style="display:none"
+      title="the ones you can press play on">ARCADE <b id="arcaden"></b></button>
+    <!-- the corpus, asked rather than filtered: the claude agent reads these
+         repos with this module's own MCP tools and answers with the paths. -->
+    <button id="askpill" class="pill" onclick="toggleChat()"
+      title="the claude agent reads these repos for you"
+      ><span class="spr spr-inv sm"></span>ASK</button>
+    <!-- only shown when the GitHub budget is worth knowing about: anonymous, or
+         running low. A silent 403 mid-browse is the thing this prevents. -->
+    <button id="ratepill" class="pill bad" onclick="copyToken()" style="display:none"></button>
+    <div class="grow"></div>
+  </div>
   <div id="themes" class="themes"></div>
 </header>
 <main>
-  <div class="strips">
-    <div class="strip warn">
-      <span class="t"><span class="spr spr-skull"></span>PLINYWORLD</span><span>defanged exhibit</span>
-      <button class="btn ghost" onclick="toggleFacts()">WHAT IT DOES</button>
-      <a class="btn ghost" href="./plinyworld" target="_blank" rel="noopener">RUN &gt;</a>
-    </div>
-    <div class="strip">
-      <span class="t">MCP</span><span id="mcpn">every repo, its own tool</span>
-      <button class="btn ghost" onclick="toggleMcp()">CONNECT</button>
-    </div>
-    <!-- a third of the corpus is not prose, it is an app. those ones run here. -->
-    <div class="strip" id="arcade" style="display:none">
-      <span class="t"><span class="spr spr-inv"></span>ARCADE</span><span id="arcaden"></span>
-      <button class="btn ghost" id="arcadebtn" onclick="toggleArcade()">RUN ONLY</button>
-    </div>
-    <!-- only rendered when the GitHub budget is worth knowing about: anonymous,
-         or running low. A silent 403 mid-browse is the thing this prevents. -->
-    <!-- the corpus, asked rather than filtered: the claude agent reads these
-         repos with this module's own MCP tools and answers with the paths. -->
-    <div class="strip" id="askstrip">
-      <span class="t"><span class="spr spr-inv"></span>ASK</span>
-      <span id="askn">the claude agent reads these repos for you</span>
-      <button class="btn ghost" onclick="toggleChat()">ASK IT</button>
-    </div>
-    <div class="strip" id="ratestrip" style="display:none"></div>
+  <div id="facts" class="facts">
+    <div class="facts-top"><h4>the exhibit</h4><div class="grow"></div>
+      <a class="btn" href="./plinyworld" target="_blank" rel="noopener"
+         title="the defanged page, in a new tab">RUN &gt;</a></div>
+    <div id="factsbody"><div class="loading cur">reading the preserved payload</div></div>
   </div>
-  <div id="facts" class="facts"><div class="loading cur">reading the preserved payload</div></div>
   <div id="mcp" class="facts" style="border-color:var(--accent2);box-shadow:5px 5px 0 var(--accent2)">
     <div class="loading cur">reading the tool registry</div>
   </div>
@@ -822,41 +842,51 @@ async function load(refresh){
 // The GitHub budget. Anonymous is 60/hour per IP for the whole box, so the wall
 // arrives mid-browse and the market simply stops loading; say so, and say the
 // one command that fixes it.
+const TOKEN_CMD='m pliny/token <github_pat>';
 async function loadRate(){
-  const el=document.getElementById('ratestrip');
+  const el=document.getElementById('ratepill');
   let j; try{ j=await api('/rate'); }catch(e){ return; }
   if(!j || j.error || j.remaining==null) return;
   const low = j.limit ? j.remaining <= Math.max(5, j.limit*0.15) : false;
   if(j.authenticated && !low){ el.style.display='none'; return; }
   const mins = j.resets_in!=null ? Math.ceil(j.resets_in/60) : null;
-  el.className = 'strip' + (low || !j.authenticated ? ' warn' : '');
-  el.innerHTML = '<span class="t">GITHUB</span><span>'
-    + (j.authenticated ? 'authenticated' : 'anonymous')
-    + ' · <b>'+j.remaining+'</b>/'+j.limit+' calls left'
-    + (mins!=null ? ' · resets in '+mins+'m' : '')
-    + (j.authenticated ? '' : ' · <code>m pliny/token &lt;github_pat&gt;</code> for 5,000/hr')
-    + '</span>';
+  el.className = 'pill' + (low || !j.authenticated ? ' bad' : '');
+  el.innerHTML = 'GH <b>'+j.remaining+'/'+j.limit+'</b>';
+  // the pill is four characters wide, so the sentence it replaced is the
+  // tooltip - and the one command that fixes it is on the click, like CID.
+  el.title = [(j.authenticated ? 'authenticated' : 'anonymous')
+      + ' · ' + j.remaining + '/' + j.limit + ' GitHub calls left'
+      + (mins!=null ? ' · resets in '+mins+'m' : ''),
+    j.authenticated ? null : 'click to copy: ' + TOKEN_CMD + '   (5,000/hr)'
+    ].filter(Boolean).join('\n');
   el.style.display='';
 }
+function copyToken(){
+  const el=document.getElementById('ratepill'), was=el.innerHTML;
+  navigator.clipboard.writeText(TOKEN_CMD).then(()=>{
+    el.innerHTML='COPIED'; setTimeout(()=>{el.innerHTML=was;},1200);
+  }).catch(()=>{});
+}
 
-// The arcade strip: how many of these repos are things you can press play on.
+// The arcade pill: how many of these repos are things you can press play on.
 function renderArcade(n){
-  const el=document.getElementById('arcade');
+  const el=document.getElementById('arcadepill');
   if(!n){ el.style.display='none'; return; }
   el.style.display='';
-  // …and the ones that are apps but shipped as source: the strip should say
+  // …and the ones that are apps but shipped as source: the pill should say
   // they exist, because a BUILD button on a card nobody scrolled to is a
   // feature nobody finds.
   const b=REPOS.filter(r=>!r.run&&r.build).length;
-  document.getElementById('arcaden').innerHTML='<b>'+n+'</b> of them are apps - they run here, sandboxed'
-    +(b?' &middot; <b>'+b+'</b> more build into one':'');
+  document.getElementById('arcaden').textContent=n;
+  el.title=n+' of them are apps - they run here, sandboxed'
+    +(b?' · '+b+' more build into one':'')
+    +'\nclick to show only those';
 }
 // recount after a build lands, without refetching the whole market
 function arcade(){ renderArcade(REPOS.filter(r=>r.run).length); }
 function toggleArcade(){
   ONLY_RUN=!ONLY_RUN;
-  document.getElementById('arcadebtn').textContent=ONLY_RUN?'SHOW ALL':'RUN ONLY';
-  document.getElementById('arcade').className='strip'+(ONLY_RUN?' warn':'');
+  document.getElementById('arcadepill').classList.toggle('on',ONLY_RUN);
   render();
 }
 
@@ -990,12 +1020,12 @@ async function readme(name,url){
 }
 
 async function toggleFacts(){
-  const el=document.getElementById('facts');
+  const el=document.getElementById('facts'), body=document.getElementById('factsbody');
   el.classList.toggle('on');
+  document.getElementById('exhibitpill').classList.toggle('on',el.classList.contains('on'));
   if(!el.classList.contains('on')||FACTS) return;
-  try{ FACTS=await api('/exhibit'); }catch(e){ el.innerHTML='<div class="loading">'+esc(e.message)+'</div>'; return; }
-  el.innerHTML=`
-    <h4>the exhibit</h4>
+  try{ FACTS=await api('/exhibit'); }catch(e){ body.innerHTML='<div class="loading">'+esc(e.message)+'</div>'; return; }
+  body.innerHTML=`
     <ul><li>A fork of elder-plinius.github.io, a clipboard-hijack (pastejacking) red-team PoC.
       Served <b>DEFANGED</b>: it copies nothing and shows what the live attack would have done.</li></ul>
     <h4>mechanism</h4>
@@ -1014,7 +1044,8 @@ let MCP=null;
 async function toggleMcp(){
   const el=document.getElementById('mcp');
   el.classList.toggle('on');
-  if(!el.classList.contains('on')||el.dataset.ready) return;   // the strip preloads MCP
+  document.getElementById('mcppill').classList.toggle('on',el.classList.contains('on'));
+  if(!el.classList.contains('on')||el.dataset.ready) return;   // the pill preloads MCP
   try{ MCP=MCP||await api('/tools?all=1'); }catch(e){ el.innerHTML='<div class="loading">'+esc(e.message)+'</div>'; return; }
   el.dataset.ready='1';
   const names=(MCP.tools||[]).map(t=>t.name);
@@ -1041,6 +1072,7 @@ async function toggleMcp(){
 function toggleChat(){
   const el=document.getElementById('chat');
   el.classList.toggle('on');
+  document.getElementById('askpill').classList.toggle('on',el.classList.contains('on'));
   if(el.classList.contains('on')){ scopeLine(); document.getElementById('cq').focus(); }
 }
 function scopeLine(){
@@ -1141,24 +1173,27 @@ async function askAgent(){
   }
 }
 
-// The ASK strip only promises what the host can deliver: no claude on the box,
+// The ASK pill only promises what the host can deliver: no claude on the box,
 // no button that spins forever.
 async function chatCard(){
   try{
     const c=await api('/chat');
     const on=((c.agent||{}).available!==false);
-    document.getElementById('askn').innerHTML=on
-      ? 'the <b>claude</b> agent reads these repos for you - '+((c.agent||{}).tools||[]).length
+    const el=document.getElementById('askpill');
+    el.title=on
+      ? 'the claude agent reads these repos for you - '+((c.agent||{}).tools||[]).length
         +' tools, scoped by the type you pick'
-      : 'no claude agent on this host - '+esc((c.agent||{}).why_not||'unavailable');
-    if(!on) document.getElementById('askstrip').className='strip warn';
+      : 'no claude agent on this host - '+((c.agent||{}).why_not||'unavailable');
+    if(!on) el.className='pill bad';
   }catch(e){}
 }
 
 async function mcpCount(){
   try{
     MCP=await api('/tools?all=1');
-    document.getElementById('mcpn').textContent=MCP.tools.length+' tools · every repo, its own';
+    document.getElementById('mcpn').textContent=MCP.tools.length;
+    document.getElementById('mcppill').title=MCP.tools.length
+      +' tools on one endpoint - every repo its own. click for how to connect';
   }catch(e){ MCP=null; }
 }
 

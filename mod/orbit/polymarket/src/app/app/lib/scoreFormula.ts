@@ -14,6 +14,22 @@ import type { TopTrader } from "./polymarket";
 /** The variables a formula can use, in the order they're passed in. */
 export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry"] as const;
 
+/** What each variable IS, in one line — rendered beside the formula box on
+    the board's SCORE editor. A formula language with no vocabulary printed
+    next to it is a guessing game, and these names are not self-explanatory
+    (`volume` is the window's total traded notional, not position count). */
+export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
+  sharpe: "Risk-adjusted return over the window — mean trade return \u00f7 its standard deviation",
+  pnl: "Realized profit in the window, USDC",
+  volume: "Total USDC traded in the window (buys + sells)",
+  buyVolume: "USDC spent entering positions",
+  sellVolume: "USDC taken back out of positions",
+  positions: "How many positions were taken in the window",
+  winRate: "Share of settled positions that made money, 0\u20131",
+  markets: "How many distinct markets were traded",
+  exitEntry: "Average exit price \u00f7 average entry price \u2014 above 1 means they sold higher than they bought",
+};
+
 /** Named formulas the SCORE can be parameterized with — the first is the
     default. A preset is just a formula string, so an edited preset degrades
     gracefully into a custom score.
