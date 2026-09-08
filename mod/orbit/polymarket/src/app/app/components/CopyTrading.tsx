@@ -986,7 +986,11 @@ export default function CopyTrading({
       )}
       {/* ── Single-line header ── */}
       <div className="pixel-panel px-4 py-2.5">
-        <div className="flex items-center gap-3 flex-wrap">
+        {/* ONE line, never wrapped. When the right-hand cluster wrapped it took
+            a whole empty band with it: the title row went half-blank and the
+            SYNC group sat alone on a second line pushed right by ml-auto. The
+            keyword field is the only elastic item here — it shrinks instead. */}
+        <div className="flex items-center gap-3">
           {/* Title + days + count */}
           <span className="text-[15px] text-pixel-white tracking-wider shrink-0">TOP TRADERS</span>
 
@@ -1002,7 +1006,7 @@ export default function CopyTrading({
               it shouldn't hide behind a toggle). Matching traders keep only
               markets that hit the query, and P&L/VOL/TRADES are recomputed
               from just those markets server-side. */}
-          <div className="relative flex-1 min-w-[160px] max-w-[340px]">
+          <div className="relative flex-1 min-w-[110px] max-w-[340px]">
             <input
               type="text"
               value={kwDraft}
@@ -1034,7 +1038,7 @@ export default function CopyTrading({
           )}
 
           {visibleTotal > 0 && !loading && (
-            <span className="text-[13px] text-pixel-gray font-mono shrink-0">
+            <span className="hidden md:inline text-[13px] text-pixel-gray font-mono shrink-0">
               {visibleTotal} traders
             </span>
           )}
@@ -1380,17 +1384,28 @@ export default function CopyTrading({
                   btnClass="pixel-btn text-[12px] px-2 py-1 shrink-0"
                   idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
                 />
-                <input
-                  ref={formulaRef}
-                  type="text"
-                  value={formula}
-                  onChange={(e) => setFormula(e.target.value)}
-                  onKeyDown={onEnter}
-                  spellCheck={false}
-                  placeholder={DEFAULT_FORMULA}
-                  title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type."
-                  className="pixel-input-sm flex-1 min-w-[160px] font-mono"
-                />
+                {/* Validity rides INSIDE the box. As its own flex item the lone
+                    ✓ was the one thing that wouldn't fit the row, so it wrapped
+                    and bought an empty second line for a single glyph. */}
+                <div className="relative flex-1 min-w-[160px]">
+                  <input
+                    ref={formulaRef}
+                    type="text"
+                    value={formula}
+                    onChange={(e) => setFormula(e.target.value)}
+                    onKeyDown={onEnter}
+                    spellCheck={false}
+                    placeholder={DEFAULT_FORMULA}
+                    title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type."
+                    className={`pixel-input-sm w-full font-mono ${compiled.error ? "pr-[46%]" : "pr-6"}`}
+                  />
+                  {compiled.error
+                    ? <span
+                        title={compiled.error}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-red-400 max-w-[44%] truncate pointer-events-none"
+                      >ERR: {compiled.error.slice(0, 40)}</span>
+                    : <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[12px] text-green-500 pointer-events-none">&#10003;</span>}
+                </div>
                 <button
                   onClick={() => setFormula(DEFAULT_FORMULA)}
                   title="Back to the default score"
@@ -1398,9 +1413,6 @@ export default function CopyTrading({
                 >
                   RST
                 </button>
-                {compiled.error
-                  ? <span className="text-[12px] text-red-400 shrink-0 truncate max-w-[200px]">ERR: {compiled.error.slice(0, 40)}</span>
-                  : <span className="text-[12px] text-green-500 shrink-0">&#10003;</span>}
               </div>
 
               {/* The variables, spelled out. A formula box with no vocabulary
