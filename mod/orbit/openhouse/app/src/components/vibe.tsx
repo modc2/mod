@@ -101,7 +101,7 @@ export function VibePicker() {
         className="flex items-center gap-2 px-3 py-2 rounded-full border border-white/12 text-[11px] font-bold uppercase tracking-widest text-white/68 hover:text-coral hover:border-coral/40 transition-colors">
         <Chips chips={vibe.chips} />
         {/* Below a wide desktop the chips already say which cabinet you're
-            in, and the eight-route rail wants every pixel. */}
+            in, and the seven-route rail wants every pixel. */}
         <span className="hidden xl:inline">{vibe.label}</span>
       </button>
 

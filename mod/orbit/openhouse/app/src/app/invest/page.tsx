@@ -1,12 +1,11 @@
 /* /invest — the building, the float, and the mint form.
 
    The one page that writes: a purchase reloads status + property so the
-   float bar and the cap-table count move under you. */
+   float bar and the owner count move under you. */
 
 "use client";
 
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { useState } from 'react'
 import { toast } from 'react-toastify'
 import { NextUp, PageHead, Shell } from '../../components/chrome'
@@ -144,10 +143,6 @@ function InvestInner() {
             </div>
           </Reveal>
         </div>
-
-        <p className="text-white/55 text-sm mt-10 text-center">
-          Every mint lands on the <Link href="/captable" className="text-coral hover:underline">public cap table →</Link>
-        </p>
       </div>
 
       <NextUp here="/invest" />

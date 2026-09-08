@@ -1,17 +1,55 @@
 {
     "name": "hermes",
-    "description": "Local-only Hermes agent \u2014 on-device inference via llama-cpp, no cloud APIs",
+    "description": "NousResearch Hermes weights as a local agent that speaks the fleet's AGENT contract. Inference runs on this box only \u2014 the llama_cpp package in-process, or a llama.cpp/ollama server on localhost \u2014 never a cloud API. GET /agents and POST /run/stream are the shape orbit/build probes before it will mount a module as an agent backend, so a hermes run can be a build job; orbit/agent mounts the same module as a free local provider, so any agent there can run on Hermes weights without a key or a credit balance.",
     "fns": [
         "forward",
         "chat",
         "complete",
         "run",
+        "agents",
+        "agent",
         "download",
         "load",
         "models",
         "clear",
         "bench",
+        "health",
+        "serve",
         "info"
     ],
-    "schema": "QmbMUXQZfAG2PtZJ6ehsoDGBWSwfW87QUe7UQac2dhMtzE"
+    "schema": "Qmf3jWuUnDCjrjeVZf6N8Mo65mJPDSuLLfE2NX7wauNz8Z",
+    "version": "1.0.0",
+    "title": "Hermes \u263f Local Agent",
+    "icon": "\u263f",
+    "color": "#8b5cf6",
+    "port": 50920,
+    "route": true,
+    "base_path": "/hermes",
+    "anchor": "src/mod.py",
+    "backend": "python stdlib only (http.server + urllib) \u2014 no dependencies",
+    "urls": {
+        "api": "http://127.0.0.1:50920"
+    },
+    "agent_contract": {
+        "roster": "GET /agents \u2192 {\"agents\": [...]}",
+        "run": "POST /run/stream \u2192 SSE (model_start, token, tool_start, step, done)",
+        "blocking": "POST /run",
+        "mount": "orbit/build: POST /agents/mods {\"mod\": \"orbit/hermes\"} (owner-only)",
+        "provider": "orbit/agent: provider `hermes` \u2014 local, free, never billed"
+    },
+    "env": {
+        "PORT": "port for the API (default 50920)",
+        "HERMES_BACKEND": "force one backend: llama-cpp | server (default: probe)",
+        "HERMES_API_URL": "a local OpenAI-compatible server (llama-server / ollama)",
+        "HERMES_MODEL": "default model key or id",
+        "HERMES_MODEL_DIR": "where GGUF weights live (default ~/.mod/hermes/models)",
+        "HERMES_BASH_TIMEOUT": "seconds one bash tool call gets (default 120)"
+    },
+    "auth": {
+        "open": "GET /, /health, /agents, /models \u2014 the mount probe must not need a token",
+        "run": "owner bearer (~/.mod/hermes/server.secret), a loopback request that did not pass the gateway, or a mod-protocol token as `key` in the body"
+    },
+    "deps": [
+        "auth"
+    ]
 }

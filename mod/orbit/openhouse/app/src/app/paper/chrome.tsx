@@ -1,6 +1,6 @@
 /* The section rail the whitepaper pages wear under the site nav.
 
-   The site rail (components/chrome.tsx) says which of the eight pages you
+   The site rail (components/chrome.tsx) says which of the seven pages you
    are on; this one says which of the six sections. Server component —
    nothing here is interactive, so the section pages ship as static HTML. */
 

@@ -120,6 +120,11 @@ class Agents:
             # still declare it, so it stands in when `tools` is absent
             "tools": getattr(cls, "tools", None) or getattr(cls, "skills", None),
             "model": getattr(cls, "model", None),
+            # which provider that model belongs to. A model id alone is
+            # ambiguous across providers — `hermes-3-8b` on openrouter is
+            # a leftover setting, and _model_for would swap it out — so an
+            # agent built on a specific runtime says which one.
+            "provider": getattr(cls, "provider", None),
             # which memory module this agent thinks with (memory/registry.py).
             # None -> the default one, so an agent written before memory was
             # selectable still gets memory, it just didn't choose it.

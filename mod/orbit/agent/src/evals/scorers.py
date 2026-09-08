@@ -10,6 +10,11 @@ without an LLM judge. New scorers register themselves via SCORERS[name] = fn.
 """
 import os
 import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -183,6 +188,151 @@ def step_count_at_least(trace, spec) -> Dict[str, Any]:
             'reason': f"{count} step(s), required >= {n}"}
 
 
+# ── the task as its own benchmark ────────────────────────────────────
+
+TEST_TIMEOUT = 60          # seconds, per run
+MAX_TEST_TIMEOUT = 300
+MAX_TEST_OUTPUT = 4000     # characters of the runner's output kept on the check
+SKIP_COPY = shutil.ignore_patterns('.git', '__pycache__', 'node_modules',
+                                   '.pytest_cache', '.venv', 'venv')
+
+# a runner that is not installed on this host graded nobody — the same kind of
+# nothing as a provider outage, so the match is voided rather than lost
+MISSING_RUNNER = re.compile(
+    r'No module named (?:pytest|unittest)|command not found|'
+    r'is not recognized as an internal', re.I)
+
+
+def _runner_argv(cmd) -> List[str]:
+    """Split a command, and make `python` mean *this* python.
+
+    `python` is not on PATH on plenty of hosts (this one included) while
+    python3.12 is, so a task that spells its runner the obvious way would
+    fail as a missing binary rather than as a wrong answer.
+    """
+    argv = list(cmd) if isinstance(cmd, (list, tuple)) else shlex.split(str(cmd))
+    if argv and argv[0] in ('python', 'python3'):
+        argv[0] = sys.executable or argv[0]
+    return [str(a) for a in argv]
+
+
+def _tally(out: str, code: int) -> Tuple[int, int]:
+    """(passed, total) from a runner's output — pytest, unittest, or PASS lines.
+
+    Read in that order and stop at the first one that reports anything, so a
+    verifier that prints its own PASS/FAIL lines is not also counted by the
+    pytest regexes that happen to match its summary.
+    """
+    passed = sum(int(n) for n in re.findall(r'(\d+) passed', out))
+    failed = sum(int(n) for n in re.findall(r'(\d+) (?:failed|error(?:s)?)\b', out))
+    if passed or failed:
+        return passed, passed + failed
+
+    ran = re.search(r'^Ran (\d+) tests?', out, re.M)
+    if ran:
+        total = int(ran.group(1))
+        bad = sum(int(n) for n in re.findall(r'(?:failures|errors)=(\d+)', out))
+        return max(0, total - bad), total
+
+    marks_ok = len(re.findall(r'(?mi)^\s*\[?PASS\]?\b', out))
+    marks_no = len(re.findall(r'(?mi)^\s*\[?FAIL\]?\b', out))
+    if marks_ok or marks_no:
+        return marks_ok, marks_ok + marks_no
+
+    # nothing countable: the exit code is the whole verdict
+    return (1, 1) if code == 0 else (0, 1)
+
+
+def tests(trace, spec) -> Dict[str, Any]:
+    """Run the task's own tests over what the agent left on disk, and score
+    the fraction of cases that pass.
+
+    This is the scorer that makes a task its own benchmark. Every other check
+    here is a proxy — a regex over a file is a guess about whether the program
+    is right — and this one just runs it:
+
+        {"type": "tests", "cmd": "python -m pytest -q",
+         "hidden": {"test_stats.py": "...the full suite..."},
+         "timeout": 60}
+
+    `cwd` is injected by the arena (the match's scratch dir); nothing is run
+    in place. The directory is copied to a staging dir first, `hidden` files
+    are written over the copy, and the runner runs there — so the tests an
+    agent was shown are not the tests it is graded on, and an agent that
+    edits the suite to make it pass is graded by the copy it never saw.
+
+    Partial credit is the point: 7 of 10 cases is 0.7, not a zero. `passed`
+    means every case. A runner that is not installed voids the match instead
+    of failing the agent; a run that times out does not — an infinite loop is
+    the agent's own work.
+    """
+    cwd = Path(str(spec.get('cwd') or '.')).expanduser()
+    if not cwd.is_dir():
+        return {'passed': False, 'score': 0.0, 'void': True,
+                'reason': f"no directory to test: {cwd}"}
+
+    cmd = spec.get('cmd') or 'python -m pytest -q'
+    try:
+        argv = _runner_argv(cmd)
+    except ValueError as e:
+        return {'passed': False, 'score': 0.0, 'void': True,
+                'reason': f"unparseable test command: {e}"}
+    if not argv:
+        return {'passed': False, 'score': 0.0, 'void': True,
+                'reason': 'tests scorer needs a `cmd`'}
+
+    timeout = max(1, min(int(spec.get('timeout') or TEST_TIMEOUT), MAX_TEST_TIMEOUT))
+    stage = Path(tempfile.mkdtemp(prefix='bench-'))
+    try:
+        run_dir = stage / 'work'
+        shutil.copytree(cwd, run_dir, symlinks=False, ignore=SKIP_COPY)
+
+        for name, body in (spec.get('hidden') or {}).items():
+            rel = str(name).strip().lstrip('/')
+            target = (run_dir / rel).resolve()
+            if not str(target).startswith(str(run_dir.resolve())):
+                return {'passed': False, 'score': 0.0, 'void': True,
+                        'reason': f"hidden test path escapes the staging dir: {name}"}
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(str(body))
+
+        env = {
+            'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin'),
+            'HOME': str(stage),
+            'PYTHONPATH': str(run_dir),
+            'PYTHONDONTWRITEBYTECODE': '1',
+            'LANG': 'C.UTF-8',
+            'WORKDIR': str(run_dir),
+        }
+        try:
+            proc = subprocess.run(argv, cwd=str(run_dir), env=env, timeout=timeout,
+                                  capture_output=True, text=True, errors='replace')
+        except FileNotFoundError:
+            return {'passed': False, 'score': 0.0, 'void': True,
+                    'reason': f"test runner not installed on this host: {argv[0]}"}
+        except subprocess.TimeoutExpired:
+            return {'passed': False, 'score': 0.0,
+                    'reason': f"tests timed out after {timeout}s"}
+
+        out = ((proc.stdout or '') + (proc.stderr or ''))[-MAX_TEST_OUTPUT:]
+        if proc.returncode != 0 and MISSING_RUNNER.search(out):
+            return {'passed': False, 'score': 0.0, 'void': True,
+                    'reason': f"test runner unavailable: {out.strip().splitlines()[-1][:120]}"}
+
+        ok, total = _tally(out, proc.returncode)
+        score = (ok / total) if total else 0.0
+        return {
+            'passed': bool(total and ok == total and proc.returncode == 0),
+            'score': max(0.0, min(1.0, score)),
+            'reason': f"{ok}/{total} test(s) pass ({' '.join(argv[:3])}, exit {proc.returncode})",
+            'output': out,
+        }
+    except Exception as e:
+        return {'passed': False, 'score': 0.0, 'void': True,
+                'reason': f"could not run the tests: {e}"}
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
 def openarena(trace, spec) -> Dict[str, Any]:
     """Grade the program the run produced against an openarena task.
 
@@ -327,6 +477,8 @@ SCORERS = {
     'file_not_contains': file_not_contains,
     'file_regex': file_regex,
     'step_count_at_least': step_count_at_least,
+    # runs the task's own tests over what the agent left behind
+    'tests': tests,
     # graded by the openarena module's sandbox, not by this process
     'openarena': openarena,
     # …and this one by the arena module's, playing the answer into a drill

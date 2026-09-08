@@ -2,7 +2,7 @@
 
    Hero, ticker, and the directory. Everything that used to live below the
    fold is a route now, so this page's only job is to make the case and
-   point at the eight places that back it up. */
+   point at the seven places that back it up. */
 
 "use client";
 

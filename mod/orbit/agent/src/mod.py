@@ -34,6 +34,7 @@ from .toolbox.mod import Toolboxes
 from .tools.mod import Tools
 from .credits import Credits
 from .billing import Meter
+from .hermes import HermesModel
 from .liquid import BROWSER, CATALOG, BrowserModel, LiquidModel
 from .prompt import render as render_prompt
 from .steps import (THINK as THINK_BLOCK, normalize as normalize_step,
@@ -306,6 +307,9 @@ RULES:
         'liquidai': 'liquidai',
         'liquidai-cloud': 'liquidai-cloud',
         'browser': 'browser',
+        # NousResearch Hermes weights, held by the hermes module's own process
+        # (hermes.py). Local like the LFM ones, and free for the same reason.
+        'hermes': 'hermes',
     }
 
     # providers built in this module rather than resolved through m.mod()
@@ -313,6 +317,7 @@ RULES:
         'liquidai': lambda: LiquidModel(runtime='server'),
         'liquidai-cloud': lambda: LiquidModel(runtime='cloud'),
         'browser': BrowserModel,
+        'hermes': HermesModel,
     }
 
     # which liquidai runtime each local provider's model list comes from
@@ -333,6 +338,7 @@ RULES:
         'liquidai': 'runs on this box — no key, never billed',
         'liquidai-cloud': "Liquid's cloud, on the key set in the liquidai module",
         'browser': 'runs in your own tab — no key, never billed',
+        'hermes': 'Hermes weights on this box — no key, never billed',
     }
 
     DEFAULT_MODELS = {
@@ -349,6 +355,7 @@ RULES:
         'liquidai': 'LiquidAI/LFM2.5-1.2B-Instruct',
         'liquidai-cloud': 'lfm-2.5-8b-a1b',
         'browser': 'LiquidAI/LFM2.5-350M-ONNX',
+        'hermes': 'hermes-3-8b',
     }
 
     # curated model choices per provider for the UI selector (free-text still allowed)
@@ -398,6 +405,14 @@ RULES:
             'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
             'LiquidAI/LFM2.5-1.2B-Thinking-ONNX',
             'LiquidAI/LFM2.5-VL-450M-ONNX',
+        ],
+        # the hermes module's own registry keys — provider_models() replaces
+        # these with its live list, which also names whatever GGUF the box has
+        # already downloaded and whatever an ollama on it already serves
+        'hermes': [
+            'hermes-3-8b',
+            'hermes-3-8b-q8',
+            'hermes-3-3b',
         ],
     }
 
@@ -794,6 +809,15 @@ RULES:
         Liquid shipped this morning is selectable this afternoon; everything
         else is the curated MODELS list.
         """
+        # hermes is local but not a liquidai runtime: its list comes from
+        # its own module, so a GGUF downloaded this morning is selectable now
+        if provider == 'hermes':
+            try:
+                live = self._client('hermes').free_models()
+            except Exception as e:
+                print(f"Model list lookup failed for hermes: {e}")
+                live = []
+            return live or self.MODELS.get(provider, [])
         runtime = self.LOCAL_RUNTIMES.get(provider)
         if runtime:
             try:
@@ -2619,7 +2643,8 @@ class Mod(Agent):
             # vault, which is that module's business, not ours)
             return {'provider': provider, 'configured': True, 'key': None,
                     'supported': False, 'keyless': True, 'encrypted': False,
-                    'unlocked': False, 'hint': None, 'source': 'liquidai',
+                    'unlocked': False, 'hint': self.LOCAL_HINTS.get(provider),
+                    'source': 'liquidai' if provider.startswith('liquidai') else provider,
                     'remembered': False, 'remember_expires': None}
         keys = self._provider_keys(provider)
         vault = self._vault_read(provider)
@@ -3333,6 +3358,12 @@ class Mod(Agent):
             # otherwise silently get whatever the agent was built with
             if agent_config.get('model') and not agent_model:
                 agent_model = agent_config['model']
+            # same rule as the model: the agent's provider is a default the
+            # caller can override, not a lock. Without it an agent built on a
+            # local runtime runs its model id against whatever provider the
+            # caller defaulted to, which is where it gets silently swapped.
+            if agent_config.get('provider') and not agent_provider:
+                agent_provider = agent_config['provider']
             agent_harness = agent_config.get('harness')
 
         # explicit system prompt (library prompt or free text) beats the agent goal
@@ -3864,7 +3895,7 @@ class Mod(Agent):
         an empty picker looks like a broken feature, not an unset key.
         """
         out: List[Dict[str, Any]] = []
-        order = ('openrouter', 'venice', 'liquidai-cloud', 'liquidai')
+        order = ('openrouter', 'venice', 'liquidai-cloud', 'liquidai', 'hermes')
         for short in order:
             path = self.PROVIDERS.get(short, short)
             ready = self.has_model(short)

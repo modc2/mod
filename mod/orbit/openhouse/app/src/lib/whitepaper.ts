@@ -14,7 +14,13 @@ export const ABSTRACT =
   "The owner chooses a rent-to-own model that decides how that money splits between " +
   "your equity and their income — from a classic 25% rent credit to every net dollar " +
   "buying the house. Each quarter ownership is redistributed by principal paid off. " +
-  "Pay it off, own it outright."
+  "Pay it off, own it outright.\n\n" +
+  "A financed home works the same way with more people in it. Any group can form a " +
+  "trust against one mortgage: each member holds a share token minted one-for-one " +
+  "against dollars the servicer confirms it posted, so equity is pro-rata to what " +
+  "everyone actually paid in. An oracle run by the lender carries the bill and the " +
+  "confirmation, and the lender holds every lever on the contract — because it fronted " +
+  "the principal and carries the loss. Control and liability are the same seat."
 
 // Where the protocol actually stands today. Every "is this live?" string on the
 // site reads from here — flip it in one place the day mainnet ships.
@@ -134,6 +140,79 @@ export const SECTIONS: PaperSection[] = [
         "The redistribution isn't taken — it's earned, one payment at a time.",
     ],
     pull: "Renters earn walls. Owners earn yield. Markets do the redistributing.",
+  },
+  {
+    no: "07",
+    slug: "the-trust",
+    kicker: "The Trust",
+    title: "Any set of individuals, one house, one mortgage.",
+    body: [
+      "One person rarely clears a down payment on a whole house. Several people usually can. " +
+        "A trust is what lets them: any group can file a formation — the house, the terms, " +
+        "the list of who is in — and every one of them pays into the same mortgage.",
+      "Each member holds a share token. The token is not a promise or a claim to be argued " +
+        "about later; it is a receipt for dollars that reached the loan. Shares are minted at " +
+        "one share per dollar, so your fraction of the house is your balance over the total " +
+        "supply. Put in 60% of the money and you own 60% of the house. There is no other rule, " +
+        "and no function in the contract that can change the ratio — the only way your share " +
+        "moves is somebody paying more, or you paying less.",
+      "Somebody joining in year three doesn't take anything from you. They dilute everyone by " +
+        "exactly the dollars they bring and not a basis point more, because the arithmetic is " +
+        "the same arithmetic it was on day one.",
+    ],
+    pull: "Your equity is your dollars over everyone's dollars. That is the whole model.",
+  },
+  {
+    no: "08",
+    slug: "the-oracle",
+    kicker: "The Oracle",
+    title: "A payment isn't a payment until the bank says it posted.",
+    body: [
+      "A mortgage lives in a servicing system, not on a blockchain. So the trust doesn't guess. " +
+        "The lender runs an oracle — a feed its own reporters sign — and it carries two things: " +
+        "this month's bill, and confirmation that the servicer actually posted the money.",
+      "Money you send is escrow, not equity. It sits in the contract, goes out in one wire to " +
+        "one address the bank named, and becomes shares only when the feed confirms the loan was " +
+        "credited. Reporters have to agree byte for byte before anything publishes; a stale feed " +
+        "stops the trust taking money at all, which makes oracle liveness the bank's problem " +
+        "rather than yours.",
+      "The feed cuts both ways. It is also what the bank has to point at before it can call the " +
+        "loan: default is gated on the oracle saying the period went unpaid, not on the lender's " +
+        "say-so. And when the balance reaches zero, anyone at all can discharge the mortgage on " +
+        "chain — the bank cannot decline to admit it was repaid.",
+      "It also settles the oldest argument in rent-to-own: what does a payment buy? Set the trust " +
+        "to the Principal basis and only the amortized principal in a payment mints equity. The " +
+        "interest is what the bank's capital costs, and it is priced as a cost, in public, every " +
+        "month.",
+    ],
+    pull: "Escrow until the servicer posts it. Then it is yours, and the chain says so.",
+  },
+  {
+    no: "09",
+    slug: "the-bank",
+    kicker: "The Bank",
+    title: "Whoever carries the risk holds the keys.",
+    body: [
+      "The bank fronted the principal. It carries the loan, and if the house burns down or the " +
+        "group walks away it eats the loss. So it controls this contract — not a DAO, not a " +
+        "multisig of enthusiasts, not us. It appoints the oracle, admits the members, names the " +
+        "account payments are wired to, can freeze everything on its own signature, can call the " +
+        "default and can foreclose. There is no timelock and no member vote standing between a " +
+        "lender and its collateral, because a lender that can't reach its collateral doesn't lend.",
+      "That is the trade, stated plainly: total control is what buys total liability. A protocol " +
+        "that spread the keys around would also have spread the losses around, onto people who " +
+        "never underwrote anything.",
+      "What the bank cannot do is take your stake — not because it promised, but because the " +
+        "functions were never written. There is no burn. There is no seize. Escrowed money leaves " +
+        "by exactly two doors, to the servicer or back to you. Freezing a member stops them acting " +
+        "and touches nothing they own; they keep every share and can still collect income already " +
+        "earned. The one power over shares is all-or-nothing relocation to another cleared address " +
+        "— a lost key, a death, a court order — and it cannot shrink a position or invent one.",
+      "When the bank covers a shortfall to keep the loan current, that is a loan to the trust and " +
+        "not a purchase of it. It ranks ahead of every distribution, accrues at a capped rate, and " +
+        "is repaid in cash. It mints the bank nothing. You are never diluted by the rescue.",
+    ],
+    pull: "Total control is what buys total liability. Spread the keys and you spread the losses.",
   },
 ]
 

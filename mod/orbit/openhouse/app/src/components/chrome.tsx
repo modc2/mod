@@ -1,10 +1,10 @@
 /* The chrome every page wears: testnet strip, the route rail, the footer.
 
    This is what replaced the anchor nav. The site used to be one document
-   with eight `#targets` in it — every visitor downloaded the cap table and
-   waited on the landscape's third-party APIs to read the manifesto. Now
-   each of those is a route: the rail below is the whole site map, the
-   active page is marked, and the browser's back button means something. */
+   with eight `#targets` in it — every visitor waited on the landscape's
+   third-party APIs just to read the manifesto. Now each of those is a
+   route: the rail below is the whole site map, the active page is marked,
+   and the browser's back button means something. */
 
 "use client";
 
@@ -24,7 +24,6 @@ export const ROUTES = [
   { href: '/paper',     label: 'Whitepaper', blurb: 'Six sections, one page each' },
   { href: '/landscape', label: 'Landscape', blurb: 'Every other on-chain housing project, honestly' },
   { href: '/code',      label: 'Code',      blurb: 'The Solidity that holds the shares' },
-  { href: '/captable',  label: 'Cap Table', blurb: 'Who owns what, public by default' },
 ] as const
 
 /** /paper/03-the-take is still the whitepaper as far as the rail cares. */
@@ -38,7 +37,7 @@ export function SiteNav() {
   const rail = useRef<HTMLDivElement>(null)
   const current = useRef<HTMLAnchorElement>(null)
 
-  // On a narrow screen the rail is a window onto eight routes, and the one
+  // On a narrow screen the rail is a window onto seven routes, and the one
   // you're standing in may be off to the right of it. Centre it — by
   // setting scrollLeft rather than scrollIntoView, which would drag the
   // whole document up under the sticky header.
@@ -61,7 +60,7 @@ export function SiteNav() {
       </div>
 
       <nav className="bg-paper/85 backdrop-blur-xl border-b border-white/[0.07]">
-        {/* Wider than the 6xl text column above xl: eight routes, a swatch
+        {/* Wider than the 6xl text column above xl: seven routes, a swatch
             and a CTA need more room than a paragraph does, and a header
             that runs past its content is a header, not a mistake. */}
         <div className="max-w-6xl xl:max-w-7xl mx-auto px-5 md:px-8 h-16 flex items-center gap-4">
@@ -71,7 +70,7 @@ export function SiteNav() {
           </Link>
 
           {/* The rail scrolls sideways rather than collapsing into a burger:
-              eight destinations you can see beat one you have to open. */}
+              seven destinations you can see beat one you have to open. */}
           <div ref={rail} className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-bar">
             {ROUTES.map(r => {
               const here = isHere(pathname, r.href)
@@ -111,7 +110,7 @@ export function SiteFooter() {
         <p className="text-white/45 text-[11px] uppercase tracking-widest">Equity for everybody</p>
       </div>
 
-      {/* The site map again, at the bottom of every page — the same eight
+      {/* The site map again, at the bottom of every page — the same seven
           routes, so you never have to scroll back up to leave. */}
       <div className="max-w-6xl mx-auto px-5 md:px-8 pb-8">
         <div className="flex flex-wrap gap-x-6 gap-y-2 justify-center border-t border-white/[0.05] pt-6">

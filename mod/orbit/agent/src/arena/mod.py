@@ -74,6 +74,7 @@ try:
     from src.arena import openarena as oa
     from src.arena import drills as dr
     from src.arena import models as mb
+    from src.arena import tiers as tb
 except ImportError:  # running the arena standalone
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -83,6 +84,7 @@ except ImportError:  # running the arena standalone
     from src.arena import openarena as oa
     from src.arena import drills as dr
     from src.arena import models as mb
+    from src.arena import tiers as tb
 
 
 # scoring weights — correctness dominates, but a run that errors out or burns
@@ -166,6 +168,12 @@ MAX_TASK_SCORERS = 12
 MAX_TASK_STEPS = 30        # every agent on the board plays this budget
 # the keys a scorer spec may carry — anything else is dropped on the way in
 SCORER_FIELDS = ("type", "path", "text", "pattern", "name", "n", "case", "any")
+
+# checks that run a program. A shipped suite is a python file in the tree and
+# so is written by whoever runs the host; a console task is written by any
+# signed-in visitor, and "your check may name a command" would hand them the
+# host's shell. They stay out of the form — see validate_task.
+EXEC_SCORERS = ("tests",)
 
 
 def _now() -> float:
@@ -533,7 +541,11 @@ class Arena:
             kind = str(s.get("type") or "").strip()
             if kind not in SCORERS:
                 raise ValueError(f"unknown check type: {kind or '(none)'} — "
-                                 f"pick one of {', '.join(sorted(SCORERS))}")
+                                 f"pick one of {', '.join(sorted(set(SCORERS) - set(EXEC_SCORERS)))}")
+            if kind in EXEC_SCORERS:
+                raise ValueError(f"the {kind} check runs a command on the host, so it "
+                                 f"belongs to a shipped suite rather than a task written "
+                                 f"here — grade the files the run left behind instead")
             clean = {k: v for k, v in s.items() if k in SCORER_FIELDS and v not in (None, "")}
             clean["type"] = kind
             if kind.startswith("file_") and not clean.get("path"):
@@ -663,10 +675,19 @@ class Arena:
     # ── scoring ────────────────────────────────────────────────────
 
     def _resolve_spec(self, spec: Dict[str, Any], workdir: Path) -> Dict[str, Any]:
-        """Point a file scorer at the match's scratch dir."""
-        if "path" in spec and not os.path.isabs(str(spec["path"])):
-            return dict(spec, path=str(workdir / str(spec["path"])))
-        return spec
+        """Point a scorer at the match's scratch dir.
+
+        File checks get an absolute path; the `tests` scorer gets `cwd`, which
+        is the directory it copies and runs the task's own tests in. A task
+        never names either — the scratch dir is per match, so only the arena
+        knows where it is.
+        """
+        out = dict(spec)
+        if "path" in out and not os.path.isabs(str(out["path"])):
+            out["path"] = str(workdir / str(out["path"]))
+        cwd = str(out.get("cwd") or "")
+        out["cwd"] = cwd if os.path.isabs(cwd) else str(workdir / cwd if cwd else workdir)
+        return out
 
     def score(self, trace, task: Dict[str, Any], workdir: Path,
               limit: int = None) -> Dict[str, Any]:
@@ -1173,6 +1194,92 @@ class Arena:
         finally:
             self._lock.release()
 
+    def run_tier(self, model: str, provider: str = None, agents: List[str] = None,
+                 tasks: List[str] = None, steps: int = None, free: bool = False,
+                 reason: str = None, rate: bool = False) -> Dict[str, Any]:
+        """The whole field on ONE model — the gauntlet turned inside out.
+
+        A gauntlet holds the agent still and moves the model, which ranks
+        models. This holds the model still and moves the agent, which ranks
+        *designs* — and the reason to point it at a small model is that a
+        frontier model hides the difference. Prompt, toolbox and step budget
+        all stop mattering when the model can do the task regardless; on a
+        cheap one they are most of the score, which is what makes this the
+        round a framework is actually measured by.
+
+        Kept off the agents' main record by default (`rate=False`): the board
+        next door is one model deep, and folding a haiku-tier score into it
+        would read as an agent regression rather than a cheaper model. The
+        tier board (tiers.py) ranks these matches on their own.
+        """
+        if not self._lock.acquire(blocking=False):
+            return {"error": "a round is already running", "running": self._running}
+        try:
+            model = (model or "").strip()
+            if not model:
+                return {"error": "a tier round names its model — that is the "
+                                 "whole point of it. Pass model="}
+            field = agents or self.subjects()
+            if len(field) < 2:
+                return {"error": "a tier needs at least two agents — one design "
+                                 "playing alone compares nothing"}
+            pool = [self.task(t) for t in tasks] if tasks else self.round_tasks()
+            if not pool:
+                return {"error": "no tasks to play"}
+
+            cfg = self.config()
+            provider = provider or cfg.get("provider")
+            budget = int(cfg.get("max_matches", 40))
+            token_cap = int(cfg.get("max_tokens", 0) or 0)
+            reason = reason or f"tier:{model}"
+            played, tokens, capped_by = [], 0, None
+            for spec in pool:
+                if capped_by:
+                    break
+                allowed = self._suite_agents(spec)
+                for agent in field:
+                    if allowed and agent not in allowed:
+                        continue
+                    if len(played) >= budget:
+                        capped_by = "max_matches"
+                        break
+                    if token_cap and tokens >= token_cap:
+                        capped_by = "max_tokens"
+                        break
+                    match = self.run_match(agent, spec, model=model,
+                                           provider=provider, steps=steps,
+                                           free=free, reason=reason, rate=rate)
+                    played.append(match)
+                    tokens += int(match.get("tokens", 0))
+                    if match["void"] and self._rate_limited(match.get("void_reason")):
+                        self._cooldown(match.get("void_reason"))
+                        capped_by = "rate_limited"
+                        break
+            summary = {
+                "reason": reason,
+                "ts": _now(),
+                "season": int(self._state.get("season", 0)),
+                "model": model,
+                "provider": provider,
+                "agents": field,
+                "tasks": [t["key"] for t in pool],
+                "matches": len(played),
+                "tokens": tokens,
+                "cost": round(sum(float(m.get("cost") or 0.0) for m in played), 6),
+                "capped_by": capped_by,
+                "rated": bool(rate),
+                "results": played,
+            }
+            rounds = self._state.setdefault("rounds", [])
+            rounds.append({k: v for k, v in summary.items() if k != "results"})
+            self._state["rounds"] = rounds[-50:]
+            self._save_state()
+            # the board this round was run to produce, handed back with it
+            summary["tier"] = self.tier_card(model)
+            return summary
+        finally:
+            self._lock.release()
+
     def qualify(self, agent: str, reason: str = None) -> Dict[str, Any]:
         """Score a newcomer against the incumbents without re-running them.
 
@@ -1355,6 +1462,42 @@ class Arena:
             "running": self._running,
         }
 
+    # ── the same matches, read by tier: the model held still ────────
+    #
+    # models.py asks which model won. tiers.py asks how much of the score the
+    # *design* was worth on a given model — which is the only question a cheap
+    # model can answer better than an expensive one, because a frontier model
+    # scores the task regardless of how the agent was written.
+
+    def tier_board(self, min_agents: int = 2) -> List[Dict[str, Any]]:
+        """Every model two or more agents have met on, widest spread first."""
+        return tb.board(self.all_matches(), min_agents=min_agents)
+
+    def tier_card(self, model: str) -> Dict[str, Any]:
+        """One tier in full: the agents ranked inside it, task by task."""
+        titles = {t["key"]: t["title"] for t in self.tasks()}
+        return tb.field(self.all_matches(), model, titles=titles)
+
+    def tier_matrix(self, ref: str = None) -> Dict[str, Any]:
+        """Agents x models, with what each design keeps when the model shrinks."""
+        return tb.matrix(self.all_matches(), ref=ref)
+
+    def tiers_status(self) -> Dict[str, Any]:
+        """The tier board, the retention matrix, and the field they cover."""
+        rows = self.tier_board()
+        return {
+            "tiers": rows,
+            "matrix": self.tier_matrix(),
+            "agents": self.subjects(),
+            "tasks": [{"key": t["key"], "title": t["title"], "suite": t["suite"]}
+                      for t in self.tasks()],
+            "round_tasks": [t["key"] for t in self.round_tasks()],
+            # tiers that rank nobody: every design scored the same there, so
+            # the model is either doing all the work or none of it
+            "flat": [r["model"] for r in rows if not r["separates"]],
+            "running": self._running,
+        }
+
     def card(self, agent: str) -> Dict[str, Any]:
         """One agent's record: rating, per-task scores, recent matches."""
         r = self._rating(agent)
@@ -1476,6 +1619,12 @@ class Arena:
         forward('task_board')                      -> per task, model by model
         forward('gauntlet', models=[], agent=)     -> play them against each other
 
+        The same matches, read by tier — the model held still, the agent moved:
+        forward('tiers')                           -> every tier, spread first
+        forward('tier', model=)                    -> the agents inside one
+        forward('tier_matrix', ref=)               -> agents x models, retention
+        forward('tier_run', model=, agents=)       -> play the field on one model
+
         forward('qualify', agent=)                 -> score a newcomer
         forward('config', enabled=, free=, ...)    -> update the knobs
         forward('task_add', spec=, owner=, slug=)  -> store a hand-written task
@@ -1526,6 +1675,21 @@ class Arena:
             return self.model_card(kwargs.get("model", ""))
         if action in ("task_board", "tasks_board"):
             return {"tasks": self.task_board()}
+        if action in ("tiers", "tier_board"):
+            return self.tiers_status()
+        if action == "tier":
+            return self.tier_card(kwargs.get("model", ""))
+        if action in ("tier_matrix", "matrix"):
+            return self.tier_matrix(kwargs.get("ref"))
+        if action in ("tier_run", "run_tier"):
+            return self.run_tier(kwargs.get("model", ""),
+                                 provider=kwargs.get("provider"),
+                                 agents=kwargs.get("agents"),
+                                 tasks=kwargs.get("tasks"),
+                                 steps=kwargs.get("steps"),
+                                 free=bool(kwargs.get("free", False)),
+                                 reason=kwargs.get("reason"),
+                                 rate=bool(kwargs.get("rate", False)))
         if action == "gauntlet":
             return self.run_gauntlet(kwargs.get("models") or [],
                                      agent=kwargs.get("agent"),

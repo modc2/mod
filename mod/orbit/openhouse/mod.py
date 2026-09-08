@@ -1138,8 +1138,18 @@ class Mod:
     # Whitelisted, human-meaningful source files surfaced to the app.
     _SOURCE_FILES = [
         ('contracts/OpenHouse.sol', 'solidity',
-         'The on-chain contract: rent credited as principal, the quarterly '
+         'The single-renter contract: rent credited as principal, the quarterly '
          'BLOCTIME pool, governance.'),
+        ('contracts/OpenHouseTrust.sol', 'solidity',
+         'The tokenized trust: many people, one mortgage. Shares minted one per '
+         'dollar the servicer confirms, so equity is pro-rata to money in. The '
+         'bank holds every lever — and no function can take a member\'s stake.'),
+        ('contracts/MortgageOracle.sol', 'solidity',
+         'The bank\'s feed. Quorum-attested statements and payment confirmations '
+         '— the only way a real mortgage enters the chain.'),
+        ('contracts/OpenHouseFactory.sol', 'solidity',
+         'Where a group becomes a borrower: anyone can file a formation, only the '
+         'named bank can underwrite it into a live trust.'),
         ('mod.py', 'python',
          'Module logic — shares, dividends, governance, serving.'),
         ('api/api.py', 'python',

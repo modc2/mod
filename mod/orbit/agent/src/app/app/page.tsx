@@ -14,7 +14,9 @@ import Tools from './components/Tools'
 import Arena from './components/Arena'
 import MemoryPanel from './components/Memory'
 import { ThemePicker, useTheme } from './components/Theme'
-import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign } from './lib/localWallet'
+import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign,
+  identityFromSecret, useIdentity, sessionIdentity, clearSessionIdentity } from './lib/localWallet'
+import PasswordWallet from './components/PasswordWallet'
 import { BrowserModel, serveModelRequest, type BrowserState } from './lib/browserModel'
 
 type ToolSchema = { description: string; params: Record<string, any> }
@@ -240,7 +242,9 @@ const STARTERS: { q: string; s: string; icon: JSX.Element }[] = [
 // local: signed by a keypair generated in this browser (no wallet extension)
 // harnesses: the CLI harness names /whoami says this caller may run — the
 // host's, plus any a console module (claude, codex, build, chain) vouches for
-type AuthInfo = { address: string; token: string; isOwner: boolean; local?: boolean; harnesses?: string[] }
+// ephemeral: a password-derived local key held only in this tab — nothing
+// about this session (key or token) is written to disk, so a reload signs out
+type AuthInfo = { address: string; token: string; isOwner: boolean; local?: boolean; ephemeral?: boolean; harnesses?: string[] }
 
 const AUTH_KEY = 'agent_auth'
 const TOKEN_TTL_MS = 23 * 3600 * 1000 // server max_age is 24h — refresh before that
@@ -425,7 +429,13 @@ export default function Home() {
   const [auth, setAuth] = useState<AuthInfo | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [authErr, setAuthErr] = useState<string | null>(null)
+  // scrypt over a typed password takes a beat — the button says so
+  const [authDeriving, setAuthDeriving] = useState(false)
   const [showUserMenu, setShowUserMenu] = useState(false)
+  // the password field, opened from the sign-in menu
+  const [showPwWallet, setShowPwWallet] = useState(false)
+  // the recovery phrase, revealed on request from the account menu
+  const [showPhrase, setShowPhrase] = useState(false)
   // an action waiting on identity: the AuthGate modal is open and whoever
   // called requireAuth() is awaiting the promise held in authAskResolve
   const [authAsk, setAuthAsk] = useState<AuthNeed | null>(null)
@@ -435,7 +445,7 @@ export default function Home() {
   // handled the pointer; the keyboard had no way out.
   useEffect(() => {
     if (!showUserMenu) return
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowUserMenu(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { setShowUserMenu(false); setShowPwWallet(false) } }
     document.addEventListener('keydown', esc)
     return () => document.removeEventListener('keydown', esc)
   }, [showUserMenu])
@@ -1139,7 +1149,8 @@ export default function Home() {
   // resolve the role server-side and persist — shared by both sign-in paths.
   // Returns the fresh AuthInfo so a caller mid-action (requireAuth, run) can
   // use it before React has flushed the state update.
-  const finishSignIn = async (address: string, token: string, local: boolean): Promise<AuthInfo> => {
+  const finishSignIn = async (address: string, token: string, local: boolean,
+                              persist = true): Promise<AuthInfo> => {
     let isOwner = false
     let harnesses: string[] = []
     try {
@@ -1149,9 +1160,12 @@ export default function Home() {
       isOwner = !!who?.is_owner
       harnesses = Array.isArray(who?.harnesses) ? who.harnesses : []
     } catch {} // API offline — still sign in locally, role resolves on next load
-    const next = { address, token, isOwner, local, harnesses }
+    const next: AuthInfo = { address, token, isOwner, local, harnesses, ephemeral: !persist }
     setAuth(next)
-    persistAuth(next)
+    // a session the person asked not to save leaves nothing behind: no key on
+    // disk, and no token either — a bearer token in localStorage would outlive
+    // the tab exactly like the key they declined to keep
+    persistAuth(persist ? next : null)
     setShowUserMenu(false)
     return next
   }
@@ -1184,19 +1198,37 @@ export default function Home() {
     return signed
   }
 
-  // sign in with a keypair generated and kept in this browser — no extension
+  // sign in with a keypair that never leaves this browser — no extension
   // needed. Same EIP-191 signature a wallet would produce, so the server
-  // verifies it unchanged; the address is a device-local pseudonym.
-  const signInLocal = async (): Promise<AuthInfo | null> => {
+  // verifies it unchanged; the address is a pseudonym with no chain link.
+  //
+  // Three ways in, one signature at the end:
+  //   no secret            — the wallet kept in this browser (minting one,
+  //                          with a copyable recovery phrase, on first use)
+  //   secret + remember    — derive from what was typed, then keep it here
+  //   secret, no remember  — derive, sign, and store nothing at all: the
+  //                          same password rebuilds the same wallet next time
+  const signInLocal = async (opts?: { secret?: string; remember?: boolean }): Promise<AuthInfo | null> => {
     setAuthBusy(true)
     setAuthErr(null)
     let signed: AuthInfo | null = null
     try {
-      const id = getOrCreateLocalIdentity()
+      let id
+      let persist = true
+      if (opts?.secret !== undefined) {
+        setAuthDeriving(true)
+        try { id = await identityFromSecret(opts.secret) } finally { setAuthDeriving(false) }
+        id = useIdentity(id, !!opts.remember)
+        persist = !!opts.remember
+      } else {
+        id = sessionIdentity() || getOrCreateLocalIdentity()
+        persist = id.saved
+      }
       const data = { scope: 'agent' }
       const time = (Date.now() / 1000).toString()
       const signature = await localSign(id, JSON.stringify({ data, time }))
-      signed = await finishSignIn(id.address, b64url({ data, time, key: id.address, signature }), true)
+      signed = await finishSignIn(id.address, b64url({ data, time, key: id.address, signature }), true, persist)
+      setShowPwWallet(false)
     } catch (e: any) {
       setAuthErr(e?.message || 'local sign-in failed')
     }
@@ -1211,6 +1243,9 @@ export default function Home() {
   const signOut = () => {
     setAuth(null)
     setShowUserMenu(false)
+    setShowPwWallet(false)
+    setShowPhrase(false)
+    clearSessionIdentity() // a typed wallet is gone until it is typed again
     persistAuth(null)
   }
 
@@ -1249,8 +1284,8 @@ export default function Home() {
     const a = await signInWallet()
     if (a && authAsk && authSatisfies(a, authAsk)) settleAuthAsk(a)
   }
-  const authAskLocal = async () => {
-    const a = await signInLocal()
+  const authAskLocal = async (opts?: { secret?: string; remember?: boolean }) => {
+    const a = await signInLocal(opts)
     if (a && authAsk && authSatisfies(a, authAsk)) settleAuthAsk(a)
   }
 
@@ -2568,7 +2603,15 @@ export default function Home() {
   )
   const iconWallet = svg(<><rect x="2.5" y="5.5" width="19" height="14" rx="2.5" /><path d="M2.5 10h19" /><circle cx="17.5" cy="14.5" r="1.2" /></>)
   const iconKey = svg(<><circle cx="8" cy="14" r="4" /><path d="M11 11.5 20 3" /><path d="M17 6l2.5 2.5" /></>)
+  const iconLock = svg(<><rect x="4" y="10.5" width="16" height="10" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" /></>)
   const chevron = <span className="pop__go">{svg(<polyline points="9 6 15 12 9 18" />)}</span>
+
+  // the key behind a local session: the one typed into this tab, else the one
+  // this browser keeps. Null for a wallet sign-in — there is nothing here to
+  // show, the secret lives in the extension.
+  const localId = auth?.local ? (sessionIdentity() || loadLocalIdentity()) : null
+
+  const copy = (text: string) => { navigator.clipboard?.writeText(text).catch(() => {}) }
 
   const userChip = (
     <div className="relative">
@@ -2624,7 +2667,7 @@ export default function Home() {
                 {eth() && chevron}
               </button>
               <button
-                onClick={signInLocal}
+                onClick={() => void signInLocal()}
                 disabled={authBusy}
                 role="menuitem"
                 className="pop__item"
@@ -2636,13 +2679,39 @@ export default function Home() {
                     {(() => {
                       const id = loadLocalIdentity()
                       return id ? `resume ${shortAddr(id.address)} — key stays in this browser`
-                        : 'generate a key in this browser — no extension, no chain link'
+                        : 'generate a key here, with a recovery phrase you can copy'
                     })()}
                   </span>
                 </span>
                 {chevron}
               </button>
+              {/* the third way in: no extension and nothing on this disk —
+                  the password itself is the wallet, rebuilt every time */}
+              <button
+                onClick={() => setShowPwWallet(v => !v)}
+                disabled={authBusy}
+                role="menuitem"
+                aria-expanded={showPwWallet}
+                className="pop__item"
+              >
+                <span className="pop__i">{iconLock}</span>
+                <span className="min-w-0">
+                  <span className="pop__t">Password wallet</span>
+                  <span className="pop__s">
+                    type a password (or a recovery phrase) — nothing is saved unless you say so
+                  </span>
+                </span>
+                {chevron}
+              </button>
             </div>
+            {showPwWallet && (
+              <PasswordWallet
+                busy={authBusy}
+                deriving={authDeriving}
+                onCancel={() => setShowPwWallet(false)}
+                onSubmit={(secret, remember) => void signInLocal({ secret, remember })}
+              />
+            )}
             {hostRow}
             {authErr && <div className="pop__err">{authErr}</div>}
           </div>
@@ -2659,7 +2728,9 @@ export default function Home() {
               <div className="min-w-0">
                 <div className="text-xs text-gray-200 font-mono truncate">{auth.address}</div>
                 <div className="text-[10px] text-gray-500 mt-0.5">
-                  {auth.local ? 'local key — held in this browser' : 'signed in with your wallet'}
+                  {!auth.local ? 'signed in with your wallet'
+                    : auth.ephemeral ? 'password key — nothing saved, this tab only'
+                    : 'local key — held in this browser'}
                 </div>
               </div>
             </div>
@@ -2705,16 +2776,50 @@ export default function Home() {
               <button role="menuitem" onClick={signOut} className="pop__row">
                 Sign out
               </button>
-              {auth.local && (
+              {/* the secret behind the address, on request. A local wallet
+                  that can't be copied out is a wallet you lose with the
+                  browser, so both forms are here: the phrase that restores
+                  it anywhere, and the raw key for anything that wants one. */}
+              {localId?.phrase && (
+                <button role="menuitem" onClick={() => setShowPhrase(v => !v)} className="pop__row">
+                  {showPhrase ? 'Hide recovery phrase' : 'Show recovery phrase'}
+                </button>
+              )}
+              {localId && (
+                <button
+                  role="menuitem"
+                  onClick={() => copy(localId.pk)}
+                  title="Anyone with this key is this identity — paste it only somewhere you trust"
+                  className="pop__row">
+                  Copy private key
+                </button>
+              )}
+              {auth.local && loadLocalIdentity() && (
                 <button
                   role="menuitem"
                   onClick={() => { clearLocalIdentity(); signOut() }}
-                  title="Delete the browser-held key — this identity (and anything stored under it) is gone for good"
+                  title="Delete the browser-held key — without the phrase, this identity (and anything stored under it) is gone for good"
                   className="pop__row pop__row--warn">
                   Forget local wallet
                 </button>
               )}
             </div>
+            {showPhrase && localId?.phrase && (
+              <div className="px-2.5 pb-2.5 pt-0.5 space-y-1.5">
+                <div className="p-2 rounded-md bg-black/30 border border-white/10 font-mono text-[11px] leading-relaxed text-gray-200 break-words select-all">
+                  {localId.phrase}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => copy(localId.phrase!)}
+                    className="px-2 py-1 rounded-md text-[10px] border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/15 transition">
+                    copy phrase
+                  </button>
+                  <span className="text-[9px] text-gray-600 leading-tight">
+                    restores this address in any browser — and in MetaMask
+                  </span>
+                </div>
+              </div>
+            )}
             {hostRow}
           </div>
         </>
@@ -4019,6 +4124,8 @@ export default function Home() {
         err={authErr}
         onWallet={() => void authAskWallet()}
         onLocal={() => void authAskLocal()}
+        onSecret={(secret, remember) => void authAskLocal({ secret, remember })}
+        deriving={authDeriving}
         onCancel={() => settleAuthAsk(null)}
         onFallback={() => { selectAgent('default'); settleAuthAsk(null) }}
       />

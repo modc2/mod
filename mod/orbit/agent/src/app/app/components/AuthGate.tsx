@@ -4,7 +4,8 @@
 // an identity instead of after it has already refused. Anything in the
 // console can await requireAuth(need) (page.tsx): if the current session
 // already satisfies the need it resolves at once, otherwise this modal
-// opens, sign-in happens right here (wallet popup or a browser-local key),
+// opens, sign-in happens right here (wallet popup, a browser-local key, or
+// a password that rebuilds the same key without storing anything),
 // the need is re-checked against the fresh /whoami answer, and the blocked
 // action continues. Nobody is sent outside the app to authenticate.
 //
@@ -14,6 +15,9 @@
 //             so only the host or the address the harness's console vouches
 //             for passes; a browser-local pseudonym can never qualify, so
 //             that path is not offered for it.
+
+import { useState } from 'react'
+import PasswordWallet from './PasswordWallet'
 
 export type AuthNeed =
   | { kind: 'signin'; reason?: string }
@@ -28,6 +32,8 @@ type Props = {
   err: string | null
   onWallet: () => void
   onLocal: () => void
+  onSecret: (secret: string, remember: boolean) => void
+  deriving?: boolean
   onCancel: () => void
   onFallback?: () => void    // harness only: run a native agent instead
 }
@@ -42,7 +48,8 @@ const Lock = ({ size = 16, className = '' }: { size?: number; className?: string
   </svg>
 )
 
-export default function AuthGate({ ask, auth, busy, err, onWallet, onLocal, onCancel, onFallback }: Props) {
+export default function AuthGate({ ask, auth, busy, err, onWallet, onLocal, onSecret, deriving, onCancel, onFallback }: Props) {
+  const [pw, setPw] = useState(false)
   if (!ask) return null
   const harness = ask.kind === 'harness' ? ask.harness : null
   const hasWallet = typeof window !== 'undefined' && !!(window as any).ethereum
@@ -102,11 +109,27 @@ export default function AuthGate({ ask, auth, busy, err, onWallet, onLocal, onCa
               className="w-full px-3 py-2 rounded-md text-xs font-medium border border-white/10 text-gray-300 hover:text-white hover:border-white/25 disabled:opacity-50 transition text-left">
               Use a browser key instead
               <span className="block text-[10px] font-normal text-gray-600 mt-0.5">
-                A keypair made and kept in this browser — no extension needed.
+                A keypair made and kept in this browser, with a recovery phrase you can copy.
+              </span>
+            </button>
+          )}
+          {/* nothing on this machine: the password is the wallet, stretched
+              into the same key every time it's typed */}
+          {!harness && !pw && (
+            <button onClick={() => setPw(true)} disabled={busy}
+              className="w-full px-3 py-2 rounded-md text-xs font-medium border border-white/10 text-gray-300 hover:text-white hover:border-white/25 disabled:opacity-50 transition text-left">
+              Sign in with a password
+              <span className="block text-[10px] font-normal text-gray-600 mt-0.5">
+                Rebuilds the same wallet each time you type it — saved nowhere unless you ask.
               </span>
             </button>
           )}
         </div>
+        {!harness && pw && (
+          <PasswordWallet busy={busy} deriving={deriving}
+            onCancel={() => setPw(false)}
+            onSubmit={onSecret} />
+        )}
 
         <div className="px-3 py-2 border-t border-white/[0.06] flex items-center gap-2">
           {harness && onFallback && (
