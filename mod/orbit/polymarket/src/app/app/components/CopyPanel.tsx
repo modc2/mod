@@ -18,6 +18,22 @@
 // is a POST /copy/* — the same routes the `pm_copy_*` MCP tools call, so an
 // allocation an agent moved shows up here on the next poll and vice versa.
 //
+// The chrome SCALES TO THE ROSTER. This block used to render its full desk
+// apparatus — a bankroll field, SPLIT EVENLY, a desk-wide PAPER|REAL, START
+// ALL / STOP ALL, a checkbox per row — over a book of ONE trader, where every
+// one of those is either a no-op or a second copy of the row's own control.
+// Four `$` inputs and three mode switches in a 340px column is how "which
+// number is the real one" becomes unanswerable. So:
+//
+//   • With ≤1 trader the bulk apparatus is not rendered at all. The row's own
+//     $, PAPER|REAL and ▶ ARE the desk.
+//   • With ≥2 it comes back as ONE gesture — SPLIT $N EVENLY — not a field
+//     that does nothing beside a button that uses it. Bankroll was never a
+//     budget; the engine budgets per allocation. It is the number you divide.
+//   • The roll-up line reconciles the desk against the WALLET. "$100 on 1
+//     trader" sitting under "MONEY $0.18" with nothing between them is a lie
+//     by juxtaposition; short desks now say so, and say it as a link to MONEY.
+//
 // Three deliberate restraints, all of them about cost:
 //
 //   • The whole block, hooks and all, only mounts while it is EXPANDED. A
@@ -41,6 +57,7 @@ import Link from "next/link";
 
 import { useAuth } from "../context/AuthContext";
 import { getOwnerAddress } from "../lib/access";
+import { fundedUsd } from "../lib/funding";
 import { useCopyBook } from "../lib/useCopyBook";
 import type { CopyBookRow } from "../lib/copyBook";
 import { identityStrat, shortAddress } from "../lib/identityStrat";
@@ -49,6 +66,7 @@ import { MODE, MODES, confirmGoLive, type TradingMode } from "../lib/tradingMode
 import { type CompiledGate } from "../lib/semanticFilter";
 import { confirmGate, gatePatch } from "../lib/armGate";
 import CopyTradesPanel from "./CopyTradesPanel";
+import { OPEN_MONEY_EVENT } from "./MoneyBlock";
 
 const OPEN_KEY = "poly_copy_panel_open";
 const MEASURE_KEY = "poly_copy_measure_open";
@@ -159,6 +177,30 @@ function CopyBookBody() {
 
   const totals = book?.totals;
   const running = totals?.running ?? 0;
+
+  // ── What is actually spendable, so the desk can't quote a size the wallet
+  //    cannot cover. Same read MoneyBlock's collapsed line uses; slow cadence
+  //    because this block is docked on every page. ──
+  const [funded, setFunded] = useState<number | null>(null);
+  useEffect(() => {
+    if (!eoa) { setFunded(null); return; }
+    let dead = false;
+    const read = async () => {
+      const v = await fundedUsd(eoa);
+      if (!dead) setFunded(v);
+    };
+    void read();
+    const t = setInterval(() => void read(), 60_000);
+    return () => { dead = true; clearInterval(t); };
+  }, [eoa]);
+
+  const allocated = totals?.allocatedUsd ?? 0;
+  /** Short only when we actually READ a balance — a failed read is not $0. */
+  const short = funded !== null && allocated > funded + 0.01;
+
+  /** The roster decides the chrome. One trader needs no bulk apparatus: the
+      row already carries a $, a PAPER|REAL and a ▶. */
+  const many = rows.length > 1;
 
   /** Arm a typed sentence as a real gate. Applies to the CHECKED traders, or
       to the whole book when nothing is checked. The confirm is shared with
