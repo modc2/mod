@@ -1,7 +1,7 @@
 {
     "name": "hyperliquid",
     "version": "0.6.1",
-    "description": "Hyperliquid full-stack \u2014 one-transaction cross-chain deposits from seven chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server, ask-the-desk agent",
+    "description": "Hyperliquid full-stack \u2014 one-transaction cross-chain deposits from twelve EVM chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server, ask-the-desk agent",
     "anchor": "src/mod.py",
     "fns": [
         "forward",
@@ -111,7 +111,7 @@
         "src/agent.py": "Claude agent whose only toolbox is this module's MCP server \u2014 read-only by default, write tools behind act=true + a token",
         "src/api/src/agent.rs": "POST /ask (SSE) + GET /ask/status \u2014 spawns src/agent.py and streams its run",
         "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)",
-        "src/api/src/deposit.rs": "Cross-chain deposit rails \u2014 multicall balance scan across 7 chains, LI.FI routing straight into the Hyperliquid perps account"
+        "src/api/src/deposit.rs": "Cross-chain deposit rails \u2014 multicall balance scan across 12 EVM chains, LI.FI routing straight into the Hyperliquid perps account"
     },
     "mcp": {
         "endpoint": "POST /mcp",
@@ -129,6 +129,6 @@
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
         "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },
-    "schema": "QmYjTp7SP3nkYJyT283NNAzzyduhuBD8fg3f4fV7JuMXAj",
+    "schema": "QmcPLRTGa8NbdTckGLisPxJ5c92D4Ppf5f7UqemKkaZYgn",
     "gateway_port": 3919
 }

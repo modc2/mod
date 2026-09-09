@@ -43,7 +43,7 @@ import type { PriceTape } from "../lib/originationBacktest";
 import { loadIndexes, saveIndex, deleteIndex, updateIndex, getActiveIndexId, setActiveIndexId, equalWeightTraders } from "../lib/indexStore";
 import { pushStrat } from "../lib/stratSync";
 import { fetchTraderBankrolls } from "../lib/liveSessions";
-import LivePanel, { type LiveTab, normalizeLiveTab } from "./LivePanel";
+import LivePanel, { type LiveTab, normalizeLiveTab, OPEN_TRADER_FUNDS_EVENT } from "./LivePanel";
 import { modeOf } from "../lib/tradingMode";
 import { SessionChip } from "./ModeControl";
 import { OPEN_MONEY_EVENT } from "./MoneyBlock";

@@ -1,11 +1,12 @@
 "use client";
 
 // One-button deposit into Hyperliquid from Ethereum, Arbitrum, Base, OP,
-// Polygon, BNB Chain or Avalanche, spending whichever token the wallet
-// actually holds. We scan every chain, the user picks a balance and an
-// amount, and a single signed transaction lands the money in their
-// Hyperliquid account — LI.FI routes to Hyperliquid Core directly, so
-// there is no Arbitrum layover and no second wallet prompt.
+// Polygon, BNB Chain, Avalanche, Linea, Scroll, zkSync Era, Gnosis or
+// Unichain, spending whichever token the wallet actually holds (ETH, USDC
+// and USDT everywhere they exist). We scan every chain, the user picks a
+// balance and an amount, and a single signed transaction lands the money
+// in their Hyperliquid account — LI.FI routes to Hyperliquid Core
+// directly, so there is no Arbitrum layover and no second wallet prompt.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {

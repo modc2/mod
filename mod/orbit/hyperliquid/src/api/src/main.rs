@@ -217,10 +217,27 @@ async fn main() -> anyhow::Result<()> {
         self_url: Arc::new(self_url),
     };
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    // HL_CORS_ORIGINS=https://a.example,https://b.example pins browser access
+    // to known frontends; unset keeps the historical open default (Bearer
+    // tokens are attached explicitly, never ambiently, so open CORS does not
+    // let a foreign page act as a signed-in user — the allowlist is
+    // defense-in-depth for deployments that want it).
+    let cors = match std::env::var("HL_CORS_ORIGINS") {
+        Ok(list) if !list.trim().is_empty() => {
+            let origins: Vec<axum::http::HeaderValue> = list
+                .split(',')
+                .filter_map(|o| o.trim().parse().ok())
+                .collect();
+            CorsLayer::new()
+                .allow_origin(origins)
+                .allow_methods(Any)
+                .allow_headers(Any)
+        }
+        _ => CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+    };
 
     let app = Router::new()
         .merge(routes::router())

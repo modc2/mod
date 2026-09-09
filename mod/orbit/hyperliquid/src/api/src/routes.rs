@@ -339,7 +339,7 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
     Json(json!({
         "name": "hyperliquid",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Hyperliquid full-stack — one-transaction cross-chain deposits from seven chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
+        "description": "Hyperliquid full-stack — one-transaction cross-chain deposits from twelve EVM chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server",
         "protocol": "mod",
         "auth": "mod protocol-auth Bearer token (personal_sign) — public reads open, user-scoped routes gated",
         // A refusal is part of the API, so it is documented like the rest of
@@ -793,9 +793,24 @@ async fn list_signals(State(s): State<AppState>, Query(q): Query<SignalQ>) -> Js
 
 #[derive(Deserialize)]
 struct AckBody { status: String }
-async fn ack_signal(State(s): State<AppState>, Path(id): Path<String>, Json(b): Json<AckBody>) -> Json<Value> {
+async fn ack_signal(
+    State(s): State<AppState>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    Path(id): Path<String>,
+    Json(b): Json<AckBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // A signal is engine state for its follower — acking someone else's would
+    // corrupt their dedup. Token alone isn't ownership.
+    if let (Some(Extension(u)), Some(owner)) = (user.as_ref(), s.copy.signal_follower(&id)) {
+        if !owner.eq_ignore_ascii_case(&u.0) {
+            return Err((StatusCode::FORBIDDEN, Json(json!({
+                "error": "forbidden",
+                "detail": format!("signal {id} belongs to a different wallet"),
+            }))));
+        }
+    }
     s.copy.mark_signal(&id, &b.status);
-    Json(json!({"ok": true}))
+    Ok(Json(json!({"ok": true})))
 }
 
 // ── indexes ──
@@ -991,9 +1006,15 @@ struct ForwardBody {
     payload: Value,
 }
 
-async fn forward(State(s): State<AppState>, Json(b): Json<ForwardBody>)
-    -> Result<Json<Value>, (StatusCode, Json<Value>)>
+async fn forward(
+    State(s): State<AppState>,
+    user: Option<Extension<crate::auth::AuthedUser>>,
+    Json(b): Json<ForwardBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)>
 {
+    // The guard can't see identity fields nested in `payload`, so per-user
+    // listings are scoped here to the signed-in wallet (open mode: unscoped).
+    let me = user.map(|Extension(u)| u.0);
     let result = match b.fnname.as_str() {
         "info_post" => {
             let r = reqwest::Client::new().post(&s.hl.info_url)
@@ -1018,10 +1039,12 @@ async fn forward(State(s): State<AppState>, Json(b): Json<ForwardBody>)
             json!({"traders": traders})
         }
         "list_indexes" => json!({"indexes": s.store.list_indexes()}),
-        "list_follows" => json!({"follows": s.store.list_follows(None)}),
+        "list_follows" => json!({"follows": s.store.list_follows(me.as_deref())}),
         "recent_signals" => {
             let lim = b.payload.get("limit").and_then(|x| x.as_u64()).unwrap_or(100) as usize;
-            let f = b.payload.get("follower").and_then(|x| x.as_str()).map(|x| x.to_string());
+            let f = me.clone().or_else(|| {
+                b.payload.get("follower").and_then(|x| x.as_str()).map(|x| x.to_string())
+            });
             json!({"signals": s.copy.recent_signals(f.as_deref(), lim)})
         }
         other => {
@@ -1593,7 +1616,7 @@ async fn live_start(State(s): State<AppState>, Json(b): Json<LiveStartBody>) -> 
         interval_ms: b.interval_ms.unwrap_or(15_000).max(2_000),
         min_order_size_usd: b.min_order_size_usd.unwrap_or(10.0).max(0.0),
         max_slippage_bps: b.max_slippage_bps.unwrap_or(100).min(5000),
-        size_pct: b.size_pct.unwrap_or(10.0).clamp(0.0, 1000.0),
+        size_pct: b.size_pct.unwrap_or(10.0).clamp(0.0, 100.0),
         max_per_trade_usd: b.max_per_trade_usd.unwrap_or(0.0).max(0.0),
         coins_allow: b.coins_allow.unwrap_or_default(),
         coins_deny: b.coins_deny.unwrap_or_default(),

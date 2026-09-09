@@ -122,7 +122,15 @@ pub fn verify_token(token: &str, max_age_secs: u64) -> Result<String, TokenError
     let t: f64 = time.parse().map_err(|_| "token time not a number".to_string())?;
     let now = chrono::Utc::now().timestamp() as f64;
     let age = now - t;
-    if age.abs() > max_age_secs as f64 {
+    // Future-dated beyond small clock skew is forgery, not expiry — an
+    // `abs()` here would let a token minted `max_age` ahead live 2× the window.
+    if age < -60.0 {
+        return Err(TokenError::Invalid(format!(
+            "token is dated {} in the future",
+            human_secs(age),
+        )));
+    }
+    if age > max_age_secs as f64 {
         return Err(TokenError::Expired(format!(
             "sign-in is {} old, and sessions last {}",
             human_secs(age),
@@ -540,6 +548,10 @@ mod tests {
         let now = chrono::Utc::now().timestamp() as f64;
         // Stale.
         assert!(verify_token(&make_token(&key, &addr, now - 7200.0, true), 3600).is_err());
+        // Future-dated past clock skew — would otherwise live 2× the window.
+        assert!(verify_token(&make_token(&key, &addr, now + 3599.0, true), 3600).is_err());
+        // Small skew is tolerated.
+        assert!(verify_token(&make_token(&key, &addr, now + 30.0, true), 3600).is_ok());
         // key ≠ signer.
         let other = "0x000000000000000000000000000000000000dead";
         assert!(verify_token(&make_token(&key, other, now, true), 3600).is_err());

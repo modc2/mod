@@ -1107,6 +1107,23 @@ async fn hub_tao_inputs(state: &Shared) -> (std::sync::Arc<Vec<serde_json::Value
     (subnets, tao_usd)
 }
 
+/// Trusted stake for the subnets the Bittensor card lists — read only when
+/// that card is the one being opened. Best-effort inside a few seconds: each
+/// cold subnet is one slow bt_validators read, so the first open may show it
+/// on only the deepest rows and later opens find the rest warmed (30 min
+/// cache in the finance registry). Any other card gets the empty map free.
+async fn hub_trust_inputs(
+    state: &Shared,
+    id: &str,
+    subnets: &[serde_json::Value],
+) -> std::collections::HashMap<u64, serde_json::Value> {
+    if !id.eq_ignore_ascii_case("bittensor") || subnets.is_empty() {
+        return Default::default();
+    }
+    let listed = hub::tao_listed(subnets);
+    state.finance.trust_map(&state.dex, &listed, std::time::Duration::from_secs(8)).await
+}
+
 async fn get_hub_protocol(
     State(state): State<Shared>,
     Path(id): Path<String>,
@@ -1120,9 +1137,10 @@ async fn get_hub_protocol(
         .unwrap_or(1_000_000.0);
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
     let (subnets, tao_usd) = hub_tao_inputs(&state).await;
+    let trust = hub_trust_inputs(&state, &id, &subnets).await;
     state
         .hub
-        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd)
+        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd, &trust)
         .map(Json)
         .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
 }

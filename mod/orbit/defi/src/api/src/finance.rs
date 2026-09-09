@@ -288,6 +288,7 @@ pub struct Finance {
     http: reqwest::Client,
     categories: RwLock<Option<Cached<HashMap<String, String>>>>,
     subnets: RwLock<Option<Cached<Vec<Value>>>>,
+    trust: RwLock<HashMap<u64, Cached<Value>>>,
     pub registry_error: Option<String>,
 }
 
@@ -311,6 +312,7 @@ impl Finance {
                 .expect("http client"),
             categories: RwLock::new(None),
             subnets: RwLock::new(None),
+            trust: RwLock::new(HashMap::new()),
             registry_error,
         }
     }
@@ -379,6 +381,63 @@ impl Finance {
         let value = Arc::new(list);
         *self.subnets.write().await = Some(Cached { fetched: now, value: value.clone() });
         Ok(value)
+    }
+
+    /// Trusted stake for one subnet: how much of its validator stake the chain
+    /// itself stands behind, folded from bt_validators (see [`trust_summary`]).
+    /// A metagraph read is slow and serializes behind bt's one websocket, so
+    /// the fold is held for half an hour and a failed refresh serves the stale
+    /// summary rather than erroring — vtrust does not move that fast.
+    pub async fn subnet_trust(&self, dex: &Dex, netuid: u64) -> Result<Arc<Value>, String> {
+        let now = crate::auth::now();
+        if let Some(fresh) = self.cached_trust(netuid, now).await {
+            return Ok(fresh);
+        }
+        match dex.peer("bt", "bt_validators", json!({ "netuid": netuid, "limit": 64 }), None).await {
+            Ok(out) => {
+                let value = Arc::new(trust_summary(netuid, &out));
+                self.trust.write().await.insert(netuid, Cached { fetched: now, value: value.clone() });
+                Ok(value)
+            }
+            Err(e) => {
+                let cache = self.trust.read().await;
+                cache.get(&netuid).map(|c| c.value.clone()).ok_or(e)
+            }
+        }
+    }
+
+    async fn cached_trust(&self, netuid: u64, now: u64) -> Option<Arc<Value>> {
+        let cache = self.trust.read().await;
+        let c = cache.get(&netuid)?;
+        (now.saturating_sub(c.fetched) < 1800).then(|| c.value.clone())
+    }
+
+    /// Trusted stake for a set of subnets, best-effort inside a wall-clock
+    /// budget. Cached folds are free; each cold one is a slow chain read, so
+    /// once the budget is spent the remaining subnets are simply left out —
+    /// the card shows what is known now and the next open finds more warmed.
+    pub async fn trust_map(
+        &self,
+        dex: &Dex,
+        netuids: &[u64],
+        budget: std::time::Duration,
+    ) -> HashMap<u64, Value> {
+        let started = std::time::Instant::now();
+        let now = crate::auth::now();
+        let mut map = HashMap::new();
+        for &netuid in netuids {
+            let hit = if let Some(fresh) = self.cached_trust(netuid, now).await {
+                Some(fresh)
+            } else if started.elapsed() < budget {
+                self.subnet_trust(dex, netuid).await.ok()
+            } else {
+                None
+            };
+            if let Some(t) = hit {
+                map.insert(netuid, (*t).clone());
+            }
+        }
+        map
     }
 
     // ── one pool → one module ─────────────────────────────────────────────
@@ -993,6 +1052,9 @@ impl Finance {
             let mut m = self.module_from_subnet(subnet, yields.tao_usd().await).ok_or("bad subnet row")?;
             if let Ok(price) = dex.peer("bt", "bt_price", json!({ "netuid": netuid }), None).await {
                 m["price"] = price;
+            }
+            if let Ok(trust) = self.subnet_trust(dex, netuid).await {
+                m["trusted_stake"] = (*trust).clone();
             }
             return Ok(m);
         }
@@ -1655,9 +1717,76 @@ pub fn comet_abi() -> Value {
     ])
 }
 
+/// Fold one bt_validators payload into the TRUSTED STAKE line a card shows.
+///
+/// "Trusted" is the chain's own signal, not our judgement: every validator
+/// carries a vtrust score in [0,1] — how much of the subnet's stake-weighted
+/// consensus agrees with the weights it sets. Trusted stake is stake weighted
+/// by that score (Σ stake·vtrust over permitted validators), and the headline
+/// is the SHARE of validator stake behind consensus, deliberately, because
+/// raw stake is denominated in the subnet's own unit (alpha; TAO on root and
+/// nowhere else) while the share is unit-free. No threshold: root's vtrust
+/// runs low across the board post-dTAO, and a floor would brand its deepest
+/// validators "untrusted" — the weighted share stays honest there too.
+pub fn trust_summary(netuid: u64, payload: &Value) -> Value {
+    let rows = payload.get("top").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let stake = |r: &Value| r.get("stake").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let vtrust = |r: &Value| r.get("validator_trust").and_then(|v| v.as_f64()).unwrap_or(0.0).clamp(0.0, 1.0);
+    let permitted: Vec<&Value> =
+        rows.iter().filter(|r| r.get("validator_permit").and_then(|v| v.as_bool()).unwrap_or(false)).collect();
+    let validator_stake: f64 = permitted.iter().map(|r| stake(r)).sum();
+    let trusted_stake: f64 = permitted.iter().map(|r| stake(r) * vtrust(r)).sum();
+    let top: Vec<Value> = permitted
+        .iter()
+        .take(5)
+        .map(|r| {
+            json!({
+                "hotkey": r.get("hotkey").cloned().unwrap_or(Value::Null),
+                "stake": stake(r),
+                "vtrust": vtrust(r),
+            })
+        })
+        .collect();
+    json!({
+        "netuid": netuid,
+        "unit": if netuid == 0 { "TAO" } else { "alpha" },
+        "trusted_stake": trusted_stake,
+        "validator_stake": validator_stake,
+        "trusted_share": (validator_stake > 0.0).then(|| trusted_stake / validator_stake),
+        "validators": permitted.len(),
+        "read": rows.len(),
+        "top": top,
+        "basis": "bt_validators — stake weighted by vtrust, the chain's own consensus score per validator, over the top 64 by stake",
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trusted_stake_is_stake_weighted_by_vtrust_over_permitted_validators() {
+        let payload = json!({ "top": [
+            { "hotkey": "a", "stake": 100.0, "validator_trust": 1.0, "validator_permit": true },
+            { "hotkey": "b", "stake": 100.0, "validator_trust": 0.5, "validator_permit": true },
+            { "hotkey": "c", "stake": 900.0, "validator_trust": 0.9, "validator_permit": false },
+        ]});
+        let t = trust_summary(64, &payload);
+        assert_eq!(t["validator_stake"], json!(200.0));
+        assert_eq!(t["trusted_stake"], json!(150.0));
+        assert!((t["trusted_share"].as_f64().unwrap() - 0.75).abs() < 1e-9);
+        assert_eq!(t["validators"], json!(2)); // the permitless 900 never counts
+        assert_eq!(t["unit"], json!("alpha"));
+        assert_eq!(t["top"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn trust_summary_with_no_validators_reports_null_share_not_zero() {
+        let t = trust_summary(0, &json!({ "top": [] }));
+        assert_eq!(t["trusted_share"], Value::Null);
+        assert_eq!(t["unit"], json!("TAO"));
+        assert_eq!(t["trusted_stake"], json!(0.0));
+    }
 
     fn registry() -> Registry {
         let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("adapters.json");

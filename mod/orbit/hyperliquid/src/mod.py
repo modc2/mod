@@ -21,6 +21,7 @@ Layout:
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -343,7 +344,7 @@ class Hyperliquid(m.Mod):
         with open(script, "w") as f:
             f.write(
                 "#!/bin/bash\n"
-                f"export HL_API_URL={self.api_url}\n"
+                f"export HL_API_URL={shlex.quote(self.api_url)}\n"
                 f"cd {APP_DIR}\n"
                 f"{cmd}\n"
             )

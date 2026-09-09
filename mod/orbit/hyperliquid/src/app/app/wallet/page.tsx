@@ -140,7 +140,7 @@ export default function WalletPage() {
       )}
 
       <div className="grid md:grid-cols-2 gap-4">
-        {/* Deposit — on mainnet, one transaction from any of seven chains
+        {/* Deposit — on mainnet, one transaction from any of twelve chains
             and any token held there (LI.FI routes straight into the HL
             account); plain Arbitrum USDC form on testnet. */}
         {cfg && !cfg.testnet ? (

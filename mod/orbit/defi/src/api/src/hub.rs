@@ -17,6 +17,7 @@ use crate::finance::Registry;
 use crate::yields::Pool;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// One vetted protocol, as written down in hub.json.
@@ -122,10 +123,13 @@ impl Hub {
         subnets: &[Value],
         tao_usd: Option<f64>,
     ) -> Value {
+        // The list view never carries trusted stake — that is a detail-card
+        // read, priced accordingly (one slow validator fetch per listed subnet).
+        let no_trust: HashMap<u64, Value> = HashMap::new();
         let mut rows: Vec<Value> = self
             .entries
             .iter()
-            .map(|entry| self.protocol_row(entry, pools, registry, want_chain, min_tvl, false, subnets, tao_usd))
+            .map(|entry| self.protocol_row(entry, pools, registry, want_chain, min_tvl, false, subnets, tao_usd, &no_trust))
             .collect();
         rows.sort_by(|a, b| {
             let rank = |v: &Value| tier_rank(v.get("tier").and_then(|t| t.as_str()).unwrap_or(""));
@@ -178,6 +182,7 @@ impl Hub {
 
     /// One protocol in full — same row, plus every USD pool per chain instead
     /// of just the best one.
+    #[allow(clippy::too_many_arguments)]
     pub fn protocol(
         &self,
         id: &str,
@@ -187,13 +192,14 @@ impl Hub {
         min_tvl: f64,
         subnets: &[Value],
         tao_usd: Option<f64>,
+        trust: &HashMap<u64, Value>,
     ) -> Result<Value, String> {
         let entry = self
             .entries
             .iter()
             .find(|e| e.id.eq_ignore_ascii_case(id))
             .ok_or_else(|| format!("no '{id}' in the hub — ids come from /hub"))?;
-        let mut row = self.protocol_row(entry, pools, registry, None, min_tvl, true, subnets, tao_usd);
+        let mut row = self.protocol_row(entry, pools, registry, None, min_tvl, true, subnets, tao_usd, trust);
         if let Some(obj) = row.as_object_mut() {
             obj.insert("as_of".into(), json!(fetched));
             obj.insert("age_seconds".into(), json!(crate::auth::now().saturating_sub(fetched)));
@@ -212,9 +218,10 @@ impl Hub {
         full: bool,
         subnets: &[Value],
         tao_usd: Option<f64>,
+        trust: &HashMap<u64, Value>,
     ) -> Value {
         if entry.source.as_deref() == Some("bittensor") {
-            return tao_row(entry, subnets, tao_usd, want_chain, full);
+            return tao_row(entry, subnets, tao_usd, want_chain, full, trust);
         }
         let mut by_chain: std::collections::BTreeMap<&str, Vec<&Pool>> = Default::default();
         for pool in pools.iter().filter(|p| Self::keep(entry, p, min_tvl)) {
@@ -331,7 +338,14 @@ fn pool_row(pool: &Pool, registry: &Registry) -> Value {
 /// none is promised. Its TVL rides on the row as `tvl_usd`/`tvl_tao` and is
 /// kept OUT of `stable_tvl_usd`, so the hub's dollar total stays a dollar
 /// total. No TAO/USD price in hand → dollar fields are null, never guessed.
-fn tao_row(entry: &Entry, subnets: &[Value], tao_usd: Option<f64>, want_chain: Option<&str>, full: bool) -> Value {
+fn tao_row(
+    entry: &Entry,
+    subnets: &[Value],
+    tao_usd: Option<f64>,
+    want_chain: Option<&str>,
+    full: bool,
+    trust: &HashMap<u64, Value>,
+) -> Value {
     let tao_in = |s: &Value| s.get("tao_in").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let mut list: Vec<&Value> = subnets.iter().collect();
     list.sort_by(|a, b| tao_in(b).partial_cmp(&tao_in(a)).unwrap_or(std::cmp::Ordering::Equal));
@@ -346,7 +360,7 @@ fn tao_row(entry: &Entry, subnets: &[Value], tao_usd: Option<f64>, want_chain: O
             .and_then(|v| v.as_str())
             .unwrap_or("");
         let depth = tao_in(s);
-        json!({
+        let mut row = json!({
             "module_id": format!("tao:sn{netuid}"),
             "pool": format!("sn{netuid}"),
             "symbol": if netuid == 0 { "TAO root".to_string() } else { format!("SN{netuid} {name}").trim().to_string() },
@@ -357,7 +371,26 @@ fn tao_row(entry: &Entry, subnets: &[Value], tao_usd: Option<f64>, want_chain: O
             "tvl_usd": tao_usd.map(|p| round2(depth * p)),
             "alpha_price_tao": s.get("price").and_then(|v| v.as_f64()),
             "enterable": true,
-        })
+        });
+        // Trusted stake, when it has been read for this subnet: the summary in
+        // native stake units, plus the same figures said in TAO (stake × pool
+        // price — a no-op on root, where the unit already is TAO) and dollars.
+        if let Some(t) = trust.get(&netuid) {
+            let mut t = t.clone();
+            let price = s.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let trusted_tao = t.get("trusted_stake").and_then(|v| v.as_f64()).map(|x| round2(x * price));
+            let validator_tao = t.get("validator_stake").and_then(|v| v.as_f64()).map(|x| round2(x * price));
+            if let Some(obj) = t.as_object_mut() {
+                obj.insert("trusted_stake_tao".into(), json!(trusted_tao));
+                obj.insert("validator_stake_tao".into(), json!(validator_tao));
+                obj.insert(
+                    "trusted_stake_usd".into(),
+                    json!(trusted_tao.and_then(|x| tao_usd.map(|p| round2(x * p)))),
+                );
+            }
+            row.as_object_mut().unwrap().insert("trusted_stake".into(), t);
+        }
+        row
     };
 
     let wanted = want_chain.map(|w| w == "tao" || w == "bittensor").unwrap_or(true);
@@ -422,6 +455,29 @@ fn tao_row(entry: &Entry, subnets: &[Value], tao_usd: Option<f64>, want_chain: O
         "best": best,
         "chains": chains,
     })
+}
+
+/// The netuids the full Bittensor card lists — root first (it is "best", so
+/// its trust line should land inside any fetch budget), then the deepest
+/// pools, exactly the rows tao_row shows. This is what trusted stake gets
+/// fetched for: one bt_validators read per subnet is far too slow to run for
+/// all ~130, and the card never shows more than these anyway.
+pub fn tao_listed(subnets: &[Value]) -> Vec<u64> {
+    let tao_in = |s: &Value| s.get("tao_in").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let mut list: Vec<&Value> = subnets.iter().collect();
+    list.sort_by(|a, b| tao_in(b).partial_cmp(&tao_in(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out: Vec<u64> = Vec::new();
+    if subnets.iter().any(|s| s.get("netuid").and_then(|v| v.as_u64()) == Some(0)) {
+        out.push(0);
+    }
+    for s in list.iter().take(12) {
+        if let Some(n) = s.get("netuid").and_then(|v| v.as_u64()) {
+            if !out.contains(&n) {
+                out.push(n);
+            }
+        }
+    }
+    out
 }
 
 fn round2(value: f64) -> f64 {
@@ -615,6 +671,44 @@ mod tests {
         assert_eq!(eth["hub"][0]["chain_count"], json!(0));
         let tao = h.assemble(&[], &Registry::default(), 0, Some("tao"), 0.0, &subnets, Some(260.0));
         assert_eq!(tao["hub"][0]["chain_count"], json!(1));
+    }
+
+    #[test]
+    fn trusted_stake_rides_only_the_subnet_rows_it_was_read_for() {
+        let h = hub(vec![tao_entry()]);
+        let subnets = vec![subnet(0, "root", 5_000_000.0), subnet(64, "chutes", 100_000.0)];
+        let mut trust = HashMap::new();
+        trust.insert(
+            0,
+            crate::finance::trust_summary(
+                0,
+                &json!({ "top": [
+                    { "hotkey": "a", "stake": 1000.0, "validator_trust": 0.8, "validator_permit": true },
+                ]}),
+            ),
+        );
+        let out = h
+            .protocol("bittensor", &[], &Registry::default(), 0, 0.0, &subnets, Some(260.0), &trust)
+            .unwrap();
+        let t = &out["best"]["trusted_stake"];
+        assert!((t["trusted_share"].as_f64().unwrap() - 0.8).abs() < 1e-9);
+        // Root's unit already is TAO: stake × price 1, then dollars at the passed price.
+        assert_eq!(t["trusted_stake_tao"], json!(800.0));
+        assert_eq!(t["trusted_stake_usd"], json!(208_000.0));
+        // A subnet nobody has read yet carries no trust line — absent, not zero.
+        let pools = out["chains"][0]["usd_pools"].as_array().unwrap();
+        let sn64 = pools.iter().find(|p| p["pool"] == json!("sn64")).unwrap();
+        assert!(sn64.get("trusted_stake").is_none());
+    }
+
+    #[test]
+    fn tao_listed_is_root_first_then_the_deepest_pools() {
+        let subnets = vec![
+            subnet(64, "chutes", 100_000.0),
+            subnet(0, "root", 5_000_000.0),
+            subnet(8, "ptn", 200_000.0),
+        ];
+        assert_eq!(tao_listed(&subnets), vec![0, 8, 64]);
     }
 
     #[test]

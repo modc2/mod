@@ -1,5 +1,5 @@
-//! Cross-chain deposit rails — fund Hyperliquid from any of seven chains
-//! and any of the tokens you actually hold, in one transaction.
+//! Cross-chain deposit rails — fund Hyperliquid from any of twelve EVM
+//! chains and any of the tokens you actually hold, in one transaction.
 //!
 //! Hyperliquid's own bridge only credits USDC sent to its contract on
 //! Arbitrum, so historically every other chain meant a swap+bridge to
@@ -42,8 +42,11 @@ pub const HL_CHAIN_ID: u64 = 1337;
 const HL_PERPS_USDC: &str = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 /// LI.FI's sentinel for a chain's native coin.
 const NATIVE: &str = "0x0000000000000000000000000000000000000000";
-/// Multicall3, at the same address on every chain in `CHAINS` (verified).
+/// Multicall3's canonical CREATE2 address — the same on every chain in
+/// `CHAINS` except zkSync Era, whose different CREATE2 scheme lands it
+/// elsewhere; each chain carries its own `multicall` for that reason.
 const MULTICALL3: &str = "0xcA11bde05977b3631167028862bE2a173976CA11";
+const MULTICALL3_ZKSYNC: &str = "0xF9cda624FBC7e059355ce98a31693d299FACd963";
 
 /// How a token gets a USD price. Stables are pinned; everything else is
 /// priced off Hyperliquid's own mids, so there is no extra price feed.
@@ -126,6 +129,7 @@ pub const CHAINS: &[Chain] = &[
             Token { symbol: "ETH",   address: NATIVE, decimals: 18, px: ETH_PX },
             Token { symbol: "USDC",  address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, px: Px::Stable },
             Token { symbol: "USDbC", address: "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDT",  address: "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2", decimals: 6, px: Px::Stable },
             Token { symbol: "WETH",  address: "0x4200000000000000000000000000000000000006", decimals: 18, px: ETH_PX },
             Token { symbol: "cbBTC", address: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", decimals: 8, px: BTC_PX },
         ],
@@ -185,10 +189,81 @@ pub const CHAINS: &[Chain] = &[
             Token { symbol: "WAVAX",  address: "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7", decimals: 18, px: Px::Coin("AVAX") },
         ],
     },
+    Chain {
+        key: "linea", name: "Linea", chain_id: 59144,
+        rpc: "https://linea-rpc.publicnode.com", explorer: "https://lineascan.build",
+        usdc: "0x176211869cA2b568f2A7D4EE941E073a821EE1ff",
+        native_symbol: "ETH", gas_reserve: 0.0005,
+        tokens: &[
+            Token { symbol: "ETH",  address: NATIVE, decimals: 18, px: ETH_PX },
+            Token { symbol: "USDC", address: "0x176211869cA2b568f2A7D4EE941E073a821EE1ff", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDT", address: "0xA219439258ca9da29E9Cc4cE5596924745e12B93", decimals: 6, px: Px::Stable },
+            Token { symbol: "WETH", address: "0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f", decimals: 18, px: ETH_PX },
+        ],
+    },
+    Chain {
+        key: "scroll", name: "Scroll", chain_id: 534352,
+        rpc: "https://scroll-rpc.publicnode.com", explorer: "https://scrollscan.com",
+        usdc: "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4",
+        native_symbol: "ETH", gas_reserve: 0.0005,
+        tokens: &[
+            Token { symbol: "ETH",  address: NATIVE, decimals: 18, px: ETH_PX },
+            Token { symbol: "USDC", address: "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDT", address: "0xf55BEC9cafDbE8730f096Aa55dad6D22d44099Df", decimals: 6, px: Px::Stable },
+            Token { symbol: "WETH", address: "0x5300000000000000000000000000000000000004", decimals: 18, px: ETH_PX },
+        ],
+    },
+    Chain {
+        key: "zksync", name: "zkSync Era", chain_id: 324,
+        rpc: "https://mainnet.era.zksync.io", explorer: "https://era.zksync.network",
+        usdc: "0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4",
+        native_symbol: "ETH", gas_reserve: 0.0008,
+        tokens: &[
+            Token { symbol: "ETH",    address: NATIVE, decimals: 18, px: ETH_PX },
+            Token { symbol: "USDC",   address: "0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDC.e", address: "0x3355df6D4c9C3035724Fd0e3914dE96A5a83aaf4", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDT",   address: "0x493257fD37EDB34451f62EDf8D2a0C418852bA4C", decimals: 6, px: Px::Stable },
+            Token { symbol: "WETH",   address: "0x5AEa5775959fBC2557Cc8789bC1bf90A239D9a91", decimals: 18, px: ETH_PX },
+        ],
+    },
+    Chain {
+        key: "gnosis", name: "Gnosis", chain_id: 100,
+        rpc: "https://gnosis-rpc.publicnode.com", explorer: "https://gnosisscan.io",
+        usdc: "0x2a22f9c3b484c3629090FeED35F17Ff8F88f76F0",
+        // The gas coin IS a dollar stable, so the native row prices at $1.
+        native_symbol: "xDAI", gas_reserve: 0.05,
+        tokens: &[
+            Token { symbol: "xDAI",   address: NATIVE, decimals: 18, px: Px::Stable },
+            Token { symbol: "USDC.e", address: "0x2a22f9c3b484c3629090FeED35F17Ff8F88f76F0", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDC",   address: "0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDT",   address: "0x4ECaBa5870353805a9F068101A40E0f32ed605C6", decimals: 6, px: Px::Stable },
+            Token { symbol: "WETH",   address: "0x6A023CCd1ff6F2045C3309768eAd9E68F978f6e1", decimals: 18, px: ETH_PX },
+        ],
+    },
+    Chain {
+        key: "unichain", name: "Unichain", chain_id: 130,
+        rpc: "https://unichain-rpc.publicnode.com", explorer: "https://uniscan.xyz",
+        usdc: "0x078D782b760474a361dDA0AF3839290b0EF57AD6",
+        native_symbol: "ETH", gas_reserve: 0.0005,
+        tokens: &[
+            Token { symbol: "ETH",   address: NATIVE, decimals: 18, px: ETH_PX },
+            Token { symbol: "USDC",  address: "0x078D782b760474a361dDA0AF3839290b0EF57AD6", decimals: 6, px: Px::Stable },
+            Token { symbol: "USDT0", address: "0x9151434b16b9763660705744891fA906F660EcC5", decimals: 6, px: Px::Stable },
+            Token { symbol: "WETH",  address: "0x4200000000000000000000000000000000000006", decimals: 18, px: ETH_PX },
+        ],
+    },
 ];
 
 pub fn chain_by_id(id: u64) -> Option<&'static Chain> {
     CHAINS.iter().find(|c| c.chain_id == id)
+}
+
+/// The Multicall3 deployment to use on a chain. zkSync Era's CREATE2
+/// derivation differs from everyone else's, so its copy lives at a
+/// different address; using the canonical one there would read every
+/// balance as "chain unreachable".
+fn multicall_for(chain_id: u64) -> &'static str {
+    if chain_id == 324 { MULTICALL3_ZKSYNC } else { MULTICALL3 }
 }
 
 fn chain_json(c: &Chain) -> Value {
@@ -334,13 +409,14 @@ fn decode_aggregate3(ret: &str) -> Vec<Option<Vec<u8>>> {
 /// (which we surface as `ok: false` rather than as a wallet holding zero).
 async fn chain_balances(http: &reqwest::Client, c: &Chain, eoa: &str) -> Option<Vec<f64>> {
     let who = pad32(eoa.trim_start_matches("0x"));
+    let multicall = multicall_for(c.chain_id);
     let calls: Vec<(String, String)> = c
         .tokens
         .iter()
         .map(|t| {
             if t.is_native() {
                 // Multicall3.getEthBalance(address)
-                (MULTICALL3.to_string(), format!("0x4d2301cc{who}"))
+                (multicall.to_string(), format!("0x4d2301cc{who}"))
             } else {
                 // ERC20.balanceOf(address)
                 (t.address.to_string(), format!("0x70a08231{who}"))
@@ -353,7 +429,7 @@ async fn chain_balances(http: &reqwest::Client, c: &Chain, eoa: &str) -> Option<
         http,
         c.rpc,
         "eth_call",
-        json!([{"to": MULTICALL3, "data": data}, "latest"]),
+        json!([{"to": multicall, "data": data}, "latest"]),
     )
     .await
     .ok()?;
@@ -507,7 +583,7 @@ pub async fn deposit_balances(
 
 #[derive(Deserialize)]
 pub struct QuoteBody {
-    /// Source chain id (1, 10, 56, 137, 8453, 42161, 43114).
+    /// Source chain id — any entry in `CHAINS`.
     pub from_chain_id: u64,
     /// `"usdc"`, `"native"`, or any token address listed for that chain.
     pub token: String,
@@ -659,9 +735,15 @@ pub async fn deposit_status(
     State(s): State<AppState>,
     Query(q): Query<StatusQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // The hash is interpolated into the LI.FI URL — pin it to a 32-byte hex
+    // hash so a crafted value can't smuggle extra query parameters.
+    let tx = q.tx_hash.trim();
+    if !(tx.len() == 66 && tx.starts_with("0x") && tx[2..].chars().all(|c| c.is_ascii_hexdigit())) {
+        return Err(err(StatusCode::BAD_REQUEST, "tx_hash must be a 0x… 32-byte transaction hash"));
+    }
     let url = format!(
         "{LIFI}/status?txHash={}&fromChain={}&toChain={}",
-        q.tx_hash, q.from_chain_id, q.to_chain_id.unwrap_or(HL_CHAIN_ID),
+        tx, q.from_chain_id, q.to_chain_id.unwrap_or(HL_CHAIN_ID),
     );
     let v: Value = s
         .http
@@ -694,8 +776,9 @@ pub async fn deposit_status(
 mod tests {
     use super::*;
 
-    /// Multicall3 lives at one address on every chain we scan — the whole
-    /// balance path assumes it, so a typo here would silently zero a chain.
+    /// Every chain must have a native token, its canonical USDC in the
+    /// token list, well-formed addresses, and a well-formed Multicall3 —
+    /// a typo in any of these would silently zero a chain.
     #[test]
     fn every_chain_has_a_native_and_a_usdc() {
         for c in CHAINS {
@@ -705,9 +788,26 @@ mod tests {
                 "{} usdc is not in its token list",
                 c.key
             );
+            assert!(is_addr(multicall_for(c.chain_id)), "{} bad multicall", c.key);
             for t in c.tokens {
                 assert!(is_addr(t.address), "{} {} bad address", c.key, t.symbol);
             }
+        }
+    }
+
+    /// The user-facing promise: every chain accepts USDC, and every chain
+    /// accepts either ETH natively or a USDT flavor — so "deposit via
+    /// ETH / USDC / USDT from any chain" holds everywhere it can.
+    #[test]
+    fn eth_usdc_usdt_coverage() {
+        for c in CHAINS {
+            assert!(
+                c.tokens.iter().any(|t| t.symbol.starts_with("USDC")),
+                "{} has no USDC", c.key
+            );
+            let has_eth = c.tokens.iter().any(|t| t.symbol == "ETH" || t.symbol == "WETH");
+            let has_usdt = c.tokens.iter().any(|t| t.symbol.starts_with("USDT"));
+            assert!(has_eth || has_usdt, "{} has neither ETH nor USDT", c.key);
         }
     }
 

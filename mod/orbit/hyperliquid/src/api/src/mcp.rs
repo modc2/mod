@@ -557,8 +557,10 @@ pub fn tools() -> &'static [Tool] {
         // ── cross-chain deposit rails ──
         tool("hl_deposit_chains", "deposit_chains", "GET", "/deposit/chains", true,
             "Chains Hyperliquid can be funded from (Ethereum, Arbitrum, Base, OP, \
-             Polygon, BNB Chain, Avalanche) and the tokens accepted on each, with \
-             chain ids, RPC/explorer URLs and the minimum deposit.",
+             Polygon, BNB Chain, Avalanche, Linea, Scroll, zkSync Era, Gnosis, \
+             Unichain) and the tokens accepted on each — ETH, USDC and USDT \
+             everywhere they exist — with chain ids, RPC/explorer URLs and the \
+             minimum deposit.",
             vec![], &[]),
         tool("hl_deposit_balances", "deposit_balances", "GET", "/deposit/balances", true,
             "Every balance an address holds across those chains, priced in USD off \
@@ -575,7 +577,7 @@ pub fn tools() -> &'static [Tool] {
              to bridge Arbitrum USDC back out instead. This only builds an \
              unsigned transaction; nothing moves until the wallet signs it.",
             vec![
-                ("from_chain_id", p("integer", "source chain id: 1, 10, 56, 137, 8453, 42161 or 43114")),
+                ("from_chain_id", p("integer", "source chain id — any chainId from hl_deposit_chains")),
                 ("token", p("string", "what to spend: \"usdc\", \"native\", a symbol like \"WETH\", or a token address")),
                 ("amount", p("string", "amount in whole token units, e.g. \"120.5\"")),
                 ("eoa", eoa()),

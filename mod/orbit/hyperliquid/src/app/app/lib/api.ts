@@ -465,7 +465,7 @@ export type WalletNetConfig = {
 };
 export const walletConfig = () => j<WalletNetConfig>(`/wallet/config`);
 
-// ── cross-chain deposit: 7 chains → Hyperliquid, in one transaction ──
+// ── cross-chain deposit: 12 EVM chains → Hyperliquid, in one transaction ──
 export type DepositToken = {
   symbol: string; address: string; decimals: number; native: boolean;
 };
