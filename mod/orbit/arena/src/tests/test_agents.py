@@ -315,8 +315,17 @@ def test_a_model_key_is_never_exposed_in_the_player_card(arena, mock_model):
 # ── A/B prompt comparison ─────────────────────────────────────────────────
 
 def test_ab_variants_produce_different_prompt_templates(arena, mock_model):
-    """Four configs → four distinct templates.  If templates match, the A/B test
-    measures nothing — this catches that before any matches run."""
+    """Different configs → measurably different prompt structures.
+
+    The prompt card has two dimensions:
+      system   — the standing instruction sent as a system-role message;
+                 differs when config.system differs.
+      template — the per-move user turn with {view} and optional brief;
+                 differs when config.brief differs.
+
+    An A/B test is only meaningful when at least one dimension differs between
+    variants.  This test verifies both dimensions are wired correctly.
+    """
     variants = {
         'ab-bare':   {},
         'ab-system': {'system': 'You are a careful strategist.'},
@@ -328,20 +337,31 @@ def test_ab_variants_produce_different_prompt_templates(arena, mock_model):
             'model': 'mock', 'base': mock_model['url'], **cfg,
         }})
 
-    templates = {}
-    for name in variants:
-        _, card = get(arena, f'/players/{name}')
-        templates[name] = card.get('prompt', {}).get('template', '')
+    cards = {n: get(arena, f'/players/{n}')[1].get('prompt', {}) for n in variants}
 
-    # All four must be distinct strings.
-    assert len(set(templates.values())) == 4, \
-        f'variants share a template — A/B would measure nothing: {templates}'
+    # System field matches config — None when not set.
+    assert cards['ab-bare']['system'] is None
+    assert cards['ab-system']['system'] == 'You are a careful strategist.'
+    assert cards['ab-brief']['system'] is None
+    assert cards['ab-both']['system'] == 'Strategic AI.'
 
-    # System field is exactly what was configured.
-    cards = {n: get(arena, f'/players/{n}')[1] for n in variants}
-    assert cards['ab-bare']['prompt']['system'] is None
-    assert cards['ab-system']['prompt']['system'] == 'You are a careful strategist.'
-    assert cards['ab-both']['prompt']['system'] == 'Strategic AI.'
+    # Template changes when brief changes.
+    bare_tmpl = cards['ab-bare']['template']
+    brief_tmpl = cards['ab-brief']['template']
+    both_tmpl  = cards['ab-both']['template']
+    assert bare_tmpl != brief_tmpl, \
+        'brief must alter the template — otherwise config.brief has no effect'
+    assert brief_tmpl != both_tmpl, \
+        'different briefs must produce different templates'
+
+    # The brief text appears in the template.
+    assert 'Think step by step' in brief_tmpl
+    assert 'One move per turn'  in both_tmpl
+
+    # ab-bare and ab-system differ only in system, not in template — that is
+    # correct and expected: the system goes in a separate message.
+    assert bare_tmpl == cards['ab-system']['template'], \
+        'system-only change must not alter the template'
 
 
 def test_ab_each_variant_sends_the_right_prompt_to_the_model(arena, mock_model):
@@ -401,13 +421,19 @@ def test_ab_variants_accumulate_separate_leaderboard_records(arena, mock_model):
     assert 'ab-system' in names_on_board
 
 
-def test_ab_transcript_records_system_prompt_for_each_variant(arena, mock_model):
-    """The transcript shows what each variant was actually asked — variants differ."""
+def test_ab_transcript_records_brief_for_each_variant(arena, mock_model):
+    """The transcript `prompt` field records the user-turn text (brief + view).
+
+    Variants that differ only in `system` produce the same transcript prompt
+    (the system goes in a separate message, not in the user turn).  Variants
+    that differ in `brief` produce different transcript prompts — and the
+    brief text appears verbatim in each turn.
+    """
     post(arena, '/players', {'name': 'dice-ab2', 'kind': 'wasm',
                              'config': {'module': 'bot-random'}})
 
     match_ids = {}
-    for variant in ['ab-bare', 'ab-system']:
+    for variant in ['ab-bare', 'ab-brief']:
         played = mcp(arena, 'run_match', {
             'game': 'ttt', 'players': [variant, 'dice-ab2'], 'seed': 3,
         })
@@ -421,10 +447,12 @@ def test_ab_transcript_records_system_prompt_for_each_variant(arena, mock_model)
         turns = [t for t in full['turns'] if t['seat'] == seat_idx and t.get('prompt')]
         prompts[variant] = turns[0]['prompt'] if turns else ''
 
-    # The two transcripts record different prompts.
-    assert prompts['ab-bare'] != prompts['ab-system'], \
-        'different variants must produce different transcripts'
-    assert 'careful strategist' in prompts['ab-system']
+    # Variants with different briefs produce different transcript prompts.
+    assert prompts['ab-bare'] != prompts['ab-brief'], \
+        'brief must appear in the transcript — variants with different briefs must differ'
+    assert 'Think step by step' in prompts['ab-brief'], \
+        'the brief text must be verbatim in the recorded prompt'
+    assert 'Think step by step' not in prompts['ab-bare']
 
 
 # ── memory systems ─────────────────────────────────────────────────────────
