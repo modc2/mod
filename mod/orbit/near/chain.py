@@ -32,6 +32,12 @@ NETWORKS = {
         'https://rpc.testnet.near.org',
     ],
 }
+# Regular nodes garbage-collect transactions after a few epochs (~5 days);
+# anything older only an archival node remembers.
+ARCHIVAL = {
+    'mainnet': ['https://archival-rpc.mainnet.near.org'],
+    'testnet': ['https://archival-rpc.testnet.near.org'],
+}
 INDEXERS = {
     'mainnet': 'https://api.nearblocks.io',
     'testnet': 'https://api-testnet.nearblocks.io',
@@ -331,15 +337,32 @@ class Client:
         limit = max(1, min(int(limit or 25), 25))
         r = self._indexer(f'/v1/account/{account_id}/txns?per_page={limit}',
                           f'history for {account_id}')
-        txns = []
+        # The indexer returns RECEIPTS — one transaction fans out into several,
+        # each naming predecessor/receiver, not the original signer. Collapse
+        # to one row per transaction hash, keeping the first (newest) receipt.
+        # A gas refund arrives as a receipt from 'system' and is often the
+        # newest one, so prefer a real predecessor when both exist.
+        by_hash = {}
         for t in r.get('txns') or []:
+            h = t.get('transaction_hash')
+            held = by_hash.get(h)
+            if held is not None and \
+                    held.get('predecessor_account_id') != 'system':
+                continue
+            if held is None or t.get('predecessor_account_id') != 'system':
+                by_hash[h] = t
+        txns = []
+        for h, t in by_hash.items():
+            frm = t.get('predecessor_account_id') or t.get('signer_account_id')
             ok = (t.get('outcomes') or {}).get('status')
+            deposit = sum(float(a.get('deposit') or 0)
+                          for a in t.get('actions') or [])
             txns.append({
-                'hash': t.get('transaction_hash'),
-                'signer': t.get('signer_account_id'),
+                'hash': h,
+                'signer': frm,
                 'receiver': t.get('receiver_account_id'),
-                'direction': 'out' if t.get('signer_account_id') == account_id else 'in',
-                'deposit_near': near((t.get('actions_agg') or {}).get('deposit') or 0),
+                'direction': 'out' if frm == account_id else 'in',
+                'deposit_near': deposit / YOCTO,
                 'actions': [a.get('method') or a.get('action')
                             for a in (t.get('actions') or [])],
                 'status': 'ok' if ok else ('failed' if ok is False else 'unknown'),
@@ -361,8 +384,19 @@ class Client:
             if not sender:
                 raise NearError(f'transaction {tx_hash} not found on {self.network} '
                                 '— pass sender= to ask the RPC directly', status=404)
-        r = self.call('tx', {'tx_hash': tx_hash, 'sender_account_id': sender,
-                             'wait_until': 'NONE'})
+        params = {'tx_hash': tx_hash, 'sender_account_id': sender,
+                  'wait_until': 'NONE'}
+        try:
+            r = self.call('tx', params)
+        except NearError as e:
+            # Regular nodes forget transactions after a few epochs; retry on
+            # an archival node before giving up.
+            archival = ARCHIVAL.get(self.network)
+            if 'UNKNOWN_TRANSACTION' not in str(e) or not archival:
+                raise
+            fallback = Client(network=self.network)
+            fallback.endpoints = archival
+            r = fallback.call('tx', params)
         t = r.get('transaction') or {}
         status = r.get('status') or {}
         outcome = (r.get('transaction_outcome') or {}).get('outcome') or {}

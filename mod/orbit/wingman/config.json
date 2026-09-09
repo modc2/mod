@@ -1,12 +1,12 @@
 {
     "name": "wingman",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "A set of photos in, a dating-app-ready lineup out. Every photo is measured \u2014 faces found by an ONNX detector (UltraFace), face size and position, whether it is a headshot, a half-body, a full-body, a wide shot or a group; sharpness as Laplacian variance, exposure and contrast off the histogram, near-duplicates by perceptual hash, GPS coordinates hiding in EXIF \u2014 and each issue costs points with a sentence saying why. The lineup picks the best N in the order they should go up: one sharp solo face leads, then variety (portrait, full-body, headshot, a wider shot), duplicates collapse to the sharper one, a group shot goes late and at most once, and `gaps` names what the set is missing that no edit adds. Render crops face-aware to Tinder, Hinge or Bumble's card ratio (eyes ~40% down, headroom kept), polishes gently (autocontrast, exposure lift on dark frames, a light sharpen) and writes a JPEG with every byte of metadata stripped. No skin smoothing, no background replacement, no reshaping. Everything above is measured on this box and sends nothing anywhere. One verb breaks that on purpose: `read` sends a 768 px, metadata-free copy of each photo to a vision model on orbit/venice for the four things a histogram cannot reach \u2014 expression, whether the eyes are open and on the camera, mirror-selfie or not, setting and outfit \u2014 and across the set what repeats (same room, same shirt, nobody smiling) plus Hinge prompt openings grounded only in what the photos show. It is off unless called, every send is logged in the set's sent.json, and its answers live in `read_flags` with a `source` and never move a measured score. Fourteen MCP tools, a REST API and the console on one port.",
     "icon": "\u2708",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
     "port": 50830,
-    "app_port": 50830,
+    "app_port": 50831,
     "gateway_port": 50830,
     "mcp_port": 50830,
     "base_path": "/wingman",
@@ -56,7 +56,7 @@
         "read": "POST /read {set, photo?, model?, force?, summary?} \u2014 the vision pass; THE ONE ROUTE THAT SENDS A PHOTO OUT | GET /read?set= (cached reads + the send log, no network)",
         "venice": "GET /venice (is the read path live, is there a key) | POST /venice {url?, model?, enabled?} | GET /venice/models | POST /venice/key {key} | DELETE /venice/key"
     },
-    "backend": "python: http.server + Pillow + numpy + onnxruntime",
+    "backend": "rust: axum (:50830) + next.js (:50831); python: engine.py via mod.py bridge (Pillow + numpy + onnxruntime)",
     "requires": {
         "Pillow": "decoding, crop, resize, polish, JPEG out",
         "numpy": "sharpness, histogram, hashing, detector pre/post-processing",
