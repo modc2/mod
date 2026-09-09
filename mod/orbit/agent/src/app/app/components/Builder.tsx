@@ -178,6 +178,10 @@ type Props = {
   onUseAgent: (name: string, memoryIds: string[]) => void
   onAgentsChanged: () => void
   initialAgent?: string | null
+  // which mode to open on. Absent, the tab lands on BROWSE — the registry
+  // itself — unless an agent was handed over for the canvas: "show agents"
+  // means the agents, not an empty graph
+  initialMode?: 'browse' | 'agent' | 'task'
   // opens the encrypted-vault key panel for a provider — API keys are entered here, not in the console
   onManageKey?: (provider: string) => void
   // bumped by the parent after a key save/unlock so provider key state refreshes
@@ -199,10 +203,11 @@ type Props = {
   onRunAgent?: (name: string, prompt: string, memoryIds: string[]) => void
 }
 
-export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, onManageKey, keyVersion, token, isHost, onSignIn, address, onOpenArena, onRunAgent }: Props) {
+export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, initialMode, onManageKey, keyVersion, token, isHost, onSignIn, address, onOpenArena, onRunAgent }: Props) {
   // BROWSE reads the registry, AGENT builds the thing, TASK builds what it is
   // measured on
-  const [mode, setMode] = useState<'browse' | 'agent' | 'task'>('agent')
+  const [mode, setMode] = useState<'browse' | 'agent' | 'task'>(
+    initialMode || (initialAgent ? 'agent' : 'browse'))
   // an agent is filed under the address that made it, so saving takes a
   // sign-in — the server refuses an unsigned create either way
   const canSave = !!token || !!isHost

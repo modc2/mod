@@ -18,6 +18,7 @@ const CHAIN_FILTERS = [
   { id: "ethereum", label: "ETHEREUM" },
   { id: "base", label: "BASE" },
   { id: "solana", label: "SOLANA" },
+  { id: "tao", label: "BITTENSOR" },
 ];
 
 const TIER_WORD: Record<string, string> = {
@@ -64,6 +65,11 @@ export default function Hub({ say, onExplore }: Props) {
   const reachable = rows.filter((r) => r.enterable_from_desk).length;
 
   const explore = (p: any, pool?: any) => {
+    // Bittensor's rows aren't stablecoins — a stable filter would hide them.
+    if (p.source === "bittensor") {
+      onExplore({ chain: "tao", pick: pool?.module_id ?? p.best?.module_id });
+      return;
+    }
     onExplore({
       q: p.llama_projects?.[0] ?? p.name,
       stable: true,
@@ -165,9 +171,10 @@ export default function Hub({ say, onExplore }: Props) {
                   <div className="hub-foot">
                     {best ? (
                       <div className="hub-best">
-                        <span className="apy-big">{pct(best.apy)}</span>
+                        <span className="apy-big">{best.apy == null ? money(best.tvl_usd) : pct(best.apy)}</span>
                         <span className="hub-best-sub">
-                          {best.symbol} on {best.chain} · {money(best.tvl_usd)} deep
+                          {best.symbol} on {best.chain} ·{" "}
+                          {best.apy == null ? "staked — no promised rate" : `${money(best.tvl_usd)} deep`}
                         </span>
                       </div>
                     ) : (
@@ -180,7 +187,7 @@ export default function Hub({ say, onExplore }: Props) {
                         explore(p);
                       }}
                     >
-                      {p.enterable_from_desk ? "put USD in →" : "explore →"}
+                      {p.enterable_from_desk ? (p.source === "bittensor" ? "stake TAO →" : "put USD in →") : "explore →"}
                     </button>
                   </div>
                 </div>
@@ -196,14 +203,15 @@ export default function Hub({ say, onExplore }: Props) {
             <div className="rail-empty">
               <div style={{ fontSize: 22, color: "var(--accent)" }}>✦</div>
               <div style={{ marginTop: 10, lineHeight: 1.7 }}>
-                Eleven protocols made the list: a real track record, a named team, public audits, and
-                a way in for plain USD. Pick a card to see <b>why it&apos;s here</b>, <b>what can go
-                wrong</b>, and every chain it runs on — then put dollars in through the module that
-                owns that chain.
+                A short list made the cut: a real track record, a named team, public audits, and a
+                way in for plain USD — plus Bittensor, the one TAO-in entry, which says so on its
+                card. Pick a card to see <b>why it&apos;s here</b>, <b>what can go wrong</b>, and
+                every chain it runs on — then put money in through the module that owns that chain.
               </div>
               <div className="mono-small" style={{ marginTop: 12, lineHeight: 1.6 }}>
                 Green chains are enterable from this desk — Ethereum and Base through <b>eth</b>,
-                Solana through <b>solana</b>. The rest are shown honestly as read-only.
+                Solana through <b>solana</b>, Bittensor through <b>bt</b>. The rest are shown
+                honestly as read-only.
               </div>
             </div>
           ) : (
@@ -214,7 +222,10 @@ export default function Hub({ say, onExplore }: Props) {
                     {detail.name} <TierTag tier={detail.tier} />
                   </div>
                   <div className="mod-sub">
-                    {detail.category} · since {detail.since} · {money(detail.stable_tvl_usd)} in USD pools
+                    {detail.category} · since {detail.since} ·{" "}
+                    {detail.source === "bittensor"
+                      ? `${money(detail.tvl_usd)} of TAO staked`
+                      : `${money(detail.stable_tvl_usd)} in USD pools`}
                   </div>
                 </div>
                 <span className="apy-big">{detail.best ? pct(detail.best.apy) : "—"}</span>

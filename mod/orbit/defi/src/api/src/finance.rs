@@ -358,7 +358,9 @@ impl Finance {
     }
 
     /// The subnets, from the module that owns Bittensor. Held five minutes.
-    async fn subnets(&self, dex: &Dex) -> Result<Arc<Vec<Value>>, String> {
+    /// Public because the hub joins its curated Bittensor entry against this
+    /// same list — one cache, one knock on the bt module.
+    pub async fn subnets(&self, dex: &Dex) -> Result<Arc<Vec<Value>>, String> {
         let now = crate::auth::now();
         {
             let cache = self.subnets.read().await;
@@ -513,7 +515,7 @@ impl Finance {
         })
     }
 
-    fn module_from_subnet(&self, subnet: &Value) -> Option<Value> {
+    fn module_from_subnet(&self, subnet: &Value, tao_usd: Option<f64>) -> Option<Value> {
         let netuid = subnet.get("netuid")?.as_u64()?;
         let name = subnet
             .get("subnet_name")
@@ -534,6 +536,9 @@ impl Finance {
         if netuid == 0 {
             conditions.push(json!({ "level": "note", "text": "root: stake TAO itself, earns a share of every subnet's emission; price is pinned at 1" }));
         }
+        if tao_usd.is_none() {
+            conditions.push(json!({ "level": "note", "text": "TAO/USD is unavailable right now — dollar figures are omitted, not guessed" }));
+        }
         Some(json!({
             "id": format!("tao:sn{netuid}"),
             "source": "bittensor",
@@ -553,11 +558,14 @@ impl Finance {
                 "basis": "bt_subnets — alpha emission accrues to stakers; the TAO value of alpha floats with the pool",
             },
             "liquidity": {
-                "tvl_usd": Value::Null,
+                // Dollar figures only when a real price is in hand; without
+                // one, depth is judged at $0/TAO — understated, never inflated.
+                "tvl_usd": tao_usd.map(|p| round2(tao_in * p)),
                 "tvl_tao": round2(tao_in),
+                "tao_usd": tao_usd.map(round2),
                 "alpha_in_pool": round2(alpha_in),
                 "volume_tao": volume.map(round2),
-                "depth": depth_word(tao_in * 350.0),
+                "depth": depth_word(tao_in * tao_usd.unwrap_or(0.0)),
                 "entry": "instant",
                 "exit": "market",
                 "exit_note": "unstake any time at the pool's constant-product price; size against the TAO reserve",
@@ -799,14 +807,15 @@ impl Finance {
         if wants_tao && filter.min_tvl <= 10_000_000.0 {
             match self.subnets(dex).await {
                 Ok(list) => {
+                    let tao_usd = yields.tao_usd().await;
                     let mut n = 0;
                     for subnet in list.iter() {
-                        if let Some(m) = self.module_from_subnet(subnet) {
+                        if let Some(m) = self.module_from_subnet(subnet, tao_usd) {
                             all.push(m);
                             n += 1;
                         }
                     }
-                    sources.insert("bittensor".into(), json!({ "subnets": n, "via": "bt_subnets", "note": "no APY is quoted for a subnet — the return is emission on a floating price" }));
+                    sources.insert("bittensor".into(), json!({ "subnets": n, "via": "bt_subnets", "tao_usd": tao_usd, "note": "no APY is quoted for a subnet — the return is emission on a floating price" }));
                 }
                 Err(e) => {
                     sources.insert("bittensor".into(), json!({ "subnets": 0, "error": e }));
@@ -981,7 +990,7 @@ impl Finance {
                 .iter()
                 .find(|s| s.get("netuid").and_then(|v| v.as_u64()) == Some(netuid))
                 .ok_or_else(|| format!("no subnet {netuid} in bt_subnets"))?;
-            let mut m = self.module_from_subnet(subnet).ok_or("bad subnet row")?;
+            let mut m = self.module_from_subnet(subnet, yields.tao_usd().await).ok_or("bad subnet row")?;
             if let Ok(price) = dex.peer("bt", "bt_price", json!({ "netuid": netuid }), None).await {
                 m["price"] = price;
             }

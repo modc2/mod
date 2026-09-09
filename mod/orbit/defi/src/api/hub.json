@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "note": "The HUB: a curated shortlist of legitimate protocols this desk is willing to point USD at, joined live with DefiLlama's index. Curation criteria: a multi-year track record or >$1b deposited, a named team, public audits, and a way in for plain USD stablecoins. Curated does not mean safe — every entry still lists what it is subject to, and the live numbers beside it are the index's, not ours.",
+  "note": "The HUB: a curated shortlist of legitimate protocols this desk is willing to point USD at, joined live with DefiLlama's index. Curation criteria: a multi-year track record or >$1b deposited, a named team, public audits, and a way in for plain USD stablecoins — with one exception: Bittensor is TAO-in, says so on its card, and its numbers come from the bt module's live subnet list, not DefiLlama. Curated does not mean safe — every entry still lists what it is subject to, and the live numbers beside it are the index's, not ours.",
   "protocols": [
     {
       "id": "aave-v3",
@@ -9,8 +9,15 @@
       "tier": "core",
       "since": 2020,
       "website": "https://aave.com",
-      "llama_projects": ["aave-v3"],
-      "usd_in": ["USDC", "USDT", "DAI", "USDS"],
+      "llama_projects": [
+        "aave-v3"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "DAI",
+        "USDS"
+      ],
       "blurb": "Deposit dollars into a shared lending pool; borrowers post collateral and pay interest to you continuously. Withdraw whenever the pool has liquidity.",
       "legit": [
         "the largest onchain lender — around $17b deposited",
@@ -30,8 +37,14 @@
       "tier": "core",
       "since": 2022,
       "website": "https://morpho.org",
-      "llama_projects": ["morpho-blue"],
-      "usd_in": ["USDC", "USDT", "DAI"],
+      "llama_projects": [
+        "morpho-blue"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "DAI"
+      ],
       "blurb": "Your USD goes into a vault run by a named curator, who lends it across isolated markets. Each vault publishes exactly which markets it touches.",
       "legit": [
         "around $14b deposited across curated vaults",
@@ -51,8 +64,14 @@
       "tier": "core",
       "since": 2017,
       "website": "https://sky.money",
-      "llama_projects": ["sky-lending"],
-      "usd_in": ["USDS", "DAI", "USDC"],
+      "llama_projects": [
+        "sky-lending"
+      ],
+      "usd_in": [
+        "USDS",
+        "DAI",
+        "USDC"
+      ],
       "blurb": "Swap into the savings token (sUSDS or sDAI) and it grows at the Sky Savings Rate set by governance. Unwind back to dollars instantly, any size.",
       "legit": [
         "the oldest DeFi protocol still running — MakerDAO since 2017",
@@ -72,8 +91,14 @@
       "tier": "core",
       "since": 2023,
       "website": "https://spark.fi",
-      "llama_projects": ["sparklend"],
-      "usd_in": ["USDC", "USDS", "DAI"],
+      "llama_projects": [
+        "sparklend"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDS",
+        "DAI"
+      ],
       "blurb": "The Sky ecosystem's lender — an Aave V3 fork seeded with Sky's own liquidity, so dollar deposit rates stay close to the savings rate with pool lending on top.",
       "legit": [
         "around $5b supplied",
@@ -93,8 +118,13 @@
       "tier": "core",
       "since": 2018,
       "website": "https://compound.finance",
-      "llama_projects": ["compound-v3"],
-      "usd_in": ["USDC", "USDT"],
+      "llama_projects": [
+        "compound-v3"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT"
+      ],
       "blurb": "Each market lends exactly one asset — you supply USDC, borrowers post other collateral against it. Simpler than a shared pool, and it reads that way onchain.",
       "legit": [
         "lending onchain since 2018 — the protocol that invented the model",
@@ -114,8 +144,12 @@
       "tier": "established",
       "since": 2021,
       "website": "https://maple.finance",
-      "llama_projects": ["maple"],
-      "usd_in": ["USDC"],
+      "llama_projects": [
+        "maple"
+      ],
+      "usd_in": [
+        "USDC"
+      ],
       "blurb": "Your USDC is lent to vetted institutional borrowers against posted collateral, managed by Maple's credit desk. Yield comes from real borrowing demand, not emissions.",
       "legit": [
         "around $4b managed, live since 2021",
@@ -135,8 +169,13 @@
       "tier": "established",
       "since": 2024,
       "website": "https://fluid.io",
-      "llama_projects": ["fluid-lending"],
-      "usd_in": ["USDC", "USDT"],
+      "llama_projects": [
+        "fluid-lending"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT"
+      ],
       "blurb": "Instadapp's lender: deposits earn from borrowers whose collateral is simultaneously working as DEX liquidity, so the same dollar earns twice.",
       "legit": [
         "built by Instadapp, shipping DeFi infrastructure since 2018",
@@ -156,8 +195,13 @@
       "tier": "frontier",
       "since": 2024,
       "website": "https://ethena.fi",
-      "llama_projects": ["ethena-usde"],
-      "usd_in": ["USDe", "USDC"],
+      "llama_projects": [
+        "ethena-usde"
+      ],
+      "usd_in": [
+        "USDe",
+        "USDC"
+      ],
       "blurb": "USDe is a dollar built from crypto collateral hedged with short futures; staking it earns the funding-rate spread. It is a trade wearing a stablecoin's clothes — the yield is real and so are the ways it can stop.",
       "legit": [
         "around $1.3b staked; grew through two full funding cycles",
@@ -177,8 +221,13 @@
       "tier": "established",
       "since": 2022,
       "website": "https://kamino.finance",
-      "llama_projects": ["kamino-lend"],
-      "usd_in": ["USDC", "USDT"],
+      "llama_projects": [
+        "kamino-lend"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT"
+      ],
       "blurb": "Solana's main lending market — deposit dollars, earn from leverage and borrowing demand on the fastest-moving chain. Rates run hotter and swing harder than Ethereum's.",
       "legit": [
         "the largest Solana lender — around $1.5b deposited",
@@ -198,8 +247,13 @@
       "tier": "established",
       "since": 2021,
       "website": "https://save.finance",
-      "llama_projects": ["save"],
-      "usd_in": ["USDC", "USDT"],
+      "llama_projects": [
+        "save"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT"
+      ],
       "blurb": "Solana's original lending pool, rebranded from Solend. Smaller and quieter than Kamino — a second venue for dollar lending on Solana.",
       "legit": [
         "lending on Solana since 2021, through every cycle since",
@@ -219,8 +273,15 @@
       "tier": "established",
       "since": 2020,
       "website": "https://curve.finance",
-      "llama_projects": ["curve-dex"],
-      "usd_in": ["USDC", "USDT", "DAI", "+ paired"],
+      "llama_projects": [
+        "curve-dex"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "DAI",
+        "+ paired"
+      ],
       "paired": true,
       "blurb": "Put dollars into a stable-swap pool and earn the trading fees of everyone exchanging through it. You hold the pool's mix — if one coin in the pool depegs, part of your dollars become it.",
       "legit": [
@@ -232,6 +293,28 @@
         "paired exposure: the weakest coin in the pool is partly yours",
         "a 2023 reentrancy hit some non-stable pools — the risk is real",
         "headline APYs on small pools are usually gauge emissions, not fees"
+      ]
+    },
+    {
+      "id": "bittensor",
+      "name": "Bittensor",
+      "category": "AI staking (dTAO)",
+      "tier": "frontier",
+      "since": 2021,
+      "website": "https://bittensor.com",
+      "source": "bittensor",
+      "llama_projects": [],
+      "usd_in": [],
+      "blurb": "Stake TAO — into root for a share of every subnet's emission, or into a subnet's dTAO pool for its alpha token. The one entry here that is not a dollar protocol: TAO goes in, and what you hold floats.",
+      "legit": [
+        "the largest decentralized AI network — live since 2021, root pool alone holds millions of TAO",
+        "open-source (Opentensor), fixed 21m supply with a Bitcoin-style halving schedule",
+        "this desk reads and stakes it through the bt module directly against the chain — every number on this card is bt_subnets, live"
+      ],
+      "risks": [
+        "not USD: you carry TAO's price on top of everything else, and a subnet's alpha floats on top of TAO",
+        "no APY is promised anywhere — the return is emission on a floating price, and dTAO itself only launched in Feb 2025",
+        "a subnet's alpha can go to ~zero if its team or demand disappears, and thin pools move a lot on a single trade"
       ]
     }
   ]

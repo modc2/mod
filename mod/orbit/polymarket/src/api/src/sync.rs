@@ -140,6 +140,13 @@ struct SyncConfig {
     /// too).
     #[serde(default = "default_windows")]
     windows: Vec<WarmWindow>,
+    /// Fire scheduled cycles on wall-clock multiples of the interval (epoch-
+    /// aligned, UTC) instead of start-to-start: an hourly cadence runs AT the
+    /// hour — :00, :00, :00 — so the scan archive reads like a clock, and a
+    /// restart mid-hour doesn't shift every future scan to :23. Defaults ON,
+    /// including for an older `sync.json` without the key.
+    #[serde(default = "default_enabled")]
+    align: bool,
 }
 
 fn default_enabled() -> bool {
@@ -156,6 +163,7 @@ impl Default for SyncConfig {
             enabled: true,
             interval_secs: DEFAULT_INTERVAL_SECS,
             windows: default_windows(),
+            align: true,
         }
     }
 }
@@ -224,10 +232,19 @@ impl SyncSchedule {
     }
 
     /// How stale a cached window must be before a cycle re-pulls it. Derived
-    /// from the cadence (92%) rather than fixed: with a hard-coded 55min floor
-    /// a 15-minute cadence would skip every combo and silently never sync.
+    /// from the cadence (half of it) rather than fixed: with a hard-coded
+    /// 55min floor a 15-minute cadence would skip every combo and silently
+    /// never sync.
+    ///
+    /// Half, not 92% as before: a window's `synced_at` is stamped when its
+    /// sweep FINISHES, and a full cycle runs ~10 minutes — so at an hourly
+    /// cadence the windows swept late in the cycle were only ~50 minutes old
+    /// at the next tick, failed the 55-minute bar, and silently synced every
+    /// OTHER hour. Scan history made that visible as alternating "skipped"
+    /// holes. Half the cadence still protects against a restart loop
+    /// re-hammering the data-api, which is all this threshold is for.
     pub fn resync_after_secs(&self) -> i64 {
-        (self.interval_secs() as i64 * 11 / 12).max(60)
+        (self.interval_secs() as i64 / 2).max(60)
     }
 
     /// The leaderboards the background sweep keeps warm, in the order the
@@ -247,6 +264,7 @@ impl SyncSchedule {
         enabled: Option<bool>,
         interval_secs: Option<u64>,
         windows: Option<Vec<WarmWindow>>,
+        align: Option<bool>,
     ) -> Result<(), String> {
         if let Some(secs) = interval_secs {
             if !(MIN_INTERVAL_SECS..=MAX_INTERVAL_SECS).contains(&secs) {
@@ -297,6 +315,9 @@ impl SyncSchedule {
             if let Some(w) = windows {
                 cfg.windows = w;
             }
+            if let Some(a) = align {
+                cfg.align = a;
+            }
             cfg.clone()
         };
         self.persist(&snapshot);
@@ -340,9 +361,9 @@ impl SyncSchedule {
     pub fn next_run_at(&self) -> Option<i64> {
         // Field reads, not a snapshot: `SyncConfig` carries the warm-window
         // list now, so cloning it here would allocate on every countdown tick.
-        let (enabled, interval_secs) = {
+        let (enabled, interval_secs, align) = {
             let cfg = self.config.read();
-            (cfg.enabled, cfg.interval_secs)
+            (cfg.enabled, cfg.interval_secs, cfg.align)
         };
         if !enabled {
             return None;
@@ -351,6 +372,15 @@ impl SyncSchedule {
         // windows that a previous process already synced within the interval,
         // so a restart loop can't hammer the data-api.
         Some(match self.status.read().last_start {
+            // Aligned: the next epoch multiple of the interval after the last
+            // start — an hourly cadence fires AT :00 UTC, a 15-minute one at
+            // :00/:15/:30/:45. A cycle that overruns its slot comes due
+            // immediately (`<= now` means "run now") and the one after snaps
+            // back to the grid, so alignment self-heals instead of drifting.
+            Some(last) if align => {
+                let iv = interval_secs as i64;
+                (last / iv + 1) * iv
+            }
             Some(last) => last + interval_secs as i64,
             None => now_secs(),
         })
@@ -419,6 +449,7 @@ impl SyncSchedule {
             // The warm list, so the console can show WHICH boards answer from
             // cache and let the owner add the one they are actually browsing.
             "windows": self.windows(),
+            "align": cfg.align,
             "maxWindows": MAX_WARM_WINDOWS,
             "minPool": MIN_POOL,
             "maxPool": MAX_POOL,
@@ -470,18 +501,22 @@ mod tests {
     fn defaults_to_five_minutes() {
         let s = tmp_schedule();
         assert_eq!(s.interval_secs(), 300);
-        // 4m35s — a cycle on schedule must not skip a window about to fall due.
-        assert_eq!(s.resync_after_secs(), 275);
+        // Half the cadence — see resync_after_secs: windows are stamped when
+        // their sweep FINISHES, so anything tighter than ~half skips windows
+        // swept late in the previous cycle and they sync every OTHER tick.
+        assert_eq!(s.resync_after_secs(), 150);
     }
 
     #[test]
     fn owner_can_change_the_cadence_and_it_persists() {
         let s = tmp_schedule();
-        s.update(None, Some(3600), None).unwrap();
+        s.update(None, Some(3600), None, None).unwrap();
         assert_eq!(s.interval_secs(), 3600);
         // Threshold tracks the cadence, else a cycle on schedule would skip
-        // every window about to fall due and never actually sync.
-        assert!(s.resync_after_secs() < 3600);
+        // every window about to fall due and never actually sync. It must
+        // also clear the cycle duration (~10 min) or late-swept windows only
+        // sync every other hour.
+        assert!(s.resync_after_secs() <= 1800);
 
         let raw = std::fs::read_to_string(&s.path).unwrap();
         let saved: SyncConfig = serde_json::from_str(&raw).unwrap();
@@ -493,25 +528,57 @@ mod tests {
     #[test]
     fn out_of_range_intervals_are_rejected() {
         let s = tmp_schedule();
-        assert!(s.update(None, Some(60), None).is_err());
-        assert!(s.update(None, Some(30 * 86400), None).is_err());
+        assert!(s.update(None, Some(60), None, None).is_err());
+        assert!(s.update(None, Some(30 * 86400), None, None).is_err());
         assert_eq!(s.interval_secs(), 300); // unchanged
     }
 
+    /// Aligned (the default): scheduled runs snap to wall-clock multiples of
+    /// the interval — hourly means AT the hour, which is also what makes the
+    /// scan archive read like a clock.
     #[test]
-    fn next_run_is_immediate_before_the_first_cycle_then_one_interval_out() {
+    fn next_run_is_immediate_before_the_first_cycle_then_on_the_grid() {
         let s = tmp_schedule();
         assert!(s.next_run_at().unwrap() <= now_secs());
         s.mark_started(Trigger::Scheduled);
         s.mark_finished(None);
         let next = s.next_run_at().unwrap();
+        let now = now_secs();
+        assert_eq!(next % 300, 0, "aligned to the epoch grid");
+        assert!(next > now - 1 && next <= now + 300);
+
+        s.update(None, Some(3600), None, None).unwrap();
+        let next = s.next_run_at().unwrap();
+        assert_eq!(next % 3600, 0, "hourly cadence fires at :00 UTC");
+        std::fs::remove_file(&s.path).ok();
+    }
+
+    /// align=false keeps the old start-to-start behavior.
+    #[test]
+    fn unaligned_schedules_run_start_to_start() {
+        let s = tmp_schedule();
+        s.update(None, None, None, Some(false)).unwrap();
+        s.mark_started(Trigger::Scheduled);
+        s.mark_finished(None);
+        let next = s.next_run_at().unwrap();
         assert!(next > now_secs() + 290 && next <= now_secs() + 300);
+        std::fs::remove_file(&s.path).ok();
+    }
+
+    /// A `sync.json` from before the flag existed must come up aligned — the
+    /// whole point is that the deployed hourly schedule starts firing at :00
+    /// without the owner re-saving anything.
+    #[test]
+    fn an_old_config_without_align_defaults_to_aligned() {
+        let cfg: SyncConfig =
+            serde_json::from_str(r#"{"enabled":true,"intervalSecs":3600}"#).unwrap();
+        assert!(cfg.align);
     }
 
     #[test]
     fn disabling_stops_scheduling() {
         let s = tmp_schedule();
-        s.update(Some(false), None, None).unwrap();
+        s.update(Some(false), None, None, None).unwrap();
         assert!(s.next_run_at().is_none());
         std::fs::remove_file(&s.path).ok();
     }
@@ -536,7 +603,7 @@ mod tests {
             WarmWindow { days: 3, min_per_day: 2.0, pool: 2000 },
             WarmWindow { days: 30, min_per_day: 0.0, pool: 500 },
         ];
-        s.update(None, None, Some(mine.clone())).unwrap();
+        s.update(None, None, Some(mine.clone()), None).unwrap();
         assert_eq!(s.windows(), mine);
 
         let raw = std::fs::read_to_string(&s.path).unwrap();
@@ -562,15 +629,15 @@ mod tests {
     fn a_rejected_window_leaves_the_running_list_alone() {
         let s = tmp_schedule();
         // Out of range on each dimension in turn.
-        assert!(s.update(None, None, Some(vec![WarmWindow { days: 0, min_per_day: 0.0, pool: 2000 }])).is_err());
-        assert!(s.update(None, None, Some(vec![WarmWindow { days: 7, min_per_day: -1.0, pool: 2000 }])).is_err());
-        assert!(s.update(None, None, Some(vec![WarmWindow { days: 7, min_per_day: 0.0, pool: 5000 }])).is_err());
-        assert!(s.update(None, None, Some(vec![])).is_err());
+        assert!(s.update(None, None, Some(vec![WarmWindow { days: 0, min_per_day: 0.0, pool: 2000 }]), None).is_err());
+        assert!(s.update(None, None, Some(vec![WarmWindow { days: 7, min_per_day: -1.0, pool: 2000 }]), None).is_err());
+        assert!(s.update(None, None, Some(vec![WarmWindow { days: 7, min_per_day: 0.0, pool: 5000 }]), None).is_err());
+        assert!(s.update(None, None, Some(vec![]), None).is_err());
         // Nine distinct windows — one past the cap.
         let too_many: Vec<WarmWindow> = (1..=9)
             .map(|d| WarmWindow { days: d, min_per_day: 0.0, pool: 2000 })
             .collect();
-        assert!(s.update(None, None, Some(too_many)).is_err());
+        assert!(s.update(None, None, Some(too_many), None).is_err());
 
         assert_eq!(s.windows(), default_windows(), "a rejected patch changed the live list");
         std::fs::remove_file(&s.path).ok();
@@ -589,6 +656,7 @@ mod tests {
                 WarmWindow { days: 7, min_per_day: 0.0, pool: 2000 },
                 WarmWindow { days: 1, min_per_day: 0.0, pool: 2000 },
             ]),
+            None,
         )
         .unwrap();
         assert_eq!(
@@ -604,7 +672,7 @@ mod tests {
     #[tokio::test]
     async fn manual_trigger_wins_over_a_disabled_schedule() {
         let s = tmp_schedule();
-        s.update(Some(false), None, None).unwrap();
+        s.update(Some(false), None, None, None).unwrap();
         s.trigger_now();
         assert_eq!(s.wait_for_next_run().await, Trigger::Manual);
         std::fs::remove_file(&s.path).ok();

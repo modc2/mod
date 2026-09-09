@@ -16,4 +16,11 @@ export async function register() {
     const { startHubWorker } = await import("./app/lib/server/hubWorker");
     startHubWorker();
   }
+  // AUTO STRAT — the strat factory's 1-minute loop. The ticker always runs;
+  // whether it FIRES is the settings file's `enabled`, flipped from the
+  // sidebar or over MCP (lib/server/autoStrat.ts).
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.POLYMARKET_AUTOSTRAT !== "0") {
+    const { startAutoStratLoop } = await import("./app/lib/server/autoStrat");
+    startAutoStratLoop();
+  }
 }

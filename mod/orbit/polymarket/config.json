@@ -1,6 +1,6 @@
 {
     "name": "polymarket",
-    "version": "2.8.0",
+    "version": "2.9.0",
     "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. Three tabs: STRATS, TRADERS, TEST & LIVE; topping up and taking money out live in the side panel. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
     "port": 50091,
     "app_port": 3091,
@@ -90,6 +90,14 @@
             "method": "POST",
             "docs": "Run one background sync cycle now (bypasses the freshness skip)"
         },
+        "/scans": {
+            "method": "GET",
+            "docs": "Scan history, newest first: every background sync archived with its timestamp, trigger and which windows it holds/skipped/failed (?limit=, default 240). Hourly cadence lands at :00 UTC (align defaults on; /sync/config {align:false} for start-to-start)"
+        },
+        "/scans/{id}/traders": {
+            "method": "GET",
+            "docs": "One archived scan's leaderboard \u2014 same paged/filter/sort params and response shape as /active-traders?paged=1, served from the archive (pool defaults 2000 here). 404 = pruned or that cycle skipped the window"
+        },
         "/?endpoint=markets": {
             "method": "GET",
             "docs": "Proxy: list markets (gamma-api)"
@@ -133,6 +141,10 @@
         "/polymarket/api/strat-chat": {
             "method": "POST",
             "docs": "Per-strat agent chat (served by the Next app, owner-gated): {strat, messages, context?} -> {reply, entries, rejected}. The agent reads the strat's settings, its cached backtest and its live session and PROPOSES a parameter patch, validated against the lib/stratPatch whitelist; nothing is written \u2014 the browser applies it on the user's say-so. Runs through the local claude CLI (POLYMARKET_CHAT_MODEL, default claude-opus-5)."
+        },
+        "/polymarket/api/autostrat": {
+            "method": "GET|POST",
+            "docs": "AUTO STRAT \u2014 the strat factory (served by the Next app, owner-gated). One run: a headless claude agent invents a copy-index recipe off the live leaderboard (it can only pick addresses actually on the board \u2014 the roster is the whitelist), the lab bench replays it over 1/3/7 days, and the result REGISTERS twice: as a paused strat the sidebar adopts (clicked runs always; loop runs only when they beat the bench bar) and as a generated Python Strat class in polymarket-user-strats/<id>/mod.py that runs standalone as its own MCP server (strat_info/strat_signal/strat_backtest/strat_state \u2014 read-only by design). GET returns settings + the run in flight + recent runs; POST {enabled, intervalSecs} flips the server-side loop (default 60s, OFF until a human enables it \u2014 every run spends inference); POST ?run=1 {theme?} is the console's RANDOM NEW STRAT. Nothing here ever starts a live session."
         }
     },
     "schema": "QmWgKv7DWSSVXHR3P9625MQtBJ3HUvjWQyNNfNtQ8k7wPq",
@@ -159,6 +171,7 @@
             "pm_strats",
             "pm_backtests",
             "pm_backtest_run",
+            "pm_autostrat",
             "pm_live_sessions",
             "pm_live_gates"
         ],

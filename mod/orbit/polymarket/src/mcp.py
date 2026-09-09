@@ -478,6 +478,28 @@ def _t_lab_runs(args):
     return _get(_lab(f'?id={urllib.parse.quote(rid)}' if rid else ''), timeout=30)
 
 
+def _autostrat(path: str = '') -> str:
+    return f'{APP_URL}{BASE_PATH}/api/autostrat{path}'
+
+
+def _t_autostrat(args):
+    """AUTO STRAT factory: one-shot agent runs that invent, bench and register
+       a copy-index strat. op=status|run|on|off."""
+    op = str(args.get('op') or 'status').strip().lower()
+    if op == 'run':
+        body = {}
+        theme = str(args.get('theme') or '').strip()
+        if theme:
+            body['theme'] = theme
+        return _post(_autostrat('?run=1'), body, timeout=60)
+    if op in ('on', 'off'):
+        body = {'enabled': op == 'on'}
+        if args.get('intervalSecs') is not None:
+            body['intervalSecs'] = int(args['intervalSecs'])
+        return _post(_autostrat(), body, timeout=30)
+    return _get(_autostrat(), timeout=30)
+
+
 def _t_live_sessions(args):
     eoa = str(args.get('eoa') or '').strip() or _owner()
     sessions = _get(f'{API_URL}/live/sessions?eoa={urllib.parse.quote(eoa)}', timeout=30).get('sessions') or []
@@ -1231,6 +1253,24 @@ TOOLS = {
             'id': {'type': 'string', 'description': 'run id, e.g. lab_mf1x2y (optional)'},
         }},
         'handler': _t_lab_runs,
+    },
+    'pm_autostrat': {
+        'description': 'AUTO STRAT — the strat factory. One run: an agent invents a copy-index '
+                       'recipe off the live leaderboard (it can only pick addresses that are '
+                       'actually on the board), the lab bench replays it over 1/3/7 days, and '
+                       'the result registers as a paused strat plus a runnable Python Strat '
+                       'class that doubles as its own MCP server (polymarket-user-strats/'
+                       '<id>/mod.py). op="status" reads settings + recent runs; op="run" fires '
+                       'one run now (the console\'s RANDOM NEW STRAT); op="on"/"off" flips the '
+                       'server-side loop (default every 60s — each run spends inference). '
+                       'Nothing here ever starts a live session.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'op': {'type': 'string', 'enum': ['status', 'run', 'on', 'off']},
+            'theme': {'type': 'string', 'description': 'op=run: steer the lens, in words '
+                                                       '(optional — default: a random lens)'},
+            'intervalSecs': {'type': 'integer', 'description': 'op=on: loop cadence, min 60'},
+        }},
+        'handler': _t_autostrat,
     },
     'pm_live_sessions': {
         'description': 'Live copy-engine sessions for the owner wallet: which strats are '

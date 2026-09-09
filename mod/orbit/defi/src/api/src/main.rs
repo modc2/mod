@@ -1090,7 +1090,21 @@ async fn get_hub(
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(1_000_000.0);
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
-    Ok(Json(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl)))
+    let (subnets, tao_usd) = hub_tao_inputs(&state).await;
+    Ok(Json(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd)))
+}
+
+/// What the hub's Bittensor entry joins against: the bt module's subnet list
+/// (already cached five minutes by the finance registry) and TAO's dollar
+/// price. A dark bt module or a missing price degrades to empty/None — the
+/// entry then shows empty chains or null dollars, never a stale number.
+async fn hub_tao_inputs(state: &Shared) -> (std::sync::Arc<Vec<serde_json::Value>>, Option<f64>) {
+    if !state.hub.wants_subnets() {
+        return (Default::default(), None);
+    }
+    let subnets = state.finance.subnets(&state.dex).await.unwrap_or_default();
+    let tao_usd = state.yields.tao_usd().await;
+    (subnets, tao_usd)
 }
 
 async fn get_hub_protocol(
@@ -1105,9 +1119,10 @@ async fn get_hub_protocol(
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(1_000_000.0);
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
+    let (subnets, tao_usd) = hub_tao_inputs(&state).await;
     state
         .hub
-        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl)
+        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd)
         .map(Json)
         .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
 }

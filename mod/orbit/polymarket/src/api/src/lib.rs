@@ -16,9 +16,11 @@ pub mod deposit_wallet;
 pub mod relayer;
 pub mod order_place;
 pub mod user_strats;
+pub mod score_fns;
 pub mod share;
 pub mod live_engine;
 pub mod sync;
+pub mod scans;
 pub mod copy;
 pub mod copy_actions;
 pub mod sentiment;
@@ -32,6 +34,7 @@ pub use strats::StratStore;
 pub use signer::SignerStore;
 pub use live_engine::EngineRegistry;
 pub use user_strats::UserStratStore;
+pub use score_fns::ScoreFnStore;
 pub use share::ShareStore;
 pub use access::AccessStore;
 pub use sync::SyncSchedule;
@@ -46,6 +49,9 @@ pub struct AppState {
     pub signer_store: Arc<SignerStore>,
     pub engines: Arc<EngineRegistry>,
     pub user_strats: Arc<UserStratStore>,
+    /// The ƒ SCORE MARKET's community shelf — published score functions
+    /// (score_fns.rs). Storage only; scores always compile in the browser.
+    pub score_fns: Arc<ScoreFnStore>,
     /// Content-addressable backend for sharing strats by CID.
     pub share: ShareStore,
     /// Cadence + status of the background trader-data sync (sync.rs).

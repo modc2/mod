@@ -369,6 +369,10 @@ export default function Home() {
   const [agentOptions, setAgentOptions] = useState<AgentOption[]>(DEFAULT_AGENTS)
   // agent to preload on the visual builder canvas (null = fresh canvas)
   const [builderAgent, setBuilderAgent] = useState<string | null>(null)
+  // which face of the AGENTS shelf is up: 'browse' shows the registry (the
+  // agents themselves), 'agent' the wiring canvas. Plain navigation always
+  // lands on browse; only openBuilder() asks for the canvas.
+  const [builderMode, setBuilderMode] = useState<'browse' | 'agent'>('browse')
   // the rail's inline agent editor: null = the list, {name: null} = a new
   // agent, {name} = editing that one. Creating and changing an agent is a
   // sidebar job — the canvas is where you go for the wiring, not the naming.
@@ -822,9 +826,12 @@ export default function Home() {
     try { localStorage.setItem('agent_hub_pane', pane) } catch {}
   }
 
-  // jump to the AGENTS canvas, optionally preloading an agent to edit
+  // jump to the AGENTS canvas, optionally preloading an agent to edit.
+  // This is the explicit "wire it as a graph" path — plain navigation to the
+  // AGENTS shelf lands on BROWSE, the registry itself.
   const openBuilder = (name?: string | null) => {
     setBuilderAgent(name || null)
+    setBuilderMode('agent')
     setShowPicker(false)
     openHub('agents')
   }
@@ -4313,8 +4320,9 @@ export default function Home() {
   const agentsCanvas = (
     <div className="flex-1 min-h-0">
       <Builder
-        key={builderAgent || 'new'}
+        key={`${builderAgent || 'new'}·${builderMode}`}
         initialAgent={builderAgent}
+        initialMode={builderMode}
         onUseAgent={(name, memoryIds) => {
           selectAgent(name)
           if (memoryIds.length) {
@@ -4408,7 +4416,12 @@ export default function Home() {
         <nav className="tab-strip order-last basis-full lg:order-none lg:basis-auto gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
           {(['chat', 'hub', 'arena'] as const).map(v => (
             <button key={v}
-              onClick={() => { if (v === 'hub') openHub(hubPane); else setView(v) }}
+              onClick={() => {
+                // entering the hub from the top bar shows the agents, not a
+                // canvas someone left up — "show agents" is the shelf's job
+                if (v === 'hub') { setBuilderMode('browse'); openHub(hubPane) }
+                else setView(v)
+              }}
               className={`tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium uppercase tracking-wider transition ${
                 view === v ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
               }`}
@@ -4468,7 +4481,7 @@ export default function Home() {
                   the strip stays quiet there */}
               {hubPane !== 'tasks' && (
                 <span className="ml-auto text-[10px] text-gray-600 hidden sm:block">
-                  {hubPane === 'agents' ? 'wire an agent — nodes, tools, model'
+                  {hubPane === 'agents' ? 'every agent — its prompt, model, memory · or wire one on the canvas'
                     : 'prompts, tools, memory, agents — pull one into a chat'}
                 </span>
               )}

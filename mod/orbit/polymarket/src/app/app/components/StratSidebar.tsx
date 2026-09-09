@@ -60,6 +60,7 @@ import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 import DepositPanel from "./DepositPanel";
 import StratChat from "./StratChat";
 import StratLab from "./StratLab";
+import AutoStratPanel from "./AutoStratPanel";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 
 // Wide enough for a real column beside the console; below this the sidebar
@@ -437,6 +438,11 @@ export default function StratSidebar() {
         >
           + NEW STRAT
         </button>
+
+        {/* The factory: one agent run invents a strat off the live board,
+            benches it over 1/3/7 days and registers it above — on demand
+            (RANDOM NEW STRAT) or every minute (AUTO). */}
+        <AutoStratPanel />
 
         {/* The lab: an agent that finds, backtests and refines a strat until
             the data clears the confidence bar — adopting its verdict lands a

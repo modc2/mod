@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { getAccessToken } from "../lib/access";
+import { loadIndexes } from "../lib/indexStore";
 import NavMenu from "./NavMenu";
 import UserSidebar from "./UserSidebar";
 import WalletChip from "./WalletChip";
@@ -31,6 +32,23 @@ interface ScoutTrader {
   label: string;
   stat: string;
   why: string;
+  /** Already on a saved strat's roster — a find you already have. */
+  tracked?: boolean;
+}
+
+/** Every wallet the saved strats copy — sent with the ask so "find me NEW
+    traders" means new, and returned finds you already track get badged
+    instead of presented as discoveries. */
+function trackedAddresses(): string[] {
+  try {
+    const out = new Set<string>();
+    for (const idx of loadIndexes()) {
+      for (const t of idx.traders ?? []) out.add(t.address.toLowerCase());
+    }
+    return [...out].slice(0, 100);
+  } catch {
+    return [];
+  }
 }
 
 interface ScoutResult {
@@ -80,7 +98,7 @@ export default function TopBar({
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ ask, days: Number(daysAgo) || 30 }),
+        body: JSON.stringify({ ask, days: Number(daysAgo) || 30, known: trackedAddresses() }),
       });
       const data = (await res.json()) as {
         reply?: string; traders?: ScoutTrader[]; error?: string;
@@ -237,6 +255,14 @@ export default function TopBar({
                     <span className="text-[11px] text-pixel-gray truncate">
                       {t.address.slice(0, 6)}…{t.address.slice(-4)}
                     </span>
+                    {t.tracked && (
+                      <span
+                        title="Already on one of your strats' rosters"
+                        className="shrink-0 text-[9px] font-mono tracking-wider text-amber-400/90 border border-amber-400/50 rounded-[3px] px-1 py-px"
+                      >
+                        TRACKED
+                      </span>
+                    )}
                     <span className="ml-auto text-[11px] text-green-400 opacity-0 group-hover:opacity-100 shrink-0">
                       VIEW →
                     </span>

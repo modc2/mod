@@ -77,11 +77,22 @@ struct Snapshot {
     pools: Arc<Vec<Pool>>,
 }
 
+/// TAO's dollar price. The chain modules price everything in TAO; this is the
+/// one number that turns those into dollars, so it comes from the index vendor
+/// (coins.llama.fi) instead of being hard-coded, and it degrades the same way
+/// the pools snapshot does — a failed refresh serves the stale price.
+struct TaoPrice {
+    fetched: u64,
+    usd: f64,
+}
+
 pub struct Yields {
     http: reqwest::Client,
     pub source: String,
+    coins_source: String,
     ttl: u64,
     cache: RwLock<Option<Snapshot>>,
+    tao: RwLock<Option<TaoPrice>>,
 }
 
 /// What a caller wants out of the index.
@@ -148,11 +159,41 @@ impl Yields {
                 .build()
                 .expect("http client"),
             source: std::env::var("DEFI_YIELDS_URL").unwrap_or_else(|_| SOURCE.into()),
+            coins_source: std::env::var("DEFI_COINS_URL").unwrap_or_else(|_| "https://coins.llama.fi".into()),
             ttl: std::env::var("DEFI_YIELDS_TTL")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(600),
             cache: RwLock::new(None),
+            tao: RwLock::new(None),
+        }
+    }
+
+    /// TAO/USD, cached on the snapshot's TTL. `None` only when it has never
+    /// once been fetchable — callers must leave their dollar figures null in
+    /// that case rather than substitute a guess.
+    pub async fn tao_usd(&self) -> Option<f64> {
+        let now = crate::auth::now();
+        {
+            let cache = self.tao.read().await;
+            if let Some(p) = cache.as_ref() {
+                if now.saturating_sub(p.fetched) < self.ttl {
+                    return Some(p.usd);
+                }
+            }
+        }
+        let url = format!("{}/prices/current/coingecko:bittensor", self.coins_source);
+        let fetched = async {
+            let body: Value = self.http.get(&url).send().await.ok()?.json().await.ok()?;
+            body.pointer("/coins/coingecko:bittensor/price")?.as_f64()
+        }
+        .await;
+        match fetched {
+            Some(usd) if usd > 0.0 => {
+                *self.tao.write().await = Some(TaoPrice { fetched: now, usd });
+                Some(usd)
+            }
+            _ => self.tao.read().await.as_ref().map(|p| p.usd),
         }
     }
 

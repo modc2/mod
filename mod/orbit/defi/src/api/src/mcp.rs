@@ -392,17 +392,17 @@ fn finance_tools() -> serde_json::Value {
     serde_json::json!([
         {
             "name": "defi_hub",
-            "description": "[public] The HUB — a hand-vetted shortlist of legitimate protocols this desk is willing to point USD at (Aave, Morpho, Sky, Spark, Compound, Maple, Fluid, Ethena, Kamino, Save, Curve), joined LIVE with DefiLlama's index. One row per protocol: tier (core|established|frontier), plain-language blurb, why it is credible, what it is subject to, and its USD stablecoin pools grouped per chain — multichain, each chain saying whether THIS desk can enter it (Ethereum/Base via eth, Solana via solana) or it is read-only. Curated is not certified: the risks ride on every row.",
+            "description": "[public] The HUB — a hand-vetted shortlist of legitimate protocols this desk is willing to point money at (Aave, Morpho, Sky, Spark, Compound, Maple, Fluid, Ethena, Kamino, Save, Curve — plus Bittensor, the one TAO-in entry, joined live against the bt module's subnet list instead of DefiLlama). One row per protocol: tier (core|established|frontier), plain-language blurb, why it is credible, what it is subject to, and its pools grouped per chain — multichain, each chain saying whether THIS desk can enter it (Ethereum/Base via eth, Solana via solana, Bittensor via bt) or it is read-only. Bittensor's TVL is reported in TAO and dollars but never counted into stable_tvl_usd, and no APY is quoted for it because none is promised. Curated is not certified: the risks ride on every row.",
             "inputSchema": { "type": "object", "properties": {
-                "chain": { "type": "string", "description": "restrict to one chain — a desk id (ethereum|base|solana) or an index name (Arbitrum, Polygon…)" },
+                "chain": { "type": "string", "description": "restrict to one chain — a desk id (ethereum|base|solana|tao) or an index name (Arbitrum, Polygon…)" },
                 "min_tvl": { "type": "number", "description": "per-pool USD floor, default 1,000,000" }
             } }
         },
         {
             "name": "defi_hub_protocol",
-            "description": "[public] One hub protocol in full: the vetted card plus EVERY USD pool it runs per chain (up to 12 each), each with its module_id — the handle defi_module / defi_enter takes.",
+            "description": "[public] One hub protocol in full: the vetted card plus EVERY pool it runs per chain (up to 12 each), each with its module_id — the handle defi_module / defi_enter takes. For id=bittensor the pools are the deepest dTAO subnets (module_id tao:sn<netuid>, root first) with TAO and dollar depth.",
             "inputSchema": { "type": "object", "properties": {
-                "id": { "type": "string", "description": "a hub id from defi_hub — aave-v3, morpho, sky, sparklend, compound-v3, maple, fluid, ethena, kamino, save, curve" },
+                "id": { "type": "string", "description": "a hub id from defi_hub — aave-v3, morpho, sky, sparklend, compound-v3, maple, fluid, ethena, kamino, save, curve, bittensor" },
                 "min_tvl": { "type": "number" }
             }, "required": ["id"] }
         },
@@ -807,13 +807,15 @@ async fn call_tool(
             let chain = args.get("chain").and_then(|v| v.as_str()).filter(|c| !c.is_empty()).map(|c| c.to_lowercase());
             let min_tvl = args.get("min_tvl").and_then(|v| v.as_f64()).unwrap_or(1_000_000.0);
             let (pools, fetched) = state.yields.all().await?;
-            Ok(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl))
+            let (subnets, tao_usd) = crate::hub_tao_inputs(&state).await;
+            Ok(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd))
         }
         "defi_hub_protocol" => {
             let id = arg_str(&args, "id")?;
             let min_tvl = args.get("min_tvl").and_then(|v| v.as_f64()).unwrap_or(1_000_000.0);
             let (pools, fetched) = state.yields.all().await?;
-            state.hub.protocol(&id, &pools, &state.finance.registry, fetched, min_tvl)
+            let (subnets, tao_usd) = crate::hub_tao_inputs(&state).await;
+            state.hub.protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd)
         }
         "defi_modules" => {
             let filter = crate::finance::Filter::from_query(&args);

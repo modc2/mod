@@ -19,6 +19,9 @@ pub struct PipelineState {
     /// Wallet → first-ever trade. Shared across every window so the 30D pass
     /// pays nothing for what the 1D pass already resolved.
     pub first_trades: Arc<FirstTradeStore>,
+    /// Timestamped archive of every warmup cycle (scans.rs) — what lets the
+    /// console step back to "the board as it stood at 14:00".
+    pub scans: crate::scans::ScanStore,
     warmup_running: RwLock<bool>,
 }
 
@@ -28,6 +31,7 @@ impl PipelineState {
             cache: PipelineCache::new(),
             http,
             first_trades: Arc::new(FirstTradeStore::new()),
+            scans: crate::scans::ScanStore::new(),
             warmup_running: RwLock::new(false),
         }
     }
@@ -46,7 +50,14 @@ impl PipelineState {
     /// after ~60s idle. "Which filters load instantly" is therefore exactly
     /// "which filters are on this list", which is why it is configurable.
     /// Empty falls back to the built-in 1/7/14/30D windows.
-    pub async fn warmup_cycle(&self, min_age_secs: i64, windows: Vec<crate::sync::WarmWindow>) {
+    /// `trigger` labels the scan this cycle archives ("scheduled"/"manual"),
+    /// matching the /sync/status labels the console already shows.
+    pub async fn warmup_cycle(
+        &self,
+        min_age_secs: i64,
+        windows: Vec<crate::sync::WarmWindow>,
+        trigger: &str,
+    ) {
         {
             let mut running = self.warmup_running.write();
             if *running {
@@ -109,15 +120,20 @@ impl PipelineState {
                 .unwrap_or(i64::MIN) // never synced at all = most urgent
         });
 
+        // Every cycle IS a scan: archived with its timestamp so the console
+        // can browse back through them. Skips and failures are recorded too —
+        // "which data does this scan hold" must be answerable honestly.
+        let scan_id = self.scans.begin(trigger);
+
         for (days, min_per_day, pool) in combos {
             let key = format!("{}:{}:{}", days, min_per_day, pool);
-            if min_age_secs > 0
-                && self
-                    .cache
-                    .get(&key)
-                    .is_some_and(|p| now - p.synced_at < min_age_secs)
-            {
-                continue;
+            if min_age_secs > 0 {
+                if let Some(p) = self.cache.get(&key) {
+                    if now - p.synced_at < min_age_secs {
+                        self.scans.record_skip(scan_id, days, min_per_day, pool, p.synced_at);
+                        continue;
+                    }
+                }
             }
             tracing::info!("warming {}D…", days);
             match self.run_pipeline(days, min_per_day, pool, None).await {
@@ -126,11 +142,18 @@ impl PipelineState {
                     // Don't poison memory + disk cache with empty results — an upstream
                     // hiccup during warmup would otherwise serve "0 traders" until TTL.
                     if payload.count > 0 {
+                        self.scans.record_window(scan_id, days, min_per_day, pool, &payload);
                         self.cache.set(&key, payload);
+                    } else {
+                        self.scans.record_error(
+                            scan_id, days, min_per_day, pool,
+                            "0 traders — upstream hiccup, previous data kept",
+                        );
                     }
                 }
                 Err(e) => {
                     tracing::warn!("warmup {}D failed: {}", days, e);
+                    self.scans.record_error(scan_id, days, min_per_day, pool, &e.to_string());
                 }
             }
             // Persist per window, not per cycle: the cycle may not reach its

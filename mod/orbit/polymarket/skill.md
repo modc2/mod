@@ -166,7 +166,8 @@ src/app/app/lib/server/autoCopy.ts  AUTO COPY: every pass copy-trade-replays eac
 src/mcp.py                     pm_copy_* — the same routes, for agents
 src/api/src/live_engine.rs     what actually mirrors a fill (6.5k lines)
 src/app/app/lib/server/lab.ts  STRAT LAB: candidate bench + the headless agent runner
-src/app/app/api/lab/route.ts   /api/lab — start/watch/stop runs, ?candidate=1 = bench
+src/app/app/api/lab/route.ts   /api/lab — start/watch/stop runs, ?candidate=1 = bench,
+                               ?draft=1 {ask} = plain words → candidate params (VIBE editor)
 src/app/app/components/StratLab.tsx  sidebar LAB block: run feed, verdict, ADOPT
 ```
 

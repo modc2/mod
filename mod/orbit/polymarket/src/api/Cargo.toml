@@ -48,6 +48,9 @@ rand = "0.8"
 # at the high-water mark.
 libc = "0.2"
 
+# Scan-history archives — each warmup cycle's leaderboards, gzipped (scans.rs)
+flate2 = "1"
+
 # Concurrency
 dashmap = "6"
 parking_lot = "0.12"

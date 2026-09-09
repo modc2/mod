@@ -38,6 +38,9 @@ interface AskRequest {
   ask: string;
   /** The board's current ranking window, so "recent" means something. */
   days?: number;
+  /** Wallets the owner's strats already copy — so "find me NEW traders"
+      means new, not the roster read back. The console sends them; capped. */
+  known?: string[];
 }
 
 interface ScoutTrader {
@@ -45,13 +48,36 @@ interface ScoutTrader {
   label: string;
   stat: string;
   why: string;
+  /** Already on the owner's roster — the UI badges instead of celebrating. */
+  tracked?: boolean;
+}
+
+const MAX_KNOWN = 100;
+
+function knownSet(body: AskRequest): Set<string> {
+  const out = new Set<string>();
+  for (const a of Array.isArray(body.known) ? body.known : []) {
+    if (typeof a !== "string") continue;
+    const addr = a.trim().toLowerCase();
+    if (ADDR_RE.test(addr)) out.add(addr);
+    if (out.size >= MAX_KNOWN) break;
+  }
+  return out;
 }
 
 function deny() {
   return NextResponse.json({ error: "unauthorized", gate: "polymarket-access" }, { status: 401 });
 }
 
-function buildPrompt(body: AskRequest): string {
+function buildPrompt(body: AskRequest, known: Set<string>): string {
+  const roster = known.size > 0
+    ? [
+        ``,
+        `ALREADY TRACKED — wallets the owner's strats copy today (${known.size}):`,
+        [...known].join(" "),
+        `When the ask wants new / fresh / undiscovered traders, these do NOT count as finds — exclude them from your shortlist. Otherwise you may still put one forward when it is genuinely the best fit; its "why" should say it's already on their roster.`,
+      ]
+    : [];
   return [
     `You are the trader scout of a self-hosted Polymarket copy-trading console, answering its owner. Your job: FIND the top traders that match the ask, using the MCP tools — never from memory. An address you did not read out of a tool result does not exist.`,
     ``,
@@ -62,6 +88,7 @@ function buildPrompt(body: AskRequest): string {
     ``,
     `THE ASK (their board currently ranks over ${body.days || 30} days)`,
     body.ask,
+    ...roster,
     ``,
     `RULES`,
     `- 2-6 tool calls is the right budget: leaderboard first, then pm_trader on the few you'd actually put forward. Don't inspect all twenty.`,
@@ -88,10 +115,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "need {ask}" }, { status: 400 });
   }
 
+  const known = knownSet(body);
   const mcpConfig = JSON.stringify({
     mcpServers: { polymarket: { command: "python3", args: [mcpServerPath()] } },
   });
-  const run = await runClaude(buildPrompt(body), AGENT_MODEL, {
+  const run = await runClaude(buildPrompt(body, known), AGENT_MODEL, {
     timeoutMs: SCOUT_TIMEOUT_MS,
     extraArgs: [
       "--restricted", "--tools", "",
@@ -116,6 +144,7 @@ export async function POST(req: Request) {
         label: String(t.label || "").slice(0, 60),
         stat: String(t.stat || "").slice(0, 120),
         why: String(t.why || "").slice(0, 200),
+        ...(known.has(address) ? { tracked: true } : {}),
       });
       if (traders.length >= MAX_ROWS) break;
     }

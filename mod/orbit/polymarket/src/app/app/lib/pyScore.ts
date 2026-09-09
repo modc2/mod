@@ -11,7 +11,7 @@
 // function is called SYNCHRONOUSLY per trader (a JSON round-trip per call —
 // microseconds against a few hundred rows).
 
-import { FORMULA_VARS, normalizeScoreReturn, type CompiledScore, type ScoreInputs } from "./scoreFormula";
+import { FORMULA_VARS, PROBE_INPUTS, normalizeScoreReturn, type CompiledScore, type ScoreInputs } from "./scoreFormula";
 
 const PYODIDE_BASE = "https://cdn.jsdelivr.net/pyodide/v0.26.4/full/";
 
@@ -124,7 +124,9 @@ export async function compilePyScore(src: string): Promise<CompiledScore> {
     // variables mixed with ones that are) should fail HERE, not silently
     // blank the board. A ZeroDivisionError on zeros is the function working.
     try {
-      call(JSON.stringify(Object.fromEntries(FORMULA_VARS.map((k) => [k, 0]))));
+      // PROBE_INPUTS, not all-zeros: `curve` must probe as an array or a
+      // `len(curve)` in the user's code would fail the compile.
+      call(JSON.stringify(PROBE_INPUTS));
     } catch (probeErr) {
       if (/TypeError/.test(String(probeErr))) throw probeErr;
     }

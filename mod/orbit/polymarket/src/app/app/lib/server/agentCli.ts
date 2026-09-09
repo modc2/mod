@@ -96,7 +96,17 @@ export function runClaude(prompt: string, model: string = AGENT_MODEL, opts: Run
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        finish({ ok: false, error: err.trim().slice(0, 400) || `claude CLI exited ${code}` });
+        // A failed run's REASON usually rides the stdout envelope (`result`:
+        // "Failed to authenticate: …"), not stderr — surface it, or a revoked
+        // OAuth token reads as a bare "exited 1" in every console.
+        let reason = "";
+        try {
+          const env = JSON.parse(out) as { result?: unknown };
+          if (typeof env.result === "string") reason = env.result;
+        } catch {
+          // not the envelope
+        }
+        finish({ ok: false, error: (reason || err.trim()).slice(0, 400) || `claude CLI exited ${code}` });
         return;
       }
       // `--output-format json` wraps the answer in a run record; `result` is

@@ -163,6 +163,59 @@ export async function candidateBacktest(
   }
 }
 
+// ── The drafter: plain words → a candidate param set ────────────
+//
+// The vibe-coding half of the lab: the owner describes a strat in their own
+// words and a single no-tool model turn translates it into the exact JSON the
+// bench replays. Nothing is saved and nothing is tested here — the draft lands
+// back in the console's editor, where TEST (the bench above) and SAVE stay
+// human presses. Tool-less on purpose: translation is cheap and fast; research
+// belongs to the full lab run.
+
+export interface DraftResult {
+  /** One or two sentences: how the words were read, and any judgment calls. */
+  note: string;
+  /** The candidate, in exactly the shape pm_lab_backtest / the bench accepts. */
+  params: Record<string, unknown>;
+}
+
+const DRAFT_TIMEOUT_MS = 90_000;
+
+export async function draftCandidate(ask: string): Promise<DraftResult> {
+  const prompt = [
+    `You translate a plain-language strategy description into the parameter JSON of a Polymarket copy-trading console. Output params only — you have no tools, so NEVER invent trader addresses: only 0x… addresses quoted verbatim in the description may appear in "traders". A description that names no wallets gets an empty traders list (the owner adds them, or the filter block picks them).`,
+    ``,
+    `HOW A STRATEGY WORKS HERE: a "copy index" watches a list of trader wallets and mirrors their entries, sized proportionally to the owner's capital. Parameters gate WHICH of their fills get copied and how positions exit. An optional \`momentum\` block instead ORIGINATES trades off a market's own price tape (no watchlist needed).`,
+    ``,
+    `PARAMS SHAPE — name (string), traders (0x… addresses, max ${MAX_TRADERS}), capital (USD, default 1000), plus any of (nested JSON, same paths):`,
+    paramReference(),
+    ``,
+    `THE DESCRIPTION`,
+    ask,
+    ``,
+    `RULES: set only the parameters the description implies — defaults exist for everything else, and an unasked-for knob is noise the owner has to audit. Give the candidate a short name in their words.`,
+    ``,
+    `Reply with ONE JSON object and nothing else — no prose outside it, no markdown fence:`,
+    `{"note": "<one or two sentences: how you read the ask + any judgment call>", "params": { the candidate }}`,
+  ].join("\n");
+
+  const run = await runClaude(prompt, AGENT_MODEL, {
+    timeoutMs: DRAFT_TIMEOUT_MS,
+    extraArgs: ["--restricted", "--tools", ""],
+  });
+  if (run.ok === false) throw new Error(run.error);
+
+  const parsed = digJson(run.text, (o) => {
+    if (!o.params || typeof o.params !== "object" || Array.isArray(o.params)) return null;
+    return {
+      note: typeof o.note === "string" ? o.note.slice(0, 500) : "",
+      params: o.params as Record<string, unknown>,
+    };
+  });
+  if (!parsed) throw new Error("the drafter answered, but not with a params object — try rephrasing");
+  return parsed;
+}
+
 // ── The agent run ───────────────────────────────────────────────
 
 export interface LabRunMeta {

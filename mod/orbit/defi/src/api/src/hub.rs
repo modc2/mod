@@ -29,6 +29,10 @@ pub struct Entry {
     pub tier: String,
     pub since: u32,
     pub website: String,
+    /// Where the live numbers come from: unset = DefiLlama's yields index,
+    /// "bittensor" = the bt module's subnet list. The join, not the vetting.
+    #[serde(default)]
+    pub source: Option<String>,
     #[serde(default)]
     pub llama_projects: Vec<String>,
     #[serde(default)]
@@ -66,6 +70,12 @@ fn tier_rank(tier: &str) -> u8 {
 }
 
 impl Hub {
+    /// Whether assembling this hub needs the bt module's subnet list at all —
+    /// so the caller only knocks on Bittensor when an entry will use it.
+    pub fn wants_subnets(&self) -> bool {
+        self.entries.iter().any(|e| e.source.as_deref() == Some("bittensor"))
+    }
+
     pub fn load(path: &Path) -> Self {
         let parsed: Result<File, String> = std::fs::read_to_string(path)
             .map_err(|e| format!("{}: {e}", path.display()))
@@ -99,6 +109,9 @@ impl Hub {
     }
 
     /// The whole hub: every vetted protocol with its live per-chain USD pools.
+    /// `subnets`/`tao_usd` feed the one non-llama entry (source "bittensor");
+    /// pass them empty/None and that entry shows empty chains, like a drained
+    /// protocol — never a stale number.
     pub fn assemble(
         &self,
         pools: &[Pool],
@@ -106,11 +119,13 @@ impl Hub {
         fetched: u64,
         want_chain: Option<&str>,
         min_tvl: f64,
+        subnets: &[Value],
+        tao_usd: Option<f64>,
     ) -> Value {
         let mut rows: Vec<Value> = self
             .entries
             .iter()
-            .map(|entry| self.protocol_row(entry, pools, registry, want_chain, min_tvl, false))
+            .map(|entry| self.protocol_row(entry, pools, registry, want_chain, min_tvl, false, subnets, tao_usd))
             .collect();
         rows.sort_by(|a, b| {
             let rank = |v: &Value| tier_rank(v.get("tier").and_then(|t| t.as_str()).unwrap_or(""));
@@ -157,7 +172,7 @@ impl Hub {
             "min_tvl": min_tvl,
             "as_of": fetched,
             "age_seconds": crate::auth::now().saturating_sub(fetched),
-            "source": "curation: hub.json on this node · numbers: DefiLlama's yields index",
+            "source": "curation: hub.json on this node · numbers: DefiLlama's yields index, and bt_subnets for Bittensor",
         })
     }
 
@@ -170,13 +185,15 @@ impl Hub {
         registry: &Registry,
         fetched: u64,
         min_tvl: f64,
+        subnets: &[Value],
+        tao_usd: Option<f64>,
     ) -> Result<Value, String> {
         let entry = self
             .entries
             .iter()
             .find(|e| e.id.eq_ignore_ascii_case(id))
             .ok_or_else(|| format!("no '{id}' in the hub — ids come from /hub"))?;
-        let mut row = self.protocol_row(entry, pools, registry, None, min_tvl, true);
+        let mut row = self.protocol_row(entry, pools, registry, None, min_tvl, true, subnets, tao_usd);
         if let Some(obj) = row.as_object_mut() {
             obj.insert("as_of".into(), json!(fetched));
             obj.insert("age_seconds".into(), json!(crate::auth::now().saturating_sub(fetched)));
@@ -184,6 +201,7 @@ impl Hub {
         Ok(row)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn protocol_row(
         &self,
         entry: &Entry,
@@ -192,7 +210,12 @@ impl Hub {
         want_chain: Option<&str>,
         min_tvl: f64,
         full: bool,
+        subnets: &[Value],
+        tao_usd: Option<f64>,
     ) -> Value {
+        if entry.source.as_deref() == Some("bittensor") {
+            return tao_row(entry, subnets, tao_usd, want_chain, full);
+        }
         let mut by_chain: std::collections::BTreeMap<&str, Vec<&Pool>> = Default::default();
         for pool in pools.iter().filter(|p| Self::keep(entry, p, min_tvl)) {
             if let Some(want) = want_chain {
@@ -302,6 +325,105 @@ fn pool_row(pool: &Pool, registry: &Registry) -> Value {
     })
 }
 
+/// The one non-llama source: Bittensor, joined against the bt module's live
+/// subnet list. Same row shape as every other protocol, but honest about the
+/// two ways it differs — TAO goes in (not USD), and no APY is quoted because
+/// none is promised. Its TVL rides on the row as `tvl_usd`/`tvl_tao` and is
+/// kept OUT of `stable_tvl_usd`, so the hub's dollar total stays a dollar
+/// total. No TAO/USD price in hand → dollar fields are null, never guessed.
+fn tao_row(entry: &Entry, subnets: &[Value], tao_usd: Option<f64>, want_chain: Option<&str>, full: bool) -> Value {
+    let tao_in = |s: &Value| s.get("tao_in").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let mut list: Vec<&Value> = subnets.iter().collect();
+    list.sort_by(|a, b| tao_in(b).partial_cmp(&tao_in(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let total_tao: f64 = list.iter().map(|s| tao_in(s)).sum();
+    let tvl_usd = tao_usd.map(|p| round2(total_tao * p));
+
+    let subnet_row = |s: &Value| -> Value {
+        let netuid = s.get("netuid").and_then(|v| v.as_u64()).unwrap_or(0);
+        let name = s
+            .get("subnet_name")
+            .or_else(|| s.get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let depth = tao_in(s);
+        json!({
+            "module_id": format!("tao:sn{netuid}"),
+            "pool": format!("sn{netuid}"),
+            "symbol": if netuid == 0 { "TAO root".to_string() } else { format!("SN{netuid} {name}").trim().to_string() },
+            "apy": Value::Null,
+            "apy_scored": 0.0,
+            "note": "no promised rate — alpha emission on a floating price",
+            "tvl_tao": round2(depth),
+            "tvl_usd": tao_usd.map(|p| round2(depth * p)),
+            "alpha_price_tao": s.get("price").and_then(|v| v.as_f64()),
+            "enterable": true,
+        })
+    };
+
+    let wanted = want_chain.map(|w| w == "tao" || w == "bittensor").unwrap_or(true);
+    let chains: Vec<Value> = if wanted && !list.is_empty() {
+        // "Best" is root: the deepest pool and the only one whose price does
+        // not float against TAO — the honest default for money that intends
+        // to sit, exactly as depth-adjustment picks it for USD protocols.
+        let best = list
+            .iter()
+            .find(|s| s.get("netuid").and_then(|v| v.as_u64()) == Some(0))
+            .or_else(|| list.first())
+            .map(|s| subnet_row(s));
+        let mut row = json!({
+            "chain": "Bittensor",
+            "desk": "tao",
+            "module": "bt",
+            "enterable": true,
+            "pools": list.len(),
+            "pool_word": "subnet",
+            "tvl_usd": tvl_usd,
+            "tvl_tao": round2(total_tao),
+            "best": best,
+        });
+        if full {
+            let listed: Vec<Value> = list.iter().take(12).map(|s| subnet_row(s)).collect();
+            row.as_object_mut().unwrap().insert("usd_pools".into(), json!(listed));
+        }
+        vec![row]
+    } else {
+        Vec::new()
+    };
+
+    let best = chains.first().and_then(|c| c.get("best").filter(|b| !b.is_null())).map(|b| {
+        let mut best = b.clone();
+        if let Some(obj) = best.as_object_mut() {
+            obj.insert("chain".into(), json!("Bittensor"));
+            obj.insert("desk".into(), json!("tao"));
+        }
+        best
+    });
+
+    json!({
+        "id": entry.id,
+        "name": entry.name,
+        "category": entry.category,
+        "tier": entry.tier,
+        "since": entry.since,
+        "website": entry.website,
+        "blurb": entry.blurb,
+        "usd_in": entry.usd_in,
+        "legit": entry.legit,
+        "risks": entry.risks,
+        "paired": entry.paired,
+        "llama_projects": entry.llama_projects,
+        "source": "bittensor",
+        "enterable_from_desk": !chains.is_empty(),
+        "stable_tvl_usd": 0.0,
+        "tvl_usd": tvl_usd,
+        "tvl_tao": round2(total_tao),
+        "tao_usd": tao_usd.map(round2),
+        "chain_count": chains.len(),
+        "best": best,
+        "chains": chains,
+    })
+}
+
 fn round2(value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
@@ -321,6 +443,7 @@ mod tests {
             tier: tier.into(),
             since: 2020,
             website: String::new(),
+            source: None,
             llama_projects: projects.iter().map(|p| p.to_string()).collect(),
             usd_in: vec![],
             blurb: String::new(),
@@ -370,7 +493,7 @@ mod tests {
             // Someone else's pool.
             pool("degen-farm", "Base", "USDC", 900.0, 2e6, true),
         ];
-        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0);
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0, &[], None);
         let row = &out["hub"][0];
         assert_eq!(row["chain_count"], json!(3));
         assert_eq!(row["stable_tvl_usd"], json!(8e8));
@@ -391,7 +514,7 @@ mod tests {
             pool("hot-new", "Ethereum", "USDC", 30.0, 9e9, true),
             pool("old-bank", "Ethereum", "USDC", 4.0, 1e8, true),
         ];
-        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0);
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &[], None);
         assert_eq!(out["hub"][0]["id"], json!("old-bank"));
         assert_eq!(out["hub"][1]["id"], json!("hot-new"));
     }
@@ -408,19 +531,90 @@ mod tests {
             }]
         }))
         .unwrap();
-        let with = h.assemble(&pools, &registry, 0, None, 0.0);
+        let with = h.assemble(&pools, &registry, 0, None, 0.0, &[], None);
         assert_eq!(with["hub"][0]["enterable_from_desk"], json!(true));
         assert_eq!(with["hub"][0]["chains"][0]["best"]["enterable"], json!(true));
-        let without = h.assemble(&pools, &Registry::default(), 0, None, 0.0);
+        let without = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &[], None);
         assert_eq!(without["hub"][0]["enterable_from_desk"], json!(false));
     }
 
     #[test]
     fn a_drained_protocol_stays_visible_with_empty_chains() {
         let h = hub(vec![entry("ghost", "core", &["ghost"])]);
-        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0);
+        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &[], None);
         assert_eq!(out["hub"][0]["chain_count"], json!(0));
         assert_eq!(out["hub"][0]["best"], Value::Null);
+    }
+
+    fn tao_entry() -> Entry {
+        let mut e = entry("bittensor", "frontier", &[]);
+        e.source = Some("bittensor".into());
+        e
+    }
+
+    fn subnet(netuid: u64, name: &str, tao_in: f64) -> Value {
+        json!({ "netuid": netuid, "subnet_name": name, "tao_in": tao_in, "price": if netuid == 0 { 1.0 } else { 0.02 } })
+    }
+
+    #[test]
+    fn bittensor_joins_the_bt_modules_subnets_not_llama() {
+        let h = hub(vec![tao_entry()]);
+        let subnets = vec![subnet(0, "root", 5_000_000.0), subnet(64, "chutes", 100_000.0)];
+        let out = h.assemble(&[], &Registry::default(), 0, None, 1_000_000.0, &subnets, Some(260.0));
+        let row = &out["hub"][0];
+        assert_eq!(row["chain_count"], json!(1));
+        assert_eq!(row["chains"][0]["chain"], json!("Bittensor"));
+        assert_eq!(row["chains"][0]["desk"], json!("tao"));
+        assert_eq!(row["chains"][0]["module"], json!("bt"));
+        assert_eq!(row["chains"][0]["enterable"], json!(true));
+        assert_eq!(row["enterable_from_desk"], json!(true));
+        // Root is "best": deepest, and the only pool that does not float vs TAO.
+        assert_eq!(row["best"]["module_id"], json!("tao:sn0"));
+        assert_eq!(row["best"]["apy"], Value::Null);
+        // Dollars come from the passed price, TAO figures ride alongside.
+        assert_eq!(row["tvl_usd"], json!(5_100_000.0 * 260.0));
+        assert_eq!(row["tvl_tao"], json!(5_100_000.0));
+    }
+
+    #[test]
+    fn tao_tvl_never_pollutes_the_usd_stable_total() {
+        let h = hub(vec![entry("aave-v3", "core", &["aave-v3"]), tao_entry()]);
+        let pools = vec![pool("aave-v3", "Ethereum", "USDC", 4.0, 5e8, true)];
+        let subnets = vec![subnet(0, "root", 5_000_000.0)];
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &subnets, Some(260.0));
+        // The hub's dollar total is stablecoin USD only — TAO is not a dollar.
+        assert_eq!(out["stable_tvl_usd"], json!(5e8));
+    }
+
+    #[test]
+    fn no_tao_price_means_null_dollars_not_a_guess() {
+        let h = hub(vec![tao_entry()]);
+        let subnets = vec![subnet(0, "root", 5_000_000.0)];
+        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &subnets, None);
+        let row = &out["hub"][0];
+        assert_eq!(row["tvl_usd"], Value::Null);
+        assert_eq!(row["chains"][0]["tvl_usd"], Value::Null);
+        assert_eq!(row["tvl_tao"], json!(5_000_000.0));
+    }
+
+    #[test]
+    fn a_dark_bt_module_leaves_bittensor_visible_with_empty_chains() {
+        let h = hub(vec![tao_entry()]);
+        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &[], Some(260.0));
+        let row = &out["hub"][0];
+        assert_eq!(row["chain_count"], json!(0));
+        assert_eq!(row["best"], Value::Null);
+        assert_eq!(row["enterable_from_desk"], json!(false));
+    }
+
+    #[test]
+    fn a_chain_filter_hides_bittensor_like_anywhere_else() {
+        let h = hub(vec![tao_entry()]);
+        let subnets = vec![subnet(0, "root", 5_000_000.0)];
+        let eth = h.assemble(&[], &Registry::default(), 0, Some("ethereum"), 0.0, &subnets, Some(260.0));
+        assert_eq!(eth["hub"][0]["chain_count"], json!(0));
+        let tao = h.assemble(&[], &Registry::default(), 0, Some("tao"), 0.0, &subnets, Some(260.0));
+        assert_eq!(tao["hub"][0]["chain_count"], json!(1));
     }
 
     #[test]
@@ -431,7 +625,7 @@ mod tests {
             // A hotter headline on a thin pool must not become "best".
             pool("aave-v3", "Base", "USDC", 10.0, 1_200_000.0, true),
         ];
-        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0);
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0, &[], None);
         assert_eq!(out["hub"][0]["best"]["chain"], json!("Ethereum"));
     }
 }

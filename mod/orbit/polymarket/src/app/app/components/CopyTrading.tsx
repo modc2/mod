@@ -17,6 +17,7 @@ import { shortAddress } from "@/lib/auth";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
 import SyncScheduleChip from "./SyncScheduleChip";
+import ScanChip, { formatScanStamp } from "./ScanChip";
 import { fetchSyncSchedule } from "../lib/syncSchedule";
 import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCache";
 
@@ -27,8 +28,10 @@ import {
 } from "../lib/scoreFormula";
 import { useCompiledScore } from "../lib/useScore";
 import { publishScores } from "../lib/scoreBus";
+import { fetchTraderBacktestScores, VERDICT_TEXT, type TraderBacktestScore } from "../lib/backtestScores";
 import { usePicks } from "../lib/pickStore";
 import ScoreAsk from "./ScoreAsk";
+import ScoreMarket from "./ScoreMarket";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
 
@@ -215,7 +218,11 @@ export default function CopyTrading({
   }, [kwDraft]);
 
   const [progress, setProgress] = useState<ActiveTradersProgress | null>(null);
-  const [source, setSource] = useState<"memory" | "disk" | "fresh" | null>(null);
+  const [source, setSource] = useState<"memory" | "disk" | "fresh" | "scan" | null>(null);
+  // Time travel: the archived scan the board is reading (unix secs = scan
+  // id), null = live. Set by the SCANS chip; every paged read below routes
+  // through /scans/:id/traders while it is set.
+  const [scanId, setScanId] = useState<number | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -344,6 +351,9 @@ export default function CopyTrading({
           maxLastTradeHrs: Number(maxLastTradeHrs) || undefined,
           minHistoryDays: Number(minHistoryDays) || undefined,
           force: opts.force,
+          // Time travel: read the archived scan instead of the live cache —
+          // same paged shape, same server-side filters, older data.
+          scanId: scanId ?? undefined,
         });
         // A newer call went out while this one was in flight — its answer
         // owns the board; this one is history. Report success so the caller
@@ -356,7 +366,7 @@ export default function CopyTrading({
         setTraders(result.traders);
         setTotalTraders(result.total);
         setActivityDropped(result.activityDropped ?? 0);
-        setSource(result.source as "memory" | "disk" | "fresh");
+        setSource(result.source as "memory" | "disk" | "fresh" | "scan");
         setCacheWarm(true);
         setHasLoaded(true);
         setLoading(false);
@@ -365,8 +375,10 @@ export default function CopyTrading({
           setSyncedAt(result.syncedAt * 1000);
         }
         // Remember the landing page for this view so the next load paints it
-        // before any network. Page 0 only — deeper pages aren't a landing.
-        if (pg === 0) {
+        // before any network. Page 0 only — deeper pages aren't a landing —
+        // and never while time-travelling: an archived scan must not become
+        // the next session's "live" first paint.
+        if (pg === 0 && scanId == null) {
           saveBoardSnapshot(snapKeyFor(sortKey, orderKey), {
             traders: result.traders,
             total: result.total,
@@ -380,6 +392,14 @@ export default function CopyTrading({
         }
         return true;
       } catch {
+        // A failing SCAN read (archive pruned, window skipped that cycle)
+        // must NOT fall into the streaming re-aggregation path — dropping
+        // back to live is the right recovery, and clearing scanId re-fires
+        // this loader against the live cache.
+        if (seq === loadSeqRef.current && scanId != null) {
+          setScanId(null);
+          return true;
+        }
         // Superseded → true (the newer call handles its own failure path);
         // a real failure of the CURRENT call → false, so streaming kicks in.
         return seq !== loadSeqRef.current;
@@ -390,7 +410,7 @@ export default function CopyTrading({
     },
     [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-     minTrades24h, maxLastTradeHrs, minHistoryDays, snapKeyFor],
+     minTrades24h, maxLastTradeHrs, minHistoryDays, snapKeyFor, scanId],
   );
 
   // Streaming load — used for cold cache (pipeline needs to run) AND
@@ -581,14 +601,16 @@ export default function CopyTrading({
     })();
   }, [cacheWarm, page, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
       minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-      minTrades24h, maxLastTradeHrs, minHistoryDays]);
+      minTrades24h, maxLastTradeHrs, minHistoryDays, scanId]);
 
   // Background staleness check. Re-fetches current page silently once data
   // crosses MAX_STALENESS_MS so the leaderboard never gets older than this
   // without the user feeling a load. STALENESS_TICK_MS is just the polling
   // cadence; the actual fetch only fires when lastUpdated is past the budget.
   useEffect(() => {
-    if (!cacheWarm) return;
+    // Archived scans never go stale — they're history. Only the live board
+    // needs the silent re-fetch.
+    if (!cacheWarm || scanId != null) return;
     const MAX_STALENESS_MS = 60_000;
     const STALENESS_TICK_MS = 10_000;
     const t = setInterval(() => {
@@ -598,7 +620,7 @@ export default function CopyTrading({
       }
     }, STALENESS_TICK_MS);
     return () => clearInterval(t);
-  }, [loadPage, cacheWarm, lastUpdated]);
+  }, [loadPage, cacheWarm, lastUpdated, scanId]);
 
   // Source-data freshness is the SERVER's job, never this tab's. The backend
   // scheduler (sync.rs; hourly, owner-set) re-pulls Polymarket on its own and
@@ -1173,12 +1195,14 @@ export default function CopyTrading({
                 we just trigger it explicitly here. */}
             <button
               onClick={() => { void loadStream({ force: true }); }}
-              disabled={refreshing || loading}
+              disabled={refreshing || loading || scanId != null}
               className="pixel-btn text-[11px] px-2 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-40 disabled:cursor-not-allowed"
               title={
-                (refreshing || loading) && rateInfo
-                  ? `Enrich rate ${rateInfo.rate.toFixed(1)}/s · ETA ${formatEta(rateInfo.etaSec)} · phase ${rateInfo.phase}`
-                  : "Force a fresh pull from Polymarket — bypasses the cache and streams progress"
+                scanId != null
+                  ? "Viewing an archived scan — go back to LIVE (› or the SCANS chip) to sync"
+                  : (refreshing || loading) && rateInfo
+                    ? `Enrich rate ${rateInfo.rate.toFixed(1)}/s · ETA ${formatEta(rateInfo.etaSec)} · phase ${rateInfo.phase}`
+                    : "Force a fresh pull from Polymarket — bypasses the cache and streams progress"
               }
             >
               {/* Rate/ETA stay in the tooltip only — the inline suffix made the
@@ -1193,7 +1217,19 @@ export default function CopyTrading({
                 ? "SYNCING…"
                 : "↻ SYNC"}
             </button>
-            {(syncedAt ?? lastUpdated) && (() => {
+            {/* Time-travel banner: while an archived scan is on screen, its
+                TIMESTAMP is the fact that matters — not a freshness age that
+                would just read "stale". The chip below (live freshness)
+                yields to it. */}
+            {scanId != null && syncedAt && (
+              <span
+                className="text-[11px] font-mono tracking-wider text-amber-400"
+                title={`Archived board — source data was pulled ${new Date(syncedAt).toLocaleString()}. Step with ‹ › or return to LIVE via the SCANS chip.`}
+              >
+                AS OF {formatScanStamp(Math.floor(syncedAt / 1000))}
+              </span>
+            )}
+            {scanId == null && (syncedAt ?? lastUpdated) && (() => {
               // Prefer the server's syncedAt — it tells the user when the data
               // was last actually pulled from Polymarket, not when the client
               // hit the cache. Falls back to lastUpdated if the server didn't
@@ -1236,6 +1272,15 @@ export default function CopyTrading({
                 offer to add it if not. Change the DAYS or MIN-PER-DAY filter
                 to a combination nobody warmed and the board can only load
                 cold; this is where you fix that. */}
+            {/* Scan history: ‹ › step the board through the server's archived
+                hourly scans; the panel is the coverage grid — which windows
+                each scan holds. Selecting a scan reroutes every paged read
+                through /scans/:id/traders until LIVE is chosen again. */}
+            <ScanChip
+              currentView={{ days, minPerDay: minTradesPerDay, pool: 2000 }}
+              scanId={scanId}
+              onSelect={setScanId}
+            />
             <SyncScheduleChip
               currentView={{ days, minPerDay: minTradesPerDay, pool: 2000 }}
             />
@@ -1612,6 +1657,12 @@ export default function CopyTrading({
                   box and compiles through the same path — ERR if it's wrong,
                   never a silent bad ranking. */}
               <ScoreAsk formula={formula} setFormula={setFormula} days={days} />
+
+              {/* Or shop for one: the SCORE MARKET is a searchable shelf of
+                  score functions — curated consistent-ROI hunters plus
+                  anything published from this deploy. USE drops the source
+                  into this same box; nothing ranks until it compiles here. */}
+              <ScoreMarket formula={formula} setFormula={setFormula} />
 
               <div className="text-[11px] text-pixel-gray leading-snug border-t border-pixel-border/60 pt-2">
                 {scoreLang === "expr" ? (

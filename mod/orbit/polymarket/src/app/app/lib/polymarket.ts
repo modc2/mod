@@ -780,7 +780,11 @@ export interface PagedTradersResult {
   pageSize: number;
   count: number;
   cold?: boolean;
-  source: "memory" | "disk" | "fresh" | null;
+  /** "scan" = an archived snapshot deliberately loaded from history — the
+      header renders a SCAN timestamp chip instead of FRESH/CACHED. */
+  source: "memory" | "disk" | "fresh" | "scan" | null;
+  /** Present only on reads of an archived scan (`/scans/:id/traders`). */
+  scanId?: number;
   /** Unix seconds when the underlying data was last refreshed from
       Polymarket — true source age, NOT cache hit age. 0 means unknown. */
   syncedAt?: number;
@@ -839,6 +843,10 @@ export async function fetchTradersPage(opts: {
   /** When true, server bypasses agg + per-trader caches and runs
       a full re-aggregation from Polymarket. Used by the SYNC button. */
   force?: boolean;
+  /** Read an ARCHIVED scan instead of the live cache: the same paged shape
+      served from `/scans/:id/traders`, every filter/sort applied server-side
+      by the same code path. 404s (pruned / skipped window) throw. */
+  scanId?: number;
 }): Promise<PagedTradersResult> {
   const params = new URLSearchParams({ paged: "1" });
   if (opts.force) params.set("force", "1");
@@ -861,9 +869,52 @@ export async function fetchTradersPage(opts: {
   if (opts.maxLastTradeHrs && opts.maxLastTradeHrs > 0) params.set("maxLastTradeHrs", String(opts.maxLastTradeHrs));
   if (opts.minHistoryDays && opts.minHistoryDays > 0) params.set("minHistoryDays", String(opts.minHistoryDays));
 
-  const res = await fetch(`${API_URL}/active-traders?${params.toString()}`, { headers: serverAuthHeaders() });
+  const base =
+    opts.scanId != null ? `${API_URL}/scans/${opts.scanId}/traders` : `${API_URL}/active-traders`;
+  const res = await fetch(`${base}?${params.toString()}`, { headers: serverAuthHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json() as Promise<PagedTradersResult>;
+}
+
+// ─── Scan history ──────────────────────────────────────────────────────────
+// Every background warmup cycle is archived server-side with its timestamp
+// (scans.rs). This is what lets the board step back to "the leaderboard as it
+// stood at 14:00" and what the coverage grid ("which data do we have")
+// renders. History is pruned by size — expect roughly a week of hourly scans.
+
+export interface ScanWindowMeta {
+  /** Server cache key `days:minPerDay:pool` — what fetchTradersPage's
+      (days, minPerDay, pool) must match to read this window back. */
+  key: string;
+  days: number;
+  minPerDay: number;
+  pool: number;
+  /** Rows archived; 0 when skipped or errored. */
+  count: number;
+  /** When the data was actually pulled from Polymarket. For a skipped window
+      this points at the still-current previous pull. */
+  syncedAt: number;
+  bytes: number;
+  /** Window was fresh enough that this cycle didn't re-pull it — the data
+      lives in an earlier scan. */
+  skipped?: boolean;
+  error?: string;
+}
+
+export interface ScanMeta {
+  /** Unix seconds when the cycle started — the scan's identity AND its
+      timestamp. Hourly-aligned schedules make these read :00, :00, :00. */
+  id: number;
+  startedAt: number;
+  finishedAt: number | null;
+  trigger: string;
+  windows: ScanWindowMeta[];
+}
+
+export async function fetchScans(limit = 240): Promise<{ scans: ScanMeta[]; now: number }> {
+  const res = await fetch(`${API_URL}/scans?limit=${limit}`, { headers: serverAuthHeaders() });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
 }
 
 /** The candidate pool the server's hourly warmup aggregates under

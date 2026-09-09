@@ -86,6 +86,12 @@ pub fn router() -> Router<AppState> {
         .route("/sync/status", get(sync_status))
         .route("/sync/config", get(sync_status).post(sync_config))
         .route("/sync/run", post(sync_run))
+        // Scan history — every warmup cycle archived with its timestamp
+        // (scans.rs). /scans lists them; /scans/:id/traders replays one
+        // archived window through the SAME apply_pagination the live board
+        // uses, so the console renders a past scan with all its filters.
+        .route("/scans", get(scans_list))
+        .route("/scans/:id/traders", get(scan_traders))
         // Recycle the api process — container runs with
         // restart: unless-stopped so Docker auto-respawns it. Useful when
         // an engine task is wedged or after a deploy; persisted live
@@ -141,6 +147,9 @@ pub fn router() -> Router<AppState> {
         // backtest every other strat runs on. Server-owned and plaintext so
         // the console and an MCP agent share one desk.
         .merge(crate::copy::router())
+        // ƒ SCORE MARKET — published score functions (list/publish/share by
+        // CID/import). Storage only; scores always compile in the browser.
+        .merge(crate::score_fns::router())
         // Encrypted strat storage
         .merge(crate::strats::router())
         // CLOB L1 auth proxy (derive/create api keys)
@@ -397,6 +406,10 @@ struct SyncConfigRequest {
     /// setting, and a per-entry patch has no stable identity to patch against.
     /// Omitted leaves the current list running.
     windows: Option<Vec<crate::sync::WarmWindow>>,
+    /// Snap scheduled runs to wall-clock multiples of the interval (hourly →
+    /// at :00 UTC). Defaults ON server-side; here so the console can turn it
+    /// off for owners who prefer start-to-start.
+    align: Option<bool>,
 }
 
 async fn sync_config(
@@ -407,7 +420,7 @@ async fn sync_config(
         .interval_secs
         .or_else(|| req.interval_minutes.map(|m| (m * 60.0).round() as u64))
         .or_else(|| req.interval_hours.map(|h| (h * 3600.0).round() as u64));
-    match state.sync.update(req.enabled, secs, req.windows) {
+    match state.sync.update(req.enabled, secs, req.windows, req.align) {
         Ok(()) => Json(state.sync.status_json()).into_response(),
         Err(e) => (
             StatusCode::BAD_REQUEST,
@@ -423,6 +436,70 @@ async fn sync_config(
 async fn sync_run(State(state): State<AppState>) -> impl IntoResponse {
     state.sync.trigger_now();
     Json(state.sync.status_json())
+}
+
+// ─── Scan history ───────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ScansQuery {
+    limit: Option<usize>,
+}
+
+/// Every archived warmup cycle, newest first: when it ran, what triggered it,
+/// which windows it holds (and which it skipped or failed). This is the
+/// console's "which data do we have" answer — the coverage grid renders it
+/// directly.
+async fn scans_list(
+    State(state): State<AppState>,
+    Query(q): Query<ScansQuery>,
+) -> impl IntoResponse {
+    // 240 ≈ ten days of hourly scans; the cap bounds the poll, not the disk.
+    let limit = q.limit.unwrap_or(240).clamp(1, 2000);
+    Json(json!({
+        "scans": state.pipeline.scans.list(limit),
+        "now": chrono::Utc::now().timestamp(),
+    }))
+}
+
+/// One window of one archived scan, paged/filtered/sorted through the SAME
+/// `apply_pagination` the live board uses — the response is a drop-in
+/// replacement for `/active-traders?paged=1`, so the console renders a past
+/// scan with every filter intact. Archived payloads carry no per-market
+/// metrics (too big to keep hourly), so market-query filtering falls back to
+/// title matching, exactly like a live disk-cache read.
+async fn scan_traders(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+    Query(q): Query<ActiveTradersQuery>,
+) -> impl IntoResponse {
+    let days = q.days.unwrap_or(7).clamp(1, 365);
+    let min_per_day = q.min_per_day.unwrap_or(0.0).max(0.0);
+    // Default pool 2000, NOT /active-traders' 1000: the archive holds what
+    // the warmup warmed, and every default warm window is pool=2000 — a
+    // 1000 default here would 404 on data that exists (the same footgun the
+    // live cache key has, defaulted safely because there's no cold rebuild
+    // to fall back to).
+    let pool = q.pool.unwrap_or(2000).clamp(50, 2000);
+    let key = format!("{}:{}:{}", days, min_per_day, pool);
+    match state.pipeline.scans.read_window(id, &key) {
+        Some(payload) => {
+            // "scan" as the source label: the sync-age chip must not claim
+            // FRESH/CACHED for data deliberately loaded from the past.
+            let mut result = apply_pagination(&payload, &q, "scan");
+            result["scanId"] = json!(id);
+            Json(result).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": format!(
+                    "scan {} holds no archived {} window — pruned, skipped that cycle (fresh enough already), or never warmed",
+                    id, key
+                )
+            })),
+        )
+            .into_response(),
+    }
 }
 
 // ─── Admin ──────────────────────────────────────────────────────────────

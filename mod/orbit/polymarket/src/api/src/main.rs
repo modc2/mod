@@ -103,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
+    let score_fns = Arc::new(polymarket_api::ScoreFnStore::new());
     let share = polymarket_api::ShareStore::from_env();
     tracing::info!(backend = %share.label(), "strat share store");
     let sync = polymarket_api::SyncSchedule::from_env();
@@ -115,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
         signer_store,
         engines,
         user_strats,
+        score_fns,
         share,
         sync: sync.clone(),
         copy_book,
@@ -135,10 +137,14 @@ async fn main() -> anyhow::Result<()> {
     // `resync_after_secs`, so a restart loop can't multiply the load.
     //
     // The cadence is OWNER-SETTABLE (sync.rs): `wait_for_next_run` schedules
-    // start-to-start off the persisted interval — never sleep-after-work, which
-    // drifted to interval + cycle duration — and wakes early when the owner
-    // changes the schedule or presses SYNC NOW. Each cycle is panic-guarded so
-    // one bad upstream payload can't kill the task and silently stop syncs.
+    // off the persisted interval — wall-clock ALIGNED by default (hourly runs
+    // land AT :00 UTC, so the scan archive reads like a clock; align:false
+    // restores start-to-start) and never sleep-after-work, which drifted to
+    // interval + cycle duration. It wakes early when the owner changes the
+    // schedule or presses SYNC NOW. Each cycle is panic-guarded so one bad
+    // upstream payload can't kill the task and silently stop syncs — and each
+    // cycle is archived as a timestamped scan (pipeline.scans) the console
+    // can step back through.
     let warmup_pipeline = pipeline.clone();
     let warmup_sync = sync.clone();
     tokio::spawn(async move {
@@ -155,8 +161,14 @@ async fn main() -> anyhow::Result<()> {
             warmup_sync.mark_started(trigger);
             // The windows come from the schedule, re-read every cycle, so an
             // owner adding "3D, ≥2 trades/day" to the warm list has it warmed
-            // on the next tick without a restart.
-            let cycle = warmup_pipeline.warmup_cycle(min_age, warmup_sync.windows());
+            // on the next tick without a restart. The trigger label rides
+            // along so the archived scan says what started it.
+            let trigger_label = match trigger {
+                polymarket_api::sync::Trigger::Manual => "manual",
+                polymarket_api::sync::Trigger::Scheduled => "scheduled",
+            };
+            let cycle =
+                warmup_pipeline.warmup_cycle(min_age, warmup_sync.windows(), trigger_label);
             let panicked = std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err();
             if panicked {
                 tracing::error!(

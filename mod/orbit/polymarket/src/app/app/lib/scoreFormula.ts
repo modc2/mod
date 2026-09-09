@@ -12,7 +12,7 @@
 import type { TopTrader } from "./polymarket";
 
 /** The variables a formula can use, in the order they're passed in. */
-export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry"] as const;
+export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve"] as const;
 
 /** What each variable IS, in one line — rendered beside the formula box on
     the board's SCORE editor. A formula language with no vocabulary printed
@@ -25,9 +25,12 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
   buyVolume: "USDC spent entering positions",
   sellVolume: "USDC taken back out of positions",
   positions: "How many positions were taken in the window",
-  winRate: "Share of settled positions that made money, 0\u20131",
+  winRate: "Share of settled positions that made money, 0\u2013100 (a percent; -1 = nothing settled yet)",
   markets: "How many distinct markets were traded",
   exitEntry: "Average exit price \u00f7 average entry price \u2014 above 1 means they sold higher than they bought",
+  consistency: "How steadily the window's PnL was made: of the PnL-curve segments where money moved, the share that moved UP. 1 = every active stretch was green, 0.5 = coin-flip streaks. -1 = unknown (no curve or too little movement to judge)",
+  decided: "How many settled positions winRate is computed over \u2014 a win rate over 4 positions is not a track record",
+  curve: "The raw ~12-point cumulative PnL curve as an array (functions only \u2014 slope/drawdown math is yours)",
 };
 
 /** Named formulas the SCORE can be parameterized with — the first is the
@@ -129,10 +132,11 @@ export function detectScoreLang(src: string): ScoreLang {
   return "expr";
 }
 
-/** Starter the JS ƒ button drops in — a filter + a score in four lines. */
+/** Starter the JS ƒ button drops in — a filter + a score in four lines.
+    winRate is a PERCENT (0–100, -1 = unknown), not a 0–1 fraction. */
 export const JS_FN_TEMPLATE = `// return a number = score · return null = hide the trader
 if (volume < 100) return null; // too small to copy
-if (winRate >= 0 && winRate < 0.4) return null;
+if (winRate >= 0 && winRate < 40) return null; // winRate is 0–100
 return 100 * pnl / volume;`;
 
 /** Starter the PY ƒ button drops in. Name any subset of the variables as
@@ -141,7 +145,7 @@ export const PY_FN_TEMPLATE = `def score(pnl, volume, winRate, **rest):
     # return a number = score · return None = hide the trader
     if volume < 100:
         return None  # too small to copy
-    if 0 <= winRate < 0.4:
+    if 0 <= winRate < 40:  # winRate is 0-100
         return None
     return 100 * pnl / volume`;
 
@@ -155,6 +159,29 @@ export interface ScoreInputs {
   winRate: number;
   markets: number;
   exitEntry: number;
+  consistency: number;
+  decided: number;
+  curve: number[];
+}
+
+/** How steadily the window's PnL was made, read off the ~12-point cumulative
+    curve: of the segments where PnL MOVED, the share that moved up. Zero
+    deltas (stretches with no trading) don't count either way — a flat line
+    with one lucky spike shouldn't read as "consistent". -1 = unknown: no
+    curve, or fewer than 3 moving segments to judge on (same sentinel
+    convention as winRate/exitEntry — gate it, don't multiply by it). */
+export function curveConsistency(curve: number[] | undefined | null): number {
+  if (!curve || curve.length < 4) return -1;
+  let up = 0;
+  let moved = 0;
+  for (let i = 1; i < curve.length; i++) {
+    const d = curve[i] - curve[i - 1];
+    if (d === 0) continue;
+    moved++;
+    if (d > 0) up++;
+  }
+  if (moved < 3) return -1;
+  return up / moved;
 }
 
 export function scoreInputs(t: TopTrader): ScoreInputs {
@@ -168,8 +195,20 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
     winRate: t.winRate,
     markets: t.marketTitles.length,
     exitEntry: t.exitEntry,
+    consistency: curveConsistency(t.pnlCurve),
+    decided: t.decidedPositions,
+    curve: t.pnlCurve ?? [],
   };
 }
+
+/** Per-variable probe values for the compile-time zero-probe. Everything is
+    0 except `curve`, which must probe as an ARRAY — a function that does
+    `curve.length` would otherwise throw at compile and read as a syntax
+    error instead of running. */
+export const PROBE_INPUTS: ScoreInputs = {
+  sharpe: 0, pnl: 0, volume: 0, buyVolume: 0, sellVolume: 0, positions: 0,
+  winRate: 0, markets: 0, exitEntry: 0, consistency: 0, decided: 0, curve: [],
+};
 
 /** A compiled score: fn returns the trader's score, or NULL when the user's
     FUNCTION filtered the trader out (returned null/None/False). Plain
@@ -209,7 +248,7 @@ export function compileScore(src: string): CompiledScore {
     } else {
       raw = new Function(...FORMULA_VARS, "Math", `"use strict"; return (${src});`) as (...args: unknown[]) => unknown;
     }
-    const probe = raw(...FORMULA_VARS.map(() => 0), Math);
+    const probe = raw(...FORMULA_VARS.map((k) => PROBE_INPUTS[k]), Math);
     if (lang === "expr" && typeof probe !== "number" && !Number.isNaN(probe)) {
       return { fn: null, error: "formula must evaluate to a number" };
     }

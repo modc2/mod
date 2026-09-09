@@ -10,7 +10,9 @@
 //
 //   name / icon / description  — how it reads in the list
 //   goal                       — its system prompt
-//   model                      — a provider override ('' = the console's model)
+//   model                      — the intelligence ('' = the console's model)
+//   memory                     — the cortex it thinks with ('' = the default
+//                                memory module; GET /memory/modules lists them)
 //   tools                      — the exact loadout (empty = every tool)
 //   harness                    — hand the run to a CLI instead of this loop
 //
@@ -25,6 +27,7 @@ type ToolInfo = { description?: string; kind?: string }
 type Toolbox = { name: string; description?: string; tools: string[]; builtin?: boolean }
 type Harness = { name: string; label?: string; description?: string; available?: boolean; install?: string }
 type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; keyless?: boolean; free?: boolean }
+type MemModule = { name: string; label?: string; description?: string; default?: boolean }
 
 type Props = {
   /** null = a fresh agent; a slug = edit that one */
@@ -100,6 +103,9 @@ export default function AgentEditor({
   const [goal, setGoal] = useState('')
   const [model, setModel] = useState('')
   const [provider, setProvider] = useState('openrouter')
+  // '' = the default memory module — an agent always has memory, it just
+  // hasn't picked one
+  const [memory, setMemory] = useState('')
   const [harness, setHarness] = useState('')
   const [tools, setTools] = useState<string[]>([])
   const [builtin, setBuiltin] = useState(false)
@@ -116,6 +122,7 @@ export default function AgentEditor({
   const [boxes, setBoxes] = useState<Toolbox[]>([])
   const [harnesses, setHarnesses] = useState<Harness[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [memModules, setMemModules] = useState<MemModule[]>([])
 
   const [loading, setLoading] = useState(!isNew)
   const [saving, setSaving] = useState(false)
@@ -136,6 +143,8 @@ export default function AgentEditor({
       .then(r => r.json()).then(d => setHarnesses(d.harnesses || [])).catch(() => {})
     fetch(`${API_URL}/providers`, { signal: AbortSignal.timeout(8000) })
       .then(r => r.json()).then(d => setProviders(d.providers || [])).catch(() => {})
+    fetch(`${API_URL}/memory/modules`, { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json()).then(d => setMemModules(d.memories || [])).catch(() => {})
   }, [])
 
   // editing: the stored config is the truth, not the list row's summary.
@@ -160,6 +169,7 @@ export default function AgentEditor({
         // its own author is refused at run time. The field isn't even shown
         // to them, so it would be an invisible one at that.
         setHarness(!name && !isHost ? '' : cfg.harness || '')
+        setMemory(cfg.memory || '')
         setTools(Array.isArray(cfg.tools) ? cfg.tools : [])
         // a copy is a new agent under your address — never a built-in
         setBuiltin(!name ? false : !!cfg.builtin)
@@ -234,6 +244,7 @@ export default function AgentEditor({
               name: s, ...common, key: token,
               tools: tools.length ? tools : null,
               model: model || null,
+              memory: memory || null,
               // one rule, enforced where it counts: only the host can mint an
               // agent that hands its run to a CLI on the host's own shell
               harness: (isHost && harness) || null,
@@ -246,6 +257,7 @@ export default function AgentEditor({
               ...common, key: token,
               ...(tools.length ? { tools } : { clear_tools: true }),
               ...(model ? { model } : { clear_model: true }),
+              ...(memory ? { memory } : { clear_memory: true }),
               ...(harness ? { harness } : { clear_harness: true }),
             }),
           })
@@ -268,7 +280,7 @@ export default function AgentEditor({
       setSaving(false)
     }
   }, [isNew, slug, name, goal, token, builtin, isHost, description, icon, tools,
-      model, harness, makeDefault, onMakeDefault, onSaved, onUse])
+      model, memory, harness, makeDefault, onMakeDefault, onSaved, onUse])
 
   // make the agent already on the server the default, without a save
   const setAsDefault = useCallback(async () => {
@@ -387,7 +399,10 @@ export default function AgentEditor({
 
         {/* model — empty is not "broken", it's the console's own pick */}
         <div>
-          <div className={legend}>model</div>
+          <div className={legend}>
+            model
+            <span className="text-gray-700 normal-case tracking-normal">· the intelligence</span>
+          </div>
           <div className="space-y-1.5">
             <Select value={provider} accent="sky" size="sm" className="w-full"
               onChange={v => { setProvider(v); setModel('') }}
@@ -405,6 +420,30 @@ export default function AgentEditor({
           {!model && (
             <div className="text-[9px] text-gray-600 mt-1">no override — it runs on whatever the console is set to</div>
           )}
+        </div>
+
+        {/* memory — the cortex. An agent always has one; picking is choosing
+            which module it remembers with, not switching memory on */}
+        <div>
+          <div className={legend}>
+            memory
+            <span className="text-gray-700 normal-case tracking-normal">· the cortex</span>
+          </div>
+          <Select value={memory} accent="amber" size="sm" className="w-full"
+            placeholder="default memory"
+            onChange={setMemory}
+            options={[
+              { value: '', label: 'default memory', hint: 'facts, episodes, and your conversations' },
+              ...(memory && !memModules.some(m => m.name === memory)
+                ? [{ value: memory, label: memory }] : []),
+              ...memModules.filter(m => !m.default).map(m => ({
+                value: m.name, label: m.label || m.name, hint: m.description,
+              })),
+            ]} />
+          <div className="text-[9px] text-gray-600 mt-1">
+            {memory ? `it thinks with the ${memory} memory module`
+                    : 'no pick — it thinks with the default memory module'}
+          </div>
         </div>
 
         {/* tools — empty means every tool, which is the useful default */}

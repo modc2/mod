@@ -19,8 +19,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { listStrats, STRAT_UPDATED_EVENT } from "../lib/activeStrat";
 import { shortAddress } from "../lib/auth";
 import { fundedUsd } from "../lib/funding";
+import { getActiveIndexId } from "../lib/indexStore";
+import { useStratStats, fmtUsd } from "../lib/stratStats";
+import type { SavedIndex } from "../lib/types";
+import { OPEN_STRATS_EVENT } from "./StratBlock";
 import WalletTokenPanel from "./WalletTokenPanel";
 
 /** Header chip → sidebar handshake. The chip dispatches this to open the
@@ -209,6 +214,7 @@ export default function AccountsPanel({
                   </span>
                 </div>
               </div>
+              <ActiveStratStrip />
               <div
                 className="flex items-center gap-1.5 mt-2 pt-1.5"
                 style={{ borderTop: "1px solid var(--border)" }}
@@ -390,5 +396,105 @@ export default function AccountsPanel({
         </div>
       )}
     </div>
+  );
+}
+
+/** The wallet card's ACTIVE STRAT strip — which strategy this wallet's money
+ *  is pointed at, and what that strat is doing right now: engine status, open
+ *  positions marked to price, 24h PnL, and how many other strats are live.
+ *  It lives inside the card because a strat's money, engine session and
+ *  ledger are all keyed by (wallet, strat) — opening the account and not
+ *  seeing what it is running is the gap this closes. Rendered only while the
+ *  card is expanded, so its polling hook (useStratStats → /live/sessions)
+ *  never runs for a docked-but-collapsed column. Clicking it hands off to the
+ *  full STRATS block below via OPEN_STRATS_EVENT. */
+function ActiveStratStrip() {
+  // Cheap store read for the list + active id, refreshed on the broadcast
+  // every strat mutation already fires — same pattern as StratBlock's header.
+  const [snap, setSnap] = useState<{ count: number; active: SavedIndex | null }>({
+    count: 0,
+    active: null,
+  });
+  useEffect(() => {
+    const read = () => {
+      const all = listStrats();
+      const id = getActiveIndexId();
+      setSnap({
+        count: all.length,
+        active: (id ? all.find((s) => s.id === id) : null) ?? all[0] ?? null,
+      });
+    };
+    read();
+    window.addEventListener(STRAT_UPDATED_EVENT, read);
+    return () => window.removeEventListener(STRAT_UPDATED_EVENT, read);
+  }, []);
+
+  const { stats, running } = useStratStats();
+  const { active, count } = snap;
+  const money = active ? stats[active.id] : undefined;
+  const isRunning = active ? running.has(active.id) : false;
+  const openPositions = money?.openPositions ?? 0;
+  const inPlay = money?.openValue ?? 0;
+  const pnl24h = money?.pnl24h ?? 0;
+  const roi24h = money?.roi24h ?? null;
+  const traded = openPositions > 0 || (money?.fills ?? 0) > 0;
+
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent(OPEN_STRATS_EVENT))}
+      className="w-full text-left mt-2 pt-1.5 group"
+      style={{ borderTop: "1px solid var(--border)" }}
+      title={
+        active
+          ? `Active strat: ${active.name} — what BACKTEST and LIVE are pointed at. Click for the full strat list.`
+          : "No strats yet — click to open the STRATS block and create one."
+      }
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="text-[9px] font-mono tracking-[0.16em] text-pixel-gray shrink-0">
+          STRAT
+        </span>
+        {active ? (
+          <>
+            {isRunning && (
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0"
+                title="Engine running for this strat"
+              />
+            )}
+            <span className="min-w-0 truncate text-[11px] font-mono font-semibold text-green-400 group-hover:underline">
+              {active.name}
+            </span>
+            <span className="ml-auto shrink-0 text-[9.5px] font-mono text-pixel-gray">
+              {count} saved{running.size > 0 ? ` · ${running.size} live` : ""}
+            </span>
+          </>
+        ) : (
+          <span className="text-[10.5px] font-mono text-pixel-gray group-hover:text-green-400">
+            none yet — + NEW STRAT below
+          </span>
+        )}
+      </div>
+      {active && (
+        <div className="mt-0.5 text-[10px] font-mono text-pixel-gray truncate">
+          {traded ? (
+            <>
+              {openPositions > 0 ? `${openPositions} pos · ${fmtUsd(inPlay)} in play` : "flat"}
+              {" "}· 24h{" "}
+              <span className={pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : ""}>
+                {pnl24h >= 0 ? "+" : ""}
+                {fmtUsd(pnl24h)}
+                {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
+              </span>
+            </>
+          ) : isRunning ? (
+            "running · no positions yet"
+          ) : (
+            "not trading"
+          )}
+          <span className="text-pixel-gray/60"> · {active.traders.length}T</span>
+        </div>
+      )}
+    </button>
   );
 }
