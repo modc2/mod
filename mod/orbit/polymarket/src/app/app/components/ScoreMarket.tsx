@@ -28,6 +28,18 @@ interface Props {
 
 const LANG_BADGE: Record<string, string> = { expr: "ƒ", js: "JS ƒ", py: "PY ƒ" };
 
+/** The listing's headline equation — the last `return` expression in its
+    source. Gates (`return null` guards) live in the full code view; this is
+    the number the survivors actually rank by. */
+function equationOf(source: string): string {
+  const lines = source.split("\n").map((s) => s.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(/^return\s+(.+?);?\s*$/);
+    if (m) return m[1];
+  }
+  return lines[lines.length - 1] ?? "";
+}
+
 export default function ScoreMarket({ formula, setFormula }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -35,11 +47,22 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // The PUBLISH flow: a button that becomes a name+description form.
+  // The PUBLISH flow: a button that becomes a name+description form. EDIT on
+  // one of your own listings prefills it — republishing under the same name
+  // updates the listing in place (the API keys on the name's slug).
   const [publishing, setPublishing] = useState(false);
   const [pubName, setPubName] = useState("");
   const [pubDesc, setPubDesc] = useState("");
+  const [pubTags, setPubTags] = useState("");
+  const [editingName, setEditingName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Cards show their one-line equation always; the full source expands per
+  // card (or all at once), because a score you can't read is a score you
+  // shouldn't rank on.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [allCode, setAllCode] = useState(false);
+  const [mineOnly, setMineOnly] = useState(false);
 
   const [importCid, setImportCid] = useState("");
 
@@ -53,10 +76,12 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
     if (open) void refresh();
   }, [open, refresh]);
 
-  const listings = useMemo(
-    () => searchScoreFns(query, [...SCORE_FN_LIBRARY, ...community]),
-    [query, community],
-  );
+  const mineCount = useMemo(() => community.filter((l) => l.mine).length, [community]);
+
+  const listings = useMemo(() => {
+    const pool = mineOnly ? community.filter((l) => l.mine) : [...SCORE_FN_LIBRARY, ...community];
+    return searchScoreFns(query, pool);
+  }, [query, community, mineOnly]);
 
   const act = useCallback(async (fn: () => Promise<string | null>) => {
     setBusy(true);
@@ -104,6 +129,22 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
           className="pixel-input-sm flex-1 min-w-[140px]"
         />
         <span className="text-[10px] text-pixel-gray shrink-0">{listings.length} fn{listings.length === 1 ? "" : "s"}</span>
+        {mineCount > 0 && (
+          <button
+            className={`pixel-btn text-[10px] px-1.5 py-0.5 shrink-0 ${mineOnly ? "border-pixel-green text-pixel-green" : "border-pixel-border text-pixel-gray hover:text-pixel-green"}`}
+            onClick={() => setMineOnly((v) => !v)}
+            title="Just your own published functions — the ones you can EDIT and unpublish"
+          >
+            YOURS {mineCount}
+          </button>
+        )}
+        <button
+          className={`pixel-btn text-[10px] px-1.5 py-0.5 shrink-0 ${allCode ? "border-amber-400/70 text-amber-400" : "border-pixel-border text-pixel-gray hover:text-amber-400"}`}
+          onClick={() => setAllCode((v) => !v)}
+          title="Open every listing's full source at once — the equation line is always visible either way"
+        >
+          ƒ CODE
+        </button>
         <button
           className="pixel-btn text-[11px] px-1.5 py-0.5 text-pixel-gray hover:text-red-400"
           onClick={() => setOpen(false)}
@@ -122,9 +163,11 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
         {listings.map((l) => {
           const active = formula.trim() === l.source.trim();
           const lang = LANG_BADGE[detectScoreLang(l.source)];
+          const key = `${l.builtin ? "b" : "c"}:${l.id}`;
+          const showCode = allCode || expanded.has(key);
           return (
             <div
-              key={`${l.builtin ? "b" : "c"}:${l.id}`}
+              key={key}
               className={`border rounded p-1.5 ${active ? "border-pixel-green/70" : "border-pixel-border/60"}`}
             >
               <div className="flex items-center gap-2 flex-wrap">
