@@ -327,7 +327,7 @@ def test_the_map_is_open_and_spends_nothing():
 # ── mcp wire ──
 
 def test_every_tool_is_declared_and_callable():
-    assert len(mcp.TOOLS) == 22
+    assert len(mcp.TOOLS) == 23
     for name, t in mcp.TOOLS.items():
         assert name.startswith('compute_')
         assert t['description'] and t['inputSchema']['type'] == 'object'

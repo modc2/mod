@@ -38,6 +38,7 @@ import {
   type HubBacktest, type TraderFeed,
 } from "../hubReplay";
 import type { SavedIndex } from "../types";
+import { autoCopyWarmAddresses, runAutoCopyPass } from "./autoCopy";
 import { coverage, pruneFeeds, writeAtomic, type FeedCoverage } from "./feedStore";
 import { TRADES_TTL_MS, feedSession, refreshRoster } from "./feedFetcher";
 import { mintOwnerToken, stateDir } from "./ownerToken";
@@ -67,6 +68,15 @@ const RESOLUTION_BUDGET_PER_PASS = Number(process.env.POLYMARKET_HUB_RESOLUTION_
     pass's CPU and spends no extra upstream requests — both windows read the
     same cached feed. `POLYMARKET_HUB_FORWARD=0` turns it off. */
 const FORWARD_CHECK = process.env.POLYMARKET_HUB_FORWARD !== "0";
+/** Replay each card's window a THIRD time with the trader stats frozen at the
+    window's start (see `HoldoutCheck` in hubReplay.ts) — the train/test split:
+    how much the last N days would have made with the roster filtered on the
+    [t−M, t−N] record only. CPU-only, same cached feed.
+    `POLYMARKET_HUB_HOLDOUT=0` turns it off. */
+const HOLDOUT_CHECK = process.env.POLYMARKET_HUB_HOLDOUT !== "0";
+/** The M above — how far back the frozen stats look (days). Capped by the
+    feed's own 30-day ceiling; `POLYMARKET_HUB_HOLDOUT_DAYS` overrides. */
+const HOLDOUT_LOOKBACK_DAYS = Number(process.env.POLYMARKET_HUB_HOLDOUT_DAYS) || 30;
 /** Template rosters come from the leaderboard, which barely moves within a
     few hours — and `templateRoster`'s own cache is localStorage, so without
     this every replay pass would re-query it for every template. */
@@ -375,6 +385,11 @@ export async function runRefresh(): Promise<FeedStatus | null> {
     // watchlist — a copied trader with no cached history replays as a trader
     // who did nothing.
     roster = rosterAddresses(mergeStrats(await copyDeskStrats(), manifest), rosters);
+    // The AUTO COPY board's top-PnL roster needs warm feeds too — resolved
+    // HERE (the network loop) so the replay pass reads it off disk for free.
+    for (const a of await autoCopyWarmAddresses()) {
+      if (!roster.includes(a)) roster.push(a);
+    }
     stats = await refreshRoster(roster);
     // A trader nobody watches any more shouldn't keep a 30-day feed on disk.
     pruneFeeds(new Set(roster));
@@ -484,6 +499,8 @@ export async function runPass(): Promise<HubCacheFile> {
       for (const idx of strats) {
         const bt = await backtestOne(idx, days, feeds, session.load, resolve, {
           forward: FORWARD_CHECK,
+          holdout: HOLDOUT_CHECK,
+          holdoutLookbackDays: HOLDOUT_LOOKBACK_DAYS,
           // Origination strats replay off a price tape, and the worker is the
           // right place to pay for a deep one: nobody is waiting on it and the
           // Rust proxy caches prices-history on disk for a day.
@@ -495,11 +512,18 @@ export async function runPass(): Promise<HubCacheFile> {
         const roster = rosters.get(t.slug) ?? [];
         const bt = await backtestTemplate(t, days, feeds, {
           loader: session.load, roster, resolve, forward: FORWARD_CHECK,
+          holdout: HOLDOUT_CHECK,
+          holdoutLookbackDays: HOLDOUT_LOOKBACK_DAYS,
           tapeBudget: WORKER_TAPE_BUDGET,
         });
         if (bt) publish(templateBacktestKey(t.slug), bt, roster, days);
       }
     }
+    // AUTO COPY — one identity replay per top-PnL trader, train + test
+    // windows (see server/autoCopy.ts). Runs last so the strats the user
+    // actually owns get their numbers first; shares this pass's feed map,
+    // loader and resolution budget, so it costs CPU and nothing upstream.
+    await runAutoCopyPass(feeds, session.load, resolve);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   } finally {

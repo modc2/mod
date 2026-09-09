@@ -111,6 +111,9 @@ function replay(
     /** Window length + where it ENDS — the walk-forward's two knobs. */
     days?: number;
     asOf?: number;
+    /** The HOLDOUT's two knobs — freeze trader stats here, this long. */
+    statsAsOf?: number;
+    statsWindowDays?: number;
     /** Drop the built-in track record, for the leakage test. */
     record?: PolymarketTrade[];
   } = {},
@@ -135,6 +138,8 @@ function replay(
     pollMinutes: 1,
     resolved: opts.resolved,
     asOf: opts.asOf,
+    statsAsOf: opts.statsAsOf,
+    statsWindowDays: opts.statsWindowDays,
   }).sim;
 }
 
@@ -1071,6 +1076,42 @@ console.log("\n─ the replay pays them ─");
   // The fee is money that LEFT the wallet: gross − net is exactly costs.
   near(crypto.grossPnl - crypto.netPnl, crypto.fees + crypto.gas, 0.02,
     "gross minus net is exactly the fees and gas booked");
+}
+
+console.log("\n─ the HOLDOUT split: trader stats can't peek at the window they score ─");
+{
+  // A leader whose 30d record is six LOSERS — except for three big winners
+  // inside the 7-day replay window itself. Stats computed the default way
+  // (window ending at the replay's end) blend all nine, come out positive,
+  // and the strat happily copies the flow: the ranking "knew" the leader was
+  // about to have a good week. Frozen at the window START, the stats see only
+  // the losers, price every candidate at negative edge, and copy nothing.
+  const losers: PolymarketTrade[] = [];
+  for (let i = 0; i < 6; i++) {
+    const past = `0xcccc00000000000000000000000000000000000000000000000000000000000${i}`;
+    losers.push(trade({ side: "BUY", price: 0.50, size: 100, hoursAgo: 24 * (20 - i), conditionId: past, outcome: "Yes", market: `train loser ${i}` }));
+    losers.push(trade({ side: "SELL", price: 0.30, size: 100, hoursAgo: 24 * (20 - i) - 1, conditionId: past, outcome: "Yes", market: `train loser ${i}` }));
+  }
+  const winners: PolymarketTrade[] = [];
+  for (let i = 0; i < 3; i++) {
+    const win = `0xdddd00000000000000000000000000000000000000000000000000000000000${i}`;
+    winners.push(trade({ side: "BUY", price: 0.40, size: 100, hoursAgo: 48 - 2 * i, conditionId: win, outcome: "Yes", market: `test winner ${i}` }));
+    winners.push(trade({ side: "SELL", price: 0.80, size: 100, hoursAgo: 47 - 2 * i, conditionId: win, outcome: "Yes", market: `test winner ${i}` }));
+  }
+  const inSample = replay(winners, { record: losers, days: 7 });
+  ok(inSample.funnel.executed > 0,
+    `stats ending at the window end copy the flow — the ranking peeked (${inSample.funnel.executed} entries)`);
+
+  const holdout = replay(winners, {
+    record: losers, days: 7,
+    statsAsOf: Date.now() - 7 * 86400_000, statsWindowDays: 23,
+  });
+  ok(holdout.funnel.executed === 0,
+    "stats frozen at the window start see only the losing record and copy nothing");
+  ok((holdout.funnel.reasons["no scoreable edge"] ?? 0) > 0,
+    "…and the funnel names why: no scoreable edge on the train-window record");
+  ok(inSample.netPnl > holdout.netPnl,
+    `the gap is the overlap inflation — $${inSample.netPnl.toFixed(2)} in-sample vs $${holdout.netPnl.toFixed(2)} blind`);
 }
 
 activityCeilingChecks().then(() => {

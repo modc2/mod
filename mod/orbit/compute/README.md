@@ -285,6 +285,32 @@ curl -sX POST :50510/mcp -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 The console at `/compute`, the REST routes, the CLI fns and the MCP tools all
 call the same `Hub`, so they cannot drift apart.
 
+## Connect (no-KYC accounts, in one call)
+
+```bash
+m compute/connect                          # every permissionless market at once
+m compute/connect reveal=true              # include the private keys in the answer
+```
+
+A no-KYC market that settles on a chain has no account to sign up for — the
+account **is** a keypair. `connect` splits on how each provider holds custody:
+
+- **wallet-custody** (Akash, Nosana, Aleph) — generates a real self-custody
+  wallet **locally**, in pure stdlib (secp256k1 + bech32 for Cosmos, ed25519 +
+  base58 for Solana, secp256k1 + keccak-256 for EVM; every primitive checked
+  against a published vector in `wallet.py`). The secret is written `0600` to
+  `~/.mod/compute/wallets.json` and never returned unless you pass `reveal=true`;
+  you get back only the address to fund. Nothing is signed up for, nothing leaves
+  the box — private by construction.
+- **key-custody** (Targon, Lium, Vast, Clore) — a key comes from an account on
+  the provider's own site, which code can't conjure. Already have a key? The
+  provider reports `ready`. Otherwise `connect` returns a `web_agent` task (open
+  the signup, register with a throwaway alias, mint a key, `set_key`) that the
+  owner or a headless browser agent can run to set up the account privately.
+
+`connect` never funds or spends anything — it hands back addresses and the exact
+next step. Owner-only, same as `set_key`.
+
 ## Keys
 
 ```bash

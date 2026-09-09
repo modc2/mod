@@ -239,6 +239,18 @@ class Mod:
         import node
         return node.keypair()
 
+    def connect(self, provider=None, kyc='none', reveal=False, web_agent=False):
+        """Set up a no-KYC account on every permissionless market at once.
+
+        Wallet-custody markets (Akash, Nosana, Aleph) get a real self-custody
+        wallet generated locally — no signup, secret kept 0600 off-tree, only
+        the address to fund handed back. Key-custody markets that already have
+        a key report ready; the rest come back with a private-signup plan a
+        browser agent can run. Pass reveal=true to include the private keys.
+        """
+        return self.hub.connect(providers=provider, kyc=kyc, reveal=reveal,
+                                web_agent=web_agent)
+
     def set_key(self, provider, key, persist=True):
         """Store one provider's key in ~/.mod/compute/keys.json (0600, off-tree)."""
         return self.hub.set_key(provider, key, persist=persist)

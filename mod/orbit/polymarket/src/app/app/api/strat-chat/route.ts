@@ -24,9 +24,9 @@
 // the CLI is missing the route says so plainly — a strat chat that silently
 // answers from nothing would be worse than one that admits it can't.
 
-import { spawn } from "child_process";
 import { NextResponse } from "next/server";
 
+import { AGENT_MODEL, digJson, runClaude } from "../../lib/server/agentCli";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
 import {
   currentSettings, paramReference, validatePatch,
@@ -37,12 +37,6 @@ import type { SavedIndex } from "../../lib/types";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** Opus by default — this is judgment work over a strategy's parameters, and
-    the console asks one question at a time rather than running a fleet. */
-const MODEL = process.env.POLYMARKET_CHAT_MODEL || "claude-opus-5";
-/** A parameter question is not a research task; past this the user is better
-    served by an error than by a spinner. */
-const TIMEOUT_MS = 120_000;
 /** Turns of history sent back. Enough to hold a thread, small enough that the
     prompt stays a prompt. */
 const MAX_HISTORY = 12;
@@ -127,100 +121,15 @@ function buildPrompt(body: ChatRequest): string {
 /** The model's JSON, dug out of whatever it wrapped it in. Fenced blocks and
     stray prose are both survivable; a response with no object at all is not. */
 function parseReply(raw: string): { reply: string; patch: unknown; rationale?: string } | null {
-  const text = raw.trim();
-  const candidates: string[] = [];
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenced) candidates.push(fenced[1]);
-  candidates.push(text);
-  const first = text.indexOf("{");
-  const last = text.lastIndexOf("}");
-  if (first >= 0 && last > first) candidates.push(text.slice(first, last + 1));
-
-  for (const c of candidates) {
-    try {
-      const o = JSON.parse(c.trim()) as Record<string, unknown>;
-      if (typeof o.reply === "string") {
-        return {
+  return digJson(raw, (o) =>
+    typeof o.reply === "string"
+      ? {
           reply: o.reply,
           patch: o.patch,
           rationale: typeof o.rationale === "string" ? o.rationale : undefined,
-        };
-      }
-    } catch {
-      // try the next shape
-    }
-  }
-  return null;
-}
-
-/** Run the prompt through the local `claude` CLI and hand back its text.
- *
- *  The prompt goes in on STDIN, not argv: it embeds the strat's JSON and the
- *  user's words, and an argv-sized prompt would be both truncated and quoting-
- *  sensitive. */
-function runAgent(prompt: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn(process.env.POLYMARKET_CLAUDE_BIN || "claude", [
-        "-p",
-        "--output-format", "json",
-        "--model", MODEL,
-      ], { stdio: ["pipe", "pipe", "pipe"] });
-    } catch (e) {
-      resolve({ ok: false, error: `could not start the claude CLI: ${e instanceof Error ? e.message : String(e)}` });
-      return;
-    }
-
-    let out = "";
-    let err = "";
-    let settled = false;
-    const finish = (r: { ok: true; text: string } | { ok: false; error: string }) => {
-      if (settled) return;
-      settled = true;
-      resolve(r);
-    };
-
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      finish({ ok: false, error: `the agent did not answer within ${TIMEOUT_MS / 1000}s` });
-    }, TIMEOUT_MS);
-
-    child.stdout.on("data", (d) => { out += String(d); });
-    child.stderr.on("data", (d) => { err += String(d); });
-    child.on("error", (e) => {
-      clearTimeout(timer);
-      finish({ ok: false, error: `claude CLI unavailable: ${e.message}` });
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        finish({ ok: false, error: err.trim().slice(0, 400) || `claude CLI exited ${code}` });
-        return;
-      }
-      // `--output-format json` wraps the answer in a run record; `result` is
-      // the model's text. A plain-text stdout is accepted too, so a CLI whose
-      // envelope changes degrades to "still works" rather than "broken".
-      try {
-        const env = JSON.parse(out) as { result?: unknown; is_error?: boolean };
-        if (typeof env.result === "string") {
-          finish({ ok: true, text: env.result });
-          return;
         }
-      } catch {
-        // not the envelope — fall through
-      }
-      finish(out.trim() ? { ok: true, text: out } : { ok: false, error: "the agent returned nothing" });
-    });
-
-    // A CLI that exits before reading STDIN makes this write emit EPIPE on the
-    // pipe, and an unhandled 'error' event on a stream throws at the process
-    // level — a missing or instantly-crashing `claude` binary would take the
-    // whole Next server down with it. Swallow it here; the `error`/`close`
-    // handlers above are what report the failure to the caller.
-    child.stdin.on("error", () => {});
-    child.stdin.end(prompt);
-  });
+      : null,
+  );
 }
 
 export async function POST(req: Request) {
@@ -236,7 +145,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "need {strat, messages}" }, { status: 400 });
   }
 
-  const run = await runAgent(buildPrompt(body));
+  const run = await runClaude(buildPrompt(body));
   if (run.ok === false) return NextResponse.json({ error: run.error }, { status: 502 });
 
   const parsed = parseReply(run.text);
@@ -256,6 +165,6 @@ export async function POST(req: Request) {
     rationale: parsed.rationale,
     entries,
     rejected,
-    model: MODEL,
+    model: AGENT_MODEL,
   });
 }

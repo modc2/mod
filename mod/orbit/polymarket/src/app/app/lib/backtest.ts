@@ -285,6 +285,21 @@ export interface BacktestInput {
    *  inventory, they don't inform its decisions — which is exactly what you
    *  want from a walk-forward: yesterday's choices, scored by what happened. */
   asOf?: number;
+  /** HOLDOUT: freeze the trader stats — everything the strat KNOWS about its
+      traders — at this instant instead of the window end. The default (the
+      window end) means the FILTER ranks traders, and `scoreCandidate` prices
+      their edge, using a 30d record that CONTAINS the very days being scored:
+      train/test overlap, and the reason a "top traders by 30d ROI" strat
+      backtests better than it deploys. Set this to the window START and the
+      replay answers the honest question — "the roster I'd have picked before
+      the window began, traded through it": stats, win rates, and the
+      staleness clock all stop here; only the flow being copied and the
+      settlement prices come later. */
+  statsAsOf?: number;
+  /** Length of the frozen stats window in days (default 30). A holdout caps
+      it at what the 30-day feed still covers behind `statsAsOf`, so the
+      train window is [statsAsOf − statsWindowDays, statsAsOf]. */
+  statsWindowDays?: number;
 }
 
 export interface BacktestResult {
@@ -325,9 +340,13 @@ export function computeTraderStats(
       or it would score the past with a track record that includes the days it
       is trying to predict. */
   asOf: number = Date.now(),
+  /** Stats window length in days (default 30 — the live engine's). A HOLDOUT
+      replay shortens it so the window still fits inside the 30-day feed after
+      `asOf` was wound back to the replay window's start. */
+  windowDays: number = 30,
 ): Map<string, TraderRoiStats> {
   const out = new Map<string, TraderRoiStats>();
-  const sharpeCutoffMs = asOf - 30 * 86400_000;
+  const sharpeCutoffMs = asOf - windowDays * 86400_000;
   for (const addr of watchlist) {
     const trades = (traderTrades.get(addr) || [])
       .filter((t) => t.timestamp <= asOf && marketMatchesQuery(t.market, marketQuery));
@@ -352,7 +371,7 @@ export function computeTraderStats(
     }
     out.set(addr, {
       address: addr.toLowerCase(),
-      windowDays: 30,
+      windowDays,
       ...statsFromReturns(returns),
       cashDeployed,
       lastTradeAt,
@@ -441,6 +460,9 @@ export function buildStratHistory(
     // against this — a historical replay whose `now` is the wall clock would
     // call every trade in its window hours stale.
     now: end,
+    // The FILTER's freshness is judged at roster-pick time. Equal to `now`
+    // except in a holdout, where the pick happened at the window start.
+    statsNow: input.statsAsOf ?? end,
   };
 }
 
@@ -1135,7 +1157,8 @@ export function runBacktestSim(
 export function runBacktest(input: BacktestInput): BacktestResult {
   const traderStats = computeTraderStats(
     input.watchlist, input.traderTrades, input.traderPositions, input.marketQuery,
-    windowEnd(input),
+    input.statsAsOf ?? windowEnd(input),
+    input.statsWindowDays ?? 30,
   );
   const copyRatio = computeCopyRatios(input);
   const history = buildStratHistory(input, traderStats, copyRatio);

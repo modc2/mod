@@ -18,7 +18,7 @@
 // by both, and there is no second rendering of "roughly the same thing".
 
 import { describeTraderFilter } from "../lib/strats/strat";
-import type { ForwardCheck, ForwardVerdict, HubBacktest } from "../lib/hubBacktest";
+import type { ForwardCheck, ForwardVerdict, HoldoutCheck, HubBacktest } from "../lib/hubBacktest";
 import type { SavedIndex } from "../lib/types";
 
 export function timeAgo(ts?: number): string {
@@ -230,6 +230,11 @@ export function BacktestBlock({
           (a snapshot older than this check) shows nothing rather than
           implying it passed. */}
       {bt?.forward && <ForwardLine fwd={bt.forward} pnl={bt.pnl} days={days} />}
+      {/* TRAIN/TEST: the same window with the roster picked BLIND — trader
+          stats frozen at the window start, so the FILTER couldn't have known
+          who was about to have a good week. This is the deployable number;
+          the headline above is the in-sample one. */}
+      {bt?.holdout && <HoldoutLine h={bt.holdout} pnl={bt.pnl} days={days} />}
       {/* The funnel, one line: how much of the observed flow this strat
           actually traded. "8/225 entries" with the dominant gate named is the
           difference between a strat that's selective and one that's mute. */}
@@ -310,6 +315,45 @@ function ForwardLine({ fwd, pnl, days }: { fwd: ForwardCheck; pnl: number; days:
       </span>
       <span className="text-pixel-gray truncate">
         prior {unit} {fwd.trades > 0 ? signedUsd(fwd.pnl) : "no trades"} → {signedUsd(pnl)}
+      </span>
+    </div>
+  );
+}
+
+/// ── THE TRAIN/TEST BADGE ──
+/// "◫ HOLDOUT +$2.10 · picked blind vs +$4.30" — the same window, replayed
+/// with every trader stat frozen at the window's START. The headline replay
+/// ranks traders on a 30d record that INCLUDES the days being scored, so a
+/// "top by ROI" filter always looks a little psychic in-sample. The holdout
+/// number is what the strat would have made picking its roster on the earlier
+/// data only — the number a deployment starting today should expect.
+function HoldoutLine({ h, pnl, days }: { h: HoldoutCheck; pnl: number; days: number }) {
+  const unit = days === 1 ? "day" : `${days}d`;
+  const stamp = (t: number) => new Date(t).toISOString().slice(5, 16).replace("T", " ");
+  const traded = h.trades > 0;
+  const tone = !traded ? "text-pixel-gray" : h.pnl > 0 ? "text-green-400" : "text-red-400";
+  const gap = pnl - h.pnl;
+  return (
+    <div
+      className="mt-1 flex items-center gap-1.5 text-[10px] font-mono min-w-0"
+      title={
+        `TRAIN/TEST SPLIT — the last ${unit}, traded with a roster picked BLIND.\n\n` +
+        `Trader stats (the FILTER's ranking, win rates, edge pricing) are frozen at the ` +
+        `window's start: only ${stamp(h.statsFrom)} → ${stamp(h.statsTo)} UTC is visible to them. ` +
+        `The window's own flow is then copied with no knowledge of who was about to do well.\n\n` +
+        `Holdout: ${signedUsd(h.pnl)} (${h.roi >= 0 ? "+" : ""}${h.roi.toFixed(2)}%) over ` +
+        `${h.trades} trade(s)\nIn-sample headline: ${signedUsd(pnl)}\n\n` +
+        (Math.abs(gap) >= 0.01
+          ? `The ${signedUsd(gap)} gap is what knowing the window's outcomes was worth to the ` +
+            `trader selection — overlap inflation, not edge.`
+          : "Headline and holdout agree — the trader selection isn't leaning on the test window.")
+      }
+    >
+      <span className={`shrink-0 font-semibold tracking-[0.12em] ${tone}`}>
+        ◫ HOLDOUT
+      </span>
+      <span className="text-pixel-gray truncate">
+        {traded ? `${signedUsd(h.pnl)} picked blind` : "no trades picked blind"} · in-sample {signedUsd(pnl)}
       </span>
     </div>
   );

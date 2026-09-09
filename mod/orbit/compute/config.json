@@ -1,7 +1,7 @@
 {
     "name": "compute",
     "version": "1.0.0",
-    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Every market that publishes a location comes back placed, so the console draws the world and an agent can ask compute_map where the cheap H100s physically are. Twenty-two MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
+    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Every market that publishes a location comes back placed, so the console draws the world and an agent can ask compute_map where the cheap H100s physically are. Twenty-three MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
     "icon": "\u25a6",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -47,6 +47,7 @@
         "compute_exec",
         "compute_stop",
         "compute_balance",
+        "compute_connect",
         "compute_set_key",
         "compute_raw",
         "compute_deploy",
@@ -73,6 +74,7 @@
         "exec": "POST /exec {id, cmd}",
         "stop": "POST /stop {id}",
         "balance": "GET /balance?provider=",
+        "connect": "POST /connect {provider, kyc, reveal, web_agent} — owner-only; generates a self-custody wallet for each permissionless market (Akash/Nosana/Aleph) and returns the address to fund, plus a private-signup plan for the key-custody markets",
         "keys": "GET /keys | POST /keys {provider, key, persist}",
         "raw": "POST /raw {provider, path, method, body}",
         "tools": "GET /tools",
@@ -109,6 +111,7 @@
         "stop",
         "down",
         "balance",
+        "connect",
         "set_key",
         "keys",
         "raw",
@@ -153,7 +156,7 @@
         "COMPUTE_MOD_TIMEOUT": "seconds a sibling module gets in the mod lane (default 12)",
         "COMPUTE_TEST_LIVE": "0 to skip the tests that touch live catalogs"
     },
-    "schema": "QmSSDSgxqeENCDniU78jZArC5s2a2YGQEQp6SrcUbXkJzh",
+    "schema": "QmaC2vFKUtzfjXe6GrhMev4aciaEjHXEropi2vfC4iG6wA",
     "mod_lane": {
         "what": "the markets that also run as their own modules on this box, read through those modules and compared with the direct-to-upstream lane",
         "mods": {

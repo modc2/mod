@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import TopBar from "./TopBar";
+import AutoCopyBoard from "./AutoCopyBoard";
 import CopyIndex from "./CopyIndex";
 import { ensureActiveStrat } from "../lib/activeStrat";
 import type { SavedIndex } from "../lib/types";
@@ -71,6 +72,12 @@ export default function Workspace({ mode, bare = false }: { mode: Mode; bare?: b
         ) : (
           <p className="text-[12px] text-pixel-gray font-mono">loading…</p>
         )}
+
+        {/* The worker's standing board: every current top-PnL trader
+            copy-traded automatically in the background, each with a
+            train/test split you can re-cut. BACKTEST only — it is a replay
+            product, and the LIVE tab is for money. */}
+        {mode === "BACKTEST" && <AutoCopyBoard />}
       </div>
     </div>
   );

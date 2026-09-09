@@ -181,6 +181,10 @@ def route(method, path, query, body, keys, owner=False):
         return h.stop(_need(arg('id'), 'id'))
     if path == '/balance':
         return h.balance(provider=q.get('provider'))
+    if path == '/connect':
+        return h.connect(providers=arg('provider') or arg('providers'),
+                         kyc=arg('kyc', 'none'), reveal=flag('reveal'),
+                         web_agent=flag('web_agent'))
     if path == '/keys' and method == 'POST':
         return h.set_key(_need(b.get('provider'), 'provider'), _need(b.get('key'), 'key'),
                          persist=b.get('persist', True))

@@ -684,10 +684,12 @@ class CreditReq(BaseModel):
     payment_token: str = "usdt"
     network: str = "testnet"
     key: Optional[str] = None
+    confirm: bool = False
 
 @app.post("/credit")
 async def credit(req: CreditReq):
     """Buy MARKET (stable) tokens with a whitelisted payment token."""
+    _require_mainnet_confirm(req.network, req.confirm)
     chain = get_chain(req.network, req.key)
     try:
         result = chain.raw_credit(req.stable_amount, payment_token=req.payment_token)

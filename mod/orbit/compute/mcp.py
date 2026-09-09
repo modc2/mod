@@ -133,6 +133,12 @@ def _t_balance(a):
     return _hub(a).balance(provider=a.get('provider'))
 
 
+def _t_connect(a):
+    return _hub(a).connect(providers=a.get('provider') or a.get('providers'),
+                           kyc=a.get('kyc', 'none'), reveal=bool(a.get('reveal')),
+                           web_agent=bool(a.get('web_agent')))
+
+
 def _t_set_key(a):
     return _hub(a).set_key(a['provider'], a['key'], persist=a.get('persist', True))
 
@@ -357,6 +363,25 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {
             'provider': _str('limit to these providers')}},
         'handler': _t_balance,
+    },
+    'compute_connect': {
+        'description': 'Set up a no-KYC account on every permissionless market at '
+                       'once. Wallet-custody markets (Akash, Nosana, Aleph) have no '
+                       'signup — the account is a keypair, so this generates one '
+                       'locally, stores the secret 0600 off-tree, and returns only '
+                       'the address to fund. Key-custody markets (Targon, Lium, Vast, '
+                       'Clore) report ready if a key is stored, else come back with a '
+                       'private-signup plan a browser agent can run. Never funds or '
+                       'spends anything. Owner-only. Pass reveal=true to include the '
+                       'private keys in the response.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'provider': _str('limit to these providers (default: all no-KYC)'),
+            'kyc': _str('KYC tier to target (default none)'),
+            'reveal': {'type': 'boolean', 'description': 'include private keys (default false)'},
+            'web_agent': {'type': 'boolean', 'description': 'also return a browser-agent '
+                          'task to create each missing provider account privately'},
+        }},
+        'handler': _t_connect,
     },
     'compute_set_key': {
         'description': 'Store an API key for one provider in the off-tree keystore '

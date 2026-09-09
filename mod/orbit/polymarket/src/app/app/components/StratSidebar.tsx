@@ -59,6 +59,7 @@ import { describeTraderFilter } from "../lib/strats/strat";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 import DepositPanel from "./DepositPanel";
 import StratChat from "./StratChat";
+import StratLab from "./StratLab";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 
 // Wide enough for a real column beside the console; below this the sidebar
@@ -436,6 +437,11 @@ export default function StratSidebar() {
         >
           + NEW STRAT
         </button>
+
+        {/* The lab: an agent that finds, backtests and refines a strat until
+            the data clears the confidence bar — adopting its verdict lands a
+            new (paused) strat in the list above. */}
+        <StratLab />
 
         {/* Curated starting points — forking one materializes a fresh
             user-owned strat and seeds it from the live leaderboard. */}

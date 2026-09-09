@@ -28,6 +28,7 @@ import {
 import { useCompiledScore } from "../lib/useScore";
 import { publishScores } from "../lib/scoreBus";
 import { usePicks } from "../lib/pickStore";
+import ScoreAsk from "./ScoreAsk";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
 
@@ -1495,78 +1496,93 @@ export default function CopyTrading({
           </div>
 
           {showScore && (
-            <div className="pixel-panel p-2.5 space-y-2">
+            <div className="pixel-panel border-green-500/25 p-3 space-y-2.5">
+              {/* Header: what this panel is, and where the score stands right
+                  now — validity moved up here from inside the box, so the box
+                  is just the code and the status reads like a status. */}
               <div className="flex items-center gap-2 flex-wrap">
-                <label className="text-[12px] text-pixel-gray tracking-wider shrink-0">SCORE =</label>
+                <span className="text-[12px] text-pixel-white tracking-wider shrink-0">
+                  <span className="text-green-400">&fnof;</span> SCORE
+                </span>
+                <span className="text-[11px] text-pixel-gray hidden md:inline">
+                  ranks the board &middot; a function can also hide rows
+                </span>
+                <span className="ml-auto" />
+                {scoreLoading ? (
+                  <span className="text-[11px] px-2 py-0.5 border border-amber-400/50 text-amber-400 animate-pulse" title="Loading the in-browser Python runtime and compiling your function">PY LOADING…</span>
+                ) : compiled.error ? (
+                  <span className="text-[11px] px-2 py-0.5 border border-red-400/60 text-red-400" title={compiled.error}>ERR</span>
+                ) : (
+                  <span className="text-[11px] px-2 py-0.5 border border-green-500/50 text-green-400" title="Compiles — the board is ranked on this right now">&#10003; LIVE</span>
+                )}
+                {scoreHidden > 0 && !compiled.error && (
+                  <span className="text-[11px] text-amber-400" title="Traders your function returned null / None for">
+                    hiding {scoreHidden.toLocaleString()}
+                  </span>
+                )}
+                <button
+                  onClick={() => setFormula(DEFAULT_FORMULA)}
+                  title="Back to the default score"
+                  className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0"
+                >
+                  RESET
+                </button>
+              </div>
+
+              {/* Presets — named formulas, yours included — and the two ways
+                  to grow past an expression into a real function. */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]">PRESETS</span>
                 <ScoreRatioChips
                   formula={formula}
                   setFormula={setFormula}
                   canSave={!compiled.error && !scoreLoading}
-                  btnClass="pixel-btn text-[12px] px-2 py-1 shrink-0"
+                  btnClass="pixel-btn text-[11px] px-2 py-0.5 shrink-0"
                   idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
                 />
-                {/* Grow past a one-line expression: JS ƒ / PY ƒ drop in a real
-                    function — score AND filter in one — and the box becomes an
-                    editor to match. */}
+                <span className="w-px h-4 bg-pixel-border mx-0.5 hidden sm:block" aria-hidden />
                 <button
                   onClick={() => setFormula(JS_FN_TEMPLATE)}
                   title="Write the score as a JS function — return a number to rank, null to HIDE the trader. Multi-line, if/else, Math — all of it."
-                  className={`pixel-btn text-[12px] px-2 py-1 shrink-0 ${scoreLang === "js" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
+                  className={`pixel-btn text-[11px] px-2 py-0.5 shrink-0 ${scoreLang === "js" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
                 >
                   JS &fnof;
                 </button>
                 <button
                   onClick={() => setFormula(PY_FN_TEMPLATE)}
                   title="Write the score as a PYTHON function — def score(pnl, volume): return a number to rank, None to HIDE the trader. Runs in your browser (Pyodide), nothing leaves this tab."
-                  className={`pixel-btn text-[12px] px-2 py-1 shrink-0 ${scoreLang === "py" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
+                  className={`pixel-btn text-[11px] px-2 py-0.5 shrink-0 ${scoreLang === "py" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
                 >
                   PY &fnof;
                 </button>
-                {/* Validity rides INSIDE the box. As its own flex item the lone
-                    ✓ was the one thing that wouldn't fit the row, so it wrapped
-                    and bought an empty second line for a single glyph. */}
-                <div className="relative flex-1 min-w-[160px] basis-full sm:basis-auto">
-                  {scoreLang === "expr" && !formula.includes("\n") ? (
-                    <input
-                      ref={formulaRef as React.RefObject<HTMLInputElement | null>}
-                      type="text"
-                      value={formula}
-                      onChange={(e) => setFormula(e.target.value)}
-                      onKeyDown={onEnter}
-                      spellCheck={false}
-                      placeholder={DEFAULT_FORMULA}
-                      title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type. Or press JS ƒ / PY ƒ to write a full function."
-                      className={`pixel-input-sm w-full font-mono ${compiled.error ? "pr-[46%]" : "pr-6"}`}
-                    />
-                  ) : (
-                    <textarea
-                      ref={formulaRef as React.RefObject<HTMLTextAreaElement | null>}
-                      value={formula}
-                      onChange={(e) => setFormula(e.target.value)}
-                      spellCheck={false}
-                      rows={Math.min(12, Math.max(4, formula.split("\n").length + 1))}
-                      placeholder={PY_FN_TEMPLATE}
-                      title="Your score function. Return a number to rank the trader — return null / None to hide them from the board."
-                      className={`pixel-input-sm w-full font-mono leading-snug resize-y ${compiled.error ? "pr-8" : "pr-6"}`}
-                    />
-                  )}
-                  {scoreLoading
-                    ? <span className="absolute right-1.5 top-2 text-[12px] text-amber-400 pointer-events-none animate-pulse" title="Loading the in-browser Python runtime and compiling your function">PY…</span>
-                    : compiled.error
-                      ? <span
-                          title={compiled.error}
-                          className="absolute right-1.5 top-2 text-[12px] text-red-400 pointer-events-none"
-                        >ERR</span>
-                      : <span className="absolute right-1.5 top-2 text-[12px] text-green-500 pointer-events-none">&#10003;</span>}
-                </div>
-                <button
-                  onClick={() => setFormula(DEFAULT_FORMULA)}
-                  title="Back to the default score"
-                  className="pixel-btn text-[12px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0"
-                >
-                  RST
-                </button>
               </div>
+
+              {/* The editor, full width — the one thing on this panel you
+                  actually type into, so it gets the whole row. */}
+              {scoreLang === "expr" && !formula.includes("\n") ? (
+                <input
+                  ref={formulaRef as React.RefObject<HTMLInputElement | null>}
+                  type="text"
+                  value={formula}
+                  onChange={(e) => setFormula(e.target.value)}
+                  onKeyDown={onEnter}
+                  spellCheck={false}
+                  placeholder={DEFAULT_FORMULA}
+                  title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type. Or press JS ƒ / PY ƒ to write a full function."
+                  className={`pixel-input-sm w-full font-mono ${compiled.error ? "border-red-400/60" : ""}`}
+                />
+              ) : (
+                <textarea
+                  ref={formulaRef as React.RefObject<HTMLTextAreaElement | null>}
+                  value={formula}
+                  onChange={(e) => setFormula(e.target.value)}
+                  spellCheck={false}
+                  rows={Math.min(12, Math.max(4, formula.split("\n").length + 1))}
+                  placeholder={PY_FN_TEMPLATE}
+                  title="Your score function. Return a number to rank the trader — return null / None to hide them from the board."
+                  className={`pixel-input-sm w-full font-mono leading-snug resize-y ${compiled.error ? "border-red-400/60" : ""}`}
+                />
+              )}
 
               {compiled.error && (
                 <div className="font-mono text-[11px] text-red-400 whitespace-pre-wrap break-words">
@@ -1578,7 +1594,7 @@ export default function CopyTrading({
                   beside it is a guessing game — and clicking one writes it,
                   so the row doubles as the way in. */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0">VARIABLES</span>
+                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]">VARIABLES</span>
                 {FORMULA_VARS.map((v) => (
                   <button
                     key={v}
@@ -1591,7 +1607,13 @@ export default function CopyTrading({
                 ))}
               </div>
 
-              <div className="text-[11px] text-pixel-gray leading-snug">
+              {/* Or skip all of the above: say what you want ranked on top
+                  and let the agent write it. The answer drops into the same
+                  box and compiles through the same path — ERR if it's wrong,
+                  never a silent bad ranking. */}
+              <ScoreAsk formula={formula} setFormula={setFormula} days={days} />
+
+              <div className="text-[11px] text-pixel-gray leading-snug border-t border-pixel-border/60 pt-2">
                 {scoreLang === "expr" ? (
                   <>Ranked on this expression, biggest first. + SAVE keeps it as
                   your own chip on every board. Press <span className="font-mono">JS &fnof;</span> or{" "}
@@ -1602,10 +1624,7 @@ export default function CopyTrading({
                   trader: <span className="text-pixel-gray-light">return a number</span> = their score
                   (ranked biggest first) · <span className="text-pixel-gray-light">return {scoreLang === "py" ? "None" : "null"}</span> = the
                   trader is hidden from the board.
-                  {scoreLang === "py" && " Name any of the variables as parameters — def score(pnl, volume): — or take one argument and read it as a dict."}
-                  {scoreHidden > 0 && (
-                    <span className="text-amber-400"> Hiding {scoreHidden.toLocaleString()} trader{scoreHidden === 1 ? "" : "s"} right now.</span>
-                  )}</>
+                  {scoreLang === "py" && " Name any of the variables as parameters — def score(pnl, volume): — or take one argument and read it as a dict."}</>
                 )}
                 {!scorePreset && serverScoreSort && (
                   <>

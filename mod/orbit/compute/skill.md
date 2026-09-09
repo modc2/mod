@@ -156,6 +156,18 @@ committed). No route or tool ever returns a key.
 Public reads that need no key at all: search on vast, clore, lium, targon,
 akash, nosana, aleph, cathedral, polaris, runpod, shadeform.
 
+## Connect (no-KYC accounts in one call)
+
+`m compute/connect` (owner-only). The permissionless markets have no signup —
+the account is a keypair — so for the wallet-custody ones (akash→cosmos,
+nosana→solana, aleph→evm) this generates a real self-custody wallet locally in
+pure stdlib, stores the secret 0600 at `~/.mod/compute/wallets.json`, and hands
+back only the address to fund (pass `reveal=true` for the private key). The
+key-custody markets (targon, lium, vast, clore) can't be created by code, so
+`connect` returns a `web_agent` task (throwaway alias → mint key → `set_key`)
+that a browser agent or the owner runs to make the account privately. It never
+funds or spends anything.
+
 ## When the shared surface isn't enough
 
 `m compute/raw provider=lium path=/volumes` calls that provider's own API with

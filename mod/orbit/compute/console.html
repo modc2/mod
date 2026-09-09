@@ -687,6 +687,21 @@
 
 <!-- ── KEYS ───────────────────────────────────────────────────────────── -->
 <section id="keys">
+  <div class="bar" style="margin-bottom:8px">
+    <button class="go" onclick="connect()">SET UP NO-KYC ACCOUNTS</button>
+    <label class="dimtxt" style="display:flex;align-items:center;gap:5px">
+      <input type="checkbox" id="c-reveal" style="min-width:0"> show private keys</label>
+    <span class="flash" id="c-flash"></span>
+  </div>
+  <p class="note">One click gets you an account on every permissionless market. The
+     wallet-custody markets (Akash, Nosana, Aleph) have no signup &mdash; a
+     <b>self-custody wallet is generated locally</b>, its secret written
+     <code>0600</code> to <code>~/.mod/compute/wallets.json</code> and never returned
+     unless you tick <i>show private keys</i>. Fund the address it hands back and the
+     market is usable. The key-custody markets can't be created by code &mdash; you
+     (or a browser agent) make the account privately, then <code>set_key</code> drops
+     the key in. Owner-only: set the token in the header first.</p>
+  <div id="c-out" class="cards"></div>
   <p class="note">Keys stay in this browser tab (sessionStorage) and ride along as an
      <code>x-compute-keys</code> header. They are never written to the server.
      To store one on the box instead, use <code>m compute/set_key provider=&hellip; key=&hellip;</code>.</p>
@@ -1660,6 +1675,34 @@ async function keysPanel() {
     </div>
     <div class="note">${esc(p.key_hint || '')}</div>
   </div>`).join('');
+}
+async function connect() {
+  const flash = document.getElementById('c-flash');
+  const out = document.getElementById('c-out');
+  const reveal = document.getElementById('c-reveal').checked;
+  if (!token) { flash.textContent = 'set the owner token first (header, top-right)'; return; }
+  flash.textContent = 'connecting…'; out.innerHTML = '';
+  try {
+    const d = await post('/connect', {reveal, web_agent: true});
+    flash.textContent = d.summary;
+    const wallets = d.connected.filter(c => c.custody === 'wallet').map(w => `<div class="card">
+      <h3>${esc(w.provider)} <span class="faint">${esc(w.chain)} wallet</span>
+        <span class="chip hot">${w.minted ? 'new' : 'existing'}</span></h3>
+      <div class="row"><span>address</span><b class="hotv" style="cursor:pointer"
+        title="copy" onclick="navigator.clipboard.writeText('${esc(w.address)}')">${esc(w.address)}</b></div>
+      <div class="row"><span>fund with</span><b>${esc(w.fund_with || '')}</b></div>
+      ${w.secret ? `<div class="row"><span>private key</span><b class="dimtxt" style="word-break:break-all">${esc(w.secret.private_key || w.secret.private_key_base58 || '')}</b></div>` : ''}
+      <div class="note">${esc(w.import || '')}</div></div>`);
+    const keyed = d.connected.filter(c => c.custody === 'byok').map(k => `<div class="card">
+      <h3>${esc(k.provider)} <span class="chip hot">keyed</span></h3>
+      <div class="note">account already connected on the box</div></div>`);
+    const pending = d.pending.map(p => `<div class="card">
+      <h3>${esc(p.provider)} <span class="chip warn">needs account</span></h3>
+      <div class="row"><span>sign up</span><a href="${esc(p.signup)}" target="_blank" rel="noopener">${esc(p.signup)}</a></div>
+      <div class="note">${esc((p.web_agent && p.web_agent.private) || '')}<br>then: <code>${esc(p.set_key)}</code></div></div>`);
+    out.innerHTML = wallets.concat(keyed, pending).join('') || '<p class="note">nothing to connect.</p>';
+    keysPanel();
+  } catch (e) { flash.textContent = e.message; }
 }
 function saveKey(name) {
   const el = document.getElementById('key-' + name);

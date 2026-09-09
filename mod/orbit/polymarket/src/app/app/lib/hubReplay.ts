@@ -106,6 +106,31 @@ export function forwardVerdict(
   return next.pnl > 0 ? "recovered" : "no-edge";
 }
 
+/** The TRAIN/TEST half of a card: the SAME window as the headline, replayed
+ *  with every trader stat frozen at the window's start.
+ *
+ *  The headline replay ranks and scores traders on a 30d record that includes
+ *  the very days it is scoring — the FILTER "knew" who was about to have a
+ *  good week. This replay doesn't: the roster is picked, and every edge is
+ *  priced, on [statsFrom, statsTo] only (statsTo = the window start), then
+ *  traded through the window blind. "How much would I have made over the last
+ *  N days, filtering on the M-to-(t−N) record" — this number, not the
+ *  headline, is the deployable one. */
+export interface HoldoutCheck {
+  /** Train window (ms epoch): the only data the roster pick and the scoring
+      saw. `statsTo` is where the card's replay window starts. */
+  statsFrom: number;
+  statsTo: number;
+  /** Test window length in days — same as the card's. */
+  days: number;
+  /** The holdout replay: same flow, honestly-picked roster. */
+  pnl: number;
+  roi: number;
+  trades: number;
+  /** Profitable out-of-sample (traded, and pnl > 0). */
+  ok: boolean;
+}
+
 /** How much price data an origination replay stood on — the JSON-safe half of
     `PriceTape` (its `series`/`resolved` are far too big for a card). */
 export interface TapeCoverage {
@@ -162,6 +187,11 @@ export interface HubBacktest {
       the caller asked for a bare replay (or on snapshots written before the
       check existed) — a card must then say "unchecked", never "held". */
   forward?: ForwardCheck;
+  /** TRAIN/TEST SPLIT: the same window replayed with the trader stats frozen
+      at its start — see `HoldoutCheck`. Absent on origination-only strats
+      (no trader stats to leak), on windows too long to leave a disjoint
+      train window inside the 30-day feed, and on older snapshots. */
+  holdout?: HoldoutCheck;
   /** For an ORIGINATING strat: what price data the replay actually had. A
       candle tape capped by the fetch budget covers the window's tail, not the
       whole window, and a card that hides that is claiming a day of evidence it
@@ -246,6 +276,14 @@ export interface ReplayOpts {
       same 30-day feed already in hand. An originating strat does pay for it:
       its price tape is per-window. */
   forward?: boolean;
+  /** Also replay the card's own window with the trader stats frozen at its
+      start — the train/test split (default true). CPU-only, like `forward`:
+      same feed, same tape, third replay. */
+  holdout?: boolean;
+  /** The M in "filter on [t−M, t−N]": how far back the frozen stats may look
+      (default MAX_LOOKBACK_DAYS = 30, the feed's own ceiling). The train
+      window is then [t−M, t−N] for an N-day card. */
+  holdoutLookbackDays?: number;
   /** Markets an origination tape may fetch history for (lib/momentumTape.ts).
       The worker passes a bigger budget than the browser — it has nobody
       waiting and reads through the API's own disk cache. */
@@ -295,6 +333,8 @@ export async function backtestTemplate(
     // would churn the signature for nothing.
     return await backtestOne(templateIndex(t, roster, 0), days, cache, opts.loader, opts.resolve, {
       forward: opts.forward,
+      holdout: opts.holdout,
+      holdoutLookbackDays: opts.holdoutLookbackDays,
       tapeBudget: opts.tapeBudget,
     });
   } catch {
@@ -325,7 +365,13 @@ export async function backtestOne(
   cache: Map<string, Promise<TraderFeed>>,
   loader: FeedLoader = traderFeed,
   resolve?: LegResolver,
-  opts: { forward?: boolean; tapeBudget?: number } = {},
+  opts: {
+    forward?: boolean; holdout?: boolean; holdoutLookbackDays?: number; tapeBudget?: number;
+    /** End the replay window HERE instead of at the wall clock. This is what
+        lets a caller replay a PAST window — the AUTO COPY board's train half
+        ends where its test half begins, so the two can never share a day. */
+    asOf?: number;
+  } = {},
 ): Promise<HubBacktest | null> {
   const watchlist = idx.traders.filter((t) => t.enabled !== false).map((t) => t.address);
   // An ORIGINATING strat has nothing to copy by design — that used to end the
@@ -361,7 +407,7 @@ export async function backtestOne(
   const traderBankrolls = await fetchTraderBankrolls(watchlist);
   const p = stratBacktestParams(idx);
 
-  const now = Date.now();
+  const now = opts.asOf ?? Date.now();
   const windowMs = days * 86400_000;
   const wantForward = opts.forward !== false;
   // Ask about every market EITHER window touches, not just the ones the strat
@@ -389,7 +435,9 @@ export async function backtestOne(
 
   // One window, one replay. `asOf` is what makes the second call honest: the
   // prior window is replayed as if the engine were standing at its end.
-  const replay = (asOf: number) => runBacktest({
+  // `extra` is what makes the THIRD call honest: the holdout pass re-runs the
+  // card's own window with the trader stats frozen at its start.
+  const replay = (asOf: number, extra?: { statsAsOf: number; statsWindowDays: number }) => runBacktest({
     tape: tapes.get(asOf),
     watchlist,
     traderTrades,
@@ -406,6 +454,7 @@ export async function backtestOne(
     days,
     asOf,
     ...p,
+    ...extra,
   }).sim;
 
   const roiOf = (pnl: number) =>
@@ -431,6 +480,29 @@ export async function backtestOne(
     };
   }
 
+  // TRAIN/TEST SPLIT — the card's own window again, roster picked blind.
+  // Only for strats that copy traders: an origination strat has no trader
+  // stats to leak. And only when the 30-day feed leaves a real train window
+  // behind the test one — a 30d card has nothing disjoint to train on.
+  let holdout: HoldoutCheck | undefined;
+  if (opts.holdout !== false && watchlist.length > 0) {
+    const lookback = Math.min(opts.holdoutLookbackDays ?? MAX_LOOKBACK_DAYS, MAX_LOOKBACK_DAYS);
+    const statsWindowDays = lookback - days;
+    if (statsWindowDays > 0) {
+      const statsAsOf = now - windowMs;
+      const h = replay(now, { statsAsOf, statsWindowDays });
+      holdout = {
+        statsFrom: statsAsOf - statsWindowDays * 86400_000,
+        statsTo: statsAsOf,
+        days,
+        pnl: h.netPnl,
+        roi: roiOf(h.netPnl),
+        trades: h.rows.length,
+        ok: h.rows.length > 0 && h.netPnl > 0,
+      };
+    }
+  }
+
   return {
     pnl: sim.netPnl,
     roi: roiOf(sim.netPnl),
@@ -445,6 +517,7 @@ export async function backtestOne(
     curve: thinCurve(sim.equityHistory),
     settlement: sim.settlement,
     forward,
+    holdout,
     tape: tape && {
       mode: tape.mode,
       markets: tape.markets,
@@ -460,7 +533,9 @@ export async function backtestOne(
     note: sim.rows.length === 0
       ? (tape && tape.markets === 0 ? (tape.note ?? "no price tape for this window") : emptyNote(sim.funnel))
       : undefined,
-    at: now,
+    // Wall clock, not `now`: with `asOf` set the window ends in the past, but
+    // `at` is when the replay RAN — freshness checks read it.
+    at: Date.now(),
     sig: signature(idx, days),
   };
 }

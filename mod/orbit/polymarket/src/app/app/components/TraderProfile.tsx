@@ -904,6 +904,15 @@ export default function TraderProfile({
             </div>
           )}
 
+          {/* The curve leads — "does this trader make money?" is the question
+              this page is open to answer, so it draws before the banners,
+              stat tiles and simulator. */}
+          {pnlCurve.length > 0 && (
+            <div className="pixel-panel overflow-hidden">
+              <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={filterActive} />
+            </div>
+          )}
+
           {/* Not a failure — a ceiling. Polymarket's activity feed refuses to
               page past 5,500 rows for any wallet, and the traders worth
               copying are exactly the ones who blow through that inside the
@@ -1311,26 +1320,25 @@ export default function TraderProfile({
                 )}
               </>
             ) : profileTab === "pnl" ? (
-              <div className="p-0">
-                {pnlCurve.length > 0 ? (
-                  <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={filterActive} />
-                ) : (
-                  <div className="p-8 text-center">
-                    <div className="text-[16px] text-pixel-gray-light tracking-wider mb-2">
-                      {`${dayLabel} P&L CURVE`}
-                    </div>
-                    <div className="text-[15px] text-pixel-gray">
-                      {tradesError
-                        ? "TRADE FEED UNAVAILABLE — RETRY SYNC ABOVE"
-                        : filterActive
-                        ? "NO MATCHING TRADES — TRY A DIFFERENT FILTER"
-                        : positions.length > 0
-                        ? "NO TRADES IN WINDOW — CHECK POSITIONS TAB"
-                        : "NO TRADE DATA"}
-                    </div>
+              /* The curve itself lives at the top of the page now — this tab
+                 holds the breakdowns (activity, extremes, per-market results)
+                 rendered below the panel. */
+              pnlCurve.length > 0 ? null : (
+                <div className="p-8 text-center">
+                  <div className="text-[16px] text-pixel-gray-light tracking-wider mb-2">
+                    {`${dayLabel} P&L CURVE`}
                   </div>
-                )}
-              </div>
+                  <div className="text-[15px] text-pixel-gray">
+                    {tradesError
+                      ? "TRADE FEED UNAVAILABLE — RETRY SYNC ABOVE"
+                      : filterActive
+                      ? "NO MATCHING TRADES — TRY A DIFFERENT FILTER"
+                      : positions.length > 0
+                      ? "NO TRADES IN WINDOW — CHECK POSITIONS TAB"
+                      : "NO TRADE DATA"}
+                  </div>
+                </div>
+              )
             ) : (
               /* ── INFO — who this trader is, and how the numbers above
                  were built. Everything here honors the same filters. ── */

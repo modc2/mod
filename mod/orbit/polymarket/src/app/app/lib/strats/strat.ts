@@ -91,6 +91,12 @@ export interface StratHistory {
   cycle: number;
   /** Clock at history assembly (ms epoch). */
   now: number;
+  /** Clock the trader stats (and the FILTER's staleness gate) were computed
+      at. Live it equals `now`; a HOLDOUT backtest freezes it at the replay
+      window's START, so the roster is the one you'd have picked before the
+      window began — judged for freshness at pick time, not against a clock
+      N days after the stats stop. Absent ⇒ `now`. */
+  statsNow?: number;
   /** CLOB price history for candidate markets — fetched by the engine only
       when the strat asks for it (`wantsMarketPrices()`, i.e. momentum
       strats). Absent everywhere else. */
@@ -471,7 +477,9 @@ export class Strat {
     const addresses = history.watchlist.length > 0
       ? history.watchlist.map((t) => t.address)
       : Object.keys(history.traderStats);
-    const rows = rankTraders(addresses, history.traderStats, this.params.filter, history.now);
+    const rows = rankTraders(
+      addresses, history.traderStats, this.params.filter, history.statsNow ?? history.now,
+    );
     const kept = new Set(rows.filter((r) => r.kept).map((r) => r.address));
     this.rankCache = { history, rows, kept };
     return this.rankCache;

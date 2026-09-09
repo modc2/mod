@@ -1,6 +1,6 @@
 {
     "name": "polymarket",
-    "version": "2.7.0",
+    "version": "2.8.0",
     "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. Three tabs: STRATS, TRADERS, TEST & LIVE; topping up and taking money out live in the side panel. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
     "port": 50091,
     "app_port": 3091,

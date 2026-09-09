@@ -27,6 +27,7 @@ import time
 
 import geo
 import providers as P
+import wallet
 from providers.base import ProviderError
 
 # A rental keeps billing after the agent stops paying attention, so anything
@@ -273,6 +274,93 @@ class Hub:
                     if isinstance(v, dict) and isinstance(v.get('balance_usd'), (int, float)))
         return {'balances': out, 'total_usd': round(total, 2),
                 'note': 'each balance is on that provider\'s own account'}
+
+    # ── connect (self-custody onboarding) ─────────────────────────────
+
+    def connect(self, providers=None, kyc='none', reveal=False, web_agent=False):
+        """Get the caller an account on every no-KYC market, in one call.
+
+        There are two ways to be "an account" on a permissionless market, and
+        this splits on which one the provider uses:
+
+          * **wallet-custody** (Akash, Nosana, Aleph) — there is no signup at
+            all; the account is a keypair. We generate one locally, store the
+            secret 0600 off-tree, and hand back only the address to fund. This
+            is a real, private account created without touching anyone's site.
+          * **key-custody** (Targon, Lium, Vast, Clore) — a key comes from an
+            account on the provider's own site, which code can't conjure. If a
+            key is already stored the provider is `ready`; otherwise we return
+            a `web_agent` task the owner (or a browser agent) can run to make
+            the account privately, then `set_key` drops the key into place.
+
+        Never spends anything and never funds anything — it hands back the
+        addresses and the exact next step, so the human decides what to fund.
+        """
+        pool = P.every(self.keys, names=providers, kyc=(kyc or None))
+        if providers and not pool:
+            raise ProviderError(f'no provider matches {providers}')
+        wallets, keyed, pending, skipped = [], [], [], []
+        for p in pool:
+            if p.name in wallet.CHAINS:
+                w, minted = wallet.ensure(p.name)
+                entry = {'provider': p.name, 'custody': 'wallet', 'status': 'ready',
+                         'chain': w['chain'], 'address': w['address'],
+                         'fund_with': w.get('fund_with'), 'import': w.get('import'),
+                         'minted': minted}
+                if reveal:
+                    entry['secret'] = w['secret']
+                wallets.append(entry)
+            elif p.custody == 'byok':
+                if p.has_key():
+                    keyed.append({'provider': p.name, 'custody': 'byok',
+                                  'status': 'ready'})
+                else:
+                    pending.append({'provider': p.name, 'custody': 'byok',
+                                    'status': 'needs_account', 'signup': p.signup,
+                                    'set_key': f'm compute/set_key provider={p.name} key=…',
+                                    'web_agent': self._web_agent_task(p)})
+            else:
+                skipped.append({'provider': p.name, 'custody': p.custody,
+                                'note': 'not a public market — nothing to connect'})
+        steps = [f'fund {w["provider"]}: send {w["fund_with"]} to {w["address"]}'
+                 for w in wallets]
+        steps += [f'create {p["provider"]} account → {p["signup"]} → {p["set_key"]}'
+                  for p in pending]
+        return {
+            'connected': wallets + keyed,
+            'pending': pending,
+            'skipped': skipped,
+            'wallet_file': wallet.STORE,
+            'reveal': reveal,
+            'summary': f'{len(wallets)} wallet(s) ready, {len(keyed)} keyed, '
+                       f'{len(pending)} awaiting a provider account',
+            'next_steps': steps,
+            'note': ('secrets are stored 0600 at ~/.mod/compute/wallets.json and '
+                     'never returned unless you pass reveal=true; fund the '
+                     'addresses above and the wallet markets are usable'),
+            'web_agent': ([self._web_agent_task(P.get(p['provider'], self.keys))
+                           for p in pending] if web_agent else None),
+        }
+
+    def _web_agent_task(self, p):
+        """A private-signup plan a browser agent (or the owner) can execute.
+
+        Deliberately a description, not a claim that a bot ran: creating an
+        account on a third party's site is theirs to allow, and the secret it
+        yields is the owner's to place. Hand this to a headless browser agent
+        (e.g. the `wingman` module) to do it without the owner in the loop.
+        """
+        return {
+            'goal': f'create a {p.title} account and return its API key',
+            'signup': p.signup,
+            'private': 'use a fresh throwaway email / masked alias; no ID is required '
+                       '(this is a no-KYC market)',
+            'steps': [f'open {p.signup}',
+                      'register with a throwaway email, confirm it',
+                      'open the API-keys settings and mint a key',
+                      f'store it: m compute/set_key provider={p.name} key=<KEY>'],
+            'then': f'compute_connect will report {p.name} as ready',
+        }
 
     # ── keys / escape hatch ───────────────────────────────────────────
 

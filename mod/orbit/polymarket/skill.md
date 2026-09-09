@@ -162,9 +162,29 @@ src/app/app/lib/copyLadder.ts   one leader replayed at several $ — feed/bankro
 src/app/app/components/DeskAllocationChart.tsx  WHERE THE MONEY IS: $ per trader as bars with the backtest at that $, click → replay at $N + ladder
 src/app/app/lib/copyBook.ts    its client; one function per route, no local state
 src/app/app/lib/server/hubWorker.ts  the backtest worker; reads /copy/strats each pass
+src/app/app/lib/server/autoCopy.ts  AUTO COPY: every pass copy-trade-replays each current top-PnL trader (identity strat each) over a train→test split — TRAIN [now−(train+test)d, now−test d] picks, TEST [now−test d, now] proves; back-to-back so they can't overlap; defaults 20d+10d = 30 days back, last 10 the backtest. Settings + cards at /api/hub/autocopy (owner Bearer); board renders under the BACKTEST tab (components/AutoCopyBoard.tsx)
 src/mcp.py                     pm_copy_* — the same routes, for agents
 src/api/src/live_engine.rs     what actually mirrors a fill (6.5k lines)
+src/app/app/lib/server/lab.ts  STRAT LAB: candidate bench + the headless agent runner
+src/app/app/api/lab/route.ts   /api/lab — start/watch/stop runs, ?candidate=1 = bench
+src/app/app/components/StratLab.tsx  sidebar LAB block: run feed, verdict, ADOPT
 ```
+
+## STRAT LAB
+
+`pm_lab_start` spawns a headless `claude` agent whose only tools are this
+module's read-only MCP tools plus `pm_lab_backtest` — a bench that replays an
+ARBITRARY candidate param set (never a saved strat) over the worker's cached
+feeds with fees, entry funnel and walk-forward. The agent surveys existing
+backtests, researches the leaderboard, designs candidates and iterates until
+the evidence clears a stated confidence bar (walk-forward `held` on 2+
+windows, positive net-of-fee ROI including 7d, ≥10 trades, no warming feeds)
+— or reports `confident: false` honestly. Runs stream to
+`~/.mod/polymarket/lab/runs/`; `pm_lab_runs` reads them back. The agent can
+place no orders and write no strats — ADOPT in the sidebar is the only path
+from verdict to strat, and the adopted strat starts paused. Auth: the spawn
+pins `/usr/local/bin/claude` (npx's PATH shadows a stale copy) and reads a
+long-lived OAuth token from `~/.mod/polymarket/claude_oauth_token`.
 
 ## The identity template
 

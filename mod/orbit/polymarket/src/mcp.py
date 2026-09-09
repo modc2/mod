@@ -411,6 +411,20 @@ def _t_backtests(args):
                 'prior_window': [(bt.get('forward') or {}).get('from'),
                                  (bt.get('forward') or {}).get('to')],
             } if bt.get('forward') else None,
+            # TRAIN/TEST SPLIT. The same window replayed with the trader stats
+            # frozen at its START: the roster is picked (and every edge priced)
+            # on the earlier record only, then the window is traded blind.
+            # `pnl` above lets the FILTER rank traders on days it is scoring —
+            # holdout.pnl is the deployable number; pnl − holdout.pnl is what
+            # peeking at the window was worth to the trader selection.
+            'holdout': {
+                'pnl': (bt.get('holdout') or {}).get('pnl'),
+                'roi': (bt.get('holdout') or {}).get('roi'),
+                'trades': (bt.get('holdout') or {}).get('trades'),
+                'profitable': (bt.get('holdout') or {}).get('ok'),
+                'stats_window': [(bt.get('holdout') or {}).get('statsFrom'),
+                                 (bt.get('holdout') or {}).get('statsTo')],
+            } if bt.get('holdout') else None,
             'funnel': {'observed': f.get('observed'), 'copied': f.get('executed'),
                        'blocked_by_filters': f.get('gated'), 'outranked': f.get('outranked'),
                        'unplaceable': f.get('skipped'), 'reasons': f.get('reasons')} if f else None,
@@ -436,6 +450,32 @@ def _t_backtest_run(args):
     if args.get('wait') is False:
         return _post(_hub('?run=1'))
     return _post(_hub(), method='PUT')
+
+
+def _lab(path: str = '') -> str:
+    return f'{APP_URL}{BASE_PATH}/api/lab{path}'
+
+
+def _t_lab_backtest(args):
+    """The STRAT LAB bench: replay one CANDIDATE param set (not a saved strat)
+       over the server's cached trader feeds, walk-forward included. Publishes
+       nothing — pure experiment."""
+    params = args.get('params')
+    if not isinstance(params, dict):
+        raise ValueError('params required — the candidate strat as an object '
+                         '(traders: [0x…], capital, minTrade, …)')
+    windows = args.get('windows') or [1]
+    # Cold traders can force inline backfills; give the bench real time.
+    return _post(_lab('?candidate=1'), {'params': params, 'windows': windows}, timeout=900)
+
+
+def _t_lab_start(args):
+    return _post(_lab(), {k: args[k] for k in ('goal', 'maxExperiments') if args.get(k) is not None})
+
+
+def _t_lab_runs(args):
+    rid = str(args.get('id') or '').strip()
+    return _get(_lab(f'?id={urllib.parse.quote(rid)}' if rid else ''), timeout=30)
 
 
 def _t_live_sessions(args):
@@ -657,6 +697,7 @@ def _t_copy_backtest(args):
     f = bt.get('funnel') or {}
     s = bt.get('settlement') or {}
     fwd = bt.get('forward') or {}
+    hold = bt.get('holdout') or {}
     return {
         'address': addr, 'strategyId': sid, 'days': bt.get('days'),
         'addedToDesk': added,
@@ -669,6 +710,10 @@ def _t_copy_backtest(args):
         # tested on a window it didn't get to see. `held` is the only pass.
         'walkForward': {'verdict': fwd.get('verdict'), 'confirmed': fwd.get('ok'),
                         'priorPnl': fwd.get('pnl'), 'priorTrades': fwd.get('trades')} if fwd else None,
+        # Same window, roster picked blind (trader stats frozen at the window
+        # start) — pnl minus holdout.pnl is train/test-overlap inflation.
+        'holdout': {'pnl': hold.get('pnl'), 'roi': hold.get('roi'),
+                    'trades': hold.get('trades'), 'profitable': hold.get('ok')} if hold else None,
         # How much of the leader's flow this actually copies, and what blocked
         # the rest. A leader whose entries are all gated is not a leader this
         # desk can copy, whatever their own P&L says.
@@ -1119,7 +1164,11 @@ TOOLS = {
                        'with no knowledge of this one, and the verdict of the pair — '
                        'held / faded / recovered / no-edge / stalled / untested. Only '
                        'forward.confirmed means "made money then, and still is"; ranking by '
-                       'pnl alone ranks by a single window.',
+                       'pnl alone ranks by a single window. Each also carries HOLDOUT: the '
+                       'same window replayed with trader stats frozen at its start (roster '
+                       'picked on the earlier record only — no train/test overlap). '
+                       'holdout.pnl is the deployable number; pnl − holdout.pnl is what '
+                       'peeking at the window was worth to the trader selection.',
         'inputSchema': {'type': 'object', 'properties': {
             'days': {'type': 'integer', 'description': 'window in days (default 1 — what the worker runs)'},
             'strat': {'type': 'string', 'description': 'filter by strat id / template slug (optional)'},
@@ -1138,6 +1187,50 @@ TOOLS = {
                         'description': 'fetch newer trader history before replaying (default false)'},
         }},
         'handler': _t_backtest_run,
+    },
+    'pm_lab_backtest': {
+        'description': 'STRAT LAB bench: backtest a CANDIDATE parameter set — not a saved '
+                       'strat — over the server\'s cached trader feeds, one result per '
+                       'window, each with fees, entry funnel and a walk-forward verdict '
+                       '(only "held" passes). Nothing is published or changed. `warming` '
+                       'lists traders with no cached history yet — their part of the pnl is '
+                       'a FLOOR; a fetch was queued, retest in a few minutes.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'params': {'type': 'object', 'description': 'the candidate: {name, traders: '
+                                                        '["0x…"], capital, minTrade, maxTrade, '
+                                                        'maxPerCycle, stopLoss, takeProfit, '
+                                                        'marketQuery, tradeFilters, filter, '
+                                                        'momentum, …} — same fields a saved '
+                                                        'strat has'},
+            'windows': {'type': 'array', 'items': {'type': 'integer'},
+                        'description': 'windows in days, from 1|3|7|14|30, max 3 (default [1])'},
+        }, 'required': ['params']},
+        'handler': _t_lab_backtest,
+    },
+    'pm_lab_start': {
+        'description': 'Start the STRAT LAB agent: a background run that researches the '
+                       'leaderboard, designs candidate strats, backtests each on the lab '
+                       'bench and iterates until the data clears a stated confidence bar '
+                       '(walk-forward held on 2+ windows, positive net-of-fee ROI incl. 7d, '
+                       'enough trades) — or reports confident:false honestly. One run at a '
+                       'time; poll pm_lab_runs for progress and the final verdict. Adopting '
+                       'the winner is a human action in the console.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'goal': {'type': 'string', 'description': 'what to optimize for, in words '
+                                                      '(optional — default: best copy-index '
+                                                      'the data supports)'},
+            'maxExperiments': {'type': 'integer', 'description': 'experiment budget before it '
+                                                                'must conclude (default 12)'},
+        }},
+        'handler': _t_lab_start,
+    },
+    'pm_lab_runs': {
+        'description': 'STRAT LAB runs: the list (id, goal, status, confident?) or, with '
+                       '`id`, one run\'s streamed steps and final verdict JSON.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': {'type': 'string', 'description': 'run id, e.g. lab_mf1x2y (optional)'},
+        }},
+        'handler': _t_lab_runs,
     },
     'pm_live_sessions': {
         'description': 'Live copy-engine sessions for the owner wallet: which strats are '
