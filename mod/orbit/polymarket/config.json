@@ -1,7 +1,7 @@
 {
     "name": "polymarket",
     "version": "2.9.0",
-    "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. Three tabs: STRATS, TRADERS, TEST & LIVE; topping up and taking money out live in the side panel. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
+    "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. One trader board plus a side panel whose rail is INDEX (money + allocation across strats) · STRATS (create, build and share strats — private by default, publishable to the community gallery) · BACKTEST · LIVE. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
     "port": 50091,
     "app_port": 3091,
     "urls": {

@@ -29,8 +29,8 @@
 // the #1 support question and a silently-dry-run session as its #1 cause.
 
 import { updateIndex } from "./indexStore";
-import { startLiveSessionDetailed } from "./liveSessions";
-import { startCopying, upsertAllocation } from "./copyBook";
+import { startLiveSessionDetailed, stopLiveSession } from "./liveSessions";
+import { startCopying, stopCopying, upsertAllocation } from "./copyBook";
 import type { SavedIndex } from "./types";
 
 /** One fundable line: a saved strat, or a leader in the COPY DESK's book. */
@@ -122,6 +122,94 @@ async function depositOne(eoa: string, row: FundRow, amountUsd: number): Promise
   } catch (e) {
     return { ...base, ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+export interface AdjustOutcome {
+  ok: boolean;
+  /** The allocation the row carries after the adjustment (USD). */
+  allocated: number;
+  /** True when the adjustment took the session down (withdrew to $0). */
+  stopped?: boolean;
+  error?: string;
+}
+
+/** Move one row's allocation by `deltaUsd` — positive is a DEPOSIT, negative a
+ *  WITHDRAW. Built for the single-trader case ("put $50 behind this trader /
+ *  take $50 back out"), but the mechanics are row-kind generic.
+ *
+ *  The two verbs are deliberately NOT symmetric:
+ *
+ *   • DEPOSIT re-arms at the new size with REAL orders, exactly like
+ *     `depositOne` — funding is arming, and a deposit that silently left the
+ *     session in DRY RUN is this console's #1 support question.
+ *   • WITHDRAW only ever shrinks the budget. It preserves a running session's
+ *     execution mode (`inheritExecution` / the desk's in-place reconfigure),
+ *     never resumes a stopped one, and withdrawing the whole allocation stops
+ *     the session — a $0 budget has nothing to size against.
+ *
+ *  Money already in open positions is untouched either way: the allocation is
+ *  the engine's budget, not a transfer, so withdrawing below the deployed
+ *  basis just stops new buys — cash frees as positions exit.
+ */
+export async function adjustFunding(
+  eoa: string,
+  row: FundRow,
+  deltaUsd: number,
+): Promise<AdjustOutcome> {
+  const next = usd(Math.max(0, (row.allocated ?? 0) + deltaUsd));
+  try {
+    if (row.kind === "copy") {
+      const address = row.address;
+      if (!address) return { ok: false, allocated: row.allocated, error: "row has no leader address" };
+      if (deltaUsd > 0) {
+        await upsertAllocation({ address, allocationUsd: next, enabled: true }, eoa);
+        await startCopying(eoa, { address, autoExecute: next > 0 });
+        return finish({ ok: true, allocated: next });
+      }
+      // Withdraw: stop BEFORE persisting $0 so the engine never runs a cycle
+      // against an empty budget; a partial withdraw reconfigures the running
+      // session in place (upsert preserves its execution mode).
+      const stopped = next <= 0 && row.running;
+      if (stopped) await stopCopying(eoa, address);
+      await upsertAllocation({ address, allocationUsd: next }, eoa);
+      return finish({ ok: true, allocated: next, stopped });
+    }
+
+    const strat = row.strat;
+    if (!strat) return { ok: false, allocated: row.allocated, error: "row has no strat" };
+    // Persist first, same rule as depositOne: the typed adjustment is the
+    // user's allocation whether or not the engine accepts the restart.
+    updateIndex(strat.id, { capital: next, updatedAt: Date.now() });
+    if (deltaUsd > 0) {
+      const res = await startLiveSessionDetailed(eoa, { ...strat, capital: next }, next);
+      if (res.ok) updateIndex(strat.id, { liveEnabled: true, updatedAt: Date.now() });
+      return finish({ ok: res.ok, allocated: next, error: res.error });
+    }
+    if (next <= 0) {
+      if (row.running) await stopLiveSession(eoa, strat.id);
+      updateIndex(strat.id, { liveEnabled: false, updatedAt: Date.now() });
+      return finish({ ok: true, allocated: 0, stopped: row.running });
+    }
+    if (row.running) {
+      const res = await startLiveSessionDetailed(
+        eoa,
+        { ...strat, capital: next },
+        next,
+        { inheritExecution: true },
+      );
+      return finish({ ok: res.ok, allocated: next, error: res.error });
+    }
+    // Stopped strat: the smaller allocation is saved; nothing to reconfigure.
+    return finish({ ok: true, allocated: next });
+  } catch (e) {
+    return { ok: false, allocated: row.allocated, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Repaint every mounted consumer on the way out — same event depositInto fires. */
+function finish(out: AdjustOutcome): AdjustOutcome {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("strat-updated"));
+  return out;
 }
 
 /** Fund every row in the plan, one after the other.

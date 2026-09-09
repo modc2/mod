@@ -52,6 +52,7 @@ import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 import CopyPanel from "./CopyPanel";
 import MoneyBlock, { OPEN_MONEY_EVENT } from "./MoneyBlock";
 import StratBlock, { OPEN_STRATS_EVENT } from "./StratBlock";
+import StratsTab from "./StratsTab";
 import DeskRoster from "./DeskRoster";
 import IndexBench from "./IndexBench";
 import SelectionTray from "./SelectionTray";
@@ -68,24 +69,31 @@ export const OPEN_SIDEBAR_EVENT = "poly-open-sidebar";
 // picked is the side panel's job — tab between them without ever leaving
 // the traders you're browsing. So the column carries the rail now:
 //
-//   INDEX     the account, the money, the strat list, the bench you're
-//             building and the copy book — everything "who and how much"
+//   INDEX     the account, the MONEY drawer and the ALLOCATION across your
+//             strats, plus the bench you're building and the copy book —
+//             everything "whose money and how much"
+//   STRATS    building and sharing: create/fork/rename/delete strats, the
+//             AUTO STRAT factory + STRAT LAB, and publishing — every strat
+//             is private by default, flipped public per row (StratsTab)
 //   BACKTEST  the full workspace (CopyIndex) replaying the bench on history
 //   LIVE      the same workspace against the real book
 //
 // BACKTEST/LIVE mount the SAME Workspace the old routes rendered (bare —
-// no TopBar), and the docked column WIDENS for them (data-strat-dock="wide"
-// → globals.css) because an engine built for the main pane earns more than
-// 340px. /backtest and /live survive as forwarders into these tabs.
-export type SidebarTab = "INDEX" | "BACKTEST" | "LIVE";
+// no TopBar), and the docked column WIDENS for every non-INDEX tab
+// (data-strat-dock="wide" → globals.css) because an engine — or a gallery —
+// built for the main pane earns more than 340px. /backtest, /live and
+// /strats survive as forwarders into these tabs.
+export type SidebarTab = "INDEX" | "STRATS" | "BACKTEST" | "LIVE";
 export const SIDEBAR_TAB_EVENT = "poly-sidebar-tab";
 const TAB_KEY = "poly_sidebar_tab";
-const TABS: SidebarTab[] = ["INDEX", "BACKTEST", "LIVE"];
+const TABS: SidebarTab[] = ["INDEX", "STRATS", "BACKTEST", "LIVE"];
 const TAB_HINTS: Record<SidebarTab, string> = {
-  INDEX: "Your wallets, your money, your strats and the bench of traders you picked to copy",
+  INDEX: "Your wallets, your money, and how it's allocated across your strats",
+  STRATS: "Create, build and share strats — private by default, publish to the gallery when ready",
   BACKTEST: "Replay the bench against history on simulated money — no wallet touched",
   LIVE: "Run the bench against the real book with real money",
 };
+const isSidebarTab = (t: unknown): t is SidebarTab => TABS.includes(t as SidebarTab);
 
 /** Open the side panel on a named tab from anywhere (the /backtest and /live
     forwarders use this). Persists first so a not-yet-mounted column restores
@@ -122,7 +130,7 @@ export default function UserSidebar() {
     try {
       if (mq.matches && localStorage.getItem(DOCK_KEY) !== "0") setOpen(true);
       const t = localStorage.getItem(TAB_KEY);
-      if (t === "INDEX" || t === "BACKTEST" || t === "LIVE") setTab(t);
+      if (isSidebarTab(t)) setTab(t);
     } catch {
       if (mq.matches) setOpen(true);
     }
@@ -160,23 +168,27 @@ export default function UserSidebar() {
     // that wants a specific screen of the column).
     const onTab = (e: Event) => {
       const t = (e as CustomEvent).detail;
-      if (t === "INDEX" || t === "BACKTEST" || t === "LIVE") setTabPersisted(t);
+      if (isSidebarTab(t)) setTabPersisted(t);
       setDrawer(true);
     };
-    // The money/strat/accounts blocks all live on INDEX — an ask for one of
-    // them from another tab must also bring INDEX forward, or the block
-    // expands somewhere the user can't see.
+    // The money/accounts blocks live on INDEX — an ask for one of them from
+    // another tab must also bring INDEX forward, or the block expands
+    // somewhere the user can't see.
     const onIndexBlock = () => { setTabPersisted("INDEX"); setDrawer(true); };
+    // The strat MANAGER moved to its own tab — an ask for "the strats"
+    // (AccountsPanel's shortcut, the allocation block's BUILD & SHARE link)
+    // opens STRATS, where building and sharing live now.
+    const onStratsTab = () => { setTabPersisted("STRATS"); setDrawer(true); };
     window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
     window.addEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
     window.addEventListener(OPEN_MONEY_EVENT, onIndexBlock);
-    window.addEventListener(OPEN_STRATS_EVENT, onIndexBlock);
+    window.addEventListener(OPEN_STRATS_EVENT, onStratsTab);
     window.addEventListener(SIDEBAR_TAB_EVENT, onTab);
     return () => {
       window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
       window.removeEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
       window.removeEventListener(OPEN_MONEY_EVENT, onIndexBlock);
-      window.removeEventListener(OPEN_STRATS_EVENT, onIndexBlock);
+      window.removeEventListener(OPEN_STRATS_EVENT, onStratsTab);
       window.removeEventListener(SIDEBAR_TAB_EVENT, onTab);
     };
   }, [setDrawer, setTabPersisted]);
@@ -259,12 +271,9 @@ export default function UserSidebar() {
             {/* Money first, under the wallet it belongs to: top up, take out.
                 Collapsed to one line until you want it. */}
             <MoneyBlock />
-            {/* HOW you copy, above WHO you copy: a strat is the bench plus the
-                sizing model, and the default one is a 1:1 index scaled by your
-                capital against each trader's book. The list is here because the
-                active strat is what BACKTEST and LIVE are pointed at, and a
-                console that hides which strategy is running is worse than one
-                that just shows you. */}
+            {/* ALLOCATION — how the wallet is split across your strats, the
+                active strat BACKTEST/LIVE point at, and $ ALLOCATE to move
+                money amongst them. Building and sharing live on STRATS. */}
             <StratBlock />
             {/* The active strat's bench — every + ADD from the board, each
                 with its current board SCORE, toggled or removed right here. */}
@@ -274,6 +283,10 @@ export default function UserSidebar() {
             <SelectionTray />
             {onDesk ? <DeskRoster /> : <CopyPanel />}
           </>
+        ) : tab === "STRATS" ? (
+          /* Build & share: the strat manager, the factory + lab, the public
+             gallery and the CID share path. Private by default throughout. */
+          <StratsTab />
         ) : (
           /* The full workspace, bare (no TopBar) — the same component the
              old /backtest and /live pages rendered. Keyed by tab so nothing
