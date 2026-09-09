@@ -725,8 +725,8 @@ export default function TopTraders() {
             <span>showing {fmtN(shown.length)} of {fmtN(sorted.length)}</span>
             {shown.length < sorted.length && (
               <>
-                <button className="btn" onClick={() => setVisible((v) => v + PAGE)}>
-                  +{fmtN(Math.min(PAGE, sorted.length - shown.length))} more
+                <button className="btn" onClick={() => setVisible((v) => v + PAGE[view])}>
+                  +{fmtN(Math.min(PAGE[view], sorted.length - shown.length))} more
                 </button>
                 <button className="btn" onClick={() => setVisible(sorted.length)}>show all</button>
               </>

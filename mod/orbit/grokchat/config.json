@@ -1,8 +1,8 @@
 {
     "name": "grokchat",
     "version": "0.1.0",
-    "description": "A Next.js chat app and a Python API that connect to orbit/grokbot. The Python half (:50930, stdlib only) proxies chat, models and bots to grokbot on :50890, forwards the caller's mod-protocol token and BYOK x-xai-key untouched, streams SSE through byte-for-byte, and knocks the activator if grokbot is asleep. The Next.js half (:3930, basePath /grokchat) is the chat surface: pick a model, paste a key or sign in, watch tokens stream in. Nothing is stored here — identity and keys stay grokbot's problem.",
-    "icon": "✽",
+    "description": "A Next.js chat app and a Python API that connect to orbit/grokbot. The Python half (:50930, stdlib only) proxies chat, models and bots to grokbot on :50890, forwards the caller's mod-protocol token and BYOK x-xai-key untouched, streams SSE through byte-for-byte, and knocks the activator if grokbot is asleep. The Next.js half (:3930, basePath /grokchat) is the chat surface: pick a model, paste a key or sign in, watch tokens stream in. Nothing is stored here \u2014 identity and keys stay grokbot's problem.",
+    "icon": "\u273d",
     "color": "#c4b5fd",
     "anchor": "mod.py",
     "port": 50930,
@@ -15,15 +15,15 @@
         "same_origin_api": "http://localhost:3930/grokchat/_api",
         "grokbot": "http://localhost:50890"
     },
-    "backend": "api.py — python stdlib only (http.server + urllib), proxy to grokbot",
-    "frontend": "app/ — Next.js 14, basePath /grokchat, /_api rewrite to the python API",
+    "backend": "api.py \u2014 python stdlib only (http.server + urllib), proxy to grokbot",
+    "frontend": "app/ \u2014 Next.js 14, basePath /grokchat, /_api rewrite to the python API",
     "auth": {
         "passthrough": "Authorization: Bearer <mod token> and x-xai-key are forwarded to grokbot verbatim; grokbot resolves identity and the xAI key",
         "stored_here": "nothing"
     },
     "endpoints": {
         "info": "GET /",
-        "health": "GET /health — own ok + grokbot reachability",
+        "health": "GET /health \u2014 own ok + grokbot reachability",
         "models": "GET /models?refresh=1",
         "me": "GET /me",
         "bots": "GET /bots",
@@ -48,5 +48,6 @@
     "services": [
         "grokchat-api",
         "grokchat-app"
-    ]
+    ],
+    "schema": "QmSMGjPmNumJZRZ9aw8acpeCjUZWRLjaGnFSr9waTPMUiY"
 }

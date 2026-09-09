@@ -371,10 +371,12 @@ def test_curve_is_the_window_rebased_to_zero():
     assert c["period"] == "week"
     assert c["end_ms"] - c["start_ms"] <= 7 * 86_400_000
 
-    # Drawdown is a fall, so it is never negative, never smaller than the drop
-    # from the high to the low, and never larger than the whole range.
+    # Drawdown is a fall, so it is never negative and never larger than the
+    # whole range. It CAN be far smaller than high−low: when the low comes
+    # before the high (dip first, rally after) there is no peak to fall from,
+    # so only the upper bound holds.
     assert c["max_drawdown"] >= 0
-    assert c["max_drawdown"] >= round(c["high"] - c["low"], 2) - 0.01 or c["high"] <= c["low"]
+    assert c["max_drawdown"] <= round(c["high"] - c["low"], 2) + 0.01
     assert c["low"] <= c["pnl"] <= c["high"]
 
 
@@ -393,7 +395,11 @@ def test_curve_never_answers_a_hover_with_an_error():
     # A wallet that has never traded, and an address that is not one at all:
     # both are 200s carrying `available: false` and a sentence, because this
     # endpoint decorates a row that already has its numbers.
-    for addr in ("0x0000000000000000000000000000000000000000", "not-an-address"):
+    #
+    # NOT the zero address — 0x000…0 is a real, busy Hyperliquid account
+    # (burn destination, eight-figure portfolio swings) and correctly gets a
+    # curve. A random 40-hex address is the honest "never traded" probe.
+    for addr in ("0x7c4a9f2e81b35d6a09c8e34fd12b96e0a51c7d83", "not-an-address"):
         r = requests.get(f"{API_URL}/trader/{addr}/curve", params={"days": 7}, timeout=60)
         assert r.status_code == 200, r.text[:200]
         c = r.json()
@@ -405,7 +411,9 @@ def test_curve_never_answers_a_hover_with_an_error():
 def test_curve_tool_is_public_and_bound_to_the_fn():
     doc = requests.get(f"{API_URL}/mcp/schema", timeout=10).json()
     tool = next(t for t in doc["tools"] if t["name"] == "hl_trader_curve")
-    assert tool["mod_fn"] == "trader_curve" and tool["public"] is True
+    # The schema publishes the mapping under "fn" (mcp.rs serializes
+    # `Tool.mod_fn` as "fn") — that's the wire name every client sees.
+    assert tool["fn"] == "trader_curve" and tool["public"] is True
     assert tool["inputSchema"]["required"] == ["address"]
 
 

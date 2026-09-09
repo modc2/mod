@@ -29,7 +29,7 @@ import { marketMatchesQuery } from "../lib/marketQuery";
 import { MARKET_TYPES, matchPreset } from "../lib/marketTypes";
 import { shortAddress } from "../lib/identityStrat";
 import {
-  DEFAULT_FORMULA, FORMULA_VARS, formatScore, scoreInputs, scoreIsUnknown,
+  DEFAULT_FORMULA, FORMULA_EVENT, FORMULA_VARS, formatScore, scoreInputs, scoreIsUnknown,
   loadSavedFormula, matchScorePreset, saveFormula, scorePoolSortKey, scorePoolSortLabel,
 } from "../lib/scoreFormula";
 import { useCompiledScore } from "../lib/useScore";
@@ -117,6 +117,13 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
   const [formula, setFormula] = useState<string>(DEFAULT_FORMULA);
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
+  // USE in the sidebar's SCORE MARKET (STRATS tab) broadcasts the source —
+  // adopt it live so this desk ranks on it too.
+  useEffect(() => {
+    const onFormula = (e: Event) => setFormula((e as CustomEvent<string>).detail);
+    window.addEventListener(FORMULA_EVENT, onFormula);
+    return () => window.removeEventListener(FORMULA_EVENT, onFormula);
+  }, []);
   // Expression, JS function, or Python function — same compiler as the
   // /traders board (Python runs in-browser via Pyodide). A FUNCTION score
   // also filters: scoreFor → null drops the row.

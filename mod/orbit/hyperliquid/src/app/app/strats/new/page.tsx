@@ -6,6 +6,7 @@ import {
   autoIndex, createIndex, getIndex, fetchTopTraders, IndexLeg, TopTrader, fmtPnl, shortAddr, fmtPct,
 } from "../../lib/api";
 import AuthGate from "../../components/AuthGate";
+import { Identicon, PageHead } from "../../components/BoardBits";
 
 export default function NewStratPage() {
   return <Suspense fallback={<div className="text-xs text-muted">loading…</div>}><Inner /></Suspense>;
@@ -104,15 +105,11 @@ function Inner() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="font-display font-bold text-2xl tracking-tight text-gradient">NEW STRAT</h1>
-          <p className="text-xs text-muted mt-1">
-            Pick traders, weight them into a basket, and publish it to the community. Optionally bind a private vault.
-          </p>
-        </div>
-        <button className="btn" onClick={auto}>auto-build (top 10)</button>
-      </div>
+      <PageHead
+        title="NEW STRAT"
+        blurb="Pick traders, weight them into a basket, and publish it to the community. Optionally bind a private vault."
+        right={<button className="btn-ghost" onClick={auto}>auto-build (top 10)</button>}
+      />
 
       <div className="grid md:grid-cols-[1.4fr_1fr] gap-4">
         {/* Form */}
@@ -152,6 +149,7 @@ function Inner() {
                 {legs.map((l) => (
                   <div key={l.address}
                     className="flex items-center gap-2 py-1.5 border-b border-border/60">
+                    <Identicon address={l.address} size={16} />
                     <span className="text-accent2 text-xs num">{shortAddr(l.address)}</span>
                     <input className="input w-24 num" type="number" min={0} max={1} step={0.01}
                       value={l.weight}
@@ -194,6 +192,7 @@ function Inner() {
             {filtered.map((t) => (
               <button key={t.address} onClick={() => addLeg(t.address)}
                 className="w-full text-left px-2 py-2 hover:bg-panel2 rounded flex items-center gap-3">
+                <Identicon address={t.address} size={16} />
                 <span className="text-accent2 text-xs num">{shortAddr(t.address)}</span>
                 <span className={`text-xs num ${t.pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(t.pnl)}</span>
                 <span className="text-[11px] text-muted ml-auto">

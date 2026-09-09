@@ -233,3 +233,177 @@ def test_describe_reports_params_and_risk():
     assert d["params"]["n"] == 8
     assert d["risk"]["size_pct"] == 3
     assert isinstance(StratParams(), StratParams)
+
+
+# ── Canonical schema surface (shared with polymarket) ───────────────────
+#
+# The methods below are the cross-mod contract: sync → signal → execute,
+# tick, backtest, state. Copy-family defaults are driven entirely by
+# config.watchlist + risk knobs, so CopyWallets exercises them all.
+
+from strats import (  # noqa: E402
+    BacktestResult, ExecutionResult, Order, OrderSide, StratConfig,
+    SyncResult, TickResult, TraderTrade,
+)
+
+
+def F(id, trader, coin="BTC", side=OrderSide.BUY, size=100.0, price=10.0,
+      ts=1_000, closed_pnl=0.0, fee=0.0):
+    return TraderTrade(id=id, trader=trader, timestamp=ts, coin=coin,
+                       side=side, size=size, price=price,
+                       closed_pnl=closed_pnl, fee=fee)
+
+
+def snap(trades, ts=2_000):
+    return SyncResult(timestamp=ts, trader_trades=trades,
+                      wallet_usdc=0.0, open_positions={})
+
+
+def test_resolve_watchlist_bridges_pick_leaders_to_config():
+    s = CopyWallets(["0xAAA", "0xBBB"])
+    wl = s.resolve_watchlist(hl=None)
+    assert wl == [{"address": "0xaaa", "weight": 1.0},
+                  {"address": "0xbbb", "weight": 1.0}]
+    assert s.config.watchlist is wl or s.config.watchlist == wl
+
+
+def test_default_signal_mirrors_sized_weighted_and_slippage_padded():
+    s = CopyWallets(["0xaaa"], size_pct=10)
+    s.config.watchlist = [{"address": "0xaaa", "weight": 0.5}]
+    orders = s.signal(snap([F("f1", "0xAAA", side=OrderSide.BUY, size=100, price=10)]))
+    assert len(orders) == 1
+    o = orders[0]
+    assert o.coin == "BTC" and o.side == OrderSide.BUY
+    assert o.size == pytest.approx(100 * 0.10 * 0.5)          # size_pct × weight
+    assert o.price == pytest.approx(10 * 1.01)                 # +100bps pad on buys
+    assert o.source_trade_id == "f1" and o.tag == "mirror"
+
+    sells = s.signal(snap([F("f2", "0xaaa", side=OrderSide.SELL, size=100, price=10)]))
+    assert sells[0].price == pytest.approx(10 * 0.99)          # −pad on sells
+
+
+def test_default_signal_filters_deny_dust_and_strangers():
+    s = CopyWallets(["0xaaa"], size_pct=10, coins_deny=["DOGE"],
+                    min_order_size_usd=100.0)
+    s.resolve_watchlist(hl=None)
+    trades = [
+        F("deny", "0xaaa", coin="DOGE"),                       # denied coin
+        F("stranger", "0xzzz"),                                # not on watchlist
+        F("dust", "0xaaa", size=5, price=1.0),                 # 0.5 USD mirror
+        F("ok", "0xaaa", size=1_000, price=10.0),              # 1000 USD mirror
+    ]
+    orders = s.signal(snap(trades))
+    assert [o.source_trade_id for o in orders] == ["ok"]
+
+
+def test_default_signal_clamps_to_max_order_size():
+    s = CopyWallets(["0xaaa"], size_pct=100, max_per_trade_usd=250.0)
+    s.resolve_watchlist(hl=None)
+    o = s.signal(snap([F("big", "0xaaa", size=100, price=10)]))[0]
+    assert o.size * 10 == pytest.approx(250.0)                 # notional capped
+
+
+def test_execute_without_place_order_reports_failures_not_crashes():
+    s = CopyWallets(["0xaaa"])
+    rs = s.execute([Order(coin="BTC", side=OrderSide.BUY, size=1, price=10)])
+    assert len(rs) == 1 and not rs[0].success
+    assert "place_order" in (rs[0].error or "")
+
+
+def test_tick_end_to_end_with_engine_supplied_io_and_dedupe():
+    fills = [F("f1", "0xaaa", size=100, price=10)]
+    placed = []
+
+    def place(o: Order) -> ExecutionResult:
+        placed.append(o)
+        return ExecutionResult(order=o, success=True, order_id="oid",
+                               filled_size=o.size, filled_price=o.price)
+
+    s = CopyWallets(["0xaaa"], size_pct=10)
+    s.resolve_watchlist(hl=None)
+    s.config.fetch_trader_trades = lambda addr, since: list(fills)
+    s.config.fetch_wallet_usdc = lambda: 500.0
+    s.config.fetch_open_positions = None
+    s.config.place_order = place
+
+    r = s.tick()
+    assert isinstance(r, TickResult)
+    assert r.sync.wallet_usdc == 500.0
+    assert len(r.orders) == 1 and len(placed) == 1 and not r.skipped
+    assert s._positions["BTC"] == pytest.approx(10.0)          # optimistic update
+    assert s.state()["handled_trade_count"] == 1
+
+    # Same fill re-observed on the next sync window must NOT fire again.
+    r2 = s.tick()
+    assert r2.orders == [] and len(placed) == 1
+
+
+def test_backtest_scales_closed_pnl_by_mirror_ratio():
+    s = CopyWallets(["0xaaa"], size_pct=10, capital=1_000.0)
+    s.resolve_watchlist(hl=None)
+    history = [
+        F("h1", "0xaaa", size=100, price=10, ts=1_000, closed_pnl=50.0, fee=2.0),
+        F("h2", "0xaaa", size=100, price=10, ts=2_000, closed_pnl=50.0, fee=2.0),
+    ]
+    b = s.backtest(history)
+    assert isinstance(b, BacktestResult)
+    assert b.trades_simulated == 2
+    assert b.pnl_curve == [(1_000, pytest.approx(5.0)), (2_000, pytest.approx(10.0))]
+    assert b.fees_total == pytest.approx(0.4)
+    assert b.final_pnl == pytest.approx(9.6)
+    assert b.roi_pct == pytest.approx(0.96)
+
+    empty = s.backtest([])
+    assert empty.trades_simulated == 0 and empty.notes
+
+
+def test_config_and_risk_views_agree_on_shared_knobs():
+    s = CopyWallets(["0xaaa"], size_pct=5, min_order_size_usd=25,
+                    max_per_trade_usd=500, max_slippage_bps=40)
+    assert s.config.min_order_size == 25
+    assert s.config.max_order_size == 500
+    assert s.config.max_slippage_bps == 40
+    assert s.config.name == "copy_wallets"
+
+    cfg = StratConfig(name="x", capital=2_000, watchlist=[], min_order_size=7)
+    s2 = CopyWallets(["0xaaa"], config=cfg)
+    assert s2.config is cfg
+    assert s2.risk.min_order_size_usd == 7 and s2.risk.capital == 2_000
+
+
+# ── Cross-mod parity: the schema must not drift from polymarket's ───────
+
+_PM_BASE = Path("/root/mod/mod/orbit/polymarket/src/strats/base/mod.py")
+
+CANONICAL_METHODS = {"setup", "sync", "signal", "execute", "tick",
+                     "backtest", "teardown", "state"}
+CANONICAL_TYPES = {"Strat", "StratConfig", "Order", "OrderSide", "TraderTrade",
+                   "SyncResult", "ExecutionResult", "TickResult", "BacktestResult"}
+
+
+def test_canonical_surface_present_here():
+    assert CANONICAL_METHODS <= set(dir(Strat))
+    import strats as m
+    assert CANONICAL_TYPES <= set(dir(m))
+
+
+@pytest.mark.skipif(not _PM_BASE.exists(), reason="polymarket checkout not present")
+def test_schema_parity_with_polymarket():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("pm_strat_base", _PM_BASE)
+    pm = importlib.util.module_from_spec(spec)
+    # dataclass field resolution looks the module up in sys.modules.
+    sys.modules["pm_strat_base"] = pm
+    try:
+        spec.loader.exec_module(pm)
+    finally:
+        sys.modules.pop("pm_strat_base", None)
+
+    # Same method contract on the base class…
+    assert CANONICAL_METHODS <= set(dir(pm.Strat))
+    # …same dataclass vocabulary…
+    assert CANONICAL_TYPES <= set(dir(pm))
+    # …and StratConfig agrees on every venue-neutral field.
+    pm_fields = set(pm.StratConfig.__dataclass_fields__)
+    hl_fields = set(StratConfig.__dataclass_fields__)
+    assert pm_fields == hl_fields, f"StratConfig drift: {pm_fields ^ hl_fields}"

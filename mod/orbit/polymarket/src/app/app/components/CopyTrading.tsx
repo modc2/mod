@@ -18,11 +18,12 @@ import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
 import SyncScheduleChip from "./SyncScheduleChip";
 import ScanChip, { formatScanStamp } from "./ScanChip";
+import { requestSidebarTab } from "./UserSidebar";
 import { fetchSyncSchedule } from "../lib/syncSchedule";
 import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCache";
 
 import {
-  DEFAULT_FORMULA, FORMULA_VARS, SCORE_VAR_HINTS, formatScore,
+  DEFAULT_FORMULA, FORMULA_EVENT, FORMULA_VARS, SCORE_VAR_HINTS, formatScore,
   scoreInputs, scoreIsUnknown, loadSavedFormula, matchScorePreset, saveFormula,
   scorePoolSortKey, JS_FN_TEMPLATE, PY_FN_TEMPLATE,
 } from "../lib/scoreFormula";
@@ -31,7 +32,6 @@ import { publishScores } from "../lib/scoreBus";
 import { fetchTraderBacktestScores, VERDICT_TEXT, type TraderBacktestScore } from "../lib/backtestScores";
 import { usePicks } from "../lib/pickStore";
 import ScoreAsk from "./ScoreAsk";
-import ScoreMarket from "./ScoreMarket";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
 
@@ -182,6 +182,13 @@ export default function CopyTrading({
   }, []);
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
+  // USE in the sidebar's SCORE MARKET (STRATS tab) broadcasts the source —
+  // adopt it live, since both surfaces are on screen at once.
+  useEffect(() => {
+    const onFormula = (e: Event) => setFormula((e as CustomEvent<string>).detail);
+    window.addEventListener(FORMULA_EVENT, onFormula);
+    return () => window.removeEventListener(FORMULA_EVENT, onFormula);
+  }, []);
 
   // Expression, JS function, or Python function — one hook compiles whatever
   // the box holds (Python through in-browser Pyodide) and hands back a sync
@@ -1658,11 +1665,21 @@ export default function CopyTrading({
                   never a silent bad ranking. */}
               <ScoreAsk formula={formula} setFormula={setFormula} days={days} />
 
-              {/* Or shop for one: the SCORE MARKET is a searchable shelf of
-                  score functions — curated consistent-ROI hunters plus
-                  anything published from this deploy. USE drops the source
-                  into this same box; nothing ranks until it compiles here. */}
-              <ScoreMarket formula={formula} setFormula={setFormula} />
+              {/* Or shop for one: the ▦ SCORE MARKET lives in the sidebar's
+                  STRATS tab (its one home — build/share artifacts live there).
+                  USE over there drops the source into this box live. */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]" title="A searchable shelf of score functions — curated consistency hunters plus anything published from this deploy.">
+                  &#9638; MARKET
+                </span>
+                <button
+                  className="pixel-btn text-[11px] px-2.5 py-1 border-pixel-border text-pixel-gray hover:text-pixel-green hover:border-pixel-green/60"
+                  onClick={() => requestSidebarTab("STRATS")}
+                  title='Browse score functions in the STRATS tab — USE drops the source into this box'
+                >
+                  BROWSE SCORE FUNCTIONS → STRATS
+                </button>
+              </div>
 
               <div className="text-[11px] text-pixel-gray leading-snug border-t border-pixel-border/60 pt-2">
                 {scoreLang === "expr" ? (

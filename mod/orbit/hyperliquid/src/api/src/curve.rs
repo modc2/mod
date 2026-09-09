@@ -164,6 +164,15 @@ pub fn shape(address: &str, days: u32, portfolio: &Value, now_ms: i64) -> Curve 
         return Curve::empty(address, days, "hyperliquid has no pnl history for this wallet yet");
     }
 
+    // HL answers a portfolio for ANY address, including ones it has never
+    // seen — as a synthetic grid whose lifetime pnl is 0.0 at every sample.
+    // Drawing that would dress up "nothing" as a flat measurement. A real
+    // account that merely sat still this window has a non-zero lifetime
+    // figure and stays available (see a_flat_wallet_has_a_curve test).
+    if raw.iter().all(|(_, v)| *v == 0.0) {
+        return Curve::empty(address, days, "no pnl history — this wallet hasn't traded on hyperliquid");
+    }
+
     // HL's periods run slightly long (its "week" spans ~7.9 days), so trim to
     // the window the board actually priced. Keep the trim only if it leaves a
     // line — a wallet whose samples all predate the cutoff still deserves its
@@ -412,6 +421,16 @@ mod tests {
         assert_eq!(c.pnl, -900.0);
         assert_eq!(c.max_drawdown, 900.0);
         assert_eq!(c.max_drawdown_pct, 0.0, "no positive peak ⇒ no percentage to quote");
+    }
+
+    #[test]
+    fn a_never_traded_wallet_is_unavailable_not_a_fake_flat_line() {
+        // HL's synthetic answer for an address it has never seen: a full
+        // sample grid, every lifetime pnl exactly 0.0.
+        let p = portfolio(vec![(NOW - 48 * HOUR, "0.0"), (NOW - 24 * HOUR, "0.0"), (NOW, "0.0")]);
+        let c = shape("0xabc", 7, &p, NOW);
+        assert!(!c.available && c.points.is_empty());
+        assert!(c.note.as_deref().unwrap_or("").contains("hasn't traded"));
     }
 
     #[test]

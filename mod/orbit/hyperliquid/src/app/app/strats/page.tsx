@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { listIndexes, indexPerf, deleteIndex, Index, ago, shortAddr, fmtPnl } from "../lib/api";
 import { useWallet } from "../lib/wallet";
+import { Freshness, Identicon, Kpi, PageHead, Switch } from "../components/BoardBits";
 
 // Per-strat performance, loaded lazily after the list renders.
 type Perf = { weighted_pnl: number; days: number } | "loading" | "err";
@@ -50,27 +51,54 @@ export default function StratsPage() {
     });
   }, [items, search, mine, address]);
 
+  // Board-level stats, computed from what the fan-out has answered so far.
+  const stats = useMemo(() => {
+    const scored = items
+      .map((i) => ({ i, p: perf[i.id] }))
+      .filter((x): x is { i: Index; p: { weighted_pnl: number; days: number } } =>
+        x.p !== undefined && x.p !== "loading" && x.p !== "err");
+    const best = scored.reduce<typeof scored[number] | null>(
+      (b, x) => (b === null || x.p.weighted_pnl > b.p.weighted_pnl ? x : b), null);
+    const green = scored.filter((x) => x.p.weighted_pnl >= 0).length;
+    const traders = new Set(items.flatMap((i) => i.legs.map((l) => l.address.toLowerCase())));
+    const vaults = items.filter((i) => i.vault_address).length;
+    return { best, green, scored: scored.length, traders: traders.size, vaults };
+  }, [items, perf]);
+
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="font-display font-bold text-2xl tracking-tight text-gradient">STRATS</h1>
-          <p className="text-xs text-muted mt-1 max-w-xl">
-            Community trading strategies — weighted baskets of top traders, each one forkable.
-            Browse what others run, copy a basket, or compose your own.
-          </p>
-        </div>
-        <Link href="/strats/new" className="btn-primary">+ new strat</Link>
+      <PageHead
+        title="STRATS"
+        blurb={<>Community trading strategies — weighted baskets of top traders, each one forkable.
+          Browse what others run, copy a basket, or compose your own.</>}
+        right={<>
+          <Freshness loading={loading} label={`${items.length} strat${items.length === 1 ? "" : "s"}`} />
+          <Link href="/strats/new" className="btn-primary ml-2">+ new strat</Link>
+        </>}
+      />
+
+      {/* Board stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Kpi label="strats on the board" value={items.length}
+          sub={`${stats.vaults} vault-linked`} />
+        <Kpi label="best basket"
+          value={stats.best ? fmtPnl(stats.best.p.weighted_pnl) : "—"}
+          tone={stats.best ? (stats.best.p.weighted_pnl >= 0 ? "win" : "loss") : undefined}
+          sub={stats.best ? <>{stats.best.i.name} · {stats.best.p.days}d weighted</>
+            : items.length ? "scoring…" : "no baskets yet"} />
+        <Kpi label="in the green"
+          value={stats.scored ? `${stats.green}/${stats.scored}` : "—"}
+          sub="positive weighted pnl, own window" />
+        <Kpi label="traders copied" value={stats.traders}
+          sub="unique wallets across all baskets" />
       </div>
 
       {/* Filter bar */}
-      <div className="panel p-3 flex flex-wrap items-center gap-2">
+      <div className="panel p-3 flex flex-wrap items-center gap-3">
         <input className="input flex-1 min-w-[20ch]" placeholder="FILTER STRATS BY NAME, OWNER, OR TRADER…"
           value={search} onChange={(e) => setSearch(e.target.value)} />
-        <button onClick={() => setMine((v) => !v)}
-          className={`btn ${mine ? "border-accent text-accent" : ""}`}>mine</button>
-        <span className="text-[10px] text-muted uppercase tracking-wider">{filtered.length} strats</span>
+        <Switch on={mine} onChange={setMine} label="mine only" />
+        <span className="text-[10px] text-muted uppercase tracking-wider">{filtered.length} shown</span>
       </div>
 
       {/* Grid */}
@@ -97,7 +125,8 @@ export default function StratsPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-ink font-medium truncate">{idx.name}</div>
-                    <div className="text-[10px] uppercase tracking-wider text-muted mt-0.5">
+                    <div className="text-[10px] uppercase tracking-wider text-muted mt-0.5 flex items-center gap-1.5">
+                      <Identicon address={idx.owner} size={13} />
                       by {shortAddr(idx.owner)} · {ago(idx.created_ms)}
                     </div>
                   </div>
@@ -126,14 +155,26 @@ export default function StratsPage() {
                   <div className="text-xs text-muted mt-2 line-clamp-2">{idx.description}</div>
                 )}
 
-                {/* leg chips */}
-                <div className="flex flex-wrap gap-1 mt-3">
-                  {idx.legs.slice(0, 5).map((l) => (
-                    <span key={l.address} className="pill text-[10px]">
-                      {shortAddr(l.address)}<span className="text-accent ml-1">{(l.weight * 100).toFixed(0)}%</span>
-                    </span>
-                  ))}
-                  {idx.legs.length > 5 && <span className="pill text-[10px] text-muted">+{idx.legs.length - 5}</span>}
+                {/* the basket itself: identicon stack + weight bar */}
+                <div className="mt-3 space-y-1.5">
+                  <div className="flex items-center">
+                    {idx.legs.slice(0, 8).map((l, i) => (
+                      <span key={l.address} title={`${shortAddr(l.address)} · ${(l.weight * 100).toFixed(0)}%`}
+                        className="rounded-full ring-2 ring-bg" style={{ marginLeft: i ? -5 : 0 }}>
+                        <Identicon address={l.address} size={18} />
+                      </span>
+                    ))}
+                    {idx.legs.length > 8 && (
+                      <span className="ml-1.5 text-[10px] text-muted">+{idx.legs.length - 8}</span>
+                    )}
+                  </div>
+                  {/* weight distribution, one bar */}
+                  <div className="flex h-1 w-full overflow-hidden rounded-full bg-white/[0.06]" aria-hidden>
+                    {idx.legs.slice(0, 8).map((l, i) => (
+                      <span key={l.address} className="h-full bg-accent"
+                        style={{ width: `${Math.max(2, l.weight * 100)}%`, opacity: 1 - i * 0.1, marginLeft: i ? 1 : 0 }} />
+                    ))}
+                  </div>
                 </div>
 
                 <div className="mt-auto pt-3 flex items-center gap-2">

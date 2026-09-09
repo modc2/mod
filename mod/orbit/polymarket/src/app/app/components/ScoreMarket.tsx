@@ -1,10 +1,12 @@
 "use client";
 
-// The ▦ MARKET row of the SCORE editor — a searchable shelf of score
-// functions. Type "consistent roi" and every listing (curated + community)
-// mentioning both words surfaces; USE drops the source into the same editor
-// box the user could have typed it into, so a listing compiles through the
-// normal path and can never rank the board without the editor vetting it.
+// The ▦ SCORE MARKET — a searchable shelf of score functions. Its ONE home
+// is the sidebar's STRATS tab (SCORE FUNCTIONS section); the board's ƒ SCORE
+// panel only links here. Type "consistent roi" and every listing (curated +
+// community) mentioning both words surfaces; USE hands the source to the
+// host's setFormula — StratsTab broadcasts it over the formula bus into the
+// board's score box, so a listing still compiles through the normal editor
+// path and can never rank the board without that editor vetting it.
 //
 // Publishing goes the other way: whatever is in the score box right now can
 // be named, described, and pushed to the community shelf — and shared
@@ -32,7 +34,10 @@ const LANG_BADGE: Record<string, string> = { expr: "ƒ", js: "JS ƒ", py: "PY ƒ
     source. Gates (`return null` guards) live in the full code view; this is
     the number the survivors actually rank by. */
 function equationOf(source: string): string {
-  const lines = source.split("\n").map((s) => s.trim()).filter(Boolean);
+  const lines = source
+    .split("\n")
+    .map((s) => s.trim().replace(/\s*(?:\/\/|#).*$/, "")) // drop trailing comments
+    .filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
     const m = lines[i].match(/^return\s+(.+?);?\s*$/);
     if (m) return m[1];
@@ -157,7 +162,9 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
       <div className="max-h-64 overflow-y-auto space-y-1.5 pr-0.5">
         {listings.length === 0 && (
           <div className="text-[11px] text-pixel-gray py-2">
-            Nothing matches — fewer words, or write it yourself and PUBLISH it below.
+            {mineOnly
+              ? "Nothing of yours here yet — write a score and + PUBLISH it below, and it'll live under YOURS."
+              : "Nothing matches — fewer words, or write it yourself and PUBLISH it below."}
           </div>
         )}
         {listings.map((l) => {
@@ -204,6 +211,23 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
                 )}
                 {!l.builtin && l.mine && (
                   <button
+                    className="pixel-btn text-[10px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-green"
+                    disabled={busy}
+                    onClick={() => {
+                      setFormula(l.source);
+                      setPubName(l.name);
+                      setPubDesc(l.description);
+                      setPubTags(l.tags.join(" "));
+                      setEditingName(l.name);
+                      setPublishing(true);
+                    }}
+                    title="Edit — drops the source into the score box and prefills the form below; SAVE under the same name updates this listing in place"
+                  >
+                    EDIT
+                  </button>
+                )}
+                {!l.builtin && l.mine && (
+                  <button
                     className="pixel-btn text-[10px] px-1.5 py-0.5 border-pixel-border text-red-400/80 hover:text-red-400"
                     disabled={busy}
                     onClick={() => void act(async () => {
@@ -221,6 +245,26 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
               {l.tags.length > 0 && (
                 <div className="text-[10px] text-pixel-gray/70 mt-0.5">{l.tags.map((t) => `#${t}`).join(" ")}</div>
               )}
+              {/* The equation — always on the card; click for the full source
+                  with its gates. What you read here is exactly what USE runs. */}
+              <button
+                className="mt-1 w-full text-left font-mono text-[10px] text-pixel-gray-light hover:text-amber-300 flex items-baseline gap-1.5"
+                onClick={() => setExpanded((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) next.delete(key); else next.add(key);
+                  return next;
+                })}
+                title={showCode ? "Hide the full source" : "Show the full source — every gate above this equation"}
+              >
+                <span className="text-amber-400/80 shrink-0">ƒ =</span>
+                <span className="truncate">{equationOf(l.source)}</span>
+                <span className="text-pixel-gray/70 shrink-0 ml-auto">{showCode ? "▴" : "▾ code"}</span>
+              </button>
+              {showCode && (
+                <pre className="mt-1 p-1.5 border border-pixel-border/50 rounded bg-black/30 font-mono text-[10px] text-pixel-gray-light leading-snug whitespace-pre-wrap overflow-x-auto">
+                  {l.source}
+                </pre>
+              )}
             </div>
           );
         })}
@@ -230,6 +274,11 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
       <div className="flex items-center gap-2 flex-wrap pt-0.5 border-t border-pixel-border/40">
         {publishing ? (
           <span className="inline-flex items-center gap-1 flex-wrap">
+            {editingName && (
+              <span className="text-[10px] text-amber-400/80 tracking-wider" title="Saving under this exact name updates the listing in place; a new name publishes a separate copy.">
+                EDITING “{editingName}”
+              </span>
+            )}
             <input
               autoFocus
               className="pixel-input-sm w-32 text-[11px]"
@@ -245,27 +294,47 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
               placeholder="what does it look for?"
               onChange={(e) => setPubDesc(e.target.value)}
             />
+            <input
+              className="pixel-input-sm w-32 text-[11px]"
+              value={pubTags}
+              spellCheck={false}
+              placeholder="tags (roi steady…)"
+              onChange={(e) => setPubTags(e.target.value)}
+              title="Space- or comma-separated — tags are searchable, like #consistent #roi on the curated shelf"
+            />
             <button
               className="pixel-btn text-[10px] px-2 py-0.5 border-green-400/70 text-green-400 disabled:opacity-50"
               disabled={busy || !pubName.trim() || !owner}
               onClick={() => void act(async () => {
+                const renamed = editingName !== null && pubName.trim() !== editingName;
                 await publishScoreFn({
                   owner: owner ?? "",
                   name: pubName.trim(),
                   description: pubDesc.trim(),
                   source: formula,
-                  tags: [],
+                  tags: pubTags.split(/[\s,]+/).filter(Boolean),
                 });
                 setPublishing(false);
+                setEditingName(null);
                 setPubName("");
                 setPubDesc("");
+                setPubTags("");
                 await refresh();
-                return "Published — it's on the shelf, and CID gives you a portable link.";
+                return renamed
+                  ? "Published under the new name — the old listing is still there; ✕ it if you meant a rename."
+                  : editingName
+                    ? "Saved — the listing updated in place."
+                    : "Published — it's on the shelf, and CID gives you a portable link.";
               })}
             >
-              &#10003; PUBLISH
+              &#10003; {editingName ? "SAVE" : "PUBLISH"}
             </button>
-            <button className="pixel-btn text-[10px] px-1.5 py-0.5 text-pixel-gray" onClick={() => setPublishing(false)}>✕</button>
+            <button
+              className="pixel-btn text-[10px] px-1.5 py-0.5 text-pixel-gray"
+              onClick={() => { setPublishing(false); setEditingName(null); }}
+            >
+              ✕
+            </button>
           </span>
         ) : (
           <button

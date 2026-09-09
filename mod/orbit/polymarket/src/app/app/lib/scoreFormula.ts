@@ -408,3 +408,16 @@ export function loadSavedFormula(): string {
 export function saveFormula(formula: string): void {
   try { sessionStorage.setItem(FORMULA_STORAGE_KEY, formula); } catch {}
 }
+
+/** Cross-surface formula bus. The SCORE MARKET lives in the sidebar's STRATS
+    tab while the editors it feeds sit on the board (CopyTrading) and the copy
+    desk (FindTraders) — sessionStorage alone only syncs them on remount, but
+    the sidebar and the board are on screen at the same time. USE/EDIT in the
+    market broadcasts here; mounted editors listen and adopt the source live.
+    saveFormula stays silent so the editors' own persist effect can't loop. */
+export const FORMULA_EVENT = "poly-score-formula";
+
+export function broadcastFormula(formula: string): void {
+  saveFormula(formula);
+  try { window.dispatchEvent(new CustomEvent(FORMULA_EVENT, { detail: formula })); } catch {}
+}

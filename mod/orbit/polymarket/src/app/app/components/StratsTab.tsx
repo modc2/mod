@@ -15,7 +15,7 @@
 //              toggle publishes it to the community gallery, and the
 //              gallery below lets you fork anyone else's back in.
 //
-// Four sections, top to bottom in the order a user grows into them:
+// Five sections, top to bottom in the order a user grows into them:
 //
 //   MY STRATS   the saved list with full management — the one place a strat
 //               is renamed, forked, deleted or published. Selecting still
@@ -29,6 +29,11 @@
 //               too so you can see exactly what's public and pull it back.
 //   CODE        user-written Strat classes (mod.py) — upload, publish, and
 //               the CID share/import path that works across deploys.
+//   SCORE       the ▦ SCORE MARKET — this is its ONE home (it used to sit
+//               inside the board's ƒ SCORE panel). USE broadcasts the source
+//               over the formula bus (scoreFormula.FORMULA_EVENT), so the
+//               board's score box adopts it live; + PUBLISH reads whatever
+//               that box currently holds, synced back over the same bus.
 //
 // Publishing a RECIPE strat goes through useStratManager.setVisibility → the
 // plaintext /strats/public gallery (stratSync.ts); the local token that
@@ -44,11 +49,13 @@ import { DEFAULT_STRATS, orderedTemplates, traderIndexTemplate } from "../lib/de
 import { useStratManager } from "../lib/stratManager";
 import { useStratStats } from "../lib/stratStats";
 import { fetchPublicStrats, type PublicStratEntry } from "../lib/stratSync";
+import { FORMULA_EVENT, broadcastFormula, loadSavedFormula } from "../lib/scoreFormula";
 import { isTraderIndex } from "../lib/traderIndex";
 import { describeTraderFilter } from "../lib/strats/strat";
 import { shortAddress } from "../lib/auth";
 import AutoStratPanel from "./AutoStratPanel";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
+import ScoreMarket from "./ScoreMarket";
 import StratChat from "./StratChat";
 import StratLab from "./StratLab";
 import UserStratsPanel from "./UserStratsPanel";
@@ -115,6 +122,22 @@ export default function StratsTab() {
   }, [setVisibility, refreshGallery]);
 
   const myAddr = auth.address?.toLowerCase() ?? "";
+
+  // The SCORE MARKET's view of the board's score box, over the formula bus:
+  // seeded from the shared sessionStorage key, kept live by FORMULA_EVENT
+  // (edits typed on the board while this tab is open), and USE/EDIT here
+  // broadcasts back so mounted editors adopt the source immediately.
+  const [formula, setFormulaState] = useState("");
+  useEffect(() => {
+    setFormulaState(loadSavedFormula());
+    const onFormula = (e: Event) => setFormulaState((e as CustomEvent<string>).detail);
+    window.addEventListener(FORMULA_EVENT, onFormula);
+    return () => window.removeEventListener(FORMULA_EVENT, onFormula);
+  }, []);
+  const setFormula = useCallback((f: string) => {
+    setFormulaState(f);
+    broadcastFormula(f);
+  }, []);
 
   return (
     <div className="p-2 space-y-3">
@@ -389,6 +412,14 @@ export default function StratsTab() {
       <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
         <SectionHeader label="CODE STRATS" hint="Python Strat classes — upload, publish, share by CID across deploys" />
         <UserStratsPanel eoa={auth.address ?? undefined} />
+      </section>
+
+      {/* ── SCORE — the ▦ SCORE MARKET's one home ── */}
+      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+        <SectionHeader label="SCORE FUNCTIONS" hint="rank/filter functions for the trader board — USE drops one into its score box" />
+        <div className="px-1">
+          <ScoreMarket formula={formula} setFormula={setFormula} />
+        </div>
       </section>
 
       <ConfirmDeleteStrat

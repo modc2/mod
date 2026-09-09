@@ -36,6 +36,11 @@ import { Identicon, Spark } from "./BoardBits";
  *  each row; without it the cell simply never lights up. */
 export const ROW_ATTR = "data-trader-row";
 
+/** Hover-intent delay before a cold curve fetch fires. Long enough that
+ *  dragging the cursor across the board costs nothing, short enough that a
+ *  deliberate pause reads as instant. Cached curves skip it entirely. */
+const INTENT_MS = 180;
+
 /** Fill coins arrive raw from HL: HIP-3 builder-dex perps as "dex:TICKER"
  *  (e.g. "xyz:HYUNDAI") and spot markets as "@123" indices. Neither is a
  *  copyable core perp, so neither belongs on a badge. */
