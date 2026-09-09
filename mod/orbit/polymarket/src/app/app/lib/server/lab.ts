@@ -34,7 +34,7 @@ import {
 import { WORKER_TAPE_BUDGET } from "../momentumTape";
 import { paramReference } from "../stratPatch";
 import type { IndexTrader, SavedIndex } from "../types";
-import { CLAUDE_BIN, claudeEnv } from "./agentCli";
+import { AGENT_MODEL, CLAUDE_BIN, claudeEnv, digJson, runClaude } from "./agentCli";
 import { feedSession, refreshRoster } from "./feedFetcher";
 import { writeAtomic } from "./feedStore";
 import { stateDir } from "./ownerToken";
@@ -225,6 +225,7 @@ function buildPrompt(goal: string, maxExperiments: number): string {
     `You are the STRAT LAB agent inside a self-hosted Polymarket copy-trading console. You run experiments for the owner; nothing you do places an order or changes a strategy — your verdict is a proposal a human adopts or ignores.`,
     ``,
     `GOAL: ${goal}`,
+    `If the GOAL itself names trader addresses, parameter values, or a specific strategy idea, build THAT as candidate #1 exactly as asked, backtest it, and iterate from there — the owner is vibe-coding through you, so their idea gets tested first even if you suspect a better one.`,
     ``,
     `HOW A STRATEGY WORKS HERE: a "copy index" watches a list of trader wallets and mirrors their entries, sized proportionally to the owner's capital. Parameters gate WHICH of their fills get copied and how positions exit. An optional \`momentum\` block instead ORIGINATES trades off a market's own price tape (no watchlist needed).`,
     ``,
