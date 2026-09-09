@@ -2006,9 +2006,13 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
         );
       })}
       {mode === "LIVE" && isLive && engineState && (
-        <span
-          className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0"
-          title="Free cash · time to next poll cycle — full breakdown on the DESK"
+        /* Free cash is the number that makes you reach for money — so it IS
+           the money button: opens deposit/withdraw for the copied trader
+           (LivePanel listens; multi-trader strats get the MONEY drawer). */
+        <button
+          onClick={() => window.dispatchEvent(new Event(OPEN_TRADER_FUNDS_EVENT))}
+          className="ml-auto text-[12px] font-mono text-pixel-gray shrink-0 hover:text-green-400 transition-colors"
+          title="Free cash · time to next poll cycle — click to top up or withdraw from the trader you're copying"
         >
           <span className="text-pixel-white">
             {engineState.balance !== null ? `$${engineState.balance.toFixed(2)}` : "$—"}
@@ -2017,7 +2021,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
           <span className="text-green-400">
             {formatCountdown((engineState.nextCycleAt ?? 0) - railNow)}
           </span>
-        </span>
+        </button>
       )}
     </div>
   );

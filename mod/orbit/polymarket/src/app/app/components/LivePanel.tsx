@@ -13,6 +13,8 @@ import {
   MODE, armedDefault, autoExecuteFor, confirmGoLive, modeOf, type TradingMode,
 } from "../lib/tradingMode";
 import { ModeSwitch, ModeLegend, NotTradingBanner } from "./ModeControl";
+import TraderFundsPanel from "./TraderFundsPanel";
+import { useStratStats } from "../lib/stratStats";
 import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE } from "../lib/strats/strat";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
@@ -228,6 +230,11 @@ function LogIcon({ type }: { type: ExecutionLogEntry["type"] }) {
   }
 }
 
+// Dispatched by CopyIndex's rail chip (the "$0.18 · 13s" free-cash echo) to
+// open the same deposit/withdraw panel the header's FUNDS button opens — the
+// number you're worried about IS the button that fixes it.
+export const OPEN_TRADER_FUNDS_EVENT = "poly-open-trader-funds";
+
 export default function LivePanel({ onFundNow, tab, onTabChange }: {
   onFundNow?: () => void;
   // Controlled mode — when `tab` is passed the section tabs live in the
@@ -243,6 +250,12 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   // Trading-wallet USDC balance — the on-chain "BALANCE" the engine sizes
   // mirrors against. Polled every 15s while the LIVE tab is mounted.
   const [tradingBalance, setTradingBalance] = useState<number | null>(null);
+  // Deposit into / withdraw from the ONE trader this strat copies, without
+  // leaving the engine screen — same TraderFundsPanel the sidebar's $ button
+  // opens, fed by the same per-strat money hook so DEPLOYED/FREE agree with
+  // the sidebar's numbers.
+  const [fundsOpen, setFundsOpen] = useState(false);
+  const { stats: stratMoney, cash: statsCash, running: runningStrats } = useStratStats();
   // Catch-up status — "running" disables the button, "result" surfaces
   // the placed/failed count after the one-shot scan completes. Declared
   // after tradingBalance so the useCallback dep array doesn't hit a TDZ
@@ -514,6 +527,22 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   useEffect(() => {
     attachStrategy(activeStrat?.id ?? null);
   }, [activeStrat?.id, attachStrategy]);
+
+  // Single-trader strats get the per-trader deposit/withdraw panel; anything
+  // else falls back to the MONEY drawer (multi-trader budgets are the
+  // sidebar's $ ALLOCATE job — "take $50 back from 12 traders" isn't one
+  // decision). Same gate as the sidebar's $ button.
+  const singleTrader = !!activeStrat && (activeStrat.traders.length === 1 || !!activeStrat.identity);
+  const openFunds = useCallback(() => {
+    if (singleTrader) setFundsOpen(true);
+    else onFundNow?.();
+  }, [singleTrader, onFundNow]);
+
+  // The rail's free-cash chip (CopyIndex) opens the same panel from up there.
+  useEffect(() => {
+    window.addEventListener(OPEN_TRADER_FUNDS_EVENT, openFunds);
+    return () => window.removeEventListener(OPEN_TRADER_FUNDS_EVENT, openFunds);
+  }, [openFunds]);
 
   // Single source of truth for poll cadence: the strat's `rebalanceMinutes`
   // (written by the SYNC panel below and the STRAT panel's POLL EVERY field).
@@ -921,6 +950,22 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               amountUsd={effectiveCapital}
               disabled={!isLive && !canStart}
             />
+            {/* Money verbs live where the money worry shows up: top up the
+                trader you're copying, or take budget back, without leaving
+                the engine for the sidebar's $ button. */}
+            {activeStrat && (
+              <button
+                onClick={openFunds}
+                className="pixel-btn text-[13px] px-1.5 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10"
+                title={
+                  singleTrader
+                    ? `Deposit into / withdraw from the trader "${activeStrat.name}" copies — deposit re-arms real orders at the new budget, withdrawing everything stops the session`
+                    : "Open the MONEY drawer — this strat copies several traders, so budgets move on the $ ALLOCATE screen"
+                }
+              >
+                $ FUNDS
+              </button>
+            )}
             {isLive && status === "running" && (
               <button
                 onClick={pauseLive}
@@ -970,6 +1015,21 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           <ModeLegend />
         </div>
       </div>
+
+      {/* Deposit into / withdraw from the one copied trader. Portals itself.
+          `cash` prefers the panel's own 15s on-chain read; the stats hook's
+          slower read backs it up. `money` gives DEPLOYED its cost basis so
+          the tiles match the sidebar exactly. */}
+      {fundsOpen && activeStrat && (
+        <TraderFundsPanel
+          strat={activeStrat}
+          money={stratMoney[activeStrat.id]}
+          cash={tradingBalance ?? statsCash}
+          running={runningStrats.has(activeStrat.id) || isLive}
+          eoa={auth.address}
+          onClose={() => setFundsOpen(false)}
+        />
+      )}
 
       {/* ── Layout ──
           Alerts first (checklist, CLOB, funding, engine error — always
