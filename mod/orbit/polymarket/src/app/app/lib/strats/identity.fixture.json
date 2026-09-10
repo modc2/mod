@@ -1,0 +1,172 @@
+{
+  "note": [
+    "THE IDENTITY TEMPLATE, pinned.",
+    "",
+    "An allocation on the COPY DESK \u2014 one trader, one dollar amount \u2014 becomes a",
+    "runnable strategy through exactly one function, and that function exists",
+    "TWICE: `identity_strat` in api/src/copy.rs (which the live engine and the",
+    "/copy API use) and `identityStrat` in app/lib/identityStrat.ts (which the",
+    "browser and the backtest worker use). Two implementations of one template is",
+    "how a backtest card ends up promising something the live session doesn't do.",
+    "",
+    "Each case below is an allocation and the strat it MUST produce. Both",
+    "languages assert against this file, so a default changed on one side and not",
+    "the other fails the build instead of quietly costing money. Numbers compare",
+    "numerically (1 == 1.0); everything else is exact.",
+    "",
+    "Adding a knob to the template means adding it here first.",
+    "",
+    "`tradeFilters` is present ONLY when the allocation carries one: both halves omit the key otherwise, and this comparison is exact."
+  ],
+  "cases": [
+    {
+      "name": "defaults \u2014 nothing tuned, which is how almost every leader is copied",
+      "allocation": {
+        "address": "0xaaa0000000000000000000000000000000000001",
+        "allocationUsd": 250,
+        "enabled": true,
+        "addedAt": 1700000000000,
+        "updatedAt": 1700000000000
+      },
+      "strat": {
+        "id": "copy-aaa0000000000000000000000000000000000001",
+        "name": "COPY 0xaaa0\u20260001",
+        "identity": "0xaaa0000000000000000000000000000000000001",
+        "traders": [
+          {
+            "address": "0xaaa0000000000000000000000000000000000001",
+            "weight": 1,
+            "enabled": true
+          }
+        ],
+        "capital": 250,
+        "backtestDays": 7,
+        "rebalanceMinutes": 0.5,
+        "livePollMinutes": 0.5,
+        "minTrade": 1,
+        "maxTrade": 100,
+        "maxPerCycle": 3,
+        "maxOpenPositions": 10,
+        "sizing": "flow",
+        "turnover": 1,
+        "stopLoss": 0.75,
+        "takeProfit": 0.99,
+        "minMinutesToClose": 60,
+        "maxTradeAgeSec": 300,
+        "marketQuery": "",
+        "fundsMode": "SIM",
+        "forkedFrom": "copy-desk-identity",
+        "liveEnabled": true,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000000
+      }
+    },
+    {
+      "name": "tuned + paused \u2014 a label wins over the short address, stopLoss 0 means OFF (not absent), and a paused leader is not live-enabled",
+      "allocation": {
+        "address": "0xbbb0000000000000000000000000000000000002",
+        "label": "WHALE",
+        "allocationUsd": 1000,
+        "enabled": false,
+        "params": {
+          "minTrade": 5,
+          "maxTrade": 40,
+          "stopLoss": 0,
+          "sizing": "bankroll",
+          "marketQuery": "bitcoin",
+          "pollMinutes": 1,
+          "backtestDays": 14
+        },
+        "addedAt": 1700000000000,
+        "updatedAt": 1700000000001
+      },
+      "strat": {
+        "id": "copy-bbb0000000000000000000000000000000000002",
+        "name": "WHALE",
+        "identity": "0xbbb0000000000000000000000000000000000002",
+        "traders": [
+          {
+            "address": "0xbbb0000000000000000000000000000000000002",
+            "weight": 1,
+            "enabled": true
+          }
+        ],
+        "capital": 1000,
+        "backtestDays": 14,
+        "rebalanceMinutes": 1,
+        "livePollMinutes": 1,
+        "minTrade": 5,
+        "maxTrade": 40,
+        "maxPerCycle": 3,
+        "maxOpenPositions": 10,
+        "sizing": "bankroll",
+        "turnover": 1,
+        "stopLoss": 0,
+        "takeProfit": 0.99,
+        "minMinutesToClose": 60,
+        "maxTradeAgeSec": 300,
+        "marketQuery": "bitcoin",
+        "fundsMode": "SIM",
+        "forkedFrom": "copy-desk-identity",
+        "liveEnabled": false,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000001
+      }
+    },
+    {
+      "name": "a semantic gate \u2014 marketQuery picks the markets, tradeFilters picks the trades inside them (both halves of one typed sentence)",
+      "allocation": {
+        "address": "0xccc0000000000000000000000000000000000003",
+        "allocationUsd": 500,
+        "enabled": true,
+        "params": {
+          "marketQuery": "bitcoin, btc, ethereum",
+          "tradeFilters": {
+            "sides": "buy",
+            "maxPrice": 0.3,
+            "minNotional": 500
+          }
+        },
+        "addedAt": 1700000000000,
+        "updatedAt": 1700000000002
+      },
+      "strat": {
+        "id": "copy-ccc0000000000000000000000000000000000003",
+        "name": "COPY 0xccc0\u20260003",
+        "identity": "0xccc0000000000000000000000000000000000003",
+        "traders": [
+          {
+            "address": "0xccc0000000000000000000000000000000000003",
+            "weight": 1,
+            "enabled": true
+          }
+        ],
+        "capital": 500,
+        "backtestDays": 7,
+        "rebalanceMinutes": 0.5,
+        "livePollMinutes": 0.5,
+        "minTrade": 1,
+        "maxTrade": 100,
+        "maxPerCycle": 3,
+        "maxOpenPositions": 10,
+        "sizing": "flow",
+        "turnover": 1,
+        "stopLoss": 0.75,
+        "takeProfit": 0.99,
+        "minMinutesToClose": 60,
+        "maxTradeAgeSec": 300,
+        "marketQuery": "bitcoin, btc, ethereum",
+        "tradeFilters": {
+          "sides": "buy",
+          "maxPrice": 0.3,
+          "minNotional": 500
+        },
+        "fundsMode": "SIM",
+        "forkedFrom": "copy-desk-identity",
+        "liveEnabled": true,
+        "createdAt": 1700000000000,
+        "updatedAt": 1700000000002
+      }
+    }
+  ]
+}

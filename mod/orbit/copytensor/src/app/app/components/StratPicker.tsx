@@ -24,6 +24,9 @@ import { useSidebar } from "../context/SidebarContext";
 import TraderSelect, { type Candidate } from "./TraderSelect";
 
 const PROP_CAPITAL_TAO_DEFAULT = 100;
+// Mirrors MIN_SLEEVE_TAO in src/engine/allocator.py — a sleeve below this is
+// reported and skipped rather than staked as dust.
+const MIN_SLEEVE_TAO = 0.05;
 // Above this many traders, going live asks first.
 const BULK_CONFIRM_AT = 25;
 // Basket rows painted at once. Weights apply to all of them either way.
@@ -37,9 +40,18 @@ type Props = {
 /**
  * StratPicker — basket builder for an "index of traders" (polymarket-style).
  *
- * The index is stored client-side (localStorage). Activating an index creates
- * one server-side /copy per trader, with `max_tao_per_tx` and `daily_limit_tao`
- * scaled by each trader's weight share of the configured total capital.
+ * Two ways to size a basket, and they are the same basket underneath:
+ *   SPLIT  — a total pot divided by relative weights (good for "equal-weight
+ *            my top 10")
+ *   PER-TRADER τ — type the TAO behind each trader directly (good for "40 on
+ *            this one, 10 on that one")
+ * Switching between them carries the numbers over, so neither is a dead end.
+ *
+ * Either way, going live resolves to one `alloc_tao` per trader. That is the
+ * unit the server allocator works in: every active copy contributes its
+ * trader's SHAPE at its own SIZE, and they blend into one desired book.
+ * Before this, weights only became a daily spend cap that the engine ignored,
+ * and each copy independently drove the whole portfolio to its own target.
  *
  * It lives in the right-hand drawer so you can build a basket while reading
  * the board it comes from — COPY on any row drops that trader straight in.
@@ -64,6 +76,8 @@ export default function StratPicker({ compact }: Props) {
   const [btError, setBtError] = useState("");
   const [btDays, setBtDays] = useState(7);
   const [capitalTao, setCapitalTao] = useState(PROP_CAPITAL_TAO_DEFAULT);
+  // "split" = one pot cut by weight; "tao" = a TAO figure typed per trader.
+  const [sizing, setSizing] = useState<"split" | "tao">("split");
   const [threshold, setThreshold] = useState(5);
   const [maxPerTxTao, setMaxPerTxTao] = useState(10);
   const [pollSec, setPollSec] = useState(300);
@@ -131,18 +145,24 @@ export default function StratPicker({ compact }: Props) {
   }, []);
 
   // ── backtest on every change ──
-  // Any edit to the basket (membership, weight, on/off), the window or the
-  // capital re-runs the replay. Debounced, and the response is dropped if
-  // another edit landed while it was in flight, so dragging a weight can't
-  // paint a stale curve.
+  // Any edit to the basket (membership, weight or τ, on/off), the window or
+  // the capital re-runs the replay. Debounced, and the response is dropped
+  // if another edit landed while it was in flight, so dragging a weight
+  // can't paint a stale curve.
+  //
+  // Deliberately built from raw fields rather than the resolved sizes: this
+  // runs during render, and `allocOf` below is a const the render hasn't
+  // reached yet.
   const basketKey = useMemo(
     () =>
+      sizing +
+      "/" +
       traders
-        .filter((t) => t.enabled !== false && t.weight > 0)
-        .map((t) => `${t.ss58}:${t.weight}`)
+        .filter((t) => t.enabled !== false)
+        .map((t) => `${t.ss58}:${t.weight}:${t.alloc_tao ?? ""}`)
         .sort()
         .join("|"),
-    [traders],
+    [traders, sizing],
   );
 
   useEffect(() => {
@@ -155,7 +175,10 @@ export default function StratPicker({ compact }: Props) {
     setBtLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await backtestBasket(traders, btDays, capitalTao);
+        // Send the RESOLVED sizes: a τ basket must be replayed at the money
+        // actually behind each trader, not at a stale relative weight.
+        const rows = traders.map((t) => ({ ...t, alloc_tao: allocOf(t) || null }));
+        const res = await backtestBasket(rows, btDays, totalAlloc);
         if (live) { setBacktest(res); setBtError(""); }
       } catch (e) {
         if (live) { setBacktest(null); setBtError(e instanceof Error ? e.message : String(e)); }
@@ -186,13 +209,62 @@ export default function StratPicker({ compact }: Props) {
 
   const chosen = useMemo(() => new Set(traders.map((t) => t.ss58)), [traders]);
 
-  // Each copy is floored at 1τ/day server-side, so a wide basket on thin
-  // capital quietly spends more than you typed. Say so before it happens.
-  const enabledCount = useMemo(
-    () => traders.filter((t) => t.enabled !== false && t.weight > 0).length,
-    [traders],
+  // ── sizing ──
+  // One function answers "how much TAO is behind this trader", whichever
+  // mode you're in, and everything downstream (the table, the total, the
+  // backtest, going live) reads it rather than re-deriving the split.
+  const allocOf = useCallback(
+    (t: IndexTrader): number => {
+      if (t.enabled === false) return 0;
+      if (sizing === "tao") return Math.max(0, t.alloc_tao ?? 0);
+      const share = t.weight > 0 ? weights.get(t.ss58) || 0 : 0;
+      return capitalTao * share;
+    },
+    [sizing, weights, capitalTao],
   );
-  const flooredSpend = enabledCount > capitalTao ? enabledCount : 0;
+
+  /** The pot. Typed in SPLIT mode, the sum of the sleeves in τ mode. */
+  const totalAlloc = useMemo(
+    () =>
+      sizing === "tao"
+        ? traders.reduce((s, t) => s + allocOf(t), 0)
+        : capitalTao,
+    [sizing, traders, allocOf, capitalTao],
+  );
+
+  const enabledCount = useMemo(
+    () => traders.filter((t) => t.enabled !== false && allocOf(t) > 0).length,
+    [traders, allocOf],
+  );
+
+  // A sleeve under the server's floor is skipped, not staked — so a basket
+  // that's too wide for its capital silently drops its tail. Say which.
+  const dustLegs = useMemo(
+    () =>
+      traders.filter(
+        (t) => t.enabled !== false && allocOf(t) > 0 && allocOf(t) < MIN_SLEEVE_TAO,
+      ).length,
+    [traders, allocOf],
+  );
+
+  /** Swap sizing mode, seeding the new mode from what's on screen now. */
+  function switchSizing(next: "split" | "tao") {
+    if (next === sizing) return;
+    if (next === "tao") {
+      // Freeze the current split into per-trader TAO so nothing jumps.
+      setTraders((cur) =>
+        cur.map((t) => ({ ...t, alloc_tao: Number(allocOf(t).toFixed(4)) })),
+      );
+    } else {
+      // Weights ARE the allocations, just un-normalized; the pot is their sum.
+      const total = traders.reduce((s, t) => s + allocOf(t), 0);
+      setTraders((cur) =>
+        cur.map((t) => ({ ...t, weight: allocOf(t) || (t.enabled === false ? t.weight : 0) })),
+      );
+      if (total > 0) setCapitalTao(Number(total.toFixed(4)));
+    }
+    setSizing(next);
+  }
 
   const totalRawWeight = useMemo(
     () =>
@@ -212,7 +284,19 @@ export default function StratPicker({ compact }: Props) {
       for (const r of rows) {
         if (have.has(r.ss58)) continue;
         have.add(r.ss58);
-        fresh.push({ ss58: r.ss58, label: r.label ?? null, weight: 1, enabled: true });
+        fresh.push({
+          ss58: r.ss58,
+          label: r.label ?? null,
+          weight: 1,
+          // In τ mode a fresh row would otherwise be a 0τ sleeve that does
+          // nothing; seed it with an even cut of the pot so it's live and
+          // visible the moment it lands.
+          alloc_tao:
+            sizing === "tao"
+              ? Number((capitalTao / Math.max(1, cur.length + rows.length)).toFixed(4))
+              : null,
+          enabled: true,
+        });
       }
       return fresh.length ? [...cur, ...fresh] : cur;
     });
@@ -221,6 +305,29 @@ export default function StratPicker({ compact }: Props) {
   function setWeight(ss58: string, w: number) {
     setTraders((cur) =>
       cur.map((t) => (t.ss58 === ss58 ? { ...t, weight: Math.max(0, w) } : t)),
+    );
+  }
+
+  /** The TAO behind one trader, typed directly. */
+  function setAlloc(ss58: string, tao: number) {
+    setTraders((cur) =>
+      cur.map((t) =>
+        t.ss58 === ss58 ? { ...t, alloc_tao: Math.max(0, tao) } : t,
+      ),
+    );
+  }
+
+  /** Split the pot evenly across everything enabled. */
+  function equalize() {
+    const live = traders.filter((t) => t.enabled !== false);
+    if (sizing === "split") {
+      setTraders((cur) => cur.map((t) => ({ ...t, weight: 1 })));
+      return;
+    }
+    if (!live.length) return;
+    const each = Number((totalAlloc / live.length).toFixed(4));
+    setTraders((cur) =>
+      cur.map((t) => (t.enabled === false ? t : { ...t, alloc_tao: each })),
     );
   }
 
@@ -255,8 +362,20 @@ export default function StratPicker({ compact }: Props) {
     if (idx.our_hotkey) setHotkey(idx.our_hotkey);
     setVisibility(idx.visibility);
     setWhitelist(idx.whitelist || []);
-    // Reconstruct capital from per-copy max_tao
-    setCapitalTao(idx.daily_limit_tao || PROP_CAPITAL_TAO_DEFAULT);
+    // A basket saved with per-trader τ reopens in τ mode; one saved before
+    // that existed (or sized by weight) reopens as a split.
+    const sized =
+      idx.sizing ||
+      ((idx.traders || []).some((t) => (t.alloc_tao ?? 0) > 0) ? "tao" : "split");
+    setSizing(sized);
+    setCapitalTao(
+      sized === "tao"
+        ? (idx.traders || []).reduce(
+            (s, t) => s + (t.enabled === false ? 0 : t.alloc_tao || 0),
+            0,
+          ) || PROP_CAPITAL_TAO_DEFAULT
+        : idx.daily_limit_tao || PROP_CAPITAL_TAO_DEFAULT,
+    );
     setMaxPerTxTao(idx.max_tao_per_tx || 10);
     setThreshold(idx.rebalance_threshold_pct ?? 5);
     setPollSec(idx.poll_interval_sec ?? 300);
@@ -266,12 +385,19 @@ export default function StratPicker({ compact }: Props) {
   function formBody(liveCopyIds?: string[]) {
     return {
       name: name.trim() || "My Index",
-      traders,
+      // Freeze the resolved τ onto every row. A basket sized by weight still
+      // saves what that weight came out to, so reopening it — or handing it
+      // to someone else — shows the same money it was built on.
+      traders: traders.map((t) => ({
+        ...t,
+        alloc_tao: Number(allocOf(t).toFixed(6)) || null,
+      })),
       visibility,
       whitelist,
       our_hotkey: hotkey || null,
+      sizing,
       max_tao_per_tx: maxPerTxTao,
-      daily_limit_tao: capitalTao,
+      daily_limit_tao: totalAlloc,
       rebalance_threshold_pct: threshold,
       poll_interval_sec: pollSec,
       live_copy_ids:
@@ -349,16 +475,28 @@ export default function StratPicker({ compact }: Props) {
           "Saving and backtesting need nothing.",
       );
     if (traders.length < 1) return setError("add traders first");
-    const enabled = traders.filter((t) => t.enabled !== false && t.weight > 0);
-    if (enabled.length < 1) return setError("no enabled traders with weight");
+    const enabled = traders.filter((t) => t.enabled !== false && allocOf(t) > 0);
+    if (enabled.length < 1)
+      return setError(
+        sizing === "tao"
+          ? "no trader has any τ allocated"
+          : "no enabled traders with weight",
+      );
+    const tooSmall = enabled.filter((t) => allocOf(t) < MIN_SLEEVE_TAO);
+    if (tooSmall.length)
+      return setError(
+        `${tooSmall.length} trader(s) are under the ${MIN_SLEEVE_TAO}τ ` +
+          `minimum sleeve and would be skipped — raise the capital, trim the ` +
+          `basket, or give them more τ.`,
+      );
     // ALL on a 1000-trader board is one click away, and each trader is a
     // server-side copy config that polls the chain. Say the number out loud
     // before spawning it.
     if (
       enabled.length > BULK_CONFIRM_AT &&
       !confirm(
-        `Start ${enabled.length} live copies — one per trader, ` +
-          `~${Math.max(1, capitalTao / enabled.length).toFixed(2)}τ each per day?`,
+        `Start ${enabled.length} live copies, ` +
+          `${totalAlloc.toFixed(2)}τ allocated in total?`,
       )
     )
       return;
@@ -367,24 +505,27 @@ export default function StratPicker({ compact }: Props) {
     try {
       // Persist first so we have an id to hang the live copies off.
       const saved = await persist();
-      const total = enabled.reduce((s, t) => s + t.weight, 0);
       for (const t of enabled) {
-        const share = t.weight / total;
-        const dailyShare = Math.max(1, capitalTao * share);
-        const maxTxShare = Math.max(0.1, Math.min(maxPerTxTao, dailyShare));
+        const alloc = allocOf(t);
         const label = `${saved.name}:${shortSs58(t.ss58)}`;
         const res = await createCopy({
           target_ss58: t.ss58,
           our_hotkey: hotkey,
           label,
-          max_tao_per_tx: maxTxShare,
-          daily_limit_tao: dailyShare,
+          // The money behind this trader. Every live copy contributes its
+          // trader's shape at this size, and the server blends them into
+          // one book — so these add up instead of overwriting each other.
+          alloc_tao: Number(alloc.toFixed(6)),
+          max_tao_per_tx: Math.max(0.1, Math.min(maxPerTxTao, alloc)),
           rebalance_threshold_pct: threshold,
-        } as any);
-        ids.push((res as any).id);
+          poll_interval_sec: pollSec,
+        });
+        ids.push(res.id);
       }
       await persist(ids);
-      setInfo(`started ${ids.length} copies`);
+      setInfo(
+        `started ${ids.length} copies · ${totalAlloc.toFixed(2)}τ allocated`,
+      );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -462,9 +603,10 @@ export default function StratPicker({ compact }: Props) {
       <header>
         <h2 className="font-display text-base font-bold mb-1">Index of traders</h2>
         <p className="arcade-prose arcade-prose-sm mt-1">
-          Tick any set of traders below. Every edit re-runs the backtest.
-          Activating the index spawns one copy per trader with capital split
-          by weight — like buying an ETF instead of a single stock.
+          Tick any set of traders below, then decide the money behind each
+          one — a pot split by weight, or a τ figure typed per trader. Every
+          edit re-runs the backtest. Going live blends all of them into one
+          book, so the sleeves add up instead of fighting over your stake.
         </p>
         {fingerprint && (
           <p className="mt-1 text-[10px] font-mono text-pixel-gray">
@@ -660,13 +802,28 @@ export default function StratPicker({ compact }: Props) {
           <label className="block">
             <div className="text-[10px] uppercase tracking-[2px] text-pixel-gray mb-1">
               Total capital (τ)
+              {sizing === "tao" && (
+                <span className="text-pixel-gray/70"> · sum</span>
+              )}
             </div>
-            <input
-              type="number" min="1" step="1"
-              value={capitalTao}
-              onChange={(e) => setCapitalTao(Number(e.target.value) || 0)}
-              className="pixel-input w-full font-mono text-sm"
-            />
+            {sizing === "tao" ? (
+              // In τ mode the pot isn't an input — it's whatever the sleeves
+              // add up to. An editable box here would just be a number that
+              // silently disagrees with the rows under it.
+              <div
+                className="pixel-input w-full font-mono text-sm text-pixel-gray-light"
+                title="The sum of the per-trader allocations below"
+              >
+                {totalAlloc.toFixed(2)}
+              </div>
+            ) : (
+              <input
+                type="number" min="1" step="1"
+                value={capitalTao}
+                onChange={(e) => setCapitalTao(Number(e.target.value) || 0)}
+                className="pixel-input w-full font-mono text-sm"
+              />
+            )}
           </label>
           <label className="block">
             <div className="text-[10px] uppercase tracking-[2px] text-pixel-gray mb-1">
@@ -708,16 +865,46 @@ export default function StratPicker({ compact }: Props) {
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div className="text-[10px] uppercase tracking-[2px] text-pixel-gray shrink-0">
               Basket ({traders.length})
+              {enabledCount > 0 && (
+                <span className="text-pixel-gray-light normal-case tracking-normal font-mono">
+                  {" "}· {totalAlloc.toFixed(2)}τ over {enabledCount}
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap gap-1 justify-end">
+              {/* How the money is decided. Both modes carry their numbers
+                  across, so this is a view on one basket, not two. */}
+              <div className="flex" role="group" aria-label="Sizing mode">
+                {(["split", "tao"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => switchSizing(m)}
+                    className={`pixel-btn text-[9px] px-1.5 py-0.5 ${
+                      sizing === m
+                        ? "border-green-400 text-green-400"
+                        : "text-pixel-gray"
+                    }`}
+                    title={
+                      m === "split"
+                        ? "One pot, cut by relative weight"
+                        : "Type the TAO behind each trader"
+                    }
+                  >
+                    {m === "split" ? "SPLIT" : "PER-TRADER τ"}
+                  </button>
+                ))}
+              </div>
               {traders.length > 1 && (
                 <button
                   type="button"
                   className="pixel-btn text-[9px] px-1.5 py-0.5"
-                  onClick={() =>
-                    setTraders((cur) => cur.map((t) => ({ ...t, weight: 1 })))
+                  onClick={equalize}
+                  title={
+                    sizing === "tao"
+                      ? "Split the current total evenly across every trader"
+                      : "Give every trader the same share"
                   }
-                  title="Give every trader the same share"
                 >
                   EQUAL
                 </button>
@@ -754,16 +941,21 @@ export default function StratPicker({ compact }: Props) {
                       32px column — the caps get their own widths. */}
                   <th className="!px-1.5" style={{ width: 34 }}></th>
                   <th>Trader</th>
-                  <th className="num">Weight</th>
-                  <th className="num">Share</th>
-                  {!compact && <th className="num">Daily τ</th>}
+                  {sizing === "split" && <th className="num">Weight</th>}
+                  <th className="num" title="The TAO behind this trader">
+                    τ
+                  </th>
+                  {(!compact || sizing === "tao") && (
+                    <th className="num">Share</th>
+                  )}
                   <th className="!px-1" style={{ width: 40 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {traders.slice(0, shown).map((t) => {
-                  const share = weights.get(t.ss58) || 0;
-                  const dailyShare = capitalTao * share;
+                  const alloc = allocOf(t);
+                  const share = totalAlloc > 0 ? alloc / totalAlloc : 0;
+                  const dust = alloc > 0 && alloc < MIN_SLEEVE_TAO;
                   return (
                     <tr
                       key={t.ss58}
@@ -786,22 +978,48 @@ export default function StratPicker({ compact }: Props) {
                           {t.label || shortSs58(t.ss58)}
                         </Link>
                       </td>
+                      {sizing === "split" && (
+                        <td className="num">
+                          <input
+                            type="number" min="0" step="0.1"
+                            value={t.weight}
+                            onChange={(e) =>
+                              setWeight(t.ss58, Number(e.target.value) || 0)
+                            }
+                            className="pixel-input-sm w-14 text-right font-mono"
+                          />
+                        </td>
+                      )}
                       <td className="num">
-                        <input
-                          type="number" min="0" step="0.1"
-                          value={t.weight}
-                          onChange={(e) =>
-                            setWeight(t.ss58, Number(e.target.value) || 0)
-                          }
-                          className="pixel-input-sm w-14 text-right font-mono"
-                        />
+                        {sizing === "tao" ? (
+                          <input
+                            type="number" min="0" step="0.5"
+                            value={t.alloc_tao ?? 0}
+                            onChange={(e) =>
+                              setAlloc(t.ss58, Number(e.target.value) || 0)
+                            }
+                            className={`pixel-input-sm w-20 text-right font-mono ${
+                              dust ? "border-amber-400 text-amber-400" : ""
+                            }`}
+                            title={
+                              dust
+                                ? `Under the ${MIN_SLEEVE_TAO}τ minimum sleeve — this one would be skipped`
+                                : "TAO behind this trader"
+                            }
+                          />
+                        ) : (
+                          <span
+                            className={`font-mono ${
+                              dust ? "text-amber-400" : ""
+                            }`}
+                          >
+                            {fmtValue(alloc, currency, usdPerTao)}
+                          </span>
+                        )}
                       </td>
-                      <td className="num font-mono text-pixel-gray-light">
-                        {(share * 100).toFixed(1)}%
-                      </td>
-                      {!compact && (
-                        <td className="num font-mono">
-                          {fmtValue(dailyShare, currency, usdPerTao)}
+                      {(!compact || sizing === "tao") && (
+                        <td className="num font-mono text-pixel-gray-light">
+                          {(share * 100).toFixed(1)}%
                         </td>
                       )}
                       <td className="!px-1">
@@ -833,11 +1051,11 @@ export default function StratPicker({ compact }: Props) {
             </button>
           )}
 
-          {flooredSpend > 0 && (
+          {dustLegs > 0 && (
             <p className="mt-2 text-[11px] font-mono text-amber-400">
-              {enabledCount} traders on {capitalTao}τ — each copy floors at
-              1τ/day, so this would run at {flooredSpend}τ/day. Raise capital
-              or trim the basket.
+              {dustLegs} of {enabledCount} sleeves are under {MIN_SLEEVE_TAO}τ
+              and would be skipped as dust — {totalAlloc.toFixed(2)}τ doesn't
+              stretch this far. Raise the capital or trim the basket.
             </p>
           )}
 

@@ -1,0 +1,28 @@
+{
+    "name": "bot-oracle",
+    "description": "Plays whatever bot-perfect would play, by asking it over MCP. The smallest demonstration that a player here can be a client of another player \u2014 and that a call out can fail and be survived.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "rust",
+    "lang": "rust",
+    "anchor": "mod.py",
+    "artifact": "72a192b6cb0f9b6ec93f4bdff9815d406456a8223db9947ca3316328246a3097",
+    "bytes": 3239,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "rust",
+        "mcp"
+    ],
+    "defines": [
+        "new",
+        "play",
+        "guess"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/bot-oracle/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

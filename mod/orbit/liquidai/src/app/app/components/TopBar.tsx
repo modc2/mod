@@ -7,11 +7,16 @@ import AccountChip from "./AccountChip";
 import RuntimeChip from "./RuntimeChip";
 import SkinPicker from "./SkinPicker";
 
+// Four tabs. Three are about models — pick one, talk to one, make several
+// compete — and the fourth is about the machinery underneath: which provider
+// serves a run, and every call the module has answered. What the box holds on
+// disk and which cloud key it carries stay in the CHAT rail, next to the switch
+// that raises the question.
 const NAV = [
-  { href: "/", label: "CATALOG" },
-  { href: "/run", label: "RUN" },
+  { href: "/", label: "MODELS" },
+  { href: "/chat", label: "CHAT" },
   { href: "/arena", label: "ARENA" },
-  { href: "/local", label: "LOCAL" },
+  { href: "/backend", label: "BACKEND" },
 ];
 
 export default function TopBar() {
@@ -27,7 +32,7 @@ export default function TopBar() {
 
   return (
     <header className="border-b-2 border-pixel-border bg-pixel-black sticky top-0 z-30">
-      {/* Four tabs, three caps and a marquee. Past that the row wraps rather
+      {/* Three tabs, three caps and a marquee. Past that the row wraps rather
           than truncating the logo — a clipped wordmark reads as a bug, and
           "LIQUID…" is what the old single-line rule produced on a phone. */}
       <div className="w-full max-w-[1800px] mx-auto px-2 sm:px-3 py-2 flex flex-wrap items-center gap-2 sm:gap-3">

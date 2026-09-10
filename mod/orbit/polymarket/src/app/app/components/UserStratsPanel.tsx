@@ -753,7 +753,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
             <li>
               <code className="font-mono">backtest(history) → BacktestResult</code>{" "}
               — replay your signal logic over a historical trade list and
-              return the PnL curve + fees + ROI. Powers the TEST tab.
+              return the PnL curve + fees + ROI. Powers the BACKTEST tab.
             </li>
           </ul>
           <p>

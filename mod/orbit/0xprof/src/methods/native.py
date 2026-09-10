@@ -427,7 +427,7 @@ def available() -> Dict[str, Any]:
 # ── the prover side, for the systems small enough to prove here ──────
 #
 # A market with no way to make a proof is a market with nothing to sell on the
-# first day. These three are one hash and two multiplications; the snark
+# first day. These four are one hash and two multiplications; the snark
 # systems are proved by the toolchain in methods/snarkjs.py.
 
 def prove_schnorr(secret: Any, context: str = '', nonce: Optional[int] = None) -> Dict[str, Any]:
@@ -465,6 +465,35 @@ def prove_dleq(secret: Any, h_point: Any = None, context: str = '',
         'proof': {'R1': _encode_point(r1), 'R2': _encode_point(r2),
                   's': str((k + c * x) % N)},
         'public_signals': [_encode_point(point_a), _encode_point(point_b)],
+    }
+
+
+def prove_pedersen(value: Any, blinding: Any = None, context: str = '',
+                   h_point: Any = None) -> Dict[str, Any]:
+    """Commit to a value, and hand back the opening.
+
+    C = vG + rH, with H a nothing-up-my-sleeve point derived by hashing a domain
+    string to a scalar — the same construction `prove_dleq` uses, and the reason
+    neither prover can be accused of knowing log_G(H) and forging a second
+    opening. The opening reveals v, so this is not zero-knowledge and the
+    registry says so; it is here because the snark proofs in this market are
+    usually statements *about* a committed value, and a commitment nobody can
+    open is not a market listing.
+    """
+    import secrets as _secrets
+    v = _int(value) % N
+    r = (_int(blinding) if blinding is not None else _secrets.randbelow(N - 1) + 1) % N
+    base_h = _decode_point(h_point) if h_point is not None else _pt_mul(
+        G, _challenge([b'0xprof/pedersen/H'], context))
+    commitment = _pt_add(_pt_mul(G, v), _pt_mul(base_h, r))
+    if commitment is None:
+        raise VerifyError('the commitment landed on infinity — pick another blinding')
+    return {
+        'system': 'pedersen',
+        'statement': {'G': _encode_point(G), 'H': _encode_point(base_h),
+                      'C': _encode_point(commitment), 'context': context},
+        'proof': {'v': str(v), 'r': str(r)},
+        'public_signals': [_encode_point(commitment)],
     }
 
 

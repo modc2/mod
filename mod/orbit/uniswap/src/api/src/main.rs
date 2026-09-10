@@ -40,6 +40,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(routes::chains::router())
         .merge(routes::traders::router())
         .merge(routes::stream::router())
+        .merge(routes::mcp::router())
         .with_state(state)
         .layer(cors);
 

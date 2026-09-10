@@ -477,40 +477,111 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .muted { color: var(--ink2); font-size: 13px; }
 
-  /* ---------- ask (agent) ---------- */
-  .ask-sugg { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  .ask-sugg button {
-    font-family: inherit; font-size: 12.5px; cursor: pointer;
-    padding: 7px 12px; border-radius: 8px;
-    border: 2px solid var(--line); background: var(--bg); color: var(--ink2);
+  /* ---------- chat (agent) ---------- */
+  .chat-wrap { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .chat-wrap { grid-template-columns: 1fr; } .chat-side { order: 2; } }
+  .chat-side { display: flex; flex-direction: column; gap: 8px; }
+  .chat-side .newbtn { width: 100%; }
+  .chat-hist { display: flex; flex-direction: column; gap: 4px; max-height: 460px; overflow: auto; }
+  .chat-item {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 9px 10px; border-radius: 8px; border: 2px solid transparent;
+    font-size: 12.5px; line-height: 1.35; color: var(--ink2);
   }
-  .ask-sugg button:hover { color: var(--ink); border-color: var(--accent); }
-  #ask-log { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
-  .ask-turn { border-top: 2px dashed var(--line); padding-top: 14px; }
-  .ask-you {
-    font-family: var(--pixel); font-size: 10px; line-height: 1.8; color: var(--ink);
+  .chat-item:hover { border-color: var(--line); color: var(--ink); }
+  .chat-item.sel { border-color: var(--accent); color: var(--ink); background: var(--bg); }
+  .chat-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-item .x { opacity: 0; font-size: 12px; padding: 0 3px; color: var(--ink3); }
+  .chat-item:hover .x { opacity: 1; }
+  .chat-item .x:hover { color: var(--bad); }
+  .chat-thread {
+    display: flex; flex-direction: column; gap: 18px;
+    min-height: 220px; max-height: 62vh; overflow: auto; padding: 4px 2px 10px;
   }
-  .ask-you::before { content: "🧑‍🔧 "; }
-  .ask-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-  .ask-tool {
+  .chat-thread:empty { min-height: 0; padding: 0; }   /* no blank slab */
+  .msg { display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
+  .msg.you { align-items: flex-end; }
+  .msg.you .bub {
+    background: var(--star); color: #5b4200; border: 3px solid var(--block);
+    box-shadow: 0 3px 0 var(--shadow); border-radius: 10px;
+    padding: 10px 14px; font-size: 14px; line-height: 1.5; max-width: 80%;
+    word-break: break-word; white-space: pre-wrap;
+  }
+  html[data-theme="dark"] .msg.you .bub { color: #241c00; }
+  .msg.bot .bub { font-size: 14.5px; line-height: 1.7; word-break: break-word; }
+  .msg.bot .bub::before {
+    content: "★"; font-family: var(--pixel); font-size: 9px; color: var(--star);
+    margin-right: 8px; vertical-align: 2px;
+  }
+  .md p { margin: 0 0 10px; }
+  .md p:last-child { margin-bottom: 0; }
+  .md h3, .md h4 { font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+  .md ul, .md ol { margin: 0 0 10px 20px; }
+  .md li { margin: 3px 0; }
+  .md code {
+    font-family: var(--mono); font-size: 12.5px;
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
+    padding: 1px 5px; border-radius: 5px;
+  }
+  .md pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; margin: 0 0 10px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; overflow: auto;
+  }
+  .md pre code { background: none; padding: 0; }
+  .md table { border-collapse: collapse; margin: 0 0 12px; font-size: 13px; width: auto; }
+  .md th, .md td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; }
+  .md th { font-weight: 600; background: var(--bg); }
+  .md td.num, .md th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .md hr { border: none; border-top: 1px dashed var(--line); margin: 12px 0; }
+  .chat-tools { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
     font-family: var(--pixel); font-size: 8px; line-height: 1.6;
     display: inline-flex; align-items: center; gap: 7px;
     padding: 6px 10px; border: 3px solid var(--block); border-radius: 6px;
-    background: var(--star); color: #5b4200;
+    background: var(--star); color: #5b4200; cursor: pointer;
     box-shadow: inset -2px -2px 0 rgba(0,0,0,.18), inset 2px 2px 0 rgba(255,255,255,.4);
-    cursor: default;
   }
-  .ask-tool.pending { animation: qbob 1s ease-in-out infinite; }
-  .ask-tool.done { background: var(--card); color: var(--ink2); box-shadow: none; }
-  .ask-tool.err { background: var(--bad); color: #fff; }
-  .ask-text { font-size: 14.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
-  .ask-text code { font-family: var(--mono); font-size: 12.5px;
-    background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 1px 5px; border-radius: 5px; }
-  .ask-flag {
-    margin-top: 10px; font-family: var(--pixel); font-size: 8px; color: var(--ink3);
-    line-height: 1.8;
+  .chip.pending { animation: qbob 1s ease-in-out infinite; }
+  .chip.done { background: var(--card); color: var(--ink2); box-shadow: none; }
+  .chip.err { background: var(--bad); color: #fff; }
+  .chip.view { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+  .chip.plumb { background: none; border-style: dashed; border-width: 2px;
+    border-color: var(--line); color: var(--ink3); box-shadow: none; }
+  .chip .ms { opacity: .65; font-size: 7px; }
+  .chip-detail {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink2);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 11px; white-space: pre-wrap; word-break: break-word;
   }
-  .ask-err { color: var(--bad); font-size: 13.5px; margin-top: 8px; }
+  .chat-status { font-family: var(--pixel); font-size: 8px; color: var(--ink3); line-height: 1.8; }
+  .chat-foot { font-family: var(--pixel); font-size: 8px; color: var(--ink3); line-height: 1.8; }
+  .chat-err { color: var(--bad); font-size: 13.5px; }
+  .chat-form { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
+  .chat-form textarea {
+    flex: 1; font-family: inherit; font-size: 14.5px; line-height: 1.5;
+    padding: 12px 14px; border-radius: 10px; resize: none; overflow: hidden;
+    border: 2px solid var(--line); background: var(--card); color: var(--ink);
+    min-height: 48px; max-height: 200px;
+  }
+  .chat-form textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-sugg { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .chat-sugg button {
+    font-family: inherit; font-size: 12.5px; cursor: pointer; text-align: left;
+    padding: 7px 12px; border-radius: 8px;
+    border: 2px solid var(--line); background: var(--bg); color: var(--ink2);
+  }
+  .chat-sugg button:hover { color: var(--ink); border-color: var(--accent); }
+  .chat-empty { color: var(--ink2); font-size: 14px; line-height: 1.7; }
+  #chat-back {
+    position: fixed; right: 22px; bottom: 22px; z-index: 60; display: none;
+    font-family: var(--pixel); font-size: 9px; cursor: pointer;
+    padding: 12px 14px; border-radius: 8px;
+    background: var(--accent); color: var(--accent-ink);
+    border: 3px solid var(--block); box-shadow: 0 4px 0 var(--shadow);
+  }
+  #chat-back.on { display: block; }
+  #chat-back:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--shadow); }
   .coin {
     display: inline-block; width: 14px; height: 14px; border-radius: 50%;
     background: var(--star); border: 2px solid #7a5a00;
@@ -583,9 +654,11 @@
   </div>
 </nav>
 
+<button id="chat-back" onclick="location.hash='#ask'">← back to chat</button>
+
 <aside class="rail">
   <a href="#markets"><i></i>Markets</a>
-  <a href="#ask"><i></i>Ask</a>
+  <a href="#ask"><i></i>Chat</a>
   <a href="#traders"><i></i>Traders</a>
   <a href="#account"><i></i>Account</a>
   <a href="#wallet"><i></i>Wallet</a>
@@ -606,7 +679,7 @@
   <p class="sub">Every subnet, price, validator and account — indexed locally, served instantly.<br>No closed backend. No API key. The whole stack is open source. Let's-a go.</p>
   <div class="cta">
     <button class="pill primary" onclick="location.hash='#markets'">Explore markets</button>
-    <button class="pill ghost" onclick="location.hash='#ask'">Ask the network</button>
+    <button class="pill ghost" onclick="location.hash='#ask'">Chat with the network</button>
   </div>
   <div class="stats">
     <div class="stat"><b id="stat-subnets">—</b><span>Subnets</span></div>
@@ -656,21 +729,26 @@
   </div>
 </div>
 
-<!-- ================= ASK ================= -->
-<section id="ask" class="page reveal narrow">
-  <h2>Ask.</h2>
-  <p class="lead">Ask the network anything. A Claude agent answers by playing the same MCP tools this console runs on — every question becomes a run of ?-blocks. Read-only: it sees everything, it signs nothing.</p>
-  <div class="card">
-    <p class="ask-err" id="ask-auth" style="display:none;margin-bottom:12px"></p>
-    <div class="row">
-      <div style="flex:3">
-        <input id="ask-q" placeholder="Which subnet pumped hardest today, and who runs it?" spellcheck="false">
-      </div>
-      <div style="flex:0"><button class="pill primary" id="ask-btn" onclick="askNetwork()">Ask ▶</button></div>
+<!-- ================= CHAT ================= -->
+<section id="ask" class="page reveal">
+  <h2>Chat.</h2>
+  <p class="lead">Talk to the network. A Claude agent answers by playing the same tools this console runs on — and opens what it is talking about, right here on your screen. Conversations keep going and are kept; it is read-only, so it sees everything and signs nothing.</p>
+  <div class="chat-wrap">
+    <div class="chat-side">
+      <button class="pill primary newbtn" onclick="newChat()">+ New chat</button>
+      <div class="chat-hist" id="chat-hist"></div>
     </div>
-    <div class="ask-sugg" id="ask-sugg"></div>
-    <div id="ask-log"></div>
-    <p class="muted" id="ask-meta" style="margin-top:14px"></p>
+    <div class="card">
+      <p class="chat-err" id="chat-auth" style="display:none;margin-bottom:12px"></p>
+      <div class="chat-thread" id="chat-thread"></div>
+      <div class="chat-sugg" id="chat-sugg"></div>
+      <div class="chat-form">
+        <textarea id="chat-input" rows="1" spellcheck="false"
+          placeholder="Which subnet pumped hardest today, and who runs it?"></textarea>
+        <button class="pill primary" id="chat-send" onclick="sendChat()">Send ▶</button>
+      </div>
+      <p class="muted" id="chat-meta" style="margin-top:12px"></p>
+    </div>
   </div>
 </section>
 
@@ -1740,90 +1818,317 @@ async function placeTrade() {
   } catch (e) { out.textContent = e.message; }
 }
 
-/* ---------- ask (agent) ---------- */
-const SUGGESTIONS = [
-  'Which subnet pumped hardest in the last 24h, and why might that be?',
-  'Summarize the whole alpha market right now in three sentences.',
-  'Who are the top validators on the biggest subnet by market cap?',
-  'Did any tracked trader make a big move this week?',
-];
-let ASKING = false;
+/* ---------- chat (agent) ---------- */
+const CHAT = {id: null, running: false, ctl: null, ready: false,
+              starters: [], touched: false};
+const CHAT_KEY = 'bt.chat.id';
+const el = id => document.getElementById(id);
 
-async function loadAgent() {
-  const sug = document.getElementById('ask-sugg');
-  sug.innerHTML = SUGGESTIONS.map(s =>
-    `<button onclick="document.getElementById('ask-q').value=this.textContent;askNetwork()">${esc(s)}</button>`).join('');
-  try {
-    const a = await (await fetch(api('agent'))).json();
-    document.getElementById('ask-meta').textContent =
-      a.ready ? `Agent ready — ${a.model} · ${a.tools} tools allowed, ${a.denied} on-chain tools denied · auth: ${a.method}`
-              : '';
-    if (!a.ready) {
-      const el = document.getElementById('ask-auth');
-      el.style.display = 'block';
-      el.textContent = '⚠ ' + (a.hint || 'Agent auth not configured on this host.');
+/* --- a small markdown renderer: enough for numbers, tables and links --- */
+function mdInline(t) {
+  return esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g,
+             '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+}
+function md(src) {
+  const lines = String(src || '').split('\n');
+  let out = '', para = [], list = null;
+  const flushPara = () => { if (para.length) { out += `<p>${mdInline(para.join(' '))}</p>`; para = []; } };
+  const flushList = () => { if (list) { out += `</${list}>`; list = null; } };
+  const flush = () => { flushPara(); flushList(); };
+  const isSep = l => /^\s*\|?[\s:-]*-[-\s|:]*\|?\s*$/.test(l) && l.includes('-');
+  const cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i], t = line.trim();
+    if (t.startsWith('```')) {                                  /* fenced code */
+      flush();
+      const code = [];
+      while (++i < lines.length && !lines[i].trim().startsWith('```')) code.push(lines[i]);
+      out += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
+      continue;
     }
-  } catch (e) {}
+    if (t.includes('|') && lines[i + 1] !== undefined && isSep(lines[i + 1])) {  /* table */
+      flush();
+      const head = cells(t); i++;
+      const body = [];
+      while (i + 1 < lines.length && lines[i + 1].includes('|') && lines[i + 1].trim()) body.push(cells(lines[++i]));
+      const numCol = head.map((_, c) => body.length &&
+        body.every(r => r[c] === undefined || r[c] === '' || /^[-+τ$]?[\d.,%\s]+[%τ]?$/.test(r[c])));
+      out += '<table><thead><tr>' + head.map((h, c) =>
+        `<th class="${numCol[c] ? 'num' : ''}">${mdInline(h)}</th>`).join('') + '</tr></thead><tbody>' +
+        body.map(r => '<tr>' + head.map((_, c) =>
+          `<td class="${numCol[c] ? 'num' : ''}">${mdInline(r[c] || '')}</td>`).join('') + '</tr>').join('') +
+        '</tbody></table>';
+      continue;
+    }
+    if (!t) { flush(); continue; }
+    if (/^(-{3,}|\*{3,})$/.test(t)) { flush(); out += '<hr>'; continue; }
+    let m;
+    if ((m = t.match(/^(#{1,6})\s+(.*)$/))) {
+      flush(); out += `<h${Math.min(m[1].length + 2, 4)}>${mdInline(m[2])}</h${Math.min(m[1].length + 2, 4)}>`;
+      continue;
+    }
+    if ((m = t.match(/^[-*•]\s+(.*)$/))) {
+      flushPara(); if (list !== 'ul') { flushList(); out += '<ul>'; list = 'ul'; }
+      out += `<li>${mdInline(m[1])}</li>`; continue;
+    }
+    if ((m = t.match(/^\d+[.)]\s+(.*)$/))) {
+      flushPara(); if (list !== 'ol') { flushList(); out += '<ol>'; list = 'ol'; }
+      out += `<li>${mdInline(m[1])}</li>`; continue;
+    }
+    flushList(); para.push(t);
+  }
+  flush();
+  return out;
 }
 
-async function askNetwork() {
-  if (ASKING) return;
-  const q = document.getElementById('ask-q').value.trim();
-  if (!q) return;
-  ASKING = true;
-  const btn = document.getElementById('ask-btn');
-  btn.textContent = '…'; btn.disabled = true;
-  const log = document.getElementById('ask-log');
-  const turn = document.createElement('div');
-  turn.className = 'ask-turn';
-  const you = document.createElement('div'); you.className = 'ask-you'; you.textContent = q;
-  const tools = document.createElement('div'); tools.className = 'ask-tools';
-  const coin = document.createElement('span'); coin.className = 'coin';
-  tools.appendChild(coin);
-  turn.append(you, tools);
-  log.prepend(turn);
-  let gotText = false;
-  const addText = t => {
-    const d = document.createElement('div'); d.className = 'ask-text';
-    /* escape first, then allow only **bold** and `code` back through */
-    d.innerHTML = esc(t)
-      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-    turn.appendChild(d); gotText = true;
+/* --- what the person is looking at, so the agent can answer in context --- */
+function chatContext() {
+  const ctx = {view: (location.hash || '#top').slice(1) || 'top'};
+  if (DETAIL) ctx.netuid = DETAIL.netuid;
+  if (typeof TRADER !== 'undefined' && TRADER) ctx.address = TRADER.ss58;
+  return ctx;
+}
+
+/* --- the agent driving the console --- */
+async function applyView(a) {
+  if (!a || !a.view) return;
+  const needScreen = ['subnet', 'markets'].includes(a.view);
+  if (needScreen && !SCREEN.length) { try { await loadScreener(); } catch (e) {} }
+  if (a.view === 'subnet') { openDetail(+a.netuid); return; }          /* overlays stay */
+  if (a.view === 'trader') { openTrader(a.address); return; }
+  if (a.view === 'markets') {
+    if (a.search !== undefined) el('scr-search').value = a.search || '';
+    if (a.sort_by) SORT = {key: a.sort_by, dir: -1};
+    renderScreener();
+  } else if (a.view === 'account' && a.address) {
+    el('acct-addr').value = a.address;
+    location.hash = '#account'; loadAccount(); showBack(); return;
+  } else if (a.view === 'traders') { loadTraders(); }
+  location.hash = '#' + (a.view === 'markets' ? 'markets' : a.view);
+  showBack();
+}
+function showBack() {
+  if (CHAT.id) el('chat-back').classList.add('on');
+}
+addEventListener('hashchange', () => {
+  if ((location.hash || '') === '#ask') el('chat-back').classList.remove('on');
+});
+function viewLabel(a) {
+  if (a.view === 'subnet') return `open subnet ${a.netuid}`;
+  if (a.view === 'trader') return `open trader ${short(a.address)}`;
+  if (a.view === 'account') return `open account ${short(a.address)}`;
+  if (a.view === 'markets') return 'open markets' + (a.sort_by ? ' by ' + a.sort_by : '') +
+    (a.search ? ` "${a.search}"` : '');
+  return 'open ' + a.view;
+}
+
+/* --- transcript rendering --- */
+function threadEl() { return el('chat-thread'); }
+function scrollThread() { const t = threadEl(); t.scrollTop = t.scrollHeight; }
+
+function addUser(text) {
+  const d = document.createElement('div');
+  d.className = 'msg you';
+  d.innerHTML = `<div class="bub"></div>`;
+  d.firstChild.textContent = text;
+  threadEl().appendChild(d); scrollThread();
+}
+
+/* One assistant message, live or replayed. Returns the handles a run drives. */
+function addBot() {
+  const d = document.createElement('div');
+  d.className = 'msg bot';
+  const tools = document.createElement('div'); tools.className = 'chat-tools';
+  const detail = document.createElement('div'); detail.className = 'chip-detail'; detail.hidden = true;
+  const bub = document.createElement('div'); bub.className = 'bub md';
+  const status = document.createElement('div'); status.className = 'chat-status';
+  const foot = document.createElement('div'); foot.className = 'chat-foot'; foot.hidden = true;
+  d.append(tools, detail, bub, status, foot);
+  threadEl().appendChild(d); scrollThread();
+
+  let raw = '', pending = null, painting = false;
+  const showDetail = txt => {
+    if (detail.textContent === txt && !detail.hidden) { detail.hidden = true; return; }
+    detail.textContent = txt; detail.hidden = false;
   };
-  const handle = ev => {
-    if (ev.type === 'tool') {
+  const paint = () => {
+    if (painting) return;
+    painting = true;
+    requestAnimationFrame(() => { painting = false; bub.innerHTML = md(raw); scrollThread(); });
+  };
+  return {
+    node: d,
+    status(text) { status.textContent = text ? '● ' + text : ''; scrollThread(); },
+    append(t) { raw += t; paint(); },
+    set(t) { raw = t; bub.innerHTML = md(raw); scrollThread(); },
+    tool(ev) {
       const c = document.createElement('span');
-      c.className = 'ask-tool pending';
-      const args = Object.entries(ev.args || {}).map(([k, v]) => `${k}:${v}`).join(' ');
-      c.textContent = `? ${ev.name}${args ? ' · ' + args : ''}`;
-      c.title = JSON.stringify(ev.args || {});
-      tools.insertBefore(c, coin);
-    } else if (ev.type === 'tool_done') {
-      const p = tools.querySelector('.ask-tool.pending');
-      if (p) { p.className = 'ask-tool ' + (ev.error ? 'err' : 'done');
-               p.textContent = (ev.error ? '✗ ' : '🪙 ') + p.textContent.slice(2); }
-    } else if (ev.type === 'text') {
-      addText(ev.text);
-    } else if (ev.type === 'done') {
-      coin.remove();
-      tools.querySelectorAll('.ask-tool.pending').forEach(p => p.classList.replace('pending', 'done'));
-      if (!gotText && ev.answer) addText(ev.answer);
-      const f = document.createElement('div'); f.className = 'ask-flag';
+      c.className = 'chip pending';
+      c.dataset.id = ev.id || '';
+      const args = ev.builtin ? '' :
+        Object.entries(ev.args || {}).map(([k, v]) => `${k}:${v}`).join(' ');
+      if (ev.builtin) c.classList.add('plumb');   /* the CLI's own plumbing */
+      c.innerHTML = `? ${esc(ev.name)}${args ? ' · ' + esc(args) : ''} <span class="ms"></span>`;
+      c.onclick = () => showDetail(`${ev.name}(${JSON.stringify(ev.args || {})})` +
+        (c.dataset.preview ? '\n→ ' + c.dataset.preview : ''));
+      tools.appendChild(c); scrollThread();
+      pending = c;
+    },
+    toolDone(ev) {
+      const c = tools.querySelector(`.chip[data-id="${ev.id}"]`) ||
+                tools.querySelector('.chip.pending') || pending;
+      if (!c) return;
+      c.className = 'chip ' + (ev.error ? 'err' : 'done') +
+                    (c.classList.contains('plumb') ? ' plumb' : '');
+      c.firstChild.textContent = (ev.error ? '✗ ' : '🪙 ') + c.firstChild.textContent.slice(2);
+      c.dataset.preview = ev.preview || '';
+      c.querySelector('.ms').textContent = ev.ms != null ? (ev.ms / 1000).toFixed(1) + 's' : '';
+    },
+    view(a) {
+      const c = document.createElement('span');
+      c.className = 'chip view';
+      c.textContent = '▶ ' + viewLabel(a);
+      c.title = 'Show me this again';
+      c.onclick = () => applyView(a);
+      tools.appendChild(c); scrollThread();
+    },
+    done(ev) {
+      status.textContent = '';
+      tools.querySelectorAll('.chip.pending').forEach(c => c.className = 'chip done');
+      if (!raw.trim() && ev.answer) this.set(ev.answer);
       const secs = ev.ms != null ? (ev.ms / 1000).toFixed(1) + 's' : '';
-      f.textContent = `🏁 COURSE CLEAR · ${ev.turns ?? '?'} turns · ${secs}` +
+      foot.hidden = false;
+      foot.textContent = `🏁 COURSE CLEAR · ${ev.turns ?? '?'} turns · ${secs}` +
         (ev.cost_usd != null ? ` · $${(+ev.cost_usd).toFixed(4)}` : '');
-      turn.appendChild(f);
-    } else if (ev.type === 'error') {
-      coin.remove();
-      const d = document.createElement('div'); d.className = 'ask-err';
-      d.textContent = '💀 ' + ev.error; turn.appendChild(d);
+    },
+    error(msg) {
+      status.textContent = '';
+      tools.querySelectorAll('.chip.pending').forEach(c => c.className = 'chip done');
+      const e = document.createElement('div'); e.className = 'chat-err';
+      e.textContent = msg === 'stopped' ? '⏹ stopped' : '💀 ' + msg;
+      d.appendChild(e); scrollThread();
+    },
+  };
+}
+
+/* replay a stored message */
+function renderStored(m) {
+  if (m.role === 'user') { addUser(m.text); return; }
+  const bot = addBot();
+  (m.tools || []).forEach(t => {
+    bot.tool({name: t.name, args: t.args, id: '', builtin: t.builtin});
+    bot.toolDone({id: '', error: !t.ok, ms: t.ms, preview: ''});
+  });
+  ((m.meta || {}).views || []).forEach(a => bot.view(a));
+  bot.set(m.text || '');
+  const meta = m.meta || {};
+  if (meta.turns) bot.done({turns: meta.turns, ms: meta.ms, cost_usd: meta.cost_usd, answer: m.text});
+}
+
+/* --- conversations --- */
+function renderStarters() {
+  const box = el('chat-sugg');
+  if (threadEl().children.length || !CHAT.starters.length) { box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<p class="chat-empty" style="width:100%">Ask about a subnet, a trader, or the whole ' +
+    'market — the answer opens on your screen. Try:</p>' +
+    CHAT.starters.map(sg =>
+      `<button onclick="sendChat(this.textContent)">${esc(sg)}</button>`).join('');
+}
+async function loadChats(select) {
+  try {
+    const j = await (await fetch(api('agent/chats?limit=40'))).json();
+    el('chat-hist').innerHTML = (j.chats || []).map(c => `
+      <div class="chat-item ${c.id === (select || CHAT.id) ? 'sel' : ''}" onclick="openChat('${c.id}')">
+        <span class="t" title="${esc(c.title)}">${esc(c.title)}</span>
+        <span class="x" title="Delete" onclick="event.stopPropagation();deleteChat('${c.id}')">✕</span>
+      </div>`).join('') ||
+      '<span class="muted">No conversations yet.</span>';
+  } catch (e) {}
+}
+async function openChat(id, nav = true) {
+  if (CHAT.running) return;
+  if (nav) CHAT.touched = true;
+  try {
+    const c = await (await fetch(api('agent/chats/' + id))).json();
+    if (!c || !c.id) return;
+    CHAT.id = c.id;
+    try { localStorage.setItem(CHAT_KEY, c.id); } catch (e) {}
+    threadEl().innerHTML = '';
+    (c.messages || []).forEach(renderStored);
+    renderStarters(); loadChats(); scrollThread();
+    if (nav && (location.hash || '') !== '#ask') location.hash = '#ask';
+  } catch (e) {}
+}
+function newChat() {
+  if (CHAT.running) return;
+  CHAT.id = null; CHAT.touched = true;
+  try { localStorage.removeItem(CHAT_KEY); } catch (e) {}
+  threadEl().innerHTML = '';
+  el('chat-back').classList.remove('on');
+  renderStarters(); loadChats();
+  el('chat-input').focus();
+}
+async function deleteChat(id) {
+  await fetch(api('agent/chats/' + id), {method: 'DELETE'}).catch(() => {});
+  if (CHAT.id === id) newChat(); else loadChats();
+}
+
+/* --- one turn --- */
+function setSending(on) {
+  const b = el('chat-send');
+  b.textContent = on ? 'Stop ■' : 'Send ▶';
+  b.onclick = on ? stopChat : () => sendChat();
+}
+async function stopChat() {
+  if (!CHAT.running) return;
+  if (CHAT.id) await fetch(api('agent/stop'), {
+    method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({chat: CHAT.id})}).catch(() => {});
+  if (CHAT.ctl) CHAT.ctl.abort();
+}
+
+async function sendChat(text) {
+  if (CHAT.running) return;
+  const box = el('chat-input');
+  const q = String(text !== undefined ? text : box.value).trim();
+  if (!q) return;
+  CHAT.touched = true;
+  box.value = ''; growInput();
+  addUser(q);
+  el('chat-sugg').innerHTML = '';
+  const bot = addBot();
+  bot.status('thinking');
+  CHAT.running = true; setSending(true);
+  const ctl = new AbortController(); CHAT.ctl = ctl;
+  const handle = ev => {
+    if (ev.chat && ev.chat !== CHAT.id) {
+      CHAT.id = ev.chat;
+      try { localStorage.setItem(CHAT_KEY, ev.chat); } catch (e) {}
+    }
+    switch (ev.type) {
+      case 'start':      bot.status(`${ev.model || ''} · ${ev.tools || 0} tools`); break;
+      case 'status':     bot.status(ev.status); break;
+      case 'text_delta': bot.append(ev.delta); bot.status(''); break;
+      case 'text':       bot.append(ev.text); bot.status(''); break;
+      case 'tool':       bot.tool(ev); bot.status('reading the chain'); break;
+      case 'tool_done':  bot.toolDone(ev); break;
+      case 'view':       bot.view(ev.action); applyView(ev.action); break;
+      case 'done':       bot.done(ev); break;
+      case 'error':      bot.error(ev.error); break;
     }
   };
   try {
-    const r = await fetch(api('ask'), {
+    const r = await fetch(api('agent/chat'), {
       method: 'POST', headers: {'content-type': 'application/json'},
-      body: JSON.stringify({question: q}),
+      signal: ctl.signal,
+      body: JSON.stringify({message: q, chat: CHAT.id, context: chatContext()}),
     });
     if (!r.ok || !r.body) {
       handle({type: 'error', error: (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`});
@@ -1842,16 +2147,48 @@ async function askNetwork() {
           }
         }
       }
-      coin.remove();
     }
-  } catch (e) { handle({type: 'error', error: e.message}); }
-  document.getElementById('ask-q').value = '';
-  btn.textContent = 'Ask ▶'; btn.disabled = false;
-  ASKING = false;
+  } catch (e) {
+    handle({type: 'error', error: e.name === 'AbortError' ? 'stopped' : e.message});
+  }
+  CHAT.running = false; CHAT.ctl = null; setSending(false);
+  loadChats();
+  el('chat-input').focus();
 }
-document.getElementById('ask-q').addEventListener('keydown', e => {
-  if (e.key === 'Enter') askNetwork();
+
+function growInput() {
+  const t = el('chat-input');
+  t.style.height = 'auto';
+  t.style.height = Math.min(t.scrollHeight, 200) + 'px';
+}
+
+async function loadAgent() {
+  try {
+    const a = await (await fetch(api('agent/status'))).json();
+    CHAT.ready = !!a.ready;
+    CHAT.starters = a.starters || [];
+    renderStarters();               /* don't wait on the restore below */
+    el('chat-meta').textContent = a.ready
+      ? `${a.model} · ${a.tools} tools · ${a.denied} on-chain tools denied · auth: ${a.method}`
+      : '';
+    if (!a.ready) {
+      const w = el('chat-auth');
+      w.style.display = 'block';
+      w.textContent = '⚠ ' + (a.hint || 'Agent auth not configured on this host.');
+    }
+  } catch (e) {}
+  let last = null;
+  try { last = localStorage.getItem(CHAT_KEY); } catch (e) {}
+  /* restore the last conversation — unless the person already started one */
+  if (last && !CHAT.touched) await openChat(last, false);
+  renderStarters();
+  await loadChats();
+}
+
+el('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
+el('chat-input').addEventListener('input', growInput);
 
 /* ---------- console ---------- */
 function renderToolForm() {

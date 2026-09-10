@@ -473,9 +473,9 @@ input, select, textarea { color-scheme: var(--scheme, dark); }
     transition: border-color .18s var(--ease);
   }
   .card-head {
-    @apply flex items-center gap-2 px-4 py-3 border-b border-hair;
+    @apply flex items-center gap-2 px-4 py-2.5 border-b border-hair;
   }
-  .card-body { @apply p-4; }
+  .card-body { @apply p-3.5; }
 
   /* The 10px uppercase label that names everything on this screen. */
   .lbl {
@@ -487,7 +487,7 @@ input, select, textarea { color-scheme: var(--scheme, dark); }
   /* Stat tile — a number with a name and a coloured hairline on top.
      `--tone` is set per tile; nothing here knows which hue that is. */
   .stat {
-    @apply relative p-4 text-center overflow-hidden;
+    @apply relative px-3 py-3 text-center overflow-hidden;
     transition: background-color .18s var(--ease);
   }
   .stat::before {
@@ -500,7 +500,7 @@ input, select, textarea { color-scheme: var(--scheme, dark); }
   }
   .stat:hover { background: rgb(var(--panel2-rgb) / 0.7); }
   .stat-val { @apply text-lg font-semibold tabular-nums leading-tight; color: var(--tone, rgb(var(--ink-rgb))); }
-  .stat-lab { @apply lbl-dim mt-1 block; }
+  .stat-lab { @apply lbl-dim mt-0.5 block; }
 
   /* Buttons. One shape, five voices; `.btn` alone is the quiet one. */
   .btn {
@@ -541,12 +541,12 @@ input, select, textarea { color-scheme: var(--scheme, dark); }
   /* Tab bar — a segmented control. The active tab is a filled chip, and
      the row scrolls sideways on a phone rather than wrapping. */
   .tabbar {
-    @apply flex gap-1 p-1 rounded-lg border border-line bg-panel overflow-x-auto;
+    @apply flex gap-0.5 p-1 rounded-lg border border-line bg-panel overflow-x-auto;
     scrollbar-width: none;
   }
   .tabbar::-webkit-scrollbar { display: none; }
   .tab {
-    @apply flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-md
+    @apply flex-1 flex items-center justify-center gap-2 px-2.5 py-1.5 rounded-md
            text-[10px] font-bold uppercase text-mute whitespace-nowrap;
     letter-spacing: .12em;
     transition: background-color .16s var(--ease), color .16s var(--ease);

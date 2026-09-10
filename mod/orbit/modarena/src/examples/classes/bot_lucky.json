@@ -1,0 +1,6 @@
+{
+  "name": "lucky",
+  "description": "The baseline player: reads `Legal moves:` out of any view and picks one at random. Every rating needs a floor.",
+  "author": "modarena",
+  "tags": ["example", "player", "class", "python", "baseline"]
+}

@@ -1,10 +1,11 @@
 """
 credits - prepaid usage ledger for the agent's public API key.
 
-Guests top up with USDT/USDC (Base or Ethereum) sent to the module's
-deposit address, then spend those credits to run the agent on the
-module's own provider key ("the public key") instead of bringing their
-own. 1 credit = 1 USD.
+Guests top up with USDT/USDC or plain ETH (Base or Ethereum) sent to
+the module's deposit address — from the console's own MetaMask button or
+any wallet — then spend those credits to run the agent on the module's
+own provider key ("the public key") instead of bringing their own.
+1 credit = 1 USD.
 
 A run is billed at what it actually cost us at the provider (metered by
 billing.Meter against the live OpenRouter/Venice catalogs) plus a margin
@@ -24,9 +25,14 @@ Ledger state is private auth state — it lives OFF-tree under
 
 Deposits are verified trustlessly: the caller submits a tx hash, we pull
 the receipt from a public RPC, find ERC-20 Transfer logs of a supported
-stablecoin into the deposit address, and credit the ON-CHAIN SENDER —
-so nobody can claim someone else's deposit, and a hash can only be
-credited once.
+stablecoin into the deposit address (or a plain ETH value transfer to it,
+priced at the Chainlink ETH/USD feed read over the same RPC), and credit
+the ON-CHAIN SENDER — so nobody can claim someone else's deposit, and a
+hash can only be credited once.
+
+A deposit may be earmarked for one provider (`provider=openrouter|venice`).
+Credits are one balance either way — the earmark is a note to the owner's
+treasury about which key the guest expects the money to land on.
 """
 import os
 import json
@@ -39,33 +45,75 @@ from typing import Optional
 # keccak('Transfer(address,address,uint256)')
 TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
-# supported stablecoins per network (all 6 decimals, 1:1 USD)
+# supported stablecoins per network (all 6 decimals, 1:1 USD), plus the
+# chain's own coin. `chain_id` and the contracts are what the console's
+# MetaMask button needs to build the transfer itself; `price_feed` is the
+# Chainlink ETH/USD aggregator a native deposit is priced at.
 NETWORKS = {
     'base': {
+        'chain_id': 8453,
         'rpc_env': 'AGENT_RPC_BASE',
-        'rpc': 'https://mainnet.base.org',
+        'rpc': ['https://mainnet.base.org', 'https://base-rpc.publicnode.com',
+                'https://base.llamarpc.com'],
+        'explorer': 'https://basescan.org/tx/',
         'tokens': {
             '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913': 'USDC',
             '0xfde4c96c8593536e31f229ea8f37b2ada2699bb2': 'USDT',
         },
+        'native': 'ETH',
+        'price_feed': '0x71041dddad3595f9ced3dccfbe3d1f4b0a16bb70',
     },
     'ethereum': {
+        'chain_id': 1,
         'rpc_env': 'AGENT_RPC_ETHEREUM',
-        'rpc': 'https://eth.llamarpc.com',
+        'rpc': ['https://ethereum-rpc.publicnode.com', 'https://eth.llamarpc.com',
+                'https://cloudflare-eth.com'],
+        'explorer': 'https://etherscan.io/tx/',
         'tokens': {
             '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 'USDC',
             '0xdac17f958d2ee523a2206206994597c13d831ec7': 'USDT',
         },
+        'native': 'ETH',
+        'price_feed': '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419',
     },
 }
 
 TOKEN_DECIMALS = 6
+NATIVE_DECIMALS = 18
+# Chainlink AggregatorV3 latestRoundData() — answer is slot 1, 8 decimals
+LATEST_ROUND_DATA = '0xfeaf968c'
+FEED_DECIMALS = 8
+PRICE_TTL = 60                  # seconds an ETH/USD read is reused
+PRICE_FALLBACK_URL = ('https://api.coingecko.com/api/v3/simple/price'
+                      '?ids=ethereum&vs_currencies=usd')
 DEFAULT_PRICE_PER_STEP = 0.01   # USD per step, only for runs the meter can't price
 DEFAULT_FEE_RATE = 0.05         # our margin on top of provider cost (5%)
 DEFAULT_COST_MULTIPLIER = 1.0   # safety factor on the metered cost estimate
 MAX_HISTORY = 50                # ledger entries kept per account
 MAX_TREASURY_LEDGER = 200       # top-up / withdrawal entries kept
 PROVIDERS = ('openrouter', 'venice')
+
+# Where provider credits are actually bought, and how a purchase can be seen
+# from here. Neither provider sells credits over an API — OpenRouter removed
+# its Coinbase endpoint (it answers 410 Gone: "use the web credits purchase
+# flow instead") and Venice never had one — so the money always leaves on the
+# provider's own page. What this module can do is read the purchase back off
+# the key: `meter` is the number that moves when it lands.
+PROVIDER_TOPUP = {
+    'openrouter': {
+        'url': 'https://openrouter.ai/settings/credits',
+        # credits ever bought on the key. Monotonic, so a rise in it is a
+        # purchase and nothing else — the amount is exact.
+        'meter': 'purchased', 'exact': True,
+    },
+    'venice': {
+        'url': 'https://venice.ai/settings/api',
+        # no purchase counter, only USD left. Spending pulls it down too, so
+        # the mark trails it down and only a rise above the mark is a top-up.
+        'meter': 'balance', 'exact': False,
+    },
+}
+TOPUP_EPSILON = 0.01            # ignore rounding noise in a provider's numbers
 
 
 def _now() -> float:
@@ -92,6 +140,12 @@ class Credits:
         self._path = Path(state_dir) / 'credits.json'
         self._lock = threading.Lock()
         self._state = self._load()
+        self._price_cache: dict = {}
+        # addresses that share another address's account, {alias: primary}.
+        # Set by the module for co-owners: they spend the owner's credits
+        # rather than a balance of their own, so every read and write on an
+        # alias lands on the one shared ledger entry.
+        self.aliases: dict = {}
         cfg = self._state.setdefault('config', {})
         # config file wins, then env, then the module owner as deposit target
         self.deposit_address = (cfg.get('deposit_address')
@@ -130,6 +184,10 @@ class Credits:
         book.setdefault('topups', {})
         book.setdefault('ledger', [])
         book.setdefault('baseline', {})
+        # per-provider meter reading as of the last booked top-up
+        book.setdefault('purchase', {})
+        # deposits guests tagged for one provider (a hint, not a sub-balance)
+        book.setdefault('earmarked', {})
         return state
 
     def _save(self):
@@ -141,8 +199,13 @@ class Credits:
 
     # ── accounts ─────────────────────────────────────────────────────
 
-    def _account(self, address: str) -> dict:
+    def _addr(self, address: Optional[str]) -> str:
+        """Normalize an address, following the alias map to the account it shares."""
         addr = (address or '').lower()
+        return self.aliases.get(addr, addr)
+
+    def _account(self, address: str) -> dict:
+        addr = self._addr(address)
         return self._state['accounts'].setdefault(addr, {'balance': 0.0, 'history': []})
 
     def _record(self, acct: dict, kind: str, amount: float, note: str = '', tx: str = None):
@@ -158,24 +221,32 @@ class Credits:
     def balance(self, address: Optional[str]) -> float:
         if not address:
             return 0.0
-        acct = self._state['accounts'].get(address.lower())
+        acct = self._state['accounts'].get(self._addr(address))
         return round(float(acct['balance']), 6) if acct else 0.0
 
     def credit(self, address: str, amount: float, kind: str = 'deposit',
                note: str = '', tx: str = None) -> dict:
-        """Add credits to an account (deposit verification or owner grant)."""
+        """Move an account's balance (deposit verification, or an owner
+        top-up / deduction).
+
+        A deduction can only take what is there — an account never goes
+        negative — and it is the amount that ACTUALLY moved that gets
+        written to the history and the books. Booking the requested amount
+        instead let '-100' off a $5 account knock $100 off the treasury.
+        """
         if not address or not str(address).startswith('0x'):
             raise ValueError('a 0x address is required')
         amount = float(amount)
         with self._lock:
             acct = self._account(address)
-            acct['balance'] = round(float(acct['balance']) + amount, 6)
-            if acct['balance'] < 0:
-                acct['balance'] = 0.0
-            self._record(acct, kind, amount, note, tx)
-            self._book_credit(kind, amount)
+            before = float(acct['balance'])
+            acct['balance'] = round(max(0.0, before + amount), 6)
+            applied = round(acct['balance'] - before, 6)
+            self._record(acct, kind, applied, note, tx)
+            self._book_credit(kind, applied)
             self._save()
-            return {'address': address.lower(), 'balance': acct['balance'], 'credited': amount}
+            return {'address': self._addr(address), 'balance': acct['balance'],
+                    'credited': applied, 'requested': round(amount, 6)}
 
     # ── charging ─────────────────────────────────────────────────────
 
@@ -245,7 +316,9 @@ class Credits:
     def _book_credit(self, kind: str, amount: float):
         """Money in: a verified deposit is real cash, a grant is not."""
         book = self._state['treasury']
-        field = 'grants' if kind == 'grant' else 'deposits'
+        # a debit is an owner reversal of free credit, so it walks `grants`
+        # back down rather than pretending cash left the deposit float
+        field = 'grants' if kind in ('grant', 'debit') else 'deposits'
         book[field] = round(book.get(field, 0.0) + float(amount), 6)
 
     def _book_ledger(self, entry: dict):
@@ -274,8 +347,79 @@ class Credits:
             self._book_ledger({'time': _now(), 'type': 'topup', 'provider': provider,
                                'amount': round(amount, 6), 'ref': (ref or '')[:120],
                                'note': (note or '')[:120]})
+            # a hand-logged purchase is the same money verify_topup would see
+            # on the key — walk the mark past it so it can't be booked twice
+            marks = book.setdefault('purchase', {})
+            if marks.get(provider) is not None:
+                marks[provider] = round(float(marks[provider]) + amount, 6)
             self._save()
             return {'provider': provider, 'amount': round(amount, 6),
+                    'topups': dict(book['topups'])}
+
+    def _purchase_view(self, provider: str, live: dict) -> dict:
+        """Has money landed on this key that the books haven't seen?
+
+        `mark` is the provider's own meter as of the last booked top-up.
+        OpenRouter counts credits ever bought, which only goes up, so
+        mark → now is exactly what was purchased. Venice reports only the
+        USD left, which spending pulls down — so the mark follows it down
+        and only a rise above the mark reads as a top-up.
+        """
+        spec = PROVIDER_TOPUP.get(provider) or {}
+        out = {'url': spec.get('url'), 'meter': spec.get('meter'),
+               'exact': bool(spec.get('exact')),
+               'mark': None, 'now': None, 'pending': 0.0}
+        if not spec or live.get('error'):
+            return out
+        now = live.get(spec['meter'])
+        if now is None:
+            return out
+        now = round(float(now), 6)
+        marks = self._state['treasury'].setdefault('purchase', {})
+        mark = marks.get(provider)
+        if mark is None or (not spec['exact'] and now < float(mark)):
+            # first sight of this key, or an inexact meter spent down
+            marks[provider] = mark = now
+        out.update(mark=round(float(mark), 6), now=now,
+                   pending=round(max(0.0, now - float(mark)), 6))
+        return out
+
+    def verify_topup(self, provider: str, live: dict) -> dict:
+        """Book what the provider's own numbers say landed on the key.
+
+        The owner buys the credits on the provider's page — see
+        PROVIDER_TOPUP for why there is no API to buy them with — and this
+        is the other half of that trip: it reads the purchase back off the
+        key, so the ledger records what arrived rather than what was typed.
+        """
+        provider = (provider or '').strip().lower()
+        if provider not in PROVIDERS:
+            raise ValueError(f"unknown provider '{provider}' — use one of {list(PROVIDERS)}")
+        with self._lock:
+            view = self._purchase_view(provider, live or {})
+            out = {'provider': provider, 'booked': 0.0, **view}
+            if view['now'] is None:
+                out['reason'] = ((live or {}).get('error')
+                                 or f'no readable {view["meter"] or "balance"} on this key')
+                self._save()
+                return out
+            if view['pending'] <= TOPUP_EPSILON:
+                out['reason'] = 'nothing new on the key yet'
+                self._save()
+                return out
+            book = self._state['treasury']
+            amount = view['pending']
+            book['topups'][provider] = round(book['topups'].get(provider, 0.0) + amount, 6)
+            self._book_ledger({
+                'time': _now(), 'type': 'topup', 'provider': provider,
+                'amount': amount, 'verified': True,
+                'ref': f"{view['meter']} {view['mark']} → {view['now']}",
+                'note': ('read off the provider key' if view['exact']
+                         else 'balance rose on the key'),
+            })
+            book.setdefault('purchase', {})[provider] = view['now']
+            self._save()
+            return {**out, 'booked': amount, 'mark': view['now'], 'pending': 0.0,
                     'topups': dict(book['topups'])}
 
     def record_withdrawal(self, amount: float, note: str = '') -> dict:
@@ -353,6 +497,7 @@ class Credits:
                 'fees_available': round(book['fees'] - book['withdrawn'], 6),
                 'topups': topups,
                 'topups_total': round(sum(topups.values()), 6),
+                'earmarked': {k: round(float(v), 6) for k, v in book.get('earmarked', {}).items()},
                 'user_credits': liability,
                 'funding_required': funding_required,
                 'accounts': len(self._state['accounts']),
@@ -365,6 +510,11 @@ class Credits:
             out['provider_balance'] = balance if providers else None
             out['topup_needed'] = (round(max(0.0, funding_required - balance), 6)
                                    if providers else None)
+            # credits seen on a key that the books haven't booked yet — a
+            # purchase made on the provider's page, waiting to be confirmed
+            out['topup_pending'] = round(sum(
+                (p.get('topup') or {}).get('pending') or 0.0
+                for p in out['providers'].values()), 6) if providers else None
             self._save()   # _provider_view may have stamped a drift baseline
             return out
 
@@ -383,7 +533,10 @@ class Credits:
         for name in PROVIDERS:
             live = providers.get(name) or {}
             entry = {'balance': live.get('balance'),
-                     'topups': round(book.get('topups', {}).get(name, 0.0), 6)}
+                     'topups': round(book.get('topups', {}).get(name, 0.0), 6),
+                     # where to buy more, and whether a purchase is sitting
+                     # on the key unbooked
+                     'topup': self._purchase_view(name, live)}
             if live.get('error'):
                 entry['error'] = live['error']
             usage = live.get('usage')
@@ -415,18 +568,38 @@ class Credits:
             'deposit': {
                 'address': self.deposit_address,
                 'networks': {
-                    net: {'tokens': sorted(set(info['tokens'].values()))}
+                    net: {
+                        'chain_id': info['chain_id'],
+                        'tokens': sorted(set(info['tokens'].values())) + [info['native']],
+                        'native': info['native'],
+                        # contract + decimals per token — a wallet builds the
+                        # transfer from this, no hardcoding in the console
+                        'contracts': {
+                            sym: {'address': addr, 'decimals': TOKEN_DECIMALS}
+                            for addr, sym in info['tokens'].items()
+                        },
+                        'explorer': info['explorer'],
+                    }
                     for net, info in NETWORKS.items()
                 },
+                # a deposit can be earmarked for one of these keys
+                'providers': list(PROVIDERS),
             },
         }
         if address:
-            acct = self._state['accounts'].get(address.lower())
+            shared = self._addr(address)
+            acct = self._state['accounts'].get(shared)
             out['account'] = {
-                'address': address.lower(),
+                'address': shared,
                 'balance': round(float(acct['balance']), 6) if acct else 0.0,
                 'history': list(reversed(acct['history'])) if acct else [],
             }
+            if shared != (address or '').lower():
+                # spending someone else's balance — say whose, so the console
+                # shows "you are on the owner's credits" rather than a balance
+                # that seems to have appeared from nowhere
+                out['account']['shared_with'] = shared
+                out['account']['caller'] = (address or '').lower()
         if owner:
             out['accounts'] = [
                 {'address': a, 'balance': round(float(v['balance']), 6)}
@@ -434,31 +607,104 @@ class Credits:
             ]
         return out
 
-    # ── on-chain deposit verification ────────────────────────────────
+    # ── rpc ──────────────────────────────────────────────────────────
 
     def _rpc(self, network: str, method: str, params: list):
+        """JSON-RPC over the network's public nodes — env override first, then
+        each built-in endpoint in turn. A public node being down is routine;
+        a JSON-RPC error (bad params, unknown hash) is final and not retried."""
         info = NETWORKS[network]
-        url = os.environ.get(info['rpc_env']) or info['rpc']
+        urls = [os.environ.get(info['rpc_env'])] if os.environ.get(info['rpc_env']) else []
+        urls += info['rpc'] if isinstance(info['rpc'], list) else [info['rpc']]
         body = json.dumps({'jsonrpc': '2.0', 'id': 1,
                            'method': method, 'params': params}).encode()
-        req = urllib.request.Request(url, data=body, headers={
-            'Content-Type': 'application/json',
-            'User-Agent': 'mod-agent-credits/1.0',
-        })
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = json.loads(resp.read().decode())
-        if data.get('error'):
-            raise RuntimeError(f"rpc error: {data['error'].get('message', data['error'])}")
-        return data.get('result')
+        errors = []
+        for url in urls:
+            req = urllib.request.Request(url, data=body, headers={
+                'Content-Type': 'application/json',
+                'User-Agent': 'mod-agent-credits/1.0',
+            })
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    data = json.loads(resp.read().decode())
+            except Exception as e:
+                errors.append(f'{url}: {e}')
+                continue
+            if data.get('error'):
+                raise RuntimeError(f"rpc error: {data['error'].get('message', data['error'])}")
+            return data.get('result')
+        raise RuntimeError(f'{network} rpc unreachable — ' + '; '.join(errors))
 
-    def verify_deposit(self, tx_hash: str, network: str = 'base') -> dict:
-        """Verify a USDT/USDC transfer into the deposit address and credit
-        the on-chain sender. Each tx hash can only be credited once."""
+    # ── ETH/USD ──────────────────────────────────────────────────────
+
+    def eth_usd(self, network: str = 'base') -> dict:
+        """ETH in USD, read off the Chainlink feed over the network's own RPC.
+
+        The feed is the same source every DEX and lender on the chain
+        settles on, and it needs no key — so an ETH deposit is priced by the
+        chain it landed on, not by us. `AGENT_ETH_USD` pins a price (tests,
+        air-gapped boxes); CoinGecko is the fallback when the RPC is down.
+        """
+        network = (network or 'base').lower()
+        if network not in NETWORKS:
+            raise ValueError(f"unsupported network '{network}' — use one of {sorted(NETWORKS)}")
+        pinned = os.environ.get('AGENT_ETH_USD')
+        if pinned:
+            return {'usd': float(pinned), 'source': 'env', 'network': network, 'time': _now()}
+        hit = self._price_cache.get(network)
+        if hit and _now() - hit['time'] < PRICE_TTL:
+            return hit
+        out = None
+        try:
+            raw = self._rpc(network, 'eth_call',
+                            [{'to': NETWORKS[network]['price_feed'], 'data': LATEST_ROUND_DATA},
+                             'latest'])
+            out = {'usd': self._decode_feed(raw), 'source': 'chainlink',
+                   'network': network, 'time': _now()}
+        except Exception as e:
+            try:
+                req = urllib.request.Request(PRICE_FALLBACK_URL,
+                                             headers={'User-Agent': 'mod-agent-credits/1.0'})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    usd = float(json.loads(resp.read().decode())['ethereum']['usd'])
+                out = {'usd': usd, 'source': 'coingecko', 'network': network,
+                       'time': _now(), 'feed_error': str(e)}
+            except Exception as e2:
+                raise RuntimeError(f'ETH price unavailable: {e}; fallback: {e2}')
+        self._price_cache[network] = out
+        return out
+
+    @staticmethod
+    def _decode_feed(raw: str) -> float:
+        """latestRoundData() → (roundId, answer, startedAt, updatedAt, answeredInRound)."""
+        data = (raw or '')[2:] if str(raw).startswith('0x') else (raw or '')
+        if len(data) < 64 * 2:
+            raise RuntimeError('short feed response')
+        answer = int(data[64:128], 16)
+        if answer >= 2 ** 255:            # int256 two's complement
+            answer -= 2 ** 256
+        if answer <= 0:
+            raise RuntimeError('feed answered a non-positive price')
+        return round(answer / 10 ** FEED_DECIMALS, 2)
+
+    # ── on-chain deposit verification ────────────────────────────────
+
+    def verify_deposit(self, tx_hash: str, network: str = 'base',
+                       provider: Optional[str] = None) -> dict:
+        """Verify a USDT/USDC or ETH transfer into the deposit address and
+        credit the on-chain sender. Each tx hash can only be credited once.
+
+        `provider` earmarks the deposit for one provider key (openrouter or
+        venice) — the treasury shows it, the balance is the same either way.
+        """
         if not self.deposit_address:
             raise ValueError('deposits are disabled — no deposit address configured')
         network = (network or 'base').lower()
         if network not in NETWORKS:
             raise ValueError(f"unsupported network '{network}' — use one of {sorted(NETWORKS)}")
+        provider = (provider or '').strip().lower() or None
+        if provider and provider not in PROVIDERS:
+            raise ValueError(f"unknown provider '{provider}' — use one of {list(PROVIDERS)}")
         tx_hash = (tx_hash or '').strip().lower()
         if not (tx_hash.startswith('0x') and len(tx_hash) == 66):
             raise ValueError('tx_hash must be a 0x… 66-char transaction hash')
@@ -477,6 +723,7 @@ class Credits:
         total = 0.0
         sender = None
         token_seen = None
+        detail = {}
         for log in receipt.get('logs', []):
             topics = log.get('topics') or []
             if (len(topics) == 3
@@ -486,22 +733,45 @@ class Credits:
                 total += int(log.get('data', '0x0'), 16) / 10 ** TOKEN_DECIMALS
                 sender = '0x' + topics[1][-40:].lower()
                 token_seen = tokens[(log.get('address') or '').lower()]
+
+        # a plain ETH send has no log — read the transaction itself
+        if total <= 0:
+            tx = self._rpc(network, 'eth_getTransactionByHash', [tx_hash]) or {}
+            if ((tx.get('to') or '').lower() == self.deposit_address
+                    and int(tx.get('value') or '0x0', 16) > 0):
+                eth = int(tx['value'], 16) / 10 ** NATIVE_DECIMALS
+                price = self.eth_usd(network)
+                total = round(eth * price['usd'], 6)
+                sender = (tx.get('from') or '').lower()
+                token_seen = NETWORKS[network]['native']
+                detail = {'eth': round(eth, 8), 'eth_usd': price['usd'],
+                          'price_source': price['source']}
         if total <= 0 or not sender:
             raise ValueError(
-                f'no USDT/USDC transfer to {self.deposit_address} found in this transaction')
+                f'no USDT/USDC/ETH transfer to {self.deposit_address} found in this transaction')
 
+        note = f'{token_seen} on {network}'
+        if detail:
+            note = f"{detail['eth']} {note} @ ${detail['eth_usd']:,.2f}"
+        if provider:
+            note += f' → {provider}'
         with self._lock:
             if tx_hash in self._state['txs']:   # raced with a duplicate submit
                 raise ValueError('this transaction was already credited')
             self._state['txs'][tx_hash] = {
                 'network': network, 'token': token_seen, 'from': sender,
-                'amount': round(total, 6), 'time': _now(),
+                'amount': round(total, 6), 'time': _now(), **detail,
+                **({'provider': provider} if provider else {}),
             }
             acct = self._account(sender)
             acct['balance'] = round(float(acct['balance']) + total, 6)
-            self._record(acct, 'deposit', total,
-                         f'{token_seen} on {network}', tx_hash)
+            self._record(acct, 'deposit', total, note, tx_hash)
             self._book_credit('deposit', total)
+            if provider:
+                marks = self._state['treasury'].setdefault('earmarked', {})
+                marks[provider] = round(marks.get(provider, 0.0) + total, 6)
             self._save()
         return {'credited': round(total, 6), 'token': token_seen, 'network': network,
-                'address': sender, 'balance': self.balance(sender)}
+                'address': sender, 'balance': self.balance(sender),
+                'explorer': NETWORKS[network]['explorer'] + tx_hash,
+                **detail, **({'provider': provider} if provider else {})}

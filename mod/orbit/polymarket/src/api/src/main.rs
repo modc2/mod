@@ -2,6 +2,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
+use tower_http::compression::predicate::{NotForContentType, Predicate, SizeAbove};
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
@@ -47,19 +49,24 @@ async fn main() -> anyhow::Result<()> {
     ));
     // Resume any live sessions that were running before the previous restart.
     // resume_persisted scans the persist dir and re-spawns tokio tasks for
-    // every <eoa>.config.json present (explicit STOP deletes those files).
+    // every <eoa>.config.json present. An explicit STOP KEEPS its file (so the
+    // console can still read that strat's ledger) but marks it `stopped: true`,
+    // and resume skips those.
     engines.resume_persisted();
 
     // Scheduled "flatten everything" — sell every held position on a fixed
-    // cadence. The interval is a PARAMETER via POLYMARKET_LIQUIDATE_EVERY_HOURS
-    // (default 6h; 0 disables). First run is one full period after boot so a
-    // process restart never triggers an unexpected instant flatten. Each pass
-    // iterates every persisted session and sells its deposit-wallet positions.
+    // cadence. OFF unless POLYMARKET_LIQUIDATE_EVERY_HOURS is set to a positive
+    // number of hours: a pass sells the deposit wallet's ENTIRE on-chain book
+    // at best bid, including positions the engine never bought, so it is opt-in
+    // rather than a default a stock deployment applies to a real wallet.
+    // First run is one full period after boot so a process restart never
+    // triggers an unexpected instant flatten, and `persisted_eoas` limits each
+    // pass to wallets with a running, auto_execute session.
     let liq_engines = engines.clone();
     let liq_hours: f64 = std::env::var("POLYMARKET_LIQUIDATE_EVERY_HOURS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(6.0);
+        .unwrap_or(0.0);
     if liq_hours > 0.0 {
         let period = std::time::Duration::from_secs_f64(liq_hours * 3600.0);
         tracing::info!(hours = liq_hours, "scheduled liquidation enabled");
@@ -92,13 +99,15 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     } else {
-        tracing::info!("scheduled liquidation disabled (POLYMARKET_LIQUIDATE_EVERY_HOURS=0)");
+        tracing::info!("scheduled liquidation disabled (set POLYMARKET_LIQUIDATE_EVERY_HOURS to enable)");
     }
 
     let user_strats = Arc::new(polymarket_api::UserStratStore::new());
+    let score_fns = Arc::new(polymarket_api::ScoreFnStore::new());
     let share = polymarket_api::ShareStore::from_env();
     tracing::info!(backend = %share.label(), "strat share store");
     let sync = polymarket_api::SyncSchedule::from_env();
+    let copy_book = polymarket_api::CopyBookStore::from_env();
     let state = AppState {
         http: http.clone(),
         proxy_cache: proxy_cache.clone(),
@@ -107,8 +116,10 @@ async fn main() -> anyhow::Result<()> {
         signer_store,
         engines,
         user_strats,
+        score_fns,
         share,
         sync: sync.clone(),
+        copy_book,
     };
 
     // Background warmup: traders pipeline. 5-MINUTE cadence by default — the
@@ -126,10 +137,14 @@ async fn main() -> anyhow::Result<()> {
     // `resync_after_secs`, so a restart loop can't multiply the load.
     //
     // The cadence is OWNER-SETTABLE (sync.rs): `wait_for_next_run` schedules
-    // start-to-start off the persisted interval — never sleep-after-work, which
-    // drifted to interval + cycle duration — and wakes early when the owner
-    // changes the schedule or presses SYNC NOW. Each cycle is panic-guarded so
-    // one bad upstream payload can't kill the task and silently stop syncs.
+    // off the persisted interval — wall-clock ALIGNED by default (hourly runs
+    // land AT :00 UTC, so the scan archive reads like a clock; align:false
+    // restores start-to-start) and never sleep-after-work, which drifted to
+    // interval + cycle duration. It wakes early when the owner changes the
+    // schedule or presses SYNC NOW. Each cycle is panic-guarded so one bad
+    // upstream payload can't kill the task and silently stop syncs — and each
+    // cycle is archived as a timestamped scan (pipeline.scans) the console
+    // can step back through.
     let warmup_pipeline = pipeline.clone();
     let warmup_sync = sync.clone();
     tokio::spawn(async move {
@@ -144,7 +159,16 @@ async fn main() -> anyhow::Result<()> {
                 polymarket_api::sync::Trigger::Scheduled => warmup_sync.resync_after_secs(),
             };
             warmup_sync.mark_started(trigger);
-            let cycle = warmup_pipeline.warmup_cycle(min_age);
+            // The windows come from the schedule, re-read every cycle, so an
+            // owner adding "3D, ≥2 trades/day" to the warm list has it warmed
+            // on the next tick without a restart. The trigger label rides
+            // along so the archived scan says what started it.
+            let trigger_label = match trigger {
+                polymarket_api::sync::Trigger::Manual => "manual",
+                polymarket_api::sync::Trigger::Scheduled => "scheduled",
+            };
+            let cycle =
+                warmup_pipeline.warmup_cycle(min_age, warmup_sync.windows(), trigger_label);
             let panicked = std::panic::AssertUnwindSafe(cycle).catch_unwind().await.is_err();
             if panicked {
                 tracing::error!(
@@ -176,7 +200,14 @@ async fn main() -> anyhow::Result<()> {
                 format!("endpoint=markets&_limit=100&active=true&closed=false&order=end_date_min&ascending=false&end_date_min={}", today),
             ];
             for qs in &warmup_queries {
-                let cache_key = format!("proxy:{}", qs);
+                // Through the SAME normalizer the proxy handler keys with —
+                // it sorts the pairs, so keying the raw string here wrote
+                // entries no reader ever looked up and the warmup burned
+                // three upstream requests a cycle warming nothing.
+                let cache_key = format!(
+                    "proxy:{}",
+                    polymarket_api::proxy::normalize_query(qs)
+                );
                 // Skip if already cached and fresh
                 if let Some((_, true)) = warmup_cache.get(&cache_key, "markets") {
                     continue;
@@ -209,6 +240,10 @@ async fn main() -> anyhow::Result<()> {
     // exempt themselves inside the middleware.
     let access = polymarket_api::AccessStore::from_env();
     let app = Router::new()
+        // Wallet-signed copy-desk actions need BOTH the access store (owner +
+        // nonce HMAC) and the app state (book + engines) — merged here where
+        // both exist, and still inside the guard below.
+        .merge(polymarket_api::copy_actions::router(access.clone(), state.clone()))
         .merge(polymarket_api::router().with_state(state))
         .merge(polymarket_api::access::router(access.clone()))
         .layer(axum::middleware::from_fn_with_state(
@@ -216,6 +251,27 @@ async fn main() -> anyhow::Result<()> {
             polymarket_api::access::guard,
         ))
         .layer(cors)
+        // Wire-size, not server time: the leaderboard is ~150KB of JSON and
+        // /live/sessions ~1MB, and every byte of it was going out raw — over
+        // anything but loopback that transfer IS the page load. gzip/br take
+        // those to a few percent of the size.
+        //
+        // The predicate is the important part. Progress streams
+        // (application/x-ndjson: a cold /active-traders?stream=1 emits one
+        // event per pipeline stage over ~10 minutes) must NOT be buffered
+        // into a compressor, or the console's progress bar arrives all at
+        // once at the end. SizeAbove(512) skips the bodies where a
+        // compression frame costs more than it saves — /health, /access/check
+        // and the rest of the small probes.
+        .layer(
+            CompressionLayer::new().gzip(true).br(true).compress_when(
+                SizeAbove::new(512)
+                    .and(NotForContentType::new("application/x-ndjson"))
+                    .and(NotForContentType::new("text/event-stream"))
+                    .and(NotForContentType::GRPC)
+                    .and(NotForContentType::IMAGES),
+            ),
+        )
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = ([0, 0, 0, 0], port).into();

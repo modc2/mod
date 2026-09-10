@@ -4,50 +4,30 @@ import { useEffect, useRef } from 'react'
 import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import {
-  classExpression, divergingExpression, mapPalette, seriesColor, sizeExpression,
+  classExpression, divergingExpression, seriesColor, sizeExpression,
   stepExpression, type MapPalette,
 } from '@/lib/palette'
+import { usePalette } from './ThemeProvider'
 import type { BasemapId, ThemeBase } from '@/lib/theme'
 
 /** Bounding box of the amalgamated city, used to frame the opening view. */
 const TORONTO_BOUNDS: [[number, number], [number, number]] = [[-79.65, 43.56], [-79.10, 43.87]]
 
 /**
- * Basemap styles. All raster, all key-free: CARTO's free tiles for the muted
- * cartography a data map needs, and OpenStreetMap's own tiles for the "show me
- * the actual streets" case. Attribution is mandatory and is baked into each
- * source rather than left to the caller.
+ * Basemap styles — OpenFreeMap's hosted vector styles, all key-free with
+ * attribution baked in. (CARTO's keyless raster tiles started shipping with an
+ * "API KEY REQUIRED" watermark burned into the imagery, which is what forced
+ * the move; vector tiles also carry the building heights the 3-D view
+ * extrudes, which raster never could.)
  */
-const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`
-
-const BASEMAPS: Record<BasemapId, { tiles: string[]; attribution: string }> = {
-  dark: {
-    tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
-    attribution: CARTO_ATTR,
-  },
-  light: {
-    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'],
-    attribution: CARTO_ATTR,
-  },
-  streets: {
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: OSM_ATTR,
-  },
+const BASEMAP_STYLE: Record<BasemapId, string> = {
+  dark: 'https://tiles.openfreemap.org/styles/dark',
+  light: 'https://tiles.openfreemap.org/styles/positron',
+  streets: 'https://tiles.openfreemap.org/styles/liberty',
 }
 
-function styleFor(basemap: BasemapId): any {
-  const b = BASEMAPS[basemap]
-  return {
-    version: 8,
-    // A raster-only style ships no glyphs, and any symbol layer (the station
-    // labels) needs them. MapLibre's own free font endpoint serves Noto Sans.
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-    sources: {
-      base: { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution },
-    },
-    layers: [{ id: 'base', type: 'raster', source: 'base' }],
-  }
+function styleFor(basemap: BasemapId): string {
+  return BASEMAP_STYLE[basemap]
 }
 
 type Props = {
@@ -60,6 +40,8 @@ type Props = {
   basemap: BasemapId
   /** The active theme's surface. Picks which ramps the overlays are drawn with. */
   base: ThemeBase
+  /** Tilt the camera and extrude buildings + highlighted lots. */
+  view3d: boolean
   flyTo: { lng: number; lat: number; zoom?: number; nonce: number } | null
   onFeatureClick: (payload: { layerId: string; props: Record<string, any> } | null) => void
   onMapReady: (map: MLMap) => void
@@ -67,9 +49,12 @@ type Props = {
 
 export default function MapView({
   catalog, active, opacity, crime, crimeMetric, layerData,
-  basemap, base, flyTo, onFeatureClick, onMapReady,
+  basemap, base, view3d, flyTo, onFeatureClick, onMapReady,
 }: Props) {
-  const pal = mapPalette(base)
+  // Straight from the provider, not rebuilt from `base` — the surface alone
+  // can't say which of the ten themes is on, and the magnitude ramps differ
+  // per theme. Taking it here is what makes a theme change repaint the map.
+  const pal = usePalette()
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<MLMap | null>(null)
   const ready = useRef(false)
@@ -94,10 +79,11 @@ export default function MapView({
       maxZoom: 18,
       minZoom: 8,
       attributionControl: false,
-      // The basemap is raster and the overlays are flat 2-D data; disabling
-      // pitch keeps polygon fills legible and avoids a tilted-map trap where
-      // the choropleth reads as terrain.
-      pitchWithRotate: false,
+      maxPitch: 70,
+      // The drag-rotate handler starts disabled — in 2-D the overlays are flat
+      // data and a tilted choropleth reads as terrain. The 3-D toggle enables
+      // it, and pitchWithRotate makes right-drag carry pitch when it does.
+      pitchWithRotate: true,
       dragRotate: false,
     })
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
@@ -149,10 +135,28 @@ export default function MapView({
   }, [basemap])
 
   // ── redraw on any data/selection change ─────────────────────────────────
+  // `pal` rather than `base`: two themes can share a surface (GLASS and MATRIX
+  // are both dark) but not their ramps, and it is the ramp that the paint
+  // expressions are built from. Keying on the surface repainted neither.
   useEffect(() => {
     redraw()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, active, opacity, crime, crimeMetric, layerData, base])
+  }, [catalog, active, opacity, crime, crimeMetric, layerData, pal, view3d])
+
+  // ── 3-D mode: camera + interaction ──────────────────────────────────────
+  useEffect(() => {
+    const m = map.current
+    if (!m) return
+    if (view3d) {
+      m.dragRotate.enable()
+      m.keyboard?.enableRotation?.()
+      m.easeTo({ pitch: 58, bearing: -12, duration: 900 })
+    } else {
+      m.easeTo({ pitch: 0, bearing: 0, duration: 700 })
+      m.dragRotate.disable()
+      m.keyboard?.disableRotation?.()
+    }
+  }, [view3d])
 
   useEffect(() => {
     if (!flyTo || !map.current) return
@@ -162,14 +166,15 @@ export default function MapView({
   function clearAll(m: MLMap) {
     const style = m.getStyle()
     // Layers first, then sources — MapLibre refuses to drop a source that any
-    // layer still references. Our layers are named `<layerId>--<kind>` while
-    // our sources are named `tdot-<layerId>`, so the two need different tests;
-    // matching layers against the source prefix silently removes nothing.
+    // layer still references. The basemap is now a full vector style with its
+    // own dozens of layers, so "everything but base" would strip the city off
+    // the map: ours are the ones named `<layerId>--<kind>` (no OpenFreeMap
+    // style uses a double dash) with sources named `tdot-<layerId>`.
     for (const l of style.layers || []) {
-      if (l.id !== 'base') m.removeLayer(l.id)
+      if (l.id.includes('--')) m.removeLayer(l.id)
     }
     for (const s of Object.keys(style.sources || {})) {
-      if (s !== 'base') m.removeSource(s)
+      if (s.startsWith('tdot-')) m.removeSource(s)
     }
   }
 
@@ -180,6 +185,31 @@ export default function MapView({
     if (!m || !ready.current || !catalog) return
     clearAll(m)
     const order: string[] = []
+
+    // In 3-D, real building volumes go in first so every data layer draws on
+    // top of the city rather than underneath it. The heights come from the
+    // basemap's own OpenMapTiles source — the same tiles, no second fetch.
+    if (view3d) {
+      try {
+        m.addLayer({
+          id: 'buildings--3d',
+          type: 'fill-extrusion',
+          source: 'openmaptiles',
+          'source-layer': 'building',
+          minzoom: 13,
+          paint: {
+            // Neutral massing in the surface's own register — the buildings
+            // are context, and must never compete with a data layer for hue.
+            'fill-extrusion-color': base === 'light' ? '#d8d4cb' : '#2b303a',
+            'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+            'fill-extrusion-opacity': 0.7,
+          },
+        })
+      } catch (err) {
+        console.error('tdot: 3-D buildings unavailable', err)
+      }
+    }
 
     const defs = new Map(catalog.layers.map((l) => [l.id, l]))
     // Draw order: fills at the bottom, then lines, then points on top, so the
@@ -200,7 +230,7 @@ export default function MapView({
           if (crime) order.push(...addChoropleth(m, crime, crimeMetric, alpha, pal))
         } else {
           const data = layerData[def.id]
-          if (data) order.push(...addOverlay(m, def, data, alpha, pal))
+          if (data) order.push(...addOverlay(m, def, data, alpha, pal, view3d))
         }
       } catch (err) {
         // A single malformed layer must not take the whole map down.
@@ -254,7 +284,7 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number,
 // ── overlays ──────────────────────────────────────────────────────────────
 
 function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
-                    alpha: number, pal: MapPalette): string[] {
+                    alpha: number, pal: MapPalette, view3d = false): string[] {
   const src = `tdot-${def.id}`
   m.addSource(src, { type: 'geojson', data: data as any })
   const color = pal.LAYER_COLOR[def.id] || pal.POINT_DEFAULT
@@ -263,6 +293,48 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
   const add = (layer: any) => {
     m.addLayer(layer)
     ids.push(layer.id)
+  }
+
+  // A layer whose spec asks to be *highlighted* gets the full-lot treatment:
+  // a glow under the boundary, a saturated fill (or, in 3-D, an extrusion at
+  // the massing height the data carries) and a crisp outline — the whole
+  // polygon announces itself instead of sitting in the choropleth's register.
+  if (def.style?.highlight) {
+    const style = def.style
+    const tint: any = style.color_by && style.classes
+      ? classExpression(style.color_by, style.classes, pal, pal.SEMANTIC.good)
+      : pal.LAYER_COLOR[def.id] || seriesColor(def.id, pal)
+    add({
+      id: `${def.id}--glow`, type: 'line', source: src,
+      layout: { 'line-join': 'round' },
+      paint: {
+        'line-color': tint,
+        'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 10, 17, 22],
+        'line-blur': 6,
+        'line-opacity': 0.5 * alpha,
+      },
+    })
+    if (view3d && style.extrude_by) {
+      add({
+        id: `${def.id}--extrude`, type: 'fill-extrusion', source: src,
+        paint: {
+          'fill-extrusion-color': tint,
+          'fill-extrusion-height': ['coalesce', ['get', style.extrude_by], 12],
+          'fill-extrusion-opacity': 0.85 * alpha,
+        },
+      })
+    } else {
+      add({
+        id: `${def.id}--fill`, type: 'fill', source: src,
+        paint: { 'fill-color': tint, 'fill-opacity': 0.55 * alpha },
+      })
+    }
+    add({
+      id: `${def.id}--line`, type: 'line', source: src,
+      layout: { 'line-join': 'round' },
+      paint: { 'line-color': tint, 'line-width': 2, 'line-opacity': 0.95 * alpha },
+    })
+    return [view3d && style.extrude_by ? `${def.id}--extrude` : `${def.id}--fill`]
   }
 
   switch (def.id) {

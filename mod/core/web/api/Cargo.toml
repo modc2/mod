@@ -30,6 +30,9 @@ parking_lot = "0.12"
 # it reach a hosted HTTPS provider (e.g. OpenAI) without pulling in native
 # OpenSSL; the chain hub stays plain HTTP on localhost.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+k256 = { version = "0.13.4", features = ["ecdsa"] }
+tiny-keccak = { version = "2.0.2", features = ["keccak"] }
+hex = "0.4.3"
 
 [profile.release]
 opt-level = 3

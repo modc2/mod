@@ -15,11 +15,13 @@ from typing import Any, Dict, List, Optional
 
 import bittensor as bt
 import requests
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from ..agent import agent as strat_agent
+from ..agent import mcp_server
 from ..chain.bt_source import BtSource, BtUnavailable, make_client
 from ..chain.client import SubtensorClient, TraderCandidate, is_valid_ss58
 from ..chain.snapshot import SnapshotManager
@@ -39,6 +41,10 @@ from .models import (
     ConfigSetRequest,
     CopyRequest,
     CopyResponse,
+    CopyUpdate,
+    PlanRowResponse,
+    PortfolioPlanResponse,
+    SleeveResponse,
     LeaderboardEntryResponse,
     MarketStatsResponse,
     PnlResponse,
@@ -313,10 +319,25 @@ async def lifespan(app: FastAPI):
     # each track reads the chain once, so do it off the event loop.
     threading.Thread(target=_mirror_watchlist, daemon=True).start()
 
+    # Bring the copy loop back up. Before this, active copies survived a
+    # restart in the DB but nothing was polling them: the console showed a
+    # live basket that hadn't rebalanced since the last boot. The loop is a
+    # no-op until a wallet is set, and reads its membership from the DB every
+    # tick, so it is safe to start unconditionally.
+    _copy_engine.start_portfolio()
+    active = _db.list_copies(status="active")
+    if active:
+        log.info("portfolio loop resumed: %d sleeve(s), %.4fτ allocated",
+                 len(active),
+                 sum(float((c.get("config") or {}).get("alloc_tao") or 0)
+                     for c in active))
+
     log.info("copytensor API started (network=%s, watched=%d, reads=%s)",
              network, len(_db.list_accounts()),
              "bt" if (_bt and _bt.available()) else "rpc")
     yield
+    if _copy_engine:
+        _copy_engine.stop_portfolio()
     if _snapshot_mgr:
         _snapshot_mgr.stop()
     log.info("copytensor API stopped")
@@ -377,6 +398,9 @@ def status():
         "block_height": h.get("block", 0),
         "tracked_accounts": len(accounts),
         "active_copies": len(active),
+        "allocated_tao": round(sum(
+            float((c.get("config") or {}).get("alloc_tao") or 0) for c in active), 6),
+        "copy_loop": bool(_copy_engine and _copy_engine.status()["running"]),
         "wallet_set": _wallet is not None,
         "reads": "bt" if bt_info else "rpc",
         "bt": {"url": _bt.url, "available": bt_info is not None,
@@ -581,7 +605,8 @@ def subnet_history(netuid: int, hours: int = Query(168, ge=1, le=8760)):
 # ── accounts ─────────────────────────────────────────────────────
 
 @app.get("/account/{ss58}", response_model=AccountResponse)
-def get_account(ss58: str, days: int = Query(7, ge=1, le=365)):
+def get_account(ss58: str, days: int = Query(7, ge=0, le=365)):
+    days = _win(days)
     positions = _client.get_stake_for_coldkey(ss58)
 
     # Get subnet names
@@ -630,7 +655,8 @@ def get_account(ss58: str, days: int = Query(7, ge=1, le=365)):
 
 
 @app.get("/account/{ss58}/pnl", response_model=PnlResponse)
-def get_account_pnl(ss58: str, days: int = Query(7, ge=1, le=365)):
+def get_account_pnl(ss58: str, days: int = Query(7, ge=0, le=365)):
+    days = _win(days)
     pnl = calculate_pnl(_client, _db, ss58, days)
     return PnlResponse(
         ss58=pnl.ss58,
@@ -662,7 +688,7 @@ def get_account_history(ss58: str, limit: int = Query(50, ge=1, le=500)):
 
 
 @app.get("/account/{ss58}/curve")
-def get_account_curve(ss58: str, days: int = Query(7, ge=1, le=365),
+def get_account_curve(ss58: str, days: int = Query(7, ge=0, le=365),
                       min_tao: float = Query(FLOW_MIN_TAO, ge=0.0),
                       min_frac: float = Query(FLOW_MIN_FRACTION, ge=0.0, le=1.0),
                       points: int = Query(400, ge=20, le=2000)):
@@ -672,6 +698,7 @@ def get_account_curve(ss58: str, days: int = Query(7, ge=1, le=365),
     block, and each trade carries the curve value at its timestamp so the
     chart can pin the marker exactly on the line.
     """
+    days = _win(days)
     if not is_valid_ss58(ss58):
         raise HTTPException(400, f"invalid ss58 address: {ss58}")
 
@@ -695,8 +722,9 @@ def get_account_curve(ss58: str, days: int = Query(7, ge=1, le=365),
 # ── trader details ───────────────────────────────────────────────
 
 @app.get("/trader/{ss58}")
-def get_trader_details(ss58: str, days: int = Query(7, ge=1, le=365)):
+def get_trader_details(ss58: str, days: int = Query(7, ge=0, le=365)):
     """Full trader profile — allocations, PnL breakdown, performance."""
+    days = _win(days)
     positions = _client.get_stake_for_coldkey(ss58)
 
     subnet_names = {}
@@ -777,9 +805,28 @@ def get_trader_details(ss58: str, days: int = Query(7, ge=1, le=365)):
 # hit the same entry; serve stale + refresh in the background so the UI
 # never waits once a horizon is warm.
 LEADERBOARD_TTL_SEC = 120
+# `days=0` on /leaderboard means "every day of history there is". It maps to
+# one fixed horizon rather than to the measured depth so the cache key stays
+# put — the depth grows by a day every day, and keying on it would rebuild
+# the board from scratch each time it ticked over.
+ALL_DAYS = 365
 # Warm order, not just a set: the UI opens on 7d, so price that first and
-# let the rest fill in behind it.
-LEADERBOARD_HORIZONS = [7, 1, 3, 14, 30]
+# let the rest fill in behind it. ALL_DAYS comes last and doubles as the
+# measurement /coverage reads its depth off.
+LEADERBOARD_HORIZONS = [7, 1, 3, 14, 30, ALL_DAYS]
+# The horizons the console offers as buttons. /coverage reports, for each,
+# how many indexed traders actually have that much history behind them.
+WINDOW_CHOICES = [1, 3, 7, 14, 30]
+
+
+def _win(days: int) -> int:
+    """`days=0` on any windowed read means "all the history there is".
+
+    The console keeps one horizon across every page, so the all-history
+    window has to be spelled the same way to /account and /leaderboard
+    alike — otherwise picking ALL on the board 422s the trader page.
+    """
+    return ALL_DAYS if not days else days
 _lb_cache: Dict[int, tuple] = {}             # days -> (ts, entries)
 _lb_refreshing: set = set()
 _lb_build_sec: Dict[int, float] = {}         # days -> last build duration
@@ -911,9 +958,13 @@ def _leaderboard_cached(days: int):
 
 
 @app.get("/leaderboard", response_model=List[LeaderboardEntryResponse])
-def leaderboard(days: int = Query(7, ge=1, le=365),
+def leaderboard(days: int = Query(7, ge=0, le=365),
                 top: int = Query(50, ge=1, le=2000),
                 min_subnets: int = Query(0, ge=0)):
+    # days=0 = "as far back as the index goes". Every row then reports its
+    # own window_days, which is the honest answer when traders were indexed
+    # on different days.
+    days = _win(days)
     entries = [e for e in _leaderboard_cached(days)
                if e.num_subnets >= min_subnets][:top]
     return [
@@ -932,6 +983,74 @@ def leaderboard(days: int = Query(7, ge=1, le=365),
         )
         for e in entries
     ]
+
+
+# ── how far back the numbers go ───────────────────────────────────
+
+# Coverage is derived from one deep board, so it costs a board build at
+# most once every few minutes. It only moves when bt indexes a new trader
+# or another day accumulates.
+COVERAGE_TTL_SEC = 300
+_coverage_cache: Optional[tuple] = None      # (ts, payload)
+_coverage_lock = threading.Lock()
+
+
+def _coverage() -> Dict:
+    """What history actually exists behind the horizons the UI offers.
+
+    Every row of the deepest board carries `window_days` — the span bt has
+    really indexed for that coldkey — so one board answers both questions:
+    how far back we can go at all, and how many traders survive each
+    horizon. Without this the console happily offered a 30-day window over
+    an index that was 12 days old and nothing said so; the rows just came
+    back quietly measured over less.
+    """
+    global _coverage_cache
+    with _coverage_lock:
+        if _coverage_cache and time.time() - _coverage_cache[0] < COVERAGE_TTL_SEC:
+            return _coverage_cache[1]
+
+    rows = _leaderboard_cached(ALL_DAYS)
+    spans = sorted(e.window_days for e in rows
+                   if e.baseline is not False and (e.window_days or 0) > 0)
+    depth = spans[-1] if spans else 0.0
+    median = spans[len(spans) // 2] if spans else 0.0
+
+    def bucket(w: int) -> Dict:
+        # 90% of the horizon counts as covering it: snapshots land on an
+        # interval, so a "30 day" trader is indexed at 29.5 and demanding
+        # the full span would call every row short.
+        full = [s for s in spans if s >= w * 0.9]
+        return {
+            "days": w,
+            "covered": len(full),
+            "pct": round(100.0 * len(full) / len(spans), 1) if spans else 0.0,
+            # Offer it while anyone can answer it; the count says how thin.
+            "ok": bool(full),
+        }
+
+    payload = {
+        # Whole days, rounded down — claiming 37 when the deepest row is
+        # 36.8 is the kind of rounding that makes a window look covered.
+        "depth_days": int(depth),
+        "depth_days_exact": round(depth, 2),
+        "median_days": round(median, 2),
+        "oldest_ts": int(time.time() - depth * 86400) if depth else None,
+        "traders": len(rows),
+        "priced": len(spans),
+        "indexed": _bt_indexed(),
+        "windows": [bucket(w) for w in WINDOW_CHOICES],
+        "updated_at": int(time.time()),
+    }
+    with _coverage_lock:
+        _coverage_cache = (time.time(), payload)
+    return payload
+
+
+@app.get("/coverage")
+def coverage():
+    """How deep the trader index is, and which horizons it can honestly fill."""
+    return _coverage()
 
 
 @app.post("/discover")
@@ -1189,7 +1308,11 @@ def _get_target_info(target_ss58: str, days: int = 7) -> Optional[TargetTraderIn
 def _enrich_copy(copy: Dict) -> CopyResponse:
     """Build CopyResponse with embedded target trader details."""
     target_info = _get_target_info(copy["target_ss58"])
-    return CopyResponse(**copy, target_info=target_info)
+    return CopyResponse(
+        **copy,
+        target_info=target_info,
+        alloc_tao=float((copy.get("config") or {}).get("alloc_tao") or 0.0),
+    )
 
 
 # ── copy trading ─────────────────────────────────────────────────
@@ -1198,9 +1321,23 @@ def _enrich_copy(copy: Dict) -> CopyResponse:
 def create_copy(req: CopyRequest):
     if not _wallet:
         raise HTTPException(400, "wallet not set — POST /wallet/set first")
+    if not is_valid_ss58(req.target_ss58):
+        raise HTTPException(400, f"not a valid ss58 address: {req.target_ss58}")
+
+    # `alloc_tao` is the whole point of a copy: it's the money behind this
+    # trader. Old clients sent only a daily spend cap, which the engine never
+    # used for sizing — fall back to it so they keep working, and so the
+    # number they meant as "spend" at least becomes the sleeve they intended.
+    alloc = req.alloc_tao
+    if alloc is None:
+        alloc = req.daily_limit_tao
+    if alloc is None or alloc <= 0:
+        raise HTTPException(
+            400, "alloc_tao required — how much TAO should follow this trader?")
 
     copy_config = {
         "our_hotkey": req.our_hotkey,
+        "alloc_tao": float(alloc),
         "max_tao_per_tx": req.max_tao_per_tx or _config.get("max_tao_per_tx", 10),
         "daily_limit_tao": req.daily_limit_tao or _config.get("daily_limit_tao", 100),
         "min_balance_tao": req.min_balance_tao or _config.get("min_balance_tao", 1),
@@ -1216,18 +1353,33 @@ def create_copy(req: CopyRequest):
         label=req.label,
     )
 
-    # Start the copy loop
-    cc = CopyConfig(
-        id=copy_id,
-        target_ss58=req.target_ss58,
-        our_hotkey=req.our_hotkey,
-        rebalance_threshold_pct=copy_config["rebalance_threshold_pct"],
-        poll_interval_sec=copy_config["poll_interval_sec"],
-    )
-    _copy_engine.start_copy(cc)
+    # One loop covers every sleeve — it reads the active set from the DB on
+    # each tick, so this just makes sure it's up.
+    _copy_engine.start_portfolio()
 
     copy = _db.get_copy(copy_id)
     return _enrich_copy(copy)
+
+
+@app.put("/copy/{copy_id}", response_model=CopyResponse)
+def update_copy(copy_id: str, req: CopyUpdate):
+    """Re-size a live copy. Changing `alloc_tao` re-weights the blended book
+    on the next pass — no stop/start, no re-entering the position."""
+    copy = _db.get_copy(copy_id)
+    if not copy:
+        raise HTTPException(404, "copy not found")
+
+    cfg = dict(copy["config"])
+    fields = req.model_dump(exclude_none=True) if hasattr(req, "model_dump") \
+        else req.dict(exclude_none=True)
+    label = fields.pop("label", None)
+    if "alloc_tao" in fields and fields["alloc_tao"] < 0:
+        raise HTTPException(400, "alloc_tao cannot be negative")
+    cfg.update(fields)
+    _db.update_copy_config(copy_id, cfg)
+    if label is not None:
+        _db.update_copy(copy_id, label=label)
+    return _enrich_copy(_db.get_copy(copy_id))
 
 
 @app.get("/copies", response_model=List[CopyResponse])
@@ -1260,14 +1412,7 @@ def resume_copy(copy_id: str):
     if not copy:
         raise HTTPException(404, "copy not found")
     _db.update_copy(copy_id, status="active")
-    cc = CopyConfig(
-        id=copy_id,
-        target_ss58=copy["target_ss58"],
-        our_hotkey=copy["config"]["our_hotkey"],
-        rebalance_threshold_pct=copy["config"].get("rebalance_threshold_pct", 5),
-        poll_interval_sec=copy["config"].get("poll_interval_sec", 300),
-    )
-    _copy_engine.start_copy(cc)
+    _copy_engine.start_portfolio()
     return {"id": copy_id, "status": "active"}
 
 
@@ -1280,21 +1425,19 @@ def delete_copy(copy_id: str):
 
 @app.post("/copy/{copy_id}/sync")
 def sync_copy(copy_id: str):
+    """Apply now. Sleeves only add up when they're diffed against the book
+    together, so this runs the whole portfolio — syncing one copy alone would
+    drag every other trader's money with it."""
     copy = _db.get_copy(copy_id)
     if not copy:
         raise HTTPException(404, "copy not found")
     if not _wallet:
         raise HTTPException(400, "wallet not set")
 
-    cc = CopyConfig(
-        id=copy_id,
-        target_ss58=copy["target_ss58"],
-        our_hotkey=copy["config"]["our_hotkey"],
-        rebalance_threshold_pct=copy["config"].get("rebalance_threshold_pct", 5),
-    )
-    trades = _copy_engine.sync_once(cc)
+    trades = _copy_engine.sync_portfolio()
     return {
         "synced": True,
+        "scope": "portfolio",
         "trades": [
             {"action": t.action, "netuid": t.netuid,
              "amount_tao": t.amount_tao, "status": t.status,
@@ -1302,6 +1445,87 @@ def sync_copy(copy_id: str):
             for t in trades
         ],
     }
+
+
+# ── portfolio: every sleeve, one book ────────────────────────────
+
+def _plan_response(plan, executed: bool = False, results=None) -> PortfolioPlanResponse:
+    """Shape a Plan for the wire, naming subnets so the rows read as trades
+    rather than as netuids."""
+    names: Dict[int, str] = {}
+    try:
+        for sn in _client.get_all_subnet_info():
+            names[sn.netuid] = sn.name
+    except Exception:
+        pass
+
+    total_effective = sum(s.alloc_tao * plan.scale for s in plan.sleeves if s.live)
+    sleeves = []
+    for s in plan.sleeves:
+        eff = s.alloc_tao * plan.scale if s.live else 0.0
+        sleeves.append(SleeveResponse(
+            copy_id=s.copy_id, target_ss58=s.target_ss58, label=s.label,
+            alloc_tao=round(s.alloc_tao, 6), effective_tao=round(eff, 6),
+            pct_of_book=round(eff / total_effective * 100, 4) if total_effective else 0.0,
+            subnets=len(s.shares), stale=s.stale, note=s.error,
+        ))
+
+    book = _copy_engine.our_book()
+    return PortfolioPlanResponse(
+        our_ss58=book.get("ss58"),
+        staked_tao=round(float(book.get("staked_tao") or 0), 6),
+        free_tao=round(float(book.get("free_tao") or 0), 6),
+        requested_tao=plan.requested_tao,
+        deployable_tao=plan.deployable_tao,
+        scale=plan.scale,
+        band_tao=plan.band_tao,
+        sleeves=sleeves,
+        rows=[PlanRowResponse(
+            netuid=r.netuid, subnet_name=names.get(r.netuid, f"SN{r.netuid}"),
+            action=r.action, desired_tao=round(r.desired_tao, 6),
+            current_tao=round(r.current_tao, 6), amount_tao=round(r.amount_tao, 6),
+            drift_tao=round(r.drift_tao, 6), contributors=r.contributors,
+            reason=r.reason,
+        ) for r in plan.rows],
+        trades=len(plan.trades),
+        blocked=plan.blocked,
+        notes=plan.notes,
+        executed=executed,
+        results=results or [],
+    )
+
+
+@app.get("/portfolio", response_model=PortfolioPlanResponse)
+def portfolio_plan():
+    """The blended book: every sleeve, what it asks for, and the trades that
+    would close the gap. Pure read — nothing is sent to the chain."""
+    return _plan_response(_copy_engine.plan_portfolio())
+
+
+@app.post("/portfolio/sync", response_model=PortfolioPlanResponse)
+def portfolio_sync(dry_run: bool = Query(False)):
+    """Run a portfolio pass now. `dry_run=true` is identical to GET /portfolio
+    — the same plan object is what gets executed, so the preview cannot drift
+    from the thing it previews."""
+    if dry_run:
+        return _plan_response(_copy_engine.plan_portfolio())
+    if not _wallet:
+        raise HTTPException(400, "wallet not set — POST /wallet/set first")
+    results = _copy_engine.sync_portfolio()
+    plan = _copy_engine._last_plan or _copy_engine.plan_portfolio()
+    return _plan_response(plan, executed=True, results=[
+        {"action": t.action, "netuid": t.netuid, "amount_tao": t.amount_tao,
+         "status": t.status, "tx_hash": t.tx_hash, "error": t.error}
+        for t in results
+    ])
+
+
+@app.get("/portfolio/status")
+def portfolio_status():
+    """Is the loop up, how many sleeves, how much τ allocated."""
+    st = _copy_engine.status()
+    st["limits"] = _safety.get_limits()
+    return st
 
 
 # ── trades ───────────────────────────────────────────────────────
@@ -1367,6 +1591,7 @@ def _strat_payload(req: StratWrite) -> Dict:
     return {
         "traders": [t.model_dump() for t in req.traders],
         "our_hotkey": req.our_hotkey,
+        "sizing": req.sizing,
         "max_tao_per_tx": req.max_tao_per_tx,
         "daily_limit_tao": req.daily_limit_tao,
         "rebalance_threshold_pct": req.rebalance_threshold_pct,
@@ -1389,11 +1614,18 @@ def backtest_strat(req: BacktestRequest):
     """Replay a basket over the last `days`. Takes the basket inline so the
     picker can re-run it on every edit, saved or not."""
     hours = max(1, min(int(req.days), 365)) * 24
+    rows = [t.model_dump() for t in req.traders]
+    # If the basket is sized in τ, the capital IS the sum of the sleeves —
+    # replaying 40τ+10τ against a leftover 100τ default would misreport every
+    # number in money terms.
+    sleeved = sum(float(t.get("alloc_tao") or 0) for t in rows
+                  if t.get("enabled") is not False)
+    capital = sleeved if sleeved > 0 else req.capital_tao
     return backtest_basket(
-        [t.model_dump() for t in req.traders],
+        rows,
         hours=hours,
         fetch_history=lambda ss58, h: _require_bt().trader_history(ss58, hours=h),
-        capital_tao=req.capital_tao,
+        capital_tao=capital,
     )
 
 
@@ -1503,6 +1735,54 @@ def agent_ask(req: AskRequest):
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"cache-control": "no-cache",
                                       "x-accel-buffering": "no"})
+
+
+# ── MCP over HTTP ────────────────────────────────────────────────
+#
+# The same dispatcher the stdio server runs, mounted on the API port so any
+# MCP client (Claude Code, the fleet's mcp hub, a DAG) connects with one URL:
+#
+#     claude mcp add --transport http copytensor http://localhost:50150/mcp
+#
+# Every tool is a loopback call to this API's own REST routes — that is why
+# the dispatch runs in the threadpool: a blocking requests.get to ourselves
+# from the event loop would wait on the loop it is blocking.
+
+@app.post("/mcp")
+async def mcp_endpoint(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={
+            "jsonrpc": "2.0", "id": None,
+            "error": {"code": -32700, "message": "parse error"}})
+    replies = await run_in_threadpool(mcp_server.handle_batch, body)
+    if replies is None:
+        return Response(status_code=202)
+    return replies
+
+
+@app.get("/mcp")
+def mcp_get():
+    return JSONResponse(status_code=405, content={
+        "error": "POST JSON-RPC here (MCP streamable HTTP); SSE stream not "
+                 "offered. GET /mcp/schema lists the tools."})
+
+
+@app.get("/mcp/schema")
+def mcp_schema():
+    """Transports, scope and the full tool list — read this before connecting."""
+    out = mcp_server.schema()
+    port = int(os.environ.get("COPYTENSOR_API_PORT", _config.get("port", 50150)))
+    out["connect"] = {
+        "http": f"http://localhost:{port}/mcp",
+        "gateway": "/api/copytensor/mcp on the mod gateway (:3001 / caddy :3000)",
+        "claude": f"claude mcp add --transport http copytensor http://localhost:{port}/mcp",
+        "stdio": {"command": "python3", "args": ["-m", "src.agent.mcp_server"],
+                  "cwd": os.path.dirname(os.path.dirname(os.path.dirname(
+                      os.path.abspath(__file__))))},
+    }
+    return out
 
 
 # ── wallet ───────────────────────────────────────────────────────

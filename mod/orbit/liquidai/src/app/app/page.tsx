@@ -1,6 +1,6 @@
 "use client";
 
-// CATALOG — every LFM Liquid publishes, one row per model rather than per
+// MODELS — every LFM Liquid publishes, one row per model rather than per
 // repo, with the question the whole module is about answered in the second
 // column: where can this thing run.
 
@@ -85,7 +85,7 @@ export default function CatalogPage() {
       <div className="page-head">
         <div className="page-head-band !py-2 !px-3">
           <h1 className="font-display text-sm sm:text-base whitespace-nowrap">
-            CATALOG
+            MODELS
           </h1>
           <span className="font-mono text-sm text-pixel-gray-light">
             {rows.length}/{cat?.total ?? "—"} models · {cat?.source ?? "…"}
@@ -192,7 +192,7 @@ export default function CatalogPage() {
               <th className="text-left">TASK</th>
               <th className="text-left hidden md:table-cell">FORMATS</th>
               <th className="text-left hidden lg:table-cell">LANGS</th>
-              <th className="text-right">RUN</th>
+              <th className="text-right">CHAT</th>
             </tr>
           </thead>
           <tbody>
@@ -216,7 +216,7 @@ function Row({ m, top }: { m: Model; top: boolean }) {
   // and leaks nothing is the one to offer by default.
   const runtime = m.runtimes.includes("browser") ? "browser"
     : m.runtimes.includes("server") ? "server" : "cloud";
-  // Every kind is runnable now — the RUN board picks the surface (chat,
+  // Every kind is runnable now — the CHAT board picks the surface (transcript,
   // image, audio, vectors) off the model's own task.
   const runnable = m.runtimes.length > 0;
 
@@ -246,9 +246,9 @@ function Row({ m, top }: { m: Model; top: boolean }) {
       <td className="text-right">
         {runnable ? (
           <Link
-            href={`/run?model=${encodeURIComponent(m.id)}&runtime=${runtime}`}
+            href={`/chat?model=${encodeURIComponent(m.id)}&runtime=${runtime}`}
             className="pixel-btn topbar-ctl px-2.5 no-underline"
-            title={`run ${m.id} on ${runtime}`}
+            title={`chat with ${m.id} on ${runtime}`}
           >
             ▶
           </Link>

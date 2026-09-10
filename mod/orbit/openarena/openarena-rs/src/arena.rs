@@ -583,6 +583,8 @@ pub fn info() -> Value {
             "languages": judge::languages(),
             "competitor_kinds": players::KINDS,
             "modes": ["io", "unit"],
+            "benchmarks": crate::bench::SOURCES.iter().map(|s| s.id).collect::<Vec<_>>(),
+            "bench_fetch": crate::bench::enabled(),
             "state": store::state_dir().display().to_string(),
         })
     })

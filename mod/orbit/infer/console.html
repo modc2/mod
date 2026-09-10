@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>infer — inference optimization</title>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111820; --line:#1e2a36; --ink:#d7e2ee; --dim:#7e93a8;
+    --mint:#6ee7b7; --amber:#f5c26b; --red:#f08a8a; --blue:#8ab4f8;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+       font-size:13px;line-height:1.55}
+  a{color:var(--mint)}
+  header{display:flex;align-items:baseline;gap:14px;padding:18px 22px;
+         border-bottom:1px solid var(--line);flex-wrap:wrap}
+  header h1{margin:0;font-size:17px;letter-spacing:.22em;font-weight:700}
+  header .sub{color:var(--dim);font-size:12px}
+  nav{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid var(--line);
+      flex-wrap:wrap}
+  nav button{background:none;border:0;border-bottom:2px solid transparent;
+             color:var(--dim);font:inherit;padding:11px 14px;cursor:pointer}
+  nav button:hover{color:var(--ink)}
+  nav button.on{color:var(--mint);border-bottom-color:var(--mint)}
+  main{padding:20px 22px;max-width:1180px}
+  section{display:none} section.on{display:block}
+  .panel{border:1px solid var(--line);background:var(--panel);border-radius:8px;
+         padding:16px;margin-bottom:16px}
+  .panel h2{margin:0 0 4px;font-size:12px;letter-spacing:.16em;color:var(--dim);
+            text-transform:uppercase;font-weight:600}
+  .panel p.note{color:var(--dim);margin:6px 0 14px;max-width:104ch}
+  .drop{border:1px dashed var(--line);border-radius:8px;padding:26px;text-align:center;
+        color:var(--dim);cursor:pointer;transition:.15s}
+  .drop:hover,.drop.hot{border-color:var(--mint);color:var(--ink)}
+  button.act{background:var(--mint);color:#06251a;border:0;border-radius:5px;
+             font:inherit;font-weight:700;padding:7px 15px;cursor:pointer}
+  button.act:disabled{opacity:.45;cursor:not-allowed}
+  button.ghost{background:none;color:var(--ink);border:1px solid var(--line);
+               border-radius:5px;font:inherit;padding:6px 12px;cursor:pointer}
+  button.ghost:hover{border-color:var(--mint);color:var(--mint)}
+  button.ghost.on{border-color:var(--mint);color:var(--mint)}
+  select,input{background:#0a1017;color:var(--ink);border:1px solid var(--line);
+               border-radius:5px;font:inherit;padding:6px 9px}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th{text-align:left;color:var(--dim);font-weight:500;font-size:11px;
+     text-transform:uppercase;letter-spacing:.1em;padding:6px 8px;
+     border-bottom:1px solid var(--line)}
+  td{padding:7px 8px;border-bottom:1px solid #16202b;vertical-align:top}
+  tr:hover td{background:#0e151d}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:99px;
+       padding:1px 8px;font-size:11px;color:var(--dim);white-space:nowrap}
+  .tag.ok{color:var(--mint);border-color:#1d4b3a}
+  .tag.warn{color:var(--amber);border-color:#4a3a1a}
+  .tag.bad{color:var(--red);border-color:#4a2020}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .verdict{font-size:14px;color:var(--mint);padding:12px 14px;border-radius:6px;
+           background:#0d1c17;border:1px solid #1d4b3a;margin:12px 0}
+  .verdict.warn{color:var(--amber);background:#1c170d;border-color:#4a3a1a}
+  .banner{padding:12px 14px;border-radius:6px;background:#1c110d;
+          border:1px solid #4a2a1a;color:var(--amber);margin:12px 0}
+  pre{background:#0a1017;border:1px solid var(--line);border-radius:6px;padding:12px;
+      overflow:auto;max-height:340px;color:var(--dim);font-size:12px}
+  .num{color:var(--ink)} .dim{color:var(--dim)} .mint{color:var(--mint)}
+  .amber{color:var(--amber)} .red{color:var(--red)}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.cols{grid-template-columns:1fr}}
+  .big{font-size:26px;font-weight:700;letter-spacing:-.02em}
+  .lab{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.1em}
+</style>
+</head>
+<body>
+<header>
+  <h1>INFER</h1>
+  <span class="sub" id="head">reading the store…</span>
+  <span style="flex:1"></span>
+  <span class="sub">one ONNX binary · <span class="mint">onnxruntime</span> here ·
+    <span class="mint">onnxruntime-web</span> in this tab</span>
+</header>
+
+<nav>
+  <button class="on" data-tab="models">models</button>
+  <button data-tab="optimize">optimize</button>
+  <button data-tab="browser">run in browser</button>
+  <button data-tab="passes">passes</button>
+  <button data-tab="about">about</button>
+</nav>
+
+<main>
+<section class="on" id="tab-models">
+  <div class="panel">
+    <h2>add a model</h2>
+    <p class="note">Any <code>.onnx</code>. It is parsed before it is stored — ops,
+      parameters and shapes are read off the graph, so nothing is taken on the
+      filename's word. Stored under the SHA-256 of its bytes, which is what lets a
+      benchmark be tied to the exact model it measured.</p>
+    <div class="drop" id="drop">choose an .onnx file — or drop one here
+      <input type="file" id="file" accept=".onnx" hidden></div>
+    <div class="row" style="margin-top:12px">
+      <button class="ghost" id="plant">plant three examples</button>
+      <span class="dim">an MLP with BatchNorm to fuse, a small CNN, and a
+        transformer block</span>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>stored</h2>
+    <div id="models">loading…</div>
+  </div>
+</section>
+
+<section id="tab-optimize">
+  <div class="panel">
+    <h2>optimize</h2>
+    <p class="note">Every pass is measured against the model it replaced: same
+      process, same inputs, same seed. The result is benchmarked, its outputs are
+      compared against the original's, and its portability is re-checked — because
+      the fastest local graph is often the one that stopped running anywhere else.</p>
+    <div class="row">
+      <select id="opt-model"></select>
+      <button class="ghost" id="target-local">target: local</button>
+      <button class="ghost" id="target-web">target: web</button>
+      <label class="dim">batch <input id="opt-batch" type="number" value="1"
+        min="1" style="width:64px"></label>
+      <label class="dim">runs <input id="opt-runs" type="number" value="30"
+        min="1" style="width:70px"></label>
+      <button class="act" id="run-opt">optimize</button>
+    </div>
+    <div class="row" id="pass-picker" style="margin-top:12px"></div>
+    <div id="opt-out"></div>
+  </div>
+</section>
+
+<section id="tab-browser">
+  <div class="panel">
+    <h2>the same bytes, in this tab</h2>
+    <p class="note">This fetches <code>/blob/&lt;id&gt;</code> — the exact bytes the
+      server just benchmarked — into <b>onnxruntime-web</b> and runs it here, with the
+      input shapes the server used and graph optimization disabled on both sides. No
+      re-export, no second conversion. If a pass fused the model into onnxruntime's
+      private operator domain, this is where it fails to load, which is the point.</p>
+    <div class="row">
+      <select id="web-model"></select>
+      <label class="dim">batch <input id="web-batch" type="number" value="1" min="1"
+        style="width:64px"></label>
+      <label class="dim">runs <input id="web-runs" type="number" value="30" min="1"
+        style="width:70px"></label>
+      <button class="act" id="run-web">run here and on the server</button>
+    </div>
+    <div id="web-out"></div>
+  </div>
+</section>
+
+<section id="tab-passes">
+  <div class="panel">
+    <h2>the passes</h2>
+    <div id="passes">loading…</div>
+  </div>
+</section>
+
+<section id="tab-about">
+  <div class="panel">
+    <h2>why one binary</h2>
+    <p class="note">A model that has to be converted again on the way to where it runs
+      is a model nobody measured. ONNX is the format both runtimes here execute
+      directly — <code>onnxruntime</code> on the server, <code>onnxruntime-web</code>
+      (wasm, SIMD, threads when the page is cross-origin isolated, WebGPU where it
+      exists) in this tab — so the artifact that was optimized and the artifact that
+      ships are the same file, and the architecture it started as stops mattering:
+      by the time it is here, a ResNet and a transformer are both just graphs.</p>
+    <p class="note">Two results this module will keep telling you, because they are
+      true and inconvenient: <b>quantization often makes small graphs slower</b> — the
+      dequantize nodes cost more than the narrower weights save — and <b>the
+      <code>all</code> pass produces a binary that cannot leave the machine that made
+      it</b>, because it rewrites the graph into <code>com.microsoft.nchwc.*</code>
+      layout operators for that CPU. Both show up in the report rather than in a
+      footnote.</p>
+    <p class="note">The neighbouring claim — that <i>every</i> operator onnxruntime
+      invented breaks a browser — is false, and this tab is how that was found out.
+      <code>extended</code> fuses into <code>FusedConv</code> and
+      <code>BiasGelu</code>, which look just as vendor-specific; both load and run
+      here, because the wasm backend registers the contrib domain. So
+      <code>portable</code> gives three answers rather than two, and the static
+      check is only ever a prediction. This is the proof.</p>
+    <div id="about"></div>
+  </div>
+</section>
+</main>
+
+<script>
+const API = (location.pathname.replace(/\/$/,'') || '') + '/_api';
+const $ = s => document.querySelector(s);
+const fmtB = b => b >= 1e6 ? (b/1e6).toFixed(2)+' MB' : (b/1e3).toFixed(1)+' kB';
+const num = n => n === null || n === undefined ? '—' : (+n).toLocaleString();
+const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+let MODELS = [], PASSES = {}, CHOSEN = ['slim','extended'];
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const t = await r.text();
+  let j; try { j = JSON.parse(t); } catch { throw new Error(t.slice(0,300)); }
+  if (!r.ok || j.error) throw new Error(j.error || r.status);
+  return j;
+}
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s =>
+    s.classList.toggle('on', s.id === 'tab-' + b.dataset.tab));
+});
+
+// ── models ──────────────────────────────────────────────────────
+async function loadModels() {
+  const d = await api('/models');
+  MODELS = d.models || [];
+  $('#head').textContent = `${d.count} model${d.count === 1 ? '' : 's'} · ${d.dir}`;
+  $('#models').innerHTML = MODELS.length ? `<table>
+    <tr><th>name</th><th>arch</th><th>size</th><th>nodes</th><th>params</th>
+        <th>from</th><th>id</th><th></th></tr>
+    ${MODELS.map(m => `<tr>
+      <td><b>${esc(m.name)}</b>${m.passes ? ` <span class="tag">${m.passes.join('+')}</span>` : ''}</td>
+      <td class="dim">${esc(m.arch || '?')}</td>
+      <td class="num">${fmtB(m.bytes)}</td>
+      <td class="num">${num(m.nodes)}</td>
+      <td class="num">${num(m.params)}</td>
+      <td class="dim">${esc(m.parent || m.source || '')}</td>
+      <td class="dim">${m.id}</td>
+      <td><button class="ghost" onclick="rm('${m.id}')">×</button></td>
+    </tr>`).join('')}</table>`
+    : '<p class="note">nothing stored yet — drop an .onnx above, or plant the examples.</p>';
+  for (const sel of ['#opt-model', '#web-model']) {
+    const cur = $(sel).value;
+    $(sel).innerHTML = MODELS.map(m =>
+      `<option value="${m.id}">${esc(m.name)} · ${fmtB(m.bytes)}</option>`).join('');
+    if (cur) $(sel).value = cur;
+  }
+}
+window.rm = async id => { await api('/models/' + id, {method:'DELETE'}); loadModels(); };
+
+$('#drop').onclick = () => $('#file').click();
+$('#drop').ondragover = e => { e.preventDefault(); $('#drop').classList.add('hot'); };
+$('#drop').ondragleave = () => $('#drop').classList.remove('hot');
+$('#drop').ondrop = e => { e.preventDefault(); $('#drop').classList.remove('hot');
+                           upload(e.dataTransfer.files[0]); };
+$('#file').onchange = e => upload(e.target.files[0]);
+
+async function upload(f) {
+  if (!f) return;
+  $('#drop').textContent = `reading ${f.name}…`;
+  try {
+    const buf = new Uint8Array(await f.arrayBuffer());
+    let bin = ''; const CH = 0x8000;
+    for (let i = 0; i < buf.length; i += CH)
+      bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+    await api('/models', {method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify({data: btoa(bin), name: f.name.replace(/\.onnx$/,'')})});
+    $('#drop').textContent = 'choose an .onnx file — or drop one here';
+    loadModels();
+  } catch (e) {
+    $('#drop').innerHTML = `<span class="red">${esc(e.message)}</span>`;
+  }
+}
+$('#plant').onclick = async e => {
+  e.target.disabled = true; e.target.textContent = 'exporting from torch…';
+  try { await api('/examples', {method:'POST'}); await loadModels(); }
+  catch (err) { alert(err.message); }
+  e.target.disabled = false; e.target.textContent = 'plant three examples';
+};
+
+// ── passes ──────────────────────────────────────────────────────
+async function loadPasses() {
+  const d = await api('/passes');
+  PASSES = d.passes;
+  $('#passes').innerHTML = `<table>
+    <tr><th>pass</th><th>what it does</th><th>changes the numbers</th>
+        <th>browser-safe</th><th>here</th></tr>
+    ${Object.entries(PASSES).map(([k, v]) => `<tr>
+      <td><b class="mint">${k}</b></td><td>${esc(v.what)}</td>
+      <td>${v.lossy ? '<span class="tag warn">lossy</span>'
+                    : '<span class="tag ok">lossless</span>'}</td>
+      <td>${v.portable ? '<span class="tag ok">yes</span>'
+                       : '<span class="tag bad">local only</span>'}</td>
+      <td>${v.available ? '<span class="tag ok">available</span>'
+                        : `<span class="tag bad">${esc(v.reason || 'missing')}</span>`}</td>
+    </tr>`).join('')}</table>
+    <p class="note" style="margin-top:12px">${esc(d.order)}</p>`;
+  $('#pass-picker').innerHTML = Object.keys(PASSES).map(k =>
+    `<button class="ghost ${CHOSEN.includes(k) ? 'on' : ''}" data-pass="${k}">${k}</button>`
+  ).join('') + '<span class="dim">click to toggle · order is left to right</span>';
+  $('#pass-picker').querySelectorAll('[data-pass]').forEach(b => b.onclick = () => {
+    const p = b.dataset.pass;
+    CHOSEN = CHOSEN.includes(p) ? CHOSEN.filter(x => x !== p) : [...CHOSEN, p];
+    syncPicker();
+  });
+}
+function syncPicker() {
+  $('#pass-picker').querySelectorAll('[data-pass]').forEach(b =>
+    b.classList.toggle('on', CHOSEN.includes(b.dataset.pass)));
+}
+async function retarget(target) {
+  const m = $('#opt-model').value; if (!m) return;
+  const p = await api(`/plan?model=${m}&target=${target}`);
+  CHOSEN = p.plan; syncPicker();
+  $('#opt-out').innerHTML = `<div class="panel" style="margin-top:14px">
+    <h2>plan · ${esc(p.arch)} · target ${p.target}</h2>
+    <ul class="note" style="max-width:104ch">${p.why.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>`;
+}
+$('#target-local').onclick = () => retarget('local');
+$('#target-web').onclick = () => retarget('web');
+
+// ── optimize ────────────────────────────────────────────────────
+$('#run-opt').onclick = async e => {
+  const model = $('#opt-model').value;
+  if (!model) return;
+  e.target.disabled = true; e.target.textContent = 'running…';
+  $('#opt-out').innerHTML = '<p class="note">optimizing, benchmarking both, '
+    + 'comparing outputs…</p>';
+  try {
+    const r = await api('/optimize', {method:'POST',
+      headers:{'content-type':'application/json'},
+      body: JSON.stringify({model, passes: CHOSEN.join(','),
+        batch: +$('#opt-batch').value, runs: +$('#opt-runs').value})});
+    renderOpt(r); await loadModels();
+  } catch (err) {
+    $('#opt-out').innerHTML = `<div class="banner">${esc(err.message)}</div>`;
+  }
+  e.target.disabled = false; e.target.textContent = 'optimize';
+};
+
+function renderOpt(r) {
+  const lost = r.portability_lost;
+  const sp = r.speed || {}, sz = r.size || {}, pa = r.parity || {};
+  $('#opt-out').innerHTML = `
+    <div class="verdict ${lost || (sp.speedup && sp.speedup < 1) ? 'warn' : ''}">${esc(r.verdict)}</div>
+    ${lost ? `<div class="banner"><b>portability lost.</b> ${esc(lost.note)}<br>
+      ops: ${Object.entries(lost.ops).map(([k,v]) => `${esc(k)}×${v}`).join(', ')}<br>
+      <code>${esc(lost.instead)}</code></div>` : ''}
+    <div class="cols" style="margin-top:14px">
+      <div class="panel"><h2>size</h2>
+        <div class="big">${sz.ratio ? sz.ratio.toFixed(2) + '×' : '—'}
+          <span class="lab">smaller</span></div>
+        <div class="dim">${fmtB(sz.before)} → ${fmtB(sz.after)}
+          (${sz.percent}% off)</div></div>
+      <div class="panel"><h2>latency p50</h2>
+        <div class="big ${sp.speedup >= 1 ? 'mint' : 'amber'}">
+          ${sp.speedup ? sp.speedup.toFixed(2) + '×' : '—'}
+          <span class="lab">faster</span></div>
+        <div class="dim">${sp.before_ms_p50 ?? '—'} ms → ${sp.after_ms_p50 ?? '—'} ms
+          · ${sp.runs || 0} runs · ${esc(sp.provider || '')}</div></div>
+    </div>
+    <div class="panel"><h2>did the answers survive</h2>
+      <div class="row">
+        <div><span class="lab">max abs error</span><br>
+          <span class="big">${pa.max_abs_err !== undefined
+            ? pa.max_abs_err.toExponential(2) : '—'}</span></div>
+        <div style="margin-left:26px"><span class="lab">argmax agreement</span><br>
+          <span class="big">${pa.argmax_agreement !== null && pa.argmax_agreement !== undefined
+            ? (pa.argmax_agreement*100).toFixed(0) + '%' : '—'}</span></div>
+        <div style="margin-left:26px"><span class="lab">cosine</span><br>
+          <span class="big">${pa.cosine ?? '—'}</span></div>
+        <div style="margin-left:26px"><span class="lab">verdict</span><br>
+          <span class="big ${pa.ok ? 'mint' : 'amber'}">${esc(pa.verdict || '—')}</span></div>
+      </div></div>
+    <div class="panel"><h2>what each pass did</h2>
+      <table><tr><th>pass</th><th>nodes</th><th>size</th><th>ops removed</th>
+        <th>note</th></tr>
+      ${(r.passes||[]).map(s => `<tr>
+        <td><b class="${s.ok ? 'mint' : 'red'}">${esc(s.pass)}</b></td>
+        <td>${s.ok ? `${s.nodes.before} → <b>${s.nodes.after}</b>` : '—'}</td>
+        <td>${s.ok ? `${fmtB(s.bytes.before)} → <b>${fmtB(s.bytes.after)}</b>` : '—'}</td>
+        <td class="dim">${s.ok ? Object.entries(s.removed || {}).slice(0,6)
+            .map(([k,v]) => `${esc(k)}×${v}`).join(', ') || '—' : ''}</td>
+        <td class="dim">${esc(s.note || s.error || '')}</td></tr>`).join('')}
+      </table></div>`;
+}
+
+// ── the browser half ────────────────────────────────────────────
+let ORT = null;
+const CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/';
+async function ort() {
+  if (ORT) return ORT;
+  await new Promise((ok, no) => {
+    const s = document.createElement('script');
+    s.src = CDN + 'ort.min.js';
+    s.onload = ok;
+    s.onerror = () => no(new Error('could not load onnxruntime-web from the CDN — '
+      + 'this tab needs network access to ' + CDN));
+    document.head.appendChild(s);
+  });
+  ORT = window.ort;
+  ORT.env.wasm.wasmPaths = CDN;
+  return ORT;
+}
+
+// The server feeds the model seeded gaussians for floats and 0/1 for integer
+// inputs (which are almost always embedding indices). Same rule here, so the
+// two benchmarks are doing the same amount of work.
+function makeTensor(ort, spec, seed) {
+  let s = seed >>> 0;
+  const rnd = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const gauss = () => {
+    const u = Math.max(rnd(), 1e-9);
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rnd());
+  };
+  const n = spec.shape.reduce((a, b) => a * b, 1);
+  const d = spec.dtype;
+  const fill = (a, f) => { for (let i = 0; i < n; i++) a[i] = f(); return a; };
+  if (d === 'float32') return new ort.Tensor('float32', fill(new Float32Array(n), gauss), spec.shape);
+  if (d === 'float64') return new ort.Tensor('float64', fill(new Float64Array(n), gauss), spec.shape);
+  // 0 and 1 only: an integer input is nearly always an index into an embedding
+  // table, and a random int64 is an out-of-range lookup and a crash.
+  const bit = () => (rnd() < 0.5 ? 0 : 1);
+  if (d === 'int64') return new ort.Tensor('int64', fill(new BigInt64Array(n), () => BigInt(bit())), spec.shape);
+  if (d === 'int32') return new ort.Tensor('int32', fill(new Int32Array(n), bit), spec.shape);
+  if (d === 'bool') return new ort.Tensor('bool', fill(new Uint8Array(n), bit), spec.shape);
+  if (d === 'uint8') return new ort.Tensor('uint8', fill(new Uint8Array(n), bit), spec.shape);
+  if (d === 'int8') return new ort.Tensor('int8', fill(new Int8Array(n), bit), spec.shape);
+  throw new Error(`this console does not generate ${d} inputs — bench it on the `
+    + `server instead, or feed the model real inputs`);
+}
+
+$('#run-web').onclick = async e => {
+  const id = $('#web-model').value; if (!id) return;
+  const runs = +$('#web-runs').value, batch = +$('#web-batch').value;
+  e.target.disabled = true;
+  const out = $('#web-out');
+  const say = h => out.innerHTML = h;
+  try {
+    say('<p class="note">benchmarking on the server first, so both sides use the '
+      + 'same input shapes…</p>');
+    const server = await api(`/bench?model=${id}&runs=${runs}&batch=${batch}`);
+    say('<p class="note">loading onnxruntime-web…</p>');
+    const o = await ort();
+    say('<p class="note">fetching the blob — the same bytes the server just ran…</p>');
+    const bytes = new Uint8Array(await (await fetch(`${API}/blob/${id}`)).arrayBuffer());
+    const t0 = performance.now();
+    const sess = await o.InferenceSession.create(bytes, {
+      executionProviders: ['wasm'],
+      // Disabled on both sides: otherwise this measures what the runtime would
+      // have done to the graph at load time, not the graph that was shipped.
+      graphOptimizationLevel: 'disabled'});
+    const load = performance.now() - t0;
+    const feeds = {};
+    server.inputs.forEach((spec, i) => { feeds[spec.name] = makeTensor(o, spec, 7 + i); });
+    for (let i = 0; i < 5; i++) await sess.run(feeds);
+    const times = [];
+    for (let i = 0; i < runs; i++) {
+      const a = performance.now();
+      await sess.run(feeds);
+      times.push(performance.now() - a);
+    }
+    times.sort((x, y) => x - y);
+    const p = q => times[Math.min(times.length - 1, Math.floor(times.length * q))];
+    const browser = {model: id, name: server.name, ms: {
+        p50: +p(.5).toFixed(4), p90: +p(.9).toFixed(4), p99: +p(.99).toFixed(4),
+        min: +times[0].toFixed(4), max: +times[times.length-1].toFixed(4)},
+      runs, batch, load_ms: +load.toFixed(1), bytes: bytes.length,
+      backend: 'onnxruntime-web/wasm', ua: navigator.userAgent,
+      threads: o.env.wasm.numThreads, simd: o.env.wasm.simd !== false,
+      cross_origin_isolated: !!self.crossOriginIsolated, at: new Date().toISOString()};
+    say(`<div class="verdict">the same binary ran in both runtimes ·
+        server p50 <b>${server.ms.p50} ms</b> · this tab p50
+        <b>${browser.ms.p50} ms</b> ·
+        ${(browser.ms.p50 / server.ms.p50).toFixed(2)}× the server's time</div>
+      <div class="cols">
+        <div class="panel"><h2>onnxruntime · server</h2>
+          <div class="big">${server.ms.p50} <span class="lab">ms p50</span></div>
+          <div class="dim">p90 ${server.ms.p90} · p99 ${server.ms.p99} ·
+            ${esc(server.provider)} · ${server.runs} runs</div></div>
+        <div class="panel"><h2>onnxruntime-web · this tab</h2>
+          <div class="big">${browser.ms.p50} <span class="lab">ms p50</span></div>
+          <div class="dim">p90 ${browser.ms.p90} · p99 ${browser.ms.p99} ·
+            wasm${browser.simd ? '+simd' : ''} ·
+            ${browser.cross_origin_isolated ? browser.threads + ' threads'
+              : 'single-threaded (page is not cross-origin isolated)'} ·
+            session built in ${browser.load_ms} ms</div></div>
+      </div>
+      <p class="note">${fmtB(bytes.length)} downloaded and executed unchanged.
+        The gap is the runtime, not the model — wasm has no AVX-512 and, without
+        cross-origin isolation, no threads either.</p>`);
+    await api('/report', {method:'POST', headers:{'content-type':'application/json'},
+      body: JSON.stringify(browser)}).catch(() => {});
+  } catch (err) {
+    say(`<div class="banner"><b>it did not run here.</b> ${esc(err.message)}
+      <br><span class="dim">If this mentions an unknown operator, check
+      <code>portable</code>. Almost always it is the <code>all</code> pass:
+      it rewrites the graph into <code>com.microsoft.nchwc.*</code> layout
+      operators for the CPU that ran it. <code>slim,extended</code> keeps nearly
+      all of the speed and loads here.</span></div>`);
+  }
+  e.target.disabled = false;
+};
+
+// ── boot ────────────────────────────────────────────────────────
+(async () => {
+  try {
+    await loadModels();
+    await loadPasses();
+    const h = await api('/health');
+    $('#about').innerHTML = `<table>
+      <tr><th>onnx</th><td>${esc(h.onnx)}</td></tr>
+      <tr><th>onnxruntime</th><td>${esc(h.onnxruntime)}</td></tr>
+      <tr><th>providers</th><td>${(h.providers||[]).map(esc).join(', ')}</td></tr>
+      <tr><th>passes here</th><td>${(h.passes||[]).map(esc).join(', ')}</td></tr>
+      <tr><th>store</th><td>${esc(h.store)}</td></tr></table>`;
+  } catch (e) {
+    $('#head').innerHTML = `<span class="red">${esc(e.message)}</span>`;
+  }
+})();
+</script>
+</body>
+</html>

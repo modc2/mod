@@ -10,6 +10,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 
+use crate::bridges::{self, BridgeQuoteIn, BridgeQuoteOut, RouteQuote, SOURCE_ASSETS};
 use crate::config::{self, looks_like_ss58};
 use crate::keys;
 use crate::types::*;
@@ -32,6 +33,9 @@ pub fn router() -> Router<AppState> {
         .route("/order/:id/mark_paid", post(order_mark_paid))
         .route("/order/:id/cancel", post(order_cancel))
         .route("/order/:id/settle_prediction", post(order_settle_prediction))
+        .route("/bridges", get(bridges_catalog))
+        .route("/bridges/assets", get(bridges_assets))
+        .route("/bridges/quote", post(bridges_quote))
 }
 
 const PREDICTION_WINDOW_SECS: i64 = 86_400;
@@ -152,7 +156,8 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Convert ETH and SOL into native TAO. Rust (axum) API + Next.js frontend.",
         "fns": ["info", "health", "status", "quote", "swap", "order",
-                "orders", "deposit_address", "rates", "settle_prediction"],
+                "orders", "deposit_address", "rates", "settle_prediction",
+                "bridges", "bridge_assets", "bridge_quote"],
         "prediction_window_secs": PREDICTION_WINDOW_SECS,
         "sources": s.config.sources.keys().cloned().collect::<Vec<_>>(),
         "destination": s.config.destination.chain.clone(),
@@ -434,4 +439,164 @@ async fn order_cancel(
         Ok(())
     }).map_err(|e| ApiError::bad(e.to_string()))?;
     updated.map(Json).ok_or_else(|| ApiError::not_found("order not found"))
+}
+
+// ── bridge-in board ────────────────────────────────────────────────
+
+/// Map a bridge source-asset key onto the config source symbol this module's
+/// own desk uses, so the desk can be priced next to the outside routes.
+/// Base has no entry — the desk only watches Ethereum and Solana deposits.
+fn desk_symbol(key: &str) -> Option<&'static str> {
+    Some(match key {
+        "sol:SOL" => "sol",
+        "sol:USDC" => "usdc_sol",
+        "sol:USDT" => "usdt_sol",
+        "eth:ETH" => "eth",
+        "eth:USDC" => "usdc_eth",
+        "eth:USDT" => "usdt_eth",
+        _ => return None,
+    })
+}
+
+/// CoinGecko id for a source symbol, used to build the mid-price benchmark.
+fn coingecko_id_for(symbol: &str) -> &'static str {
+    match symbol {
+        "SOL" => "solana",
+        "ETH" => "ethereum",
+        "USDC" => "usd-coin",
+        "USDT" => "tether",
+        _ => "",
+    }
+}
+
+/// Every route we know about, plus which source assets each one accepts.
+async fn bridges_catalog() -> Json<Value> {
+    Json(json!({
+        "assets": bridges::SOURCE_ASSETS,
+        "routes": bridges::ROUTES,
+        "coverage": bridges::coverage(),
+        "tao_solana_mint": bridges::TAO_SOLANA_MINT,
+        "bittensor_evm": {
+            "chain_id": 964,
+            "chain_id_hex": "0x3c4",
+            "rpc": "https://lite.chain.opentensor.ai",
+            "explorer": "https://evm.taostats.io",
+        },
+        "note": "Routes delivering native ss58 TAO are the only ones that finish \
+                 the job in one step; everything else needs a further hop, which \
+                 is what `hops` and `delivers` record.",
+    }))
+}
+
+async fn bridges_assets() -> Json<Value> {
+    Json(json!(SOURCE_ASSETS))
+}
+
+/// Price every quotable route for one (asset, amount) side by side.
+async fn bridges_quote(
+    State(s): State<AppState>,
+    Json(body): Json<BridgeQuoteIn>,
+) -> Result<Json<BridgeQuoteOut>, ApiError> {
+    if body.amount <= 0.0 {
+        return Err(ApiError::bad("amount must be positive"));
+    }
+    let asset = bridges::source_asset(&body.asset).ok_or_else(|| {
+        ApiError::bad(format!(
+            "unknown source asset '{}' — expected one of: {}",
+            body.asset,
+            SOURCE_ASSETS.iter().map(|a| a.key).collect::<Vec<_>>().join(", ")
+        ))
+    })?;
+
+    // Mid-price benchmark. Best-effort: if CoinGecko is unreachable the board
+    // still renders, it just can't say what each route costs versus mid.
+    let rates_view = s.rates.get(&s.http, false).await.ok();
+    let (mid_tao, mid_stale) = match &rates_view {
+        Some(r) => {
+            let tao = r.usd.get("bittensor").copied().unwrap_or(0.0);
+            let src = r.usd.get(coingecko_id_for(asset.symbol)).copied().unwrap_or(0.0);
+            let mid = (tao > 0.0 && src > 0.0).then(|| body.amount * src / tao);
+            (mid, Some(r.stale))
+        }
+        None => (None, None),
+    };
+
+    let mut routes = bridges::quote_all(&s.http, asset, body.amount, mid_tao).await;
+
+    // Slot this deployment's own desk into the same board, priced the same
+    // way it prices a real order.
+    if let Some(sym) = desk_symbol(asset.key) {
+        routes.push(desk_route_quote(&s, sym, body.amount, mid_tao).await);
+    }
+
+    bridges::sort_board(&mut routes);
+    let best_native = bridges::best_native(&routes);
+
+    Ok(Json(BridgeQuoteOut {
+        asset: asset.key.to_string(),
+        chain: asset.chain,
+        symbol: asset.symbol,
+        amount: body.amount,
+        mid_tao,
+        mid_stale,
+        routes,
+        best_native,
+        manual: bridges::manual_routes(asset.key),
+        ts: now(),
+    }))
+}
+
+/// This module's own desk as one more row on the board.
+async fn desk_route_quote(
+    state: &AppState,
+    sym: &str,
+    amount: f64,
+    mid_tao: Option<f64>,
+) -> RouteQuote {
+    let desk = bridges::ROUTES.iter().find(|r| r.id == "taox_desk").expect("taox_desk route");
+    let mut q = RouteQuote {
+        id: desk.id,
+        name: desk.name,
+        kind: desk.kind,
+        custody: desk.custody,
+        delivers: desk.delivers,
+        delivers_label: desk.delivers_label,
+        hops: desk.hops,
+        eta: desk.eta,
+        url: desk.url,
+        status: "error",
+        tao_out: None,
+        rate: None,
+        vs_mid_pct: None,
+        min_in: None,
+        max_in: None,
+        price_impact_pct: None,
+        // The desk prices off the CoinGecko mid minus a fixed fee rather than
+        // off a book, so it structurally undercuts every desk quoting a real
+        // spread. Flagged so it can't top the board on that advantage.
+        indicative: true,
+        detail: None,
+    };
+    match build_quote(state, sym, amount).await {
+        Ok(quoted) => {
+            q.status = "ok";
+            q.tao_out = Some(quoted.tao_out);
+            q.rate = Some(quoted.tao_out / amount);
+            if let Some(mid) = mid_tao.filter(|m| *m > 0.0) {
+                q.vs_mid_pct = Some((quoted.tao_out / mid - 1.0) * 100.0);
+            }
+            let mut note =
+                format!("indicative: CoinGecko mid less {}bps, not a firm quote", quoted.fee_bps);
+            if quoted.rates_stale {
+                note.push_str(" (rates stale)");
+            }
+            q.detail = Some(note);
+        }
+        Err(e) => {
+            q.detail = Some(
+                e.body.get("detail").and_then(|v| v.as_str()).unwrap_or("quote failed").to_string(),
+            );
+        }
+    }
+    q
 }

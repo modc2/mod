@@ -158,6 +158,49 @@ export const api = {
   building: (rsn: string) => get<BuildingDetail>(`/score/building/${rsn}`),
 
   agent: () => get<AgentCard>('/agent/card'),
+
+  // ── mcp ─────────────────────────────────────────────────────────────────
+  mcpSchema: () => get<McpSchema>('/mcp/schema'),
+  mcpInfo: () => get<McpInfo>('/mcp'),
+  mcpConfig: (name = 'tdot') =>
+    get<{ mcpServers: Record<string, any> }>('/mcp/config', { name }),
+  /** Call a tool over the real MCP endpoint — the same route an outside client uses. */
+  mcpCall: (name: string, args: Record<string, any>) =>
+    post<McpRpcReply>('/mcp', {
+      jsonrpc: '2.0', id: 1, method: 'tools/call',
+      params: { name, arguments: args },
+    }),
+}
+
+export type McpTool = {
+  name: string
+  description: string
+  group?: string
+  drives_map?: boolean
+  inputSchema: {
+    type: string
+    properties?: Record<string, { type?: string; description?: string; default?: any }>
+    required?: string[]
+  }
+}
+
+export type McpSchema = {
+  server: { name: string; version: string }
+  count: number
+  tools: McpTool[]
+}
+
+export type McpInfo = {
+  server: { name: string; version: string }
+  protocolVersion: string
+  instructions: string
+  transports: { http: string; stdio: string }
+  tools: number
+}
+
+export type McpRpcReply = {
+  result?: { content?: { type: string; text: string }[]; isError?: boolean }
+  error?: { code: number; message: string }
 }
 
 /** One dataset in the open-housing inventory, and what tdot does with it. */

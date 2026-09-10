@@ -323,6 +323,41 @@ class Mod:
         self._save_orders(orders)
         return o
 
+    # ── Bridge board ───────────────────────────────────────────────
+
+    def _api(self, path: str, payload: Optional[dict] = None, timeout: int = 45):
+        """Call the running API through the container's exposed port.
+
+        The bridge catalog and its live quote fetchers live in the Rust API,
+        so the CLI proxies rather than keeping a second copy of the registry
+        that would drift the moment a provider changes a ticker.
+        """
+        url = f"http://localhost:{self.app_port}/api{path}"
+        data = json.dumps(payload).encode() if payload is not None else None
+        req = Request(url, data=data, headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode())
+        except URLError as e:
+            return {"error": f"taox API unreachable on :{self.app_port} ({e}) — run `m taox/serve`"}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def bridges(self) -> dict:
+        """Every known route from Solana / Base / Ethereum into TAO."""
+        return self._api("/bridges")
+
+    def bridge_assets(self) -> Any:
+        """The source assets the board can price."""
+        return self._api("/bridges/assets")
+
+    def bridge_quote(self, asset: str, amount: float) -> dict:
+        """Price every quotable route for one source asset, best first.
+
+        `asset` is a `{chain}:{symbol}` key — e.g. `base:USDC`, `sol:SOL`.
+        """
+        return self._api("/bridges/quote", {"asset": asset, "amount": float(amount)})
+
     # ── Service control ────────────────────────────────────────────
 
     def serve(self, **_) -> dict:

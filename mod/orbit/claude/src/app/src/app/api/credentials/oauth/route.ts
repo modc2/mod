@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildAuthorize, exchangeCode, writeCredentials } from "@/lib/claudeOAuth";
+import { requireOwner } from "@/lib/ownerGate";
 
 // "Log in with Claude" OAuth, manual-code variant. Runs server-side as the
 // `node` user inside the claude container (same context as the paste route),
@@ -10,13 +11,17 @@ export const dynamic = "force-dynamic";
 // GET → start a login: hand the client an authorize URL plus the PKCE verifier
 // and state it must echo back on completion. The verifier round-trips through
 // the owner's own browser (single-use, short-lived) — no server session store.
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = await requireOwner(req);
+  if (denied) return denied;
   const { url, verifier, state } = buildAuthorize();
   return NextResponse.json({ url, verifier, state });
 }
 
 // POST → complete a login: exchange the pasted code for tokens and persist them.
 export async function POST(req: NextRequest) {
+  const denied = await requireOwner(req);
+  if (denied) return denied;
   let body: any;
   try {
     body = await req.json();

@@ -1,0 +1,16 @@
+"""__NAME__ — imported from https://github.com/__REPO__ (Replit)."""
+import os
+
+
+class Mod:
+    description = "imported from Replit/GitHub: __REPO__"
+    path = os.path.dirname(os.path.abspath(__file__))
+
+    def forward(self, **kwargs):
+        return self.info()
+
+    def info(self):
+        return {'name': '__NAME__',
+                'source': 'https://github.com/__REPO__',
+                'replit': 'https://replit.com/github/__REPO__',
+                'files': sorted(os.listdir(self.path))}

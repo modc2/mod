@@ -16,7 +16,17 @@ pub struct LegPerf {
     pub weight: f64,
     pub volume: f64,
     pub pnl: f64,
+    /// Net-of-fee win rate, `-1` when the leg realised nothing in the window.
     pub win_rate: f64,
+    /// Wilson 95% lower bound on `win_rate` — the defensible figure for a leg
+    /// whose sample is small, which for a fresh index is most of them.
+    pub win_rate_lo: f64,
+    /// Fills that realised PnL: the denominator `win_rate` is actually over.
+    pub closes: usize,
+    pub wins: usize,
+    pub losses: usize,
+    pub confidence: crate::stats::Confidence,
+    /// Every fill in the window, opens included.
     pub trades: usize,
 }
 
@@ -50,38 +60,33 @@ pub async fn perf(hl: Arc<Client>, idx: &Index, days_override: Option<u32>) -> a
     let mut total_pnl = 0.0f64;
     let mut weighted_pnl = 0.0f64;
 
+    let now_ms = chrono::Utc::now().timestamp_millis();
     while let Some(res) = tasks.next().await {
         let Ok((leg, fills)) = res else { continue };
-        let mut volume = 0.0f64;
-        let mut pnl = 0.0f64;
-        let mut wins = 0usize;
-        let mut realised = 0usize;
-        let mut daily: BTreeMap<i64, f64> = BTreeMap::new();
+        // Same scoring as the board and the trader page — see `crate::stats`.
+        // This used to be a third, independently drifting copy of the formula.
+        let s = crate::stats::score(&fills, cutoff_ms, now_ms);
         for f in &fills {
-            let px: f64 = f.px.parse().unwrap_or(0.0);
-            let sz: f64 = f.sz.parse().unwrap_or(0.0);
+            if f.time < cutoff_ms { continue; }
             let cp: f64 = f.closed_pnl.parse().unwrap_or(0.0);
             let fee: f64 = f.fee.parse().unwrap_or(0.0);
-            volume += px * sz;
-            pnl += cp - fee;
-            if cp != 0.0 {
-                realised += 1;
-                if cp > 0.0 { wins += 1; }
-            }
-            let day = f.time / 86_400_000;
-            *daily.entry(day).or_insert(0.0) += cp - fee;
+            *weighted_daily.entry(f.time / crate::stats::DAY_MS).or_insert(0.0)
+                += (cp - fee) * leg.weight;
         }
-        let win_rate = if realised == 0 { -1.0 } else { (wins as f64 / realised as f64) * 100.0 };
-        for (d, p) in &daily {
-            *weighted_daily.entry(*d).or_insert(0.0) += p * leg.weight;
-        }
-        total_pnl += pnl;
-        weighted_pnl += pnl * leg.weight;
+        total_pnl += s.pnl;
+        weighted_pnl += s.pnl * leg.weight;
         legs_perf.push(LegPerf {
             address: leg.address.clone(),
             weight: leg.weight,
-            volume, pnl, win_rate,
-            trades: fills.len(),
+            volume: s.volume,
+            pnl: s.pnl,
+            win_rate: s.win_rate,
+            win_rate_lo: s.win_rate_lo,
+            closes: s.closes,
+            wins: s.wins,
+            losses: s.losses,
+            confidence: s.confidence,
+            trades: s.trades,
         });
     }
 

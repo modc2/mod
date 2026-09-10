@@ -1,0 +1,117 @@
+{
+    "name": "sound2text",
+    "version": "1.0.0",
+    "description": "Speech to text as five steps rather than one call. Reads the audio itself \u2014 RIFF, every PCM width, IEEE float, and the a-law/mu-law that comes off a phone line, decoded in numpy now that the stdlib has dropped audioop \u2014 resamples through a windowed-sinc polyphase filter, finds the speech with an energy-and-flatness detector that costs 80 ms a minute and no model, recalls anything transcribed before by the hash of the audio rather than its filename, routes to whichever recogniser is actually fastest or cheapest on this machine, and sends only what is left. The step that makes the trimming pay is packing: a Whisper encoder always sees thirty seconds, so eight two-second segments sent separately cost eight full windows \u2014 43% slower than sending the untouched file, and 2.6x its word error rate, because a model handed two seconds of audio has no context and guesses. Packed back to fill the window, the same recording is sent with 48% less audio and comes back with a *lower* WER than the original file (0.086 against 0.111 on the bundled sample), the silence it was hallucinating words into having gone. On a local model that is what this module buys: accuracy. On a metered API it is the bill, which falls with the seconds uploaded. Five engines behind one interface (faster-whisper, transformers, whisper.cpp, and any OpenAI-shaped API), a stub that describes sound instead of pretending to transcribe it, and a number for every claim above.",
+    "icon": "\u25c9",
+    "color": "#4ade80",
+    "anchor": "mod.py",
+    "protocol": "sound2text/1.0",
+    "port": 50640,
+    "app_port": 50641,
+    "gateway_port": 50640,
+    "base_path": "/sound2text",
+    "route": false,
+    "urls": {
+        "api": "http://localhost:50640",
+        "app": "http://localhost:50641/sound2text",
+        "same_origin_api": "http://localhost:50641/sound2text/_api"
+    },
+    "backend": "src/api.py (FastAPI \u2014 the API, :50640)",
+    "frontend": "src/app.py (stdlib \u2014 the console at /sound2text on :50641; proxies /sound2text/_api)",
+    "state": "~/.mod/sound2text \u2014 keys.json (0600), the transcript cache, and the speed ledger. Nothing private is ever written into this directory.",
+    "deps": [
+        "numpy",
+        "fastapi",
+        "uvicorn"
+    ],
+    "pipeline": {
+        "decode": "RIFF read here (pcm 8/16/24/32, float32/64, a-law, mu-law) \u2192 mono float32 16 kHz; ffmpeg or soundfile used only for containers this cannot open",
+        "detect": "energy against an adaptive noise floor + spectral flatness + hysteresis; ~80 ms per minute of audio, no model",
+        "recall": "sha256 of the samples, the engine, the model, the language and the task \u2014 per segment, so appending to a recording only costs the new part",
+        "route": "fast | cheap | best, scored on what each engine has actually done on this machine",
+        "run": "segments packed to fill the model window, then batched"
+    },
+    "engines": {
+        "faster-whisper": "CTranslate2 int8/float16 \u2014 the fastest local option; pip install faster-whisper",
+        "whisper-torch": "transformers + torch, CPU or GPU, batched \u2014 needs nothing but pip",
+        "whisper.cpp": "the CLI and a ggml model \u2014 no python dependencies at all",
+        "openai": "$0.006/min \u2014 whisper-1, gpt-4o-transcribe",
+        "groq": "$0.00067/min \u2014 whisper-large-v3-turbo",
+        "deepinfra": "$0.0002/min \u2014 whisper-large-v3-turbo",
+        "stub": "describes the sound instead of transcribing it; every result carries transcript=false, and the router will never choose it on its own"
+    },
+    "measured": {
+        "host": "24-core CPU, no GPU, openai/whisper-tiny.en, best of three runs, model loading excluded",
+        "harvard-8k.wav (33.6s, 86% speech)": "whole file 2 windows / 33.6s sent / 1.77s / WER 0.111 \u2014 trimmed 8 windows / 28.9s / 2.53s / WER 0.284 \u2014 trimmed+packed 2 windows / 29.7s / 1.72s / WER 0.086",
+        "sparse (64.3s, 51% speech)": "whole file 3 windows / 64.3s sent / 1.44s / WER 0.148 \u2014 trimmed 8 windows / 32.6s / 2.17s / WER 0.296 \u2014 trimmed+packed 2 windows / 33.3s / 1.59s / WER 0.099",
+        "the trap": "trimming without packing is 43% slower than sending the untouched file and 2.6x the word error rate \u2014 a padded 30s window costs the same whether it holds 2s of speech or 28s",
+        "what packing buys": "on a local model, accuracy: the packed run beats the untouched file on WER in both files, because it removed the silence the model was hallucinating words into",
+        "what trimming buys": "on a metered API, the bill: 48% less audio uploaded on a recording that is half silence. It does not buy local wall-clock time, which tracks tokens generated, not seconds of file"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "transcribe": "POST /transcribe (upload) | GET /transcribe?path=|url=",
+        "vad": "POST /vad (upload) | GET /vad?path= \u2014 includes a waveform for drawing",
+        "compare": "GET /compare?path= \u2014 whole file vs trimmed vs packed",
+        "bench": "GET /bench?path= \u2014 every engine, timed",
+        "engines": "GET /engines",
+        "route": "GET /route?policy=fast",
+        "samples": "GET /samples | GET /samples/{name}",
+        "speed": "GET /speed",
+        "cache": "GET /cache | DELETE /cache",
+        "keys": "GET /keys | POST /keys | DELETE /keys/{vendor} \u2014 writes are loopback-only"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "readme",
+        "health",
+        "engines",
+        "route",
+        "pull",
+        "transcribe",
+        "vad",
+        "compare",
+        "bench",
+        "speed",
+        "samples",
+        "cache",
+        "set_key",
+        "drop_key",
+        "keys",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "env": {
+        "SOUND2TEXT_DIR": "state directory (default ~/.mod/sound2text)",
+        "SOUND2TEXT_PORT": "API port (default 50640)",
+        "SOUND2TEXT_APP_PORT": "console port (default 50641)",
+        "SOUND2TEXT_CACHE": "0 turns the transcript cache off",
+        "OPENAI_API_KEY": "checked before the keystore",
+        "GROQ_API_KEY": "checked before the keystore",
+        "DEEPINFRA_API_KEY": "checked before the keystore",
+        "WHISPER_CPP_BIN": "path to the whisper.cpp CLI",
+        "WHISPER_CPP_MODEL": "path to a ggml-*.bin model"
+    },
+    "toolchain": {
+        "required": [
+            "numpy"
+        ],
+        "api": [
+            "fastapi",
+            "uvicorn"
+        ],
+        "optional": "any one recogniser (faster-whisper, transformers+torch, whisper.cpp, or an API key); ffmpeg only for containers other than WAV"
+    },
+    "samples": {
+        "harvard-8k.wav": "real speech, 33.6s, 8 kHz, 86% speech \u2014 the worst case for skipping, and the file to check that skipping never costs anything",
+        "sparse-45pct-speech.wav": "built by this module from the real one with room tone between the sentences; labelled as constructed everywhere it appears"
+    },
+    "services": [
+        "sound2text-api",
+        "sound2text-app"
+    ],
+    "schema": "QmfNDszWsNwsuAEoDW8Mb6BihAQ3jxCsHrfTy2ZAuYdov9"
+}

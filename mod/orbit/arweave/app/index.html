@@ -99,7 +99,7 @@
   </div>
 
 <script>
-const API = location.origin + '/api';
+const API = location.origin + location.pathname.replace(/\/$/, '') + '/api';
 
 function show(id, val) {
   const el = document.getElementById(id);

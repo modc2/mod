@@ -30,8 +30,11 @@ from src.tools.builtin.mod import Builtins
 from src.tools.mod import Tools
 from src.agents.mod import Agents
 from src.memory.memory import Memory
+from src.memory.registry import Memories
+from src.toolbox.mod import Toolboxes
 
-BUILTIN_COUNT = 23
+BUILTIN_COUNT = 26  # 23 that act on the world + recall/remember/toolbox, which
+                    # act on the agent's own sub-components
 # shipped agents. Custom agents live in the same directory, so counts are
 # lower bounds — a host with their own agents installed still passes.
 AGENT_COUNT = 9
@@ -469,6 +472,10 @@ class TestAgentsRegistry:
             config = agents.create(name, description="test agent", goal="test goal")
             assert config["name"] == "Test Custom Agent"
             assert name in agents.ls()
+            # the template declares the integrations every agent requires
+            # wired in, and the file written from it carries the declaration
+            assert config["requires"] == ["prompt", "model", "toolbox", "memory"]
+            assert 'requires = ("prompt", "model", "toolbox", "memory")' in (agents._dir / name / "mod.py").read_text()
             # remove
             r = agents.remove(name)
             assert r["removed"] == name
@@ -478,6 +485,12 @@ class TestAgentsRegistry:
             agent_dir = agents._dir / name
             if agent_dir.exists():
                 shutil.rmtree(agent_dir)
+
+    def test_shipped_agents_require_every_integration(self, agents):
+        """An agent written before the template declared `requires` still
+        requires all four — that is what an agent is made of."""
+        for name in ("default", "builder", "reviewer"):
+            assert agents.get(name)["requires"] == ["prompt", "model", "toolbox", "memory"]
 
     def test_create_duplicate_raises(self, agents):
         with pytest.raises(FileExistsError):
@@ -626,6 +639,254 @@ class TestMemory:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+#  MEMORY AS RETRIEVAL (one scorer, every layer)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestRetrieval:
+    """The ranking engine every layer is searched with."""
+
+    def _rank(self, q, docs, **kw):
+        from src.memory.retrieval import rank
+        return rank(q, docs, text_of=lambda d: d["t"], **kw)
+
+    def test_a_rare_word_beats_a_common_one(self):
+        docs = [{"t": "the deploy script runs on every host"},
+                {"t": "the deploy script runs on every host and pins tzdata"},
+                {"t": "deploy deploy deploy"}]
+        hits = self._rank("tzdata deploy", docs)
+        # 'deploy' is in every document and says nothing; 'tzdata' picks one out
+        assert hits[0][1]["t"].endswith("tzdata")
+
+    def test_no_match_is_no_hit(self):
+        assert self._rank("kangaroo", [{"t": "nothing about that here"}]) == []
+
+    def test_stop_words_alone_match_nothing(self):
+        # otherwise "what is the thing" would retrieve the whole store
+        assert self._rank("what is the", [{"t": "what is the thing"}]) == []
+
+    def test_scores_are_bounded_and_ordered(self):
+        docs = [{"t": "relay port 8412"}, {"t": "relay"}]
+        hits = self._rank("relay port", docs)
+        assert [h[0] for h in hits] == sorted([h[0] for h in hits], reverse=True)
+        assert all(0 < s <= 1 for s, _ in hits)
+
+    def test_recency_breaks_a_tie(self):
+        old = {"t": "the same words exactly", "ts": time.time() - 400 * 86400}
+        new = {"t": "the same words exactly", "ts": time.time()}
+        hits = self._rank("same words exactly", [old, new],
+                          ts_of=lambda d: d.get("ts"))
+        assert hits[0][1] is new
+
+
+class TestMemoryRetrieve:
+    """retrieve(): one question, every layer, one shape."""
+
+    def _mem(self):
+        return Memory(persist=False)
+
+    def test_hits_carry_their_layer(self):
+        mem = self._mem()
+        mem.remember("relay", "the relay listens on port 8412")
+        mem.exchange("where does the relay run?", "on box seven",
+                     session="s1", who="0xabc")
+        mem.observe({"tool": "bash", "params": {"command": "systemctl start relay"}})
+        layers = {h["layer"] for h in mem.retrieve("relay", who="0xabc")}
+        assert layers == {"semantic", "dialogue", "episodic"}
+
+    def test_one_layer_can_be_asked_alone(self):
+        mem = self._mem()
+        mem.remember("relay", "the relay listens on port 8412")
+        mem.exchange("relay?", "yes", session="s1", who="0xabc")
+        hits = mem.retrieve("relay", layers=["semantic"], who="0xabc")
+        assert hits and {h["layer"] for h in hits} == {"semantic"}
+
+    def test_dialogue_stays_scoped_to_its_caller(self):
+        mem = self._mem()
+        mem.exchange("my secret question", "my secret answer",
+                     session="s1", who="0xabc")
+        mine = mem.retrieve("secret", who="0xabc")
+        theirs = mem.retrieve("secret", who="0xdef")
+        assert any("secret answer" in h["text"] for h in mine)
+        assert not theirs
+
+    def test_steps_are_retrievable_not_just_tailable(self):
+        mem = self._mem()
+        for i in range(5):
+            mem.observe({"tool": "read", "params": {"file_path": f"/tmp/f{i}.py"}})
+        mem.observe({"tool": "bash", "params": {"command": "pytest -q tests/"}})
+        hits = mem.recall_episodes("pytest")
+        assert hits and hits[0]["tool"] == "bash"
+
+    def test_layers_are_ranked_against_each_other(self):
+        # scoring each layer alone makes the numbers incomparable: a step that
+        # shares one word with the question would outrank the fact that
+        # answers it, because that word is all its own layer has ever seen
+        mem = self._mem()
+        mem.remember("memory modules",
+                     "an agent is built with default or ephemeral memory")
+        for i in range(20):
+            mem.observe({"tool": "read",
+                         "params": {"file_path": f"/root/.mod/agent/work/{i}"}})
+        top = mem.retrieve("agent memory modules", k=3)[0]
+        assert top["layer"] == "semantic"
+
+    def test_a_query_word_nothing_has_seen_does_not_sink_the_rest(self):
+        # "run" when the fact says "runs": the store can only be searched on
+        # what is in it, so an unfindable word is not evidence of a weak match
+        mem = self._mem()
+        mem.remember("test command", "the suite runs with pytest")
+        assert mem.retrieve("how do I run the pytest suite")
+
+    def test_working_memory_is_opt_in(self):
+        # it is the prompt being written right now — retrieving it would hand
+        # the model back what it is already reading
+        mem = self._mem()
+        mem.add("goal", "fix the flaky relay test")
+        assert not mem.retrieve("relay")
+        assert mem.retrieve("relay", layers=["working"])
+
+    def test_compile_still_renders_a_prompt_block(self):
+        mem = self._mem()
+        mem.remember("style", "tabs not spaces")
+        assert "RECALLED FACTS" in mem.compile("what style?")
+
+    def test_a_fact_another_process_stored_is_retrievable(self, tmpdir):
+        # the API, the :50119 service and the CLI all write the same file — a
+        # store cached for the life of a process answers from a startup snapshot
+        served = Memory(dir=tmpdir)
+        assert served.recall("quokkas") == []          # warms the cache
+        cli = Memory(dir=tmpdir)
+        cli.remember("probe", "the probe fact mentions quokkas")
+        assert [f["id"] for f in served.recall("quokkas")] == ["probe"]
+
+    def test_a_local_fact_survives_someone_elses_write(self, tmpdir):
+        a, b = Memory(dir=tmpdir), Memory(dir=tmpdir)
+        a.remember("mine", "written by a")
+        b.remember("theirs", "written by b")
+        assert {f["id"] for f in a.facts()} == {"mine", "theirs"}
+
+
+class TestMemoryRegistry:
+    """Memory is a component: pluggable, with a default."""
+
+    def _reg(self):
+        return Memories()
+
+    def test_default_is_listed_first(self):
+        assert self._reg().ls()[0] == "default"
+
+    def test_every_module_speaks_the_same_interface(self):
+        reg = self._reg()
+        for name in reg.ls():
+            mem = reg.make(name, fresh=True, persist=False)
+            assert mem.retrieve("x") == [] or isinstance(mem.retrieve("x"), list)
+            assert reg.name_of(mem) == name
+
+    def test_ephemeral_never_persists(self):
+        eph = self._reg().make("ephemeral", fresh=True)
+        assert eph.persist is False
+        assert eph.episodic.path is None and eph.semantic.path is None
+        assert eph.save("/tmp/agent_ephemeral_should_not_exist.json") is False
+        assert not os.path.exists("/tmp/agent_ephemeral_should_not_exist.json")
+
+    def test_an_instance_is_shared_so_it_can_remember(self):
+        reg = self._reg()
+        assert reg.make("default") is reg.make("default")
+
+    def test_an_unknown_module_is_an_error_not_a_silent_default(self):
+        with pytest.raises(KeyError):
+            self._reg().make("nope")
+
+    def test_a_dotted_name_falls_back_rather_than_failing_a_run(self):
+        # an agent built against a module that moved loses its memory, not its
+        # ability to answer
+        mem = self._reg().make("not.a.real.module")
+        assert hasattr(mem, "retrieve")
+
+    def test_registry_self_test(self):
+        assert self._reg().test()["passed"]
+
+
+class TestSubComponentTools:
+    """The tools that reach back into the agent box: recall, remember, toolbox."""
+
+    def _agent(self):
+        from src.mod import Agent
+        agent = Agent.__new__(Agent)
+        agent.agents = Agents()
+        agent.memories = Memories()
+        agent.memory = agent.memories.make("ephemeral", fresh=True)
+        agent.tools = Tools(path=TOOLS_PATH)
+        agent.toolboxes = Toolboxes(tools=agent.tools)
+        agent.tools.bind(agent)
+        agent._snapped = []
+        agent._tool_names = None
+        return agent
+
+    def test_the_three_tools_ship(self):
+        for name in ("recall", "remember", "toolbox"):
+            assert name in Builtins().ls()
+
+    def test_remember_then_recall_round_trip(self):
+        agent = self._agent()
+        agent.tools.run("remember", fact="deploy",
+                        content="deploys run through scripts/ship.sh")
+        hits = agent.tools.run("recall", query="how do we deploy")["hits"]
+        assert any("ship.sh" in h["text"] for h in hits)
+
+    def test_recall_reaches_the_live_memory_not_a_new_one(self):
+        agent = self._agent()
+        agent.memory.remember("port", "the api listens on 50117")
+        assert agent.tools.run("recall", query="which port")["total"] == 1
+
+    def test_an_unbound_tool_says_so_rather_than_inventing_memory(self):
+        from src.tools.builtin.mod import Builtins as B
+        tool = B().get("recall")           # no agent bound
+        assert tool.forward(query="anything")["success"] is False
+
+    def test_toolbox_lists_the_bundles(self):
+        agent = self._agent()
+        out = agent.tools.run("toolbox")
+        assert out["success"] and any(b["name"] == "vcs" for b in out["toolboxes"])
+
+    def test_toolbox_grows_the_run_schema(self):
+        agent = self._agent()
+        agent.memory.add("tools", agent.tool_schema(["read"]))
+        out = agent.tools.run("toolbox", box="vcs")
+        assert out["success"] and "git" in out["added"]
+        assert "git" in agent.memory.get("tools") and "read" in agent.memory.get("tools")
+
+    def test_toolbox_leaves_the_module_loadout_alone(self):
+        # widening one run must not widen every later one
+        agent = self._agent()
+        agent.tools.run("toolbox", box="vcs")
+        assert agent._tool_names is None
+
+    def test_a_sandboxed_run_cannot_pull_the_fleet_in(self):
+        agent = self._agent()
+        agent._allowed_paths = ["/tmp/portal"]
+        agent.toolboxes._custom["fleety"] = {"tools": ["read", "mod.git"],
+                                             "description": "with a module in it"}
+        out = agent.tools.run("toolbox", box="fleety")
+        assert out["blocked"] == ["mod.git"]
+        assert "mod.git" not in (agent.memory.get("tools") or {})
+
+    def test_unknown_box_is_reported_with_the_options(self):
+        out = self._agent().tools.run("toolbox", box="nope")
+        assert out["success"] is False and "vcs" in out["error"]
+
+    def test_parts_shows_the_whole_box(self):
+        from src.mod import Agent
+        agent = Agent()
+        parts = agent.parts()
+        assert set(parts) == {"requires", "model", "memory", "toolbox", "tools", "prompt"}
+        # the box is one node; these are the integrations its template requires
+        assert parts["requires"] == ["prompt", "model", "toolbox", "memory"]
+        assert parts["memory"]["module"] == "default"
+        assert any(o["name"] == "ephemeral" for o in parts["memory"]["options"])
+
+
+# ═══════════════════════════════════════════════════════════════════════
 #  AGENT (unit tests without LLM)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -636,6 +897,7 @@ class TestAgent:
         from src.mod import Agent
         agent = Agent.__new__(Agent)
         agent.agents = Agents()
+        agent.memories = Memories()
         agent.memory = Memory()
         agent.memory.clear()
         agent.model = None
@@ -987,8 +1249,9 @@ class TestAgent:
         agent = self._make_agent()
         agent._images = []
         agent.init_memory(query="q", path="/tmp", tools={})
-        agent.model = type("M", (), {"forward": staticmethod(lambda *a, **k: "the actual answer")})()
-        step = agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True)
+        client = type("M", (), {"forward": staticmethod(lambda *a, **k: "the actual answer")})()
+        step = agent._force_answer(client=client, short="openrouter", model="x",
+                                   max_tokens=10, temperature=0.0, free=True)
         assert step["tool"] == "response"
         assert step["result"] == "the actual answer"
 
@@ -997,8 +1260,9 @@ class TestAgent:
         agent._images = []
         agent.init_memory(query="q", path="/tmp", tools={})
         out = '<PLAN><STEP>{"tool": "finish", "params": {"summary": "final words"}}</STEP></PLAN>'
-        agent.model = type("M", (), {"forward": staticmethod(lambda *a, **k: out)})()
-        step = agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True)
+        client = type("M", (), {"forward": staticmethod(lambda *a, **k: out)})()
+        step = agent._force_answer(client=client, short="openrouter", model="x",
+                                   max_tokens=10, temperature=0.0, free=True)
         assert step["result"] == "final words"
 
     def test_force_answer_model_error_returns_none(self):
@@ -1007,8 +1271,9 @@ class TestAgent:
         agent.init_memory(query="q", path="/tmp", tools={})
         def boom(*a, **k):
             raise RuntimeError("provider down")
-        agent.model = type("M", (), {"forward": staticmethod(boom)})()
-        assert agent._force_answer(model="x", max_tokens=10, temperature=0.0, free=True) is None
+        client = type("M", (), {"forward": staticmethod(boom)})()
+        assert agent._force_answer(client=client, short="openrouter", model="x",
+                                   max_tokens=10, temperature=0.0, free=True) is None
 
     def test_plan_with_finish(self):
         agent = self._make_agent()
@@ -1152,6 +1417,7 @@ class TestMod:
         mod.tools = Tools(path=TOOLS_PATH)
         mod.toolboxes = Toolboxes(tools=mod.tools)
         mod._snapped = []
+        mod.memories = Memories()
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
@@ -1218,6 +1484,51 @@ class TestMod:
         from src.mod import Mod
         assert len(Mod.description) > 0
 
+    def test_run_state_is_per_thread(self):
+        """One Mod serves every run at once. What a run sets for itself —
+        its step sink, its sandbox, its cwd — must not be visible from the
+        thread running someone else's match."""
+        from src.mod import Agent
+        a = Agent.__new__(Agent)        # no __init__: the local is made lazily
+        a._on_step = 'console'
+        a._allowed_paths = ['/console']
+        a._path = '/console'
+        a._images = ['data:1']
+        seen = {}
+
+        def arena_thread():
+            seen['on_step'] = a._on_step
+            seen['paths'] = a._allowed_paths
+            seen['path'] = a._path
+            seen['images'] = a._images
+            a._on_step = 'arena'
+            a._allowed_paths = ['/arena/work']
+
+        t = threading.Thread(target=arena_thread)
+        t.start()
+        t.join()
+        assert seen == {'on_step': None, 'paths': None, 'path': None, 'images': []}
+        assert a._on_step == 'console' and a._allowed_paths == ['/console']
+        a._clear_run_state()
+        assert a._on_step is None and a._allowed_paths is None and a._images == []
+
+    def test_a_429_is_explained_in_plain_words(self):
+        from src.mod import Agent
+        a = Agent.__new__(Agent)
+        raw = ("Error code: 429 - {'error': {'message': 'Rate limit exceeded: "
+               "free-models-per-day-high-balance. ', 'code': 429, 'metadata': "
+               "{'headers': {'X-RateLimit-Limit': '1000', 'X-RateLimit-Remaining': '0', "
+               "'X-RateLimit-Reset': '1788220800000'}, 'limit_source': "
+               "'openrouter_free_tier_daily'}}}")
+        out = a._explain_rate_limit('openrouter', 'nvidia/nemotron-3-ultra-550b-a55b:free', raw)
+        assert out.startswith('rate limited: openrouter')
+        assert 'free-model quota' in out and 'resets 2026-09-01T00:00:00Z' in out
+        assert 'Spend credits' in out
+        # a paid model's 429 is a different sentence, and anything else passes through
+        assert "rate limited by venice on claude-opus-5" in \
+            a._explain_rate_limit('venice', 'claude-opus-5', 'Error code: 429 - slow down')
+        assert a._explain_rate_limit('venice', 'x', 'No API key found') == 'No API key found'
+
 
 class TestCustomToolsOnAgent:
     """To the agent loop a custom tool is just another built-in."""
@@ -1280,6 +1591,7 @@ class TestGate:
         mod.tools = Tools(path=TOOLS_PATH)
         mod.toolboxes = Toolboxes(tools=mod.tools)
         mod._snapped = []
+        mod.memories = Memories()
         mod.memory = Memory()
         mod.memory.clear()
         mod.model = None
@@ -1407,10 +1719,14 @@ class TestGate:
     # ── _run: prompt override + memory note injection ────────────────
 
     def _capture_run(self, mod):
-        """Stub mod.run to record the active goal and forwarded kwargs."""
+        """Stub mod.run to record the run's goal and forwarded kwargs.
+
+        The goal reaches the loop as a run argument, not by assignment on the
+        module: one Mod serves every caller, so a persona swapped onto the
+        object would outlive the run that asked for it."""
         captured = {}
         def fake_run(**kw):
-            captured['goal'] = mod.goal
+            captured['goal'] = kw.get('goal') or mod.goal
             captured['kwargs'] = kw
             return []
         mod.run = fake_run
@@ -1422,7 +1738,7 @@ class TestGate:
         captured = self._capture_run(mod)
         mod._run(query="hi", prompt="You are a haiku bot.")
         assert captured['goal'] == "You are a haiku bot."
-        # goal restored after the run
+        # …and the module's own prompt was never touched
         assert mod.goal == Agent.goal
 
     def test_run_prompt_beats_agent_goal(self):
@@ -1481,9 +1797,11 @@ class TestImageAttachments:
         a = self._agent()
         a.model = object()
         a._provider = 'venice'
+        # a run resolves its own client per provider (Agent._client)
+        a._clients, a._client_why = {'venice': object()}, {}
         a._images = ['stale']
         a.tool_schema = lambda *_a, **_k: {}
-        a.memory = type('M', (), {'compile': lambda self, q: None})()
+        a.memory = type('M', (), {'compile': lambda self, q, **kw: None})()
         # the loop never starts: init_memory bails, so this exercises exactly
         # the normalization + the note the model is told about
         captured = {}
@@ -2180,7 +2498,9 @@ class TestVaultRemember:
 
 class TestToolboxes:
     @pytest.fixture
-    def boxes(self, builtin, tmpdir):
+    def boxes(self, tools, tmpdir):
+        # the `tools` fixture, not the module-level fixture *function* — a box
+        # validates its members against a live registry
         from src.toolbox.mod import Toolboxes
         return Toolboxes(tools=tools, path=os.path.join(tmpdir, "toolboxes.json"))
 
@@ -2344,6 +2664,93 @@ class TestAgentSelect:
             agent.tools.rm("t_sel")
 
 
+class TestDefaultAgentPick:
+    """The agent an unnamed run lands on — and the caller's own pick of it.
+
+    The pick is per-address private state, so these tests point the module at
+    a prefs file in tmpdir; the real one lives in ~/.mod/agent/prefs.json.
+    """
+
+    def _mod(self, tmpdir, address="0xcafe", owner=False):
+        from src.mod import Mod
+        mod = Mod()
+        mod._prefs_path = Path(tmpdir) / "prefs.json"
+        # a token stands in for a signed-in caller; None is anonymous
+        mod._resolve_address = lambda key=None, verified=False: address if key else None
+        mod.is_owner = lambda key=None: owner
+        return mod
+
+    def test_no_pick_falls_back_to_the_module(self, tmpdir):
+        mod = self._mod(tmpdir)
+        # not the owner, so the harness default is out and the native loop wins
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT
+        assert mod.agent_pref("tok") is None
+        assert mod.default_agent_info("tok")["source"] == "host"
+
+    def test_pick_wins_and_is_remembered(self, tmpdir):
+        mod = self._mod(tmpdir)
+        r = mod.set_default_agent("architect", key="tok")
+        assert r["pick"] == "architect" and r["source"] == "you"
+        assert mod.default_agent("tok") == "architect"
+        assert json.loads(mod._prefs_path.read_text())["default_agent"] == {"0xcafe": "architect"}
+
+    def test_pick_is_per_address(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_default_agent("architect", key="tok")
+        other = self._mod(tmpdir, address="0xbeef")
+        assert other.default_agent("tok") == other.FALLBACK_AGENT   # not yours
+
+    def test_anonymous_cannot_pick(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(PermissionError):
+            mod.set_default_agent("architect")
+
+    def test_anonymous_is_nobody_not_the_server(self, tmpdir):
+        """key=None must not fall back to the server's own key: one shared
+        bucket is one anonymous visitor overwriting every other one."""
+        from src.mod import Mod
+        mod = Mod()
+        mod._prefs_path = Path(tmpdir) / "prefs.json"
+        # a real resolver: keyless calls answer with the SERVER's address
+        mod._resolve_address = lambda key=None, verified=False: key or "0xserver"
+        mod.is_owner = lambda key=None: False
+        with pytest.raises(PermissionError):
+            mod.set_default_agent("architect")
+        assert mod.agent_pref() is None
+        assert not mod._prefs_path.exists()
+
+    def test_unknown_agent_rejected(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(ValueError):
+            mod.set_default_agent("no-such-agent", key="tok")
+
+    def test_harness_agent_needs_the_host(self, tmpdir):
+        mod = self._mod(tmpdir)
+        with pytest.raises(PermissionError):
+            mod.set_default_agent("claude-code", key="tok")   # guest can't run it
+
+    def test_clearing_hands_the_choice_back(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod.set_default_agent("architect", key="tok")
+        r = mod.set_default_agent(None, key="tok")
+        assert r["pick"] is None and r["source"] == "host"
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT
+
+    def test_a_pick_that_cannot_run_falls_through(self, tmpdir):
+        """A harness pick made as the host stops resolving when it can't run."""
+        mod = self._mod(tmpdir)
+        mod._prefs_path.write_text(json.dumps({"default_agent": {"0xcafe": "claude-code"}}))
+        assert mod.agent_pref("tok") == "claude-code"          # still on record
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT  # but never served
+        assert mod.default_agent_info("tok")["source"] == "host"
+
+    def test_corrupt_prefs_file_is_not_fatal(self, tmpdir):
+        mod = self._mod(tmpdir)
+        mod._prefs_path.write_text("{not json")
+        assert mod.agent_pref("tok") is None
+        assert mod.default_agent("tok") == mod.FALLBACK_AGENT
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  MEMORY SUBSYSTEM (working / episodic / semantic layers)
 # ═══════════════════════════════════════════════════════════════════════
@@ -2431,6 +2838,98 @@ class TestMemorySubsystem:
         agent.memory = Memory(dir=tmpdir)
         agent._emit_step({"tool": "bash", "params": {"command": "ls"}, "result": "ok"})
         assert agent.memory.episodes(1)[0]["tool"] == "bash"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  DIALOGUE LAYER (what the user and the agent said to each other)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestDialogueMemory:
+    """The memory module is where a conversation is stored and read back.
+
+    Each console run is its own conversation, so continuity between them is
+    this layer or nothing — and the scoping is the whole safety story: two
+    visitors on one host must never be reminded of each other's chats.
+    """
+
+    @pytest.fixture
+    def mem(self, tmpdir):
+        return Memory(dir=tmpdir)
+
+    def test_an_exchange_is_recorded_and_read_back(self, mem):
+        mem.exchange("what port?", "8412", session="s1", who="0xabc", agent="default")
+        turn = mem.exchanges(5, who="0xabc")[-1]
+        assert turn["query"] == "what port?" and turn["answer"] == "8412"
+        assert turn["agent"] == "default"
+
+    def test_it_survives_a_restart(self, mem, tmpdir):
+        mem.exchange("what port?", "8412", session="s1", who="0xabc")
+        assert Memory(dir=tmpdir).exchanges(5, who="0xabc")[-1]["answer"] == "8412"
+
+    def test_long_turns_are_clipped(self, mem):
+        mem.exchange("q" * 9000, "a" * 9000, session="s1")
+        turn = mem.exchanges(1, session="s1")[-1]
+        assert len(turn["query"]) <= Memory.MAX_TURN
+        assert len(turn["answer"]) <= Memory.MAX_TURN
+
+    def test_a_signed_in_caller_is_remembered_across_conversations(self, mem):
+        mem.exchange("my port is 8412", "noted", session="chat-1", who="0xabc")
+        block = mem.compile("what was my port?", session="chat-2", who="0xabc")
+        assert "8412" in block
+
+    def test_one_visitor_never_reads_another(self, mem):
+        mem.exchange("my secret is hunter2", "noted", session="s1", who="0xabc")
+        assert "hunter2" not in mem.compile("secret?", session="s2", who="0xdef")
+        # anonymous: their own session only, and nothing a signed-in caller said
+        assert "hunter2" not in mem.compile("secret?", session="s1")
+
+    def test_an_anonymous_session_still_has_continuity(self, mem):
+        mem.exchange("my port is 8412", "noted", session="s1")
+        assert "8412" in mem.compile("what port?", session="s1")
+
+    def test_older_turns_come_back_by_keyword(self, mem):
+        mem.exchange("the relay listens on 8412", "noted", session="s1", who="0xabc")
+        for i in range(5):
+            mem.exchange(f"unrelated question {i}", f"unrelated answer {i}",
+                         session="s1", who="0xabc")
+        block = mem.compile("remind me about the relay", session="s1", who="0xabc")
+        assert "RELATED PAST TURNS" in block and "8412" in block
+
+    def test_nothing_said_compiles_to_nothing(self, mem):
+        assert mem.compile("anything?", session="s-empty") == ""
+
+    def test_forward_speaks_the_layer(self, mem):
+        mem.forward("exchange", query="q", answer="a", session="s1", who="0xabc")
+        assert mem.forward("exchanges", n=5, who="0xabc")[-1]["answer"] == "a"
+        assert mem.forward("status")["exchanges"] >= 1
+
+
+class TestRunRemembersTheConversation:
+    """The run loop's half of it: a session makes a run a remembered turn."""
+
+    def test_a_finished_run_leaves_one_exchange(self, tmpdir):
+        from src.mod import Mod
+        mod = Mod()
+        mod.memory = Memory(dir=tmpdir)
+        history = [[{"tool": "read", "params": {}},
+                    {"tool": "finish", "params": {"summary": "the port is 8412"}}]]
+        mod._remember_exchange("what port?", history, session="s1", who="0xabc")
+        assert mod.memory.exchanges(1, who="0xabc")[-1]["answer"] == "the port is 8412"
+
+    def test_the_answer_is_the_last_thing_the_user_read(self, tmpdir):
+        from src.mod import Mod
+        assert Mod._answer_text([[{"tool": "finish", "params": {"summary": "first"}}],
+                                 [{"tool": "response", "result": "last"}]]) == "last"
+        # a blank finish is not an answer — the run has to have said something
+        assert Mod._answer_text([[{"tool": "finish", "params": {"summary": "  "}}]]) == ""
+
+    def test_a_run_that_never_answered_is_not_a_turn(self, tmpdir):
+        from src.mod import Mod
+        mod = Mod()
+        mod.memory = Memory(dir=tmpdir)
+        mod._remember_exchange("q", [[{"tool": "error", "params": {}, "error": "boom"}]],
+                               session="s1", who="0xabc")
+        assert mod.memory.exchanges(5, who="0xabc") == []
 
 
 class TestToolboxMemoryApi:
@@ -2595,6 +3094,28 @@ class TestCredits:
         assert out["charged"] == 0.05 and out["balance"] == 0.0
         # a drained account is never negative and further charges are free no-ops
         assert credits.charge_steps(self.ADDR, 10)["charged"] == 0.0
+
+    def test_owner_deduct_clamps_at_zero(self, credits):
+        # the owner's other button: take credit back. It can only take what
+        # is there, and the books record what MOVED, not what was typed —
+        # a -100 off a $5 account used to knock $100 off the treasury.
+        credits.credit(self.ADDR, 5, kind="grant")
+        out = credits.credit(self.ADDR, -100, kind="debit")
+        assert out["credited"] == -5.0 and out["requested"] == -100.0
+        assert credits.balance(self.ADDR) == 0.0
+        book = credits.treasury()
+        assert book["grants"] == 0.0
+        assert credits.info(self.ADDR)["account"]["history"][0]["amount"] == -5.0
+
+    def test_owner_tops_up_any_address(self, credits):
+        other = "0x" + "c" * 40
+        credits.credit(self.ADDR, 7, kind="grant")
+        credits.credit(other, 3, kind="grant")
+        accounts = {a["address"]: a["balance"]
+                    for a in credits.info(self.ADDR, owner=True)["accounts"]}
+        assert accounts[self.ADDR.lower()] == 7.0 and accounts[other] == 3.0
+        # grants are free credit, not cash in — they never touch the float
+        assert credits.treasury()["deposits"] == 0.0
 
     def test_addresses_case_insensitive(self, credits):
         credits.credit(self.ADDR.lower(), 1)
@@ -2868,14 +3389,54 @@ class TestTreasury:
         # a model that keeps calling a tool — only the budget can end this run
         agent.model = type('M', (), {'forward': staticmethod(
             lambda *a, **k: '<STEP>{"tool": "think", "params": {"thought": "hm"}}</STEP>')})()
+        # the loop takes its client from the per-provider cache, not .model
+        agent._clients = {Agent.PROVIDERS['openrouter']: agent.model}
+        agent._client_why = {}
         seen = []
         def budget(cost):
             seen.append(cost)
             return len(seen) < 3        # affordable for two steps, then not
 
         steps = agent.run(query='burn credits', steps=10, model='x', budget=budget)
-        assert len(seen) == 3           # consulted after every executed step
+        assert len(seen) == 3           # consulted before every step
         assert steps[-1]['tool'] == 'error' and 'top up' in steps[-1]['error']
+
+    def test_an_empty_account_stops_before_it_calls_the_model(self):
+        """Zero credits is not "spent" — and it doesn't get a free call first.
+
+        The gate used to run after the call, so an account that had never
+        deposited burned a full model call on the module's key and was then
+        told its balance was spent. Nothing was; there was nothing to spend.
+        """
+        from src.mod import Agent
+        from src.billing import Meter
+        from src.memory.mod import Memory
+        from src.tools.mod import Tools
+        from src.toolbox.mod import Toolboxes
+        from src.agents.mod import Agents
+
+        agent = Agent.__new__(Agent)
+        agent.agents, agent.memory = Agents(), Memory()
+        agent.memory.clear()
+        agent.tools = Tools()
+        agent.toolboxes = Toolboxes(tools=agent.tools)
+        agent._tool_names, agent._snapped, agent._session_keys = None, [], {}
+        agent.goal, agent.output_format = Agent.goal, Agent.output_format
+        agent.anchors = Agent.anchors
+        agent._provider = Agent.PROVIDERS['openrouter']
+        agent.meter = Meter()
+        calls = []
+        agent.model = type('M', (), {'forward': staticmethod(
+            lambda *a, **k: calls.append(1) or '<STEP>{"tool": "think", "params": {}}</STEP>')})()
+        agent._clients = {Agent.PROVIDERS['openrouter']: agent.model}
+        agent._client_why = {}
+
+        steps = agent.run(query='hey', steps=10, model='x',
+                          budget=lambda cost: False)   # balance 0: 0 * fee < 0 is False
+        assert calls == []                              # the module paid for nothing
+        assert steps[-1]['tool'] == 'error'
+        assert 'no account credits' in steps[-1]['error']
+        assert 'spent' not in steps[-1]['error']
 
     def test_books_persist(self, credits, tmpdir):
         from src.credits import Credits
@@ -2885,6 +3446,97 @@ class TestTreasury:
         book = Credits(str(tmpdir), deposit_address=self.OWNER).treasury()
         assert book["deposits"] == 10.0 and book["fees"] == 0.05
         assert book["topups"]["venice"] == 2.0
+
+
+class TestTopupVerification:
+    """A top-up is read back off the provider key, not typed from memory.
+
+    Neither provider sells credits over an API, so the purchase happens on
+    their page; what the module can do is see it land and book exactly that.
+    """
+
+    ADDR = "0xAbC0000000000000000000000000000000000aBc"
+    OWNER = "0x7d7c323496eD80E16d47b036607c586fB33dd123"
+
+    @pytest.fixture
+    def credits(self, tmpdir):
+        from src.credits import Credits
+        return Credits(str(tmpdir), deposit_address=self.OWNER)
+
+    def test_first_sight_of_a_key_books_nothing(self, credits):
+        """Credits bought before we ever looked aren't ours to claim."""
+        out = credits.verify_topup("openrouter", {"purchased": 477.0, "balance": -0.15})
+        assert out["booked"] == 0.0 and out["mark"] == 477.0
+        assert credits.treasury()["topups"].get("openrouter", 0) == 0
+
+    def test_a_purchase_on_the_key_is_booked_exactly(self, credits):
+        credits.verify_topup("openrouter", {"purchased": 477.0})
+        out = credits.verify_topup("openrouter", {"purchased": 527.0, "balance": 49.85})
+        assert out["booked"] == 50.0 and out["pending"] == 0.0
+        book = credits.treasury()
+        assert book["topups"]["openrouter"] == 50.0
+        entry = book["ledger"][0]
+        assert entry["verified"] and entry["amount"] == 50.0
+        assert "477.0 \u2192 527.0" in entry["ref"]
+
+    def test_the_same_purchase_is_never_booked_twice(self, credits):
+        credits.verify_topup("openrouter", {"purchased": 477.0})
+        credits.verify_topup("openrouter", {"purchased": 527.0})
+        again = credits.verify_topup("openrouter", {"purchased": 527.0})
+        assert again["booked"] == 0.0 and "nothing new" in again["reason"]
+        assert credits.treasury()["topups"]["openrouter"] == 50.0
+
+    def test_usage_alone_is_not_a_top_up(self, credits):
+        """OpenRouter's meter counts credits bought, so spending can't move it."""
+        credits.verify_topup("openrouter", {"purchased": 477.0, "balance": 20.0})
+        out = credits.verify_topup("openrouter", {"purchased": 477.0, "balance": 3.0})
+        assert out["booked"] == 0.0
+
+    def test_treasury_surfaces_a_purchase_waiting_to_be_booked(self, credits):
+        credits.treasury({"openrouter": {"purchased": 477.0, "balance": 0.0}})
+        book = credits.treasury({"openrouter": {"purchased": 502.0, "balance": 25.0}})
+        assert book["topup_pending"] == 25.0
+        top = book["providers"]["openrouter"]["topup"]
+        assert top["pending"] == 25.0 and top["exact"] is True
+        assert top["url"] == "https://openrouter.ai/settings/credits"
+
+    def test_venice_mark_follows_the_balance_down(self, credits):
+        """Venice reports only what is left, so the mark trails spending —
+        otherwise a top-up after a spend would be booked short."""
+        credits.treasury({"venice": {"balance": 10.0}})
+        credits.treasury({"venice": {"balance": 4.0}})       # spent 6
+        out = credits.verify_topup("venice", {"balance": 24.0})
+        assert out["booked"] == 20.0 and out["exact"] is False
+
+    def test_a_hand_logged_topup_is_not_booked_again_on_verify(self, credits):
+        credits.treasury({"openrouter": {"purchased": 100.0, "balance": 0.0}})
+        credits.record_topup("openrouter", 25, ref="receipt-1")
+        out = credits.verify_topup("openrouter", {"purchased": 125.0, "balance": 25.0})
+        assert out["booked"] == 0.0
+        assert credits.treasury()["topups"]["openrouter"] == 25.0
+
+    def test_an_unreadable_key_books_nothing_and_says_why(self, credits):
+        out = credits.verify_topup("openrouter", {"error": "no API key configured"})
+        assert out["booked"] == 0.0 and out["reason"] == "no API key configured"
+
+    def test_the_module_reads_the_purchase_off_its_own_key(self, tmpdir):
+        """End to end through the mod: balance() -> meter -> booked top-up."""
+        from src.mod import Mod
+        from src.credits import Credits
+        mod = Mod.__new__(Mod)
+        mod._owner = None                     # no owner set: is_owner passes
+        mod.credits = Credits(str(tmpdir))
+        # the key as it stands: 477 bought, all of it spent
+        mod.balance = lambda provider='openrouter': {'balance': -0.15, 'total_credits': 477.0}
+        assert mod.credit_topup_verify('openrouter')['booked'] == 0.0
+        # ...and after $25 is bought on openrouter.ai
+        mod.balance = lambda provider='openrouter': {'balance': 24.85, 'total_credits': 502.0}
+        out = mod.credit_topup_verify('openrouter')
+        assert out['booked'] == 25.0 and out['balance'] == 24.85
+
+    def test_unknown_provider_is_rejected(self, credits):
+        with pytest.raises(ValueError, match="unknown provider"):
+            credits.verify_topup("anthropic", {"balance": 5.0})
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3102,7 +3754,7 @@ class TestHarnessRegistry:
 
     def test_ls_lists_runners(self, harness):
         names = [h["name"] for h in harness.ls()]
-        assert names == ["claude", "codex", "claudemod", "buildmod"]
+        assert names == ["claude", "codex", "claudemod", "buildmod", "chainmod"]
         for h in harness.ls():
             assert isinstance(h["available"], bool)   # depends on the host
             assert h["install"]
@@ -3111,6 +3763,10 @@ class TestHarnessRegistry:
         # the two job-server harnesses are whole modules, not a local binary
         assert harness.info("claudemod")["module"] == "claude"
         assert harness.info("buildmod")["module"] == "build"
+        # the chain console's runner is a submodule of core/chain, so the
+        # chain module's own Mod (which dials an RPC on init) never loads here
+        assert harness.info("chainmod")["module"] == "chain"
+        assert harness.RUNNERS["chainmod"] == "chain.agent"
 
     def test_get_unknown_raises(self, harness):
         with pytest.raises(KeyError, match="unknown harness"):
@@ -3122,8 +3778,8 @@ class TestHarnessRegistry:
 
     def test_forward_lists(self, harness):
         r = harness.forward()
-        assert len(r["harnesses"]) == 4
-        assert set(r["available"]) <= {"claude", "codex", "claudemod", "buildmod"}
+        assert len(r["harnesses"]) == 5
+        assert set(r["available"]) <= {"claude", "codex", "claudemod", "buildmod", "chainmod"}
 
     def test_claude_command(self, harness):
         cmd = harness.get("claude").command("fix it", goal="be nice", model="opus")
@@ -3315,6 +3971,10 @@ class TestHarnessGate:
         mod = Mod.__new__(Mod)
         mod.agents = Agents()
         mod.harness = Harness()
+        # a native run swaps in the agent's own memory module and back out,
+        # so even this thin stub carries the memory component
+        mod.memories = Memories()
+        mod.memory = Memory()
         mod.is_owner = lambda key=None: is_owner
         mod.allowed_paths_for = lambda key=None: None
         mod.library = None
@@ -3329,15 +3989,24 @@ class TestHarnessGate:
 
     def test_guest_is_refused(self):
         mod = self._mod(False)
-        with pytest.raises(PermissionError, match="owner only"):
+        with pytest.raises(PermissionError, match="held to this host's owner"):
             mod._run(agent_type="claude-code", query="hi", key="0xguest")
+
+    def test_refusal_names_the_agent_that_was_picked(self):
+        """Not the harness behind it — the console reads this back to the
+        visitor as "X runs on the host's own machine", and X has to be the
+        thing they clicked. 'buildmod' is a name they never chose."""
+        mod = self._mod(False)
+        with pytest.raises(PermissionError) as e:
+            mod._run(agent_type="claude-code", query="hi", key="0xguest")
+        assert "'claude-code' hands the run to the claude CLI" in str(e.value)
 
     def test_owner_reaches_the_runner(self, monkeypatch):
         mod = self._mod(True)
         seen = {}
         def fake_run(name, query, path=None, goal=None, model=None,
-                     timeout=None, on_step=None):
-            seen.update(name=name, query=query, path=path, goal=goal)
+                     timeout=None, on_step=None, key=None, **extra):
+            seen.update(name=name, query=query, path=path, goal=goal, key=key, extra=extra)
             return [{"tool": "finish", "params": {"summary": "ok"}}]
         monkeypatch.setattr(mod.harness, "run", fake_run)
         out = mod._run(agent_type="claude-code", query="hi", key="0xowner",
@@ -3345,6 +4014,188 @@ class TestHarnessGate:
         assert out[0]["params"]["summary"] == "ok"
         assert seen["name"] == "claude" and seen["path"] == "/tmp"
         assert "orbit/agent console" in seen["goal"]
+        # the caller's identity reaches the runner; no knobs when none were given
+        assert seen["key"] == "0xowner" and seen["extra"] == {}
+
+    def test_harness_args_reach_the_runner(self, monkeypatch):
+        """The chain console names a project; the runner is what opens it."""
+        mod = self._mod(True)
+        seen = {}
+        def fake_run(name, query, path=None, goal=None, model=None,
+                     timeout=None, on_step=None, key=None, **extra):
+            seen.update(name=name, extra=extra, goal=goal)
+            return [{"tool": "finish", "params": {"summary": "ok"}}]
+        monkeypatch.setattr(mod.harness, "run", fake_run)
+        mod._run(agent_type="chain-mod", query="add a test", key="0xowner",
+                 harness_args={"project": "token", "address": "0xabc", "network": "testnet",
+                               # the run's own fields can't be smuggled in as knobs
+                               "query": "rm -rf", "on_step": None, "key": "0xother"})
+        assert seen["name"] == "chainmod"
+        assert seen["extra"] == {"project": "token", "address": "0xabc", "network": "testnet"}
+        assert "chain console" in seen["goal"]
+
+
+class TestHarnessAuthSync:
+    """A harness is also unlocked by the console module behind it: the claude
+    module's owner may run Claude Code here, the codex module's owner Codex —
+    one shared identity (m.mod('auth')), no second ACL. HARNESS_AUTH names the
+    console that vouches for each harness; _harness_trusted asks its is_owner
+    for the address recovered from the caller's verified token."""
+
+    def _mod(self, addr="0xconsoleowner"):
+        from src.mod import Mod
+        mod = Mod.__new__(Mod)
+        mod.is_owner = lambda key=None: False
+        mod._resolve_address = lambda key=None, verified=False: addr
+        return mod
+
+    def _patch_peer(self, monkeypatch, vouches: dict):
+        """m.mod(name)() answers is_owner from the vouches table."""
+        import src.mod as agent_mod
+
+        class Peer:
+            def __init__(self, name): self.name = name
+            def is_owner(self, addr): return vouches.get(self.name, False)
+
+        class FakeM:
+            @staticmethod
+            def mod(name): return lambda: Peer(name)
+        monkeypatch.setattr(agent_mod, "m", FakeM)
+
+    def test_console_owner_is_vouched_for(self, monkeypatch):
+        mod = self._mod()
+        self._patch_peer(monkeypatch, {"codex": True, "claude": False})
+        assert mod._harness_trusted("codex", key="tok") is True
+        assert mod._harness_trusted("claude", key="tok") is False
+        # and the verdict feeds _runnable_agent / the picker
+        assert mod.HARNESS_AUTH["codex"] == "codex"
+        assert mod.HARNESS_AUTH["claudemod"] == "claude"
+
+    def test_anonymous_and_unverified_stay_refused(self, monkeypatch):
+        self._patch_peer(monkeypatch, {"codex": True})
+        mod = self._mod()
+        assert mod._harness_trusted("codex", key=None) is False       # no token
+        mod2 = self._mod(addr="")                                     # token didn't verify
+        assert mod2._harness_trusted("codex", key="tok") is False
+
+    def test_a_console_that_wont_load_vouches_for_nobody(self, monkeypatch):
+        import src.mod as agent_mod
+
+        class FakeM:
+            @staticmethod
+            def mod(name): raise RuntimeError("module gone")
+        monkeypatch.setattr(agent_mod, "m", FakeM)
+        mod = self._mod()
+        assert mod._harness_trusted("codex", key="tok") is False
+
+
+class TestHarnessUsage:
+    """A harness run's own bill reaches the meter, so the arena and the task
+    ledger can say what a CLI run actually burned — otherwise every harness
+    run reads as free."""
+
+    RESULT = {"type": "result", "subtype": "success", "result": "done",
+              "total_cost_usd": 0.0421, "num_turns": 3, "duration_ms": 8000,
+              "usage": {"input_tokens": 12, "cache_creation_input_tokens": 4000,
+                        "cache_read_input_tokens": 30000, "output_tokens": 900}}
+
+    def _claude_session(self):
+        from src.harness.mod import Harness
+        return Harness().get("claude").session()
+
+    def test_claude_result_usage_rides_the_finish_step(self):
+        s = self._claude_session()
+        s.steps({"type": "system", "subtype": "init", "model": "claude-opus-5"})
+        out = s.steps(self.RESULT)
+        u = out[0]["params"]["usage"]
+        # prompt = everything the API processed, cached or not
+        assert u["prompt_tokens"] == 34012 and u["completion_tokens"] == 900
+        assert u["cost"] == 0.0421 and u["turns"] == 3
+        assert u["model"] == "claude-opus-5" and u["provider"] == "claude-code"
+        assert out[0]["params"]["summary"] == "done"
+
+    def test_claude_error_result_still_reports_its_bill(self):
+        s = self._claude_session()
+        out = s.steps(dict(self.RESULT, subtype="error_max_turns", result=""))
+        assert out[0]["tool"] == "error"
+        assert out[0]["params"]["usage"]["completion_tokens"] == 900
+
+    def test_no_usage_means_no_usage_key(self):
+        s = self._claude_session()
+        out = s.steps({"type": "result", "subtype": "success", "result": "ok"})
+        assert out[0]["params"] == {"summary": "ok"}
+
+    def test_meter_harness_lands_the_terminal_steps_bill(self):
+        from src.mod import Mod
+        from src.billing import Meter
+        mod = Mod.__new__(Mod)
+        mod.meter = Meter()
+        mod._meter_harness("claude", [
+            {"tool": "bash", "params": {}},
+            {"tool": "finish", "params": {"summary": "x", "usage": {
+                "prompt_tokens": 100, "completion_tokens": 10, "cost": 0.05,
+                "turns": 2, "model": "claude-opus-5", "provider": "claude-code"}}},
+        ])
+        u = mod.meter.take()
+        assert u["prompt_tokens"] == 100 and u["completion_tokens"] == 10
+        assert u["cost"] == 0.05 and u["priced"] and u["calls"] == 2
+        assert u["model"] == "claude-opus-5" and u["provider"] == "claude-code"
+
+    def test_a_run_with_no_reported_usage_meters_nothing(self):
+        from src.mod import Mod
+        from src.billing import Meter
+        mod = Mod.__new__(Mod)
+        mod.meter = Meter()
+        mod._meter_harness("claude", [{"tool": "finish", "params": {"summary": "x"}}])
+        assert mod.meter.take()["calls"] == 0
+
+
+class TestArenaHarnessPass:
+    """The board may play a harness agent — but only holding the in-process
+    pass, and only once the host opted in with the arena `harnesses` knob."""
+
+    def _mod(self, opted_in):
+        from src.mod import Mod
+        from src.harness.mod import Harness
+        mod = Mod.__new__(Mod)
+        mod.agents = Agents()
+        mod.harness = Harness()
+        mod.memories = Memories()
+        mod.memory = Memory()
+        mod.is_owner = lambda key=None: False   # the board is never the owner
+        mod.allowed_paths_for = lambda key=None: None
+        mod.library = None
+        mod._arena_pass = object()
+        mod.arena = type("A", (), {"config": lambda self: {"harnesses": opted_in}})()
+        return mod
+
+    def test_the_pass_opens_the_gate_once_opted_in(self, monkeypatch):
+        mod = self._mod(True)
+        monkeypatch.setattr(mod.harness, "run",
+                            lambda *a, **k: [{"tool": "finish", "params": {"summary": "ok"}}])
+        out = mod._run(agent_type="claude-code", query="hi", path="/tmp",
+                       key=mod._arena_pass)
+        assert out[0]["params"]["summary"] == "ok"
+
+    def test_the_pass_is_refused_while_opted_out(self):
+        mod = self._mod(False)
+        with pytest.raises(PermissionError, match="harnesses=true"):
+            mod._run(agent_type="claude-code", query="hi", path="/tmp",
+                     key=mod._arena_pass)
+
+    def test_arena_match_cannot_be_forged_through_kwargs(self):
+        """arena_match is computed from the pass, never read as a caller knob."""
+        mod = self._mod(True)
+        with pytest.raises(PermissionError, match="held to this host's owner"):
+            mod._run(agent_type="claude-code", query="hi", key="0xguest",
+                     arena_match=True)
+
+    def test_a_missing_pass_never_makes_a_keyless_run_a_match(self):
+        """__new__-built mods carry no pass; keyless must still be a guest."""
+        mod = self._mod(True)
+        del mod._arena_pass
+        with pytest.raises(PermissionError, match="held to this host's owner"):
+            mod._run(agent_type="claude-code", query="hi", key=None)
 
 
 class TestDefaultAgent:
@@ -3485,5 +4336,796 @@ class TestBrowserBridge:
         assert self._bridge().deliver("gone", text="x")["delivered"] is False
 
 
+# ═══════════════════════════════════════════════════════════════════════
+#  THE PROMPT, AND THE CALLS THAT COME BACK
+# ═══════════════════════════════════════════════════════════════════════
+
+SCHEMAS = {
+    'bash': {'description': 'Run shell commands and return output',
+             'params': {'command': {'type': 'str', 'required': True},
+                        'cwd': {'type': 'str', 'required': False}}},
+    'read': {'description': 'Read file contents. Slices by line.',
+             'params': {'file_path': {'type': "<class 'str'>", 'required': True},
+                        'offset': {'type': 'int', 'required': False}}},
+    'write': {'description': 'Write content to file_path',
+              'params': {'file_path': {'type': 'str', 'required': True},
+                         'content': {'type': 'str', 'required': True}}},
+    'think': {'description': 'Think it through',
+              'params': {'thought': {'type': 'str', 'required': True}}},
+}
+
+
+class TestPromptRender:
+    """Working memory as text a model can read — not a Python dict repr."""
+
+    def _state(self, **kw):
+        from src.mod import Agent
+        state = {'goal': 'be useful', 'output_format': Agent.output_format,
+                 'query': 'fix the bug', 'tools': SCHEMAS, 'path': '/tmp/w',
+                 'steps': 10, 'step': 0}
+        state.update(kw)
+        return state
+
+    def test_sections_not_a_dict_repr(self):
+        from src.prompt import render
+        text = render(self._state())
+        assert "# TASK\nfix the bug" in text
+        assert '# TOOLS' in text and '# YOUR NEXT STEP' in text
+        assert "{'query':" not in text and "<class 'str'>" not in text
+
+    def test_a_tool_reads_as_a_signature(self):
+        from src.prompt import render
+        text = render(self._state())
+        assert 'read(file_path:str, offset?:int)' in text
+        assert 'finish(summary:str)' in text
+
+    def test_history_is_trimmed_oldest_first(self):
+        from src.prompt import render
+        history = [[{'tool': 'bash', 'params': {'command': f'echo {i}'},
+                     'result': 'x' * 4000}] for i in range(30)]
+        text = render(self._state(history=history), compact=True)
+        assert 'earlier step(s) trimmed' in text
+        assert len(text) < 12000                     # not 30 × 4000 chars
+        assert 'echo 29' in text                     # the newest survives whole
+
+    def test_the_loops_note_on_a_step_survives(self):
+        from src.prompt import render
+        history = [[{'tool': 'read', 'params': {}, 'result': 'ok',
+                     'note': 'you already ran this'}]]
+        assert 'you already ran this' in render(self._state(history=history))
+
+    def test_the_last_step_says_so(self):
+        from src.prompt import render
+        assert 'last chance' in render(self._state(step=9, steps=10))
+        assert 'last chance' not in render(self._state(step=0, steps=10))
+
+    def test_compact_carries_a_worked_example(self):
+        from src.prompt import render
+        assert '"command": "ls -la"' in render(self._state(), compact=True)
+        assert '"command": "ls -la"' not in render(self._state())
+
+    def test_answer_mode_drops_the_tools_and_the_format(self):
+        from src.prompt import render
+        text = render(self._state(), answer=True)
+        assert '# TOOLS (' not in text          # no list to call from
+        assert '<STEP>{' not in text            # and no format to call in
+        assert 'WRITE THE ANSWER' in text
+        assert 'fix the bug' in text          # the task is still the task
+
+    def test_unplaced_context_still_reaches_the_model(self):
+        from src.prompt import render
+        assert 'a note the caller attached' in render(
+            self._state(notes='a note the caller attached'))
+        assert 'fork(x)' in render(self._state(**{'fork(x)': 'some files'}))
+
+
+class TestStepParsing:
+    """A tool call written in any harness's dialect is still a tool call."""
+
+    def _parse(self, text):
+        from src.steps import parse
+        return parse(text, schemas=SCHEMAS)
+
+    @pytest.mark.parametrize("text,expected", [
+        ('<STEP>{"tool": "bash", "params": {"command": "ls"}}</STEP>',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('<tool_call>{"name": "bash", "arguments": {"command": "ls"}}</tool_call>',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('sure!\n```json\n{"tool": "bash", "params": {"command": "ls"}}\n```',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('<|tool_call_start|>[bash(command="ls")]<|tool_call_end|>',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('{"function": {"name": "bash", "arguments": "{\\"command\\": \\"ls\\"}"}}',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('{"bash": {"command": "ls"}}',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ("{'tool': 'bash', 'params': {'command': 'ls'}}",
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+        ('TOOL: bash\nPARAMS: {"command": "ls"}',
+         {'tool': 'bash', 'params': {'command': 'ls'}}),
+    ])
+    def test_every_dialect_lands_on_the_same_call(self, text, expected):
+        assert self._parse(text) == [expected]
+
+    def test_another_harnesses_tool_names_are_mapped(self):
+        assert self._parse('{"tool": "read_file", "params": {"path": "/tmp/a"}}') == \
+            [{'tool': 'read', 'params': {'file_path': '/tmp/a'}}]
+        assert self._parse('{"name": "run_command", "arguments": {"cmd": "ls"}}') == \
+            [{'tool': 'bash', 'params': {'command': 'ls'}}]
+
+    def test_a_lone_argument_lands_on_the_required_param(self):
+        assert self._parse('bash("ls -la")') == \
+            [{'tool': 'bash', 'params': {'command': 'ls -la'}}]
+        assert self._parse('{"tool": "think", "params": "hmm"}') == \
+            [{'tool': 'think', 'params': {'thought': 'hmm'}}]
+
+    def test_one_unknown_argument_on_one_empty_slot_is_that_slot(self):
+        assert self._parse('{"tool": "write", "params": {"file_path": "/a", "text": "hi"}}') == \
+            [{'tool': 'write', 'params': {'file_path': '/a', 'content': 'hi'}}]
+
+    def test_prose_is_not_a_tool_call(self):
+        assert self._parse('I looked at the files and they seem fine.') == []
+        assert self._parse('the config is {"debug": true} by default') == []
+
+    def test_a_call_beats_the_json_quoted_beside_it(self):
+        text = ('here is the format: {"tool": "write", "params": {}}\n'
+                '<STEP>{"tool": "bash", "params": {"command": "ls"}}</STEP>')
+        assert self._parse(text) == [{'tool': 'bash', 'params': {'command': 'ls'}}]
+
+    def test_the_call_after_the_thinking_wins(self):
+        text = ('<think>I could read(file_path="a") but the user wants a list'
+                '</think>[bash(command="ls")]')
+        assert self._parse(text) == [{'tool': 'bash', 'params': {'command': 'ls'}}]
+
+    def test_an_unknown_tool_resolves_to_nothing(self):
+        from src.steps import resolve_name
+        assert resolve_name('frobnicate', list(SCHEMAS)) is None
+        assert resolve_name('finish', list(SCHEMAS)) == 'finish'
+
+
+class TestLoopReadsAnyDialect:
+    """The same tolerance, wired into the loop the console runs."""
+
+    def _agent(self):
+        from src.mod import Agent
+        agent = Agent.__new__(Agent)
+        agent.memory = Memory()
+        agent.memory.clear()
+        agent.memory.add('tools', SCHEMAS)
+        agent.tools = Tools(path=TOOLS_PATH)
+        agent.anchors = Agent.anchors
+        agent._on_step = None
+        return agent
+
+    def test_an_anchored_call_in_another_dialect_is_repaired(self):
+        agent = self._agent()
+        step = agent._step_from_json('{"tool": "read_file", "params": {"path": "/tmp/a"}}')
+        assert step == {'tool': 'read', 'params': {'file_path': '/tmp/a'}}
+
+    def test_a_call_with_no_anchors_at_all_still_runs(self, tmpdir):
+        agent = self._agent()
+        target = os.path.join(tmpdir, 'a.txt')
+        Path(target).write_text('hello')
+        plan = agent.plan(f'<tool_call>{{"name": "read", '
+                          f'"arguments": {{"file_path": "{target}"}}}}</tool_call>')
+        assert plan[0]['tool'] == 'read'
+        assert 'hello' in str(plan[0].get('result'))
+
+    def test_prose_is_still_the_answer(self):
+        agent = self._agent()
+        plan = agent.plan('There are three files in that directory.')
+        assert plan[0]['tool'] == 'response'
+        assert plan[0]['result'] == 'There are three files in that directory.'
+
+    def test_the_scratchpad_never_reaches_the_user(self):
+        agent = self._agent()
+        plan = agent.plan('<think>hmm, what do they want</think>Three files.')
+        assert plan[0]['result'] == 'Three files.'
+
+
+class TestCirclingGuard:
+    """A read-only call already made is answered from the trail, not re-run."""
+
+    def _agent(self):
+        from src.mod import Agent
+        agent = Agent.__new__(Agent)
+        agent.memory = Memory()
+        agent.memory.clear()
+        agent.tools = Tools(path=TOOLS_PATH)
+        agent._on_step = None
+        agent._allowed_paths = None
+        agent._failed_calls, agent._done_calls = {}, {}
+        return agent
+
+    def test_the_second_identical_read_comes_from_the_first(self, tmpdir):
+        agent = self._agent()
+        target = os.path.join(tmpdir, 'a.txt')
+        Path(target).write_text('one')
+        first = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        Path(target).write_text('two')          # changed behind the agent's back
+        again = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        assert again[0]['repeat'] and 'already ran' in again[0]['note']
+        assert again[0]['result'] == first[0]['result']
+        assert 'Do NOT call it again' in str(agent.memory.get('hint'))
+
+    def test_a_relative_path_means_the_runs_directory(self, tmpdir):
+        agent = self._agent()
+        agent._path = str(tmpdir)
+        Path(os.path.join(tmpdir, 'a.txt')).write_text('the right file')
+        plan = agent.run_plan([{'tool': 'read', 'params': {'file_path': 'a.txt'}}])
+        assert 'the right file' in str(plan[0]['result'])
+
+    def test_an_omitted_path_means_the_runs_directory_too(self, tmpdir):
+        agent = self._agent()
+        agent._path = str(tmpdir)
+        agent.memory.add('tools', agent.tools.schema(['tree']))
+        Path(os.path.join(tmpdir, 'only-here.txt')).write_text('x')
+        plan = agent.run_plan([{'tool': 'tree', 'params': {}}])
+        assert 'only-here.txt' in str(plan[0]['result'])
+
+    def test_an_absolute_path_is_left_alone(self, tmpdir):
+        agent = self._agent()
+        agent._path = '/nowhere'
+        target = os.path.join(tmpdir, 'b.txt')
+        Path(target).write_text('absolute')
+        plan = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        assert 'absolute' in str(plan[0]['result'])
+
+    def test_a_write_invalidates_what_was_cached(self, tmpdir):
+        agent = self._agent()
+        target = os.path.join(tmpdir, 'a.txt')
+        Path(target).write_text('one')
+        agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        agent.run_plan([{'tool': 'write', 'params': {'file_path': target,
+                                                     'content': 'two'}}])
+        again = agent.run_plan([{'tool': 'read', 'params': {'file_path': target}}])
+        assert not again[0].get('repeat')
+        assert 'two' in str(again[0]['result'])
+
+
+class TestLocalFirstDefault:
+    """Nobody pays for a run they didn't ask to pay for."""
+
+    def _mod(self):
+        from src.mod import Mod
+        return Mod()
+
+    def test_the_default_provider_is_a_local_one(self, monkeypatch):
+        mod = self._mod()
+        monkeypatch.setattr(mod, 'provider_models',
+                            lambda p: ['LiquidAI/LFM2.5-1.2B-Instruct']
+                            if p == 'liquidai' else [])
+        mod._default_provider = None
+        assert mod.default_provider() == 'liquidai'
+        assert mod.is_free_provider(mod.default_provider())
+
+    def test_it_falls_back_when_nothing_local_is_serving(self, monkeypatch):
+        mod = self._mod()
+        monkeypatch.setattr(mod, 'provider_models', lambda p: [])
+        monkeypatch.setattr(mod, 'key_info',
+                            lambda p, **k: {'configured': p == 'venice'})
+        mod._default_provider = None
+        assert mod.default_provider() == 'venice'
+
+    def test_a_personas_prompt_does_not_outlive_its_run(self):
+        """One Mod serves every caller: a swapped-in prompt that stuck was
+        answering later strangers' questions as somebody else's agent."""
+        from src.mod import Agent
+        mod = self._mod()
+        seen = {}
+        mod.run = lambda **kw: seen.update(kw) or []
+        mod._run(query='hi', prompt='You are a haiku bot.')
+        assert seen['goal'] == 'You are a haiku bot.'
+        assert mod.goal == Agent.goal
+        assert 'haiku' not in mod.context()
+
+    def test_a_runs_memory_module_is_its_own(self):
+        mod = self._mod()
+        default = mod.memory
+        ephemeral = mod.memories.make('ephemeral')
+        mod._bind_memory(ephemeral)
+        assert mod.memory is ephemeral
+        mod._unbind_memory()
+        assert mod.memory is default
+
+    def test_two_runs_at_once_do_not_share_a_scratchpad(self):
+        """One Mod serves the whole host. Two runs writing one working memory
+        compiled each other's prompts — the console asking about a file got an
+        arena match's task, tools and history, and answered that instead."""
+        import threading
+        mod = self._mod()
+        prompts, ready = {}, threading.Barrier(2)
+
+        def run(name):
+            mod._bind_memory()
+            try:
+                mod.init_memory(query=f'question from {name}', tools={})
+                ready.wait(timeout=5)          # …now interleave
+                prompts[name] = mod.context()
+            finally:
+                mod._unbind_memory()
+
+        threads = [threading.Thread(target=run, args=(n,)) for n in ('a', 'b')]
+        [t.start() for t in threads]
+        [t.join(10) for t in threads]
+        assert 'question from a' in prompts['a'] and 'question from b' not in prompts['a']
+        assert 'question from b' in prompts['b'] and 'question from a' not in prompts['b']
+
+    def test_one_runs_context_never_reaches_the_next(self):
+        """Working memory is a scratchpad on a process-wide singleton."""
+        mod = self._mod()
+        mod.init_memory(query='first', tools={}, notes='a note only run one had')
+        mod.memory.add('hint', 'something the first run was told')
+        mod.init_memory(query='second', tools={})
+        text = mod.context()
+        assert 'second' in text
+        assert 'a note only run one had' not in text and 'was told' not in text
+
+    def test_a_small_model_gets_the_compact_prompt(self):
+        mod = self._mod()
+        assert mod.compact_prompt('liquidai', 'LiquidAI/LFM2.5-1.2B-Instruct')
+        assert mod.compact_prompt('openrouter', 'qwen/qwen3-4b')
+        # …and a big model is not mistaken for one by the digits in its name
+        assert not mod.compact_prompt('openrouter', 'anthropic/claude-opus-5')
+        assert not mod.compact_prompt('venice', 'llama-3.3-70b')
+        assert not mod.compact_prompt('openrouter', 'google/gemma-4-31b')
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestCreditsMetaMask:
+    """MetaMask top-ups: ETH priced at the chain's own feed, chain metadata
+    for the wallet, and a deposit earmarked for one provider key."""
+    ADDR = "0xAbC0000000000000000000000000000000000aBc"
+    OWNER = "0x7d7c323496eD80E16d47b036607c586fB33dd123"
+    TX = "0x" + "d" * 64
+
+    @pytest.fixture
+    def credits(self, tmpdir, monkeypatch):
+        from src.credits import Credits
+        monkeypatch.delenv("AGENT_ETH_USD", raising=False)
+        return Credits(str(tmpdir), deposit_address=self.OWNER)
+
+    def _feed(self, usd):
+        # latestRoundData() → 5 words; answer (8 decimals) is the second
+        words = [1, int(usd * 10 ** 8), 0, 0, 1]
+        return "0x" + "".join(w.to_bytes(32, "big").hex() for w in words)
+
+    def _rpc_for(self, receipt, tx=None, usd=3000.0):
+        def rpc(network, method, params):
+            if method == "eth_getTransactionReceipt":
+                return receipt
+            if method == "eth_getTransactionByHash":
+                return tx
+            if method == "eth_call":
+                return self._feed(usd)
+            raise AssertionError(method)
+        return rpc
+
+    def test_info_carries_chain_metadata(self, credits):
+        nets = credits.info()["deposit"]["networks"]
+        assert nets["base"]["chain_id"] == 8453 and nets["ethereum"]["chain_id"] == 1
+        for net in nets.values():
+            assert net["native"] == "ETH" and "ETH" in net["tokens"]
+            assert set(net["contracts"]) == {"USDC", "USDT"}
+            assert all(c["decimals"] == 6 and c["address"].startswith("0x")
+                       for c in net["contracts"].values())
+        assert credits.info()["deposit"]["providers"] == ["openrouter", "venice"]
+
+    def test_feed_decode(self, credits):
+        assert credits._decode_feed(self._feed(2543.21)) == 2543.21
+        with pytest.raises(RuntimeError):
+            credits._decode_feed("0x" + "0" * 320)      # zero price
+
+    def test_eth_usd_reads_chainlink(self, credits, monkeypatch):
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(None, usd=3210.5))
+        out = credits.eth_usd("base")
+        assert out["usd"] == 3210.5 and out["source"] == "chainlink"
+        # cached: a second read never hits the RPC
+        monkeypatch.setattr(credits, "_rpc", lambda *a: (_ for _ in ()).throw(AssertionError("rpc")))
+        assert credits.eth_usd("base")["usd"] == 3210.5
+
+    def test_eth_usd_env_pin(self, credits, monkeypatch):
+        monkeypatch.setenv("AGENT_ETH_USD", "1234")
+        out = credits.eth_usd("ethereum")
+        assert out["usd"] == 1234.0 and out["source"] == "env"
+
+    def test_native_eth_deposit_priced_and_credited(self, credits, monkeypatch):
+        receipt = {"status": "0x1", "logs": []}
+        tx = {"to": self.OWNER.lower(), "from": self.ADDR.lower(),
+              "value": hex(10 ** 16)}                     # 0.01 ETH
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(receipt, tx, usd=3000.0))
+        out = credits.verify_deposit(self.TX, "base", provider="venice")
+        assert out["token"] == "ETH" and out["credited"] == 30.0
+        assert out["eth"] == 0.01 and out["eth_usd"] == 3000.0
+        assert out["provider"] == "venice"
+        assert out["explorer"].startswith("https://basescan.org/tx/")
+        assert credits.balance(self.ADDR) == 30.0
+        hist = credits.info(self.ADDR)["account"]["history"][0]
+        assert hist["tx"] == self.TX and "venice" in hist["note"] and "ETH" in hist["note"]
+        # the earmark reaches the owner's books; the balance is one ledger
+        book = credits.treasury()
+        assert book["earmarked"] == {"venice": 30.0} and book["deposits"] == 30.0
+
+    def test_native_eth_to_wrong_address_rejected(self, credits, monkeypatch):
+        receipt = {"status": "0x1", "logs": []}
+        tx = {"to": self.ADDR.lower(), "from": self.ADDR.lower(), "value": hex(10 ** 16)}
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(receipt, tx))
+        with pytest.raises(ValueError, match="no USDT/USDC/ETH transfer"):
+            credits.verify_deposit(self.TX, "base")
+        assert credits.balance(self.ADDR) == 0.0
+
+    def test_stablecoin_deposit_still_works_with_earmark(self, credits, monkeypatch):
+        from src.credits import TRANSFER_TOPIC
+        usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+        pad = lambda a: "0x" + a[2:].lower().rjust(64, "0")
+        receipt = {"status": "0x1", "logs": [{
+            "address": usdc,
+            "topics": [TRANSFER_TOPIC, pad(self.ADDR), pad(self.OWNER)],
+            "data": hex(12_500_000),                        # 12.5 USDC
+        }]}
+        monkeypatch.setattr(credits, "_rpc", self._rpc_for(receipt))
+        out = credits.verify_deposit(self.TX, "base", provider="openrouter")
+        assert out["token"] == "USDC" and out["credited"] == 12.5
+        assert credits.treasury()["earmarked"] == {"openrouter": 12.5}
+
+    def test_unknown_provider_rejected_before_rpc(self, credits, monkeypatch):
+        monkeypatch.setattr(credits, "_rpc", lambda *a: (_ for _ in ()).throw(AssertionError("rpc")))
+        with pytest.raises(ValueError, match="unknown provider"):
+            credits.verify_deposit(self.TX, "base", provider="anthropic")
+
+
+class TestCreditsRoutes:
+    """The HTTP surface the MetaMask button talks to."""
+
+    def _client(self):
+        try:
+            from src.api.api import app
+            from fastapi.testclient import TestClient
+            return TestClient(app)
+        except ImportError:
+            pytest.skip("fastapi not installed")
+
+    def test_info_exposes_chain_metadata(self):
+        d = self._client().get("/credits").json()
+        nets = d["deposit"]["networks"]
+        assert nets["base"]["chain_id"] == 8453 and "ETH" in nets["base"]["tokens"]
+        assert nets["ethereum"]["contracts"]["USDC"]["decimals"] == 6
+        assert d["deposit"]["providers"] == ["openrouter", "venice"]
+
+    def test_price_route(self, monkeypatch):
+        monkeypatch.setenv("AGENT_ETH_USD", "2500")
+        d = self._client().get("/credits/price?network=base").json()
+        assert d["usd"] == 2500.0 and d["source"] == "env"
+        assert "error" in self._client().get("/credits/price?network=polygon").json()
+
+    def test_deposit_route_rejects_bad_earmark_without_rpc(self, monkeypatch):
+        from src.api.api import get_mod
+        credits = get_mod().credits
+        monkeypatch.setattr(credits, "_rpc", lambda *a: (_ for _ in ()).throw(AssertionError("rpc")))
+        d = self._client().post("/credits/deposit", json={
+            "tx_hash": "0x" + "e" * 64, "network": "base", "provider": "anthropic"}).json()
+        assert "unknown provider" in d["error"]
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CO-OWNERS  (owner standing handed to another address, on the
+#  owner's own credits)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestCoOwners:
+    OWNER = "0x7d7c323496ed80e16d47b036607c586fb33dd123"
+    CO = "0xd779eb61ced815570f74ab15a52ee8378a66996f"
+    OTHER = "0xAbC0000000000000000000000000000000000aBc"
+
+    def _mod(self, tmp_path, co=None):
+        from src.mod import Mod
+        from src.credits import Credits
+        mod = Mod.__new__(Mod)
+        mod.key = None
+        mod.auth = None
+        mod._owner = self.OWNER
+        mod._co_owners = list(co or [])
+        mod._acl = {}
+        mod._acl_path = tmp_path / "acl.json"
+        mod._public_actions = {"status"}
+        mod.credits = Credits(str(tmp_path), deposit_address=self.OWNER)
+        mod._sync_credit_aliases()
+        return mod
+
+    def test_co_owner_passes_the_owner_gate(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        assert mod.is_owner(self.CO)
+        assert mod.is_owner(self.OWNER)
+        assert not mod.is_owner(self.OTHER)
+
+    def test_co_owner_spends_the_owner_balance(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        mod.credits.credit(self.OWNER, 20, kind="grant")
+        assert mod.credits.balance(self.CO) == 20.0
+        mod.credits.charge_usage(self.CO, 1.0)
+        # one shared ledger entry, not two
+        assert mod.credits.balance(self.OWNER) == mod.credits.balance(self.CO) < 20.0
+        assert list(mod.credits._state["accounts"]) == [self.OWNER]
+        acct = mod.credits.info(self.CO)["account"]
+        assert acct["shared_with"] == self.OWNER and acct["caller"] == self.CO
+
+    def test_a_stranger_keeps_their_own_balance(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        mod.credits.credit(self.OWNER, 20, kind="grant")
+        assert mod.credits.balance(self.OTHER) == 0.0
+
+    def test_only_the_primary_owner_may_add_one(self, tmp_path, monkeypatch):
+        import src.mod as modmod
+        home = tmp_path / "home"
+        (home / ".mod" / "agent").mkdir(parents=True)
+        monkeypatch.setattr(modmod.Path, "home", classmethod(lambda cls: home))
+        mod = self._mod(tmp_path, co=[self.CO])
+        # a co-owner holds owner rights but cannot mint another co-owner
+        with pytest.raises(PermissionError):
+            mod.owners("add", address=self.OTHER, key=self.CO)
+        with pytest.raises(PermissionError):
+            mod.owners("add", address=self.OTHER, key=self.OTHER)
+        out = mod.owners("add", address=self.OTHER, key=self.OWNER)
+        assert self.OTHER.lower() in out["co_owners"]
+        assert mod.credits.aliases[self.OTHER.lower()] == self.OWNER
+        out = mod.owners("rm", address=self.OTHER, key=self.OWNER)
+        assert self.OTHER.lower() not in out["co_owners"]
+        assert self.OTHER.lower() not in mod.credits.aliases
+        saved = json.loads((home / ".mod" / "agent" / "owner.json").read_text())
+        assert saved["co_owners"] == [self.CO] and saved["owner"] == self.OWNER
+
+    def test_list_is_owner_only(self, tmp_path):
+        mod = self._mod(tmp_path, co=[self.CO])
+        assert mod.owners("list", key=self.CO)["co_owners"] == [self.CO]
+        with pytest.raises(PermissionError):
+            mod.owners("list", key=self.OTHER)
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  COST PER CALL  (what one model call cost, while the run is running)
+# ═══════════════════════════════════════════════════════════════════
+
+def _bare_agent(replies, catalog=None, model_name='anthropic/claude-opus-5'):
+    """An Agent wired to a scripted model — the loop, nothing else.
+
+    `replies` is a list of raw model outputs, one per call; the last one is
+    repeated if the loop asks for more.
+    """
+    from src.mod import Agent
+    from src.billing import Meter
+    from src.memory.mod import Memory
+    from src.tools.mod import Tools
+    from src.toolbox.mod import Toolboxes
+    from src.agents.mod import Agents
+
+    agent = Agent.__new__(Agent)
+    agent.agents, agent.memory = Agents(), Memory()
+    agent.memory.clear()
+    agent.tools = Tools()
+    agent.toolboxes = Toolboxes(tools=agent.tools)
+    agent._tool_names, agent._snapped, agent._session_keys = None, [], {}
+    agent.goal, agent.output_format = Agent.goal, Agent.output_format
+    agent.anchors = Agent.anchors
+    agent._provider = Agent.PROVIDERS['openrouter']
+    agent.meter = Meter()
+    sent = []
+
+    class FakeClient:
+        def model2info(self):
+            return catalog or {}
+
+        def forward(self, *a, **k):
+            sent.append(a[0] if a else k.get('messages'))
+            i = min(len(sent) - 1, len(replies) - 1)
+            return replies[i]
+
+    client = FakeClient()
+    agent.model = client
+    agent._clients = {Agent.PROVIDERS['openrouter']: client}
+    agent._client_why = {}
+    return agent, sent
+
+
+PRICED = {"anthropic/claude-opus-5": {
+    "pricing": {"prompt": "0.000005", "completion": "0.000025"}}}
+
+
+class TestCostPerCall:
+    """Every model call reports what it cost while the run is still going."""
+
+    def test_meter_hands_back_the_last_call_once(self):
+        from src.billing import Meter
+        meter = Meter()
+        model = TestMeter.FakeModel(TestMeter.OPENROUTER)
+        meter.open(provider="openrouter", model="anthropic/claude-opus-5")
+        meter.watch("y" * 400, model_obj=model, provider="openrouter",
+                    model="anthropic/claude-opus-5", prompt="x" * 4000)
+        call = meter.last()
+        assert call["call"] == 1 and call["priced"] is True
+        assert call["prompt_tokens"] == 1000 and call["completion_tokens"] == 100
+        assert call["cost"] == round(1000 * 5e-6 + 100 * 25e-6, 8)
+        assert call["total"] == call["cost"]
+        # read once: a step that made no model call reports nothing
+        assert meter.last() is None
+
+    def test_a_run_reports_a_price_for_every_call(self):
+        agent, sent = _bare_agent([
+            '<STEP>{"tool": "think", "params": {"thought": "hm"}}</STEP>',
+            '<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>',
+        ], catalog=PRICED)
+        seen = []
+        agent.run(query='do a thing', steps=5, model='anthropic/claude-opus-5',
+                  on_usage=seen.append)
+        assert len(seen) == len(sent) == 2
+        assert [u['call'] for u in seen] == [1, 2]
+        assert [u['step'] for u in seen] == [0, 1]
+        assert all(u['cost'] > 0 and u['priced'] for u in seen)
+        # the running total is the sum of the calls so far
+        assert seen[-1]['total'] == round(sum(u['cost'] for u in seen), 8)
+        # …and the tally the biller reads back agrees with it
+        assert agent.meter.take()['cost'] == seen[-1]['total']
+
+    def test_an_unpriced_model_says_so_rather_than_reporting_zero(self):
+        agent, _ = _bare_agent(
+            ['<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>'],
+            catalog={})            # model not in the catalog: no rates
+        seen = []
+        agent.run(query='hi', steps=3, model='who/knows', on_usage=seen.append)
+        assert len(seen) == 1
+        assert seen[0]['priced'] is False and seen[0]['cost'] is None
+
+    def test_the_callback_survives_the_forward_hop(self):
+        """`forward('run')` maps its kwargs onto run() by hand, so a callback
+        it forgets is a callback the API passes into a void — which is exactly
+        how the first cut of this shipped, silent and green."""
+        from src.mod import Mod
+        mod = Mod.__new__(Mod)
+        seen = {}
+        mod.run = lambda **kw: seen.update(kw) or []
+        mod.allowed_paths_for = lambda key: None
+        mod.default_agent = lambda key=None: 'default'
+        mod.agents = type('A', (), {'ls': staticmethod(lambda: [])})()
+        mod.library = type('L', (), {'notes': staticmethod(lambda: []),
+                                     'tool_docs': staticmethod(lambda ids: [])})()
+        mod._unbind_memory = lambda: None
+        mod._clear_run_state = lambda: None
+        cb = lambda u: None
+        mod._run(query='x', on_usage=cb, on_step=cb)
+        assert seen['on_usage'] is cb and seen['on_step'] is cb
+
+    def test_the_task_registry_keeps_the_per_call_rows(self):
+        """The API side of the same number: each call lands on the run's task
+        row as it happens, and the run reports a total the console can show."""
+        from src.api.api import _task_usage, _usage_of
+        task = {"model": "anthropic/claude-opus-5", "provider": "openrouter"}
+        _task_usage(task, {"call": 1, "step": 0, "model": "anthropic/claude-opus-5",
+                           "cost": 0.001, "total": 0.001, "priced": True,
+                           "prompt_tokens": 1000, "completion_tokens": 100})
+        _task_usage(task, {"call": 2, "step": 1, "model": "anthropic/claude-opus-5",
+                           "cost": 0.002, "total": 0.003, "priced": True,
+                           "prompt_tokens": 1200, "completion_tokens": 50})
+        u = _usage_of(task)
+        assert u["calls"] == 2 and u["priced"] is True
+        assert u["cost"] == 0.003                     # the running total, not the last call
+        assert u["tokens"] == 1000 + 100 + 1200 + 50
+        assert [c["cost"] for c in u["per_call"]] == [0.001, 0.002]
+
+    def test_a_failed_call_still_reports_what_it_burned(self):
+        agent, _ = _bare_agent(['ignored'], catalog=PRICED)
+
+        def boom(*a, **k):
+            raise RuntimeError('provider exploded')
+        agent._clients[agent._provider].forward = boom
+        seen = []
+        steps = agent.run(query='x', steps=3, model='anthropic/claude-opus-5',
+                          on_usage=seen.append)
+        assert steps[-1]['tool'] == 'error'
+        # nothing was metered (the call never returned), so nothing is claimed
+        assert seen == []
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  THE TASK ACTUALLY HAPPENS  (a run may not end on a promise)
+# ═══════════════════════════════════════════════════════════════════
+
+class TestTheTaskHappens:
+    """A run that stops at "I'll go do that" did not do the task.
+
+    Two things have to be true before the loop pushes back: nothing has run,
+    and the sign-off describes the work in the future tense. An answer that
+    legitimately needed no tools is left alone.
+    """
+
+    def test_a_promise_with_nothing_done_is_sent_back_to_work(self):
+        agent, sent = _bare_agent([
+            "Sure, I'll read the config and fix the port.",
+            '<STEP>{"tool": "think", "params": {"thought": "reading"}}</STEP>',
+            '<STEP>{"tool": "finish", "params": {"summary": "fixed the port"}}</STEP>',
+        ])
+        steps = agent.run(query='fix the port', steps=6, model='x')
+        assert len(sent) == 3                      # it was made to carry on
+        assert steps[-1]['tool'] == 'finish'
+        assert steps[-1]['params']['summary'] == 'fixed the port'
+
+    def test_a_bare_acknowledgement_is_a_promise_too(self):
+        agent, sent = _bare_agent(["On it!"])
+        agent.run(query='fix the port', steps=6, model='x')
+        assert len(sent) == 2                      # nothing said, nothing done
+
+    def test_manners_at_the_top_of_a_real_answer_are_not_a_promise(self):
+        # "Sure" is only a promise while it is the whole message
+        agent, sent = _bare_agent([
+            "Sure. The module runs an agent loop over 26 tools: a registry "
+            "resolves each call, the loop executes it, and the memory "
+            "subsystem keeps what happened. Nothing here needs a tool call "
+            "to answer, which is why you are reading prose and not a trace."
+        ])
+        agent.run(query='what is this module?', steps=6, model='x')
+        assert len(sent) == 1
+
+    def test_an_answer_that_needed_no_tools_is_left_alone(self):
+        agent, sent = _bare_agent(["This module runs an agent loop over 26 tools."])
+        steps = agent.run(query='what is this module?', steps=6, model='x')
+        assert len(sent) == 1                      # answered, not nagged
+        assert steps[-1]['tool'] == 'response'
+
+    def test_the_push_back_is_spent_once(self):
+        agent, sent = _bare_agent(["I'll get started on that right away."])
+        steps = agent.run(query='fix the port', steps=6, model='x')
+        # pushed back once, promised again, and that is the end of it — the
+        # run is not worth a whole budget of the same answer
+        assert len(sent) == 2
+        assert steps[-1]['tool'] == 'response'
+
+    def test_a_run_that_did_work_may_close_on_what_comes_next(self):
+        # thinking is not doing — the run has to have reached for the world
+        agent, sent = _bare_agent([
+            '<STEP>{"tool": "bash", "params": {"command": "echo hi"}}</STEP>',
+            "I read the file. Next I will need the port from you to go further.",
+        ])
+        steps = agent.run(query='fix the port', steps=6, model='x')
+        assert len(sent) == 2                      # a report, not a promise
+        assert steps[-1]['tool'] == 'response'
+
+
+class TestLiveEvents:
+    """The stream's ephemeral extras: tokens as the model writes them, a tool
+    call the moment it starts. Rendered and dropped — never part of history."""
+
+    def test_run_emits_tokens_tool_starts_and_model_starts(self):
+        agent, _ = _bare_agent([
+            # a list reply streams chunk by chunk, the way a provider does
+            ['Reading it now. ', '<STEP>{"tool": "bash", "params": {"command": "echo hi"}}</STEP>'],
+            ['<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>'],
+        ])
+        live = []
+        steps = agent.run(query='look around', steps=4, model='x', on_live=live.append)
+        kinds = [e['event'] for e in live]
+        assert 'model_start' in kinds and 'token' in kinds and 'tool_start' in kinds
+        assert ''.join(e['text'] for e in live if e['event'] == 'token'
+                       ).startswith('Reading it now.')
+        start = next(e for e in live if e['event'] == 'tool_start')
+        assert start['tool'] == 'bash'
+        # params are the resolved ones the call actually runs with (cwd added)
+        assert start['params']['command'] == 'echo hi'
+        assert steps[-1]['tool'] == 'finish'
+
+    def test_a_live_callback_that_raises_never_kills_the_run(self):
+        agent, _ = _bare_agent(
+            [['<STEP>{"tool": "finish", "params": {"summary": "ok"}}</STEP>']])
+        steps = agent.run(query='x', steps=2, model='x', on_live=lambda ev: 1 / 0)
+        assert steps[-1]['tool'] == 'finish'
+
+    def test_tool_start_lands_before_the_result_does(self):
+        agent, _ = _bare_agent([
+            ['<STEP>{"tool": "bash", "params": {"command": "echo hi"}}</STEP>'],
+            ['<STEP>{"tool": "finish", "params": {"summary": "done"}}</STEP>'],
+        ])
+        order = []
+        agent.run(query='x', steps=4, model='x',
+                  on_live=lambda ev: ev['event'] == 'tool_start' and order.append('start'),
+                  on_step=lambda s: s.get('tool') == 'bash' and order.append('step'))
+        assert order == ['start', 'step']

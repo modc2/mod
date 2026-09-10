@@ -1,0 +1,28 @@
+{
+    "name": "spread",
+    "description": "A Blotto bot that reads the terms out of the view \u2014 how many fields, how many soldiers \u2014 and answers with a valid army.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "8f30a3b139c8205cf521c5392e7808a4f8eae06c3f86a40b10dca5bb1be7c501",
+    "bytes": 2393,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "class",
+        "python"
+    ],
+    "defines": [
+        "play",
+        "terms",
+        "even"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/spread/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

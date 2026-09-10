@@ -1,290 +1,196 @@
+"""mcp — MCP Hub client.
+
+Thin Python face over the Rust API (mcp-rs, :50360). The hub aggregates every
+MCP server it knows — auto-discovered fleet mods plus user-registered remotes —
+and re-exposes the union at POST /mcp as one MCP server (tools named
+server__tool). It is itself a `mod` hub type: hubs() lists the other hub types
+it can see (peer mod hubs, the fleet's index, the public directories) and
+catalog() searches for servers across all of them. These fns mirror the REST
+surface for mod-protocol callers.
+
+Write calls (add_server / remove_server / toggle_server) send Bearer
+~/.mod/mcp/server.secret automatically when that file exists.
 """
-mcp — a hub of MCP servers.
 
-The Model Context Protocol ecosystem is real but scattered: the official
-registry, GitHub, npm, Glama, Smithery, a couple of awesome-lists, and — on
-this box — the mod fleet's own servers. This module aggregates all of them into
-one searchable directory, speaks MCP well enough to ask a live server what its
-tools actually are, and gives anyone a place to publish their own: sign with a
-browser wallet or a locally derived key, and the manifest is pinned by CID to
-the store mod under *your* address.
-
-    h = Mod()
-    h.search('postgres')                     # every provider at once
-    h.search('', sources=['fleet'])          # what's running here
-    h.server('official:io.github.foo/bar')   # one merged card
-    h.probe(url='http://localhost:50152/mcp')# live tools/list
-    h.client_config('npm:@foo/bar')          # paste-ready client config
-    h.submit(key='test', name='my-server', description='…', repo='https://…')
-
-State lives off-tree in ~/.mod/mcp/ (submissions, provider + probe cache,
-owner, optional GitHub token) — never in committed config.
-"""
-import importlib.util
 import json
 import os
-import sys
-import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+import urllib.parse
+import urllib.request
 
-MODULE_DIR = Path(__file__).resolve().parent
-HUB_DIR = Path(os.environ.get('MCP_HUB_DIR') or os.path.expanduser('~/.mod/mcp'))
+API = os.environ.get("MCP_API_URL", "http://localhost:50360")
+HUB_DIR = os.environ.get("MCP_HUB_DIR", os.path.expanduser("~/.mod/mcp"))
 
 
-def mod_pkg():
-    """The real top-level `mod` package.
-
-    This file is itself named mod.py, so any time the module directory lands on
-    sys.path — uvicorn, pytest, `python mod.py` — a bare `import mod` resolves
-    to *us* instead of the package. Drop our directory for the import, then put
-    the path back; the package sticks in sys.modules and un-shadows everyone.
-    """
-    cached = sys.modules.get('mod')
-    if cached is not None and hasattr(cached, 'mod'):
-        return cached
-    saved = list(sys.path)
-    sys.path[:] = [p for p in saved if Path(p or '.').resolve() != MODULE_DIR]
-    sys.modules.pop('mod', None)
+def _secret():
     try:
-        import mod as pkg
-    finally:
-        sys.path[:] = saved
-    return pkg
+        with open(os.path.join(HUB_DIR, "server.secret")) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
 
 
-def _load(name: str):
-    """Load a src/ module by file path.
+def _q(s):
+    return urllib.parse.quote(str(s), safe="")
 
-    Deliberately not `from src.x import …`: half the fleet has a `src/` on
-    sys.path and this module's own mod.py shadows the `mod` package whenever
-    its directory lands on the path. A file-path load has neither problem.
+
+def _req(path, body=None, method=None, auth=False):
+    url = API + path
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method or ("POST" if data else "GET"))
+    req.add_header("Content-Type", "application/json")
+    if auth:
+        s = _secret()
+        if s:
+            req.add_header("Authorization", "Bearer " + s)
+    with urllib.request.urlopen(req, timeout=90) as r:
+        return json.loads(r.read().decode())
+
+
+def info():
+    """Hub identity, endpoint map and server count (the null call)."""
+    return _req("/")
+
+
+def servers():
+    """Every aggregated server with its live probe."""
+    return _req("/servers")["servers"]
+
+
+def server(id):
+    """One server row (registry + probe)."""
+    return _req(f"/servers/{id}")
+
+
+def add_server(url, id=None, name=None, headers=None, note=None, force=False):
+    """Probe-then-register a remote MCP server on the hub."""
+    body = {"url": url, "force": force}
+    if id:
+        body["id"] = id
+    if name:
+        body["name"] = name
+    if headers:
+        body["headers"] = headers
+    if note:
+        body["note"] = note
+    return _req("/servers", body, auth=True)
+
+
+def remove_server(id):
+    """Unregister a user server / disable a fleet server."""
+    return _req(f"/servers/{id}", method="DELETE", auth=True)
+
+
+def toggle_server(id, enabled=True):
+    """Include or exclude a server from aggregation."""
+    return _req(f"/servers/{id}/toggle", {"enabled": bool(enabled)}, auth=True)
+
+
+def probe(url, headers=None):
+    """Ad-hoc MCP handshake against any URL; returns serverInfo + tools."""
+    return _req("/probe", {"url": url, "headers": headers or {}})
+
+
+def tools(server=None):
+    """The aggregated, namespaced tool list (optionally one server's)."""
+    q = f"?server={server}" if server else ""
+    return _req("/tools" + q)
+
+
+def call(tool, args=None, server=None):
+    """Call any aggregated tool: call('chutes__chat', {...}) or call('chat', server='chutes')."""
+    body = {"tool": tool, "args": args or {}}
+    if server:
+        body["server"] = server
+    return _req("/call", body)
+
+
+def client_config(client="json"):
+    """Paste-ready MCP client config pointing at the hub."""
+    return _req(f"/client_config?client={client}")
+
+
+def stats():
+    """Servers, up/down, aggregated tool total, by_source."""
+    return _req("/stats")
+
+
+def refresh(id=None, wake=True):
+    """Re-probe one server, or re-scan the fleet and re-probe everything.
+
+    A single-server re-probe wakes the mod through the activator when its own
+    port is refusing — pass wake=False to leave a sleeping mod asleep.
     """
-    spec = importlib.util.spec_from_file_location(
-        f'_mcphub_{name}', MODULE_DIR / 'src' / f'{name}.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    if id:
+        return _req(f"/servers/{id}/refresh?wake={'1' if wake else '0'}", {})
+    return _req("/refresh", {})
 
 
-registry_mod = _load('registry')
-probe_mod = _load('probe')
-index_mod = _load('index')
+def discover():
+    """Live sweep: knock on every fleet port and adopt whatever speaks MCP.
 
-Registry = registry_mod.Registry
-Probe = probe_mod.Probe
-Index = index_mod.Index
-SubmitError = index_mod.SubmitError
+    The companion to config-declared discovery — it finds mods serving /mcp
+    that never said so in their config.json.
+    """
+    return _req("/discover", {})
 
 
-class Mod:
-    description = """A hub of MCP servers — aggregates the open-source Model
-    Context Protocol ecosystem into one searchable directory, probes servers
-    for their real tool lists, and hosts wallet-signed submissions pinned by
-    CID to the store mod."""
+def search(q, count=8, provider=None):
+    """Search the web. No API key needed; a configured one is preferred."""
+    path = f"/search?q={_q(q)}&count={int(count)}"
+    if provider:
+        path += f"&provider={_q(provider)}"
+    return _req(path)
 
-    def __init__(self, dir: Optional[str] = None, store_url: Optional[str] = None):
-        self.dir = Path(dir or HUB_DIR)
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.index = Index(dir=str(self.dir), store_url=store_url)
-        self.registry = Registry(dir=str(self.dir), hub=self.index)
-        self.prober = Probe()
-        self.config = json.loads((MODULE_DIR / 'config.json').read_text())
 
-    # ── identity ────────────────────────────────────────────────────
+def fetch(url, max_chars=8000):
+    """Read one public URL as text (HTML stripped)."""
+    return _req(f"/fetch?url={_q(url)}&max_chars={int(max_chars)}")
 
-    def forward(self, **kwargs):
-        """Default entry point."""
-        return self.info()
 
-    def info(self) -> Dict[str, Any]:
-        return {
-            'name': 'mcp',
-            'title': self.config.get('title'),
-            'version': self.config.get('version'),
-            'description': self.config.get('description'),
-            'providers': [p['id'] for p in self.registry.providers()],
-            'fns': self.config.get('fns', []),
-            'urls': self.config.get('urls', {}),
-            'state_dir': str(self.dir),
-        }
+def hub():
+    """This hub's manifest — type mod-hub: what another hub reads at GET /hub."""
+    return _req("/hub")
 
-    def owner(self) -> Optional[str]:
-        """Hub admin (may delist anything). Off-tree: ~/.mod/mcp/owner.json."""
-        try:
-            owner = json.loads((self.dir / 'owner.json').read_text()).get('owner', '')
-            return owner.lower() or None
-        except Exception:
-            return (self.config.get('owner') or '').lower() or None
 
-    # ── directory ───────────────────────────────────────────────────
+def hubs(refresh=False):
+    """Every hub type this one can see (mod peers, the index, the directories) with counts."""
+    return _req("/hubs" + ("?refresh=1" if refresh else ""))
 
-    def sources(self) -> List[Dict[str, Any]]:
-        """The provider catalog: what each one indexes, and its cache TTL."""
-        return self.registry.providers()
 
-    def search(self, q: str = '', sources: Optional[List[str]] = None,
-               limit: int = 40, oss: bool = True, transport: str = '',
-               license: str = '', tag: str = '', category: str = '',
-               sort: str = 'relevance') -> Dict[str, Any]:
-        """Search every provider at once. `oss=False` also returns servers with
-        no public source."""
-        if isinstance(sources, str):
-            sources = [s for s in sources.replace(' ', '').split(',') if s]
-        return self.registry.search(q=q, sources=sources, limit=int(limit),
-                                    oss=bool(oss), transport=transport,
-                                    license=license, tag=tag, category=category,
-                                    sort=sort)
+def add_hub(url, id=None, name=None, headers=None, note=None):
+    """Add a peer hub by its API base; the kind (mod|index) is worked out from what it answers."""
+    body = {"url": url}
+    if id:
+        body["id"] = id
+    if name:
+        body["name"] = name
+    if headers:
+        body["headers"] = headers
+    if note:
+        body["note"] = note
+    return _req("/hubs", body, auth=True)
 
-    def server(self, id: str) -> Dict[str, Any]:
-        """One server card, merged across every provider that lists it, with
-        the last probe result attached when we have one."""
-        rec = self.registry.server(id)
-        cached = self._probe_cache_get(probe_mod.remote_url(rec) or '')
-        if cached:
-            rec = {**rec, 'probe': cached, 'tools': cached.get('tool_count')}
-        return rec
 
-    def stats(self) -> Dict[str, Any]:
-        """Hub totals — cheap enough for a status bar."""
-        fleet = self.registry.src_fleet('', 100)
-        return {
-            'providers': len(registry_mod.PROVIDERS),
-            'fleet_servers': len(fleet),
-            'fleet': [f['name'] for f in fleet],
-            'probes': len(list((self.dir / 'probes').glob('*.json')))
-            if (self.dir / 'probes').exists() else 0,
-            'cache': self.registry.cache_state(),
-            **self.index.stats(),
-        }
+def remove_hub(id):
+    """Forget a peer hub."""
+    return _req(f"/hubs/{id}", method="DELETE", auth=True)
 
-    # ── live protocol ───────────────────────────────────────────────
 
-    def _probe_path(self, url: str) -> Path:
-        import hashlib
-        d = self.dir / 'probes'
-        d.mkdir(parents=True, exist_ok=True)
-        return d / f'{hashlib.sha256(url.encode()).hexdigest()[:24]}.json'
+def connect_hub(id):
+    """Register a mod/index hub's own MCP endpoint as one upstream — its tools nest as id__server__tool."""
+    return _req(f"/hubs/{id}/connect", {}, auth=True)
 
-    def _probe_cache_get(self, url: str, ttl: int = 900) -> Optional[Dict]:
-        if not url:
-            return None
-        try:
-            blob = json.loads(self._probe_path(url).read_text())
-        except Exception:
-            return None
-        return blob if time.time() - blob.get('probed_at', 0) <= ttl else None
 
-    def probe(self, url: Optional[str] = None, id: Optional[str] = None,
-              token: Optional[str] = None, refresh: bool = False) -> Dict[str, Any]:
-        """Handshake with a live MCP server and list its real tools.
+def catalog(q="", registry="all", limit=20):
+    """Search the public MCP directories for servers to connect."""
+    return _req(f"/catalog?q={_q(q)}&registry={_q(registry)}&limit={int(limit)}")
 
-        Give a URL, or an id whose card advertises a remote endpoint. stdio
-        servers can't be probed — running one means executing someone else's
-        command on this box — so those return a clear reason instead.
-        """
-        if not url and id:
-            rec = self.registry.server(id)
-            url = probe_mod.remote_url(rec)
-            if not url:
-                return {'ok': False, 'id': id, 'stdio_only': True,
-                        'error': 'this server is stdio-only — install it in your '
-                                 'own client; the hub only probes remote endpoints',
-                        'install': rec.get('install')}
-        if not url:
-            raise ValueError('probe needs a url= or an id=')
-        if not refresh:
-            cached = self._probe_cache_get(url)
-            if cached:
-                return {**cached, 'cached': True}
-        result = self.prober.probe(url, token=token)
-        try:
-            self._probe_path(url).write_text(json.dumps(result))
-        except Exception:
-            pass
-        return result
 
-    def client_config(self, id: str, client: str = 'claude') -> Dict[str, Any]:
-        """Paste-ready MCP client config (and a `claude mcp add` line)."""
-        return probe_mod.client_config(self.registry.server(id), client=client)
+def intake(text):
+    """Parse a URL, CID, client config, `claude mcp add` line or QR payload
+    into candidate servers. Nothing is registered."""
+    return _req("/intake", {"text": text})
 
-    # ── publishing ──────────────────────────────────────────────────
 
-    def _token(self, token: Optional[str] = None, key: Optional[str] = None) -> str:
-        """A protocol token: the caller's, or one minted from a local mod key
-        (the CLI path — the browser signs its own with a wallet)."""
-        if token:
-            return token
-        m = mod_pkg()
-        # The signing key goes in the constructor: Auth.token() stamps the
-        # envelope with *self.key*'s address regardless of its key= argument,
-        # so passing it there would sign with one key and claim another.
-        auth = m.mod('auth')(key=m.key(key or 'test'), crypto_type='ecdsa')
-        return auth.token({'mcp': 'submit'})
-
-    @staticmethod
-    def verify(token: str, max_age: Optional[int] = None) -> str:
-        """Protocol token → lowercase signer address. Raises on bad/expired."""
-        ttl = int(max_age or os.environ.get('MCP_SESSION_TTL') or 86400 * 7)
-        headers = mod_pkg().mod('auth')(crypto_type='ecdsa', max_age=ttl).verify(token)
-        addr = str(headers.get('key', '')).lower()
-        if not addr.startswith('0x'):
-            raise ValueError('token is missing a signer address')
-        return addr
-
-    def terms(self, token: Optional[str] = None, key: Optional[str] = None,
-              accept: bool = False) -> Dict[str, Any]:
-        """store's publisher terms, which a manifest pin requires.
-
-        Proxied through the hub so publishing is one flow: sign in, sign the
-        terms, publish — the signature is still the publisher's own.
-        """
-        if accept:
-            return self.index.accept_terms(self._token(token, key))
-        return self.index.terms(token)
-
-    def submit(self, token: Optional[str] = None, key: Optional[str] = None,
-               **body) -> Dict[str, Any]:
-        """Publish an MCP server to the hub.
-
-        The manifest is pinned to the store mod as *your* object (your token,
-        your address, your quota) and the hub records the CID. Needs at least a
-        name, a description, and one of: repo / remote endpoint / package.
-        """
-        tok = self._token(token, key)
-        address = self.verify(tok)
-        return self.index.submit(address, body, tok)
-
-    def submissions(self, mine: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Servers published to this hub (all, or `mine=<address>`)."""
-        return self.index.list(author=mine)
-
-    def repin(self, id: str, token: Optional[str] = None,
-              key: Optional[str] = None) -> Dict[str, Any]:
-        """Retry a manifest pin that failed (store down, terms unsigned)."""
-        tok = self._token(token, key)
-        return self.index.repin(id, self.verify(tok), tok)
-
-    def delist(self, id: str, token: Optional[str] = None,
-               key: Optional[str] = None) -> Dict[str, Any]:
-        """Remove your own submission (the hub owner may remove any)."""
-        address = self.verify(self._token(token, key))
-        return self.index.remove(id, address, admin=(address == self.owner()))
-
-    # ── housekeeping ────────────────────────────────────────────────
-
-    def clear_cache(self) -> Dict[str, int]:
-        return self.registry.clear_cache()
-
-    def readme(self):
-        """Return the project README."""
-        p = MODULE_DIR / 'README.md'
-        return p.read_text() if p.exists() else None
-
-    def test(self) -> bool:
-        """Smoke test: the fleet provider is offline-safe, so it always works."""
-        fleet = self.registry.src_fleet('', 50)
-        assert isinstance(fleet, list)
-        assert all(r['source'] == 'fleet' for r in fleet)
-        assert self.info()['name'] == 'mcp'
-        return True
+if __name__ == "__main__":
+    print(json.dumps(stats(), indent=2))

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, gatewayUrl, type ScoredModule } from "@/lib/api";
+import WalletButton from "./WalletButton";
 
 function hue(name: string): string {
   let h = 0;
@@ -160,6 +161,17 @@ export function Nav({
               <rect x="13.5" y="13.5" width="7" height="7" rx="2.2" />
             </svg>
           </Link>
+          <Link
+            href="/stake"
+            className="nav-ic t4"
+            data-tip="stake bloctime"
+            aria-label="stake bloctime"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="8.5" />
+              <path d="M12 7v5l3.5 2" />
+            </svg>
+          </Link>
           <a
             href={gatewayUrl("docs")}
             target="_blank"
@@ -194,6 +206,7 @@ export function Nav({
           </a>
         </div>
         <NavSearch onQuery={onQuery} />
+        <WalletButton />
       </div>
       {sub && <div className="wrap nav-sub">{sub}</div>}
     </nav>

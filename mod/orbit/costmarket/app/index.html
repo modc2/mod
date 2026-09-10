@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>◑ Cost Market</title>
+<style>
+  /* Zero dependencies on purpose: this console has to keep working when
+     nothing else in the fleet is up, and a market people put money into
+     should not depend on a build step to be readable. */
+  :root {
+    --bg: #0a0e12;
+    --panel: #111820;
+    --panel-2: #161f29;
+    --line: #22303d;
+    --ink: #e6edf3;
+    --dim: #8b9aa8;
+    --accent: #22d3ee;
+    --accent-soft: rgba(34, 211, 238, 0.14);
+    --win: #4ade80;
+    --lose: #f87171;
+    --warn: #fbbf24;
+    --radius: 10px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 var(--mono);
+    padding: 0 0 64px;
+  }
+  a { color: var(--accent); }
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(10, 14, 18, 0.94);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 20px;
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  }
+  .brand { font-size: 17px; font-weight: 600; letter-spacing: 0.02em; }
+  .brand span { color: var(--accent); }
+  .spacer { flex: 1; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 22px 20px; }
+  .grid { display: grid; gap: 16px; }
+  .cols { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px;
+  }
+  .card h2 {
+    margin: 0 0 12px; font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--dim); font-weight: 600;
+  }
+  .stat { display: flex; align-items: baseline; gap: 8px; }
+  .stat b { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+  .stat small { color: var(--dim); font-size: 12px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 999px; font-size: 11px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--dim);
+  }
+  .pill.open { color: var(--win); border-color: rgba(74, 222, 128, 0.4); }
+  .pill.closed { color: var(--warn); border-color: rgba(251, 191, 36, 0.4); }
+  .pill.settled { color: var(--accent); border-color: rgba(34, 211, 238, 0.4); }
+
+  /* Bucket rows. One accent hue carries the whole distribution: the bar
+     length is the quantity, so colouring each bucket differently would
+     encode a difference that isn't there. The winning bucket is the only
+     row that changes hue, because that IS a different kind of thing. */
+  .bucket {
+    display: grid; grid-template-columns: 110px 1fr 84px 68px;
+    gap: 12px; align-items: center;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent; transition: background .12s, border-color .12s;
+  }
+  .bucket:hover { background: var(--panel-2); border-color: var(--line); }
+  .bucket[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+  .bucket.won { background: rgba(74, 222, 128, 0.12); border-color: rgba(74, 222, 128, 0.5); }
+  .bucket .label { color: var(--ink); }
+  .track { height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+  .fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .3s; }
+  .bucket.won .fill { background: var(--win); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .num.dim { color: var(--dim); }
+
+  input, button, select {
+    font: inherit; color: var(--ink);
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: #04222a; border-color: var(--accent); font-weight: 600; }
+  button.primary:disabled { opacity: .45; cursor: not-allowed; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--dim); font-weight: 500; font-size: 11px;
+       text-transform: uppercase; letter-spacing: .1em; padding: 6px 8px;
+       border-bottom: 1px solid var(--line); }
+  td { padding: 7px 8px; border-bottom: 1px solid rgba(34, 48, 61, .5); }
+  tr:last-child td { border-bottom: 0; }
+  .addr { color: var(--dim); }
+  .msg { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-top: 10px; }
+  .msg.ok { background: rgba(74, 222, 128, .12); color: var(--win); }
+  .msg.err { background: rgba(248, 113, 113, .12); color: var(--lose); }
+  .muted { color: var(--dim); }
+  .tiny { font-size: 11px; }
+  .oracle { display: flex; gap: 20px; flex-wrap: wrap; align-items: baseline; }
+  .oracle b { font-size: 20px; }
+  @media (max-width: 620px) {
+    .bucket { grid-template-columns: 90px 1fr 64px; }
+    .bucket .payout { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">◑ COST<span>MARKET</span></div>
+  <span class="pill" id="phasePill">loading…</span>
+  <span class="muted tiny" id="clock"></span>
+  <div class="spacer"></div>
+  <input id="addr" placeholder="0x… your address" size="24" spellcheck="false">
+  <select id="epochPick" title="epoch"></select>
+</header>
+
+<div class="wrap grid">
+
+  <div class="grid cols">
+    <div class="card">
+      <h2>The question</h2>
+      <p style="margin:0 0 10px">
+        What will the <b>average AI cost per user</b> of the
+        <a href="/build" target="_blank">build</a> console be this month?
+      </p>
+      <p class="muted tiny" style="margin:0">
+        Total metered task spend ÷ distinct users, per UTC calendar month.
+        Published by build at <code id="oracleUrl">/costs/epoch/…</code> and
+        settled only once that endpoint reports the month as final.
+      </p>
+    </div>
+    <div class="card">
+      <h2>Live oracle reading</h2>
+      <div class="oracle">
+        <div><b id="oAvg">—</b><div class="muted tiny">avg / user so far</div></div>
+        <div><b id="oUsers">—</b><div class="muted tiny">users</div></div>
+        <div><b id="oTasks">—</b><div class="muted tiny">tasks</div></div>
+        <div><b id="oTotal">—</b><div class="muted tiny">total spend</div></div>
+      </div>
+      <div class="muted tiny" id="oNote" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <h2>Pool</h2>
+      <div class="stat"><b id="pool">$0.00</b><small id="poolMeta">no bets yet</small></div>
+      <div class="muted tiny" id="feeNote" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Where does the month land? <span class="muted" style="text-transform:none;letter-spacing:0">— click a bucket to stake</span></h2>
+    <div id="buckets"></div>
+    <div class="row" style="margin-top:14px">
+      <input id="stake" type="number" min="0" step="0.5" placeholder="stake $" style="width:120px">
+      <button class="primary" id="betBtn" disabled>Place stake</button>
+      <span class="muted tiny" id="betHint">enter your address to bet</span>
+    </div>
+    <div id="betMsg"></div>
+  </div>
+
+  <div class="grid cols">
+    <div class="card">
+      <h2>Your seat</h2>
+      <div id="account" class="muted">Enter an address above.</div>
+      <div class="row" style="margin-top:12px">
+        <input id="subAmt" type="number" min="0" step="1" placeholder="amount $" style="width:120px">
+        <input id="txHash" placeholder="tx hash (optional)" style="flex:1;min-width:150px" spellcheck="false">
+        <button id="subBtn">Subscribe</button>
+      </div>
+      <div class="muted tiny" style="margin-top:8px" id="subNote"></div>
+      <div id="subMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Leaderboard</h2>
+      <table><thead><tr><th>who</th><th class="num">bets</th><th class="num">hit</th><th class="num">net</th></tr></thead>
+      <tbody id="board"><tr><td colspan="4" class="muted">no settled epochs yet</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>The book</h2>
+    <table><thead><tr><th>when</th><th>who</th><th>bucket</th><th class="num">stake</th><th class="num">result</th></tr></thead>
+    <tbody id="book"><tr><td colspan="5" class="muted">nothing staked yet</td></tr></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>Past epochs</h2>
+    <table><thead><tr><th>epoch</th><th>phase</th><th>outcome</th><th class="num">pool</th><th class="num">bets</th></tr></thead>
+    <tbody id="history"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
+  </div>
+</div>
+
+<script>
+// The API sits beside this page under the gateway; fall back to the module's
+// own port when the console is opened directly off disk.
+const API = (() => {
+  const p = location.pathname;
+  if (p.startsWith('/costmarket')) return '/api/costmarket';
+  return location.port === '50491' ? `${location.protocol}//${location.hostname}:50490` : '/api/costmarket';
+})();
+
+const $ = (id) => document.getElementById(id);
+const state = { epoch: null, month: '', bucket: null, addr: '', config: null };
+
+const j = async (path, opts) => {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || body.error || `${r.status}`);
+  return body;
+};
+const post = (path, body) => j(path, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+const money = (s) => '$' + (s ?? '0.00');
+const short = (a) => (a && a.length > 12 ? a.slice(0, 6) + '…' + a.slice(-4) : a || '—');
+const when = (ts) => new Date(ts * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+function countdown(ep) {
+  const now = Math.floor(Date.now() / 1000);
+  const target = ep.phase === 'open' ? ep.close_ts : ep.end_ts;
+  let d = target - now;
+  if (d <= 0) return ep.phase === 'settled' ? 'settled' : 'awaiting settlement';
+  const days = Math.floor(d / 86400); d %= 86400;
+  const hrs = Math.floor(d / 3600); d %= 3600;
+  const label = ep.phase === 'open' ? 'until betting closes' : 'until the month ends';
+  return `${days}d ${hrs}h ${Math.floor(d / 60)}m ${label}`;
+}
+
+function renderBuckets(ep) {
+  const host = $('buckets');
+  const max = Math.max(1, ...ep.buckets.map((b) => b.staked_usd6));
+  host.innerHTML = '';
+  ep.buckets.forEach((b) => {
+    const el = document.createElement('div');
+    const won = ep.status === 'settled' && ep.winning_bucket === b.id;
+    el.className = 'bucket' + (won ? ' won' : '');
+    el.setAttribute('role', 'button');
+    el.setAttribute('aria-pressed', String(state.bucket === b.id));
+    el.innerHTML = `
+      <div class="label">${b.label}${won ? ' ✓' : ''}</div>
+      <div class="track"><div class="fill" style="width:${(100 * b.staked_usd6) / max}%"></div></div>
+      <div class="num">${money(b.staked_usd)}</div>
+      <div class="num dim payout">${b.payout_per_usd ? b.payout_per_usd.toFixed(2) + '×' : '—'}</div>`;
+    el.title = b.staked_usd6
+      ? `${b.implied_pct}% of the pool — $1 here returns $${b.payout_per_usd?.toFixed(2)} if it wins`
+      : 'nothing staked here yet — first in takes the whole pool if it lands';
+    el.onclick = () => {
+      if (ep.phase !== 'open') return;
+      state.bucket = state.bucket === b.id ? null : b.id;
+      renderBuckets(ep);
+      syncBetButton();
+    };
+    host.appendChild(el);
+  });
+}
+
+function syncBetButton() {
+  const open = state.epoch && state.epoch.phase === 'open';
+  const ready = open && state.bucket !== null && state.addr;
+  $('betBtn').disabled = !ready;
+  $('betHint').textContent = !state.addr
+    ? 'enter your address to bet'
+    : !open
+    ? `betting is ${state.epoch ? state.epoch.phase : 'closed'} for this epoch`
+    : state.bucket === null
+    ? 'pick a bucket'
+    : 'staked from your subscription budget';
+}
+
+async function loadEpoch(month) {
+  const ep = await j(`/epoch/${month || ''}`);
+  state.epoch = ep;
+  state.month = ep.month;
+  $('phasePill').textContent = `${ep.month} · ${ep.phase}`;
+  $('phasePill').className = 'pill ' + (ep.phase === 'open' ? 'open' : ep.phase === 'settled' ? 'settled' : 'closed');
+  $('clock').textContent = countdown(ep);
+  $('pool').textContent = money(ep.pool_usd);
+  $('poolMeta').textContent = ep.bet_count
+    ? `${ep.bet_count} stake${ep.bet_count === 1 ? '' : 's'} from ${ep.bettors} ${ep.bettors === 1 ? 'person' : 'people'}`
+    : 'no bets yet';
+  $('feeNote').textContent = `${(ep.fee_bps / 100).toFixed(1)}% of the pool goes to the treasury; the rest is split among the winning bucket pro rata. If nobody calls it, everyone is refunded.`;
+  renderBuckets(ep);
+  syncBetButton();
+
+  const book = await j(`/book/${ep.month}`);
+  $('book').innerHTML = book.bets.length
+    ? book.bets.map((b) => `<tr>
+        <td class="muted">${when(b.ts)}</td>
+        <td class="addr">${short(b.address)}</td>
+        <td>${b.bucket_label}</td>
+        <td class="num">${money(b.usd)}</td>
+        <td class="num" style="color:${b.result === 'won' ? 'var(--win)' : b.result === 'lost' ? 'var(--lose)' : 'var(--dim)'}">${b.result}${b.payout_usd ? ' ' + money(b.payout_usd) : ''}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="muted">nothing staked yet</td></tr>';
+}
+
+async function loadOracle(month) {
+  try {
+    const o = await j(`/oracle?month=${month || ''}`);
+    if (o.error) {
+      $('oNote').textContent = o.error;
+      return;
+    }
+    $('oAvg').textContent = money(o.avg_usd_per_user);
+    $('oUsers').textContent = o.users ?? '—';
+    $('oTasks').textContent = o.tasks ?? '—';
+    $('oTotal').textContent = money(o.total_usd);
+    $('oracleUrl').textContent = o.source || '/costs/epoch/…';
+    $('oNote').textContent = o.final
+      ? 'This month is closed — this reading is what settlement uses.'
+      : 'Month still running: this number moves until the month ends, and settlement waits for it to be final.';
+  } catch (e) {
+    $('oNote').textContent = 'oracle unreachable — ' + e.message;
+  }
+}
+
+async function loadSide() {
+  const [board, eps, st] = await Promise.all([
+    j('/leaderboard'), j('/epochs?limit=12'), j('/status'),
+  ]);
+  $('board').innerHTML = board.leaderboard.length
+    ? board.leaderboard.map((r) => `<tr>
+        <td class="addr">${short(r.address)}</td>
+        <td class="num">${r.bets}</td>
+        <td class="num">${r.hit_rate}%</td>
+        <td class="num" style="color:${r.net_usd.startsWith('-') ? 'var(--lose)' : 'var(--win)'}">${r.net_usd.startsWith('-') ? '-$' + r.net_usd.slice(1) : '+' + money(r.net_usd)}</td>
+      </tr>`).join('')
+    : '<tr><td colspan="4" class="muted">no settled epochs yet</td></tr>';
+
+  const pick = $('epochPick');
+  if (pick.options.length !== eps.epochs.length) {
+    pick.innerHTML = eps.epochs.map((e) => `<option value="${e.month}">${e.month}</option>`).join('');
+    pick.value = state.month;
+  }
+  $('history').innerHTML = eps.epochs.map((e) => `<tr>
+      <td>${e.month}</td>
+      <td class="muted">${e.phase}</td>
+      <td>${e.status === 'settled'
+        ? `${money(e.oracle?.avg_usd_per_user)} → ${e.buckets.find((b) => b.id === e.winning_bucket)?.label ?? '—'}`
+        : '<span class="muted">pending</span>'}</td>
+      <td class="num">${money(e.pool_usd)}</td>
+      <td class="num">${e.bet_count}</td>
+    </tr>`).join('');
+  $('subNote').textContent = `Minimum ${money(st.min_subscription_usd)} per month. What you pay becomes your stake budget for that month — you can never bet more than you've put in.`;
+  $('subAmt').placeholder = st.min_subscription_usd;
+}
+
+async function loadAccount() {
+  if (!state.addr) {
+    $('account').innerHTML = '<span class="muted">Enter an address above.</span>';
+    return;
+  }
+  const a = await j(`/account/${state.addr}`);
+  if (!a.member) {
+    $('account').innerHTML = `<span class="muted">Not subscribed yet. Subscribe below to bet this month.</span>`;
+    return;
+  }
+  const mem = a.membership || {};
+  $('account').innerHTML = `
+    <div class="stat"><b>${money(mem.stake_available_usd)}</b><small>left to stake this month</small></div>
+    <div class="row tiny muted" style="margin-top:10px">
+      <span class="pill ${mem.active ? 'open' : ''}">${mem.active ? 'member · ' + state.month : 'inactive'}</span>
+      <span>balance ${money(a.balance_usd)}</span>
+      <span>staked ${money(a.lifetime_staked_usd)}</span>
+      <span>won ${money(a.lifetime_won_usd)}</span>
+    </div>`;
+}
+
+function say(where, text, ok) {
+  $(where).innerHTML = `<div class="msg ${ok ? 'ok' : 'err'}">${text}</div>`;
+  setTimeout(() => { $(where).innerHTML = ''; }, 7000);
+}
+
+$('betBtn').onclick = async () => {
+  try {
+    const out = await post('/bet', {
+      address: state.addr,
+      bucket: state.bucket,
+      amount_usd: $('stake').value || null,
+      month: state.month,
+    });
+    say('betMsg', `Staked ${money(out.bet.usd)} on ${out.bet.bucket_label}. ${money(out.stake_left_usd)} left this month.`, true);
+    state.bucket = null;
+    $('stake').value = '';
+    await refresh();
+  } catch (e) { say('betMsg', e.message, false); }
+};
+
+$('subBtn').onclick = async () => {
+  if (!state.addr) return say('subMsg', 'enter your address first', false);
+  try {
+    const out = await post('/subscribe', {
+      address: state.addr,
+      amount_usd: $('subAmt').value || null,
+      tx_hash: $('txHash').value.trim(),
+      month: state.month,
+    });
+    say('subMsg', out.ok
+      ? `Subscribed for ${state.month} — ${money(out.stake_available_usd)} available to stake. ${out.note}`
+      : `Recorded as ${out.status}: ${out.note}`, out.ok);
+    await refresh();
+  } catch (e) { say('subMsg', e.message, false); }
+};
+
+$('addr').oninput = (e) => {
+  state.addr = e.target.value.trim().toLowerCase();
+  localStorage.setItem('costmarket_addr', state.addr);
+  syncBetButton();
+  loadAccount().catch(() => {});
+};
+
+$('epochPick').onchange = (e) => { state.bucket = null; refresh(e.target.value); };
+
+async function refresh(month) {
+  await loadEpoch(month ?? state.month);
+  await Promise.all([loadOracle(state.month), loadSide(), loadAccount()]);
+}
+
+state.addr = localStorage.getItem('costmarket_addr') || '';
+$('addr').value = state.addr;
+refresh().catch((e) => { $('phasePill').textContent = 'api unreachable'; console.error(e); });
+setInterval(() => { if (state.epoch) $('clock').textContent = countdown(state.epoch); }, 30000);
+setInterval(() => refresh().catch(() => {}), 60000);
+</script>
+</body>
+</html>

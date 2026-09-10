@@ -41,7 +41,8 @@ TIMEOUT = float(os.environ.get('ZKPROF_PROXY_TIMEOUT', 300))
 MEDIA = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript',
          '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
          '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
-         '.wasm': 'application/wasm', '.woff2': 'font/woff2', '.map': 'application/json'}
+         '.wasm': 'application/wasm', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+         '.txt': 'text/plain; charset=utf-8', '.map': 'application/json'}
 
 HOP = {'connection', 'keep-alive', 'transfer-encoding', 'te', 'trailer',
        'upgrade', 'proxy-authorization', 'proxy-authenticate', 'host',

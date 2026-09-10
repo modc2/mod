@@ -1,0 +1,27 @@
+[package]
+name = "mcp-rs"
+version = "2.2.0"
+edition = "2021"
+description = "MCP Hub — aggregates many MCP servers behind one registry + one gateway endpoint"
+
+[[bin]]
+name = "mcp-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tower-http = { version = "0.5", features = ["cors"] }
+futures-util = "0.3"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+# Keys other people trust us with are encrypted at rest, never stored raw.
+aes-gcm = "0.10"
+
+[profile.release]
+opt-level = 2
+strip = true

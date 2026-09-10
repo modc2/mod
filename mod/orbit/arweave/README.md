@@ -41,7 +41,7 @@ m arweave/status
 
 ```sh
 m arweave/serve
-# open http://localhost:50151
+# open http://localhost:50153
 ```
 
 ## API

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Header from "./components/Header";
 import TickerTape from "./components/TickerTape";
 import { WalletProvider } from "./lib/wallet";
+import { SessionProvider } from "./lib/auth";
 import { themeBootScript } from "./lib/themes";
 
 export const metadata: Metadata = {
@@ -21,9 +22,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="font-sans antialiased">
         <WalletProvider>
-          <Header />
-          <TickerTape />
-          <main className="max-w-7xl mx-auto px-4 py-8 animate-fadeUp">{children}</main>
+          {/* Wallet = which account is attached. Session = whether it can
+              write. Everything downstream asks the second question. */}
+          <SessionProvider>
+            <Header />
+            <TickerTape />
+            <main className="max-w-7xl mx-auto px-4 py-8 animate-fadeUp">{children}</main>
+          </SessionProvider>
         </WalletProvider>
       </body>
     </html>

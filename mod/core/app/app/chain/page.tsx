@@ -1,55 +1,73 @@
 "use client"
 
-import { useState } from 'react'
-import { TERM_FONT, ACCENT, netInfo, useIsMobile } from './shared'
-import { Btn, Sheet, panelStyle } from './ui'
-import { WalletBar, useChainWallet } from './WalletBar'
-import { Balances } from './Balances'
-import { Sidebar } from './Sidebar'
-import { Gallery } from './Gallery'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { TERM_FONT, ACCENT, netInfo, probeNetwork, chainApi, useIsMobile, useApiHealth } from './shared'
+import { Banner, Sheet, panelStyle } from './ui'
+import { ArcadeStyles, PIXEL, NEON, type LedState } from './arcade'
+import { Rail, RailBar, RAIL_CSS, RAIL_WIDTH, ALL_TABS, type Tab } from './Rail'
+import { useChainWallet } from './WalletBar'
 import { useProjects } from './projects'
 import { BuildTab } from './BuildTab'
 import { TestTab } from './TestTab'
 import { DeployTab } from './DeployTab'
 import { ContractsTab } from './ContractsTab'
+import { ChainsTab } from './ChainsTab'
 import { InteractTab, type InteractTarget } from './InteractTab'
 import { ConfigTab } from './ConfigTab'
+import { AgentTab } from './AgentTab'
 
 export const dynamic = 'force-dynamic'
-
-type Tab = 'build' | 'test' | 'deploy' | 'contracts' | 'interact' | 'config'
-
-interface TabDef { key: Tab; label: string; icon: string; hint: string; fleetOnly?: boolean }
-
-// Two groups, because they answer different questions: the first three are
-// about the project you have open, the last three about the fleet's own
-// deployment. Mixing them in one row is what made the dimmed tabs confusing.
-const MINE: TabDef[] = [
-  { key: 'build', label: 'BUILD', icon: '✎', hint: 'Write it, compile it, deploy it with your wallet.' },
-  { key: 'test', label: 'TEST', icon: '✓', hint: 'Run the project’s tests on an in-process EVM — no wallet, no gas.' },
-  { key: 'interact', label: 'INTERACT', icon: '◉', hint: 'Call any contract: yours, the fleet’s, or one loaded by address / ABI CID.' },
-]
-
-const FLEET: TabDef[] = [
-  { key: 'contracts', label: 'CONTRACTS', icon: '▤', hint: 'The fleet’s deployed contracts on this network.', fleetOnly: true },
-  { key: 'deploy', label: 'DEPLOY', icon: '▶', hint: 'Re-deploy the fleet’s own contracts (owner tooling).', fleetOnly: true },
-  { key: 'config', label: 'CONFIG', icon: '☰', hint: 'What config.json records for this network.', fleetOnly: true },
-]
-
-const ALL_TABS = [...MINE, ...FLEET]
 
 export default function ChainPage() {
   const [activeTab, setActiveTab] = useState<Tab>('build')
   const [network, setNetwork] = useState('testnet')
   const [target, setTarget] = useState<InteractTarget | null>(null)
-  const [railOpen, setRailOpen] = useState(false)
+  const [chainLed, setChainLed] = useState<LedState>('idle')
+  const [block, setBlock] = useState<number | null>(null)
+  const [score, setScore] = useState<number | null>(null)
+  const [drawer, setDrawer] = useState(false)
   const wallet = useChainWallet(network)
+  const api = useApiHealth()
   const projects = useProjects(wallet.address)
   const mobile = useIsMobile()
 
   const net = netInfo(network)
   const fleet = !!net.fleet
-  const hint = ALL_TABS.find(t => t.key === activeTab)?.hint || ''
+  const tab = ALL_TABS.find(t => t.key === activeTab)
+
+  // The rail's chain lamp — is the RPC we're pointed at actually answering?
+  useEffect(() => {
+    let cancelled = false
+    let misses = 0
+    const ping = () => probeNetwork(network).then(p => {
+      if (cancelled) return
+      if (p.up) {
+        misses = 0
+        setChainLed(p.chainId !== net.chainId ? 'warn' : 'live')
+        setBlock(p.block ?? null)
+        return
+      }
+      // public RPCs drop the odd request — keep the last block on screen and
+      // only call the chain dead on the second miss in a row
+      misses += 1
+      if (misses >= 2) { setChainLed('dead'); setBlock(null) }
+    })
+    setChainLed('idle'); setBlock(null)
+    ping()
+    const iv = setInterval(ping, 30000)
+    return () => { cancelled = true; clearInterval(iv) }
+  }, [network, net.chainId])
+
+  // How many contracts you have to your name — badged on the CONTRACTS row.
+  useEffect(() => {
+    let cancelled = false
+    const q = wallet.address ? `?address=${wallet.address}` : ''
+    chainApi(`/build/deployments${q}`)
+      .then(d => { if (!cancelled) setScore(d.count ?? (d.deployments || []).length) })
+      .catch(() => { if (!cancelled) setScore(null) })
+    return () => { cancelled = true }
+  }, [wallet.address, activeTab])
 
   const handoff = (t: InteractTarget) => {
     setTarget(t)
@@ -57,168 +75,145 @@ export default function ChainPage() {
   }
 
   const offFleet = (
-    <div style={{ ...panelStyle, padding: '16px', fontFamily: TERM_FONT, fontSize: '12px', color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
+    <div style={{ ...panelStyle, padding: '16px', fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
       This panel describes the fleet&apos;s own deployment, and {net.name} has none.
-      Switch to a fleet network to use it — BUILD, TEST and INTERACT work here as normal.
+      Switch to a fleet network to use it — everything else works here as normal.
     </div>
   )
 
-  const rail = (
+  const railProps = {
+    activeTab, setActiveTab, network, setNetwork, wallet, projects,
+    led: chainLed, block, score,
+  }
+
+  const panels = (
     <>
-      <Sidebar projects={projects} address={wallet.address} onNavigate={() => setRailOpen(false)} />
-      <Gallery projects={projects} address={wallet.address} onNavigate={() => setRailOpen(false)} />
+      {activeTab === 'build' && (
+        <BuildTab wallet={wallet} network={network} projects={projects} onInteract={handoff} />
+      )}
+      {activeTab === 'test' && <TestTab projects={projects} address={wallet.address} />}
+      {activeTab === 'agent' && <AgentTab wallet={wallet} network={network} projects={projects} />}
+      {activeTab === 'interact' && (
+        <InteractTab wallet={wallet} network={network} target={target} setTarget={setTarget} />
+      )}
+      {activeTab === 'contracts' && (
+        <ContractsTab wallet={wallet} network={network} onInteract={handoff} onNetwork={setNetwork} />
+      )}
+      {activeTab === 'chains' && (
+        <ChainsTab network={network} setNetwork={setNetwork} address={wallet.address} />
+      )}
+      {activeTab === 'deploy' && (fleet ? <DeployTab network={network} /> : offFleet)}
+      {activeTab === 'config' && (fleet ? <ConfigTab network={network} /> : offFleet)}
     </>
   )
 
-  const tabButton = (tab: TabDef) => {
-    const active = activeTab === tab.key
-    const dim = tab.fleetOnly && !fleet
-    return (
-      <button
-        key={tab.key}
-        onClick={() => setActiveTab(tab.key)}
-        className="transition-all"
-        title={dim ? `${net.name} has no fleet deployment` : tab.hint}
-        style={{
-          fontFamily: TERM_FONT,
-          fontSize: '13px',
-          letterSpacing: '0.1em',
-          padding: mobile ? '10px 12px' : '8px 16px',
-          minHeight: '44px',
-          flexShrink: 0,
-          border: active ? `2px solid ${ACCENT}` : '2px solid transparent',
-          background: active ? `${ACCENT}14` : 'transparent',
-          color: active ? ACCENT : 'var(--text-tertiary)',
-          boxShadow: active ? `2px 2px 0px 0px ${ACCENT}` : 'none',
-          cursor: 'pointer',
-          opacity: dim ? 0.45 : 1,
-          textShadow: active ? `0 0 8px ${ACCENT}` : 'none',
-        }}
-      >
-        <span style={{ marginRight: '6px' }}>{tab.icon}</span>
-        {tab.label}
-      </button>
-    )
-  }
-
   // width:0 + min-width:100% keeps this page from widening the app shell: the
-  // shell's columns size to their content, so without it one wide row (the tab
-  // strip on a phone) drags the whole page past the viewport.
+  // shell's columns size to their content, so without it one wide row drags
+  // the whole page past the viewport.
   return (
-    <div className="min-h-screen" style={{
+    <div className="min-h-screen arc-cabinet" style={{
       fontFamily: TERM_FONT, backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)',
       width: 0, minWidth: '100%',
     }}>
-      <div className="max-w-7xl mx-auto" style={{ padding: mobile ? '16px 12px 40px' : '32px 16px' }}>
+      <ArcadeStyles />
+      <style dangerouslySetInnerHTML={{ __html: RAIL_CSS }} />
 
-        {/* Header */}
-        <div className="mb-4">
-          <div className="flex items-center gap-3 mb-1" style={{ flexWrap: 'wrap' }}>
-            <span style={{ color: ACCENT, fontSize: '20px' }}>$</span>
-            <span style={{
-              fontSize: mobile ? '19px' : '22px', letterSpacing: '0.08em', color: ACCENT,
-              textShadow: `0 0 12px ${ACCENT}`,
-            }}>
-              chain
-            </span>
-            {!mobile && (
-              <span style={{ color: 'var(--text-tertiary)', fontSize: '14px' }}>
-                --build --test --deploy --interact
-              </span>
-            )}
-          </div>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: mobile ? '12px' : '14px' }}>
-            Write contracts and their tests, run the suite, deploy with your own wallet
-          </p>
-          <div className="mt-3" style={{ height: '2px', background: ACCENT, opacity: 0.3 }} />
-        </div>
+      <div style={{
+        display: 'flex', alignItems: 'flex-start',
+        maxWidth: mobile ? undefined : `${1180 + RAIL_WIDTH}px`,
+        margin: '0 auto',
+        padding: mobile ? '10px 10px 40px' : '14px 18px 48px',
+        gap: 0,
+      }}>
 
-        {/* Wallet + network */}
-        <WalletBar wallet={wallet} network={network} setNetwork={setNetwork} />
+        {/* The rail. Brand, workspace, nav, account — one column, in that
+            order. On a phone it's a drawer behind ☰ instead. */}
+        {!mobile && <Rail {...railProps} />}
 
-        {/* Balances */}
-        <Balances wallet={wallet} network={network} />
+        {/* The screen. */}
+        <div style={{ flex: 1, minWidth: 0, paddingLeft: mobile ? 0 : '22px' }}>
 
-        {/* On a phone the rail is a drawer — one button, always showing what's open */}
-        {mobile && (
-          <button
-            onClick={() => setRailOpen(true)}
-            style={{
-              ...panelStyle, width: '100%', marginBottom: '12px', padding: '12px 14px',
-              display: 'flex', alignItems: 'center', gap: '10px', minHeight: '48px',
-              fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-primary)', cursor: 'pointer',
-            }}
-          >
-            <span style={{ color: ACCENT }}>☰</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {projects.project ? projects.project.name : 'PROJECTS'}
-            </span>
-            <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-tertiary)' }}>
-              {projects.project
-                ? (projects.saving ? 'saving…' : projects.dirty ? 'unsaved' : 'saved')
-                : 'pick or start one'}
-            </span>
-          </button>
-        )}
+          {mobile && (
+            <RailBar
+              tab={tab} onOpen={() => setDrawer(true)}
+              wallet={wallet} network={network} led={chainLed}
+            />
+          )}
 
-        <Sheet open={mobile && railOpen} onClose={() => setRailOpen(false)} title="PROJECTS">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>{rail}</div>
-        </Sheet>
+          {/* One banner for the whole console: every panel loads through
+              chainApi and most swallow their errors, so a dead bridge used to
+              render as a page of empty boxes. */}
+          {api.down && (
+            <Banner
+              title="CHAIN API NOT ANSWERING"
+              onRetry={() => window.location.reload()}
+            >
+              The console can&apos;t reach the chain module, so templates, projects and
+              contracts are all coming back empty. Last failure: {api.detail}
+            </Banner>
+          )}
 
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-          {/* Left rail — your projects on top, the shared gallery under them */}
+          {/* The panel's own title row — what the marquee used to shout, said
+              once, where the thing it names actually is. */}
           {!mobile && (
             <div style={{
-              width: '232px', flexShrink: 0, alignSelf: 'flex-start',
-              position: 'sticky', top: '16px', maxHeight: 'calc(100vh - 32px)', overflowY: 'auto',
-              display: 'flex', flexDirection: 'column', gap: '12px',
+              display: 'flex', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap',
+              borderBottom: '2px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px',
             }}>
-              {rail}
+              <h1 className="arc-pixel" style={{
+                fontFamily: PIXEL, fontSize: '14px', letterSpacing: '0.1em', lineHeight: 1.4,
+                color: ACCENT, textShadow: `0 0 14px ${ACCENT}55`, margin: 0,
+              }}>
+                {tab?.label}
+              </h1>
+              <p style={{
+                fontFamily: TERM_FONT, fontSize: '15px', color: 'var(--text-secondary)',
+                lineHeight: 1.5, margin: 0, flex: 1, minWidth: '220px',
+              }}>
+                <span style={{ color: NEON.p2, marginRight: '8px' }}>»</span>
+                {tab?.hint}
+              </p>
             </div>
           )}
 
-          <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Tabs — your project first, the fleet's own deployment after it */}
-            <div style={{
-              display: 'flex', gap: mobile ? '4px' : '8px', alignItems: 'center',
-              borderBottom: '2px solid var(--border-color)', paddingBottom: '8px',
-              overflowX: mobile ? 'auto' : 'visible', flexWrap: mobile ? 'nowrap' : 'wrap',
-            }}>
-              {MINE.map(tabButton)}
-              <span style={{
-                flexShrink: 0, width: '1px', alignSelf: 'stretch', margin: '0 4px',
-                background: 'var(--border-color)',
-              }} />
-              <span style={{
-                flexShrink: 0, fontSize: '10px', letterSpacing: '0.14em',
-                color: 'var(--text-tertiary)', opacity: 0.7,
-              }}>
-                FLEET
-              </span>
-              {FLEET.map(tabButton)}
-            </div>
-
+          {mobile && (
             <p style={{
-              fontFamily: TERM_FONT, fontSize: '11.5px', color: 'var(--text-tertiary)',
-              margin: '10px 0 20px', lineHeight: 1.5,
+              fontFamily: TERM_FONT, fontSize: '15px', color: 'var(--text-secondary)',
+              margin: '0 0 14px', lineHeight: 1.5,
             }}>
-              {hint}
+              <span style={{ color: NEON.p2, marginRight: '8px' }}>»</span>
+              {tab?.hint}
             </p>
+          )}
 
-            {/* Panels */}
-            {activeTab === 'build' && (
-              <BuildTab wallet={wallet} network={network} projects={projects} onInteract={handoff} />
-            )}
-            {activeTab === 'test' && <TestTab projects={projects} address={wallet.address} />}
-            {activeTab === 'interact' && (
-              <InteractTab wallet={wallet} network={network} target={target} setTarget={setTarget} />
-            )}
-            {activeTab === 'contracts' && (fleet ? <ContractsTab wallet={wallet} network={network} /> : offFleet)}
-            {activeTab === 'deploy' && (fleet ? <DeployTab network={network} /> : offFleet)}
-            {activeTab === 'config' && (fleet ? <ConfigTab network={network} /> : offFleet)}
-          </div>
+          {panels}
         </div>
       </div>
+
+      {/* Phone drawer: the same rail, in a slide-over.
+
+          Portalled to <body> on purpose. The cabinet sets `isolation: isolate`
+          so its scanline overlay stacks correctly, which also traps anything
+          inside it — the sheet's z-100 lost to the app shell's fixed z-70 top
+          bar and the drawer opened with its own close button underneath it. */}
+      {mobile && drawer && typeof document !== 'undefined' && createPortal(
+        // Outside the cabinet the drawer also loses the cabinet's contrast
+        // lifts, so it carries its own copy — muddy 25%-white labels are what
+        // those overrides exist to prevent.
+        <div style={{
+          fontFamily: TERM_FONT,
+          ['--text-secondary' as any]: 'rgba(255,255,255,0.68)',
+          ['--text-tertiary' as any]: 'rgba(255,255,255,0.45)',
+          ['--border-color' as any]: 'rgba(148,163,184,0.28)',
+        }}>
+          <Sheet open onClose={() => setDrawer(false)} title="CHAIN">
+            <div style={{ paddingBottom: '20px' }}>
+              <Rail {...railProps} inSheet onNavigate={() => setDrawer(false)} />
+            </div>
+          </Sheet>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }

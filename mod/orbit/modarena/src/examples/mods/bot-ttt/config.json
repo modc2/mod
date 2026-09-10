@@ -1,0 +1,14 @@
+{
+  "name": "bot-ttt",
+  "kind": "player",
+  "lang": "wasm",
+  "anchor": "mod.wasm",
+  "description": "Perfect tic-tac-toe by full minimax. The reference opponent \u2014 it never loses.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "player",
+    "baseline"
+  ],
+  "protocol": "modarena/1.0"
+}

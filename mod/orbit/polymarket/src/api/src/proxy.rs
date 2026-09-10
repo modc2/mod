@@ -52,6 +52,18 @@ fn rewrite_endpoint(endpoint: &str) -> &str {
     }
 }
 
+/// Order-independent form of a query string, for cache keying only. Repeated
+/// keys (gamma's `condition_ids`) are kept — sorting preserves every pair, so
+/// two requests differing in which ids they ask for still get separate entries.
+pub fn normalize_query(qs: &str) -> String {
+    if qs.is_empty() {
+        return String::new();
+    }
+    let mut pairs: Vec<&str> = qs.split('&').filter(|p| !p.is_empty()).collect();
+    pairs.sort_unstable();
+    pairs.join("&")
+}
+
 pub async fn proxy_handler(
     State(state): State<AppState>,
     Query(params): Query<ProxyQuery>,
@@ -62,9 +74,16 @@ pub async fn proxy_handler(
         None => return (StatusCode::BAD_REQUEST, Json(json!({"error": "missing endpoint param"}))).into_response(),
     };
 
-    // Build cache key from full query string
+    // Cache key from the query string, NORMALIZED. Keying on it verbatim meant
+    // parameter order decided the entry: the TS lib builds
+    // `user&limit&offset&endpoint` while everything hand-rolled writes
+    // `endpoint&user&limit&offset`, so one trader's page 0 sat in two entries
+    // aging independently — observed ten minutes apart for the same request,
+    // which is a fetch upstream that didn't have to happen and a caller that
+    // can't tell how old its answer is. Sorting makes the key a function of
+    // the request's meaning rather than of how the caller spelled it.
     let qs = req.uri().query().unwrap_or("");
-    let cache_key = format!("proxy:{}", qs);
+    let cache_key = format!("proxy:{}", normalize_query(qs));
 
     // Check cache (memory + disk for persistent endpoints). Only a FRESH
     // entry short-circuits — a stale one falls through to a live upstream
@@ -170,10 +189,16 @@ pub async fn proxy_handler(
                 headers.insert("x-cache", "STALE".parse().unwrap());
                 return (StatusCode::OK, headers, Json(data)).into_response();
             }
-            // Surface a rate-limit as 429 so the frontend can back off and
-            // retry instead of treating it as a dead gateway.
-            let out = if status == 429 { StatusCode::TOO_MANY_REQUESTS } else { StatusCode::BAD_GATEWAY };
-            (out, Json(json!({"error": format!("upstream {}", status)}))).into_response()
+            let out = downstream_status(status);
+            // Upstream explains itself; a caller can only act on a reason it
+            // can read, so forward the message rather than just the number.
+            let detail = resp.text().await.ok()
+                .and_then(|b| serde_json::from_str::<Value>(&b).ok())
+                .and_then(|v| v.get("error").or_else(|| v.get("message"))
+                    .and_then(Value::as_str).map(str::to_string))
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| format!("upstream {}", status));
+            (out, Json(json!({"error": detail, "upstream_status": status}))).into_response()
         }
         Err(e) => {
             // Serve stale on network error
@@ -184,5 +209,70 @@ pub async fn proxy_handler(
             }
             (StatusCode::BAD_GATEWAY, Json(json!({"error": format!("network: {}", e)}))).into_response()
         }
+    }
+}
+
+/// What status the browser should see for a given upstream status.
+///
+/// Pass a client error through AS a client error. Flattening every upstream
+/// 4xx into 502 cost a real bug: data-api answers `/activity?offset>5000` with
+/// 400 "max historical activity offset of 5000 exceeded" — a permanent limit —
+/// and the browser saw a 502, a status its own retry ladder treats as
+/// transient. A deterministic no burned three retries and then rendered as
+/// "TRADE SYNC FAILED (API 502)" behind a RETRY SYNC button that could never
+/// work. (429 still arrives as 429 for the reason it always did: the frontend
+/// backs off differently for a rate limit than for a blip.)
+fn downstream_status(upstream: u16) -> StatusCode {
+    StatusCode::from_u16(upstream)
+        .ok()
+        .filter(StatusCode::is_client_error)
+        .unwrap_or(StatusCode::BAD_GATEWAY)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{downstream_status, normalize_query};
+    use axum::http::StatusCode;
+
+    /// The one that bit us: a permanent upstream refusal must not arrive
+    /// wearing a transient status.
+    #[test]
+    fn client_errors_are_not_disguised_as_gateway_failures() {
+        assert_eq!(downstream_status(400), StatusCode::BAD_REQUEST);
+        assert_eq!(downstream_status(404), StatusCode::NOT_FOUND);
+        assert_eq!(downstream_status(429), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    /// Everything that ISN'T the caller's fault stays a 502 — the frontend
+    /// retries those, and a 500/503 genuinely is worth retrying.
+    #[test]
+    fn server_errors_and_nonsense_stay_502() {
+        assert_eq!(downstream_status(500), StatusCode::BAD_GATEWAY);
+        assert_eq!(downstream_status(503), StatusCode::BAD_GATEWAY);
+        assert_eq!(downstream_status(999), StatusCode::BAD_GATEWAY);
+    }
+
+    /// The whole point: two spellings of one request must land on one entry.
+    #[test]
+    fn param_order_does_not_change_the_cache_key() {
+        assert_eq!(
+            normalize_query("user=0xabc&limit=500&offset=0&endpoint=activity"),
+            normalize_query("endpoint=activity&user=0xabc&limit=500&offset=0"),
+        );
+    }
+
+    #[test]
+    fn different_requests_still_differ() {
+        assert_ne!(
+            normalize_query("endpoint=activity&user=0xabc&offset=0"),
+            normalize_query("endpoint=activity&user=0xabc&offset=500"),
+        );
+        // Repeated keys are preserved, not collapsed — gamma's `condition_ids`
+        // is passed once per id and the set is what makes the request distinct.
+        assert_ne!(
+            normalize_query("endpoint=markets&condition_ids=a&condition_ids=b"),
+            normalize_query("endpoint=markets&condition_ids=a"),
+        );
+        assert_eq!(normalize_query(""), "");
     }
 }

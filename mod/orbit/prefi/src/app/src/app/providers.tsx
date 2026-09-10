@@ -18,6 +18,23 @@ function ProvidersInner({ children }: { children: React.ReactNode }) {
       const { injectedWallet, coinbaseWallet, metaMaskWallet, walletConnectWallet } =
         await import('@rainbow-me/rainbowkit/wallets')
 
+      // Hyperliquid's EVM — where the stake pool's USDC and USDT0 live. First
+      // in the list because it is the only chain the app actually moves money
+      // on; the Base entries below are for the (undeployed) trading contracts.
+      const hyperEvm = {
+        id: 999,
+        name: 'HyperEVM',
+        network: 'hyperevm',
+        nativeCurrency: { name: 'HYPE', symbol: 'HYPE', decimals: 18 },
+        rpcUrls: {
+          default: { http: [process.env.NEXT_PUBLIC_HYPEREVM_RPC || 'https://rpc.hyperliquid.xyz/evm'] },
+          public: { http: [process.env.NEXT_PUBLIC_HYPEREVM_RPC || 'https://rpc.hyperliquid.xyz/evm'] },
+        },
+        blockExplorers: {
+          default: { name: 'HyperEVMScan', url: 'https://hyperevmscan.io' },
+        },
+      }
+
       const ganache = {
         id: 1337,
         name: 'Ganache',
@@ -60,7 +77,7 @@ function ProvidersInner({ children }: { children: React.ReactNode }) {
       }
 
       const { chains, publicClient } = configureChains(
-        [baseSepolia, base, ganache],
+        [hyperEvm, baseSepolia, base, ganache],
         [publicProvider()]
       )
 

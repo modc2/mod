@@ -255,6 +255,8 @@ export default function Tools({ token, isHost, onCount }: {
         </div>
       </div>
 
+      <McpCard />
+
       {/* what's on, and how to add more */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <input value={search} onChange={e => setSearch(e.target.value)}
@@ -718,6 +720,113 @@ function ToolForm({ tool, token, boxes, onClose, onSaved }: {
           Custom tools run shell on the host — adding one needs admin access.
         </span>
       </div>
+    </div>
+  )
+}
+
+
+// ── MCP: the same registry, reachable from outside ────────────────────
+//
+// This tab is where the tool surface is read, so it is also where you find out
+// that it is callable from anywhere. The panel reads /mcp/schema — the live
+// list, not a copy — so a tool added to the server shows up here without
+// anyone editing this file.
+
+type McpSchema = {
+  endpoint: string
+  gateway?: string
+  stdio?: string
+  protocol?: string
+  connect?: string
+  tools: { name: string; description: string }[]
+  resources?: { uri: string; name: string; description?: string }[]
+}
+
+function McpCard() {
+  const [open, setOpen] = useState(false)
+  const [schema, setSchema] = useState<McpSchema | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!open || schema) return
+    fetch(`${API_URL}/mcp/schema`, { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json()).then(setSchema).catch(() => {})
+  }, [open, schema])
+
+  // the endpoint a client outside this browser has to dial: API_URL is a path
+  // behind the gateway in production and an absolute localhost in dev
+  const endpoint = useMemo(() => {
+    if (typeof window === 'undefined') return `${API_URL}/mcp`
+    return API_URL.startsWith('http') ? `${API_URL}/mcp`
+                                      : `${window.location.origin}${API_URL}/mcp`
+  }, [])
+  const connect = `claude mcp add --transport http agent ${endpoint}`
+
+  const copy = (text: string, what: string) => {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(what)
+      setTimeout(() => setCopied(c => (c === what ? null : c)), 1500)
+    }).catch(() => {})
+  }
+
+  return (
+    <div className="rounded-lg border border-sky-500/15 bg-sky-500/[0.03] px-2.5 py-2 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-sky-400/80">MCP</span>
+        <span className="text-[10px] text-gray-500 truncate">
+          the same tools over one endpoint — any MCP client can drive this agent
+        </span>
+        <button onClick={() => copy(connect, 'connect')}
+          title={connect}
+          className="ml-auto px-2 py-0.5 rounded text-[10px] uppercase tracking-wider text-gray-600 hover:text-sky-300 hover:bg-sky-500/10 transition shrink-0">
+          {copied === 'connect' ? 'copied' : 'copy connect'}
+        </button>
+        <button onClick={() => setOpen(o => !o)}
+          className="px-2 py-0.5 rounded text-[10px] uppercase tracking-wider text-gray-600 hover:text-sky-300 hover:bg-sky-500/10 transition shrink-0">
+          {open ? 'hide' : `${schema ? schema.tools.length : ''} tools`.trim() || 'tools'}
+        </button>
+      </div>
+
+      <button onClick={() => copy(endpoint, 'endpoint')}
+        className="block w-full text-left font-mono text-[11px] text-sky-300/80 hover:text-sky-200 truncate transition">
+        POST {endpoint}{copied === 'endpoint' && <span className="text-gray-600"> · copied</span>}
+      </button>
+
+      {open && (
+        <div className="pt-1.5 border-t border-white/[0.06] space-y-1.5">
+          {!schema ? (
+            <p className="text-[11px] text-gray-600">Reading the tool list…</p>
+          ) : (
+            <>
+              <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                {schema.tools.map(t => (
+                  <div key={t.name} className="flex items-baseline gap-2">
+                    <span className="font-mono text-[11px] text-sky-300 w-36 shrink-0 truncate">{t.name}</span>
+                    <span className="text-[10px] text-gray-600 truncate">{t.description}</span>
+                  </div>
+                ))}
+              </div>
+              {!!schema.resources?.length && (
+                <p className="text-[10px] text-gray-600">
+                  + {schema.resources.length} resources ({schema.resources.map(r => r.uri.replace('agent://', '')).join(', ')})
+                  {schema.protocol && <span className="text-gray-700"> · protocol {schema.protocol}</span>}
+                </p>
+              )}
+              {schema.stdio && (
+                <p className="text-[10px] text-gray-600 font-mono truncate" title={schema.stdio}>
+                  stdio: {schema.stdio}
+                </p>
+              )}
+              <p className="text-[10px] text-gray-600">
+                Reads are open. Running the loop, writing a fact or calling a shell tool
+                wants the same signed token this console signs in with — send it as an
+                <span className="font-mono text-gray-500"> Authorization: Bearer </span>
+                header, or as a <span className="font-mono text-gray-500">key</span> argument on the call.
+              </p>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

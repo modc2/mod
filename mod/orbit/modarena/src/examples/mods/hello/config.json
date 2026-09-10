@@ -1,0 +1,14 @@
+{
+  "name": "hello",
+  "kind": "command",
+  "lang": "wasm",
+  "anchor": "mod.wasm",
+  "description": "An ordinary WASI command \u2014 argv, stdin, stdout, no arena ABI at all. Proof that anything wasm runs.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "command",
+    "wasi"
+  ],
+  "protocol": "modarena/1.0"
+}

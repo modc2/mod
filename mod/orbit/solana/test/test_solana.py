@@ -18,10 +18,18 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+# The live half of this suite is one long burst against a single free price API,
+# which the module paces itself against. In a browser a paced call waits four
+# seconds and then gives up, because nobody watches a panel for longer; a test
+# run has no such feelings and would much rather wait than fail. Set before the
+# import, because that is when the ceiling is read.
+os.environ.setdefault('SOLANA_JUP_WAIT', '120')
+
 import chain as C          # noqa: E402
 import keys as K           # noqa: E402
 import mcp as M            # noqa: E402
 import program as P        # noqa: E402
+import tokens as T         # noqa: E402
 from keys import SolError  # noqa: E402
 
 OFFLINE = os.environ.get('SOLANA_OFFLINE') == '1'
@@ -334,7 +342,7 @@ def test_mainnet_has_no_faucet():
 # ── mcp registry ─────────────────────────────────────────────────
 
 def test_every_tool_is_well_formed_and_reachable():
-    assert len(M.TOOLS) == 22
+    assert len(M.TOOLS) == 26
     for name, tool in M.TOOLS.items():
         assert name.startswith('sol_')
         assert len(tool['description']) > 80, name
@@ -833,3 +841,277 @@ def test_the_program_tool_answers_the_same_as_the_function():
     b = P.program_info(C.Client(), MEMO, strings=False, idl=False)
     assert a['program'] == b['program'] == MEMO
     assert a['loader'] == b['loader']
+
+
+# ── the liquidity layer ──────────────────────────────────────────
+# Offline first, because every one of these is a place where a plausible
+# number would be a wrong number, and a wrong liquidity figure is the kind of
+# mistake that costs someone their exit.
+
+def test_a_number_a_source_does_not_know_is_none_and_never_zero():
+    for bad in (None, '', 'NaN', 'null', float('inf'), True, {}):
+        assert T._f(bad) is None, bad
+    assert T._f('14137977.2712') == pytest.approx(14137977.2712)
+    assert T._f(0) == 0.0
+
+
+def test_a_side_bigger_than_the_pool_it_sits_in_is_dropped():
+    pools = T.Book._reconcile([
+        {'address': 'a', 'liquidity_usd': 17_484, 'token_side_usd': 20_942_894},
+        {'address': 'b', 'liquidity_usd': 100_000, 'token_side_usd': 60_000},
+    ])
+    assert pools[0]['token_side_usd'] is None and pools[0]['side_dropped']
+    assert pools[1]['token_side_usd'] == 60_000
+
+
+def test_two_indexes_disagreeing_about_one_pool_take_the_smaller_reading():
+    class Fake(T.Source):
+        measures = 'reserves'
+
+        def __init__(self, name, value):
+            self.name, self.value = name, value
+
+        def pools(self, mint, limit=50):
+            return [{'address': 'P', 'dex': 'meteora', 'pair': 'X / Y',
+                     'liquidity_usd': self.value, 'volume_24h_usd': 1.0}]
+
+    book = T.Book(client=C.Client())
+    book.sources = [Fake('one', 638_597.22), Fake('two', 128.0)]
+    pools, seen, _ = book.merge_pools('mint')
+    assert len(pools) == 1, 'the same pool from two sources is one pool'
+    assert pools[0]['liquidity_usd'] == 128.0
+    assert 'the smaller is counted' in pools[0]['disputed']
+    assert seen == ['one', 'two']
+
+
+def test_a_pool_claiming_more_than_the_token_is_worth_is_kept_but_not_counted():
+    pools = T.Book(client=C.Client())._screen([
+        {'address': 'a', 'liquidity_usd': 4_119_844_965.0, 'fdv_usd': 1_778.0},
+        {'address': 'b', 'liquidity_usd': 900.0, 'fdv_usd': 1_778.0},
+        {'address': 'c', 'liquidity_usd': 500.0, 'fdv_usd': 1_778.0},
+    ])
+    assert pools[0]['suspect'] and 'excluded from the totals' in pools[0]['suspect']
+    assert not pools[1].get('suspect') and not pools[2].get('suspect')
+
+
+def test_the_median_test_is_only_applied_between_pools_of_the_same_token():
+    # A chain-wide sample has no comparable median: SOL/USDC next to a hundred
+    # bonding curves would be thrown out as the outlier it is not.
+    chain = [{'address': str(i), 'liquidity_usd': 2_463.0} for i in range(20)]
+    chain.append({'address': 'sol', 'liquidity_usd': 14_161_520.0})
+    assert T.Book(client=C.Client())._screen(chain, related=False)[-1].get('suspect') is None
+    assert T.Book(client=C.Client())._screen(chain, related=True)[-1]['suspect']
+
+
+def test_the_executable_size_is_bisected_between_the_rungs_that_bracket_it():
+    calls = []
+
+    def quote_at(usd):
+        calls.append(usd)
+        # a cliff: fine to $200k, ruinous past it
+        return {'usd': usd, 'cost_pct': 0.3 if usd <= 200_000 else 60.0}
+
+    priced = [{'usd': 100_000.0, 'cost_pct': 0.34},
+              {'usd': 1_000_000.0, 'cost_pct': 98.2}]
+    got, extra, how = T.Book._bisect(quote_at, priced, 1.0, seed=148_549)
+    assert how == 'measured by bisection'
+    assert len(extra) == len(calls) == 4, 'every extra rung is a real quote, kept'
+    assert 150_000 < got <= 200_000, got
+    assert all(100_000 < c < 1_000_000 for c in calls)
+
+
+def test_a_ladder_that_never_hit_the_limit_reports_a_floor_not_a_number():
+    priced = [{'usd': 1_000.0, 'cost_pct': 0.05}]
+    got, extra, how = T.Book._bisect(lambda usd: None, priced, 1.0, seed=1_000.0)
+    assert extra == [] and got == 1_000.0
+    assert 'floor' in how, 'deeper than we looked is not the same as measured'
+
+
+def test_a_token_nothing_clears_in_says_so_rather_than_naming_a_size():
+    priced = [{'usd': 1_000.0, 'cost_pct': 40.0}]
+    got, extra, how = T.Book._bisect(lambda usd: None, priced, 1.0, seed=900.0)
+    assert got == 0.0 and extra == []
+    assert 'no size that clears' in how
+
+
+def test_the_flags_say_what_each_finding_means_not_just_that_it_happened():
+    flags = {f['flag']: f['means'] for f in T.Book.flags({
+        'liquidity_usd': 5_000, 'mcap_usd': 50_000_000, 'turnover': 400,
+        'mint_authority_live': True, 'top_holders_pct': 88, 'age_days': 2})}
+    assert set(flags) >= {'thin', 'exit', 'churn', 'mint', 'whales', 'new'}
+    assert all(len(v) > 20 for v in flags.values())
+    assert 'inflated' in flags['mint']
+
+
+def test_a_wrapper_whose_liquidity_is_its_own_supply_is_called_out():
+    # Jupiter reports staked-SOL wrappers as having liquidity equal to their
+    # entire market cap. That is redemption, not a book, and ranking it as
+    # depth puts twenty LSTs above SOL itself.
+    flags = [f['flag'] for f in T.Book.flags(
+        {'liquidity_usd': 1e9, 'mcap_usd': 1e9, 'liquidity_to_mcap_pct': 100.0,
+         'turnover': 0.0})]
+    assert 'redeemable' in flags
+
+
+def test_a_clean_deep_token_raises_nothing():
+    assert T.Book.flags({'liquidity_usd': 8_000_000, 'mcap_usd': 90_000_000,
+                         'turnover': 2.0, 'organic_share_pct': 40,
+                         'age_days': 900, 'liquidity_to_mcap_pct': 8.9}) == []
+
+
+def test_one_pool_holding_everything_is_named_as_such():
+    venues = [{'dex': 'meteora', 'liquidity_usd': 99_000, 'pools': 1}]
+    c = T.Book.concentration([{'liquidity_usd': 99_000}, {'liquidity_usd': 1_000}],
+                             venues)
+    assert c['hhi'] > 9_000 and 'no bid' in c['means']
+    spread = T.Book.concentration([{'liquidity_usd': 25_000}] * 4, venues)
+    assert spread['hhi'] == 2_500 and 'spread' in spread['means']
+
+
+def test_a_source_that_is_down_degrades_the_answer_instead_of_failing_it():
+    class Broken(T.Source):
+        name, measures = 'broken', 'reserves'
+
+        def pools(self, mint, limit=50):
+            raise SolError('broken is rate-limiting this box')
+
+    book = T.Book(client=C.Client())
+    book.sources = [Broken()]
+    pools, seen, _ = book.merge_pools('mint')
+    assert pools == [] and seen == []
+    assert any('broken' in w for w in book.warnings)
+
+
+def test_the_budget_stands_down_before_the_public_cap_does():
+    class Counted(T.Source):
+        name, per_minute = 'counted', 2
+
+    src, hits = Counted(), []
+    T._BUDGET.pop('counted', None)
+    for _ in range(2):
+        with pytest.raises(SolError):        # no network here; the budget is
+            src._spend('http://127.0.0.1:1/x', 1)   # spent by trying
+    with pytest.raises(SolError) as e:
+        src._spend('http://127.0.0.1:1/x', 1)
+    assert 'self-imposed budget' in str(e.value) and e.value.status == 429
+    assert hits == []
+
+
+def test_a_network_with_no_dexes_says_so_rather_than_reporting_zero():
+    book = T.Book(network='devnet')
+    out = book.universe()
+    assert out['tokens'] == [] and out['total'] == 0
+    assert any('mainnet only' in w for w in out['warnings'])
+
+
+@online
+def test_the_universe_is_ranked_and_every_derived_column_agrees_with_its_inputs():
+    r = M.call_tool('sol_tokens', {'limit': 25, 'sort': 'liquidity'})
+    assert r['total'] > 1_000 and len(r['tokens']) == 25
+    liq = [t['liquidity_usd'] or 0 for t in r['tokens']]
+    assert liq == sorted(liq, reverse=True)
+    assert r['totals']['liquidity_usd'] > 1e8
+    for t in r['tokens']:
+        if t['turnover'] is not None and t['liquidity_usd']:
+            assert t['turnover'] == pytest.approx(
+                t['volume_24h_usd'] / t['liquidity_usd'], rel=0.01, abs=1e-4)
+        assert t['grade'] in ('deep', 'liquid', 'tradeable', 'thin', 'dust')
+
+
+@online
+def test_a_filter_narrows_the_universe_without_changing_what_it_counts():
+    everything = M.call_tool('sol_tokens', {'limit': 1})
+    filtered = M.call_tool('sol_tokens', {'limit': 1, 'min_liquidity': 1_000_000})
+    assert filtered['total'] == everything['total'], 'the universe does not shrink'
+    assert filtered['matched'] < everything['matched']
+    assert filtered['tokens'][0]['liquidity_usd'] >= 1_000_000
+
+
+@online
+def test_the_three_liquidity_numbers_are_reported_separately_and_defined():
+    r = M.call_tool('sol_liquidity', {'mint': 'JUP'})
+    L = r['liquidity']
+    assert L['quotable_usd'] > 0 and L['pool_reserves_usd'] > 0
+    assert set(r['definitions']) == set(L)
+    assert r['depth']['executable_usd'] <= L['quotable_usd'], (
+        'you cannot sell more than the router says it can route')
+    assert r['depth']['ladder'] and r['depth']['into']['symbol'] == 'USDC'
+    costs = [s['cost_pct'] for s in r['depth']['ladder'] if s.get('cost_pct') is not None]
+    assert costs == sorted(costs), 'a bigger sell can never cost less'
+
+
+@online
+def test_a_stablecoin_is_priced_into_sol_because_it_cannot_be_sold_into_itself():
+    r = M.call_tool('sol_liquidity', {'mint': USDC, 'sizes': '1000'})
+    assert r['depth']['into']['symbol'] == 'SOL'
+    assert r['depth']['ladder'][0]['cost_pct'] < 1
+
+
+@online
+def test_pool_shares_add_up_to_the_total_they_are_shares_of():
+    r = M.call_tool('sol_pools', {'mint': 'BONK', 'limit': 40})
+    counted = [p for p in r['pools'] if not p.get('suspect')]
+    assert sum(p['liquidity_usd'] or 0 for p in counted) == pytest.approx(
+        r['liquidity_usd'], rel=0.001)
+    shares = [p['share_pct'] for p in counted if p['share_pct'] is not None]
+    assert sum(shares) == pytest.approx(100, abs=1.0)
+    assert sum(v['liquidity_usd'] for v in r['venues']) == pytest.approx(
+        r['liquidity_usd'], rel=0.001)
+
+
+@online
+def test_every_new_tool_answers_the_same_as_its_function():
+    m = __import__('mod').Mod()
+    a = m.tokens(limit=3, sort='mcap')
+    b = M.call_tool('sol_tokens', {'limit': 3, 'sort': 'mcap'})
+    assert [t['mint'] for t in a['tokens']] == [t['mint'] for t in b['tokens']]
+
+
+def test_jupiter_calls_are_paced_before_the_public_cap_refuses_them():
+    # Everything priced goes through one free endpoint, and measuring a token's
+    # depth spends eight quotes on one click. Pacing turns a burst into a wait;
+    # only a wait nobody would sit through becomes an error.
+    keep, C.JUP_PER_MIN = C.JUP_PER_MIN, 3
+    C._JUP_CALLS.clear()
+    try:
+        for _ in range(3):
+            C._pace_jupiter()
+        with pytest.raises(SolError) as e:
+            C._pace_jupiter(max_wait=0.5)
+        assert e.value.status == 429 and 'self-imposed' in str(e.value)
+    finally:
+        C.JUP_PER_MIN = keep
+        C._JUP_CALLS.clear()
+
+
+def test_a_flag_filter_names_what_it_hid_and_how_much():
+    rows = [{'mint': 'a', 'flags': [{'flag': 'redeemable', 'means': '…'}]},
+            {'mint': 'b', 'flags': []}]
+    keep = T.Book._matches(rows[1], None, None, None, None, False, {'redeemable'})
+    drop = T.Book._matches(rows[0], None, None, None, None, False, {'redeemable'})
+    assert keep and not drop
+    assert T.Book._matches(rows[0], None, None, None, None, False, set())
+
+
+@online
+def test_hiding_the_wrappers_puts_the_real_market_back_on_top():
+    # Left in, twenty staked-SOL wrappers outrank SOL itself, because their
+    # reported liquidity is their own supply.
+    plain = M.call_tool('sol_tokens', {'limit': 5})
+    real = M.call_tool('sol_tokens', {'limit': 5, 'exclude': 'redeemable'})
+    assert real['excluded_flags'] == ['redeemable']
+    assert real['hidden_by_exclude'] > 50
+    assert real['matched'] == plain['matched'] - real['hidden_by_exclude']
+    assert real['tokens'][0]['symbol'] == 'SOL'
+    assert set(real['flags']) >= {'redeemable', 'mint', 'freeze', 'nomarket'}
+
+
+@online
+def test_every_new_route_answers_over_rest_as_well_as_over_mcp():
+    import api
+    for path, query in (('/tokens', 'limit=2'),
+                        ('/liquidity', 'mint=SOL&depth=false'),
+                        ('/pools', 'mint=SOL&limit=5'),
+                        ('/venues', 'tokens=1')):
+        out = api.route('GET', path, query, None, '127.0.0.1')
+        assert isinstance(out, dict) and out['network'] == 'mainnet', path

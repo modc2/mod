@@ -1,0 +1,89 @@
+{
+  "block": "oracle",
+  "contract": "ModFixedOracle",
+  "file": "oracle.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "critical",
+  "summary": "ModFixedOracle is a 40-line owner-published price feed: one uint256 price, a timestamp, and an optional staleness window that makes price() revert once the feed is older than maxStaleness. The contract itself has no logic bugs, but it is the single trust root for every block wired to an `oracle` port (lending, cdp, perps, bonding), and the owner key can set any non-zero price in one unbounded, undelayed transaction. That is a direct drain path for every market that trusts it: inflate the price and borrow/mint the whole debt pool against dust, or crash it and liquidate every position for pennies, or swing it and close a perps position for the entire pool. The staleness guard fails closed by reverting, which is the right default for liquidations but also means a missed update (default window is 24h) or a lost owner key freezes collateral withdrawals, closes and liquidations in every consumer, with no recovery inside this contract. Because every update is a visible discrete jump, bots front-run setPrice on the perps and lending markets for riskless profit. Safe only as a testnet stub or behind a multisig/timelock-free hot key with strict operational discipline; it is not a production oracle.",
+  "counts": {
+    "critical": 1,
+    "high": 2,
+    "medium": 2,
+    "low": 1,
+    "info": 1
+  },
+  "findings": [
+    {
+      "id": "ORACLE-1",
+      "severity": "critical",
+      "title": "Owner can set any price instantly; one key drains every market wired to this oracle",
+      "where": "setPrice() L34-L39; Owned.onlyOwner/setOwner common.sol L42-L50",
+      "detail": "setPrice has no deviation cap, no minimum interval, no delay, no second signer and no sanity range (only newPrice > 0). Whoever holds `owner` (the deployer EOA when the governor port is left unwired, per the catalog ctor `$input:governor|$owner`) can move the price by any factor in a single transaction, and every consumer reads it live: lending.collateralValue L61 / borrow L104, cdp.collateralValue L78 / mint L129, perps.pnlOf L144 / close L203, bonding.bondPrice L72-L79. There is no circuit breaker on the consumer side either; setOracle on each consumer is also owner-only. A compromised, phished, or simply malicious owner key is therefore a full loss of every debt pool, every position's collateral and the whole perps liquidity pool, atomically and irreversibly.",
+      "exploit": "Owner (or anyone holding the key) with a wired ModLendingPool: (1) lock 1 wei of collateral; (2) setPrice(1e40); (3) lending.borrow(debtAsset.balanceOf(pool)) \u2014 maxBorrow = 1 wei * 1e40 / 1e18 * ltv, far above the pool, so the entire debtAsset balance leaves; (4) setPrice back to the market value; the position is now hopelessly underwater and the loan is never repaid. Same key against ModPerpMarket: open a max-leverage long at price P, setPrice(2P), close() \u2014 pnl = size, payout is clamped to poolAssets, so the LP pool is emptied. Same key against ModCDP/ModLendingPool in the other direction: setPrice(1) makes every account liquidatable and seize = pay*1e18*(1+bonus)/(1*1e4) is clamped to the user's entire collateral for a dust repay, so the attacker liquidates every user for ~0 and keeps all collateral.",
+      "recommendation": "Do not point real markets at a single-key oracle. At minimum: (a) put the owner behind a multisig or the timelock block only if the delay is much shorter than maxStaleness (see ORACLE-5); (b) add a per-update deviation cap (e.g. revert if newPrice deviates >X% from _price unless a separate guardian role approves) and a minimum interval; (c) add a separate `updater` role for routine pushes and keep `owner` for parameter changes so a hot key cannot also rotate ownership; (d) for production wire the oracle port to a Chainlink/TWAP adapter instead, and give consumers a guardian pause."
+    },
+    {
+      "id": "ORACLE-2",
+      "severity": "high",
+      "title": "Staleness guard reverts, which freezes withdrawals, closes and liquidations in every consumer; a lost owner key locks funds forever",
+      "where": "price() L22-L27; constructor L16-L20 (no setter for maxStaleness)",
+      "detail": "When block.timestamp - updatedAt > maxStaleness, price() reverts with STALE_PRICE and nothing else in this contract can clear it except a fresh setPrice from the owner. Failing closed is correct for liquidations, but every consumer routes user-exit paths through price() too: lending.withdrawCollateral L95-L102 (collateralValue), cdp.free L118-L126 (ratioBps), perps.close L203 (pnlOf) and perps.liquidate L233, bonding.deposit L90. So a stale feed means: collateral cannot be withdrawn even by users with zero debt (withdrawCollateral checks collateralValue unconditionally), perps traders cannot close and their margin is trapped, and liquidations halt while the real market keeps moving, so the first setPrice after a long gap lands as one jump that liquidates everyone at once (see ORACLE-3). The catalog default is 86400 s and the feed is pushed manually; a single missed day trips it. maxStaleness is immutable after deploy, so the only recovery is either the owner pushing a price or every consumer's owner calling setOracle to a replacement. If the owner key is lost or setOwner was called with a wrong address, all collateral in lending/cdp and all margin in perps is permanently locked; repay/burn still work but return nothing.",
+      "exploit": "Deploy oracle with maxStaleness=86400 and wire it to ModLendingPool; users deposit collateral and repay all debt. Owner does not call setPrice for 24h (vacation, key in cold storage, bot down). Now lending.withdrawCollateral reverts STALE_PRICE for every user, including those with debt 0, and liquidate reverts for underwater accounts. If the owner key is gone (or setOwner(address(0)) was called), this state is permanent for every consumer whose own owner cannot or will not swap the oracle.",
+      "recommendation": "Keep the revert for risk-increasing paths but give consumers an escape: consumers should skip the price check when debt == 0 on withdraw (lending L100, cdp L124) and let perps.close settle at the last price or allow a margin-only exit when the feed is stale. In the oracle add setMaxStaleness (owner) and a separate keeper/updater role so routine pushes do not need the owner key; document that the owner must be a key that can act within maxStaleness. Consumers should be deployed with an owner that can call setOracle as the emergency lever."
+    },
+    {
+      "id": "ORACLE-3",
+      "severity": "high",
+      "title": "Every price update is a public discrete jump: front-running setPrice yields riskless profit from the perps pool and bad debt in lending",
+      "where": "setPrice() L34-L39; consumers perps.open L169-L200 / close L203-L229, lending.borrow L104-L109, bonding.deposit L90-L101",
+      "detail": "There is no commit-reveal, no smoothing, no deviation cap and no update cadence. The pending setPrice(newPrice) transaction sits in the public mempool with the new value in calldata. A searcher reads it and, in the same block ahead of it, opens a max-leverage perps position in the direction of the move (open fee is the only friction), then closes right after the update at a guaranteed profit that is paid out of poolAssets (perps.close L216-L219). On lending/cdp a searcher sees a downward update coming, borrows/mints the maximum against collateral at the old, higher valuation, and walks away; after the update the position is underwater and the pool holds bad debt. The bigger the gap between pushes (bounded only by maxStaleness), the bigger the guaranteed jump. Bonding.deposit has a maxPrice guard but that only protects the buyer; a searcher buying just before an upward price move gets tokens at yesterday's price. This is not hypothetical: single-updater oracles with visible updates are farmed by MEV bots on every chain that has a public mempool.",
+      "exploit": "Perps wired to this oracle, price 100e18, pool 1,000,000 USDC, maxLeverage 10x. Owner broadcasts setPrice(110e18). Bot bundles: [open(true, 100_000 USDC, 100_000) at entry 100e18] + owner's setPrice + [close()]. pnl = size * (110-100)/100 = 100,000 USDC, paid from poolAssets to the bot. Repeat on every update; with a 24h cadence the jumps are large and the pool is drained within a handful of updates.",
+      "recommendation": "Push prices frequently (minutes, not a day) so jumps are small, or send updates via a private relay/bundle; add a deviation cap per update and let consumers enforce a minimum holding period or a two-step open (commit at block N, price taken at N+1). For perps and lending in production use a TWAP or signed-batch oracle with sub-block latency rather than an owner-pushed spot value."
+    },
+    {
+      "id": "ORACLE-4",
+      "severity": "medium",
+      "title": "Price must encode the collateral/debt decimal difference; the catalog's 'scale 18' param invites a 10^n misprice that drains lending/cdp",
+      "where": "IOracle common.sol L20-L23 ('price of one whole token, scaled 1e18'); consumers lending.collateralValue L61, cdp.collateralValue L78",
+      "detail": "Consumers compute collateralValue = collateral_raw * price / 1e18 and compare it to debt_raw. That is only correct when the price is expressed as debt-asset raw units per collateral raw unit times 1e18, i.e. P * 10^(debtDecimals - collateralDecimals) * 1e18, not the human 'price of one whole token'. The catalog exposes initialPrice with scale 18 and no decimals hint, so a deployer entering the human price for a pair with mismatched decimals (WBTC 8 / USDC 6, ETH 18 / USDC 6) misvalues collateral by 10^2 or 10^12. Overvaluation lets borrowers empty the debt pool against dust; undervaluation makes every depositor instantly liquidatable.",
+      "exploit": "Deploy lending with collateral = WETH (18 dec), debtAsset = USDC (6 dec), oracle initialPrice = 3000e18 (the 'human' price). collateralValue for 1 WETH = 1e18 * 3000e18 / 1e18 = 3000e18 USDC-raw, i.e. $3,000,000,000,000,000 instead of $3,000 (3000e6). Attacker deposits 0.000001 WETH, borrow() passes OVER_LTV for the pool's full USDC balance, and never repays.",
+      "recommendation": "Document the exact unit in the catalog param label ('debt-asset raw units per collateral raw unit, x1e18') and have the composer pre-compute the default from the two wired tokens' decimals(). Alternatively make consumers normalise both sides to 18 decimals using IERC20.decimals() so the oracle can honestly be 'price of one whole token'."
+    },
+    {
+      "id": "ORACLE-5",
+      "severity": "medium",
+      "title": "Composition trap: wiring the governor port to the timelock makes every price push wait `delay` seconds, and a delay >= maxStaleness permanently bricks all consumers",
+      "where": "constructor L16-L20 (owner_ = governor input); price() L22-L27; timelock.sol queue/execute L35-L48",
+      "detail": "The catalog offers `governor` as an input so the oracle can be owned by ModTimelock or ModGovernor. Because the same `owner` role does routine price updates (setPrice is onlyOwner, there is no separate updater), every update must be queued and executed after `delay`. With the catalog default maxStaleness = 86400 and a timelock delay of one day or more, the feed is stale before any update can land, so every consumer reverts forever (ORACLE-2) and no one can ever fix it from the oracle side. Even with a shorter delay the price is guaranteed to be `delay` seconds behind the market and the queued value is public for the whole delay, which maximises ORACLE-3.",
+      "exploit": "Compose oracle(maxStaleness=86400, governor=timelock(delay=2 days)) + lending. 24h after deploy, price() reverts STALE_PRICE. Governance queues setPrice; execute is only possible at +2 days, but the guard is checked at read time, so it does not matter: the update lands, updatedAt refreshes, and 24h later it is stale again with the next update still a day away in the queue. Withdrawals and liquidations work only in the ~24h windows after each execute, and only if someone queued it in advance every time.",
+      "recommendation": "Split roles: `owner` (governor/timelock) for setMaxStaleness/setUpdater, and a hot `updater` allowed to call setPrice. Until then, do not wire the governor port of this block to a timelock; and in the composer, refuse (or warn on) a wiring where timelock.delay >= oracle.maxStaleness."
+    },
+    {
+      "id": "ORACLE-6",
+      "severity": "low",
+      "title": "initialPrice is not validated (setPrice rejects 0, the constructor does not); a zero-price oracle bricks every consumer until the owner acts",
+      "where": "constructor L16-L20 vs setPrice L35",
+      "detail": "The constructor stores initialPrice without the ZERO_PRICE check that setPrice enforces, so an oracle can be born at price 0 and stay there until the owner notices. Consumers assume a positive price: lending/cdp liquidate divide by oracle.price() (lending L129, cdp L161) and revert, borrow/mint return 0 headroom, perps.open records entryPrice 0 so every later pnlOf divides by zero and close/liquidate revert, bonding.bondPrice is 0 so payoutFor returns 0 and deposit reverts. Everything fails closed rather than draining, but any perps position or lending deposit made while the price is 0 is stuck (perps close reverts on the zero entryPrice even after the owner fixes the feed) until the owner intervenes and, for perps, forever: entryPrice is stored per position and pnlOf divides by it.",
+      "exploit": "Deploy with initialPrice = 0 (the composer default is 1 but the field is editable) and wire to perps. A user calls open(true, margin, 10000): entryPrice is stored as 0. Owner later calls setPrice(100e18). The user's close() now evaluates (p.size * (price - 0)) / 0 and reverts with a division-by-zero panic; liquidate() reverts the same way. The margin is permanently locked and its size stays in longOI, so it also permanently reserves pool liquidity in _freeLiquidity.",
+      "recommendation": "require(initialPrice > 0, \"ZERO_PRICE\") in the constructor, matching setPrice. Consumers that store a price (perps.open) should also require it to be non-zero."
+    },
+    {
+      "id": "ORACLE-7",
+      "severity": "info",
+      "title": "No roundId/heartbeat metadata and no consumer uses peek(); UIs and keepers cannot distinguish 'stale' from 'feed replaced'",
+      "where": "peek() L30-L32; PriceUpdated event L14",
+      "detail": "peek() exposes (price, updatedAt) but no consumer reads it, so nothing on-chain can degrade gracefully. There is also no way to change maxStaleness or to pause the feed explicitly (a pause would have to be 'stop updating and wait'). This is fine for a testnet stub but a production deployer should know that the only operational levers are setPrice and setOwner, and the only emergency lever is each consumer's setOracle.",
+      "exploit": "n/a \u2014 operational limitation, not an exploit.",
+      "recommendation": "Add setMaxStaleness and an explicit paused flag that price() honours, emit maxStaleness changes, and consider returning (price, updatedAt) from a richer read so keepers can pre-check staleness without a revert."
+    }
+  ],
+  "safe_use": [
+    "Treat this block as a testnet/demo feed. Do not wire real-money lending, cdp or perps markets to it; use a Chainlink/TWAP adapter on the oracle port for production.",
+    "If you must use it live: hold `owner` in a multisig, never in the deployer EOA (leaving the governor port unwired makes the deployer the owner), and do NOT wire the governor port to the timelock unless timelock.delay is far below maxStaleness.",
+    "Push prices on a short, regular cadence (minutes) and through a private relay so each update is a small, non-front-runnable jump; set maxStaleness to a few multiples of that cadence, not the 86400 default, but make sure the updater can always meet it.",
+    "Set initialPrice in the unit consumers expect: debt-asset raw units per collateral raw unit x 1e18 (P * 10^(debtDecimals - collateralDecimals) * 1e18), not the human price, whenever the two tokens have different decimals.",
+    "Deploy every consumer with an owner that can call setOracle as the emergency exit, and rehearse swapping the feed; that is the only way out of a stale or lost-key oracle.",
+    "Expect all consumer withdrawals, closes and liquidations to revert while the feed is stale; tell users, and never let the owner key that can push prices be the same one that can be lost casually."
+  ]
+}

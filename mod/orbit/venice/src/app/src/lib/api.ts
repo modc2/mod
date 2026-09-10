@@ -59,6 +59,11 @@ export const api = {
   async health() {
     return json<{ ok: boolean; service: string }>(await fetch(`${BASE}/health`));
   },
+  // Unauthenticated: the landing copy needs to know whether the paid path
+  // exists on this deployment before anyone has signed in.
+  async info() {
+    return json<{ paid_available: boolean }>(await fetch(`${BASE}/`));
+  },
   async models() {
     const r = await json<{ data: VeniceModel[] }>(await fetch(`${BASE}/models`));
     return r.data || [];

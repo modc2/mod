@@ -209,6 +209,55 @@ class Mod:
         """Competitors ranked by Elo, with pass rate, mean score and mean time."""
         return self.mcp_call('leaderboard', limit=int(limit), timeout=30)
 
+    # ── standardized benchmarks off the web ──────────────────────
+
+    def bench_sources(self):
+        """The benchmarks this arena can pull off the web, and whether
+        fetching is switched on at all."""
+        return self.mcp_call('bench_sources', timeout=15)
+
+    def bench_preview(self, source: str = 'humaneval', limit: int = 5, offset: int = 0,
+                      url: str = None, dataset: str = None, config: str = None,
+                      split: str = None, style: str = None, map=None,
+                      hide_after: int = None, max_cases: int = None,
+                      language: str = None, tags=None, slug_prefix: str = None,
+                      split_asserts: bool = True, refresh: bool = False):
+        """Fetch a benchmark and show the tasks it would become. Imports
+        nothing — read it before you keep it."""
+        return self.mcp_call('bench_preview', timeout=300, **self._bench_args(locals()))
+
+    def bench_import(self, source: str = 'humaneval', limit: int = 5, offset: int = 0,
+                     url: str = None, dataset: str = None, config: str = None,
+                     split: str = None, style: str = None, map=None,
+                     hide_after: int = None, max_cases: int = None,
+                     language: str = None, tags=None, slug_prefix: str = None,
+                     split_asserts: bool = True, refresh: bool = False,
+                     dry_run: bool = False):
+        """Convert a benchmark into arena tasks and keep them. A slug already
+        in the arena is skipped, so paging with offset= is safe to repeat.
+
+            m openarena/bench_import source=humaneval limit=20
+            m openarena/bench_import source=mbpp limit=10 offset=10
+            m openarena/bench_import source=html url=https://example.org/problem
+        """
+        return self.mcp_call('bench_import', timeout=600, **self._bench_args(locals()))
+
+    @staticmethod
+    def _bench_args(local_vars: dict):
+        """The CLI hands everything over as strings; the tool wants types."""
+        args = {k: v for k, v in local_vars.items() if k != 'self' and v is not None}
+        for key in ('limit', 'offset', 'hide_after', 'max_cases'):
+            if key in args:
+                args[key] = int(args[key])
+        for key in ('split_asserts', 'refresh', 'dry_run'):
+            if key in args:
+                args[key] = str(args[key]).lower() not in ('0', 'false', 'no', '')
+        if isinstance(args.get('map'), str):
+            args['map'] = json.loads(args['map'])
+        if isinstance(args.get('tags'), str):
+            args['tags'] = [t.strip() for t in args['tags'].split(',') if t.strip()]
+        return args
+
     # ── the agent module ─────────────────────────────────────────
 
     def seed_agents(self, models=None, base: str = AGENT_MOD_API, agent: str = None,

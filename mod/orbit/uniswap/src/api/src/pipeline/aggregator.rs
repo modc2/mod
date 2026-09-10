@@ -3,12 +3,17 @@ use std::collections::HashMap;
 use crate::models::swap::Swap;
 use crate::models::trader::{PoolStats, TokenStats, TraderCandidate};
 
-/// Group swaps by sender and filter by minimum swap count
+/// Group swaps by the address that received the output, and filter by minimum
+/// swap count.
+///
+/// Grouping by `sender` — the previous behaviour — groups by whichever router
+/// executed the swap, so the whole leaderboard collapses onto a handful of
+/// contract addresses with the Uniswap SwapRouter on top.
 pub fn aggregate_traders(swaps: &[Swap], min_swaps: u32) -> Vec<TraderCandidate> {
     let mut map: HashMap<&str, (u32, f64)> = HashMap::new();
 
     for swap in swaps {
-        let entry = map.entry(swap.sender.as_str()).or_insert((0, 0.0));
+        let entry = map.entry(swap.recipient.as_str()).or_insert((0, 0.0));
         entry.0 += 1;
         entry.1 += swap.amount_usd;
     }
@@ -24,7 +29,7 @@ pub fn aggregate_traders(swaps: &[Swap], min_swaps: u32) -> Vec<TraderCandidate>
         .collect();
 
     // Sort by volume descending
-    candidates.sort_by(|a, b| b.total_volume_usd.partial_cmp(&a.total_volume_usd).unwrap());
+    candidates.sort_by(|a, b| b.total_volume_usd.total_cmp(&a.total_volume_usd));
     candidates
 }
 
@@ -68,7 +73,7 @@ pub fn compute_token_stats(swaps: &[&Swap]) -> (Vec<TokenStats>, f64) {
         })
         .collect();
 
-    tokens.sort_by(|a, b| b.volume_usd.partial_cmp(&a.volume_usd).unwrap());
+    tokens.sort_by(|a, b| b.volume_usd.total_cmp(&a.volume_usd));
 
     // Compute HHI (Herfindahl-Hirschman Index) for concentration
     let total_vol: f64 = tokens.iter().map(|t| t.volume_usd).sum();
@@ -124,7 +129,7 @@ pub fn compute_pool_stats(
         })
         .collect();
 
-    pools.sort_by(|a, b| b.volume_usd.partial_cmp(&a.volume_usd).unwrap());
+    pools.sort_by(|a, b| b.volume_usd.total_cmp(&a.volume_usd));
 
     // Pool diversity = inverse HHI (higher = more diverse)
     let total_vol: f64 = pools.iter().map(|p| p.volume_usd).sum();

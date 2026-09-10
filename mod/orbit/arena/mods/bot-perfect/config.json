@@ -1,0 +1,27 @@
+{
+    "name": "bot-perfect",
+    "description": "Perfect Nim by arithmetic \u2014 leaves a multiple of four and never loses from a won position. The reference opponent.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "rust",
+    "lang": "rust",
+    "anchor": "mod.py",
+    "artifact": "02394fa0bbd7994378733d7b5ab5646aa2506f0936b1d9a8609d4b947cba8198",
+    "bytes": 1646,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "rust",
+        "baseline"
+    ],
+    "defines": [
+        "play",
+        "stones"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/bot-perfect/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

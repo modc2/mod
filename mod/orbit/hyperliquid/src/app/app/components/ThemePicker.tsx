@@ -63,7 +63,6 @@ export default function ThemePicker() {
         aria-label={`Theme: ${active.label}. Change theme`}
       >
         <Swatch colors={active.swatch} />
-        <span className="hidden sm:inline">{active.label}</span>
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
           strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
           className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`}>

@@ -1,0 +1,11 @@
+# The module needs one library.
+numpy>=1.24
+
+# For the HTTP API only. The library, the examples and the tests run without them.
+fastapi>=0.100
+uvicorn>=0.23
+
+# Optional, and deliberately not imported by anything except src/check.py: the
+# independent runtime this module compares itself against. Without it you lose
+# the cross-check and nothing else.
+#   pip install onnxruntime

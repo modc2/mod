@@ -1,0 +1,15 @@
+{
+  "name": "spread",
+  "kind": "player",
+  "lang": "python",
+  "anchor": "mod.py",
+  "description": "A Blotto bot that reads the terms out of the view \u2014 how many fields, how many soldiers \u2014 and answers with a valid army.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "player",
+    "class",
+    "python"
+  ],
+  "protocol": "modarena/1.0"
+}

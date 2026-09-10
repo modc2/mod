@@ -17,7 +17,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getOwnerAddress } from "../lib/access";
 import { fetchPositions, fetchUserTrades, type GlobalTrade } from "../lib/polymarket";
+import { fetchLiveSessions } from "../lib/liveSessions";
+import { loadIndexes } from "../lib/indexStore";
 import { computeFifoTrades } from "../lib/pnlEngine";
+import {
+  CostLedger, FALLBACK_GAS_QUOTE, FeeBook, NEW_DEPLOYMENT_GAS_OPS, fetchGasQuote,
+  sessionGasUsd, type GasQuote,
+} from "../lib/fees";
 import type { PolymarketPosition, PolymarketTrade } from "../lib/types";
 import { type EquitySnapshot, type EquityMarker } from "./EquityChart";
 import PerfPanel from "./PerfPanel";
@@ -182,6 +188,11 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   const [feedOrder, setFeedOrder] = useState<"newest" | "oldest">("newest");
   // In-flight guard so the auto-redeem effect can't stack requests.
   const redeemBusy = useRef(false);
+  // tokenId → strategyId that opened it, across EVERY session on this wallet.
+  // The positions list below is the deposit WALLET's, and one wallet funds
+  // several strats — so without this the table shows another strat's trades
+  // under this strat's header with nothing to say so.
+  const [posOwners, setPosOwners] = useState<Record<string, string>>({});
 
   // Owner-only console: the funded wallet is the signed-in owner (from the
   // access token), which is authoritative. Fall back to the connected wallet
@@ -284,6 +295,22 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         setLastError(`positions: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+
+    // 2c) Who opened what. Every session's ledger tags its positions with the
+    // strat that bought them (live_engine.rs `OpenPosition.strategy_id`);
+    // a position adopted from the chain carries no tag and stays unlabelled.
+    // Best-effort — a failed read just leaves the rows unbadged.
+    try {
+      const sessions = await fetchLiveSessions(eoa);
+      const owners: Record<string, string> = {};
+      for (const s of sessions) {
+        for (const [tokenId, p] of Object.entries(s.state?.positions ?? {})) {
+          const owner = p.strategyId || s.strategyId;
+          if (owner) owners[tokenId] = owner;
+        }
+      }
+      setPosOwners(owners);
+    } catch { /* rows render without the badge */ }
 
     // Split realizable vs not. Hidden = no bid on the book AND not
     // redeemable — a SELL there can never fill, so we neither list it nor
@@ -498,15 +525,51 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     return { delta: total - start, since: first.t, start };
   }, [history, total]);
 
-  // Executed notional + friction, on the SAME zero-fee model the backtest
-  // books (CLOB charges no fee at fee_rate_bps 0; proxy trades are
-  // relayer-paid). Keeping the model identical is what lets the two panels'
-  // cost rows be compared at all — see PerfPanel's header comment.
+  // Live Polygon gas price, so the GAS line is measured rather than assumed.
+  const [gasQuote, setGasQuote] = useState<GasQuote>(FALLBACK_GAS_QUOTE);
+  useEffect(() => {
+    let live = true;
+    fetchGasQuote()
+      .then((q) => { if (live) setGasQuote(q); })
+      .catch(() => { /* the labelled fallback stays */ });
+    return () => { live = false; };
+  }, []);
+
+  // Executed notional + friction, through the SAME cost model the backtest
+  // books (lib/fees.ts). Keeping the model identical is what lets the two
+  // panels' cost rows be compared at all — see PerfPanel's header comment.
+  //
+  // These are MY fills, so where the feed reports the USDC that actually moved
+  // the fee is not modelled at all: it is the difference between that and
+  // `price x size`, to the cent. Where it doesn't, the market's category
+  // prices it, and the COSTS drawer says which happened.
   const costs = useMemo(() => {
-    const amount = fills.reduce((s, f) => s + f.price * f.size, 0);
+    const ledger = new CostLedger(new FeeBook().observeAll(fills), gasQuote);
+    let amount = 0;
+    for (const f of fills) {
+      const notional = f.price * f.size;
+      amount += notional;
+      ledger.charge({
+        conditionId: f.conditionId, market: f.market, slug: f.slug,
+        shares: f.size, price: f.price, notional,
+      });
+    }
     const pnl = sessionDelta?.delta ?? 0;
-    return { amount, fees: 0, gas: 0, txs: fills.length, gross: pnl };
-  }, [fills, sessionDelta]);
+    // The wallet is already deployed and funded by the time it has fills, so
+    // its gas is spent, not pending — but it IS what the account paid to exist.
+    const gas = sessionGasUsd(NEW_DEPLOYMENT_GAS_OPS, gasQuote);
+    // Same definition as the replay's: GROSS is the P&L before friction, and
+    // the friction was already paid out of this equity change.
+    const gross = pnl + ledger.fees + gas;
+    return {
+      amount,
+      fees: ledger.fees,
+      gas,
+      breakdown: ledger.breakdown(NEW_DEPLOYMENT_GAS_OPS, gross),
+      txs: fills.length,
+      gross,
+    };
+  }, [fills, sessionDelta, gasQuote]);
 
   // ── Rotation queue ──
   // Mirror the live engine's forward-EP ranking so the user can see which
@@ -534,6 +597,23 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       .sort((a, b) => a.forwardEP - b.forwardEP || b.pnlUsd - a.pnlUsd);
   }, [positions, strategyId]);
 
+  // Label a row with the strat that opened it — but ONLY when that isn't the
+  // strat whose panel this is. Badging every row would just be noise; the
+  // question this answers is "which of my strats made this trade?", and it
+  // only comes up for the rows this one didn't make.
+  const ownerBadge = useCallback(
+    (tokenId: string): { label: string; title: string } | undefined => {
+      const owner = posOwners[tokenId];
+      if (!owner || owner === strategyId) return undefined;
+      const name = loadIndexes().find((s) => s.id === owner)?.name ?? owner;
+      return {
+        label: name,
+        title: `Opened by your ${name} strat, not this one. Strats share one deposit wallet, so its positions show up here too — check that strat's TRADE tab for why it bought this.`,
+      };
+    },
+    [posOwners, strategyId],
+  );
+
   if (!auth.connected) return null;
 
   return (
@@ -552,7 +632,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
           ? (sessionDelta.delta / sessionDelta.start) * 100
           : null,
         pnlTitle: sessionDelta
-          ? `Equity change since the oldest snapshot (${fmtUsd(sessionDelta.start)} ${fmtRelTime(Date.now(), sessionDelta.since)}) — fees and gas already paid out of cash. Same accounting as the TEST curve.`
+          ? `Equity change since the oldest snapshot (${fmtUsd(sessionDelta.start)} ${fmtRelTime(Date.now(), sessionDelta.since)}) — Polymarket's taker fee and Polygon gas already paid out of cash. Same accounting as the TEST curve; open COSTS for what they came to.`
           : "Equity change over the plotted window — not enough history yet.",
       }}
       costs={costs}
@@ -570,11 +650,12 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
         pnlUsd: p.pnlUsd,
         badge: p.redeemable ? "REDEEM" : undefined,
         badgeTitle: "Market resolved — cash out via REDEEM, not SELL",
+        owner: ownerBadge(p.tokenId),
         rowTitle: `${p.market} · ${p.outcome}${p.tracked ? ` · fwd EP $${p.forwardEP.toFixed(2)}` : " · not opened by the engine (rotates first)"}`,
       }))}
       positionsNote={
-        <span title="Rows are in rotation order — the engine sells the lowest forward expected profit first to fund new buys.">
-          rotation order · ▸ = sold first
+        <span title="Every strat on this wallet trades out of one deposit wallet, so this lists the WALLET's holdings — rows another strat opened carry its name. Order is the rotation order: the engine sells the lowest forward expected profit first to fund new buys.">
+          whole wallet · rotation order · ▸ = sold first
         </span>
       }
       footer={<>

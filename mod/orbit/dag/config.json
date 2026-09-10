@@ -1,0 +1,195 @@
+{
+    "name": "dag",
+    "title": "DAG",
+    "version": "0.1.0",
+    "icon": "\u25c7",
+    "color": "#6ee7a8",
+    "anchor": "mod.py",
+    "protocol": "mcp/2025-06-18",
+    "description": "Run a DAG over the mods. The fleet is hundreds of modules and, through the MCP hub, hundreds of tools \u2014 every one of them a single call, with nothing that composes them. A graph here is JSON: steps that call an MCP tool on any server the hub carries (the default kind), a mod fn, or an HTTP route, plus declarative `expr` steps that filter, sort, cut and reshape data between two tools so a composition never has to leave the fleet. Steps reference each other with ${...}, and those references ARE the edges \u2014 nothing declares a dependency, the graph is built from what the steps actually want, and anything independent runs at the same time. `foreach` fans one step out over a list, in parallel, results in order. Before any of it costs a call, `plan` checks every tool name and every required argument against the live fleet, offers the closest real names for a tool that does not exist, and prices the run in calls and waves. A step that fails does not stop a branch that never depended on it: what is downstream is skipped and each skip names the step that caused it. Graphs are saved by name, every run is written to disk as it goes, and the same nine operations answer over REST, over MCP, and in a browser console on one port.",
+    "port": 50810,
+    "app_port": 50810,
+    "base_path": "/dag",
+    "bind": "127.0.0.1",
+    "route": false,
+    "route_note": "deliberately unrouted. A graph step can call any tool in the fleet, including the ones that sign transactions, and the MCP hub trusts a caller on this box \u2014 so a dag server on a public port is a way to spend that trust from outside it. Reach it over an SSH tunnel, or set ~/.mod/dag/server.secret and route it behind that.",
+    "urls": {
+        "api": "http://127.0.0.1:50810",
+        "app": "http://127.0.0.1:50810/dag",
+        "mcp": "http://127.0.0.1:50810/mcp",
+        "same_origin_api": "http://127.0.0.1:50810/dag/_api"
+    },
+    "backend": "dagsrc/api.py (stdlib http.server \u2014 REST, MCP and the console on one port, no dependencies)",
+    "depends": {
+        "mcp": "orbit/mcp at :50360 aggregates the fleet's MCP servers; every `mcp` step is routed through it, and it is what wakes a scaled-to-zero module mid-run. A step with an explicit url= talks MCP directly and needs no hub."
+    },
+    "state": "~/.mod/dag \u2014 graphs/<name>.json (saved graphs), runs/<id>.json (one record per run, written as it goes), server.secret (optional)",
+    "fns": [
+        "info",
+        "forward",
+        "run",
+        "plan",
+        "draw",
+        "tools",
+        "servers",
+        "save",
+        "graphs",
+        "delete",
+        "runs",
+        "show",
+        "prune",
+        "mcp",
+        "mcp_config",
+        "serve",
+        "kill",
+        "health",
+        "test",
+        "readme"
+    ],
+    "endpoints": {
+        "info": {
+            "method": "GET",
+            "path": "/",
+            "auth": false,
+            "docs": "The spec of a graph, every field a step accepts, and a complete worked example"
+        },
+        "health": {
+            "method": "GET",
+            "path": "/health",
+            "auth": false,
+            "docs": "Liveness, and whether the MCP hub is answering \u2014 without it, only steps with an explicit url= can run"
+        },
+        "run": {
+            "method": "POST",
+            "path": "/run",
+            "auth": "loopback or bearer, except dry_run",
+            "docs": "{graph, inputs?, dry_run?, verbose?} \u2014 graph is a saved name or the whole spec. Returns the run record: per-step status, duration, output, and for a failure the cause and everything skipped because of it"
+        },
+        "plan": {
+            "method": "POST",
+            "path": "/plan",
+            "auth": false,
+            "docs": "{graph, inputs?} \u2014 parse, find cycles, infer the edges, check every tool name and required argument against the live fleet, and price the run in calls and waves. Calls nothing"
+        },
+        "tools": {
+            "method": "GET",
+            "path": "/tools",
+            "auth": false,
+            "docs": "?q=&server=&limit=&full= \u2014 every MCP tool in the fleet under the exact server__tool name a step should use, with the arguments it takes and requires"
+        },
+        "servers": {
+            "method": "GET",
+            "path": "/servers",
+            "auth": false,
+            "docs": "The fleet's MCP servers, which are answering, and how many tools each carries"
+        },
+        "graphs": {
+            "method": "GET/POST",
+            "path": "/graphs",
+            "auth": "POST is gated",
+            "docs": "GET: every saved graph. POST {name, graph}: save one \u2014 parsed first, so a spec that cannot run is never stored"
+        },
+        "graph": {
+            "method": "GET/DELETE",
+            "path": "/graphs/{name}",
+            "auth": "DELETE is gated",
+            "docs": "One saved graph with its execution plan drawn as text; DELETE removes it and keeps its run records"
+        },
+        "runs": {
+            "method": "GET",
+            "path": "/runs",
+            "auth": false,
+            "docs": "?graph=&status=&limit= \u2014 run history"
+        },
+        "run_record": {
+            "method": "GET",
+            "path": "/runs/{id}",
+            "auth": false,
+            "docs": "One run in full. The record is written as the run goes, so this also follows one still in flight"
+        },
+        "mcp": {
+            "method": "POST",
+            "path": "/mcp",
+            "auth": "dag_run, dag_save and dag_delete take the same gate as the REST routes",
+            "docs": "MCP JSON-RPC 2.0 (Streamable HTTP), the same nine tools the REST routes call"
+        },
+        "console": {
+            "method": "GET",
+            "path": "/dag",
+            "auth": false,
+            "docs": "Browser console: search the fleet's tools, click one to add a step, plan it, dry-run it, run it, watch the steps land"
+        }
+    },
+    "mcp": {
+        "protocolVersion": "2025-06-18",
+        "transports": [
+            "streamable-http",
+            "stdio"
+        ],
+        "stdio": "python3 -m dagsrc.mcp",
+        "tools": [
+            "dag_run",
+            "dag_plan",
+            "dag_tools",
+            "dag_servers",
+            "dag_save",
+            "dag_graphs",
+            "dag_delete",
+            "dag_runs",
+            "dag_info"
+        ],
+        "recursion": "this module's own tools are aggregated by the hub, so a graph can contain a step that runs a graph. Depth travels with the request as X-Dag-Depth and stops at DAG_MAX_DEPTH"
+    },
+    "spec": {
+        "graph": {
+            "name": "a name",
+            "inputs": "{param: {required, default, description}} \u2014 read as ${inputs.param}",
+            "steps": "the list; the order it is written in does not matter, the references do",
+            "output": "optional \u2014 what the run returns. Without it, the run returns the leaf steps",
+            "max_parallel": "how many steps may be in flight at once (default 8)",
+            "timeout": "seconds for the whole run"
+        },
+        "step": {
+            "id": "how other steps refer to it",
+            "tool": "server__tool \u2014 an MCP tool. This is the default kind of step",
+            "server": "alternative to the server__ prefix",
+            "url": "an MCP endpoint to talk to directly, bypassing the hub",
+            "call": "\"<mod>/<fn>\" \u2014 call a mod fn in-process instead of a tool",
+            "use": "mcp | mod | http | expr | graph \u2014 inferred from the fields above",
+            "args": "the call arguments; ${...} anywhere inside them",
+            "foreach": "a list \u2014 run this step once per item, in parallel, with ${item} and ${index} bound",
+            "if / unless": "skip the step unless the condition is truthy",
+            "needs": "extra dependencies, for the rare step that must wait for one it does not reference",
+            "pick": "a path into the result \u2014 store only that part",
+            "where / sort_by / desc / limit": "filter and cut a list result",
+            "retries / retry_delay / timeout": "per step; a refusal that will refuse again is not retried",
+            "continue_on_error": "a failure here does not fail the run"
+        },
+        "refs": {
+            "${step.field}": "another step's output",
+            "${inputs.name}": "a run parameter",
+            "${item} ${index}": "inside a foreach",
+            "${x.y?}": "missing is null instead of an error",
+            "${list.field}": "that field over every element of a list"
+        }
+    },
+    "auth": {
+        "reads": "open \u2014 the tool catalogue, saved graphs, run history, and dry_run, which spends nothing",
+        "writes": "running, saving and deleting need Bearer ~/.mod/dag/server.secret, or a caller on this box that is not being proxied (an X-Forwarded-* header counts as remote)",
+        "why": "a graph can call any tool in the fleet and the hub trusts this box; an ungated runner would launder that trust"
+    },
+    "env": {
+        "DAG_PORT": "API, console and MCP port (default 50810)",
+        "DAG_BIND": "interface to bind (default 127.0.0.1)",
+        "DAG_DIR": "state directory (default ~/.mod/dag)",
+        "DAG_MCP_HUB": "the MCP hub every mcp step is routed through (default http://127.0.0.1:50360)",
+        "DAG_ACTIVATOR_URL": "scale-to-zero proxy used to reach a mod fn that will not import here (default http://127.0.0.1:9000)",
+        "MOD_ROOT": "where the fleet lives, for `mod` steps (default /root/mod/mod)",
+        "DAG_STEP_TIMEOUT": "default per-step timeout in seconds (default 120)",
+        "DAG_MAX_FANOUT": "cap on foreach items (default 200)",
+        "DAG_MAX_DEPTH": "how deep a graph may call a graph (default 3)",
+        "DAG_KEEP_RUNS": "run records kept before the oldest are dropped (default 500)",
+        "DAG_MAX_RESULT_CHARS": "cap on the outputs returned to an MCP caller (default 40000)"
+    },
+    "schema": "Qmah97xeevvGfkYRfrdSFzREmrwNY3m3HNwEFUrJK3yA4a"
+}

@@ -1,0 +1,22 @@
+{
+    "name": "freewash-fork",
+    "version": "0.1.0",
+    "description": "Free-roam WebGL game set in Kensington Market, Toronto, rendered as pixel art - walk or skate Augusta Avenue, Baldwin Street and Kensington Avenue past a hundred and fifty painted Victorian storefronts, fruit crates on the sidewalk, vintage clothes on the rails, murals on every blank wall and the hydro wires overhead. Laid out to the real market's street plan: Bellevue Square with its wading pool, drum circle and off-leash corner; Al Waxman in bronze; the Kiever synagogue on Denison Square; the garden car on Augusta; a streetcar on Spadina and the CN Tower over the rooftops. Full day-night cycle, fully synthesised sound and a ~200-strong crowd built to human measurements. Press F to talk to anyone: everyone has a name, a job and a taste in conversation, rapport is a five-tone flirting game, and numbers you win go in your phone. Nine sidequests around the market pay rep, and rep is charisma. Renders entirely in the browser via three.js/WebGL.",
+    "icon": "\ud83c\udf45",
+    "color": "#e0503f",
+    "port": 8809,
+    "fns": [
+        "play",
+        "serve",
+        "stop",
+        "url",
+        "path",
+        "test"
+    ],
+    "endpoints": {
+        "play": "Serve the game and open it in the browser",
+        "serve": "Start the static WebGL game server",
+        "stop": "Stop the running server"
+    },
+    "schema": "QmXibUwY1ZfeKv4GyiZ1N9py4HwKDCCwU4AAkfp37St4yy"
+}

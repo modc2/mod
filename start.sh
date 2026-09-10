@@ -7,32 +7,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---- Docker mode ----
 if [ "$1" = "--docker" ]; then
     echo "=== mod start (docker) ==="
-    IMAGE_NAME="${2:-mod}"
-    CONTAINER_NAME="${3:-mod}"
+    # One path only: docker-compose. The hand-rolled `docker run` that used to
+    # live here published :3000 (the host's own gateway port) and mounted the
+    # host's ~/.mod, so the sandbox fought the fleet for both the port and the
+    # registry. See docker-compose.yml for what it publishes instead.
+    docker network inspect modnet >/dev/null 2>&1 || docker network create modnet
 
-    # Stop existing container if running
-    if docker ps -q -f name="$CONTAINER_NAME" | grep -q .; then
-        echo "[+] Stopping existing container: $CONTAINER_NAME"
-        docker kill "$CONTAINER_NAME" 2>/dev/null || true
-        docker rm "$CONTAINER_NAME" 2>/dev/null || true
-    elif docker ps -aq -f name="$CONTAINER_NAME" | grep -q .; then
-        docker rm "$CONTAINER_NAME" 2>/dev/null || true
-    fi
+    cd "$SCRIPT_DIR" || exit 1
+    docker compose build
+    docker compose up -d
 
-    # Build image
-    echo "[+] Building Docker image: $IMAGE_NAME"
-    docker build -t "$IMAGE_NAME" "$SCRIPT_DIR"
-
-    # Run container
-    echo "[+] Starting container: $CONTAINER_NAME"
-    docker run -d --name "$CONTAINER_NAME" \
-        -p 3000:3000 \
-        -v "$HOME/mod:/root/mod" \
-        -v "$HOME/.mod:/root/.mod" \
-        "$IMAGE_NAME"
-
-    echo "[ok] container running"
-    docker ps -f name="$CONTAINER_NAME"
+    echo "[ok] sandbox running"
+    docker compose ps
+    echo
+    echo "  shell   : docker exec -it mod bash    (or: m docker/enter mod)"
+    echo "  run a mod: m docker/serve <mod>"
     exit 0
 fi
 

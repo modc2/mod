@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { WalletHeader } from '@/wallet/WalletHeader'
+import { RootHash } from '@/header/RootHash'
 import { userContext } from '@/context'
 import { useLayoutContext } from '@/context/LayoutContext'
 import { text2color, colorWithOpacity, shorten } from '@/utils'
@@ -498,6 +499,7 @@ export function TopBar() {
 
       {/* Right section */}
       <div className="flex items-center pr-3 gap-2">
+        <RootHash />
         <WalletHeader />
       </div>
 

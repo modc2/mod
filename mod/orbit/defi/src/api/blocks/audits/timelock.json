@@ -1,0 +1,89 @@
+{
+  "block": "timelock",
+  "contract": "ModTimelock",
+  "file": "timelock.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "medium",
+  "summary": "ModTimelock is a 74-line queue-then-execute delay: one admin address may queue, execute and cancel arbitrary calls, each call must wait `delay` seconds (capped at 30 days) between queue and execute, and the delay itself can only change through the queue. The core mechanism is sound — operations are salted so ids do not collide, queuedAt is cleared before the external call, and nothing is callable by non-admins — so as a delay in front of a trusted key it does what the catalog says. The worst finding is that the key itself is the exception: setAdmin is instant, one-step, accepts address(0) and can never be routed through the queue, so a compromised or careless admin (or, with the governor wired and a transferable vote token, one flash-borrowed majority executed without queueing) captures or bricks every block wired to the governor port with zero notice. Around that: no minimum delay (0 makes it a transparent forwarder), no grace period (a matured operation is a poison pill that fires whenever the admin likes), and by default the admin is the deployer's EOA, so the block restricts when things happen, never who decides. Deployable as-is only if the admin is a multisig or the governor block (with a vote-escrow token) and users are told the delay is their exit window; do not deploy it with a zero delay or an EOA admin over blocks that hold funds.",
+  "counts": {
+    "critical": 0,
+    "high": 1,
+    "medium": 3,
+    "low": 2,
+    "info": 1
+  },
+  "findings": [
+    {
+      "id": "TIMELOCK-1",
+      "severity": "high",
+      "title": "Admin handover is instant, one-step, unchecked, and can never go through the queue",
+      "where": "setAdmin() L68-L71, onlyAdmin L26-L29; contrast setDelay() L62-L66; governor.sol execute() L173-L186",
+      "detail": "The timelock's whole promise is that privileged changes wait in public. Its single most privileged change — who holds the key — does not. setAdmin is onlyAdmin and takes effect in the same transaction, accepts address(0) or a typo without a pending/accept step, and cannot be routed through the delayed path at all: a queued self-call to setAdmin reverts with NOT_ADMIN because msg.sender is the timelock, not the admin (setDelay was written self-only, setAdmin admin-only). Because this contract becomes `owner` of every block wired to its governor port (vault, cdp, lending, psm, oracle, token, treasury, airdrop, faucet ...), the admin key is the root key of the entire composition, and this function is the one place it can change hands with zero notice. When the governor block is wired the composer makes the governor the admin; governor.execute for a proposal that Succeeded but was never queued (p.eta == 0) calls its targets directly with msg.sender == governor, so a bare-majority vote can call timelock.setAdmin(x) instantly — the only class of target that direct path can reach is exactly this contract's admin surface.",
+      "exploit": "(a) Key compromise: attacker with the admin key sends setAdmin(attacker) — one tx, no delay. The legitimate operator can no longer cancel anything. Attacker queues token.mint(attacker, 2**200), vault.setStrategy(evil) + allocate(all), psm.withdraw(gem, all, attacker), lending.setOracle(fake); after `delay` executes them all. (b) Governor composition with a transferable vote token: flash-borrow > quorum of the vote token, propose(target=timelock, data=setAdmin(attacker)), castVote (weight is balanceOf at vote time, governor.sol L151), repay; after votingPeriod call governor.execute WITHOUT queue — the direct path runs timelock.setAdmin(attacker) as admin with no delay and no guardian window; from then on the DAO is locked out. (c) Operator error: setAdmin(0x0) or a mistyped address permanently orphans every wired block — their setOwner is onlyOwner and the owner (this timelock) can never act again.",
+      "recommendation": "Two-step, queue-gated handover: `setPendingAdmin(address)` with `require(msg.sender == address(this))` like setDelay, plus `acceptAdmin()` callable by pendingAdmin; require nonzero. Keep the composer's bootstrap working with a one-shot `initAdmin` the deployer may call only while an `initialized` flag is false (the governor wire calls it). Until then: hand admin to a multisig, never an EOA, and treat any setAdmin event as an incident."
+    },
+    {
+      "id": "TIMELOCK-2",
+      "severity": "medium",
+      "title": "No minimum delay — a zero-delay timelock is a transparent forwarder, and the delay can be lowered to zero permanently",
+      "where": "constructor L20-L24, setDelay() L62-L66, execute() L47",
+      "detail": "Only an upper bound (30 days) is enforced. delay_ = 0 is accepted at construction and setDelay may set 0 later. With delay 0, queue() stores eta = block.timestamp and execute() checks `block.timestamp >= eta`, which passes in the same block, so queue+execute can run back-to-back in one transaction. The catalog tells users 'every privileged call on that block has to wait out the delay in public first'; a zero (or 1-second) delay silently breaks that promise while every block still reports the timelock as its owner.",
+      "exploit": "Deploy with delay_ = 0 (the inspector accepts it; default is 48h). Any owner-gated call on any wired block is now instant: queue(vault, 0, setStrategy(evil), s); execute(vault, 0, setStrategy(evil), s) in one tx. Or, with a live 48h delay: queue(timelock, 0, setDelay(0), s), wait 48h once, execute; from then on every future change is instant with no further notice, while the block still advertises itself as a timelock.",
+      "recommendation": "Add MIN_DELAY (e.g. 1 days) and enforce it in both the constructor and setDelay; give the catalog param a `min`. Consider also blocking setDelay from *shortening* below the current delay without the full current delay elapsing (already true via the queue) and surfacing delay changes as a distinct event."
+    },
+    {
+      "id": "TIMELOCK-3",
+      "severity": "medium",
+      "title": "No grace period — a matured operation stays executable forever",
+      "where": "execute() L43-L53, queuedAt L13",
+      "detail": "Compound-style timelocks expire an operation GRACE_PERIOD after its eta so that the public notice given at queue time is still fresh when the call lands. Here queuedAt[id] is only cleared by execute or cancel, so anything queued once can be executed at any later moment. The delay is meant to be the users' exit window; a stale entry lets the admin pre-arm a change while nobody is watching and fire it much later with no new warning. In the governor composition a proposal stays State.Queued indefinitely and anyone may call governor.execute long after the vote's context changed; governor.cancel also never clears the timelock entry, leaving orphaned matured ids (only the admin can act on them, which bounds the damage).",
+      "exploit": "Week 1 (TVL near zero): admin queues psm.withdraw(gem, type(uint).max, admin), vault.setStrategy(drain) and oracle.setPrice(1). Nobody exits because nothing executes and the Queued events age out of attention. Month 6 (TVL high): admin calls the three execute()s in one block. Every check passes — eta was reached months ago — and users had zero fresh notice.",
+      "recommendation": "Add `uint256 public constant GRACE_PERIOD = 14 days;` and `require(block.timestamp <= eta + GRACE_PERIOD, \"STALE\")` in execute(). Have the governor clear its timelock entries on cancel (timelock.cancel via the admin path) and have the console list every pending id with its eta and expiry."
+    },
+    {
+      "id": "TIMELOCK-4",
+      "severity": "medium",
+      "title": "By default the admin is the deployer's EOA and one key holds queue, execute, cancel and setAdmin — the block restricts when, never who",
+      "where": "constructor L20-L24 with catalog ctor `[$param:delay_, $owner]`; queue() L35, execute() L43, cancel() L55",
+      "detail": "The catalog resolves `$owner` to the wallet running the deployment, so unless the governor block is wired (which flips admin to the governor via the setAdmin wire) the timelock is a delayed dictatorship: one browser EOA can queue anything, execute it after `delay`, and cancel anything, with no second party able to veto. This is what a timelock is, but the block is filed under 'Governance' and its output port is labelled 'Governor', which invites deployers to read it as a permission boundary. The delay is the only protection users get, and it only works if someone watches the Queued events and can exit in time.",
+      "exploit": "Deployer (or anyone who phishes the deployer's key) queues token.mint(self, huge), vault.setStrategy(evil) + allocate(all), lending.setOracle(fake) and airdrop.sweep(self), waits `delay`, executes. No approval, vote or co-signer is involved at any point; users who did not monitor the queue lose everything that the owner surface of the wired blocks can reach.",
+      "recommendation": "Wire the governor block (the composer hands it the admin key) or, before announcing the deployment, setAdmin to a multisig. Publish the timelock address and run a Queued-event watcher; treat `delay` as the users' guaranteed exit window and size it accordingly (48h default is reasonable, 7d is better for a fund-holding composition)."
+    },
+    {
+      "id": "TIMELOCK-5",
+      "severity": "low",
+      "title": "Composer wires that hit owner-gated setters revert once this block is the owner",
+      "where": "composition: graph.rs plan() emits every Call step from the deployer after all Deploys; catalog wires for vault/cdp/psm/stableswap/lst/bonding/flashlender/safetymodule target `$self` methods that are onlyOwner (e.g. vault.sol setStrategy L82, cdp.sol setSurplusSink L182, psm.sol setFeeSink L108)",
+      "detail": "Blocks take `$input:governor|$owner` as their constructor owner, so when the timelock is wired into a block's Owner port that block is owned by the timelock from the moment it exists. The plan's post-deploy wires (vault.setStrategy, cdp.setSurplusSink, psm.setFeeSink, ...) are then sent from the deployer wallet and revert NOT_OWNER. The deployment halts partway through with contracts on chain but unwired. It is recoverable — the deployer is still the timelock admin and can queue the same call — but only after `delay`, and only if they realise what happened.",
+      "exploit": "Canvas: timelock -> vault.governor, strategy -> vault.strategy. Plan: Deploy timelock, strategy, vault(owner = timelock); Call vault.setStrategy(strategy) from the deployer -> NOT_OWNER. The vault is live with no strategy and the strategy's setVault wire never ran (it is also owner-gated). To fix: queue(vault, 0, setStrategy(strategy), s) and queue(strategy, 0, setVault(vault), s), wait `delay`, execute both.",
+      "recommendation": "In the planner, route wires whose target is owned by a governor-port block through that block's timelock (queue steps, with a warning about the delay), or deploy blocks with owner = $owner, run the wires, and finish the plan with setOwner(timelock) on each governed block."
+    },
+    {
+      "id": "TIMELOCK-6",
+      "severity": "low",
+      "title": "Duplicate actions in one governor proposal collide on the operation id; calls to codeless targets succeed silently",
+      "where": "hash() L31-L33, queue() L35-L41, execute() L49-L50; governor.sol queue() L162-L171",
+      "detail": "The id is keccak(target, value, data, salt) with no index, and the governor uses bytes32(proposalId) as the salt for every action in a batch. Two identical actions in one proposal therefore produce the same id and the second queue() reverts QUEUED, so the whole proposal can never be queued; governor.execute then falls to its direct path, which reverts NOT_OWNER on any timelock-owned block. The proposal is dead and must be re-proposed. Separately, `target.call` to an address with no code returns ok = true, so a mistyped target 'executes' successfully, emits Executed, and any `value` sent with it is gone.",
+      "exploit": "propose([vault, vault], [0, 0], [allocate(100), allocate(100)]) passes the vote; governor.queue(id) reverts on the second action; governor.execute(id) takes the direct path and reverts NOT_OWNER. For the codeless target: queue(0xdead..., 1 ether, '', s) then execute -> ok = true, ETH transferred to the wrong address, Executed emitted.",
+      "recommendation": "Let the salt carry an index (governor passes keccak(id, i)) or include a per-queue nonce in the hash; in execute add `require(data.length == 0 || target.code.length > 0, \"NO_CODE\")`."
+    },
+    {
+      "id": "TIMELOCK-7",
+      "severity": "info",
+      "title": "execute() is reentrancy-safe by construction but does not tie msg.value to `value`; ETH in the contract is spendable by any queued call",
+      "where": "execute() L43-L53, receive() L73",
+      "detail": "queuedAt[id] is deleted before the external call (checks-effects-interactions) and every entry point is admin-gated, so a reentrant call from the target cannot re-execute or re-queue anything unless the target is the admin itself. The `value` forwarded comes from the contract's balance: msg.value is not checked against `value`, so overpaying strands ETH here and anyone can top the contract up through receive(). Stranded ETH can only leave through a queued call, i.e. after `delay`. When the governor block is wired it forwards `{value: p.values[i]}` from its own balance, so the governor — not the timelock — must be funded for value-bearing proposals.",
+      "exploit": "Not exploitable by a third party. Operator footgun: execute{value: 2 ether}(target, 1 ether, ...) leaves 1 ether in the timelock until a further queue/execute cycle moves it.",
+      "recommendation": "Optionally `require(msg.value == value || msg.value == 0)`; document that the timelock's ETH balance is governed like everything else it owns."
+    }
+  ],
+  "safe_use": [
+    "Keep the default 48h delay or longer; never deploy with delay_ = 0 and never queue setDelay below ~24h — a shorter delay silently turns the 'timelock' into a plain forwarder for every block it owns.",
+    "Do not leave the deployer EOA as admin over a fund-holding composition: wire the governor block (the composer calls setAdmin(governor) for you) or setAdmin to a multisig before users deposit. Use a vote-escrow token, not a transferable ERC20, as the governor's vote token — votes are read at vote time and can be flash-borrowed.",
+    "Treat setAdmin as a one-way, zero-notice action: double-check the address, never pass address(0), and understand that once the governor holds admin it cannot be rotated through the delayed path (self-call reverts NOT_ADMIN), only through a direct-executed proposal.",
+    "Because there is no expiry, cancel() every queued operation you do not intend to execute promptly, and run a watcher on Queued/Executed/Cancelled events — a stale matured entry can be executed at any time without new warning.",
+    "If you wire this block as Owner of a vault/cdp/psm/stableswap/lst/bonding/flashlender/safetymodule AND also wire that block's optional strategy/sink/treasury port, expect the plan's post-deploy wire to revert NOT_OWNER; finish the wiring by queueing the same call through the timelock and executing after the delay.",
+    "Do not send ETH to the timelock unless a queued call needs it; ETH there can only leave through the queue. When the governor executes value-bearing proposals, the governor (not the timelock) must hold the ETH."
+  ]
+}

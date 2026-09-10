@@ -19,10 +19,18 @@ concern, composed into a single protocol and operated from one console.
   here with solc 0.8.26, then deploy it from your own wallet. Starter templates
   in `src/build/templates/`; upload your own project (hardhat *or* foundry
   layouts — `lib/openzeppelin-contracts/…` imports are remapped onto the
-  installed packages) or fork one out of the shared gallery (BlocTime ships in
-  it); the console for it is the app's `/chain` page, and it works on a phone.
+  installed packages) or fork one out of the shared gallery — every fleet module ships in it,
+  tests included, plus `protocol` (all of them in one project); the console for it is the app's `/chain` page, and it works on a phone.
 - **Wallets**: MetaMask (automatic chain switch/add on send) or a
   browser-local keypair — reads never need a wallet.
+- **Agent** (`src/agent/mod.py`, the console's AGENT tab): hand a project to
+  Claude Code. The run goes through the `orbit/agent` module — its shipped
+  `chain-mod` agent hands the run to this module's harness runner (`chainmod`),
+  the same road the build console's runs take, so the agent module's owner
+  gate, task ledger and console all see it. Claude works in a sandboxed Hardhat
+  copy of the project (edits accepted there and nowhere else, a shell that runs
+  `npx hardhat test|compile` and nothing else) and its edits are written back
+  into the project when it finishes.
 
 ## Quickstart
 
@@ -44,6 +52,36 @@ Per-network deployments (addresses + ABI/source CIDs) live in `config.json`.
 Contract sources are under `src/contracts/<module>/`, each with its own README.
 Builder projects and wallet-signed builds are per-user state, so they live
 off-tree in `~/.mod/chain/build/`.
+
+## The agent
+
+```bash
+curl localhost:8800/agent/status              # CLI + agent module reachable? who may run it?
+curl -N -X POST localhost:8800/agent/run -H 'Content-Type: application/json' \
+  -d '{"key": "<wallet-signed token>", "query": "add a test for transfer()", "project": "token"}'
+curl 'localhost:8800/agent/runs?address=0x…'  # past runs, newest first
+```
+
+`/agent/run` is a bridge: it verifies the token, names the project, and
+forwards to `orbit/agent`'s `POST /run/stream` as `agent_type: chain-mod` with
+`harness_args: {project, address, network, model}`, streaming the agent
+module's SSE events (`step` / `done` / `error`) straight back. Harness runs
+execute on the host's own Claude account, so the agent module keeps them
+**owner-only** — the tab says so up front, and a guest's run comes back as a
+403 event. The runner itself is callable from Python:
+
+```python
+a = m.mod('chain.agent')()
+a.harness()                                   # {name: 'chainmod', available, version, …}
+a.run('write tests for every contract', project='token', address='0x…', on_step=print)
+```
+
+Steps are the fleet's step dicts (`workspace` → `read`/`edit`/`write`/`bash`… →
+`project` → `finish`), the finish step carrying the answer, the changed files,
+turns and cost. Workspaces live under `~/.mod/chain/build/agent/run/<address>/<project>/`,
+the run ledger at `~/.mod/chain/build/agent/runs.json`. Env: `CHAIN_AGENT_MODEL`
+(default `sonnet`), `CHAIN_AGENT_CONCURRENCY` (2), `CLAUDE_BIN`, `AGENT_API_URL`
+(the API's link to orbit/agent, default `http://localhost:50117`).
 
 ## ABIs live in the store
 

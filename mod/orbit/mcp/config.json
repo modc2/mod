@@ -1,32 +1,18 @@
 {
     "name": "mcp",
     "title": "MCP Hub",
-    "version": "1.0.0",
-    "description": "A hub of MCP servers \u2014 aggregates the open-source Model Context Protocol ecosystem (official registry, GitHub, npm, Glama, Smithery, awesome-lists, the local mod fleet) into one searchable directory, live-probes servers for their real tool lists, and lets anyone publish their own: wallet-signed with a browser or locally derived key, manifest pinned by CID to the store mod",
+    "version": "2.2.0",
+    "description": "One hub for every MCP server, and one hub type among many. Finds the local fleet twice over — what a mod declares in config.json and what a live port sweep catches it serving — registers any remote server (with auth headers), and re-exposes the union as a single MCP server: point one client at POST /mcp and every upstream tool is callable as server__tool. It is a `mod` hub: GET /hub is its manifest, GET /hubs lists every other hub type it can see and connect to — peer mod hubs (connect one whole and its tools nest as peer__server__tool), the fleet's internet-wide index (mcpscan, every server probed), and the public directories (official registry, Smithery, Glama, PulseMCP, Docker) — and GET /catalog searches across all of them at once. Carries web_search and web_fetch itself, with no API key required.",
+    "icon": "◈",
+    "color": "#7c6cf0",
     "port": 50360,
     "app_port": 50361,
     "route": true,
-    "icon": "\u25c8",
-    "color": "#7c6cf0",
-    "deps": [
-        "store",
-        "auth"
-    ],
-    "fns": [
-        "forward",
-        "info",
-        "sources",
-        "search",
-        "server",
-        "probe",
-        "client_config",
-        "submit",
-        "submissions",
-        "stats"
-    ],
+    "backend": "mcp-rs (Rust: axum REST registry + JSON-RPC 2.0 Streamable HTTP gateway + stdio)",
     "urls": {
         "api": "http://localhost:50360",
-        "app": "http://localhost:50361"
+        "app": "http://localhost:50361",
+        "mcp": "http://localhost:50360/mcp"
     },
     "app": {
         "framework": "next",
@@ -34,73 +20,394 @@
         "port": 50361
     },
     "api": {
-        "module": "api.api",
-        "app_obj": "app",
-        "port": 50360
+        "runtime": "rust",
+        "dir": "mcp-rs",
+        "bin": "mcp-rs/target/release/mcp-api",
+        "port": 50360,
+        "stdio": "mcp-api --stdio"
     },
-    "providers": [
-        "official",
-        "github",
-        "npm",
-        "glama",
-        "smithery",
-        "awesome",
-        "fleet",
-        "hub"
+    "fns": [
+        "info",
+        "servers",
+        "server",
+        "add_server",
+        "remove_server",
+        "toggle_server",
+        "probe",
+        "intake",
+        "tools",
+        "call",
+        "search",
+        "fetch",
+        "catalog",
+        "client_config",
+        "stats",
+        "refresh",
+        "discover",
+        "hub",
+        "hubs",
+        "add_hub",
+        "remove_hub",
+        "connect_hub"
     ],
     "endpoints": {
-        "sources": {
-            "method": "GET",
-            "auth": false,
-            "docs": "Provider catalog: id, label, what it indexes, cache TTL and whether it wants a key"
+        "servers": {
+            "method": "GET/POST",
+            "auth": "POST is write-gated",
+            "docs": "GET: every aggregated server (fleet-discovered + user-registered) with its live probe (status, serverInfo, tool count, latency). POST {url, id?, name?, headers?, note?, force?}: probe-then-register a remote MCP server; a server that fails the handshake is rejected unless force:true"
         },
-        "search": {
-            "method": "GET",
-            "auth": false,
-            "docs": "Search every provider at once: q, sources=, oss=1 (open source only, default), transport=, license=, tag=, sort=relevance|stars|downloads|new, limit=. The same project seen in several directories collapses onto one card by repo URL"
+        "servers/:id": {
+            "method": "GET/DELETE",
+            "auth": "DELETE is write-gated",
+            "docs": "GET one server row. DELETE unregisters a user server; a fleet server is disabled instead (it would re-appear on the next scan)"
         },
-        "server": {
-            "method": "GET",
+        "servers/:id/refresh": {
+            "method": "POST",
             "auth": false,
-            "docs": "GET /server?id= \u2014 one server card, merged across every provider that lists it, with install recipes and probed tools when known"
+            "docs": "Re-probe one server now (initialize + tools/list). A local mod that is asleep is woken through the activator; ?wake=0 leaves it asleep"
+        },
+        "servers/:id/toggle": {
+            "method": "POST",
+            "auth": "write-gated",
+            "docs": "{enabled: bool} — include or exclude a server from aggregation without deleting it"
         },
         "probe": {
             "method": "POST",
             "auth": false,
-            "docs": "Live MCP handshake against a remote server URL (initialize + tools/list): protocol version, server info and the real tool inventory; cached"
+            "docs": "{url, headers?} — ad-hoc MCP handshake against any URL; returns protocolVersion, serverInfo and the full tool list; nothing is saved"
+        },
+        "tools": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The aggregated tool list, every tool namespaced server__tool with a [server] description prefix; ?server= filters to one upstream"
+        },
+        "call": {
+            "method": "POST",
+            "auth": "same gate as POST /mcp tools/call",
+            "docs": "REST shortcut around tools/call: {tool: 'server__tool', args} or {server, tool, args}; returns the upstream's MCP result verbatim"
         },
         "client_config": {
             "method": "GET",
             "auth": false,
-            "docs": "GET /client_config?id=&client=claude|cursor|vscode|cli \u2014 ready-to-paste MCP client config (or a `claude mcp add` command) for a server"
-        },
-        "submit": {
-            "method": "POST",
-            "auth": true,
-            "docs": "Publish an MCP server to the hub. The manifest is pinned to the store mod under the submitter's own address (CID recorded here); needs a mod protocol token \u2014 browser wallet or locally derived key"
-        },
-        "submissions": {
-            "method": "GET/DELETE",
-            "auth": "optional",
-            "docs": "GET community-submitted servers (?mine=1 with auth for your own); DELETE /submissions?id= removes your own (the hub owner may remove any)"
+            "docs": "?client=claude|cursor|vscode|json — paste-ready client config (or the `claude mcp add` one-liner) pointing at this hub's /mcp"
         },
         "stats": {
             "method": "GET",
             "auth": false,
-            "docs": "Hub totals: servers per provider, submissions, probed servers, cache state"
+            "docs": "Totals: servers, up/down, aggregated tools, by_source, whether the write gate is armed"
+        },
+        "refresh": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Re-scan the fleet for new MCP mods and re-probe every enabled server"
         },
         "mcp": {
             "method": "POST",
-            "auth": "optional",
-            "docs": "The hub is itself an MCP server (JSON-RPC 2.0, Streamable HTTP): mcp_sources, mcp_search, mcp_server, mcp_probe, mcp_client_config, mcp_stats (public); mcp_submit, mcp_submissions (mod protocol Bearer token)"
+            "auth": "tools/call needs a credential unless the caller is on this host; initialize and tools/list are open",
+            "docs": "The hub as an MCP server (JSON-RPC 2.0, Streamable HTTP; also `mcp-api --stdio`). tools/list = union of every enabled upstream + 5 native tools; tools/call on server__tool proxies to the owning upstream with automatic session handshake, waking a sleeping fleet mod through the activator if it has to"
+        },
+        "intake": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{text} — parse a URL, a store/IPFS CID, an mcpServers config blob, a `claude mcp add` one-liner or a QR payload into candidate servers. Nothing is registered"
+        },
+        "search": {
+            "method": "GET/POST",
+            "auth": false,
+            "docs": "?q=&count=&provider= — search the web. Providers are tried in order: brave, tavily, exa, serper (key required, from env or ~/.mod/mcp/web.json), then keenable (public, keyless), then DuckDuckGo instant answers. A chain that finds nothing still returns 200, with results:[], the per-provider `tried` trace and `error` saying why — only a missing `q` or a pinned provider with no key is a 400"
+        },
+        "fetch": {
+            "method": "GET/POST",
+            "auth": false,
+            "docs": "?url=&max_chars= — read one public page as text (HTML stripped), falling back to a reader service when a site blocks the direct request. Loopback and private addresses are refused"
+        },
+        "catalog": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?q=&registry=all|featured|official|smithery|glama|pulsemcp|<index id>|<index id>:<source>|<peer hub id>&limit= — search for servers across every hub this one knows, live. Keyed directories join `all` only when their key is set. Rows carry a URL ready to POST to /servers; a row with `via` is behind a peer hub (its URL is that hub's /mcp — connect the hub once and the row's tools arrive nested). Index rows carry status live|auth|down and a real tool count. Nothing is registered here"
+        },
+        "hub": {
+            "method": "GET",
+            "auth": false,
+            "docs": "This hub's manifest: type mod-hub, protocol mod/mcp-hub/1, its public URL and MCP endpoint, servers/up/tools counts, peers, and how to browse (GET /servers), search (GET /catalog) and connect (POST /servers). What another hub reads to recognise this one as a mod hub"
+        },
+        "hubs": {
+            "method": "GET/POST",
+            "auth": "POST is write-gated",
+            "docs": "GET: every hub type this one can see — itself (kind mod, self:true), peer mod hubs added by URL, the fleet's index (kind index; mcpscan), and the public directories (kind directory) — each probed for servers/live/tools, whether it is ready, the key it needs if any, and the registry= value that searches it. Cached 10 min; ?refresh=1 re-probes. POST {url, id?, name?, headers?, note?}: add a peer by its API base — it must answer /hub (a mod hub) or a hub-shaped /stats (an index); a bare MCP endpoint is a server and belongs in POST /servers"
+        },
+        "hubs/:id": {
+            "method": "GET/DELETE",
+            "auth": "DELETE is write-gated",
+            "docs": "GET one hub row. DELETE forgets a peer hub (built-ins cannot be removed)"
+        },
+        "hubs/:id/connect": {
+            "method": "POST",
+            "auth": "write-gated",
+            "docs": "Register a mod/index hub's own MCP endpoint as one upstream server under its id. Its tools arrive nested — id__server__tool for a mod peer, id__mcp_find etc. for the index. Probed first, like any server"
+        },
+        "hubs/refresh": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Re-probe every hub now and return the fresh view"
+        },
+        "discover": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Live sweep: knock on every port the fleet mentions and adopt whatever completes an MCP handshake, declared or not. Also runs in the background every MCP_SWEEP_SECS"
+        },
+        "auth/me": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Who the hub thinks you are (wallet session, API key, local caller or anonymous) and what that allows"
+        },
+        "keys": {
+            "method": "GET/POST",
+            "auth": "owner-only",
+            "docs": "GET: minted API keys (hash withheld). POST {name}: mint one — the plaintext is returned exactly once"
+        },
+        "keys/:id": {
+            "method": "DELETE",
+            "auth": "owner-only",
+            "docs": "Revoke a key"
         }
     },
-    "auth": "mod-protocol",
-    "env": {
-        "MCP_HUB_DIR": "Off-tree state: submissions index, provider + probe cache, owner (default: ~/.mod/mcp)",
-        "MCP_STORE_URL": "store mod API used to pin submission manifests (default: http://localhost:50152)",
-        "MCP_GITHUB_TOKEN": "Optional GitHub token \u2014 lifts the 10 searches/min anonymous budget (also read from ~/.mod/mcp/github.token)",
-        "MCP_SESSION_TTL": "Max protocol-token age in seconds (default: 604800 / 7 days)"
+    "mcp": {
+        "protocolVersion": "2025-06-18",
+        "namespacing": "server__tool (double underscore; server ids are sanitized so they can never contain __)",
+        "native_tools": [
+            "hub_servers",
+            "hub_search",
+            "hub_catalog",
+            "hub_hubs",
+            "hub_connect",
+            "web_search",
+            "web_fetch"
+        ],
+        "transports": [
+            "streamable-http",
+            "stdio"
+        ],
+        "nested_hubs": "Aggregating another hub works: the split is on the FIRST __, so otherhub__github__create_issue routes to otherhub, which routes to github",
+        "hub_type": "mod — this hub's manifest is GET /hub; hub_hubs lists the other hub types (mod peers, index, directories); hub_connect registers a server or a whole hub (needs registry-edit rights, an API key does not buy it)"
     },
-    "schema": "QmUu6VR1BjYjZSG5hPG94Sdjw1cdRnR8GmBgxLRyjMGFfD"
+    "types": {
+        "ServerEntry": {
+            "type": "object",
+            "required": [
+                "id",
+                "url"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9_-]+$",
+                    "description": "Hub-unique id; becomes the tool-name prefix"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Display name (defaults to id)"
+                },
+                "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Streamable HTTP MCP endpoint"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Extra headers sent on every upstream request (e.g. Authorization). Stored off-tree, values never echoed by the API"
+                },
+                "source": {
+                    "enum": [
+                        "fleet",
+                        "user"
+                    ],
+                    "description": "fleet = auto-discovered from a mod's config.json endpoints.mcp; user = registered via POST /servers"
+                },
+                "note": {
+                    "type": "string",
+                    "maxLength": 300
+                },
+                "added_at": {
+                    "type": "integer",
+                    "description": "unix seconds"
+                }
+            }
+        },
+        "Probe": {
+            "type": "object",
+            "properties": {
+                "ok": {
+                    "type": "boolean"
+                },
+                "protocolVersion": {
+                    "type": "string"
+                },
+                "serverInfo": {
+                    "type": "object"
+                },
+                "toolCount": {
+                    "type": "integer"
+                },
+                "latency_ms": {
+                    "type": "integer"
+                },
+                "checked_at": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "Hub": {
+            "type": "object",
+            "required": [
+                "id",
+                "kind",
+                "url",
+                "ready"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": [
+                        "mod",
+                        "index",
+                        "directory"
+                    ]
+                },
+                "name": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "API base (mod/index) or the directory's API"
+                },
+                "homepage": {
+                    "type": "string"
+                },
+                "mcp": {
+                    "type": "string",
+                    "description": "The hub's own MCP endpoint, when it has one — what /hubs/:id/connect registers"
+                },
+                "registry": {
+                    "type": "string",
+                    "description": "The registry= value on /catalog that searches this hub"
+                },
+                "source": {
+                    "enum": [
+                        "builtin",
+                        "fleet",
+                        "user"
+                    ]
+                },
+                "self": {
+                    "type": "boolean"
+                },
+                "needs_key": {
+                    "type": "boolean"
+                },
+                "key_name": {
+                    "type": "string"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "servers": {
+                    "type": "integer"
+                },
+                "live": {
+                    "type": "integer"
+                },
+                "tools": {
+                    "type": "integer"
+                },
+                "version": {
+                    "type": "string"
+                },
+                "latency_ms": {
+                    "type": "integer"
+                },
+                "checked_at": {
+                    "type": "integer"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                }
+            }
+        }
+    },
+    "discovery": {
+        "declared": {
+            "roots": [
+                "{MOD_ROOT}/core",
+                "{MOD_ROOT}/orbit"
+            ],
+            "rule": "a mod whose config.json has endpoints.mcp, urls.mcp or a top-level mcp block is aggregated; url = urls.mcp/mcp.url, else localhost:{mcp.port|mcp_port|gateway_port|port|api.port|port in urls.api}{mcp path, default /mcp}; core wins name collisions; the hub never aggregates itself"
+        },
+        "swept": {
+            "rule": "every port any config mentions is knocked on at /mcp; whatever completes a handshake is kept as source=sweep. Finds mods that serve MCP without declaring it. Declared rows outrank swept ones, user rows outrank both"
+        },
+        "asleep": {
+            "rule": "a scaled-to-zero mod refuses its own port; explicit re-probes and tool calls retry through the activator at {MCP_ACTIVATOR_URL}/api/{mod}{path}, which wakes it. Background probes do not wake anything"
+        }
+    },
+    "auth": {
+        "identity": "borrowed from orbit/build — the same wallet session token, validated here against ~/.mod/build/server.secret. The hub never mints one",
+        "reads": "open (registry, tools, catalog, web search)",
+        "calls": "tool execution needs an owner/editor wallet, a hub API key (mcphub_…), or a caller on this host (no X-Forwarded-* header). MCP_GATE_LOCAL=1 gates local callers too; MCP_OPEN_CALLS=1 opens everyone",
+        "writes": "registry edits need an owner/editor wallet, Bearer ~/.mod/mcp/server.secret, or a caller on this host",
+        "keys": "minted owner-only; only the sha256 is stored; a key buys tool calls, never registry edits",
+        "open": "ACCESS_OPEN=1 forces every gate off"
+    },
+    "env": {
+        "MCP_PORT": "API port (default 50360)",
+        "MCP_HUB_DIR": "Off-tree state: hub.json registry, probes.json cache, server.secret (default ~/.mod/mcp)",
+        "MCP_PUBLIC_URL": "Public base URL used in client_config output (default http://localhost:50360)",
+        "MOD_ROOT": "Fleet scan root (default /root/mod/mod)",
+        "MCP_REFRESH_SECS": "Background re-probe cadence (default 300)",
+        "MCP_UPSTREAM_TIMEOUT": "Per-upstream-request timeout in seconds (default 60)",
+        "ACCESS_OPEN": "1 disables the write gate",
+        "MCP_SWEEP_SECS": "Background port-sweep cadence (default 900)",
+        "MCP_ACTIVATOR_URL": "Scale-to-zero proxy used to wake sleeping mods (default http://127.0.0.1:9000)",
+        "MCP_WEB_SEARCH_URL": "Keyless MCP search server backing web_search (default https://api.keenable.ai/mcp)",
+        "MCP_FETCH_ALLOW_LOCAL": "1 lets web_fetch read loopback/private addresses (off by default)",
+        "MCP_GATE_LOCAL": "1 demands a credential from callers on this host too",
+        "MCP_OPEN_CALLS": "1 opens tool execution to anyone",
+        "MCP_AUTH_MODULE": "Identity issuer to trust (default build)",
+        "BRAVE_API_KEY|TAVILY_API_KEY|EXA_API_KEY|SERPER_API_KEY": "Optional web-search keys; ~/.mod/mcp/web.json holds them too",
+        "MCP_HUBS_REFRESH_SECS": "Background re-probe cadence for the other hubs (default 900); GET /hubs also re-probes on demand when its view is older than 600s",
+        "GLAMA_API_KEY|PULSEMCP_API_KEY": "Optional directory keys (web.json `glama` / `pulsemcp` works too); without them those two hub types show as not ready and stay out of registry=all"
+    },
+    "schema": "QmSy65fy8Yf3TB4xiX3X2pLgqAGAU7LxddMrZHVZ37A8mP",
+    "hub_types": {
+        "mod": {
+            "what": "A mod-protocol hub — this software. Answers GET /hub (manifest), GET /servers (registry with probes), GET /catalog (search), POST /mcp (every aggregated tool). This deployment is one; any other is a peer",
+            "browse": "registry=<peer id> on /catalog reads its /servers live",
+            "connect": "POST /hubs/:id/connect registers its /mcp as one upstream; tools nest as peer__server__tool (the split is on the first __)"
+        },
+        "index": {
+            "what": "An internet-wide crawl with a probe status per server — orbit/mcpscan (31k servers, 8k live). Found automatically when it is aggregated here",
+            "browse": "registry=mcpscan (live rows) or mcpscan:docker / mcpscan:github for one directory it mirrors",
+            "connect": "POST /hubs/mcpscan/connect — then mcpscan__mcp_find / mcpscan__mcp_call search and call any indexed server from your client"
+        },
+        "directory": {
+            "what": "A public registry: official (registry.modelcontextprotocol.io, keyless), smithery (listing keyless, hosted servers need a key), glama and pulsemcp (API needs a key — web.json `glama` / `pulsemcp`), docker (mirrored by the index)",
+            "browse": "registry=<id> on /catalog",
+            "connect": "rows one at a time — POST /servers with the row's url"
+        },
+        "peers": "~/.mod/mcp/hubs.json — {id, name, url, kind, headers}; POST /hubs identifies the kind by what the URL answers"
+    }
 }

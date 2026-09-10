@@ -1,6 +1,7 @@
-import { redirect } from "next/navigation";
+import Home from "./components/Home";
 
-// basePath ("/copytensor") is prepended automatically — pass the path WITHOUT it.
-export default function Home() {
-  redirect("/subnets");
+// The front door: top traders as cards, your copies, and how it works.
+// The full board (/traders), subnets and the strat tools are one tab away.
+export default function HomePage() {
+  return <Home />;
 }

@@ -1,0 +1,117 @@
+{
+  "block": "cdp",
+  "contract": "ModCDP",
+  "file": "cdp.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "high",
+  "summary": "ModCDP is a single-collateral MakerDAO-style vault that IS its own 18-decimal stablecoin: users lock one ERC20, mint stable up to collateralValue*10000/minCollateralRatioBps, pay a simple-interest stability fee that is capitalised into principal on every touch and booked as virtual surplus, and anyone can liquidate a position below the ratio by burning stable and seizing collateral at a 13% discount. Mint authority is sound (nothing outside the contract can mint; PSM and savings only hold inventory), CEI ordering is correct for standard ERC20s, and the arithmetic cannot overflow at realistic sizes. The worst problem is that solvency rests entirely on a single `oracle.price()` read with no on-chain staleness, deviation or decimals handling: the catalog's default oracle is ModFixedOracle, a one-key manual feed, so the oracle owner (or the CDP owner via setOracle) can mint unlimited unbacked stable or liquidate every position, and even with an honest operator anyone can front-run a lagging price to mint against value the market has already erased. Below that: no bad-debt write-off (underwater positions leave unbacked supply forever, and the borrower can self-liquidate to pocket the penalty), risk params that are uncapped and apply retroactively, a hard-coded 18-decimal collateral assumption, and a stale-oracle revert that freezes liquidations exactly when they are needed. Safe to deploy only behind a robust oracle (aggregated feed with staleness guard, or a TWAP), an 18-decimal non-rebasing collateral, and a governor that is a timelock or multisig rather than an EOA.",
+  "counts": {
+    "critical": 0,
+    "high": 2,
+    "medium": 5,
+    "low": 2,
+    "info": 1
+  },
+  "findings": [
+    {
+      "id": "CDP-1",
+      "severity": "high",
+      "title": "One key controls the price, and therefore can mint unbacked stable or liquidate every vault",
+      "where": "collateralValue() L77-L79, liquidate() L161, setOracle() L186-L189; ModFixedOracle.setPrice() oracle.sol L34-L39",
+      "detail": "Every solvency decision (maxMint, free, liquidate) is a raw `oracle.price()` read. The catalog's default `oracle` port is ModFixedOracle, whose owner sets any non-zero price at will; independently, the CDP owner can `setOracle()` to any contract returning any number, with no timelock, no sanity bounds and no deviation check. The docstring at L170-L171 ('Nothing else can mint: supply is either backed by collateral or by realised fees') is only true if this key is honest. Because the oracle owner and the CDP owner are typically the same deployer EOA, the stablecoin is fully custodial in practice.",
+      "exploit": "(a) Unbacked mint: owner locks 1 wei of collateral; oracle owner calls setPrice(1e40); owner calls mint(debtCeiling) and receives the whole ceiling in stable; setPrice back to the market value. The position is now hopelessly underwater but the stable is already sold into the PSM/AMM. (b) Seize everyone: setPrice(1) makes ratioBps()<min for every position; the owner calls liquidate(user, debtOf(user)) for each vault, burning stable it minted in (a) and receiving all collateral (seize is capped at p.collateral, L162); then restores the price.",
+      "recommendation": "Wire a real feed (Chainlink-style aggregator with updatedAt/staleness and answer bounds, or an on-chain TWAP) instead of ModFixedOracle in any deployment that holds third-party value. In the CDP: emit an event and enforce a timelock on setOracle; bound the accepted price against the previous read (max deviation per update); and hand `governor` to a multisig/timelock. Consider a two-oracle design (median of feed and TWAP) so no single key moves the price."
+    },
+    {
+      "id": "CDP-2",
+      "severity": "high",
+      "title": "Anyone can mint against a lagging price; no on-chain staleness or deviation guard in the CDP",
+      "where": "maxMint() L88-L95, mint() L129-L136, collateralValue() L77-L79",
+      "detail": "The CDP has no notion of when its price was last updated or how far it moved. With a manually pushed oracle (the default) the on-chain price trails the market by however long the operator takes to react, and with ModFixedOracle's maxStaleness set to 0 it never expires. Any drop larger than the collateral buffer (1 - 10000/minCollateralRatioBps: 33% at 150%, 9% at 110%) that has happened in the market but not on-chain lets an attacker convert cheap collateral into full-price stable, leaving a position that is underwater the instant the price is corrected. The same lag also means liquidators cannot act until the update lands, so the loss is locked in.",
+      "exploit": "minCollateralRatioBps=15000, oracle says 100e18. Collateral crashes 40% on exchanges; oracle owner has not yet pushed 60e18. Attacker buys 1000 collateral for $60k, calls lock(1000e18) then mint(66_666e18) (maxMint at the stale price), sells the 66,666 MUSD through the PSM for $66k of reserve, and never returns. After setPrice(60e18) the vault holds $60k of collateral against 66,666 debt; a liquidator recovers at most the collateral and 6,666 MUSD of supply is permanently unbacked.",
+      "recommendation": "Use an oracle with a heartbeat and check it in the CDP (revert mint/free if `updatedAt` is older than a bound; expose `peek()`-style data through IOracle or a richer port type). Add a per-block mint cap or a mint delay so a single stale-price window cannot drain the ceiling. Keep minCollateralRatioBps high enough to cover the realistic price move between oracle updates; 110% with a manual feed is unsafe."
+    },
+    {
+      "id": "CDP-3",
+      "severity": "medium",
+      "title": "Risk parameters are uncapped and apply retroactively across the whole accrual window",
+      "where": "setRiskParams() L191-L203, debtOf() L69-L74, constructor L57-L63",
+      "detail": "`stabilityFeeBps` is a uint16 with no cap on-chain (the catalog's max 5000 is UI-only), so it can be set to 65535 = 655%/yr, and `minCollateralRatioBps` can go to 65535 = 655%. `debtOf()` computes `principal * stabilityFeeBps * elapsed` using the CURRENT rate over the ENTIRE period since the position's `lastAccrual`, so a rate change is applied retroactively to every position rather than from the moment of the change, and setRiskParams does not capitalise positions first. Even honest governance raising the fee from 2% to 5% silently bills borrowers 5% for months already elapsed; a hostile owner uses it to force liquidations. There is no timelock or event on any of these changes.",
+      "exploit": "A borrower opened a vault 90 days ago at 200% with fee 200 bps and has not touched it. Owner calls setRiskParams(15000, 65535, 3000, ceiling). debtOf() now returns principal*(1 + 6.5535*90/365) = 2.62x principal, ratio falls to 76%, and the owner (or anyone) calls liquidate(user, debtOf(user)) with a 30% penalty, taking all of the collateral. Alternatively setRiskParams(60000, ...) makes every vault under 600% liquidatable in the same block.",
+      "recommendation": "Cap stabilityFeeBps (e.g. <= 5000) and minCollateralRatioBps in the contract, not just the UI. Make rate changes prospective: either store a global accumulator (Maker's `rate`/`chi`) that is dripped before any parameter change, or record `lastAccrual` per position and require an owner-callable `accrueAll`/drip before changing the rate. Put setRiskParams and setOracle behind a timelock and emit events."
+    },
+    {
+      "id": "CDP-4",
+      "severity": "medium",
+      "title": "No bad-debt accounting: underwater vaults leave unbacked supply forever and the borrower can self-liquidate to keep the penalty",
+      "where": "liquidate() L151-L166 (cap at L162), drawSurplus() L172-L178, burn() L139-L147",
+      "detail": "When collateralValue < debt, `seize` is capped at `p.collateral` (L162) and whatever principal remains stays on the position with zero collateral. Nothing ever writes it off, nets it against `surplus`, or socialises it, so `totalSupply` exceeds backing permanently and the stable is quietly undercollateralised. Rational keepers only repay up to collateralValue/(1+penalty), so the shortfall is never even attempted. `liquidate(user)` does not forbid `user == msg.sender`, so the underwater borrower is the best-placed keeper: they burn a fraction of their debt and take ALL of their collateral at the 13-30% discount, increasing the hole by the penalty. Meanwhile `drawSurplus()` keeps minting accrued fees (including fees accrued on the very positions that went bad) to the sink with no check that the system is solvent, and `burn()` from a third party cannot be pointed at a bad vault to help.",
+      "exploit": "Vault: 100 collateral at $1 (=100 MUSD value), debt 90 MUSD. Price falls to $0.80 (value 80, debt 90; ratio 89%). Borrower calls liquidate(self, 70.8e18): pay=70.8, seize = 70.8*1.13/0.8 = 100 (all collateral). Position is now 0 collateral, 19.2 MUSD debt, never repayable by anyone. Without self-liquidation the walk-away loss would have been 10 MUSD; the penalty made it 19.2. Any keeper triggers the same. Owner then calls drawSurplus() and mints the fees that position accrued, deepening the deficit.",
+      "recommendation": "Track `badDebt`: when a liquidation leaves principal with zero collateral, move it into a sin/bad-debt counter and burn it from `surplus` before drawSurplus() mints anything (`drawSurplus` should mint only `surplus - badDebt`). Add a permissionless `settle(user)` that pays remaining bad debt out of surplus. Require `user != msg.sender` in liquidate, or route the penalty above the protocol's break-even to a protocol sink so a self-liquidator cannot profit. Consider a global `heal()` funded by the sink."
+    },
+    {
+      "id": "CDP-5",
+      "severity": "medium",
+      "title": "Collateral value assumes 18-decimal collateral; 6/8-decimal tokens are mis-valued by 1e12/1e10",
+      "where": "collateralValue() L77-L79, liquidate() L161, constructor L54",
+      "detail": "The stable is hard-coded to 18 decimals (L54) and collateralValue is `rawCollateral * price / 1e18`. IOracle is documented as 'price of one whole token, scaled 1e18', so for USDC (6 dec) or WBTC (8 dec) the value comes out in collateral decimals, not stable decimals: 1 WBTC at $60,000 (1e8 raw * 6e22 / 1e18) is valued at 6e12 wei = 0.000006 MUSD, so nobody can mint anything. The seize formula at L161 makes the same assumption, so the only way to make the block work with such collateral is to feed it an oracle price rescaled by 10^(18-decimals), which is undocumented, easy to get wrong in the other direction (over-scaling lets users mint unbacked stable), and breaks the promise that any `oracle` block is interchangeable. ModPSM normalises with `decimals()` (psm.sol L49-L50); this block does not.",
+      "exploit": "Deployer wires WBTC as collateral and a Chainlink-style adapter reporting 6e22 for $60,000. Every user's maxMint is ~0 and the block is dead. Deployer 'fixes' it by publishing price*1e10 to ModFixedOracle; a later oracle swap (setOracle) to an honestly-scaled feed silently makes every vault appear 1e10x under-collateralised and all of them liquidatable at ~zero cost. The reverse mistake (an 18-dec collateral fed an over-scaled price) lets anyone mint 1e10x the backed amount.",
+      "recommendation": "Read `collateral.decimals()` once in the constructor into an immutable `collateralUnit` and compute value as `collateral * price / collateralUnit` (and seize as `pay * collateralUnit * (10000+penalty) / (price * 10000)`), matching the PSM. Reject collateral with more than 18 decimals."
+    },
+    {
+      "id": "CDP-6",
+      "severity": "medium",
+      "title": "Fee-on-transfer or rebasing collateral breaks accounting and lets users mint against collateral the contract never received",
+      "where": "lock() L111-L117, free() L119-L127",
+      "detail": "`lock()` credits `amount` to the position after `collateral.pull()` without measuring the balance delta. With a fee-on-transfer token the contract receives less than it books, so the sum of positions exceeds the balance: later `free()`/`liquidate()` calls revert with BALANCE for whoever is last out, and every borrower has minted against phantom collateral. With a negative-rebase token the same shortfall appears over time; with a positive rebase the excess is stranded (no sweep). The `erc20` port type does not distinguish these tokens, so nothing on the canvas warns the deployer.",
+      "exploit": "Collateral charges 2% on transfer. Attacker calls lock(100e18); contract receives 98 but books 100, mints against 100. Repeat across many accounts until positions total 100k with 98k held; the last 2k of frees/liquidations revert, and the stable minted against the missing 2k is unbacked. With a rebasing token, wait for a negative rebase and free() the full booked amount before others notice.",
+      "recommendation": "Measure `balanceOf(this)` before and after pull() and credit the delta. Document that rebasing tokens are unsupported (or wrap them). Alternatively add an owner `skim()` that reconciles stranded balance to surplus."
+    },
+    {
+      "id": "CDP-7",
+      "severity": "medium",
+      "title": "A reverting oracle (stale or zero price) freezes free/mint/liquidate; liquidations are blocked exactly when they are needed",
+      "where": "collateralValue() L78, free() L124, mint() L131, liquidate() L153 and L161; ModFixedOracle.price() oracle.sol L22-L27, constructor oracle.sol L16-L20",
+      "detail": "ModFixedOracle.price() reverts with STALE_PRICE once `maxStaleness` elapses, and its constructor does not require `initialPrice > 0`, so a zero price is possible (liquidate then hits division by zero at L161). ModCDP has no try/catch, no fallback price and no pause path, so while the oracle is reverting nobody can free partial collateral, mint, or liquidate; only full repayment (`burn` then `free` with zero debt, which skips the oracle at L84) works. The dangerous case is the operator going dark during a crash: liquidations are impossible during the outage, and when the feed comes back the positions are already underwater (CDP-4). Setting maxStaleness=0 avoids the revert but then a frozen price is trusted forever (CDP-2).",
+      "exploit": "Oracle deployed with maxStaleness = 1 day. The operator stops updating during a weekend sell-off. For 48 hours every liquidate() reverts STALE_PRICE while collateral loses 40%. Users with slightly-unsafe vaults cannot top up via free/re-lock rebalancing (lock still works, free does not). When the operator finally pushes the new price, every vault under ~167% is underwater and keepers only recover collateral, leaving unbacked supply.",
+      "recommendation": "Read the oracle via a wrapper that returns (price, ok) and, when stale, let liquidate use the last good price (Maker-style `spot` stored on-chain by a permissionless `poke()`), or at least allow liquidations against the last stored price. Require initialPrice > 0 in the oracle. Give the owner an explicit emergency `setOracle` runbook and alerting on `updatedAt`."
+    },
+    {
+      "id": "CDP-8",
+      "severity": "low",
+      "title": "No minimum debt, no close factor, and the ratio floor (101%) is below the penalty (113%)",
+      "where": "constructor L57 and L62, setRiskParams() L197-L198, liquidate() L155-L162, mint() L129-L136",
+      "detail": "There is no `dust` floor, so vaults with a few cents of debt are legal; the gas to liquidate them exceeds the 13% penalty, so they are never cleaned up and accumulate as unbacked supply after a crash. There is no close factor, so a vault at 149.9% can be fully closed by a keeper who collects the full penalty on all of the debt. minCollateralRatioBps may be as low as 10100 while the penalty may be up to 3000: with minCR < 10000 + penalty, the seize formula wants more collateral than exists at the moment a vault first becomes unsafe, so every liquidation is capped at L162 and the band between 'unsafe' and 'underwater' is essentially zero, which is a bad-debt generator rather than a safety margin.",
+      "exploit": "Attacker opens 10,000 vaults with 1 wei of collateral each (front-running a price rise) and mints the maximum dust from each; after a drop none are worth liquidating, and their debt is permanently unbacked. Separately, with minCR=11000 and penalty=1300, a user at 109.9% is liquidated for their entire collateral (seize 113% capped to 109.9%), and the residual 3.1% of debt is bad debt from the first block the vault is unsafe.",
+      "recommendation": "Add a `minDebt` (dust) required on mint and enforce 'repay fully or leave >= dust' in liquidate. Add a close factor (e.g. max 50% of debt per liquidation unless the vault is below 100%). Require minCollateralRatioBps >= 10000 + liquidationPenaltyBps + a buffer in both constructor and setRiskParams."
+    },
+    {
+      "id": "CDP-9",
+      "severity": "low",
+      "title": "drawSurplus mints fees before they are collected and ignores the debt ceiling",
+      "where": "drawSurplus() L172-L178, _capitalise() L99-L109, maxMint() L93",
+      "detail": "`surplus` is virtual: it is booked in `_capitalise()` the moment a fee accrues into a borrower's principal, not when the borrower repays. `drawSurplus()` (callable by anyone) immediately mints that amount to the sink, so fee revenue on debt that is never repaid becomes unbacked supply (see CDP-4). It also bypasses `debtCeiling`, which `maxMint()` checks against `totalSupply`, so supply can exceed the ceiling, and once it does, `debtCeiling - totalSupply` underflows to 0 at L93 and honest borrowers cannot mint until enough stable is burned.",
+      "exploit": "debtCeiling = 1,000,000, totalSupply = 999,990 at 20%/yr. After one year `surplus` = ~200,000; anyone calls drawSurplus() and 200,000 MUSD is minted to the sink, totalSupply is 1.2M, and every mint() reverts UNSAFE_OR_CAPPED with no on-chain reason until borrowers burn 200k. If the borrowers behind that surplus were liquidated underwater, the 200k is pure unbacked issuance.",
+      "recommendation": "Either mint surplus only against realised repayments (increment a `collected` counter in burn()/liquidate() proportional to fee share) or net it against bad debt before minting (CDP-4). Exclude drawn surplus from the ceiling check or explicitly reserve headroom for it."
+    },
+    {
+      "id": "CDP-10",
+      "severity": "info",
+      "title": "Mint authority and composition are sound: the CDP is the only minter, PSM and savings hold inventory only",
+      "where": "contract ModCDP L15, mint() L129-L136, drawSurplus() L172-L178; ModPSM psm.sol L10-L12 and L91-L94; ModSavingsRate savings.sol L101-L105",
+      "detail": "Because ModCDP inherits ERC20Base and there is no ModToken in the loop, no external `mint(address,uint)` exists on the stable; the only issuance paths are `mint()` (collateral-checked, ceiling-checked) and `drawSurplus()` (fees, sink-only). ModPSM swaps out of pre-funded inventory rather than minting, so wiring both a PSM and a CDP to the same stable does not create a second mint right; the deployer must obtain PSM inventory by minting through a vault or drawing surplus, so it stays backed. ModSavingsRate's `fund()` accepts drawSurplus output landing directly in its balance. CEI ordering is correct (state updated before push in free/liquidate), ratioBps() short-circuits on zero debt so users can always exit by full repayment even with a dead oracle, and the liquidation penalty goes 100% to the keeper (no protocol share). None of this is a vulnerability; it is what a deployer should rely on and preserve when forking.",
+      "exploit": "Not applicable (no attack). Observed behaviour: PSM.withdraw() lets the PSM owner pull stable inventory, and drawSurplus() lets anyone push accrued fees to the sink; neither creates supply beyond what a vault or fee accrual backed.",
+      "recommendation": "Keep the 'CDP is the token' invariant when composing: never wrap this stable in a ModToken with `mintable=true`, and do not give the PSM a separate mintable stable. If a protocol share of the penalty is wanted, route `liquidationPenaltyBps` partially to `surplus`."
+    }
+  ],
+  "safe_use": [
+    "Do not run ModFixedOracle as the production price feed for a vault holding third-party value; wire an aggregated feed with a heartbeat or a TWAP block, set maxStaleness to a few times the heartbeat, and keep an emergency setOracle runbook. Treat whoever holds the oracle key as able to mint the entire debt ceiling.",
+    "Put `governor` behind a multisig or timelock. setOracle and setRiskParams are instant and unlogged; the stability fee is uncapped on-chain and applies retroactively, so never change the rate without first capitalising open positions (touch them) and never set it above the catalog's 5000 bps.",
+    "Only use 18-decimal, non-rebasing, no-fee-on-transfer collateral (WETH, standard 18-dec ERC20s). USDC/WBTC-style 6/8-decimal tokens are mis-valued by 1e12/1e10 unless the oracle is deliberately rescaled; do not do that silently.",
+    "Set minCollateralRatioBps to at least 100% + liquidationPenaltyBps + the largest price move expected between oracle updates (150%+ with a manual feed, 130%+ with a live feed); the 101% floor the contract allows will generate bad debt.",
+    "Monitor totalSupply against the sum of collateralValue(); after any crash, vaults with zero collateral and non-zero principal are unbacked supply that this version never writes off. Do not call drawSurplus() while such vaults exist unless the sink will burn an equivalent amount.",
+    "Enforce a minimum debt off-chain (front-end) since there is no on-chain dust floor; expect dust vaults to be un-liquidatable.",
+    "Keep a keeper running: liquidation is permissionless but nothing in the block triggers it, and nobody will liquidate an underwater vault. Expect keepers to only repay up to collateralValue/(1+penalty)."
+  ]
+}

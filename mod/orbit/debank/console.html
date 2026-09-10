@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>debank — your wallet, as a bank</title>
+<style>
+  :root {
+    --bg: #090c12; --panel: #10151f; --panel2: #151c29; --panel3: #1a2231;
+    --line: #1e2735; --line2: #28344a; --ink: #eef2f8; --dim: #8b96a8; --mute: #5d687a;
+    --gold: #e3c27a; --gold2: #b8964a; --mint: #4fd1a1; --coral: #f06a5e; --amber: #e8b04a;
+    --blue: #6aa5ff; --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .num, .n, td.n, .stat b, .hero-total { font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  /* ── shell ── */
+  #app { display: grid; grid-template-columns: 224px 1fr; min-height: 100vh; }
+  aside {
+    background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; padding: 22px 16px 16px; position: sticky;
+    top: 0; height: 100vh; overflow-y: auto;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px 18px; }
+  .brand .mark {
+    width: 30px; height: 30px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--gold), var(--gold2));
+    color: #1b1608; font-weight: 800; font-size: 15px; display: grid; place-items: center;
+  }
+  .brand b { font-size: 15px; letter-spacing: .16em; text-transform: uppercase; display: block; }
+  .brand span { font-size: 11px; color: var(--dim); display: block; margin-top: -2px; }
+  nav { display: flex; flex-direction: column; gap: 2px; }
+  nav .sect { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute);
+              padding: 12px 10px 4px; }
+  nav button {
+    background: none; border: 0; color: var(--dim); text-align: left; padding: 8px 10px;
+    border-radius: 8px; font: inherit; font-size: 13.5px; cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  nav button:hover { background: var(--panel2); color: var(--ink); }
+  nav button.on { background: var(--panel3); color: var(--ink); font-weight: 600; }
+  nav button .k { font-size: 10px; color: var(--mute); font-weight: 400; }
+  nav button.on .k { color: var(--gold); }
+  .rail-foot { margin-top: auto; }
+  .wallet-card {
+    border: 1px solid var(--line2); border-radius: 12px; padding: 12px; background: var(--panel2);
+  }
+  .wallet-card .lbl { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
+  .wallet-card .who { font-weight: 600; margin: 3px 0 2px; font-size: 13px; }
+  .wallet-card .net { font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); display: inline-block; }
+  .dot.off { background: var(--mute); }
+  .keyline { font-size: 11px; color: var(--mute); padding: 10px 6px 0; }
+  .keyline b { color: var(--dim); font-weight: 500; }
+
+  main { min-width: 0; padding: 22px 28px 80px; }
+  .top { display: flex; gap: 10px; align-items: center; margin-bottom: 22px; }
+  .search { flex: 1; display: flex; align-items: center; background: var(--panel); border: 1px solid var(--line);
+            border-radius: 10px; padding: 0 12px; height: 40px; }
+  .search input { flex: 1; background: none; border: 0; color: var(--ink); font: inherit; outline: 0; min-width: 0; }
+  .search input::placeholder { color: var(--mute); }
+  .search .hint { color: var(--mute); font-size: 11px; white-space: nowrap; margin-left: 8px; }
+  .search input:not(:placeholder-shown) + .hint { display: none; }
+
+  /* ── controls ── */
+  .btn {
+    background: var(--panel2); color: var(--ink); border: 1px solid var(--line2); border-radius: 10px;
+    padding: 0 14px; height: 40px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .btn:hover { border-color: var(--gold); }
+  .btn.gold { background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #1b1608; border-color: transparent; }
+  .btn.gold:hover { filter: brightness(1.06); }
+  .btn.ghost { background: none; }
+  .btn.sm { height: 32px; padding: 0 11px; font-size: 12.5px; border-radius: 8px; }
+  .btn.danger { color: var(--coral); }
+  .btn.danger:hover { border-color: var(--coral); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.w { width: 100%; justify-content: center; }
+  select, input.f, textarea.f {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line2); border-radius: 10px;
+    padding: 0 12px; height: 40px; font: inherit; outline: 0; width: 100%;
+  }
+  input.f:focus, select:focus, textarea.f:focus { border-color: var(--gold); }
+  select.sm { height: 32px; width: auto; font-size: 12.5px; border-radius: 8px; }
+  label.f { display: block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 6px 2px; }
+  .field { margin-bottom: 14px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* ── cards ── */
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 20px; }
+  .card h3 { margin: 0 0 12px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); font-weight: 600;
+             display: flex; justify-content: space-between; align-items: center; }
+  .card h3 .r { font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 12px; color: var(--mute); }
+  .hero {
+    position: relative; overflow: hidden; border-radius: 20px; padding: 26px 28px; margin-bottom: 18px;
+    background: radial-gradient(1200px 300px at 0% 0%, #23304a 0%, #141b2a 45%, #10151f 100%);
+    border: 1px solid var(--line2);
+  }
+  .hero:after {
+    content: ''; position: absolute; right: -80px; top: -120px; width: 320px; height: 320px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(227,194,122,.16), rgba(227,194,122,0) 70%);
+  }
+  .hero .lbl { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  .hero-total { font-size: 44px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; margin: 6px 0 4px; }
+  .hero-total small { font-size: 22px; color: var(--dim); font-weight: 500; }
+  .hero .sub { color: var(--dim); font-size: 12.5px; }
+  .hero .side { position: absolute; right: 26px; top: 24px; text-align: right; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line2); border-radius: 999px;
+          padding: 3px 10px; font-size: 11.5px; color: var(--dim); background: rgba(0,0,0,.2); }
+  .chip.gold { color: var(--gold); border-color: rgba(227,194,122,.4); }
+  .chip.mint { color: var(--mint); border-color: rgba(79,209,161,.4); }
+  .up { color: var(--mint); } .down { color: var(--coral); } .warn { color: var(--amber); } .bad { color: var(--coral); }
+  .mut { color: var(--dim); } .faint { color: var(--mute); }
+  .actions { display: flex; gap: 10px; margin: 0 0 18px; flex-wrap: wrap; }
+  .action { flex: 1; min-width: 120px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+            padding: 12px 14px; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+  .action:hover { border-color: var(--gold); }
+  .action b { display: block; font-size: 13.5px; }
+  .action span { font-size: 11.5px; color: var(--dim); }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat { flex: 1; min-width: 140px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 20px; font-weight: 700; }
+  .stat span { color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+
+  /* ── lists / tables ── */
+  .acct { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .acct:last-child { border-bottom: 0; }
+  .acct .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--panel3); display: grid; place-items: center;
+              font-weight: 700; font-size: 12px; color: var(--gold); flex: none; }
+  .acct .t { flex: 1; min-width: 0; }
+  .acct .t b { display: block; font-size: 13.5px; }
+  .acct .t span { font-size: 12px; color: var(--dim); }
+  .acct .v { text-align: right; }
+  .acct .v b { display: block; font-size: 14px; }
+  .acct .v span { font-size: 11.5px; color: var(--dim); }
+  .bar { height: 3px; background: var(--line); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold2)); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--mute); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em;
+       padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 13.5px; }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; }
+  td b { font-weight: 600; }
+  .pill { display: inline-block; font-size: 10.5px; padding: 2px 7px; border-radius: 6px; background: var(--panel3); color: var(--dim);
+          letter-spacing: .04em; text-transform: uppercase; }
+  .pill.ok { color: var(--mint); } .pill.bad { color: var(--coral); } .pill.warn { color: var(--amber); }
+
+  /* ── notices ── */
+  .note { border: 1px solid var(--line2); border-left: 3px solid var(--gold); background: var(--panel); border-radius: 10px;
+          padding: 12px 16px; margin-bottom: 16px; font-size: 13px; color: var(--dim); }
+  .note.err { border-left-color: var(--coral); color: var(--ink); }
+  .note.ok { border-left-color: var(--mint); }
+  .note b { color: var(--ink); }
+  .empty { text-align: center; padding: 60px 20px; }
+  .empty h2 { font-size: 26px; margin: 0 0 8px; letter-spacing: -.01em; }
+  .empty p { color: var(--dim); margin: 0 auto 22px; max-width: 460px; }
+  .addr-big { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 18px; word-break: break-all;
+              background: var(--panel2); border: 1px dashed var(--line2); border-radius: 12px; padding: 18px; line-height: 1.6; }
+  .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; font-size: 13px; }
+  .kv span { color: var(--mute); }
+  pre { background: var(--panel2); border: 1px solid var(--line); padding: 12px; border-radius: 10px; overflow: auto;
+        font-size: 12px; max-height: 50vh; }
+  code { color: var(--gold); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  #toast { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); background: var(--panel3);
+           border: 1px solid var(--line2); color: var(--ink); padding: 10px 16px; border-radius: 10px; font-size: 13px;
+           opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 80vw; z-index: 50; }
+  #toast.show { opacity: 1; }
+  #toast.bad { border-color: var(--coral); }
+  .spin { color: var(--mute); font-size: 13px; padding: 30px 0; text-align: center; }
+  .tool { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  .tool b { color: var(--gold); font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+  .tool .d { color: var(--dim); font-size: 12.5px; }
+  .h2 { font-size: 20px; font-weight: 700; margin: 0 0 4px; letter-spacing: -.01em; }
+  .lead { color: var(--dim); margin: 0 0 18px; font-size: 13.5px; }
+
+  @media (max-width: 760px) {
+    #app { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 12px; }
+    .brand { padding: 0 6px; width: 100%; }
+    nav { flex-direction: row; flex-wrap: wrap; }
+    nav .sect { display: none; }
+    .rail-foot { width: 100%; margin-top: 4px; }
+    main { padding: 16px 14px 60px; }
+    .hero .side { position: static; text-align: left; margin-top: 12px; }
+    .hero-total { font-size: 34px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div class="brand">
+      <div class="mark">D</div>
+      <div><b>debank</b><span>your wallet, as a bank</span></div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="rail-foot">
+      <div class="wallet-card" id="walletCard"></div>
+      <div class="keyline" id="keyline"></div>
+    </div>
+  </aside>
+  <main>
+    <div class="top">
+      <div class="search">
+        <input id="addr" placeholder="Look up any address — 0x…" spellcheck="false" autocomplete="off">
+        <span class="hint">Enter</span>
+      </div>
+      <button class="btn ghost" id="mine" style="display:none">My account</button>
+      <button class="btn gold" id="connectTop">Connect wallet</button>
+    </div>
+    <div id="out"></div>
+  </main>
+</div>
+<div id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   debank — the bank console.
+
+   Two identities:  ME   = the wallet connected in the browser (can send, revoke)
+                    VIEW = the address on screen (ME by default, or any address typed in)
+   Two data floors: DeBank (full picture, needs the caller's own AccessKey)
+                    the bank rail (native + stables on 8 chains, keyless, public RPCs)
+   The private key never leaves the wallet. This page only builds transactions
+   and asks the wallet to sign them.
+   ═══════════════════════════════════════════════════════════════ */
+const BASE = location.pathname.replace(/\/+$/, '') || '';
+const API = (BASE.endsWith('/debank') ? BASE : '/debank') + '/_api';
+const $ = (id) => document.getElementById(id);
+const out = $('out');
+const LS = { key: 'debank.key', view: 'debank.view', connected: 'debank.connected', tab: 'debank.tab' };
+const read = (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+const write = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+
+const state = {
+  tab: read(LS.tab) || 'overview',
+  view: read(LS.view) || '',          // address on screen
+  me: null, chainId: null,             // connected wallet
+  key: read(LS.key) || '',             // DeBank AccessKey, browser-side only
+  keyOk: null,                         // null unknown, true/false after /account
+  networks: [], chains: [],
+  cache: {},                           // per-view fetch cache, cleared on refresh
+  sendPrefill: {},
+};
+
+const NAV = [
+  ['sect', 'Bank'],
+  ['overview', 'Overview'], ['accounts', 'Accounts'], ['assets', 'Assets'],
+  ['savings', 'Savings'],
+  ['positions', 'Positions', 'key'], ['statement', 'Statement', 'key'],
+  ['permissions', 'Permissions', 'key'], ['vault', 'Vault', 'key'],
+  ['sect', 'Move money'],
+  ['send', 'Send'], ['receive', 'Receive'],
+  ['sect', 'More'],
+  ['settings', 'Settings'], ['api', 'API & MCP'],
+];
+
+/* ── formatting ── */
+const usd = (n, d = 2) => n == null || isNaN(n) ? '—' :
+  '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+const usdBig = (n) => {
+  if (n == null || isNaN(n)) return '—';
+  const [i, f] = Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).split('.');
+  return `$${i}<small>.${f}</small>`;
+};
+const num = (n, max = 6) => n == null || isNaN(n) ? '—' :
+  Number(n).toLocaleString('en-US', { maximumFractionDigits: Math.abs(n) >= 1000 ? 2 : max });
+const when = (t) => t ? new Date(t * 1000).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+const esc = (s) => String(s == null ? '' : s).replace(/[<&>"]/g, (c) => ({ '<': '&lt;', '&': '&amp;', '>': '&gt;', '"': '&quot;' }[c]));
+const short = (a) => a && a.length > 14 ? a.slice(0, 6) + '…' + a.slice(-4) : (a || '—');
+const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(a || '');
+const same = (a, b) => a && b && a.toLowerCase() === b.toLowerCase();
+const clock = () => new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+const netOf = (chain) => state.networks.find((n) => n.chain === chain);
+const netOfId = (id) => state.networks.find((n) => n.chain_id === Number(id));
+const chainName = (c) => (netOf(c) || state.chains.find((x) => x.chain === c) || {}).name || c;
+
+let toastTimer;
+function toast(msg, bad = false) {
+  const t = $('toast'); t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.className = ''), bad ? 5000 : 2600);
+}
+
+/* ── api ── */
+async function get(path, params = {}, { cache = true } = {}) {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null));
+  const ck = `${path}?${q}`;
+  if (cache && state.cache[ck]) return state.cache[ck];
+  const headers = {};
+  if (state.key) headers['x-debank-key'] = state.key;
+  const r = await fetch(`${API}${path}?${q}`, { headers });
+  const body = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok) throw Object.assign(new Error(body.error || `HTTP ${r.status}`), body);
+  if (cache) state.cache[ck] = body;
+  return body;
+}
+async function post(path, body) {
+  const r = await fetch(`${API}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+  if (!r.ok) throw Object.assign(new Error(j.error || `HTTP ${r.status}`), j);
+  return j;
+}
+const hasKey = () => !!state.key || state.keyOk === true;
+const keyErr = (e) => e && (e.status === 401 || /AccessKey|no key/i.test(e.message || ''));
+
+/* ── wallet (EIP-1193) ── */
+const eth = () => window.ethereum;
+async function connect(silent = false) {
+  if (!eth()) {
+    if (!silent) toast('No wallet found — install MetaMask, Rabby or Coinbase Wallet', true);
+    return false;
+  }
+  try {
+    const accounts = await eth().request({ method: silent ? 'eth_accounts' : 'eth_requestAccounts' });
+    if (!accounts || !accounts[0]) { if (!silent) toast('The wallet gave no account', true); return false; }
+    state.me = accounts[0];
+    state.chainId = parseInt(await eth().request({ method: 'eth_chainId' }), 16);
+    write(LS.connected, '1');
+    if (!state.view || !silent) setView(state.me, false);
+    if (!silent) toast(`Connected ${short(state.me)}`);
+    renderChrome(); render();
+    return true;
+  } catch (e) {
+    if (!silent) toast(e.message || 'The wallet refused', true);
+    return false;
+  }
+}
+function disconnect() {
+  state.me = null; state.chainId = null; write(LS.connected, '');
+  renderChrome(); render(); toast('Disconnected');
+}
+if (eth()) {
+  eth().on?.('accountsChanged', (a) => {
+    const was = state.me; state.me = a[0] || null;
+    if (!state.me) write(LS.connected, '');
+    if (state.me && (!state.view || same(state.view, was))) setView(state.me, false);
+    renderChrome(); render();
+  });
+  eth().on?.('chainChanged', (c) => { state.chainId = parseInt(c, 16); renderChrome(); if (state.tab === 'send') render(); });
+}
+async function switchChain(chain) {
+  const n = netOf(chain);
+  if (!n) throw new Error(`${chain} is not on the bank rail`);
+  if (state.chainId === n.chain_id) return n;
+  try {
+    await eth().request({ method: 'wallet_switchEthereumChain', params: [{ chainId: n.chain_id_hex }] });
+  } catch (e) {
+    if (e.code !== 4902 && !/unrecognized|not added|4902/i.test(e.message || '')) throw e;
+    await eth().request({ method: 'wallet_addEthereumChain', params: [{
+      chainId: n.chain_id_hex, chainName: n.name, rpcUrls: [n.rpc], blockExplorerUrls: [n.explorer],
+      nativeCurrency: { name: n.native, symbol: n.native, decimals: 18 } }] });
+  }
+  state.chainId = parseInt(await eth().request({ method: 'eth_chainId' }), 16);
+  return n;
+}
+// ABI encoding for the two calls a bank needs: transfer and approve(…, 0).
+const pad = (h) => String(h).replace(/^0x/, '').toLowerCase().padStart(64, '0');
+function toUnits(amount, decimals) {
+  const s = String(amount).trim();
+  if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') throw new Error('Amount must be a number');
+  const [i = '0', f = ''] = s.split('.');
+  if (f.length > decimals) throw new Error(`At most ${decimals} decimal places for this asset`);
+  return BigInt(i || '0') * (10n ** BigInt(decimals)) + BigInt((f + '0'.repeat(decimals)).slice(0, decimals) || '0');
+}
+const fromUnits = (units, decimals) => Number(units) / 10 ** decimals;
+async function sendTx(tx) {
+  const hash = await eth().request({ method: 'eth_sendTransaction', params: [tx] });
+  return hash;
+}
+async function waitReceipt(hash, tries = 60) {
+  for (let i = 0; i < tries; i++) {
+    const r = await eth().request({ method: 'eth_getTransactionReceipt', params: [hash] }).catch(() => null);
+    if (r) return r;
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+  return null;
+}
+
+/* ── view / navigation ── */
+function setView(addr, announce = true) {
+  state.view = addr ? addr.toLowerCase() : '';
+  write(LS.view, state.view);
+  $('addr').value = state.view;
+  state.cache = {};
+  if (announce) render();
+  renderChrome();
+}
+function go(tab) { state.tab = tab; write(LS.tab, tab); render(); renderChrome(); }
+$('nav').innerHTML = NAV.map(([k, label, needs]) => k === 'sect'
+  ? `<div class="sect">${label}</div>`
+  : `<button data-t="${k}">${label}${needs ? '<span class="k">key</span>' : ''}</button>`).join('');
+$('nav').onclick = (e) => { const b = e.target.closest('button'); if (b?.dataset.t) go(b.dataset.t); };
+$('addr').onkeydown = (e) => {
+  if (e.key !== 'Enter') return;
+  const v = $('addr').value.trim();
+  if (!isAddr(v)) return toast('That is not an EVM address (0x + 40 hex). ENS names are not resolved here.', true);
+  setView(v); if (!['overview', 'accounts', 'assets', 'savings', 'positions', 'statement', 'permissions', 'vault'].includes(state.tab)) go('overview');
+};
+$('mine').onclick = () => { setView(state.me); go('overview'); };
+$('connectTop').onclick = () => (state.me ? disconnect() : connect());
+
+function renderChrome() {
+  for (const b of $('nav').querySelectorAll('button')) b.classList.toggle('on', b.dataset.t === state.tab);
+  const n = state.me ? netOfId(state.chainId) : null;
+  $('walletCard').innerHTML = state.me ? `
+    <div class="lbl">Connected wallet</div>
+    <div class="who mono">${short(state.me)}</div>
+    <div class="net"><span class="dot"></span>${n ? esc(n.name) : `chain ${state.chainId ?? '?'}`}</div>`
+    : `<div class="lbl">Wallet</div>
+       <div class="net" style="margin:4px 0 10px"><span class="dot off"></span>Not connected</div>
+       <button class="btn sm w" id="connectRail">Connect wallet</button>`;
+  $('connectRail') && ($('connectRail').onclick = () => connect());
+  $('connectTop').textContent = state.me ? `Disconnect ${short(state.me)}` : 'Connect wallet';
+  $('connectTop').className = state.me ? 'btn ghost' : 'btn gold';
+  $('mine').style.display = state.me && !same(state.me, state.view) ? '' : 'none';
+  $('keyline').innerHTML = state.key
+    ? `<b>DeBank key</b> · in this browser${state.keyOk === false ? ' · <span class="bad">rejected</span>' : state.keyOk ? ' · <span class="up">works</span>' : ''}`
+    : state.keyOk ? `<b>DeBank key</b> · on the server` : `<b>No DeBank key</b> · rail balances only`;
+}
+
+/* ── pieces ── */
+const stats = (items) => `<div class="stats">${items.filter(Boolean).map(([l, v, c = '']) =>
+  `<div class="stat"><b class="${c}">${v}</b><span>${l}</span></div>`).join('')}</div>`;
+function table(cols, rows, emptyMsg = 'Nothing here.') {
+  if (!rows || !rows.length) return `<div class="faint" style="padding:14px 0">${emptyMsg}</div>`;
+  return `<table><thead><tr>${cols.map((c) => `<th class="${c.n ? 'n' : ''}">${c.label}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${cols.map((c) =>
+      `<td class="${c.n ? 'n' : ''} ${c.cls ? c.cls(r) : ''}">${c.get(r)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+const keyCard = (what) => `
+  <div class="card" style="max-width:640px">
+    <h3>Needs a DeBank AccessKey</h3>
+    <p class="mut" style="margin:0 0 14px">${what} come from DeBank Cloud, which bills the caller's own key.
+    Add yours in Settings — it stays in this browser and is sent only to this module.
+    Keys come from <a href="https://cloud.debank.com" target="_blank" rel="noopener">cloud.debank.com</a>.</p>
+    <button class="btn gold" onclick="go('settings')">Add a key</button>
+  </div>`;
+const needAddr = () => `
+  <div class="empty">
+    <h2>Your wallet, as a bank.</h2>
+    <p>Connect a browser wallet to see everything it holds across every chain, send and receive,
+       and review who still has permission to move your money.</p>
+    <div class="row" style="justify-content:center">
+      <button class="btn gold" onclick="connect()">Connect wallet</button>
+      <button class="btn" onclick="setView('0xd8da6bf26964af9d7eed9e03e53415d37aa96045');go('overview')">Try an example address</button>
+    </div>
+    <p class="faint" style="margin-top:22px;font-size:12px">Or paste any 0x address in the search bar to watch it.</p>
+  </div>`;
+const errCard = (e) => `<div class="note err"><b>${esc(e.message)}</b>${e.hint ? `<div class="mut" style="margin-top:4px">${esc(e.hint)}</div>` : ''}</div>`;
+const chainSelect = (id, value, rail = false) => `<select id="${id}" class="sm">${
+  (rail ? state.networks : (state.chains.length ? state.chains : state.networks)).map((c) =>
+    `<option value="${esc(c.chain)}"${c.chain === value ? ' selected' : ''}>${esc(c.name || c.chain)}</option>`).join('')}</select>`;
+const mineLabel = () => same(state.me, state.view) ? '<span class="chip mint">your account</span>' : '<span class="chip">watching</span>';
+// The proof-of-humanity tag on the id. Verified: which registry vouched, and a
+// click copies the SHA3-256 evidence tag (hash-based, so the claim outlives
+// ECDSA — keep it somewhere durable). Unverified: a click opens registration.
+const humanTag = (hum) => {
+  if (!hum || !hum.tag) return '';
+  if (hum.human) {
+    const by = (hum.verified_by || []).join(', ');
+    return ` <span class="chip mint" style="cursor:pointer" onclick="copy('${esc(hum.tag.scheme)}:${esc(hum.tag.value)}')"
+      title="Proof of humanity: ${esc(by)} — read from the registry contract on chain, no key. Click to copy the post-quantum tag (SHA3-256 over the on-chain evidence).">HUMAN · ${esc(by.split(',')[0])}</span>`;
+  }
+  return ` <a class="chip" style="text-decoration:none;cursor:pointer" href="https://v2.proofofhumanity.id" target="_blank" rel="noopener"
+    title="No on-chain humanity registry vouches for this address yet (checked Proof of Humanity v1/v2 and Coinbase Verified Account). Click to register as a human.">unverified id</a>`;
+};
+
+/* ── data: the two floors ── */
+async function overviewData(id) {
+  // Try DeBank (full picture); fall back to the rail. Both are returned so the
+  // page can say which one it is showing.
+  const rail = get('/balances', { id }).catch((e) => ({ error: e }));
+  let full = null, fullErr = null;
+  if (hasKey()) {
+    try { full = await get('/portfolio', { id }); } catch (e) { fullErr = e; if (keyErr(e)) state.keyOk = false; }
+  }
+  return { rail: await rail, full, fullErr };
+}
+
+/* ── views ── */
+const VIEWS = {
+  async overview(id) {
+    const humP = get('/humanity', { id }).catch(() => null);
+    const { rail, full, fullErr } = await overviewData(id);
+    const hum = await humP;
+    if (rail.error && !full) throw rail.error;
+    const total = full ? full.total_usd : rail.total_usd;
+    let change = '';
+    if (full) {
+      try {
+        const c = await get('/net_curve', { id });
+        if (c && c.change_usd != null) {
+          const pct = c.change_pct != null ? ` (${c.change_pct > 0 ? '+' : ''}${Number(c.change_pct).toFixed(2)}%)` : '';
+          change = `<span class="${c.change_usd >= 0 ? 'up' : 'down'}">${c.change_usd >= 0 ? '+' : ''}${usd(c.change_usd)}${pct}</span> over 24h`;
+        }
+      } catch {}
+    }
+    const accounts = full
+      ? full.chains.map((c) => ({ chain: c.chain, name: c.name || chainName(c.chain), usd: c.usd, sub: c.native || '' }))
+      : rail.chains.map((c) => ({ chain: c.chain, name: c.name, usd: c.usd, sub: `${num(c.native_amount, 4)} ${c.native}` }));
+    const max = Math.max(1, ...accounts.map((a) => a.usd));
+    let assets = [];
+    if (full) { try { assets = (await get('/tokens', { id, limit: 8 })).tokens; } catch {} }
+    else assets = rail.tokens.filter((t) => t.amount > 0).slice(0, 8);
+    return `
+      <div class="hero">
+        <div class="lbl">Total balance</div>
+        <div class="hero-total">${usdBig(total)}</div>
+        <div class="sub">${change || (full ? 'tokens + DeFi positions, net of debt' : `native coin + stablecoins on ${rail.chains.length} chains`)}
+          · as of ${clock()} · ${full ? 'DeBank' : 'public RPCs, priced by CoinGecko'}</div>
+        <div class="side">${mineLabel()}${humanTag(hum)}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div></div>
+      </div>
+      <div class="actions">
+        <button class="action" onclick="go('send')"><b>Send</b><span>native or stablecoins</span></button>
+        <button class="action" onclick="go('receive')"><b>Receive</b><span>show your address</span></button>
+        <button class="action" onclick="go('savings')"><b>Savings</b><span>put idle dollars to work</span></button>
+        <button class="action" onclick="go('permissions')"><b>Permissions</b><span>who can move your money</span></button>
+        <button class="action" onclick="refresh()"><b>Refresh</b><span>re-read every chain</span></button>
+      </div>
+      ${fullErr ? `<div class="note err"><b>DeBank: ${esc(fullErr.message)}</b> — showing the keyless rail instead.</div>` : ''}
+      ${!full && !hasKey() ? `<div class="note">This is the <b>keyless floor</b>: native coin and USDC/USDT/DAI on eight chains.
+        Add a DeBank key in <a href="#" onclick="go('settings');return false">Settings</a> for every token, DeFi positions, NFTs, a statement and permissions.</div>` : ''}
+      <div class="grid2">
+        <div class="card"><h3>Accounts <span class="r">${accounts.length} chains</span></h3>
+          ${accounts.length ? accounts.map((a) => `
+            <div class="acct">
+              <div class="ic">${esc((a.chain || '?').slice(0, 3).toUpperCase())}</div>
+              <div class="t"><b>${esc(a.name)}</b><span>${esc(a.sub)}</span>
+                <div class="bar"><i style="width:${Math.max(2, 100 * a.usd / max)}%"></i></div></div>
+              <div class="v"><b>${usd(a.usd)}</b><span>${total ? (100 * a.usd / total).toFixed(1) : '0.0'}%</span></div>
+            </div>`).join('') : '<div class="faint">No value found on any chain.</div>'}
+        </div>
+        <div class="card"><h3>Top assets <span class="r">${full ? 'DeBank' : 'rail'}</span></h3>
+          ${assets.length ? assets.map((t) => `
+            <div class="acct">
+              <div class="ic">${esc((t.symbol || '?').slice(0, 4))}</div>
+              <div class="t"><b>${esc(t.symbol || '?')}</b><span>${esc(chainName(t.chain))} · ${usd(t.price, t.price < 1 ? 4 : 2)}</span></div>
+              <div class="v"><b>${usd(t.usd)}</b><span>${num(t.amount, 4)}</span></div>
+            </div>`).join('') : '<div class="faint">No assets above dust.</div>'}
+          ${assets.length ? `<div style="margin-top:10px"><a href="#" onclick="go('assets');return false">All assets</a></div>` : ''}
+        </div>
+      </div>`;
+  },
+
+  async accounts(id) {
+    const rail = await get('/balances', { id });
+    let full = null;
+    if (hasKey()) { try { full = await get('/portfolio', { id }); } catch (e) { if (keyErr(e)) state.keyOk = false; } }
+    const fullBy = Object.fromEntries((full?.chains || []).map((c) => [c.chain, c]));
+    const cards = rail.chains.map((c) => {
+      const f = fullBy[c.chain];
+      const stables = c.tokens.filter((t) => !t.native && t.amount > 0);
+      const mine = same(state.me, id);
+      return `<div class="card">
+        <h3>${esc(c.name)} <span class="r">chain ${c.chain_id}</span></h3>
+        <div style="font-size:22px;font-weight:700" class="num">${usd(f ? f.usd : c.usd)}</div>
+        <div class="mut" style="font-size:12px;margin-bottom:10px">${f ? 'DeBank, incl. DeFi' : 'native + stablecoins'}</div>
+        <div class="kv">
+          <span>${esc(c.native)}</span><div class="num">${num(c.native_amount, 5)}</div>
+          ${stables.map((t) => `<span>${esc(t.symbol)}</span><div class="num">${num(t.amount, 2)}</div>`).join('')}
+        </div>
+        <div class="row" style="margin-top:12px">
+          ${mine ? `<button class="btn sm" onclick="prefillSend('${c.chain}')">Send from here</button>` : ''}
+          ${state.me ? `<button class="btn sm ghost" onclick="switchChain('${c.chain}').then(()=>toast('Wallet on ${esc(c.name)}')).catch(e=>toast(e.message,true))">Switch wallet</button>` : ''}
+          <a class="btn sm ghost" href="${esc((netOf(c.chain) || {}).explorer || '#')}/address/${esc(id)}" target="_blank" rel="noopener">Explorer</a>
+        </div>
+      </div>`;
+    });
+    const extra = (full?.chains || []).filter((c) => !netOf(c.chain));
+    return `<div class="h2">Accounts</div><p class="lead">One account per chain. ${mineLabel()}</p>
+      ${stats([['total', usd(full ? full.total_usd : rail.total_usd)], ['chains with value', (full ? full.chains : rail.chains.filter((c) => c.usd > 0)).length], rail.errors ? ['unreachable', Object.keys(rail.errors).join(', '), 'warn'] : null])}
+      <div class="grid3">${cards.join('')}</div>
+      ${extra.length ? `<div class="card" style="margin-top:16px"><h3>Other chains (DeBank)</h3>${table([
+        { label: 'chain', get: (r) => `<b>${esc(r.name || r.chain)}</b>` },
+        { label: 'native', get: (r) => esc(r.native || '') },
+        { label: 'value', n: true, get: (r) => usd(r.usd) }], extra)}</div>` : ''}`;
+  },
+
+  async assets(id) {
+    if (hasKey()) {
+      try {
+        const chain = state.chainFilter || '';
+        const d = await get('/tokens', { id, chain, limit: 200 });
+        return `<div class="h2">Assets</div><p class="lead">Every token DeBank prices, biggest first. ${mineLabel()}</p>
+          ${stats([['token value', usd(d.total_usd)], ['shown', `${d.shown} of ${d.total}`], d.hidden_below_min_usd ? ['dust hidden', d.hidden_below_min_usd] : null])}
+          <div class="card"><h3>Holdings <span class="r">${filterRow('assets')}</span></h3>${table([
+            { label: 'asset', get: (r) => `<b>${esc(r.symbol || '?')}</b> <span class="faint">${esc(r.name || '')}</span>` },
+            { label: 'chain', get: (r) => esc(chainName(r.chain)) },
+            { label: 'amount', n: true, get: (r) => num(r.amount) },
+            { label: 'price', n: true, get: (r) => usd(r.price, r.price < 1 ? 4 : 2) },
+            { label: 'value', n: true, get: (r) => `<b>${usd(r.usd)}</b>` }], d.tokens)}</div>`;
+      } catch (e) { if (!keyErr(e)) throw e; state.keyOk = false; }
+    }
+    const d = await get('/balances', { id });
+    const rows = d.tokens.filter((t) => t.amount > 0);
+    return `<div class="h2">Assets</div><p class="lead">Native coin and stablecoins on the bank rail. ${mineLabel()}</p>
+      ${stats([['rail value', usd(d.total_usd)], ['positions', rows.length], ['coverage', '8 chains']])}
+      <div class="note">Only the rail is visible without a DeBank key — every other token, LP and staked balance needs one. <a href="#" onclick="go('settings');return false">Add a key</a>.</div>
+      <div class="card"><h3>Holdings</h3>${table([
+        { label: 'asset', get: (r) => `<b>${esc(r.symbol)}</b> ${r.native ? '<span class="pill">native</span>' : ''}` },
+        { label: 'chain', get: (r) => esc(chainName(r.chain)) },
+        { label: 'amount', n: true, get: (r) => num(r.amount) },
+        { label: 'price', n: true, get: (r) => usd(r.price, r.price < 1 ? 4 : 2) },
+        { label: 'value', n: true, get: (r) => `<b>${usd(r.usd)}</b>` },
+        { label: '', get: (r) => same(state.me, id) ? `<button class="btn sm ghost" onclick="prefillSend('${r.chain}','${esc(r.symbol)}')">Send</button>` : '' }],
+        rows, 'Nothing on the rail for this address.')}</div>`;
+  },
+
+  async savings(id) {
+    const [sav, fx] = await Promise.all([get('/savings', { id }), get('/funds', {})]);
+    const mine = same(state.me, id);
+    const fmtM = (n) => n == null ? '—' : n >= 1e9 ? '$' + (n / 1e9).toFixed(1) + 'b' : n >= 1e6 ? '$' + (n / 1e6).toFixed(0) + 'm' : usd(n, 0);
+    const pct = (n) => n == null ? '—' : Number(n).toFixed(2) + '%';
+    const exitChip = (e) => e.delay_days ? `<span class="pill warn" title="${esc(e.note)}">${e.kind} · ~${e.delay_days}d</span>`
+      : `<span class="pill ok" title="${esc(e.note)}">instant exit</span>`;
+    const idleOf = (sym, chain) => {
+      const t = (sav.idle.tokens || []).find((t) => t.symbol === sym && t.chain === chain);
+      return t ? t.amount : 0;
+    };
+    const placed = sav.placed.venues || [];
+    const p = state.savPlan;
+
+    const planner = p ? await (async () => {
+      let d = p.data;
+      if (!d) {
+        try { d = await get('/savings/plan', { id, fund: p.fund, amount: p.amount }, { cache: false }); p.data = d; }
+        catch (e) { return `<div class="card" style="margin-bottom:16px"><h3>Place savings</h3>${errCard(e)}
+          <button class="btn sm ghost" onclick="state.savPlan=null;render()">Close</button></div>`; }
+      }
+      return `<div class="card" style="margin-bottom:16px;border-color:var(--gold2)">
+        <h3>Place savings — ${esc(d.fund.name)} <span class="r">${esc(d.fund.chain_name)} · ${esc(d.fund.asset)}
+          <button class="btn sm ghost" onclick="state.savPlan=null;render()">Close</button></span></h3>
+        <div class="row" style="margin-bottom:12px">
+          <div style="flex:1;min-width:180px"><label class="f">Amount (${esc(d.fund.asset)})</label>
+            <div class="row"><input class="f num" id="savAmt" inputmode="decimal" style="min-width:130px;width:auto;flex:1" value="${esc(p.amount)}">
+            <button class="btn" onclick="planFund('${esc(p.fund)}', ${idleOf(d.fund.asset, d.chain)})">Max</button>
+            <button class="btn" onclick="planFund('${esc(p.fund)}', $('savAmt').value)">Recalculate</button></div></div>
+          <div class="stat"><b class="up">${pct(d.fund.projected_apy)}</b><span>projected roi / yr</span></div>
+          <div class="stat"><b>${usd(d.projected_1y_usd ?? d.fund.projected_1y_usd)}</b><span>projected 1y earnings</span></div>
+          <div class="stat"><b>${d.signatures}</b><span>wallet signatures</span></div>
+        </div>
+        ${table([
+          { label: 'protocol', get: (l) => `<b>${esc(l.name)}</b><div class="faint" style="font-size:11px">${esc(l.receipt)} · since ${l.since}</div>` },
+          { label: 'weight', n: true, get: (l) => (100 * l.weight).toFixed(0) + '%' },
+          { label: 'amount', n: true, get: (l) => `<b>${usd(l.allocation_usd)}</b>` },
+          { label: 'apy', n: true, cls: () => 'up', get: (l) => pct(l.apy_30d ?? l.apy) },
+          { label: '1y proj.', n: true, get: (l) => usd(l.projected_1y_usd) },
+          { label: 'liquidity locked', n: true, get: (l) => fmtM(l.liquidity.locked_usd) },
+          { label: 'exit', get: (l) => exitChip(l.exit) }], d.legs)}
+        ${!d.funded ? `<div class="note err" style="margin-top:12px"><b>Not enough ${esc(d.fund.asset)} on ${esc(d.fund.chain_name)}</b> —
+          the wallet holds ${num(d.wallet_has, 2)}, short ${usd(d.shortfall)}. Receive or bridge it there first, or lower the amount.</div>` : ''}
+        <div id="savStatus" style="margin-top:12px"></div>
+        <div class="row" style="margin-top:12px">
+          ${mine ? `<button class="btn gold" id="savGo" onclick="placeLegs()" ${!d.funded ? 'disabled' : ''}>Sign ${d.signatures} transactions in wallet</button>`
+                 : `<button class="btn gold" onclick="connect()">Connect the owning wallet to place</button>`}
+          <span class="faint" style="font-size:12px">approvals are exact-amount, never unlimited · deposits go straight from your wallet to the protocol</span>
+        </div></div>`;
+    })() : '';
+
+    return `
+      <div class="hero">
+        <div class="lbl">Savings</div>
+        <div class="hero-total">${usdBig(sav.total_usd)}</div>
+        <div class="sub">${usd(sav.idle.usd)} idle in the wallet · ${usd(sav.placed.usd)} placed in protocols
+          ${sav.placed.blended_apy != null ? `earning <span class="up">${pct(sav.placed.blended_apy)}</span> ≈ ${usd(sav.placed.projected_1y_usd)}/yr` : ''}
+          · read from chain, no key needed</div>
+        <div class="side">${mineLabel()}<div class="mono faint" style="margin-top:6px;font-size:12px">${short(id)}</div></div>
+      </div>
+      ${planner}
+      ${placed.length ? `<div class="card" style="margin-bottom:16px"><h3>Where your savings sit</h3>${table([
+        { label: 'protocol', get: (r) => `<b>${esc(r.name)}</b><div class="faint" style="font-size:11px">${esc(chainName(r.chain))} · ${esc(r.receipt)}</div>` },
+        { label: 'held', n: true, get: (r) => `<b>${usd(r.held_usd)}</b><div class="faint" style="font-size:11px">${num(r.amount, 2)} ${esc(r.asset)}</div>` },
+        { label: 'apy', n: true, cls: () => 'up', get: (r) => pct(r.apy) },
+        { label: '1y proj.', n: true, get: (r) => usd(r.projected_1y_usd) },
+        { label: 'liquidity locked', n: true, get: (r) => fmtM(r.liquidity.locked_usd) },
+        { label: 'exit', get: (r) => exitChip(r.exit) },
+        { label: '', get: (r) => mine ? `<button class="btn sm danger" onclick="withdrawVenue('${r.venue}','${esc(r.name)}')">Withdraw all</button>` : '' }],
+        placed)}</div>` : ''}
+      ${!placed.length && !sav.idle.usd ? `<div class="note">No stablecoins found on the bank rail for this address.
+        Receive USDC, USDT or DAI first — then this page can put them to work.</div>` : ''}
+      <div class="h2" style="margin-top:6px">Index funds</div>
+      <p class="lead">Curated baskets of yield venues — one asset, one chain, a few signatures. Projected ROI is the 30-day mean
+      APY per sleeve, weighted; liquidity locked is read from each protocol's contract right now. Not a promise, and not FDIC anything.</p>
+      <div class="grid2">
+        ${fx.funds.map((f) => `
+        <div class="card">
+          <h3>${esc(f.name)} <span class="r"><span class="chip">${esc(f.chain_name)}</span> <span class="chip gold">${esc(f.asset)}</span>
+            <span class="pill ${f.tier === 'core' ? 'ok' : 'warn'}">${esc(f.tier)}</span></span></h3>
+          <div class="row" style="align-items:baseline;gap:14px;margin-bottom:6px">
+            <div style="font-size:30px;font-weight:700" class="up num">${pct(f.projected_apy)}</div>
+            <div class="mut" style="font-size:12px">projected roi / yr · spot today ${pct(f.current_apy)}</div>
+          </div>
+          <p class="mut" style="font-size:12.5px;margin:0 0 12px">${esc(f.strategy)}</p>
+          ${f.sleeves.map((s) => `
+            <div class="acct">
+              <div class="ic">${esc(s.protocol.slice(0, 3).toUpperCase())}</div>
+              <div class="t"><b>${esc(s.name)}</b><span>${(100 * s.weight).toFixed(0)}% · ${esc(s.exit.kind)}${s.exit.delay_days ? ` ~${s.exit.delay_days}d` : ''} exit</span></div>
+              <div class="v"><b class="up">${pct(s.apy_30d ?? s.apy)}</b><span>${fmtM(s.liquidity.locked_usd)} locked</span></div>
+            </div>`).join('')}
+          <div class="row" style="margin-top:12px;justify-content:space-between">
+            <span class="faint" style="font-size:12px">${fmtM(f.liquidity_locked_usd)} locked across sleeves · ${exitChip(f.exit)}</span>
+            <button class="btn sm gold" onclick="planFund('${f.id}', ${idleOf(f.asset, f.chain) || 1000})">Place savings</button>
+          </div>
+        </div>`).join('')}
+      </div>
+      <div class="card" style="margin-top:16px"><h3>Single protocols <span class="r">a fund of one — 2 signatures</span></h3>${table([
+        { label: 'protocol', get: (v) => `<b>${esc(v.name)}</b><div class="faint" style="font-size:11px">${esc(v.blurb)}</div>` },
+        { label: 'chain', get: (v) => esc(chainName(v.chain)) },
+        { label: 'asset', get: (v) => esc(v.asset) },
+        { label: 'apy', n: true, cls: () => 'up', get: (v) => pct(v.apy) },
+        { label: '30d', n: true, get: (v) => pct(v.apy_30d) },
+        { label: 'liquidity locked', n: true, get: (v) => fmtM(v.liquidity.locked_usd) },
+        { label: 'exit', get: (v) => exitChip(v.exit) },
+        { label: '', get: (v) => `<button class="btn sm ghost" onclick="planFund('venue:${v.venue}', ${1000})">Place</button>` }],
+        fx.venues)}</div>
+      <div class="faint" style="margin-top:12px;font-size:11.5px">APY source: ${esc((fx.venues[0] || {}).apy_source || 'DefiLlama')}.
+        Yield moves, contracts can fail, stablecoins can depeg — this is DeFi, not a deposit guarantee.</div>`;
+  },
+
+  async positions(id) {
+    if (!hasKey()) return `<div class="h2">Positions</div><p class="lead">DeFi — supplied, staked, borrowed.</p>${keyCard('DeFi positions')}`;
+    const d = await get('/protocols', { id, chain: state.chainFilter || '' });
+    return `<div class="h2">Positions</div><p class="lead">Open DeFi positions, net of what is borrowed against them. ${mineLabel()}</p>
+      ${stats([['net in DeFi', usd(d.total_usd)], ['borrowed', usd(d.total_borrowed_usd), d.total_borrowed_usd ? 'warn' : ''], ['protocols', d.shown]])}
+      <div class="card"><h3>Protocols <span class="r">${filterRow('positions')}</span></h3>${table([
+        { label: 'protocol', get: (r) => `<b>${esc(r.name || r.protocol)}</b>` },
+        { label: 'chain', get: (r) => esc(chainName(r.chain)) },
+        { label: 'type', get: (r) => `<span class="faint">${esc((r.positions || []).map((p) => p.type).filter(Boolean).join(', ') || '—')}</span>` },
+        { label: 'supplied', n: true, get: (r) => usd(r.supplied_usd) },
+        { label: 'borrowed', n: true, cls: (r) => r.borrowed_usd ? 'warn' : '', get: (r) => usd(r.borrowed_usd) },
+        { label: 'net', n: true, get: (r) => `<b>${usd(r.usd)}</b>` }], d.protocols, 'No open positions.')}</div>`;
+  },
+
+  async statement(id) {
+    if (!hasKey()) return `<div class="h2">Statement</div><p class="lead">Decoded transaction history.</p>${keyCard('Statements')}`;
+    const d = await get('/history', { id, chain: state.chainFilter || '' });
+    const leg = (l) => (l || []).map((x) => `${num(x.amount, 4)} ${esc(x.symbol || '')}`).join(', ');
+    return `<div class="h2">Statement</div><p class="lead">What moved, through what, at what cost. ${mineLabel()}</p>
+      ${stats([['transactions', d.count], ['oldest shown', d.oldest_time ? when(d.oldest_time) : '—']])}
+      <div class="card"><h3>Recent activity <span class="r">${filterRow('statement')}</span></h3>${table([
+        { label: 'when', get: (r) => `<span class="mut">${when(r.time)}</span>` },
+        { label: 'type', get: (r) => `<b>${esc(r.type)}</b><div class="faint" style="font-size:11.5px">${esc(r.project || r.action || '')}</div>` },
+        { label: 'chain', get: (r) => esc(chainName(r.chain)) },
+        { label: 'out', cls: () => 'down', get: (r) => leg(r.sent) ? '−' + leg(r.sent) : '' },
+        { label: 'in', cls: () => 'up', get: (r) => leg(r.received) ? '+' + leg(r.received) : '' },
+        { label: 'fee', n: true, get: (r) => usd(r.gas_usd, 4) },
+        { label: '', get: (r) => `<span class="pill ${r.status === 'ok' ? 'ok' : 'bad'}">${esc(r.status)}</span>` }],
+        d.transactions, 'No transactions.')}
+        ${d.oldest_time ? `<div style="margin-top:10px"><button class="btn sm ghost" onclick="olderStatement(${d.oldest_time})">Older</button></div>` : ''}</div>`;
+  },
+
+  async permissions(id) {
+    if (!hasKey()) return `<div class="h2">Permissions</div><p class="lead">Standing approvals — who can move this money without asking.</p>${keyCard('Approvals')}`;
+    const chain = state.chainFilter || state.networks[0]?.chain || 'eth';
+    state.chainFilter = chain;
+    const d = await get('/approvals', { id, chain });
+    const mine = same(state.me, id) && !!netOf(chain);
+    return `<div class="h2">Permissions</div><p class="lead">Every contract still allowed to spend this address's tokens on ${esc(chainName(chain))}, ranked by what it could take today. ${mineLabel()}</p>
+      ${stats([['at risk', usd(d.total_exposure_usd), d.total_exposure_usd ? 'bad' : ''], ['unlimited', d.unlimited_count, d.unlimited_count ? 'warn' : ''], ['approvals', d.shown]])}
+      ${mine ? '' : `<div class="note">Connect the wallet that owns this address to revoke from here.</div>`}
+      <div class="card"><h3>Approvals <span class="r">${filterRow('permissions', true)}</span></h3>${table([
+        { label: 'token', get: (r) => `<b>${esc(r.token || '?')}</b>` },
+        { label: 'spender', get: (r) => `${esc(r.spender_name || 'unknown contract')}<div class="faint mono" style="font-size:11px">${short(r.spender)}</div>` },
+        { label: 'allowance', get: (r) => r.unlimited ? '<span class="pill warn">unlimited</span>' : '<span class="pill">capped</span>' },
+        { label: 'balance', n: true, get: (r) => usd(r.balance_usd) },
+        { label: 'could take', n: true, cls: (r) => r.exposure_usd ? 'bad' : '', get: (r) => `<b>${usd(r.exposure_usd)}</b>` },
+        { label: 'granted', get: (r) => `<span class="mut">${when(r.last_approved)}</span>` },
+        { label: '', get: (r) => mine ? `<button class="btn sm danger" onclick="revoke('${chain}','${esc(r.token_id)}','${esc(r.spender)}','${esc(r.token)}')">Revoke</button>` : '' }],
+        d.approvals, 'No standing approvals on this chain.')}</div>`;
+  },
+
+  async vault(id) {
+    if (!hasKey()) return `<div class="h2">Vault</div><p class="lead">NFTs at floor.</p>${keyCard('NFTs')}`;
+    const d = await get('/nfts', { id, chain: state.chainFilter || '' });
+    return `<div class="h2">Vault</div><p class="lead">NFTs, valued at floor where DeBank has one. ${mineLabel()}</p>
+      ${stats([['floor value', usd(d.total_usd)], ['items', d.count]])}
+      <div class="card"><h3>Items <span class="r">${filterRow('vault')}</span></h3>${table([
+        { label: 'collection', get: (r) => `<b>${esc(r.collection || '?')}</b>` },
+        { label: 'item', get: (r) => esc(r.name || r.token_id || '') },
+        { label: 'chain', get: (r) => esc(chainName(r.chain)) },
+        { label: 'qty', n: true, get: (r) => num(r.amount) },
+        { label: 'floor', n: true, get: (r) => usd(r.usd) }], d.nfts, 'Nothing in the vault.')}</div>`;
+  },
+
+  async send() {
+    if (!state.me) return `<div class="h2">Send</div><p class="lead">Move native coin or stablecoins to any address.</p>
+      <div class="card" style="max-width:560px"><h3>Connect a wallet to send</h3>
+      <p class="mut" style="margin:0 0 14px">Transactions are built here and signed in your wallet. The key never leaves it.</p>
+      <button class="btn gold" onclick="connect()">Connect wallet</button></div>`;
+    const p = state.sendPrefill;
+    const chain = p.chain || netOfId(state.chainId)?.chain || 'eth';
+    const n = netOf(chain);
+    const assets = [{ symbol: n.native, native: true, decimals: 18 }, ...n.tokens];
+    const asset = p.asset && assets.find((a) => a.symbol === p.asset) ? p.asset : assets[0].symbol;
+    let bal = null;
+    try { bal = (await get('/balances', { id: state.me, chains: chain })).chains[0]; } catch {}
+    const balOf = (sym) => bal ? (bal.tokens.find((t) => t.symbol === sym) || {}).amount : null;
+    return `<div class="h2">Send</div><p class="lead">From ${short(state.me)} · signed in your wallet.</p>
+      <div class="grid2">
+        <div class="card">
+          <div class="field"><label class="f">Network</label>
+            <select id="sNet" onchange="prefillSend(this.value)">${state.networks.map((x) =>
+              `<option value="${x.chain}"${x.chain === chain ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+          <div class="field"><label class="f">Asset</label>
+            <select id="sAsset" onchange="prefillSend('${chain}', this.value)">${assets.map((a) =>
+              `<option value="${esc(a.symbol)}"${a.symbol === asset ? ' selected' : ''}>${esc(a.symbol)}${balOf(a.symbol) != null ? ` — ${num(balOf(a.symbol), 6)} available` : ''}</option>`).join('')}</select></div>
+          <div class="field"><label class="f">To</label>
+            <input class="f mono" id="sTo" placeholder="0x…" spellcheck="false" value="${esc(p.to || '')}"></div>
+          <div class="field"><label class="f">Amount</label>
+            <div class="row" style="flex-wrap:nowrap"><input class="f num" id="sAmt" placeholder="0.00" inputmode="decimal" value="${esc(p.amount || '')}">
+            <button class="btn" onclick="$('sAmt').value='${balOf(asset) ?? ''}'">Max</button></div>
+            <div class="faint" style="font-size:12px;margin-top:6px">${balOf(asset) != null ? `${num(balOf(asset), 6)} ${esc(asset)} available on ${esc(n.name)}` : ''}</div></div>
+          <button class="btn gold w" id="sGo" onclick="doSend('${chain}','${esc(asset)}')">Review in wallet</button>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:14px"><h3>Before you send</h3>
+            <div class="kv">
+              <span>Network</span><div>${esc(n.name)} <span class="faint">(chain ${n.chain_id})</span></div>
+              <span>Wallet on</span><div>${state.chainId === n.chain_id ? '<span class="up">this network</span>' : `<span class="warn">${esc(netOfId(state.chainId)?.name || 'chain ' + state.chainId)} — will switch</span>`}</div>
+              <span>Asset</span><div>${esc(asset)} ${assets.find((a) => a.symbol === asset)?.native ? '<span class="pill">native</span>' : '<span class="pill">erc-20</span>'}</div>
+              <span>Fee</span><div class="mut">paid in ${esc(n.native)}, set by your wallet</div>
+            </div></div>
+          <div id="sendStatus"></div>
+          <div class="note">Only send to an address on the <b>same network</b>. Transfers are final; there is no bank to call.</div>
+        </div>
+      </div>`;
+  },
+
+  async receive() {
+    const addr = state.me || state.view;
+    if (!addr) return needAddr();
+    return `<div class="h2">Receive</div><p class="lead">${state.me ? 'Your address' : 'The address you are watching'} — the same on every EVM network.</p>
+      <div class="grid2">
+        <div class="card">
+          <h3>Address</h3>
+          <div class="addr-big" id="rAddr">${esc(addr)}</div>
+          <div class="row" style="margin-top:14px">
+            <button class="btn gold" onclick="copy('${esc(addr)}')">Copy address</button>
+            <button class="btn ghost" onclick="copy('ethereum:${esc(addr)}')">Copy payment link</button>
+          </div>
+        </div>
+        <div class="card"><h3>Works on</h3>
+          ${state.networks.map((x) => `<div class="acct"><div class="ic">${esc(x.chain.slice(0, 3).toUpperCase())}</div>
+            <div class="t"><b>${esc(x.name)}</b><span>${esc(x.native)} · ${x.tokens.map((t) => t.symbol).join(', ')}</span></div>
+            <div class="v"><span>chain ${x.chain_id}</span></div></div>`).join('')}
+          <div class="faint" style="margin-top:10px;font-size:12px">…and every other EVM chain. Do not send Bitcoin, Solana or exchange-internal assets here.</div>
+        </div>
+      </div>`;
+  },
+
+  async settings() {
+    let acct = null;
+    try { acct = await get('/account', {}, { cache: false }); state.keyOk = !!acct.ok; } catch (e) { acct = { ok: false, error: e.message }; }
+    renderChrome();
+    return `<div class="h2">Settings</div><p class="lead">Keys and connections.</p>
+      <div class="grid2">
+        <div class="card">
+          <h3>DeBank AccessKey <span class="r">BYOK</span></h3>
+          <p class="mut" style="margin:0 0 12px;font-size:13px">Unlocks every token, DeFi positions, NFTs, the statement and permissions. Billed to your key, per call.
+            Stored in this browser only and sent as a header to this module. Get one at <a href="https://cloud.debank.com" target="_blank" rel="noopener">cloud.debank.com</a>.</p>
+          <div class="field"><input class="f mono" id="kIn" type="password" placeholder="AccessKey" value="${esc(state.key)}" spellcheck="false"></div>
+          <div class="row">
+            <button class="btn gold" onclick="saveKey()">Save & test</button>
+            <button class="btn ghost" onclick="state.key='';write(LS.key,'');state.keyOk=null;state.cache={};toast('Key removed');render()">Remove</button>
+            <button class="btn ghost" onclick="storeKeyOnServer()" title="Write to ~/.mod/debank/key.json on the server, for the shell and MCP tools">Store on server</button>
+          </div>
+          <div style="margin-top:14px" class="kv">
+            <span>Status</span><div>${acct.ok ? '<span class="up">key works</span>' : `<span class="bad">${esc(acct.error || 'no working key')}</span>`}</div>
+            <span>Source</span><div class="mut">${esc(acct.source || (state.key ? 'this browser' : 'none'))}</div>
+            ${acct.units != null ? `<span>Units left</span><div>${esc(JSON.stringify(acct.units))}</div>` : ''}
+            ${acct.units_note ? `<span></span><div class="faint">${esc(acct.units_note)}</div>` : ''}
+          </div>
+        </div>
+        <div class="card">
+          <h3>Wallet</h3>
+          <div class="kv">
+            <span>Provider</span><div>${eth() ? (eth().isMetaMask ? 'MetaMask' : eth().isRabby ? 'Rabby' : eth().isCoinbaseWallet ? 'Coinbase Wallet' : 'EIP-1193 wallet') : '<span class="bad">none detected</span>'}</div>
+            <span>Account</span><div class="mono">${state.me ? esc(state.me) : '—'}</div>
+            <span>Network</span><div>${state.me ? esc(netOfId(state.chainId)?.name || `chain ${state.chainId}`) : '—'}</div>
+          </div>
+          <div class="row" style="margin-top:14px">
+            ${state.me ? `<button class="btn ghost" onclick="disconnect()">Disconnect</button>` : `<button class="btn gold" onclick="connect()">Connect wallet</button>`}
+          </div>
+          <p class="faint" style="font-size:12px;margin:14px 0 0">This page never sees a private key. It builds transactions (transfer, approve-to-zero) and the wallet signs them. Rail balances and prices are read from public RPCs and CoinGecko with no account at all.</p>
+        </div>
+      </div>`;
+  },
+
+  async api() {
+    const d = await get('/tools');
+    const info = await get('/');
+    return `<div class="h2">API & MCP</div><p class="lead">The same client answers the console, the REST API and ${d.count} MCP tools.</p>
+      <div class="grid2">
+        <div class="card"><h3>Endpoints</h3><div class="kv" style="grid-template-columns:200px 1fr">${Object.entries(info.endpoints).map(([k, v]) =>
+          `<span class="mono" style="color:var(--gold)">${esc(k)}</span><div class="mut" style="font-size:12.5px">${esc(v)}</div>`).join('')}</div>
+          <div style="margin-top:14px" class="kv"><span>MCP</span><div class="mono" style="font-size:12px">POST ${location.origin}/mcp</div>
+          <span>stdio</span><div class="mono" style="font-size:12px">python3 mcp.py</div><span>shell</span><div class="mono" style="font-size:12px">m debank/balances 0x…</div></div></div>
+        <div class="card"><h3>Tools <span class="r">${d.count}</span></h3>${d.tools.map((t) =>
+          `<div class="tool"><b>${esc(t.name)}</b> <span class="faint" style="font-size:11.5px">${Object.keys(t.inputSchema.properties || {}).join(', ') || 'no arguments'}</span>
+           <div class="d">${esc(t.description)}</div></div>`).join('')}</div>
+      </div>`;
+  },
+};
+
+function filterRow(tab, railOnly = false) {
+  return `filter ${chainSelect('cf', state.chainFilter || '', railOnly)}`;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'cf') { state.chainFilter = e.target.value; render(); }
+});
+async function olderStatement(t) {
+  const id = state.view;
+  try {
+    const d = await get('/history', { id, chain: state.chainFilter || '', start_time: t });
+    toast(`${d.count} older transactions loaded`);
+    const k = `/history?${new URLSearchParams({ id, ...(state.chainFilter ? { chain: state.chainFilter } : {}) })}`;
+    const cur = state.cache[k];
+    if (cur) { cur.transactions = cur.transactions.concat(d.transactions); cur.count = cur.transactions.length; cur.oldest_time = d.oldest_time; }
+    render();
+  } catch (e) { toast(e.message, true); }
+}
+
+/* ── money actions ── */
+function prefillSend(chain, asset, to, amount) {
+  state.sendPrefill = { chain, asset, to: to ?? $('sTo')?.value, amount: amount ?? $('sAmt')?.value };
+  go('send');
+}
+async function doSend(chain, asset) {
+  const to = $('sTo').value.trim(), amount = $('sAmt').value.trim();
+  const status = $('sendStatus');
+  const say = (html, cls = '') => (status.innerHTML = `<div class="note ${cls}">${html}</div>`);
+  if (!isAddr(to)) return say('<b>Enter a valid 0x address to send to.</b>', 'err');
+  if (same(to, state.me)) return say('<b>That is your own address.</b>', 'err');
+  const n = netOf(chain);
+  const a = asset === n.native ? { symbol: n.native, native: true, decimals: 18 } : n.tokens.find((t) => t.symbol === asset);
+  let units;
+  try { units = toUnits(amount, a.decimals); } catch (e) { return say(`<b>${esc(e.message)}</b>`, 'err'); }
+  if (units <= 0n) return say('<b>Enter an amount above zero.</b>', 'err');
+  $('sGo').disabled = true;
+  try {
+    say(`Switching the wallet to <b>${esc(n.name)}</b>…`);
+    await switchChain(chain);
+    say(`Confirm in your wallet: <b>${esc(amount)} ${esc(asset)}</b> to <span class="mono">${short(to)}</span> on ${esc(n.name)}.`);
+    const tx = a.native
+      ? { from: state.me, to, value: '0x' + units.toString(16) }
+      : { from: state.me, to: a.address, data: '0xa9059cbb' + pad(to) + pad(units.toString(16)) };
+    const hash = await sendTx(tx);
+    const link = `<a href="${esc(n.explorer)}/tx/${hash}" target="_blank" rel="noopener" class="mono">${short(hash)}</a>`;
+    say(`Sent. Waiting for confirmation… ${link}`, 'ok');
+    toast('Transaction submitted');
+    const r = await waitReceipt(hash);
+    if (!r) say(`Submitted, not yet mined: ${link}. Check the explorer.`, '');
+    else if (r.status === '0x1') { say(`<b>Confirmed</b> in block ${parseInt(r.blockNumber, 16)} · ${link}`, 'ok'); state.cache = {}; }
+    else say(`<b>Reverted</b> on chain · ${link}`, 'err');
+  } catch (e) {
+    say(`<b>${esc(e.message || 'The wallet refused')}</b>`, 'err');
+  } finally { $('sGo').disabled = false; }
+}
+async function revoke(chain, token, spender, symbol) {
+  if (!state.me) return toast('Connect the owning wallet first', true);
+  if (!isAddr(token)) return toast(`${symbol} is not an ERC-20 contract — revoke it in the wallet itself`, true);
+  if (!confirm(`Revoke ${symbol} allowance for ${short(spender)} on ${chainName(chain)}?\n\nThis sends approve(spender, 0) from your wallet and costs gas.`)) return;
+  try {
+    const n = await switchChain(chain);
+    const hash = await sendTx({ from: state.me, to: token, data: '0x095ea7b3' + pad(spender) + pad('0') });
+    toast(`Revoke submitted: ${short(hash)}`);
+    const r = await waitReceipt(hash);
+    if (r?.status === '0x1') { toast(`Revoked ${symbol} for ${short(spender)}`); state.cache = {}; render(); }
+    else if (r) toast('The revoke reverted on chain', true);
+    else toast(`Still pending: ${n.explorer}/tx/${hash}`);
+  } catch (e) { toast(e.message || 'The wallet refused', true); }
+}
+/* ── savings actions ── */
+function planFund(fund, amount) {
+  const amt = parseFloat(amount);
+  state.savPlan = { fund, amount: amt > 0 ? Math.round(amt * 100) / 100 : 1000, data: null };
+  if (state.tab !== 'savings') go('savings'); else render();
+}
+async function placeLegs() {
+  const d = state.savPlan?.data;
+  if (!d || !state.me) return;
+  const status = $('savStatus');
+  const say = (html, cls = '') => (status.innerHTML = `<div class="note ${cls}">${html}</div>`);
+  $('savGo').disabled = true;
+  let done = 0;
+  try {
+    say(`Switching the wallet to <b>${esc(d.fund.chain_name)}</b>…`);
+    await switchChain(d.chain);
+    for (const leg of d.legs) {
+      let last = null;
+      for (const tx of leg.txs) {
+        say(`<b>${esc(leg.name)}</b> — ${esc(tx.step)}. Confirm in your wallet…`);
+        const hash = await sendTx({ from: state.me, to: tx.to, data: tx.data });
+        say(`<b>${esc(leg.name)}</b> — ${esc(tx.step)}: waiting for <span class="mono">${short(hash)}</span>…`);
+        const r = await waitReceipt(hash);
+        if (!r || r.status !== '0x1') throw new Error(`${tx.step} ${r ? 'reverted on chain' : 'never confirmed'} (${short(hash)})`);
+        last = hash;
+      }
+      done++;
+      post('/savings/record', { id: state.me, fund: d.fund.id, venue: leg.venue,
+        amount: leg.allocation_usd, tx: last, chain: d.chain }).catch(() => {});
+      say(`<b>${esc(leg.name)}</b> placed — ${done} of ${d.legs.length} sleeves done.`, 'ok');
+    }
+    toast(`Placed ${usd(d.amount_usd)} into ${d.fund.name}`);
+    state.savPlan = null; state.cache = {}; render();
+  } catch (e) {
+    say(`<b>${esc(e.message || 'The wallet refused')}</b>${done ? `<div class="mut" style="margin-top:4px">${done} sleeve(s) already placed — they are yours and show under “Where your savings sit”.</div>` : ''}`, 'err');
+    $('savGo') && ($('savGo').disabled = false);
+  }
+}
+async function withdrawVenue(venue, name) {
+  if (!state.me) return toast('Connect the owning wallet first', true);
+  if (!confirm(`Withdraw everything from ${name} back to your wallet?\n\nThis signs one transaction and costs gas.`)) return;
+  try {
+    const d = await get('/savings/exit', { id: state.me, venue }, { cache: false });
+    await switchChain(d.chain);
+    const hash = await sendTx({ from: state.me, to: d.tx.to, data: d.tx.data });
+    toast(`Withdrawal submitted: ${short(hash)}`);
+    const r = await waitReceipt(hash);
+    if (r?.status === '0x1') { toast(`Withdrawn from ${name}`); state.cache = {}; render(); }
+    else if (r) toast('The withdrawal reverted on chain', true);
+    else toast('Still pending — check the explorer');
+  } catch (e) { toast(e.message || 'The wallet refused', true); }
+}
+
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copied'); }
+  catch { prompt('Copy:', text); }
+}
+async function saveKey() {
+  const k = $('kIn').value.trim();
+  state.key = k; write(LS.key, k); state.keyOk = null; state.cache = {};
+  if (!k) return render();
+  try {
+    const a = await get('/account', {}, { cache: false });
+    state.keyOk = !!a.ok;
+    toast(a.ok ? 'Key works' : `Key rejected: ${a.error || ''}`, !a.ok);
+  } catch (e) { state.keyOk = false; toast(e.message, true); }
+  render();
+}
+async function storeKeyOnServer() {
+  const k = $('kIn').value.trim();
+  if (!k) return toast('Paste a key first', true);
+  if (!confirm('Store this key on the server at ~/.mod/debank/key.json so the shell and MCP tools use it too?')) return;
+  try { const r = await post('/set_key', { key: k, persist: true }); toast(`Stored at ${r.stored}`); state.keyOk = true; renderChrome(); }
+  catch (e) { toast(e.message, true); }
+}
+function refresh() { state.cache = {}; render(); toast('Refreshing'); }
+
+/* ── render loop ── */
+let seq = 0;
+async function render() {
+  const my = ++seq;
+  renderChrome();
+  const needs = ['overview', 'accounts', 'assets', 'savings', 'positions', 'statement', 'permissions', 'vault'];
+  if (needs.includes(state.tab) && !state.view) { out.innerHTML = needAddr(); return; }
+  out.innerHTML = `<div class="spin">Reading every chain…</div>`;
+  try {
+    const html = await VIEWS[state.tab](state.view);
+    if (my === seq) out.innerHTML = html;
+  } catch (e) {
+    if (my !== seq) return;
+    if (keyErr(e) && needs.includes(state.tab)) { state.keyOk = false; renderChrome(); }
+    out.innerHTML = errCard(e);
+  }
+}
+
+/* ── boot ── */
+(async () => {
+  try { state.networks = (await get('/networks')).networks; } catch {}
+  get('/chains').then((d) => { state.chains = d.chains; }).catch(() => {});
+  if (!state.key) get('/health').then((h) => { if (h.key) state.keyOk = true; renderChrome(); }).catch(() => {});
+  if (state.view) $('addr').value = state.view;
+  if (read(LS.connected) && eth()) await connect(true);
+  render();
+})();
+</script>
+</body>
+</html>

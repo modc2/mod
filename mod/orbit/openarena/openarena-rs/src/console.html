@@ -72,6 +72,7 @@
     <button data-tab="arena" class="on">MATCH</button>
     <button data-tab="board">BOARD</button>
     <button data-tab="tasks">TASKS</button>
+    <button data-tab="bench">BENCH</button>
     <button data-tab="agents">ENTRANTS</button>
     <button data-tab="matches">HISTORY</button>
   </nav>
@@ -156,6 +157,42 @@
     </div>
   </section>
 
+  <!-- ── benchmarks off the web ──────────────────────────────────── -->
+  <section id="bench">
+    <div class="card">
+      <h2>PULL A STANDARDIZED BENCHMARK</h2>
+      <div class="two">
+        <div>
+          <label>SOURCE</label>
+          <select id="bSource"></select>
+          <div class="dim" id="bAbout" style="margin-top:6px"></div>
+          <label id="bTargetLabel">DATASET</label>
+          <input id="bTarget" placeholder=""/>
+          <div class="row" id="bHfRow">
+            <div style="flex:1"><label>CONFIG</label><input id="bConfig"/></div>
+            <div style="flex:1"><label>SPLIT</label><input id="bSplit"/></div>
+          </div>
+        </div>
+        <div>
+          <div class="row">
+            <div style="flex:1"><label>TAKE</label><input id="bLimit" value="10"/></div>
+            <div style="flex:1"><label>FROM RECORD</label><input id="bOffset" value="0"/></div>
+          </div>
+          <label>HIDE AFTER — visible cases; blank keeps the source's own split</label>
+          <input id="bHide" placeholder=""/>
+          <label>EXTRA TAGS — comma separated</label><input id="bTags" placeholder="warmup"/>
+          <label><input type="checkbox" id="bRefresh" style="width:auto"/> ignore the day-long fetch cache</label>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="go" id="bPreview">PREVIEW</button>
+        <button class="ghost" id="bImport">IMPORT</button>
+        <span class="dim">preview converts and shows; import keeps — a slug already here is skipped, so paging is safe to repeat</span>
+      </div>
+      <div id="bOut"></div>
+    </div>
+  </section>
+
   <!-- ── entrants ────────────────────────────────────────────────── -->
   <section id="agents">
     <div class="card">
@@ -227,6 +264,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
   if (b.dataset.tab === 'board') loadBoard();
   if (b.dataset.tab === 'matches') loadMatches();
+  if (b.dataset.tab === 'bench') loadSources();
 });
 
 // ── load ───────────────────────────────────────────────────────────
@@ -363,6 +401,91 @@ $('#tCreate').onclick = async () => {
     loadAll();
   } catch (e) { say($('#tOut'), e.message, 'bad'); }
 };
+
+// ── benchmarks ─────────────────────────────────────────────────────
+let SOURCES = [];
+async function loadSources() {
+  if (SOURCES.length) return;
+  const c = await api('/bench/sources');
+  SOURCES = c.sources;
+  $('#bSource').innerHTML = SOURCES.map(s => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join('');
+  if (!c.enabled) say($('#bOut'), c.note, 'bad');
+  syncSource();
+}
+$('#bSource').onchange = syncSource;
+function syncSource() {
+  const s = SOURCES.find(x => x.id === $('#bSource').value);
+  if (!s) return;
+  const hf = s.transport === 'hf';
+  $('#bAbout').innerHTML = `${esc(s.about)}<br/><span class="dim">${esc(s.size)} · ${esc(s.style)} style · license: ${esc(s.license)}
+    ${s.home ? ` · <a href="${esc(s.home)}" target="_blank">source</a>` : ''}</span>`;
+  $('#bTargetLabel').textContent = hf ? 'DATASET' : 'URL';
+  $('#bTarget').value = hf ? s.dataset : s.url;
+  $('#bTarget').placeholder = hf ? 'owner/dataset' : 'https://…';
+  $('#bConfig').value = s.config; $('#bSplit').value = s.split;
+  $('#bHfRow').style.display = hf ? 'flex' : 'none';
+  // One page is one task, so taking ten of them means nothing.
+  $('#bLimit').disabled = s.transport === 'html';
+}
+function benchBody() {
+  const s = SOURCES.find(x => x.id === $('#bSource').value) || {};
+  const body = {
+    source: s.id,
+    limit: parseInt($('#bLimit').value, 10) || 10,
+    offset: parseInt($('#bOffset').value, 10) || 0,
+    refresh: $('#bRefresh').checked,
+  };
+  const target = $('#bTarget').value.trim();
+  if (target) s.transport === 'hf' ? body.dataset = target : body.url = target;
+  if (s.transport === 'hf') { body.config = $('#bConfig').value.trim(); body.split = $('#bSplit').value.trim(); }
+  if ($('#bHide').value.trim() !== '') body.hide_after = parseInt($('#bHide').value, 10);
+  const tags = $('#bTags').value.split(',').map(x => x.trim()).filter(Boolean);
+  if (tags.length) body.tags = tags;
+  return body;
+}
+async function bench(path, render) {
+  const btn = $('#bPreview'), imp = $('#bImport');
+  btn.disabled = imp.disabled = true;
+  say($('#bOut'), 'fetching…');
+  try { $('#bOut').innerHTML = render(await api(path, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(benchBody())
+  })); }
+  catch (e) { say($('#bOut'), e.message, 'bad'); }
+  btn.disabled = imp.disabled = false;
+}
+function caseList(t) {
+  return (t.tests || []).map(c => `<div style="margin-top:6px">
+    <b>${esc(c.name)}</b>${c.hidden ? ' <span class="tag">hidden</span>' : ''}
+    <pre>${esc(c.program || `stdin:\n${c.stdin}\nexpect:\n${c.expect}`)}</pre></div>`).join('');
+}
+$('#bPreview').onclick = () => bench('/bench/preview', r => {
+  const rows = r.tasks.map(t => `<tr><td class="dim">${esc(t.slug)}</td><td>${esc(t.title)}</td>
+    <td>${esc(t.mode)}</td><td>${esc(t.language)}</td>
+    <td>${t.cases} <span class="dim">(${t.hidden} hidden)</span></td></tr>`).join('');
+  const s = r.sample;
+  return `<div class="card" style="margin-top:12px">
+    <h2>${r.count} TASK${r.count === 1 ? '' : 'S'} — NOTHING IMPORTED YET</h2>
+    <div class="dim mono" style="margin-bottom:8px">${esc(r.url)}</div>
+    <table><thead><tr><th>SLUG</th><th>TITLE</th><th>MODE</th><th>LANG</th><th>CASES</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" class="dim">nothing converted</td></tr>'}</tbody></table>
+    ${r.skipped.length ? `<div class="msg">${r.skipped.length} record(s) skipped: ${esc(r.skipped.map(x => x.reason).join(' · '))}</div>` : ''}
+    ${s ? `<h2 style="margin-top:14px">FIRST TASK IN FULL</h2>
+      <div class="mono">${esc(s.statement)}</div>${caseList(s)}` : ''}</div>`;
+});
+$('#bImport').onclick = () => bench('/bench/import', r => {
+  loadAll();
+  $('#bOffset').value = r.next_offset;
+  const rows = r.tasks.map(t => `<tr><td class="dim">${esc(t.id)}</td><td>${esc(t.slug)}</td>
+    <td>${esc(t.title)}</td><td>${t.cases} <span class="dim">(${t.hidden} hidden)</span></td></tr>`).join('');
+  return `<div class="card" style="margin-top:12px">
+    <h2 class="ok">IMPORTED ${r.imported}</h2>
+    <table><thead><tr><th>ID</th><th>SLUG</th><th>TITLE</th><th>CASES</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="4" class="dim">nothing new</td></tr>'}</tbody></table>
+    ${r.skipped.length ? `<div class="msg">skipped ${r.skipped.length}: ${esc(r.skipped.map(x => `${x.slug || x.record} — ${x.reason}`).join(' · '))}</div>` : ''}
+    ${r.failed.length ? `<div class="msg bad">failed ${r.failed.length}: ${esc(r.failed.map(x => `${x.slug} — ${x.error}`).join(' · '))}</div>` : ''}
+    <div class="dim" style="margin-top:8px">next page starts at record ${r.next_offset}</div></div>`;
+});
 
 // ── entrants ───────────────────────────────────────────────────────
 const CONFIG_HELP = {

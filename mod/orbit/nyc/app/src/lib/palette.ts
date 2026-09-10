@@ -58,10 +58,41 @@ export const LAYER_COLOR: Record<string, string> = {
   subway_ridership: '#d95926',   // graduated circle
   subway_stations: '#ffffff',    // reference infrastructure, not a data series
   collisions: '#e66767',
+  // Cyan, not the amber it started as. The two traffic layers are meant to be
+  // read together, and amber circles sat between the speed ramp's amber band
+  // and the orange ridership circles — competing with a line layer it shares a
+  // category with *and* a circle layer it shares a form with. Cyan is outside
+  // the red→green speed ramp entirely, so a busy count location can never be
+  // mistaken for a jam.
+  traffic_volume: '#22d3ee',      // graduated circle
   boroughs: '#c3c2b7',
   neighborhoods: '#898781',
   sales: '#9ec5f4',
 }
+
+/**
+ * Live traffic speed bands.
+ *
+ * Ordinal and diverging in meaning — "stopped" is the alarm and "free flow"
+ * is the all-clear — so it runs red → amber → green, the one place on this map
+ * where the traffic-light convention beats a neutral ramp: every driver
+ * already reads those three colours without a key. Green is the blue-leaning
+ * #2fa36b rather than a pure green so the red/green ends stay separable for a
+ * deuteranope by lightness (L 0.52 vs 0.65) as well as hue.
+ */
+export const SPEED_BAND: Record<string, string> = {
+  stopped: '#d03b3b',
+  crawling: '#d95926',
+  moving: '#c98500',
+  free: '#2fa36b',
+}
+
+export const SPEED_BAND_LABEL: [string, string][] = [
+  ['stopped', 'Under 10 mph'],
+  ['crawling', '10–25'],
+  ['moving', '25–40'],
+  ['free', '40+'],
+]
 
 /** Hurricane evacuation zones are ordinal: zone 1 is the most urgent. */
 export const ZONE_COLOR: Record<number, string> = {

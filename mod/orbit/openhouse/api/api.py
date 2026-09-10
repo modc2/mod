@@ -4,18 +4,24 @@ OpenHouse API — FastAPI wrapper over openhouse mod.
 Serves the OpenHouse Mod class methods as REST endpoints.
 Launched/killed via mod.py serve_api() / kill_api().
 """
+import json
 import sys
 import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+# This directory, so `mcp_server` resolves however this module is loaded —
+# uvicorn puts it on the path via --app-dir, a test importing by path does not.
+sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import mod as m
+
+from mcp_server import build_router as build_mcp_router
 
 # Lazy singleton
 _openhouse = None
@@ -27,10 +33,18 @@ def get_openhouse():
     return _openhouse
 
 
+def _version():
+    try:
+        with open(Path(__file__).parent.parent / "config.json") as f:
+            return json.load(f).get("version", "0.0.0")
+    except Exception:
+        return "0.0.0"
+
+
 app = FastAPI(
     title="OpenHouse API",
     description="Collective asset ownership platform — fractional property ownership",
-    version="2.0.0",
+    version=_version(),
 )
 
 app.add_middleware(
@@ -93,6 +107,21 @@ class QuoteRequest(BaseModel):
     amount: float
     kind: str = "rent"
 
+class CivicCharterRequest(BaseModel):
+    key: str
+    name: str = ""
+    region: str = ""
+    uri: str = ""
+    owner: Optional[str] = None
+
+class CivicOverrideRequest(BaseModel):
+    action: str
+    key: str
+    reason: str = ""
+
+class CivicResignRequest(BaseModel):
+    key: str
+
 
 # ── Health / Status ─────────────────────────────────────────────
 
@@ -136,7 +165,7 @@ def balance():
 
 @app.get("/models")
 def models():
-    """Rent-to-own model presets, the 1–5% fee band, and what platforms take."""
+    """Rent-to-own model presets, the 0–5% fee band, and what platforms take."""
     return get_openhouse().models()
 
 @app.get("/terms")
@@ -178,6 +207,39 @@ def rent_ledger(renter: str = ""):
 @app.get("/rent_stats")
 def rent_stats():
     return get_openhouse().rent_stats()
+
+
+# ── The civic seat ──────────────────────────────────────────────
+# A government's standing on this property. The write endpoints mirror the
+# contract's seats: the owner charters, only the chartered key overrides or
+# resigns. The government's own half lives in civic/server.py, on its box.
+
+@app.get("/civic")
+def civic():
+    """Who holds the civic seat, what stands, every override on record."""
+    return get_openhouse().civic()
+
+@app.post("/civic/charter")
+def civic_charter(req: CivicCharterRequest):
+    result = get_openhouse().civic_charter(
+        req.key, name=req.name, region=req.region, uri=req.uri, owner=req.owner)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/civic/override")
+def civic_override(req: CivicOverrideRequest):
+    result = get_openhouse().civic_override(req.action, req.key, reason=req.reason)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/civic/resign")
+def civic_resign(req: CivicResignRequest):
+    result = get_openhouse().civic_resign(req.key)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 # ── The landscape ───────────────────────────────────────────────
@@ -298,6 +360,14 @@ def deploy(req: DeployRequest):
     return result
 
 
+# ── MCP ─────────────────────────────────────────────────────────
+
+# POST /mcp — the same protocol as a set of JSON-RPC tools, for LLM agents.
+# The router calls get_openhouse() per tool call, so it reads exactly what
+# the REST endpoints above read.
+app.include_router(build_mcp_router(get_openhouse, app.version))
+
+
 # ── Generic forward ─────────────────────────────────────────────
 
 @app.post("/forward")
@@ -319,5 +389,5 @@ async def forward(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "50130"))
+    port = int(os.getenv("PORT", "50132"))
     uvicorn.run(app, host="0.0.0.0", port=port)

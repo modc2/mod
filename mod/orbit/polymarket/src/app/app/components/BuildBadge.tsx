@@ -19,7 +19,7 @@ function toHex(s: string): string {
   return out;
 }
 
-/// Fixed bottom-right badge showing the content hash of this build, with a
+/// Fixed bottom-left badge showing the content hash of this build, with a
 /// browser-side "publish onchain" path that prompts the connected wallet to
 /// send a Polygon self-tx whose calldata = `mod-cid:<CID>`. Once published,
 /// the tx hash is cached in localStorage and surfaced as a 🔗 link to
@@ -148,8 +148,8 @@ export default function BuildBadge() {
         ? "Verify: clone the repo, run the same sha256-over-manifest script in docker-entrypoint.dev.sh."
         : "Verify: re-pin the build output to IPFS and confirm the CID matches.",
     tx
-      ? "Click 🔗 to view the onchain pin on Polygonscan."
-      : "Click 📌 to pin this CID onchain (sends a 0-value Polygon tx; ~0.01 MATIC gas).",
+      ? "Click TX to view the onchain pin on Polygonscan."
+      : "Click PIN to pin this CID onchain (sends a 0-value Polygon tx; ~0.01 MATIC gas).",
   ]
     .filter(Boolean)
     .join("\n");
@@ -160,13 +160,13 @@ export default function BuildBadge() {
     // Build provenance is reference chrome, not content — it rests at low
     // opacity so it reads as a watermark over the page it floats on, and
     // comes back to full strength on hover (or while a publish is running).
+    // Bottom-LEFT: the right edge belongs to the docked copy book, and the
+    // badge used to have to dodge it (`--strat-dock`); the left gutter is
+    // empty on every page, so no offset is needed there.
     <div
-      className={`fixed bottom-2 z-40 flex flex-col items-end gap-1 transition-opacity duration-200 hover:opacity-100 ${
+      className={`fixed bottom-2 left-2 z-40 flex flex-col items-start gap-1 transition-opacity duration-200 hover:opacity-100 ${
         status || busy ? "opacity-100" : "opacity-45"
       }`}
-      // Clears the docked sidebar, which is a right-hand column now — pinned
-      // to `right-2` the badge floated on top of the account/strat panel.
-      style={{ right: "calc(var(--strat-dock, 0px) + 0.5rem)" }}
     >
       {status && (
         <div className="pixel-btn text-[12px] px-2 py-0.5 font-mono border-pixel-border text-green-400 bg-pixel-black/80 backdrop-blur-sm">
@@ -179,11 +179,11 @@ export default function BuildBadge() {
         </button>
         {tx ? (
           <a href={scan} target="_blank" rel="noopener noreferrer" title={`Onchain pin on Polygon\n${tx}`} className={btnCls}>
-            🔗
+            TX
           </a>
         ) : (
           <button onClick={handlePublish} disabled={busy} title={tooltip} className={btnCls + (busy ? " opacity-50 cursor-wait" : "")}>
-            {busy ? "..." : "📌"}
+            {busy ? "..." : "PIN"}
           </button>
         )}
       </div>

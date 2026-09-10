@@ -29,6 +29,17 @@ interface RunResult {
   error?: string
 }
 
+/** The describe/it titles in a Mocha file, in source order — enough to say what a run will cover. */
+function suiteOutline(src: string): { kind: 'describe' | 'it'; title: string }[] {
+  const out: { kind: 'describe' | 'it'; title: string }[] = []
+  const re = /\b(describe|context|it|test)\s*\(\s*(['"`])((?:\\.|(?!\2)[^\\])*)\2/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src))) {
+    out.push({ kind: m[1] === 'it' || m[1] === 'test' ? 'it' : 'describe', title: m[3] })
+  }
+  return out
+}
+
 export function TestTab({ projects, address }: { projects: ProjectsApi; address: string }) {
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<RunResult | null>(null)
@@ -67,7 +78,7 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
     }
   }, [project, projects, address, grep])
 
-  if (!project) return <Empty>No project open — start one from the sidebar.</Empty>
+  if (!project) return <Empty>No project open — pick or start one from the PROJECT pill up top.</Empty>
 
   const addTest = () => {
     const contract = Object.keys(project.files).find(p => p.endsWith('.sol'))
@@ -86,7 +97,7 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
         <div style={{ width: '100%', maxWidth: '220px' }}>
           <Input value={grep} onChange={setGrep} placeholder="only tests matching…" onEnter={run} />
         </div>
-        <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>
+        <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>
           {testFiles.length
             ? `${testFiles.length} test file${testFiles.length === 1 ? '' : 's'} · hardhat + chai · in-process EVM`
             : 'this project has no tests yet'}
@@ -96,8 +107,53 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
         )}
       </div>
 
+      {/* What's about to run — the tab used to be one button over a void until
+          the first run came back. The titles are read straight out of the
+          test source, so the list is the suite as written, not as last run. */}
+      {!running && !result && testFiles.length > 0 && (
+        <div>
+          <Label note="read from the test files · press RUN TESTS to execute">SUITE</Label>
+          <div style={{ display: 'grid', gap: '8px', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+            {testFiles.map(f => {
+              const cases = suiteOutline(project.files[f] || '')
+              return (
+                <div key={f} style={{ ...panelStyle, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '6px' }}>
+                    <span style={{ fontFamily: TERM_FONT, fontSize: '15px', color: 'var(--text-primary)' }}>
+                      {f.split('/').pop()}
+                    </span>
+                    <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', marginLeft: 'auto' }}>
+                      {cases.filter(c => c.kind === 'it').length} test{cases.filter(c => c.kind === 'it').length === 1 ? '' : 's'}
+                    </span>
+                  </div>
+                  {cases.length === 0 ? (
+                    <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>
+                      no describe / it blocks found
+                    </div>
+                  ) : cases.slice(0, 12).map((c, i) => (
+                    <div key={i} style={{
+                      fontFamily: TERM_FONT, fontSize: '13px', lineHeight: 1.5,
+                      color: c.kind === 'describe' ? ACCENT : 'var(--text-secondary)',
+                      paddingLeft: c.kind === 'it' ? '14px' : 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {c.kind === 'it' ? '○ ' : ''}{c.title}
+                    </div>
+                  ))}
+                  {cases.length > 12 && (
+                    <div style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', paddingLeft: '14px' }}>
+                      … {cases.length - 12} more
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {running && (
-        <div style={{ ...panelStyle, padding: '14px', fontFamily: TERM_FONT, fontSize: '12.5px', color: ACCENT }}>
+        <div style={{ ...panelStyle, padding: '14px', fontFamily: TERM_FONT, fontSize: '14px', color: ACCENT }}>
           {'> '}compiling contracts and running the suite…
         </div>
       )}
@@ -115,16 +171,16 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
             }}>
               {result.ok ? '✓ PASSING' : '✗ FAILING'}
             </span>
-            <span style={{ fontFamily: TERM_FONT, fontSize: '12px', color: 'var(--text-secondary)' }}>
+            <span style={{ fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-secondary)' }}>
               {result.passing} passed
             </span>
             {result.failing > 0 && (
-              <span style={{ fontFamily: TERM_FONT, fontSize: '12px', color: DANGER }}>
+              <span style={{ fontFamily: TERM_FONT, fontSize: '14px', color: DANGER }}>
                 {result.failing} failed
               </span>
             )}
             {result.duration > 0 && (
-              <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>
+              <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>
                 {result.duration}ms
               </span>
             )}
@@ -137,10 +193,10 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
           {result.error && result.tests.length === 0 && (
             <div style={{
               ...panelStyle, padding: '12px', borderColor: DANGER,
-              fontFamily: TERM_FONT, fontSize: '12px', color: DANGER,
+              fontFamily: TERM_FONT, fontSize: '14px', color: DANGER,
               maxHeight: '320px', overflow: 'auto',
             }}>
-              <Label style={{ color: DANGER }}>THE SUITE NEVER RAN — USUALLY A COMPILE ERROR</Label>
+              <Label style={{ color: DANGER }} note="usually a compile error">THE SUITE NEVER RAN</Label>
               <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{result.error}</pre>
             </div>
           )}
@@ -158,7 +214,7 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
                       {t.passed ? '✓' : '✗'}
                     </span>
                     {t.suite && (
-                      <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>
+                      <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)' }}>
                         {t.suite}
                       </span>
                     )}
@@ -167,7 +223,7 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
                     </span>
                     {t.duration !== null && (
                       <span style={{
-                        fontFamily: TERM_FONT, fontSize: '10px', color: 'var(--text-tertiary)', marginLeft: 'auto',
+                        fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)', marginLeft: 'auto',
                       }}>
                         {t.duration}ms
                       </span>
@@ -175,7 +231,7 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
                   </div>
                   {!t.passed && t.error && (
                     <pre style={{
-                      margin: '8px 0 0', fontFamily: TERM_FONT, fontSize: '11.5px', color: DANGER,
+                      margin: '8px 0 0', fontFamily: TERM_FONT, fontSize: '14px', color: DANGER,
                       whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                     }}>
                       {t.error}
@@ -188,7 +244,7 @@ export function TestTab({ projects, address }: { projects: ProjectsApi; address:
 
           {showOutput && result.output && (
             <div style={{
-              ...panelStyle, padding: '14px', fontFamily: TERM_FONT, fontSize: '11.5px',
+              ...panelStyle, padding: '14px', fontFamily: TERM_FONT, fontSize: '14px',
               color: 'var(--text-secondary)', maxHeight: '360px', overflow: 'auto',
             }}>
               <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{result.output}</pre>

@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "MCP Hub",
   description:
-    "A hub of MCP servers — the open-source Model Context Protocol ecosystem in one searchable directory, with live tool probes and wallet-signed publishing.",
+    "One hub for every MCP server — the local fleet auto-discovered, remote servers registered by URL, and the union re-exposed as a single MCP endpoint.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { api, type Catalog, type TrendPoint } from '@/lib/api'
 import { count, percent, titleCase, usd, usdExact } from '@/lib/format'
+import HourChart, { hourLabel } from './HourChart'
 import TrendChart from './TrendChart'
 
 export type Selection = { layerId: string; props: Record<string, any> }
@@ -201,6 +202,69 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
           </div>
         )}
 
+        {selection.layerId === 'traffic_speeds' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Speed now" value={`${p.speed} mph`} big
+                    tone={p.band === 'stopped' || p.band === 'crawling' ? 'bad'
+                      : p.band === 'free' ? 'good' : undefined} />
+              <Stat label="Travel time"
+                    value={p.travel_time ? travelTime(Number(p.travel_time)) : '—'} big />
+            </div>
+            <p className="text-[12px] leading-relaxed text-nes-ink2">
+              {BAND_TEXT[String(p.band)] ?? ''}
+            </p>
+            <Meta rows={[
+              ['Direction', p.direction],
+              ['Borough', p.borough],
+              ['Reading taken', clockOf(String(p.as_of || ''))],
+              ['Sensor operator', p.owner],
+            ]} />
+            {/* The city's feed is served from replicas that fall behind each
+                other by over an hour, so "live" has to show its age rather
+                than be taken on trust. */}
+            {ageOf(String(p.as_of || '')) !== null && ageOf(String(p.as_of || ''))! > 15 && (
+              <p className="text-[10.5px] leading-snug text-nes-ink3">
+                This reading is {ageOf(String(p.as_of || ''))} minutes old — the
+                city’s feed lags behind itself at times.
+              </p>
+            )}
+          </div>
+        )}
+
+        {selection.layerId === 'traffic_volume' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Calmest hour"
+                    value={hourLabel(Number(p.calm_hour))} big tone="good" />
+              <Stat label="Busiest hour"
+                    value={hourLabel(Number(p.peak_hour))} big tone="bad" />
+            </div>
+            <div className="border-t-2 border-black pt-2.5">
+              <HourChart
+                profile={profileOf(p.profile)}
+                peakHour={Number(p.peak_hour)}
+                calmHour={Number(p.calm_hour)}
+                now={new Date().getHours()}
+              />
+            </div>
+            <Meta rows={[
+              ['Vehicles per day', count(p.daily)],
+              ['At the peak', `${count(p.peak_vph)}/hr`],
+              ['At the lull', `${count(p.calm_vph)}/hr`],
+              ['Morning peak', `${count(p.am_peak_vph)}/hr`],
+              ['Evening peak', `${count(p.pm_peak_vph)}/hr`],
+              ['Direction', p.direction_label || p.direction],
+              ['Between', [p.from, p.to].filter(Boolean).join(' and ')],
+              ['Borough', p.borough],
+            ]} />
+            <p className="text-[10.5px] leading-snug text-nes-ink3">
+              A typical day, averaged over every DOT count here since 2022 —
+              not a forecast, and it can’t know about today’s crash or game.
+            </p>
+          </div>
+        )}
+
         {selection.layerId === 'parks' && (
           <Meta rows={[
             ['Type', p.typecategory],
@@ -256,7 +320,57 @@ const KNOWN = [
   'housing_prices', 'sales', 'subway_stations', 'subway_ridership',
   'affordable_housing', 'collisions', 'parks', 'bike_routes',
   'evacuation_zones', 'boroughs', 'neighborhoods',
+  'traffic_speeds', 'traffic_volume',
 ]
+
+/** What a speed band means for someone about to drive it. */
+const BAND_TEXT: Record<string, string> = {
+  stopped: 'Effectively stopped — this stretch is jammed right now.',
+  crawling: 'Crawling. Moving, but well below the limit.',
+  moving: 'Moving at a normal city pace.',
+  free: 'Running free — no delay on this stretch.',
+}
+
+/**
+ * MapLibre round-trips feature properties through the style, and an array
+ * comes back out as its JSON string. The profile has to survive that.
+ */
+function profileOf(raw: any): number[] {
+  const arr = typeof raw === 'string' ? safeParse(raw) : raw
+  return Array.isArray(arr) ? arr.map(Number) : []
+}
+
+function safeParse(s: string): any {
+  try { return JSON.parse(s) } catch { return null }
+}
+
+function travelTime(seconds: number): string {
+  if (!seconds || seconds < 0) return '—'
+  const m = Math.floor(seconds / 60)
+  const s = Math.round(seconds % 60)
+  return m ? `${m}m ${s}s` : `${s}s`
+}
+
+/**
+ * How many minutes old a reading is, or null if it can't be told.
+ *
+ * The stamp is New York local time with no offset, so it is compared against
+ * the same wall clock — read as UTC it would look hours stale to everyone.
+ */
+function ageOf(stamp: string): number | null {
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(stamp)) return null
+  const nyNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const mins = Math.floor((nyNow.getTime() - new Date(stamp.slice(0, 19)).getTime()) / 60000)
+  return mins >= 0 && mins < 60 * 24 ? mins : null
+}
+
+/** "2026-08-27T14:06:05.000" → "2:06PM". The feed publishes New York time. */
+function clockOf(stamp: string): string {
+  const t = stamp.slice(11, 16)
+  if (!/^\d\d:\d\d$/.test(t)) return stamp || '—'
+  const h = Number(t.slice(0, 2))
+  return `${hourLabel(h).replace(/(AM|PM)/, '')}:${t.slice(3)}${h < 12 ? 'AM' : 'PM'}`
+}
 
 function headline(sel: Selection): string {
   const p = sel.props
@@ -270,6 +384,10 @@ function headline(sel: Selection): string {
     case 'parks': return p.signname || p.name311 || 'Park'
     case 'bike_routes': return titleCase(p.street || 'Bike route')
     case 'evacuation_zones': return `Zone ${p.zone}`
+    case 'traffic_speeds': return p.name || 'Traffic sensor'
+    case 'traffic_volume':
+      return [titleCase(p.street || 'Count location'), p.direction]
+        .filter(Boolean).join(' · ')
     case 'boroughs': return p.boroname
     case 'neighborhoods': return p.ntaname
     default: return sel.layerId

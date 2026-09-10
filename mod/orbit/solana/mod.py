@@ -11,6 +11,9 @@ program — and then answers the question you actually had.
     m solana/tx <signature>                            # what one transaction moved
     m solana/token <mint>                              # supply, authorities, risk
     m solana/quote SOL USDC 10                         # what a swap really gets you
+    m solana/tokens sort=liquidity                     # every token, deepest first
+    m solana/liquidity BONK                            # what could ACTUALLY be sold
+    m solana/venues                                    # where the chain's depth is
     m solana/network                                   # slot, epoch, TPS, price
     m solana/wallet create name=hot                    # a key, stored off-tree
     m solana/send <to> 0.01 network=devnet             # signed here, sent there
@@ -19,7 +22,7 @@ program — and then answers the question you actually had.
     m solana/invoke <program> data=text:hi             # call one, simulated first
     m solana/swap SOL USDC 0.5 confirm=1               # traded on the DEXes
 
-The same code answers the REST API, the browser console and twenty-two MCP
+The same code answers the REST API, the browser console and twenty-six MCP
 tools, so an agent, a shell and a human never see different answers.
 
 `m solana/serve` runs all three on one port.
@@ -40,13 +43,14 @@ if HERE not in sys.path:
 class Mod:
     description = """
     solana — read the chain and move value on it. Identify any address, price a
-    wallet across SOL and every SPL token, decode a transaction into what
-    actually moved per owner, quote a swap through Jupiter, read the validator
-    set and its Nakamoto coefficient, and sign transfers with a key that never
-    leaves this box. Load a deployed program — loader, upgrade authority,
+    wallet across SOL and every SPL token, rank every routable token by the
+    liquidity behind it and measure what one could really be sold for, decode a
+    transaction into what actually moved per owner, quote a swap, read the
+    validator set and its Nakamoto coefficient, and sign transfers with a key
+    that never leaves this box. Load a deployed program — loader, upgrade authority,
     syscalls, IDL — call one with its arguments simulated before they are
     signed, and deploy or upgrade one from a file, from base64, or cloned off
-    another cluster. Twenty-two MCP tools, a REST API and a console on one port.
+    another cluster. Twenty-six MCP tools, a REST API and a console on one port.
     """
 
     def __init__(self, network=None, rpc=None, port=None, **kwargs):
@@ -103,6 +107,44 @@ class Mod:
     def price(self, ids, network=None, rpc=None):
         """USD price by mint or symbol. Symbols resolve to deepest liquidity."""
         return self.client(network, rpc).price(ids)
+
+    def tokens(self, list='verified', sort='liquidity', limit=50, offset=0,
+               query=None, tag=None, min_liquidity=None, max_liquidity=None,
+               safe_only=False, ascending=False, exclude=None, network=None,
+               rpc=None):
+        """Every routable token on Solana, ranked by the liquidity behind it."""
+        import mcp
+        return mcp.call_tool('sol_tokens', {
+            'list': list, 'sort': sort, 'limit': limit, 'offset': offset,
+            'query': query, 'tag': tag, 'min_liquidity': min_liquidity,
+            'max_liquidity': max_liquidity, 'safe_only': safe_only,
+            'ascending': ascending, 'exclude': exclude,
+            'network': network or self._network, 'rpc': rpc or self._rpc})
+
+    def liquidity(self, mint, depth=True, sizes=None, cost_limit_pct=1.0,
+                  pool_limit=50, network=None, rpc=None):
+        """One token's liquidity three ways — including the sell size this
+        module measured by quoting real routes, which is usually a fraction of
+        the number the indexes print."""
+        import mcp
+        return mcp.call_tool('sol_liquidity', {
+            'mint': mint, 'depth': depth, 'sizes': sizes,
+            'cost_limit_pct': cost_limit_pct, 'pool_limit': pool_limit,
+            'network': network or self._network, 'rpc': rpc or self._rpc})
+
+    def pools(self, mint, limit=50, network=None, rpc=None):
+        """Every pool holding a token, deduped across indexes, deepest first."""
+        import mcp
+        return mcp.call_tool('sol_pools', {
+            'mint': mint, 'limit': limit,
+            'network': network or self._network, 'rpc': rpc or self._rpc})
+
+    def venues(self, tokens=10, pages=1, network=None, rpc=None):
+        """Where the chain's liquidity sits, by DEX — measured from pools."""
+        import mcp
+        return mcp.call_tool('sol_venues', {
+            'tokens': tokens, 'pages': pages,
+            'network': network or self._network, 'rpc': rpc or self._rpc})
 
     def history(self, address, limit=20, before=None, until=None, detail=False,
                 network=None, rpc=None):

@@ -1,0 +1,177 @@
+{
+    "name": "skills",
+    "title": "Skills",
+    "version": "0.1.0",
+    "icon": "\u25c8",
+    "color": "#7ee0a8",
+    "anchor": "mod.py",
+    "protocol": "mcp/2025-06-18",
+    "description": "A marketplace of agent skills. A tool is something an agent can call; a skill is something it can learn \u2014 a SKILL.md, front matter plus instructions, that says when to reach for the tools it already has and exactly how to use them for one job. This module finds those on the open web and files them where an agent can pick them up. Six sources, scanned at once: the official anthropics/skills catalog, repos that tag themselves claude-skill or agent-skill, GitHub code search for SKILL.md files (the widest net, and the one that needs a token), GitHub repo search, curated awesome-lists parsed out of their READMEs, and the fleet itself \u2014 every module on this host already writes its own skill.md in exactly this format, so the box you are standing on is a catalog too. Duplicates across sources collapse onto one card that remembers all of them, because the same skill appearing in the official catalog AND an awesome-list is evidence rather than noise; ranking is source trust \u00d7 relevance \u00d7 a capped nod to stars, so a 40k-star framework that merely mentions the query cannot outrank the skill that answers it. A search returns cards and fetches nothing \u2014 the document is pulled only when one is opened or installed, because a scan that fetched every hit would spend the whole GitHub budget on cards nobody read. Installing writes ~/.mod/skills/catalog/<name>/SKILL.md and nothing else: a skill is markdown, never code, so an install cannot run a script, add an executable, or grant a capability \u2014 `tools:` in the front matter names tools the agent already has and only teaches their use. That is what makes a marketplace of documents scraped off the internet a safe thing to own. The catalog is portable in both directions: copy a folder into ~/.claude/skills and Claude Code reads it, copy one out of there and this reads it, same format, no converter. Skills can also be written here rather than found, in the same format and the same catalog. `load` is the call an agent makes at the start of a run \u2014 several skills with their bodies, ready to go in front of a model. REST, an MCP server (ten tools) and a browser console all answer on one port from one implementation, so no surface can be told something another one cannot do. Reads are open to anyone; the catalog is shared state on this box, so installing, writing and removing want a caller from this box or the bearer token in ~/.mod/skills/server.secret.",
+    "port": 50860,
+    "app_port": 50860,
+    "gateway_port": 50860,
+    "base_path": "/skills",
+    "route": true,
+    "backend": "skillsrc/api.py (stdlib http.server \u2014 REST, MCP and the console on one port, no dependencies)",
+    "urls": {
+        "api": "http://127.0.0.1:50860",
+        "app": "http://127.0.0.1:50860/skills",
+        "mcp": "http://127.0.0.1:50860/mcp",
+        "same_origin_api": "http://127.0.0.1:50860/skills/_api"
+    },
+    "state": "~/.mod/skills \u2014 catalog/<name>/SKILL.md + meta.json (the installed skills), cache/ (search results, per-source TTL), index.json (every card ever scanned, by id), github.token (0600, optional), server.secret (optional)",
+    "fns": [
+        "forward",
+        "info",
+        "search",
+        "sources",
+        "get",
+        "install",
+        "write",
+        "installed",
+        "doc",
+        "load",
+        "remove",
+        "token",
+        "serve",
+        "kill",
+        "health",
+        "mcp",
+        "readme",
+        "test"
+    ],
+    "sources": {
+        "anthropic": "the official anthropics/skills catalog \u2014 listed whole, filtered locally, never spends a search call",
+        "topics": "repos tagged claude-skill / claude-skills / agent-skill / claude-code-skill",
+        "code": "GitHub code search for filename:SKILL.md \u2014 finds skills rather than repos about skills; needs a token",
+        "github": "repo search scoped to name+description (in:readme drags in every monorepo that says the word)",
+        "awesome": "curated community indexes, parsed out of their READMEs and cached hard",
+        "registry": "every module on this host \u2014 the fleet writes skill.md in this same format"
+    },
+    "endpoints": {
+        "info": {
+            "method": "GET",
+            "path": "/",
+            "auth": false,
+            "docs": "what a skill is here, the sources, and every route"
+        },
+        "health": {
+            "method": "GET",
+            "path": "/health",
+            "auth": false,
+            "docs": "liveness, catalog size, whether code search is unlocked"
+        },
+        "search": {
+            "method": "GET",
+            "path": "/search",
+            "auth": false,
+            "docs": "?q=&sources=&limit=&fresh= \u2014 scan every source at once, merged and ranked. Returns cards, not documents"
+        },
+        "sources": {
+            "method": "GET",
+            "path": "/sources",
+            "auth": false,
+            "docs": "the sources and which are ready (code search needs a token)"
+        },
+        "skill": {
+            "method": "GET",
+            "path": "/skill",
+            "auth": false,
+            "docs": "?id=&path= \u2014 open one card and read the SKILL.md behind it"
+        },
+        "installed": {
+            "method": "GET",
+            "path": "/installed",
+            "auth": false,
+            "docs": "?q=&tag= \u2014 the catalog, as cards without bodies"
+        },
+        "doc": {
+            "method": "GET",
+            "path": "/doc",
+            "auth": false,
+            "docs": "?name= \u2014 the markdown an agent is handed; a result id works too and is fetched live"
+        },
+        "raw": {
+            "method": "GET",
+            "path": "/raw",
+            "auth": false,
+            "docs": "?name= \u2014 the same document as text/markdown"
+        },
+        "load": {
+            "method": "GET",
+            "path": "/load",
+            "auth": false,
+            "docs": "?names=a,b&q= \u2014 several skills WITH bodies: the call an agent makes at the start of a run"
+        },
+        "install": {
+            "method": "POST",
+            "path": "/install",
+            "auth": "loopback or bearer",
+            "docs": "{id, path?, name?, all?} \u2014 file it in the catalog. all=true takes every skill in the repo"
+        },
+        "write": {
+            "method": "POST",
+            "path": "/write",
+            "auth": "loopback or bearer",
+            "docs": "{name, body, description?, tools?, tags?} \u2014 author one instead of finding one"
+        },
+        "remove": {
+            "method": "DELETE",
+            "path": "/installed/<name>",
+            "auth": "loopback or bearer",
+            "docs": "take a skill back out of the catalog"
+        },
+        "token": {
+            "method": "POST",
+            "path": "/token",
+            "auth": "loopback or bearer",
+            "docs": "{token} \u2014 a GitHub PAT, stored 0600 off-tree, unlocks code search"
+        },
+        "mcp": {
+            "method": "POST",
+            "path": "/mcp",
+            "auth": "reads open, writes gated",
+            "docs": "MCP JSON-RPC 2.0 \u2014 the same ten operations the REST routes call"
+        },
+        "console": {
+            "method": "GET",
+            "path": "/skills",
+            "auth": false,
+            "docs": "browser console: scan, read the document, install, write your own"
+        }
+    },
+    "mcp_tools": [
+        "skills_search",
+        "skills_sources",
+        "skills_get",
+        "skills_install",
+        "skills_installed",
+        "skills_doc",
+        "skills_load",
+        "skills_write",
+        "skills_remove",
+        "skills_token"
+    ],
+    "format": {
+        "what": "SKILL.md \u2014 YAML front matter, then markdown instructions",
+        "front_matter": "name, description (a block scalar is fine), tools, tags, license, version",
+        "parser": "scalar+list only, hand-written \u2014 no yaml dependency pointed at text pulled off the internet",
+        "portable": "copy a catalog folder into ~/.claude/skills and Claude Code reads it; copy one out and this reads it"
+    },
+    "safety": {
+        "documents_never_code": "installing a skill writes markdown. It runs no script, installs no package, and adds no executable tool",
+        "tools_field": "`tools:` names tools the agent already has \u2014 a skill teaches the use of a capability, it cannot grant one",
+        "traversal": "catalog names are sanitized; a name cannot escape ~/.mod/skills/catalog",
+        "writes": "installing, writing, removing and setting the token need a caller on this box, or the bearer token in ~/.mod/skills/server.secret"
+    },
+    "env": {
+        "SKILLS_PORT": "API, console and MCP port (default 50860)",
+        "SKILLS_BIND": "interface to bind (default 0.0.0.0)",
+        "SKILLS_DIR": "state directory (default ~/.mod/skills)",
+        "SKILLS_BASE_PATH": "path the console is served under (default /skills)",
+        "SKILLS_TIMEOUT": "per-request network timeout in seconds (default 14)",
+        "GITHUB_TOKEN": "unlocks code search and lifts the anonymous rate limit",
+        "MOD_ROOT": "where the fleet lives, for the registry source (default /root/mod/mod)"
+    },
+    "schema": "QmZMRvd72VzAKh3H4wVHYPEbWQjh1e795Mtc5qradm3vsd"
+}

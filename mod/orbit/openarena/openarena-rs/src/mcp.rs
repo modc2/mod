@@ -6,6 +6,7 @@
 //! do over HTTP, always.
 
 use crate::arena;
+use crate::bench;
 use crate::judge;
 use crate::players;
 use serde_json::{json, Value};
@@ -171,6 +172,93 @@ pub fn tool_list() -> Value {
                 "type": "object",
                 "properties": { "limit": { "type": "integer", "default": 20 } }
             }
+        },
+        {
+            "name": "bench_sources",
+            "description": "The standardized benchmarks this arena can pull off the web — HumanEval, HumanEval+, MBPP, CodeContests — plus the three generic sources (`hf` for any HuggingFace dataset, `json` for any JSON/JSONL url, `html` to scrape a problem page). Says whether fetching is switched on.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "hf_search",
+            "description": "Search HuggingFace for a dataset to race agents on. Answers dataset ids, downloads, likes and whether the set is gated — feed one straight to hf_dataset. This is the front door of the HuggingFace interface: you do not have to already know the name of a benchmark to import it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Free text, matched against dataset ids and cards — e.g. `code benchmark`, `humaneval`, `sql`" },
+                    "limit": { "type": "integer", "default": 20, "description": "1–100" },
+                    "sort": { "type": "string", "enum": ["downloads", "likes", "recent"], "default": "downloads" },
+                    "filter": { "type": "string", "description": "A hub filter tag, e.g. `task_categories:text-generation` or `language:en`" },
+                    "author": { "type": "string", "description": "Only this owner's datasets, e.g. `openai`" },
+                    "refresh": { "type": "boolean", "default": false }
+                }
+            }
+        },
+        {
+            "name": "hf_dataset",
+            "description": "Everything needed to import one HuggingFace dataset: its configs and splits, the columns of a real row, and the style + field map those columns imply. The `suggested` object it answers with IS the argument object for bench_preview — call this, then pass `suggested` through, and a dataset nobody wrote an adapter for becomes arena tasks.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "dataset": { "type": "string", "description": "e.g. openai/openai_humaneval" },
+                    "config": { "type": "string", "description": "Defaults to the first config the viewer lists" },
+                    "split": { "type": "string", "description": "Defaults to the held-out split — test, then validation, then train" },
+                    "refresh": { "type": "boolean", "default": false }
+                },
+                "required": ["dataset"]
+            }
+        },
+        {
+            "name": "bench_preview",
+            "description": "Fetch a benchmark and show the arena tasks it would become — statements, cases and which of them would be hidden. Imports nothing. Always the first call: a benchmark you have not looked at converts into tasks you have not read.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "default": "humaneval", "description": "A source id from bench_sources" },
+                    "limit": { "type": "integer", "default": 10, "description": "Records to take, 1–200" },
+                    "offset": { "type": "integer", "default": 0, "description": "Where to start — how you take a benchmark a page at a time" },
+                    "url": { "type": "string", "description": "json/html sources: what to fetch" },
+                    "dataset": { "type": "string", "description": "hf source: e.g. openai/openai_humaneval" },
+                    "config": { "type": "string" },
+                    "split": { "type": "string", "default": "test" },
+                    "style": { "type": "string", "enum": ["humaneval", "asserts", "io", "html"], "description": "How a record becomes a task — defaults to the source's" },
+                    "map": { "type": "object", "description": "Field paths per part of the task: title, statement, starter, entry_point, program, asserts, imports, inputs, outputs, hidden_inputs, hidden_outputs. Dotted paths walk into nested objects. Merged over the style's defaults." },
+                    "hide_after": { "type": "integer", "description": "Keep this many cases visible and hide the rest — overrides the style's own split" },
+                    "max_cases": { "type": "integer", "default": 12, "description": "Cap on cases per task; visible ones are kept first" },
+                    "timeout_ms": { "type": "integer", "default": 10000 },
+                    "language": { "type": "string", "description": "io tasks only — unit tasks are Python by construction" },
+                    "split_asserts": { "type": "boolean", "default": true, "description": "Cut an all-assertion grader into one case per assertion, so a near-miss scores partial credit" },
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "slug_prefix": { "type": "string", "description": "Defaults to the source id" },
+                    "refresh": { "type": "boolean", "default": false, "description": "Ignore the day-long fetch cache" }
+                }
+            }
+        },
+        {
+            "name": "bench_import",
+            "description": "Convert a benchmark into arena tasks and keep them. Same arguments as bench_preview. A slug already in the arena is skipped, not an error, so paging through a benchmark with `offset` is safe to repeat; the reply carries `next_offset` for the next page.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "source": { "type": "string", "default": "humaneval" },
+                    "limit": { "type": "integer", "default": 10 },
+                    "offset": { "type": "integer", "default": 0 },
+                    "url": { "type": "string" },
+                    "dataset": { "type": "string" },
+                    "config": { "type": "string" },
+                    "split": { "type": "string" },
+                    "style": { "type": "string", "enum": ["humaneval", "asserts", "io", "html"] },
+                    "map": { "type": "object" },
+                    "hide_after": { "type": "integer" },
+                    "max_cases": { "type": "integer", "default": 12 },
+                    "timeout_ms": { "type": "integer", "default": 10000 },
+                    "language": { "type": "string" },
+                    "split_asserts": { "type": "boolean", "default": true },
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "slug_prefix": { "type": "string" },
+                    "refresh": { "type": "boolean", "default": false },
+                    "dry_run": { "type": "boolean", "default": false, "description": "Convert and report, write nothing — bench_preview by another name" }
+                }
+            }
         }
     ])
 }
@@ -263,6 +351,11 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             arena::get_match(&id)
         }
         "leaderboard" => Ok(arena::leaderboard(u(args, "limit", 20) as usize)),
+        "bench_sources" => Ok(bench::sources_tool()),
+        "hf_search" => bench::hf_search(args).await,
+        "hf_dataset" => bench::hf_dataset(args).await,
+        "bench_preview" => bench::preview(args).await,
+        "bench_import" => bench::import(args).await,
         other => Err(format!(
             "unknown tool: {other} — this arena runs {:?} against {:?}",
             players::KINDS,

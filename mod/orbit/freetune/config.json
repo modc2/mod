@@ -14,5 +14,6 @@
         "cpu",
         "code"
     ],
-    "schema": "QmVMq3sZbXCvns7GhYgpdb9nfVtg1PHvCLx1sK49KmXGfw"
+    "schema": "QmVMq3sZbXCvns7GhYgpdb9nfVtg1PHvCLx1sK49KmXGfw",
+    "hf": "Qwen/Qwen2.5-Coder-0.5B-Instruct"
 }

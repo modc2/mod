@@ -15,6 +15,9 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: "/api/polymarket",
     NEXT_PUBLIC_BASE_PATH: basePath,
+    // Body-integrity tag for the strat-sync PUT/DELETE, and nothing more:
+    // anything under NEXT_PUBLIC_ is compiled into the browser bundle, so this
+    // is public by construction. The owner access gate is the actual auth.
     NEXT_PUBLIC_STRAT_HMAC_SECRET: process.env.NEXT_PUBLIC_STRAT_HMAC_SECRET || "",
   },
   webpack: (config) => {
@@ -36,6 +39,11 @@ const nextConfig = {
       // L2 CLOB passthrough (order, balance-allowance, orders, cancel).
       // Mirrors the Caddy @l2 block so the app works in dev modes where
       // the docker-generated Caddyfile isn't in front of Next.js.
+      // UNAUTHENTICATED by design: the browser signs these L2 calls itself
+      // with its own HMAC credentials, so there is nothing here for the
+      // server to check. The destination is one fixed PUBLIC host, so the
+      // worst it can be used for is relaying a request anyone could make
+      // directly — it is not a general-purpose proxy.
       {
         source: "/api/polymarket-l2/:path*",
         destination: "https://clob.polymarket.com/:path*",

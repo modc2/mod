@@ -1,0 +1,6 @@
+{
+  "name": "center",
+  "description": "A Connect Four bot in one method: take the win, block theirs, else play towards the middle.",
+  "author": "modarena",
+  "tags": ["example", "player", "class", "python"]
+}

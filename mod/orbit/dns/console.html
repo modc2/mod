@@ -1,0 +1,1871 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 8 8%27%3E%3Crect width=%278%27 height=%278%27 fill=%27%23080a14%27/%3E%3Cpath d=%27M3 0h2v1h1v1h1v2h-1v2h-1v1h-2v-1h-1v-2h-1v-2h1v-1h1z%27 fill=%27%2357e6ff%27/%3E%3Cpath d=%27M3 2h2v1h1v2h-1v1h-2v-1h-1v-2h1z%27 fill=%27%23ff5fd0%27/%3E%3Cpath d=%27M3 3h2v2h-2z%27 fill=%27%23ffffff%27/%3E%3C/svg%3E">
+<title>dns — the name layer of the mod protocol</title>
+<script>
+// The two faces live at {prefix}/fonts. The prefix is only known at runtime —
+// directly this console is /dns, behind the gateway it is /dns too but on
+// another host, and /console serves it from the root — so the @font-face
+// rules are written here rather than hard-coded to a path that would 404.
+(function(){
+  var p = location.pathname.replace(/\/+$/,'');
+  var base = /\/dns$/.test(p) ? p : '';
+  var css = ['PressStart|press-start-2p-latin','Terminal8|vt323-latin']
+    .map(function(f){ f = f.split('|');
+      return '@font-face{font-family:"'+f[0]+'";font-style:normal;font-weight:400;'
+           + 'font-display:swap;src:url("'+base+'/fonts/'+f[1]+'.woff2") format("woff2")}';
+    }).join('');
+  var el = document.createElement('style'); el.textContent = css;
+  document.head.appendChild(el);
+})();
+</script>
+<style>
+  /* ── the pixel faces, served by this module ──────────────────────
+     Self-hosted from /dns/fonts: the name layer should not need another
+     name to resolve before it can draw itself. The @font-face src is
+     written by the script below, which knows the path prefix. */
+  :root{
+    /* a console palette: phosphor on deep space, four accent channels */
+    --bg:#080a14; --panel:#101529; --panel2:#141a33; --raised:#1a2141;
+    --line:#2c3564; --line2:#0000; --edge:#3b4788;
+    --ink:#e9edff; --ink2:#a9b4e6; --dim:#7a85c4; --faint:#5a649e;
+    --hot:#57e6ff; --hot2:#ff5fd0; --hotink:#04121b; --hotline:#2b6f8c;
+    --good:#5dff9b; --warn:#ffce4d; --bad:#ff6b6b;
+    --r:0px; --rs:0px;                 /* pixels have no rounded corners */
+    --px:2px;                          /* the size of one "pixel" */
+    --shadow:4px 4px 0 #03050c;
+    --f-pixel:"PressStart",ui-monospace,Menlo,Consolas,monospace;
+    --f-term:"Terminal8",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --bevel:inset 2px 2px 0 rgba(255,255,255,.22), inset -2px -2px 0 rgba(0,0,0,.45);
+  }
+  *{box-sizing:border-box}
+  html{scrollbar-color:var(--line) var(--bg)}
+  ::-webkit-scrollbar{width:12px;height:12px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:var(--line);border:2px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--edge)}
+
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:17px/1.38 var(--f-term);
+       -webkit-font-smoothing:none;font-smooth:never;
+       text-rendering:geometricPrecision}
+  /* the lattice everything is drawn on: an 8px pixel grid, barely there */
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:
+      linear-gradient(rgba(87,230,255,.035) 1px, transparent 1px) 0 0/8px 8px,
+      linear-gradient(90deg, rgba(87,230,255,.035) 1px, transparent 1px) 0 0/8px 8px,
+      radial-gradient(1000px 460px at 12% -14%, rgba(87,230,255,.10), transparent 72%),
+      radial-gradient(820px 400px at 88% -10%, rgba(255,95,208,.09), transparent 72%);}
+  /* the tube: scanlines, a soft vignette, and a flicker you can switch off */
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;
+    opacity:0;transition:opacity .2s;
+    background:
+      repeating-linear-gradient(180deg, rgba(0,0,0,.30) 0 1px, transparent 1px 3px),
+      radial-gradient(120% 100% at 50% 50%, transparent 58%, rgba(0,0,0,.55) 100%);}
+  body.crt::after{opacity:1;animation:flick 5.5s steps(1) infinite}
+  @keyframes flick{0%,97%{opacity:1}98%{opacity:.88}99%{opacity:1}}
+  @media(prefers-reduced-motion:reduce){body.crt::after{animation:none}}
+  ::selection{background:var(--hot);color:var(--hotink)}
+  /* keyboard callers get the same hard edge the mouse gets */
+  :focus-visible{outline:var(--px) solid var(--hot);outline-offset:2px}
+
+  /* the pixel typeface is for labels and chrome; the terminal face carries
+     the data, where a wall of 8px capitals would be unreadable */
+  .px,nav button,button.go,button.wallet,button.chip,.brand b,.card h3,.box h2,
+  th,.stat .k,.role,.p,.menu h4{
+    font-family:var(--f-pixel);letter-spacing:.02em;text-transform:uppercase;
+    font-weight:400;line-height:1.7}
+
+  /* ── header ─────────────────────────────────────────────────────── */
+  header{position:sticky;top:0;z-index:20;background:#080a14;
+         border-bottom:var(--px) solid var(--line);
+         box-shadow:0 4px 0 rgba(3,5,12,.75)}
+  .top{display:flex;align-items:center;gap:16px;padding:12px 18px;flex-wrap:wrap;
+       max-width:1520px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:11px;white-space:nowrap}
+  /* an 8×8 sprite drawn out of box-shadows — no icon font, no emoji */
+  .sprite{--sp:3px;width:var(--sp);height:var(--sp);margin:6px 12px 12px 6px;flex:none;
+    image-rendering:pixelated;
+    box-shadow:
+      9px 0 0 var(--hot),  12px 0 0 var(--hot),
+      6px 3px 0 var(--hot), 9px 3px 0 var(--hot2), 12px 3px 0 var(--hot2), 15px 3px 0 var(--hot),
+      3px 6px 0 var(--hot), 6px 6px 0 var(--hot2), 9px 6px 0 #fff, 12px 6px 0 #fff, 15px 6px 0 var(--hot2), 18px 6px 0 var(--hot),
+      0 9px 0 var(--hot), 3px 9px 0 var(--hot2), 6px 9px 0 #fff, 9px 9px 0 var(--hot), 12px 9px 0 var(--hot), 15px 9px 0 #fff, 18px 9px 0 var(--hot2), 21px 9px 0 var(--hot),
+      3px 12px 0 var(--hot), 6px 12px 0 var(--hot2), 9px 12px 0 #fff, 12px 12px 0 #fff, 15px 12px 0 var(--hot2), 18px 12px 0 var(--hot),
+      6px 15px 0 var(--hot), 9px 15px 0 var(--hot2), 12px 15px 0 var(--hot2), 15px 15px 0 var(--hot),
+      9px 18px 0 var(--hot), 12px 18px 0 var(--hot);
+    filter:drop-shadow(0 0 6px rgba(87,230,255,.45))}
+  .brand b{font-size:15px;letter-spacing:.16em;color:var(--hot);
+    text-shadow:2px 2px 0 #03050c, 0 0 18px rgba(87,230,255,.55)}
+  .brand .tag{color:var(--faint);font-size:15px;letter-spacing:0}
+  .brand .cur{display:inline-block;width:9px;height:15px;background:var(--hot);
+    margin-left:2px;animation:blink 1.06s steps(1) infinite;vertical-align:-2px}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+  /* the strapline yields to the readings: below this the top line is worth
+     more as six live numbers than as a sentence you have already read */
+  @container page (max-width:1400px){.brand .tag{display:none}}
+
+  /* The readings live in the top line, in the gap the brand and the buttons
+     used to leave empty between them. A header row of blank pixels is a row
+     that could have been carrying five numbers. Too many to fit, they scroll. */
+  .stats{display:flex;gap:8px;align-items:stretch;margin:0 6px;flex:1 1 0;
+        min-width:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;
+        -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);
+        mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}
+  .stats::-webkit-scrollbar{display:none}
+  .stat{flex:none;padding:4px 12px;background:var(--panel);border:var(--px) solid var(--line);
+        line-height:1.2}
+  .stat .k{display:block;font-size:7px;letter-spacing:.12em;color:var(--faint)}
+  .stat .v{font-size:17px;color:var(--ink2);font-variant-numeric:tabular-nums}
+  .stat .v.hot{color:var(--hot)}
+  /* Only on a phone do the readings take a line of their own: above that the
+     strip scrolls in place rather than pushing the tabs down a row. */
+  /* tighter type before the strip has to scroll: six readings you can see
+     beat four you can and two you have to drag for */
+  @container page (max-width:1240px){
+    .stat{padding:3px 9px}.stat .v{font-size:15px}
+  }
+  /* Only on a phone do the readings take a line of their own. Anywhere else
+     they stay in the top line and scroll: a header whose first row is empty
+     while its second row is numbers is one row of wasted screen. */
+  @container page (max-width:700px){
+    .stats{width:100%;order:3;margin:0;flex:none;padding-bottom:2px}
+    .stat{padding:4px 12px}.stat .v{font-size:17px}
+  }
+
+  .who{margin-left:auto;position:relative;display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;background:var(--good);display:inline-block;
+       box-shadow:0 0 8px currentColor;vertical-align:middle}
+  .dot.bad{background:var(--bad)} .dot.warn{background:var(--warn)}
+  .dot.live{animation:pulse 1.4s steps(1) infinite}
+  @keyframes pulse{0%,49%{opacity:1}50%,100%{opacity:.25}}
+
+  button.wallet{display:flex;align-items:center;gap:8px;cursor:pointer;
+    font-size:8px;letter-spacing:.08em;padding:10px 14px;
+    color:var(--hotink);border:var(--px) solid #03050c;background:var(--hot);
+    box-shadow:var(--bevel), var(--shadow);
+    transition:transform .06s steps(1), box-shadow .06s steps(1), filter .1s}
+  button.wallet:hover{filter:brightness(1.12)}
+  button.wallet:active{transform:translate(4px,4px);box-shadow:var(--bevel)}
+  button.wallet:disabled{opacity:.55;cursor:wait}
+
+  button.chip{display:flex;align-items:center;gap:8px;cursor:pointer;
+    font-size:8px;padding:9px 11px;color:var(--ink2);
+    background:var(--panel2);border:var(--px) solid var(--line);
+    box-shadow:var(--shadow);transition:border-color .1s,color .1s}
+  button.chip:hover{border-color:var(--hot);color:var(--ink)}
+  .chip .role{font-size:7px;letter-spacing:.1em;padding:3px 5px;
+    border:var(--px) solid var(--line)}
+  .role.owner{color:var(--warn);border-color:#6b5216;background:rgba(255,206,77,.10)}
+  .role.holder{color:var(--hot);border-color:var(--hotline);background:rgba(87,230,255,.10)}
+  .role.anon{color:var(--dim)}
+
+  .menu{position:absolute;right:0;top:calc(100% + 10px);width:340px;z-index:40;
+    background:var(--raised);border:var(--px) solid var(--edge);
+    box-shadow:var(--shadow);padding:13px;display:none}
+  .menu.on{display:block}
+  .menu h4{margin:0 0 9px;font-size:8px;letter-spacing:.12em;color:var(--faint)}
+  .menu .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+  .menu .kv{display:flex;justify-content:space-between;gap:10px;font-size:16px;
+    padding:4px 0;border-bottom:1px solid #232a4d}
+  .menu .kv span:first-child{color:var(--dim)}
+
+  /* ── nav: six cartridge keys ─────────────────────────────────────── */
+  nav{display:flex;gap:6px;padding:0 18px 12px;overflow-x:auto;overflow-y:hidden;
+      flex-wrap:wrap;scrollbar-width:none;max-width:1520px;margin:0 auto}
+  nav::-webkit-scrollbar{display:none}
+  nav button{background:var(--panel);border:var(--px) solid var(--line);
+    color:var(--dim);padding:10px 13px;cursor:pointer;font-size:8px;
+    letter-spacing:.08em;white-space:nowrap;box-shadow:3px 3px 0 #03050c;
+    transition:color .1s,border-color .1s,transform .06s steps(1),box-shadow .06s steps(1)}
+  nav button:hover{color:var(--ink);border-color:var(--edge)}
+  nav button.on{color:var(--hotink);background:var(--hot);border-color:#03050c;
+    box-shadow:var(--bevel), 3px 3px 0 #03050c}
+  nav button:active{transform:translate(3px,3px);box-shadow:none}
+  nav button{flex:none}
+  /* Below the wrap point the eight keys become one scrolling strip, faded at
+     the edge so it reads as more-to-the-right; go() scrolls the live one in. */
+  @container page (max-width:1080px){
+    nav{flex-wrap:nowrap;scroll-snap-type:x proximity;
+      -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
+      mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent)}
+    nav button{scroll-snap-align:start}
+  }
+
+  main{padding:18px 18px 88px;max-width:1520px;margin:0 auto;
+        position:relative;z-index:1}
+  section{display:none} section.on{display:block;animation:tabin .16s steps(4)}
+  @keyframes tabin{from{opacity:.25;transform:translateY(4px)}to{opacity:1;transform:none}}
+  @media(prefers-reduced-motion:reduce){section.on{animation:none}}
+
+  /* ── controls ───────────────────────────────────────────────────── */
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  input,select,textarea{background:#0a0d1c;border:var(--px) solid var(--line);
+    color:var(--ink);padding:8px 11px;font:17px/1.2 var(--f-term);
+    box-shadow:inset 2px 2px 0 rgba(0,0,0,.5);caret-color:var(--hot)}
+  input::placeholder{color:var(--faint)}
+  input:focus,select:focus{outline:none;border-color:var(--hot);
+    box-shadow:inset 2px 2px 0 rgba(0,0,0,.5), 0 0 0 2px rgba(87,230,255,.22)}
+  input.wide{flex:1;min-width:min(440px,68vw)}
+  select{cursor:pointer;font-family:var(--f-term)}
+  button.go{background:var(--hot);color:var(--hotink);border:var(--px) solid #03050c;
+    padding:10px 18px;cursor:pointer;font-size:8px;letter-spacing:.08em;
+    box-shadow:var(--bevel), var(--shadow);
+    transition:transform .06s steps(1),box-shadow .06s steps(1),filter .1s}
+  button.go:hover{filter:brightness(1.12)}
+  button.go:active{transform:translate(4px,4px);box-shadow:var(--bevel)}
+  button.go:disabled{opacity:.4;cursor:wait;filter:none}
+  button.ghost{background:var(--panel2);border:var(--px) solid var(--line);
+    color:var(--ink2);padding:6px 11px;cursor:pointer;font:15px/1.2 var(--f-term);
+    box-shadow:2px 2px 0 #03050c;
+    transition:border-color .1s,color .1s,transform .06s steps(1),box-shadow .06s steps(1)}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+  button.ghost:active{transform:translate(2px,2px);box-shadow:none}
+  button.ghost.danger:hover{border-color:var(--bad);color:var(--bad)}
+  button.ghost.on{background:var(--hot);color:var(--hotink);border-color:#03050c}
+  button.link{background:none;border:none;color:var(--dim);
+    font:15px/1.2 var(--f-term);cursor:pointer;text-decoration:underline;
+    text-underline-offset:3px;padding:2px}
+  button.link:hover{color:var(--hot)}
+
+  /* ── surfaces ───────────────────────────────────────────────────── */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;
+         margin-bottom:14px}
+  .card{background:var(--panel);border:var(--px) solid var(--line);
+        padding:12px 13px;position:relative;box-shadow:var(--shadow);
+        transition:border-color .1s,transform .06s steps(1)}
+  .card::after{content:"";position:absolute;left:0;top:0;width:100%;height:var(--px);
+        background:linear-gradient(90deg,var(--hot),var(--hot2));opacity:.5}
+  .card:hover{border-color:var(--edge);transform:translate(0,-2px)}
+  .card h3{margin:0 0 8px;font-size:7.5px;letter-spacing:.1em;color:var(--faint)}
+  .card .big{font-size:26px;color:var(--ink);font-variant-numeric:tabular-nums;
+             word-break:break-word;line-height:1.1}
+  .card .big.hot{color:var(--hot);text-shadow:2px 2px 0 #03050c}
+  .card .big.sm{font-size:17px;line-height:1.3}
+  .card .sm{font-size:15px;color:var(--dim);word-break:break-word;margin-top:5px}
+  /* On a phone four readings stacked one per row is four screens of card
+     before the table they belong to. Two up, smaller, still legible. */
+  @media(max-width:560px){
+    .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+    .card{padding:10px 11px}
+    .card .big{font-size:20px}
+    .card .big.sm{font-size:15px}
+    .card h3{font-size:7px}
+  }
+
+  .box{background:var(--panel);border:var(--px) solid var(--line);
+       padding:14px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .box h2{margin:0 0 12px;font-size:8px;letter-spacing:.1em;color:var(--hot);
+          display:flex;align-items:center;gap:10px}
+  .box h2 .rest{flex:1;height:var(--px);
+    background:repeating-linear-gradient(90deg,var(--line) 0 4px,transparent 4px 8px)}
+  .box h2 .dimtxt{color:var(--faint)}
+  .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;
+         align-items:start}
+  @media(max-width:960px){.split{grid-template-columns:minmax(0,1fr)}}
+
+  table{width:100%;border-collapse:collapse;font-size:17px}
+  th{text-align:left;color:var(--faint);border-bottom:var(--px) solid var(--line);
+     padding:7px 9px;font-size:7.5px;letter-spacing:.1em;
+     position:sticky;top:0;background:var(--panel);z-index:2}
+  td{padding:6px 9px;border-bottom:1px solid #1b2242;vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:nth-of-type(even)>td{background:rgba(87,230,255,.026)}
+  tr:hover>td,tbody tr:nth-of-type(even):hover>td{background:#1b2450}
+  /* a description column is prose, and a table will happily set prose 140
+     characters wide: the cell keeps its width, the sentence does not */
+  .measure{max-width:84ch}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  td.k{white-space:nowrap;width:1%}
+  .scroll{max-height:62vh;overflow:auto;margin:-4px}
+  .scroll>table{margin:4px}
+
+  .p{display:inline-block;padding:3px 6px;border:var(--px) solid var(--line);
+     font-size:7px;letter-spacing:.06em;color:var(--dim);margin-right:4px;
+     white-space:nowrap;line-height:1.4;vertical-align:1px}
+  .p.hot{color:var(--hot);border-color:var(--hotline);background:rgba(87,230,255,.09)}
+  .p.pur{color:var(--hot2);border-color:#6d2b5b;background:rgba(255,95,208,.09)}
+  .p.grn{color:var(--good);border-color:#22623d;background:rgba(93,255,155,.09)}
+  .p.bad{color:var(--bad);border-color:#6b2626;background:rgba(255,107,107,.09)}
+  .p.warn{color:var(--warn);border-color:#6b5216;background:rgba(255,206,77,.09)}
+  /* a masked address: the server sent x.x.x.x because the caller is not the
+     owner. Drawn as a fact with a reason, not as a broken-looking value. */
+  .p.priv{color:var(--warn);border-color:#6b5216;background:rgba(255,206,77,.07);
+     cursor:help;letter-spacing:.08em}
+
+  .dimtxt{color:var(--dim)} .warnv{color:var(--warn)} .badv{color:var(--bad)}
+  .goodv{color:var(--good)}
+  .addr{color:var(--hot2);word-break:break-all}
+  .cid{color:var(--hot);word-break:break-all}
+  .why{color:var(--dim);font-size:16px}
+  .txt{font-size:16px;color:var(--ink2);word-break:break-all}
+  .note{color:var(--faint);font-size:15px;margin:10px 0 0}
+  code{color:var(--hot);background:rgba(87,230,255,.09);padding:1px 5px;
+       border:1px solid rgba(87,230,255,.18);overflow-wrap:anywhere}
+  a{color:var(--hot);text-decoration:none;border-bottom:var(--px) solid transparent}
+  a:hover{border-bottom-color:var(--hot)}
+  pre{background:#06080f;border:var(--px) solid var(--line);padding:12px;
+      overflow:auto;font:16px/1.35 var(--f-term);max-height:58vh;white-space:pre-wrap;
+      word-break:break-word;margin:0;color:var(--ink2);
+      box-shadow:inset 2px 2px 0 rgba(0,0,0,.5)}
+
+  .cp{cursor:pointer;border-bottom:1px dotted var(--faint)}
+  .cp:hover{color:var(--hot);border-bottom-color:var(--hot)}
+
+  .gate{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    background:rgba(87,230,255,.05);border:var(--px) dashed var(--hotline);
+    padding:12px 13px;color:var(--dim);font-size:16px}
+  .empty{color:var(--faint);font-size:16px;padding:16px;text-align:center}
+  .skel{height:14px;background:repeating-linear-gradient(90deg,
+        var(--panel2) 0 8px, var(--raised) 8px 16px);
+    background-size:32px 100%;animation:sh .8s steps(4) infinite}
+  @keyframes sh{from{background-position:0 0}to{background-position:32px 0}}
+
+  /* ── toast ──────────────────────────────────────────────────────── */
+  .toast{position:fixed;right:18px;bottom:18px;z-index:60;max-width:min(460px,88vw);
+    background:var(--raised);border:var(--px) solid var(--hot);
+    border-left:6px solid var(--hot);
+    padding:11px 14px;font-size:17px;color:var(--ink);
+    box-shadow:var(--shadow);opacity:0;transform:translateY(8px);pointer-events:none;
+    transition:opacity .12s steps(2),transform .12s steps(2)}
+  .toast.on{opacity:1;transform:none}
+  .toast.bad{border-color:var(--bad);border-left-color:var(--bad);color:#ffd9d9}
+
+  /* ── GUIDE-UI: the part written for somebody who has never done this ──
+     Same cartridge language as the rest: 2px edges, hard shadows, the pixel
+     face for labels and the terminal face for anything anyone has to read. */
+  .hero{background:var(--panel);border:var(--px) solid var(--line);padding:20px;
+        margin-bottom:14px;box-shadow:var(--shadow);position:relative}
+  .hero::after{content:"";position:absolute;left:0;top:0;width:100%;
+        height:var(--px);background:linear-gradient(90deg,var(--hot),var(--hot2))}
+  .hero .kicker{font-family:var(--f-pixel);font-size:8px;letter-spacing:.12em;
+        color:var(--hot2);margin-bottom:12px}
+  .hero h1{font-family:var(--f-pixel);font-size:15px;line-height:1.8;
+        color:var(--ink);margin:0 0 14px;text-shadow:2px 2px 0 #03050c}
+  .hero .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  /* how wide the guide column is when it is open */
+  :root{--dockw:min(408px,34vw)}
+  .prose{font-size:18px;line-height:1.5;color:var(--ink2);max-width:74ch;margin:0 0 11px}
+  .prose.dim{color:var(--dim)}
+
+  .prog{display:flex;align-items:center;gap:11px;margin:0 0 14px}
+  .prog .track{flex:1;height:16px;background:#0a0d1c;padding:2px;
+        border:var(--px) solid var(--line);box-shadow:inset 2px 2px 0 rgba(0,0,0,.5)}
+  .prog .fill{height:100%;transition:width .4s steps(8);
+        background:repeating-linear-gradient(90deg,var(--hot) 0 6px,transparent 6px 8px)}
+  .prog .n{font-size:16px;color:var(--dim);white-space:nowrap}
+  /* the score and its sentence sit side by side until they cannot */
+  @media(max-width:640px){
+    .prog{flex-wrap:wrap}
+    .prog .track{flex-basis:100%}
+    .prog .n{white-space:normal}
+  }
+
+  .step{display:grid;grid-template-columns:24px minmax(0,1fr);gap:13px;padding:13px;
+        border:var(--px) solid var(--line);background:var(--panel);margin-bottom:10px;
+        box-shadow:var(--shadow)}
+  .step.now{border-color:var(--hot)}
+  .step .tick{width:22px;height:22px;display:grid;place-items:center;
+        border:var(--px) solid var(--line);background:#0a0d1c;color:var(--faint);
+        font-size:15px;line-height:1}
+  .step.done .tick{color:var(--good);border-color:#22623d;background:rgba(93,255,155,.10)}
+  .step.now .tick{color:var(--hot);border-color:var(--hot);background:rgba(87,230,255,.12)}
+  .step h4{font-family:var(--f-pixel);font-size:9px;letter-spacing:.06em;
+        color:var(--ink);margin:2px 0 9px;line-height:1.75;text-transform:uppercase;
+        font-weight:400;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .step.done h4{color:var(--ink2)}
+  .step .why{font-size:17px;color:var(--dim);line-height:1.45}
+  .step .how{font-size:17px;color:var(--ink2);line-height:1.45;margin-top:7px}
+  .step .acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;align-items:center}
+  .badge{font-family:var(--f-pixel);font-size:7px;letter-spacing:.08em;
+        color:var(--hotink);background:var(--hot);padding:4px 6px;line-height:1}
+
+  .words{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:8px}
+  .word{display:block;width:100%;text-align:left;background:var(--panel2);
+        border:var(--px) solid var(--line);padding:10px 12px;cursor:pointer;
+        color:var(--ink2);box-shadow:2px 2px 0 #03050c;font:16px/1.35 var(--f-term);
+        transition:border-color .1s,transform .06s steps(1),box-shadow .06s steps(1)}
+  .word:hover{border-color:var(--hot)}
+  .word:active{transform:translate(2px,2px);box-shadow:none}
+  .word b{display:block;font-family:var(--f-pixel);font-size:8px;color:var(--hot);
+        margin-bottom:7px;letter-spacing:.06em;line-height:1.4}
+  .word span{display:block;color:var(--dim)}
+
+  /* ── the dock: the guide, on every tab ───────────────────────────── */
+  /* The guide is a column of the page, not a sheet laid over it: the shell is
+     one flex row — page, then dock — so asking a question narrows the console
+     instead of covering the tab and the wallet button it just told you to
+     press. Shut, the column is slid out by its own width and costs nothing. */
+  body{display:flex;align-items:flex-start}
+  #page{flex:1 1 auto;min-width:0;container:page / inline-size}
+  /* Shut, the column is a zero-width slot: nothing is parked off the right of
+     the page, so there is no phantom width to scroll into. Its contents keep
+     their own width and are clipped, which is what makes the open and shut
+     states one width transition and not a slide over the top of the page. */
+  .dock{flex:none;width:0;overflow:hidden;position:sticky;top:0;height:100vh;
+        z-index:55;background:var(--bg);
+        border-left:0 solid var(--edge);visibility:hidden;
+        display:flex;flex-direction:column;
+        transition:width .16s steps(4),border-left-width .16s steps(4),
+                   visibility 0s .16s}
+  .dock > *{width:var(--dockw)}
+  .dock.on{width:var(--dockw);border-left-width:var(--px);visibility:visible;
+        transition:width .16s steps(4),border-left-width .16s steps(4)}
+  body.docked .toast{right:calc(var(--dockw) + 18px)}
+  /* the sheet's backdrop, only ever lit under the narrow layout */
+  .scrim{position:fixed;inset:0;z-index:54;background:rgba(4,6,14,.62);
+         opacity:0;pointer-events:none;transition:opacity .16s}
+  .dock .dhead{display:flex;gap:10px;align-items:flex-start;padding:13px 14px;
+        border-bottom:var(--px) solid var(--line);background:var(--panel)}
+  .dock .dhead .t{flex:1;min-width:0}
+  .dock .dhead b{display:block;font-family:var(--f-pixel);font-size:9px;
+        color:var(--hot);letter-spacing:.08em;line-height:1.6}
+  .dock .dhead .s{font-size:16px;color:var(--faint);margin-top:7px;line-height:1.4}
+  .dock .grab{display:none;padding:6px 0 5px;background:var(--panel);
+        border-bottom:var(--px) solid var(--line)}
+  .dock .grab::before{content:"";display:block;width:52px;height:var(--px);
+        margin:0 auto;background:var(--edge)}
+  .dock .close{background:var(--panel2);border:var(--px) solid var(--line);
+        color:var(--dim);width:26px;height:26px;cursor:pointer;flex:none;
+        font:16px/1 var(--f-term)}
+  .dock .close:hover{border-color:var(--hot);color:var(--hot)}
+  .thread{flex:1;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth;
+        padding:14px;display:flex;flex-direction:column;gap:12px}
+  .dfoot{border-top:var(--px) solid var(--line);padding:11px 12px;background:var(--panel)}
+  .dfoot .compose{display:flex;gap:8px;align-items:flex-end}
+  .dfoot textarea{flex:1;resize:none;min-height:40px;max-height:130px;
+        font:17px/1.3 var(--f-term)}
+  .dfoot .hint{font-size:14px;color:var(--faint);margin-top:8px;line-height:1.45}
+
+  .msg{font-size:18px;line-height:1.48}
+  .msg.you{align-self:flex-end;max-width:88%;background:var(--hot);color:var(--hotink);
+        border:var(--px) solid #03050c;padding:8px 11px;box-shadow:var(--shadow)}
+  .msg.a,.msg.term{background:var(--panel);border:var(--px) solid var(--line);
+        padding:13px;color:var(--ink2);box-shadow:var(--shadow)}
+  .msg.term{border-color:var(--hotline)}
+  .msg.a p,.msg.term p{margin:0 0 10px}
+  .msg.a p:last-child{margin-bottom:0}
+  .msg .head{display:flex;align-items:baseline;gap:9px;margin:0 0 10px;
+        padding-bottom:8px;border-bottom:var(--px) solid #1b2242}
+  .msg .head .u{font-family:var(--f-pixel);font-size:7.5px;letter-spacing:.08em;
+        color:var(--hot);line-height:1.6}
+  .msg .head .c{font-family:var(--f-pixel);font-size:7px;color:var(--faint);
+        margin-left:auto;line-height:1.6}
+  .msg .facts{margin-top:11px;border-top:var(--px) solid #1b2242;padding-top:9px}
+  .msg .facts div{display:flex;gap:10px;justify-content:space-between;
+        font-size:16px;padding:3px 0}
+  .msg .facts span:first-child{color:var(--faint);white-space:nowrap}
+  .msg .facts span:last-child{color:var(--ink2);text-align:right;word-break:break-all}
+  .msg ol{margin:10px 0 0;padding-left:20px}
+  .msg ol li{margin-bottom:8px}
+  .msg ol li b{color:var(--ink)}
+  .msg .cli{margin-top:11px}
+  .msg .cli code{display:block;margin-top:6px;padding:8px 10px;background:#06080f;
+        border:var(--px) solid var(--line);color:var(--ink2);font-size:16px;
+        word-break:break-all;cursor:pointer}
+  .msg .cli code:hover{border-color:var(--hot);color:var(--hot)}
+  .msg.term b.w{display:block;font-family:var(--f-pixel);font-size:9px;
+        color:var(--hot);letter-spacing:.08em;margin-bottom:8px;line-height:1.6}
+  .msg.term .m{color:var(--ink);margin-bottom:10px}
+  .msg.term .h{margin-top:11px;padding-top:9px;border-top:var(--px) solid #1b2242;
+        font-size:16px;color:var(--dim)}
+
+  .chiplead{font-family:var(--f-pixel);font-size:7px;letter-spacing:.1em;
+        color:var(--faint);margin:14px 0 -2px;line-height:1.6}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+  .chips button{background:var(--panel2);border:var(--px) solid var(--line);
+        color:var(--ink2);padding:7px 10px;cursor:pointer;font:16px/1.25 var(--f-term);
+        text-align:left;box-shadow:2px 2px 0 #03050c;
+        transition:border-color .1s,color .1s,transform .06s steps(1),box-shadow .06s steps(1)}
+  .chips button:hover{border-color:var(--hot);color:var(--hot)}
+  .chips button:active{transform:translate(2px,2px);box-shadow:none}
+  .chips.terms button{font-family:var(--f-pixel);font-size:7.5px;letter-spacing:.06em;
+        color:var(--hot);border-color:var(--hotline);background:rgba(87,230,255,.08);
+        padding:7px 8px;line-height:1.5}
+  .chips.act button{background:var(--hot);color:var(--hotink);border-color:#03050c;
+        box-shadow:var(--bevel), 3px 3px 0 #03050c}
+  .chips.act button:hover{color:var(--hotink);filter:brightness(1.1)}
+  .chips.act button:active{transform:translate(3px,3px);box-shadow:var(--bevel)}
+  .thinking{display:flex;gap:5px;padding:3px 1px}
+  .thinking i{width:6px;height:6px;background:var(--hot);
+        animation:blip .9s steps(1) infinite}
+  .thinking i:nth-child(2){animation-delay:.3s}
+  .thinking i:nth-child(3){animation-delay:.6s}
+  @keyframes blip{0%,32%{opacity:1}33%,100%{opacity:.2}}
+
+  .fab{position:fixed;right:18px;bottom:18px;z-index:54;display:flex;
+       align-items:center;gap:9px;padding:12px 16px;cursor:pointer;
+       font-family:var(--f-pixel);font-size:9px;letter-spacing:.08em;
+       color:var(--hotink);background:var(--hot);border:var(--px) solid #03050c;
+       box-shadow:var(--bevel), var(--shadow);line-height:1;
+       transition:transform .06s steps(1),box-shadow .06s steps(1),filter .1s,opacity .15s}
+  .fab:hover{filter:brightness(1.12)}
+  .fab:active{transform:translate(4px,4px);box-shadow:var(--bevel)}
+  .fab.hide{opacity:0;pointer-events:none}
+  .fab .qm{display:grid;place-items:center;width:16px;height:16px;
+       background:rgba(4,18,27,.25);font-size:9px}
+  /* Narrow: a bottom sheet, not a full-screen curtain. A dock that covers the
+     header is a dock you cannot get out of the way to reach the tab it just
+     told you to open. */
+  @media(max-width:1080px){
+    body{display:block}
+    .dock{position:fixed;left:0;right:0;bottom:0;top:auto;width:auto;height:min(76vh,660px);
+          overflow:visible;visibility:visible;border-left:none;
+          border-top:var(--px) solid var(--edge);transform:translateY(100%);
+          box-shadow:0 -6px 0 rgba(3,5,12,.6);
+          transition:transform .16s steps(4)}
+    .dock > *{width:auto}
+    .dock.on{width:auto;transform:none;transition:transform .16s steps(4)}
+    .dock .grab{display:block}
+    body.docked .scrim{opacity:1;pointer-events:auto}
+    body.docked .toast{right:18px}
+  }
+  /* Narrow: the header stays one line of brand and buttons, the readings and
+     the tabs each stay one scrolling line. Four stacked rows of chrome on a
+     390px screen is a console with no room left to be a console. */
+  @container page (max-width:760px){
+    .top{padding:10px 13px;gap:9px}
+    nav{padding:0 13px 10px}
+    main{padding:13px 13px 84px}
+    .brand b{font-size:13px}
+    .brand .cur{height:13px;width:7px}
+    .who{gap:6px}
+    .who button.ghost{font-size:7px;padding:8px 9px}
+    button.wallet{font-size:7px;padding:9px 10px;gap:6px}
+    .stat{padding:3px 9px}.stat .v{font-size:15px}
+  }
+  @media(max-width:760px){
+    .fab{bottom:14px;right:14px;padding:10px 13px;font-size:8px}
+  }
+</style>
+</head>
+<body>
+
+<div id="page">
+
+<header>
+  <div class="top">
+    <div class="brand">
+      <span class="sprite" aria-hidden="true"></span><b>DNS</b><span class="cur"></span>
+      <span class="tag">the name layer of the mod protocol</span>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="who">
+      <button class="ghost" id="helpbtn" title="the guide — start here">? NEW HERE</button>
+      <button class="ghost" id="crt" title="scanlines and vignette">CRT</button>
+      <div id="idbox"></div>
+      <div class="menu" id="idmenu"></div>
+    </div>
+  </div>
+  <nav>
+    <button data-t="start">START HERE</button>
+    <button data-t="resolve" class="on">RESOLVE</button>
+    <button data-t="attrib">ATTRIBUTION</button>
+    <button data-t="zone">ZONE</button>
+    <button data-t="fleet">FLEET</button>
+    <button data-t="host">YOUR HOST</button>
+    <button data-t="mcp">MCP</button>
+    <button data-t="ops">OPERATIONS</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ── GUIDE-UI: START HERE ────────────────────────────────────────── -->
+<section id="s-start">
+  <div id="startout"></div>
+</section>
+
+<!-- ── RESOLVE ─────────────────────────────────────────────────────── -->
+<section id="s-resolve" class="on">
+  <div class="bar">
+    <input id="q" class="wide" placeholder="a module name (eth), a hostname (eth.modc2.com), a path (modc2.com/api/eth) or a URL">
+    <select id="qtype"><option>A</option><option>AAAA</option><option>TXT</option>
+      <option>CNAME</option><option>MX</option><option>NS</option><option>SOA</option></select>
+    <button class="go" id="qgo">RESOLVE</button>
+    <button class="ghost" data-ask="what am I looking at here?">explain this</button>
+  </div>
+  <div id="rout"></div>
+  <div class="note">One question, four right answers: the app path, the API path, the MCP
+    endpoint and the A record. They only agree because one thing computes all four.</div>
+</section>
+
+<!-- ── ATTRIBUTION ─────────────────────────────────────────────────── -->
+<section id="s-attrib"><div id="aout"></div></section>
+
+<!-- ── ZONE ────────────────────────────────────────────────────────── -->
+<section id="s-zone">
+  <div class="bar">
+    <select id="zsel"></select>
+    <select id="zfilter">
+      <option value="">every record</option>
+      <option value="derived">derived only</option>
+      <option value="stored">stored only</option>
+    </select>
+    <input id="zq" placeholder="filter by name or value" style="width:230px">
+    <button class="ghost" id="zreload">reload</button>
+    <button class="ghost" data-ask="how do I add a record?">how do I add one?</button>
+  </div>
+  <div id="zout"></div>
+</section>
+
+<!-- ── FLEET ───────────────────────────────────────────────────────── -->
+<section id="s-fleet">
+  <div class="bar">
+    <input id="fq" placeholder="filter modules" style="width:260px">
+    <button class="ghost" id="fup">only what is up</button>
+  </div>
+  <div id="fout"></div>
+</section>
+
+<!-- ── YOUR HOST ───────────────────────────────────────────────────── -->
+<section id="s-host">
+  <div class="split">
+    <div>
+      <div class="box">
+        <h2>check a name against the internet<span class="rest"></span></h2>
+        <div class="bar">
+          <input id="cname" placeholder="modc2.com" style="flex:1;min-width:180px">
+          <select id="ctype"><option>A</option><option>AAAA</option><option>TXT</option>
+            <option>NS</option><option>MX</option></select>
+          <button class="go" id="cgo">CHECK</button>
+        </div>
+        <div id="cout"></div>
+      </div>
+    </div>
+    <div>
+      <div class="box">
+        <h2>run the protocol on a host you control<span class="rest"></span></h2>
+        <div class="bar">
+          <input id="pname" placeholder="yourdomain.com" style="flex:1;min-width:180px">
+          <button class="go" id="pgo">PLAN</button>
+        </div>
+        <div id="pout"></div>
+      </div>
+      <div class="box">
+        <h2>register a host you control<span class="rest"></span></h2>
+        <div id="regout"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── MCP ─────────────────────────────────────────────────────────── -->
+<section id="s-mcp">
+  <div id="mcards"></div>
+  <div class="split">
+    <div>
+      <div class="box">
+        <h2>connect an agent<span class="rest"></span></h2>
+        <div id="mconn"></div>
+      </div>
+      <div class="box">
+        <h2>call a tool from here<span class="rest"></span></h2>
+        <div class="bar">
+          <select id="mtool" style="flex:1;min-width:200px"></select>
+          <button class="go" id="mrun">CALL</button>
+        </div>
+        <div class="why" id="mwhat"></div>
+        <textarea id="margs" spellcheck="false" rows="4"
+          style="width:100%;margin-top:9px">{}</textarea>
+        <div class="note">Sent as JSON-RPC <code>tools/call</code> to this
+          module's own MCP endpoint, with your token if you are signed in — the
+          same door an agent comes through.</div>
+        <div id="mres" style="margin-top:11px"></div>
+      </div>
+    </div>
+    <div>
+      <div class="box">
+        <h2>the tools<span class="rest"></span></h2>
+        <div class="scroll" id="mtools"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── OPERATIONS ──────────────────────────────────────────────────── -->
+<section id="s-ops">
+  <div class="box">
+    <h2>your standing<span class="rest"></span></h2>
+    <div id="wout"></div>
+  </div>
+  <div class="split">
+    <div id="opsout"></div>
+    <div id="qout"></div>
+  </div>
+  <div class="box" id="catout"></div>
+</section>
+
+</main>
+
+</div><!-- /#page -->
+
+<!-- ── GUIDE-UI: the guide, docked ─────────────────────────────────── -->
+<div class="scrim" id="scrim" aria-hidden="true"></div>
+<aside class="dock" id="dock" aria-label="the guide">
+  <div class="grab" aria-hidden="true"></div>
+  <div class="dhead">
+    <div class="t">
+      <b>ASK THE GUIDE</b>
+      <div class="s">Plain words. It reads any name in your question, looks it
+        up for real, and answers from what this box is doing right now.</div>
+    </div>
+    <button class="close" id="dclose" title="close">X</button>
+  </div>
+  <div class="thread" id="thread"></div>
+  <div class="dfoot">
+    <div class="compose">
+      <textarea id="askin" rows="1" spellcheck="false"
+        placeholder="how do I use my own domain?"></textarea>
+      <button class="go" id="asksend">ASK</button>
+    </div>
+    <div class="hint">No model behind this. Every answer was written down in
+      advance and filled in with live state — and it says when it does not know.</div>
+  </div>
+</aside>
+
+<button class="fab" id="fab"><span class="qm">?</span> ASK</button>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// The console is served at /dns on the API's own port, so the API is
+// same-origin: under the gateway that means /dns/_api, served directly it
+// means the root. Nothing here needs a cross-origin request or a CORS grant.
+const BASE = location.pathname.replace(/\/+$/,'').endsWith('/dns')
+  ? location.pathname.replace(/\/+$/,'') + '/_api' : '';
+const TKEY = 'dns.token';        // one shared origin: namespace the keys
+const AKEY = 'dns.token.at';
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = a => (a && a.length > 16 ? a.slice(0,8)+'…'+a.slice(-6) : (a||''));
+
+let TOKEN = localStorage.getItem(TKEY) || '';
+let STATE = {};                  // last /overview
+let YOU = {role:'anon'};         // last /whoami
+
+// A tab that is waiting should look like it is waiting, in the shape of the
+// thing it is waiting for: the cards land where the card shapes were, so the
+// page does not jump under the cursor when the answer arrives.
+function waiting(sel, cards){
+  const one = `<div class="card"><div class="skel" style="width:44%"></div>
+    <div class="skel" style="width:78%;height:22px;margin-top:13px"></div></div>`;
+  const el = $(sel); if (!el) return;
+  el.innerHTML = cards ? '<div class="cards">' + one.repeat(cards) + '</div>'
+                       : '<div class="skel" style="width:55%"></div>';
+}
+
+let toastTimer;
+function toast(msg, bad){
+  const t = $('#toast');
+  if (!msg) { t.className = 'toast'; return; }
+  t.textContent = msg;
+  t.className = 'toast on' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = 'toast'; }, bad ? 7000 : 3400);
+}
+
+async function api(path, opts){
+  const o = Object.assign({headers:{}}, opts||{});
+  o.headers['Content-Type'] = 'application/json';
+  if (TOKEN) o.headers['Authorization'] = 'Bearer ' + TOKEN;
+  if (o.body && typeof o.body !== 'string') o.body = JSON.stringify(o.body);
+  const r = await fetch(BASE + path, o);
+  const j = await r.json().catch(() => ({error:r.statusText}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+const pill = (t, cls) => `<span class="p ${cls||''}">${esc(t)}</span>`;
+const yesno = b => b ? '<span class="goodv">yes</span>' : '<span class="dimtxt">no</span>';
+
+// The server masks IP addresses to x.x.x.x / x:x:x::x for anyone who is not
+// the deployment owner. Those tokens are a wire format, not a display format:
+// pv() runs over ALREADY-ESCAPED html and turns each one into a pill that
+// says what happened, so a hidden address reads as a fact, not a glitch.
+const MASKRE = /x\.x\.x\.x|x:x:x::x/;
+const PRIVANOTE = 'this address is private — only the deployment owner sees it';
+const pv = h => String(h).replace(/x\.x\.x\.x|x:x:x::x/g,
+  `<span class="p priv" title="${PRIVANOTE}">PRIVATE</span>`);
+const epv = s => pv(esc(s));
+const copyable = (v, cls) => {
+  if (v && MASKRE.test(String(v))) return pv(esc(v));   // nothing to copy
+  return v
+    ? `<span class="cp ${cls||''}" data-copy="${esc(v)}" title="click to copy">${esc(v)}</span>`
+    : '<span class="dimtxt">—</span>';
+};
+
+document.addEventListener('click', e => {
+  const c = e.target.closest('[data-copy]');
+  if (c){ navigator.clipboard.writeText(c.dataset.copy)
+    .then(() => toast('copied ' + short(c.dataset.copy))).catch(() => {}); }
+  if (!e.target.closest('.who')) $('#idmenu').classList.remove('on');
+});
+
+// ── signing in ─────────────────────────────────────────────────────
+// A mod-protocol token is base64url({data, time, key, signature}) where the
+// signature covers JSON.stringify({data, time}) — no spaces, that key order —
+// as an EIP-191 personal_sign. That is byte-for-byte what the auth mod
+// re-serializes and verifies, so a browser wallet, the `m` CLI and another
+// module all arrive at the same address by the same door.
+function b64url(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function wallet(){
+  const eth = window.ethereum;
+  if (!eth) return null;
+  // Several extensions injected: prefer MetaMask, else the first one.
+  if (Array.isArray(eth.providers) && eth.providers.length)
+    return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+  return eth;
+}
+
+async function mint(provider, address){
+  const data = {mod:'dns'};
+  const time = (Date.now()/1000).toString();
+  const signature = await provider.request({
+    method:'personal_sign',
+    params:[JSON.stringify({data, time}), address],
+  });
+  return b64url({data, time, key:address, signature});
+}
+
+function keepToken(token){
+  TOKEN = token || '';
+  if (TOKEN){ localStorage.setItem(TKEY, TOKEN);
+              localStorage.setItem(AKEY, String(Date.now())); }
+  else { localStorage.removeItem(TKEY); localStorage.removeItem(AKEY); }
+}
+
+async function signIn(pick){
+  const p = wallet();
+  if (!p){
+    const pasted = prompt(
+      'No wallet extension found in this browser.\n\n' +
+      'Install MetaMask, or paste a mod-protocol token minted on a box that '
+      + 'holds your key:\n\n    m.mod("auth")().token({})');
+    if (!pasted) return;
+    keepToken(pasted.trim());
+    await refreshYou(); toast('token accepted'); return;
+  }
+  const btn = $('#idbox').querySelector('button');
+  if (btn) btn.disabled = true;
+  try {
+    if (pick){                 // let the user choose a different account
+      try { await p.request({method:'wallet_requestPermissions',
+                             params:[{eth_accounts:{}}]}); } catch(e){}
+    }
+    const accounts = await p.request({method:'eth_requestAccounts'});
+    const address = (accounts && accounts[0] || '').toLowerCase();
+    if (!address) throw new Error('the wallet returned no account');
+    keepToken(await mint(p, address));
+    await refreshYou();
+    toast('signed in as ' + short(address));
+    if (['zone','ops','host','start'].includes(TAB)) LOADERS[TAB]();
+    loadGuide();
+  } catch(e){
+    toast(e.code === 4001 ? 'the signature was refused'
+                          : (e.message || 'the wallet refused'), true);
+  }
+  if (btn) btn.disabled = false;
+}
+
+function signOut(){
+  keepToken('');
+  $('#idmenu').classList.remove('on');
+  refreshYou().then(() => { if (LOADERS[TAB]) LOADERS[TAB](); });
+  toast('signed out — reads stay open');
+}
+
+function tokenAge(){
+  const at = Number(localStorage.getItem(AKEY) || 0);
+  return at ? Math.floor((Date.now() - at)/1000) : null;
+}
+function ago(s){
+  if (s == null) return 'unknown';
+  if (s < 90) return s + 's ago';
+  if (s < 5400) return Math.round(s/60) + 'm ago';
+  if (s < 172800) return Math.round(s/3600) + 'h ago';
+  return Math.round(s/86400) + 'd ago';
+}
+
+function drawIdentity(){
+  const w = YOU || {}, box = $('#idbox');
+  if (!w.address){
+    box.innerHTML = `<button class="wallet" id="signin">
+      <span>&#9679;</span> CONNECT WALLET</button>`;
+    $('#signin').onclick = () => signIn(false);
+    $('#idmenu').classList.remove('on');
+    return;
+  }
+  const role = w.role || 'holder';
+  box.innerHTML = `<button class="chip" id="idchip">
+    <span class="dot ${role==='owner'?'warn':''}"></span>
+    <span>${esc(short(w.address))}</span>
+    <span class="role ${esc(role)}">${esc(role)}</span></button>`;
+  $('#idchip').onclick = e => {
+    e.stopPropagation();
+    drawMenu(); $('#idmenu').classList.toggle('on');
+  };
+}
+
+function drawMenu(){
+  const w = YOU || {}, max = (w.auth && w.auth.token_max_age) || 604800;
+  const age = tokenAge(), stale = age != null && age > max;
+  $('#idmenu').innerHTML = `
+    <h4>signed in</h4>
+    <div class="txt">${copyable(w.address,'addr')}</div>
+    <div class="kv"><span>standing</span><span class="role ${esc(w.role)}">${esc(w.role)}</span></div>
+    <div class="kv"><span>deployment owner</span><span class="addr">${esc(short(w.owner)||'unclaimed')}</span></div>
+    <div class="kv"><span>zones you can change</span><span>${(w.zones_you_can_change||[]).length || '<span class="dimtxt">none yet</span>'}</span></div>
+    <div class="kv"><span>ip addresses</span><span class="${w.is_owner?'goodv':''}">${
+      w.is_owner ? 'visible to you, masked for others'
+      : MASKRE.test(String(STATE.target||'')) ? '<span class="warnv">hidden — owner only</span>'
+      : 'visible'}</span></div>
+    <div class="kv"><span>token signed</span><span class="${stale?'badv':'dimtxt'}">${esc(ago(age))}${stale?' · expired':''}</span></div>
+    <div class="row">
+      <button class="ghost" id="mre">re-sign</button>
+      <button class="ghost" id="mswitch">switch account</button>
+      <button class="ghost danger" id="mout">sign out</button>
+    </div>
+    <div class="note">${esc(w.note||'')}</div>`;
+  $('#mre').onclick = () => signIn(false);
+  $('#mswitch').onclick = () => signIn(true);
+  $('#mout').onclick = signOut;
+}
+
+async function refreshYou(){
+  try { YOU = await api('/whoami'); }
+  catch(e){ YOU = {role:'anon'}; }
+  if (TOKEN && !YOU.address){
+    // The token is present but the box would not take it: stale, or signed by
+    // a key this deployment cannot verify. Say so instead of failing silently.
+    toast('your saved token is no longer valid — sign in again', true);
+    keepToken('');
+  }
+  drawIdentity();
+  return YOU;
+}
+
+// A form the caller cannot run yet: say what it needs and offer the one button.
+const gate = what => `<div class="gate"><span>${esc(what)}</span>
+  <button class="wallet" data-gate="1">&#9679; CONNECT WALLET</button>
+  <button class="link" data-paste="1">or paste a token</button></div>`;
+function wireGates(root){
+  (root||document).querySelectorAll('[data-gate]').forEach(b => b.onclick = () => signIn(false));
+  (root||document).querySelectorAll('[data-paste]').forEach(b => b.onclick = async () => {
+    const p = prompt('Paste a mod-protocol token — m.mod("auth")().token({})');
+    if (!p) return; keepToken(p.trim()); await refreshYou();
+    if (LOADERS[TAB]) LOADERS[TAB]();
+  });
+}
+
+// ── RESOLVE ────────────────────────────────────────────────────────
+async function doResolve(){
+  const q = $('#q').value.trim(); if (!q) return;
+  $('#qgo').disabled = true;
+  waiting('#rout', 4);
+  try {
+    const d = await api(`/resolve?query=${encodeURIComponent(q)}&type=${$('#qtype').value}`);
+    const u = d.urls || {}, up = d.upstream || {}, at = d.attribution;
+    let h = `<div class="cards">
+      <div class="card"><h3>name</h3><div class="big hot">${esc(d.name)}</div>
+        <div class="sm">${esc(d.kind)} · zone ${esc(d.zone||'not held here')}</div></div>
+      <div class="card"><h3>resolves to</h3><div class="big">${copyable((d.addresses||[]).join(', '))}</div>
+        <div class="sm">${MASKRE.test((d.addresses||[]).join(','))
+          ? 'shown to the owner only — the name itself works for everyone'
+          : esc(d.dns?.rcode||'')+(d.dns?.matched?' · '+esc(d.dns.matched):'')}</div></div>
+      <div class="card"><h3>module</h3><div class="big">${esc(d.module||'—')}</div>
+        <div class="sm">${d.module ? (d.routed ? 'routed' : 'not routed') : 'a host, not a module'}</div></div>
+      <div class="card"><h3>upstream</h3><div class="big">${up.api_port||'—'} <span class="dimtxt">/</span> ${up.app_port||'—'}</div>
+        <div class="sm">api ${yesno(up.api_live)} · app ${yesno(up.app_live)}</div></div>
+    </div>`;
+    // The two short tables sit beside each other where there is room for
+    // them to: stacked full width, each one is a screen of empty column.
+    let addrBox = '', attBox = '';
+    if (u.app) addrBox = `<div class="box"><h2>addresses<span class="rest"></span></h2><table>
+      <tr><th>form</th><th>url</th></tr>
+      ${['app','api','mcp','subdomain'].filter(k=>u[k]).map(k =>
+        `<tr><td class="dimtxt k">${k}</td><td><a href="${esc(u[k])}" target="_blank" rel="noopener">${esc(u[k])}</a>
+          <button class="link" data-copy="${esc(u[k])}">copy</button></td></tr>`
+      ).join('')}</table></div>`;
+    if (at) attBox = `<div class="box"><h2>attributed to<span class="rest"></span></h2>
+      <table>
+        <tr><td class="dimtxt k">owner</td><td>${at.owner ? copyable(at.owner,'addr') : '<span class="dimtxt">the module declares none</span>'}</td></tr>
+        <tr><td class="dimtxt k">cid</td><td>${copyable(at.cid,'cid')}</td></tr>
+        <tr><td class="dimtxt k">version</td><td>${esc(at.version||'—')}</td></tr>
+        <tr><td class="dimtxt k">served by</td><td>${copyable(at.key,'addr')}</td></tr>
+        <tr><td class="dimtxt k">record</td><td><code>${esc(at.record)}</code> TXT<div class="txt">${esc(at.txt)}</div></td></tr>
+      </table><div class="why" style="margin-top:8px">${esc(at.means)}</div></div>`;
+    h += (addrBox && attBox) ? `<div class="split">${addrBox}${attBox}</div>`
+                             : addrBox + attBox;
+    if (d.why) h += `<div class="box"><div class="why">${esc(d.why)}</div></div>`;
+    const ans = d.dns?.answers || [];
+    if (ans.length) h += `<div class="box"><h2>what the server answers<span class="rest"></span></h2><table>
+      <tr><th>name</th><th>type</th><th>value</th><th class="n">ttl</th></tr>
+      ${ans.map(a=>`<tr><td>${esc(a.name)}</td><td>${pill(a.type,'hot')}</td>
+        <td class="txt">${epv(a.value)}</td><td class="n">${a.ttl}</td></tr>`).join('')}</table></div>`;
+    $('#rout').innerHTML = h;
+  } catch(e){ toast(e.message, true); }
+  $('#qgo').disabled = false;
+}
+
+// ── ATTRIBUTION ────────────────────────────────────────────────────
+let ATTRIB = null;
+async function loadAttrib(){
+  waiting('#aout', 4);
+  try {
+    const d = ATTRIB = await api('/attribution');
+    const dep = d.deployment || {}, c = d.counts || {};
+    $('#aout').innerHTML = `<div class="cards">
+      <div class="card"><h3>host</h3><div class="big hot">${esc(d.host)}</div>
+        <div class="sm">${esc(dep.name||'')}</div></div>
+      <div class="card"><h3>signs its module cards with</h3>
+        <div class="big sm">${copyable(dep.key,'addr')}</div>
+        <div class="sm">m.info(&lt;mod&gt;).key</div></div>
+      <div class="card"><h3>declare an owner</h3><div class="big">${c.with_owner} <span class="dimtxt">/ ${c.routed}</span></div>
+        <div class="sm">${c.unattributed} declare none</div></div>
+      <div class="card"><h3>carry a cid</h3><div class="big">${c.with_cid} <span class="dimtxt">/ ${c.routed}</span></div>
+        <div class="sm">config.json schema</div></div>
+    </div>
+    <div class="box"><h2>the deployment record<span class="rest"></span></h2>
+      <div><code>${esc(dep.name)}</code> TXT</div>
+      <div class="txt" style="margin-top:5px">${esc(dep.txt)}</div></div>
+    <div class="box"><h2>every routed module, and whose it is<span class="rest"></span></h2>
+      <div class="scroll"><table>
+      <tr><th>module</th><th>owner</th><th>cid</th><th>ver</th><th>orbit</th><th>record</th><th></th></tr>
+      ${d.modules.map(m=>`<tr>
+        <td>${esc(m.mod)}</td>
+        <td>${m.owner?copyable(m.owner,'addr'):'<span class="dimtxt">—</span>'}</td>
+        <td>${m.cid?copyable(m.cid,'cid'):'<span class="dimtxt">—</span>'}</td>
+        <td class="dimtxt">${esc(m.version||'—')}</td>
+        <td>${pill(m.orbit||'?', m.orbit==='core'?'pur':'')}</td>
+        <td class="dimtxt">${esc(m.name)}</td>
+        <td><button class="ghost" data-verify="${esc(m.mod)}">verify</button></td>
+      </tr>`).join('')}</table></div></div>
+    <div class="box"><h2>what the record says<span class="rest"></span></h2>
+      <table>${Object.entries(d.format.fields).map(([k,v]) =>
+        `<tr><td><code>${esc(k)}</code></td><td class="why">${esc(v)}</td></tr>`).join('')}</table>
+      <div class="note">read it: <code>${esc(d.format.read_it)}</code></div>
+      <div class="note">${esc(d.format.check_it)}</div></div>`;
+    document.querySelectorAll('[data-verify]').forEach(b =>
+      b.onclick = () => verifyMod(b.dataset.verify));
+  } catch(e){ toast(e.message, true); }
+}
+
+async function verifyMod(name){
+  toast('checking the signed card for ' + name + '…');
+  try {
+    const d = await api(`/attribution?name=${encodeURIComponent(name)}&verify=1`);
+    const a = d.attestation || {};
+    $('#aout').insertAdjacentHTML('afterbegin', `<div class="box">
+      <h2>${esc(name)} — the module card behind the record<span class="rest"></span></h2>
+      <div>signature ${a.verified===true?'<span class="goodv">verified</span>'
+        :a.verified===false?'<span class="badv">does not check out</span>'
+        :'<span class="dimtxt">unsigned</span>'} ·
+        key ${copyable(a.key,'addr')}</div>
+      <div class="why" style="margin-top:5px">${esc(a.means||a.error||'')}</div>
+      <div class="why" style="margin:8px 0 6px">${a.card ? 'the signed card, as m.info() returns it'
+        : 'no signed card — what the zone publishes, unattested'}</div>
+      <pre>${epv(JSON.stringify(a.card || d.card, null, 2))}</pre></div>`);
+    toast('');
+    $('#aout').firstElementChild.scrollIntoView({block:'start', behavior:'smooth'});
+  } catch(e){ toast(e.message, true); }
+}
+
+// ── ZONE ───────────────────────────────────────────────────────────
+async function loadZones(){
+  try {
+    const d = await api('/zones');
+    const keep = $('#zsel').value;
+    $('#zsel').innerHTML = d.zones.map(z =>
+      `<option value="${esc(z.zone)}">${esc(z.zone)}${z.system?' (system)':''}</option>`).join('');
+    if (keep && d.zones.some(z => z.zone === keep)) $('#zsel').value = keep;
+    loadRecords();
+  } catch(e){ toast(e.message, true); }
+}
+
+let RECS = null;
+async function loadRecords(){
+  const z = $('#zsel').value; if (!z) return;
+  try {
+    RECS = await api(`/zones/${encodeURIComponent(z)}/records`);
+    drawRecords();
+  } catch(e){ toast(e.message, true); }
+}
+
+function drawRecords(){
+  const d = RECS; if (!d) return;
+  const filter = $('#zfilter').value, needle = $('#zq').value.trim().toLowerCase();
+  const recs = d.records.filter(r => (!filter || r.source === filter) &&
+    (!needle || (r.name+' '+r.value).toLowerCase().includes(needle)));
+  const mine = (YOU.zones_you_can_change || []).includes(d.zone);
+  // The system zone with no owner yet: the server would take a write from any
+  // signed caller and make them the deployment owner. Say that out loud rather
+  // than hiding a form that would in fact work.
+  const claims = !mine && !!YOU.address && d.system && !YOU.owner;
+  $('#zout').innerHTML = `<div class="cards">
+    <div class="card"><h3>zone</h3><div class="big hot">${esc(d.zone)}</div>
+      <div class="sm">${d.system?'the system zone — the protocol host':'registered here'}</div></div>
+    <div class="card"><h3>owner</h3><div class="big sm">${d.owner?copyable(d.owner,'addr'):'<span class="dimtxt">unclaimed</span>'}</div>
+      <div class="sm">delegation verified ${yesno(d.verified)}</div></div>
+    <div class="card"><h3>points at</h3><div class="big">${copyable(d.target)}</div>
+      <div class="sm">${esc(d.target_source||'')}</div></div>
+    <div class="card"><h3>records</h3><div class="big">${d.counts.derived + d.counts.stored}</div>
+      <div class="sm">${d.counts.derived} derived · ${d.counts.stored} stored</div></div>
+    </div>
+    <div class="box"><h2>records <span class="dimtxt">${recs.length} shown</span><span class="rest"></span></h2>
+    <div class="scroll"><table>
+    <tr><th>name</th><th>type</th><th>value</th><th class="n">ttl</th><th>source</th><th>why</th></tr>
+    ${recs.map(r=>`<tr>
+      <td>${esc(r.name)}</td><td>${pill(r.type, r.type==='TXT'?'pur':'hot')}</td>
+      <td class="txt">${copyable(r.value)}</td><td class="n">${r.ttl}</td>
+      <td>${pill(r.source, r.source==='stored'?'grn':'')}</td>
+      <td class="why">${esc(r.why || (r.by ? 'written by '+r.by : ''))}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="empty">nothing matches that filter</td></tr>'}
+    </table></div></div>
+    ${d.overridden.length?`<div class="box"><h2>shadowed by a stored record<span class="rest"></span></h2><table>
+      <tr><th>name</th><th>type</th><th>value</th><th>why it existed</th></tr>
+      ${d.overridden.map(r=>`<tr><td>${esc(r.name)}</td><td>${pill(r.type)}</td>
+        <td class="txt">${esc(r.value)}</td><td class="why">${esc(r.why||'')}</td></tr>`).join('')}
+      </table></div>`:''}
+    <div class="box"><h2>write a record<span class="rest"></span></h2>
+      ${claims ? `<div class="gate" style="border-color:#4d3a12;background:rgba(251,191,36,.04);margin-bottom:11px">
+        <span class="warnv">This deployment is unclaimed. The first write to the system
+        zone makes ${esc(short(YOU.address))} its owner — the host, the settings and the
+        listener with it.</span></div>` : ''}
+      ${(mine||claims) ? `<div class="bar">
+        <input id="rn" placeholder="name (@ for the apex)" style="width:190px">
+        <select id="rt"><option>A</option><option>AAAA</option><option>CNAME</option>
+          <option>TXT</option><option>MX</option><option>NS</option><option>SRV</option>
+          <option>CAA</option></select>
+        <input id="rv" placeholder="value" style="flex:1;min-width:220px">
+        <input id="rl" placeholder="ttl" value="300" style="width:78px">
+        <button class="go" id="rgo">WRITE</button>
+        <button class="ghost danger" id="rdel">delete</button>
+      </div>` : gate(!YOU.address
+          ? 'Reads are open. Writing a record needs a signature from the address that owns this zone.'
+          : d.system
+            ? `${d.zone} is the system zone — the protocol host itself. Only its owner (${short(d.owner)||'unclaimed'}) changes it. Register a host of your own instead: you own every record in it.`
+            : `${d.zone} belongs to ${short(d.owner)||'somebody else'} — sign in as that address to write here, or register a host of your own.`)}
+      <div class="note">Derived records are computed, not stored — write over one to
+        shadow it.</div>
+    </div>`;
+  wireGates($('#zout'));
+  if (mine || claims){
+    $('#rgo').onclick = () => writeRecord(d.zone, 'PUT');
+    $('#rdel').onclick = () => writeRecord(d.zone, 'DELETE');
+  }
+}
+
+async function writeRecord(zone, method){
+  const body = {name:$('#rn').value.trim(), type:$('#rt').value,
+                value:$('#rv').value.trim(), ttl:Number($('#rl').value)||300};
+  if (!body.name) return toast('a record needs a name', true);
+  if (method==='PUT' && !body.value) return toast('a record needs a value', true);
+  try {
+    await api(`/zones/${encodeURIComponent(zone)}/records`, {method, body});
+    toast(method==='PUT' ? 'written to ' + zone : 'deleted from ' + zone);
+    loadRecords();
+  } catch(e){ toast(e.message, true); }
+}
+
+// ── FLEET ──────────────────────────────────────────────────────────
+let FLEET = null, ONLY_UP = false;
+async function loadFleet(){
+  if (!FLEET) waiting('#fout', 4);
+  try { FLEET = await api('/modules'); drawFleet(); }
+  catch(e){ toast(e.message, true); }
+}
+function drawFleet(){
+  const d = FLEET; if (!d) return;
+  const needle = $('#fq').value.trim().toLowerCase();
+  const mods = d.modules.filter(m => (!ONLY_UP || m.live) &&
+    (!needle || m.name.toLowerCase().includes(needle)));
+  $('#fout').innerHTML = `<div class="cards">
+    <div class="card"><h3>routed modules</h3><div class="big hot">${d.count}</div>
+      <div class="sm">config.json says route: true</div></div>
+    <div class="card"><h3>host</h3><div class="big">${esc(d.host)}</div>
+      <div class="sm">every name below is derived from it</div></div>
+    <div class="card"><h3>with an owner</h3><div class="big">${d.attributed.with_owner}</div>
+      <div class="sm">declared in their own config</div></div>
+    <div class="card"><h3>with a cid</h3><div class="big">${d.attributed.with_cid}</div>
+      <div class="sm">module schema</div></div>
+    </div>
+    <div class="box"><div class="scroll"><table>
+    <tr><th>module</th><th>name</th><th>app</th><th>api</th><th class="n">ports</th>
+        <th>live</th><th>owner</th></tr>
+    ${mods.map(m=>`<tr>
+      <td>${esc(m.name)}${m.icon?' <span class="dimtxt">'+esc(m.icon)+'</span>':''}</td>
+      <td class="dimtxt">${esc(m.name)}.${esc(d.host)}</td>
+      <td><a href="${esc(m.urls.app)}" target="_blank" rel="noopener">/${esc(m.name)}</a></td>
+      <td><a href="${esc(m.urls.api)}" target="_blank" rel="noopener">/api/${esc(m.name)}</a></td>
+      <td class="n dimtxt">${m.api_port||'—'} / ${m.app_port||'—'}</td>
+      <td>${m.live?pill('up','grn'):pill('down','bad')}</td>
+      <td>${m.owner?copyable(m.owner,'addr'):'<span class="dimtxt">—</span>'}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">no module matches that</td></tr>'}
+    </table></div>
+    <div class="note">${esc(d.note)}</div></div>`;
+}
+
+// ── YOUR HOST ──────────────────────────────────────────────────────
+async function doCheck(){
+  const n = $('#cname').value.trim() || STATE.host;
+  $('#cout').innerHTML = '<div class="skel" style="width:60%"></div>';
+  try {
+    const d = await api(`/check?name=${encodeURIComponent(n)}&type=${$('#ctype').value}`);
+    const cls = d.verdict==='match'?'goodv':d.verdict==='unknown'?'dimtxt':'warnv';
+    $('#cout').innerHTML = `<div class="${cls}" style="font-size:16px">${esc(d.verdict)}</div>
+      <div class="why">${epv(d.detail)}</div>
+      <table style="margin-top:10px">
+        <tr><td class="dimtxt">held here</td><td>${epv((d.here.values||[]).join(', ')||'—')} (${esc(d.here.rcode)})</td></tr>
+        <tr><td class="dimtxt">the internet</td><td>${epv((d.public.values||[]).join(', ')||'—')} ${d.public.rcode?'('+esc(d.public.rcode)+')':''}</td></tr>
+        <tr><td class="dimtxt">delegated here</td><td>${yesno(d.delegation?.to_us)}</td></tr>
+        <tr><td class="dimtxt">nameservers</td><td class="txt">${esc((d.delegation?.nameservers||[]).join(', ')||'—')}</td></tr>
+      </table>`;
+  } catch(e){ $('#cout').innerHTML = ''; toast(e.message, true); }
+}
+
+async function doPlan(){
+  const h = $('#pname').value.trim(); if (!h) return toast('name a host', true);
+  $('#pout').innerHTML = '<div class="skel" style="width:70%"></div>';
+  try {
+    const d = await api(`/plan?host=${encodeURIComponent(h)}`);
+    $('#pout').innerHTML = `<div class="why">target ${copyable(d.target)} ·
+      registered here ${yesno(d.registered_here)}</div>
+      <table style="margin-top:8px">
+      ${d.steps.map(s=>`<tr><td class="dimtxt n" style="width:22px">${s.step}</td>
+        <td><b>${esc(s.do)}</b><div class="why">${epv(s.how)}</div>
+        <div class="why">who: ${esc(s.who)}</div></td></tr>`).join('')}</table>
+      <div class="note">${esc(d.note)}</div>`;
+  } catch(e){ $('#pout').innerHTML = ''; toast(e.message, true); }
+}
+
+// Registering a zone is the one thing signing in is *for*: a holder owns the
+// host they register outright, with no permission from the deployment owner.
+function drawRegister(){
+  const mine = (YOU.zones_you_can_change || []);
+  $('#regout').innerHTML = (YOU.address ? `
+    <div class="bar">
+      <input id="gz" placeholder="yourdomain.com" style="flex:1;min-width:170px">
+      <input id="gt" placeholder="target ip (this box)" style="width:160px">
+      <button class="go" id="ggo">REGISTER</button>
+    </div>
+    <div class="why">You will own every record in it: its target, its module names,
+      its wildcard, its deletion. Point the domain's NS at this box, then press
+      verify to prove the delegation.</div>`
+    : gate('Registering a host needs a signature. Reads stay open either way.')) +
+    (mine.length ? `<div style="margin-top:11px"><h2 style="margin:0 0 6px;font-size:9.5px;
+        letter-spacing:.15em;color:var(--faint);text-transform:uppercase">yours</h2>
+      <table>${mine.map(z=>`<tr><td>${esc(z)}</td>
+        <td class="n"><button class="ghost" data-verifyzone="${esc(z)}">verify</button>
+          <button class="ghost danger" data-dropzone="${esc(z)}">drop</button></td></tr>`).join('')}
+      </table></div>` : '') + '<div id="regnext"></div>';
+  wireGates($('#regout'));
+  if (YOU.address) $('#ggo').onclick = registerZone;
+  $('#regout').querySelectorAll('[data-verifyzone]').forEach(b => b.onclick = async () => {
+    try {
+      const d = await api(`/zones/${encodeURIComponent(b.dataset.verifyzone)}/verify`, {method:'POST'});
+      toast(d.verified ? d.zone + ' — delegation verified'
+                       : (d.error || 'the challenge is not in the public DNS yet'), !d.verified);
+      $('#regnext').innerHTML = d.verified ? '' : `<div class="box" style="margin-top:11px">
+        <h2>prove ${esc(d.zone)}<span class="rest"></span></h2>
+        <div class="why">${esc(d.how||'')}</div>
+        <table style="margin-top:7px">
+          <tr><td class="dimtxt">name</td><td>${copyable(d.name)} TXT</td></tr>
+          <tr><td class="dimtxt">value</td><td>${copyable(d.expected)}</td></tr>
+          <tr><td class="dimtxt">found</td><td class="txt">${esc((d.found||[]).join(', ')||'nothing')}</td></tr>
+        </table></div>`;
+    } catch(e){ toast(e.message, true); }
+  });
+  $('#regout').querySelectorAll('[data-dropzone]').forEach(b => b.onclick = async () => {
+    const z = b.dataset.dropzone;
+    if (!confirm(`Drop ${z} and every record in it?`)) return;
+    try { await api(`/zones/${encodeURIComponent(z)}`, {method:'DELETE'});
+      toast(z + ' dropped'); await refreshYou(); drawRegister(); loadZones();
+    } catch(e){ toast(e.message, true); }
+  });
+}
+
+async function registerZone(){
+  const zone = $('#gz').value.trim(), target = $('#gt').value.trim();
+  if (!zone) return toast('name the host you control', true);
+  try {
+    const d = await api('/zones', {method:'POST', body:{zone, target: target || undefined}});
+    toast(`${zone} registered — you own it`);
+    await refreshYou(); drawRegister(); loadZones();
+    $('#regnext').innerHTML = `<div class="box" style="margin-top:11px">
+      <h2>what makes ${esc(zone)} real<span class="rest"></span></h2>
+      <table>${(d.next||[]).map(s=>`<tr><td class="dimtxt n" style="width:22px">${s.step}</td>
+        <td><b>${esc(s.do)}</b><div class="why">${epv(s.how)}</div></td></tr>`).join('')}</table></div>`;
+  } catch(e){ toast(e.message, true); }
+}
+
+// ── OPERATIONS ─────────────────────────────────────────────────────
+async function loadOps(){
+  try {
+    const w = await refreshYou();
+    $('#wout').innerHTML = `<div class="cards" style="margin-bottom:11px">
+      <div class="card"><h3>you</h3><div class="big sm">${w.address?copyable(w.address,'addr')
+        :'<span class="dimtxt">not signed in</span>'}</div>
+        <div class="sm">standing <span class="role ${esc(w.role)}">${esc(w.role)}</span></div></div>
+      <div class="card"><h3>deployment owner</h3><div class="big sm">${w.owner?copyable(w.owner,'addr')
+        :'<span class="dimtxt">unclaimed</span>'}</div>
+        <div class="sm">${w.is_owner?'that is you':'holds the system zone'}</div></div>
+      <div class="card"><h3>zones you can change</h3>
+        <div class="big">${(w.zones_you_can_change||[]).length}</div>
+        <div class="sm">${esc((w.zones_you_can_change||[]).join(', ')||'register one under YOUR HOST')}</div></div>
+      <div class="card"><h3>token</h3><div class="big sm">${w.address?esc(ago(tokenAge())):'—'}</div>
+        <div class="sm">valid ${Math.round(((w.auth&&w.auth.token_max_age)||604800)/86400)}d from signing</div></div>
+    </div>
+    ${w.address ? `<div class="bar"><button class="ghost" id="wre">re-sign</button>
+        <button class="ghost" id="wswitch">switch account</button>
+        <button class="ghost danger" id="wout2">sign out</button></div>`
+      : gate('Sign the mod-protocol token with your wallet — one signature, no transaction, no gas.')}
+    <div class="why" style="margin-top:8px">${esc(w.note||'')}</div>
+    <div class="why">you can run: ${(w.can||[]).map(c=>pill(c)).join('')}</div>`;
+    wireGates($('#wout'));
+    if (w.address){
+      $('#wre').onclick = () => signIn(false);
+      $('#wswitch').onclick = () => signIn(true);
+      $('#wout2').onclick = signOut;
+    }
+
+    const o = await api('/ops?limit=40');
+    $('#opsout').innerHTML = `<div class="box"><h2>changes<span class="rest"></span></h2>
+      <div class="scroll"><table>
+      <tr><th>when</th><th>op</th><th>who</th><th>zone</th></tr>
+      ${(o.ops||[]).map(e=>`<tr>
+        <td class="dimtxt">${esc(new Date((e.at||0)*1000).toISOString().slice(5,16).replace('T',' '))}</td>
+        <td>${pill(e.op, e.ok===false?'bad':'hot')}</td>
+        <td class="addr">${esc(short(e.actor)||'—')}</td>
+        <td class="dimtxt">${esc(e.zone||'')}</td></tr>`).join('')
+        || '<tr><td colspan="4" class="empty">nothing has been changed here yet</td></tr>'}
+      </table></div></div>`;
+
+    const q = await api('/queries?limit=40');
+    $('#qout').innerHTML = `<div class="box"><h2>resolutions<span class="rest"></span></h2>
+      <div class="scroll"><table>
+      <tr><th>name</th><th>type</th><th>rcode</th><th>matched</th><th class="n">ms</th></tr>
+      ${(q.queries||[]).map(e=>`<tr><td>${esc(e.name)}</td><td>${pill(e.type)}</td>
+        <td>${e.rcode==='NOERROR'?'<span class="goodv">NOERROR</span>':'<span class="warnv">'+esc(e.rcode)+'</span>'}</td>
+        <td class="dimtxt">${esc(e.matched||'')}</td>
+        <td class="n">${e.ms==null?'':e.ms}</td></tr>`).join('')
+        || '<tr><td colspan="5" class="empty">the listener has answered nothing yet</td></tr>'}
+      </table></div></div>`;
+
+    const c = await api('/operations');
+    $('#catout').innerHTML = `<h2>what can be done here, and by whom<span class="rest"></span></h2>
+      <div class="scroll"><table>
+      <tr><th>operation</th><th>who</th><th>what</th></tr>
+      ${c.operations.map(op=>`<tr><td class="k">${esc(op.id)}</td>
+        <td class="k">${pill(op.who, op.who==='owner'?'warn':op.who==='anon'?'':'hot')}</td>
+        <td class="why"><div class="measure">${esc(op.what)}</div></td></tr>`).join('')}</table></div>
+      <div class="note">${esc(c.rule)}</div>`;
+  } catch(e){ toast(e.message, true); }
+}
+
+// ── MCP ────────────────────────────────────────────────────────────
+// The console is an MCP client as well as a REST one: it handshakes against
+// this module's own /mcp endpoint, so the tab cannot claim a server that is
+// not actually answering.
+let MCP = null, MCPID = 0;
+
+async function rpc(method, params){
+  const r = await fetch(BASE + '/mcp', {
+    method:'POST',
+    headers: Object.assign({'Content-Type':'application/json'},
+      TOKEN ? {'Authorization':'Bearer ' + TOKEN} : {}),
+    body: JSON.stringify({jsonrpc:'2.0', id:++MCPID, method, params:params||{}}),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || 'the endpoint refused');
+  return j.result;
+}
+
+const OPWHO = {};   // tool name → the standing it needs
+
+async function loadMCP(){
+  const url = location.origin + (BASE || '') + '/mcp';
+  $('#mcards').innerHTML = '<div class="skel" style="width:40%"></div>';
+  try {
+    const t0 = performance.now();
+    const hello = await rpc('initialize', {protocolVersion:'2025-06-18',
+      capabilities:{}, clientInfo:{name:'dns console', version:'1.0.0'}});
+    const ms = Math.round(performance.now() - t0);
+    const list = await rpc('tools/list');
+    MCP = {hello, tools:list.tools || [], url, ms};
+    try {
+      const cat = await api('/operations');
+      cat.operations.forEach(o => { OPWHO['dns_' + o.id] = o.who; });
+      OPWHO['dns_settings'] = OPWHO['dns_settings'] || 'owner';
+    } catch(e){}
+    drawMCP();
+  } catch(e){
+    $('#mcards').innerHTML = `<div class="box"><h2>the endpoint did not answer
+      <span class="rest"></span></h2><div class="badv">${esc(e.message)}</div>
+      <div class="why">POST ${esc(url)}</div></div>`;
+  }
+}
+
+function drawMCP(){
+  const d = MCP; if (!d) return;
+  const si = d.hello.serverInfo || {};
+  const gw = STATE.naming && STATE.naming.mcp
+    ? STATE.naming.mcp.replace('{mod}', 'dns') : d.url;
+  $('#mcards').innerHTML = `<div class="cards">
+    <div class="card"><h3>server</h3><div class="big hot">${esc(si.name||'dns')}</div>
+      <div class="sm">answered in ${d.ms} ms · v${esc(si.version||'')}</div></div>
+    <div class="card"><h3>protocol</h3><div class="big">${esc(d.hello.protocolVersion||'')}</div>
+      <div class="sm">streamable http · json-rpc 2.0</div></div>
+    <div class="card"><h3>tools</h3><div class="big">${d.tools.length}</div>
+      <div class="sm">reads open · writes signed</div></div>
+    <div class="card"><h3>endpoint</h3><div class="big sm">${copyable(gw)}</div>
+      <div class="sm">POST · same functions as the REST API</div></div>
+  </div>`;
+
+  const cfg = JSON.stringify({mcpServers:{dns:{type:'http', url:gw}}}, null, 2);
+  const cli = `claude mcp add --transport http dns ${gw}`;
+  $('#mconn').innerHTML = `<table>
+    <tr><td class="dimtxt" style="width:88px">claude code</td>
+      <td><code>${esc(cli)}</code>
+        <button class="link" data-copy="${esc(cli)}">copy</button></td></tr>
+    <tr><td class="dimtxt">any client</td>
+      <td><pre style="max-height:none">${esc(cfg)}</pre>
+        <button class="link" data-copy="${esc(cfg)}">copy the json</button></td></tr>
+    <tr><td class="dimtxt">this box</td>
+      <td>${copyable(d.url)}<div class="why">the same endpoint without the gateway
+        in front of it — what this console just handshook against</div></td></tr>
+    <tr><td class="dimtxt">stdio</td>
+      <td><code>python3 mcp.py</code>
+        <button class="link" data-copy="python3 mcp.py">copy</button>
+        <div class="why">one JSON message per line, for a client that speaks pipes</div></td></tr>
+    <tr><td class="dimtxt">token</td>
+      <td class="why">${TOKEN ? 'this console is sending yours — writes run as ' +
+        esc(short(YOU.address||'')) : 'reads need none. Pass one as ' +
+        '<code>Authorization: Bearer &lt;token&gt;</code>, or as a <code>token</code> ' +
+        'argument, to run a write.'}</td></tr>
+  </table>
+  <div class="note">${esc((d.hello.instructions||'').slice(0,240))}…</div>`;
+
+  const who = t => OPWHO[t.name] || 'anon';
+  const cls = w => w==='owner'?'warn':w==='anon'?'':w==='holder'?'hot':'pur';
+  $('#mtools').innerHTML = `<table>
+    <tr><th>tool</th><th>who</th><th>takes</th></tr>
+    ${d.tools.map(t => {
+      const req = (t.inputSchema.required||[]);
+      const props = Object.keys(t.inputSchema.properties||{});
+      return `<tr>
+        <td><span class="cp" data-pick="${esc(t.name)}">${esc(t.name)}</span>
+          <div class="why">${esc(t.description)}</div></td>
+        <td>${pill(who(t), cls(who(t)))}</td>
+        <td class="txt">${props.map(p => req.includes(p)
+            ? `<b class="cid">${esc(p)}</b>` : `<span class="dimtxt">${esc(p)}</span>`
+          ).join(', ') || '<span class="dimtxt">nothing</span>'}</td></tr>`;
+    }).join('')}</table>`;
+  $('#mtools').querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
+    $('#mtool').value = b.dataset.pick; pickTool();
+    $('#mtool').scrollIntoView({block:'center', behavior:'smooth'});
+  });
+
+  const keep = $('#mtool').value;
+  $('#mtool').innerHTML = d.tools.map(t =>
+    `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+  $('#mtool').value = keep && d.tools.some(t => t.name === keep) ? keep : 'dns_resolve';
+  pickTool();
+}
+
+// A prefilled call is a call somebody will actually press: the required
+// arguments are already there, with this deployment's own values in them.
+function pickTool(){
+  const t = (MCP.tools||[]).find(x => x.name === $('#mtool').value); if (!t) return;
+  const req = t.inputSchema.required || [], props = t.inputSchema.properties || {};
+  const guess = k => ({query: (STATE.modules && STATE.modules.names[0]) || STATE.host,
+                       name: STATE.host, host: STATE.host,
+                       zone: STATE.host, mod: (STATE.modules && STATE.modules.names[0])}[k]) || '';
+  // Prefill anything this deployment can answer for — required first, then
+  // any optional argument with an obvious local value — so CALL is never a
+  // button that runs an empty call.
+  const args = {};
+  Object.keys(props).forEach(k => {
+    const v = guess(k);
+    if (req.includes(k)) args[k] = props[k].type === 'integer' ? 10 : v;
+    else if (v) args[k] = v;
+  });
+  $('#margs').value = JSON.stringify(args, null, 2);
+  $('#mwhat').innerHTML = esc(t.description) +
+    (req.length ? ` <span class="dimtxt">needs</span> <b class="cid">${req.map(esc).join(', ')}</b>` : '');
+  $('#mres').innerHTML = '';
+}
+
+async function runTool(){
+  const name = $('#mtool').value;
+  let args;
+  try { args = JSON.parse($('#margs').value || '{}'); }
+  catch(e){ return toast('the arguments are not valid JSON', true); }
+  $('#mrun').disabled = true;
+  $('#mres').innerHTML = '<div class="skel" style="width:55%"></div>';
+  const t0 = performance.now();
+  try {
+    const out = await rpc('tools/call', {name, arguments:args});
+    const ms = Math.round(performance.now() - t0);
+    const text = (out.content || []).map(c => c.text || '').join('\n');
+    $('#mres').innerHTML = `<div class="why">${out.isError
+        ? '<span class="badv">the tool refused</span>' : '<span class="goodv">ok</span>'}
+      · ${ms} ms · ${text.length} bytes</div>
+      <pre style="margin-top:7px">${epv(text)}</pre>`;
+  } catch(e){
+    $('#mres').innerHTML = `<div class="badv">${esc(e.message)}</div>`;
+  }
+  $('#mrun').disabled = false;
+}
+
+// ── shell ──────────────────────────────────────────────────────────
+let TAB = 'resolve';
+const LOADERS = {start:loadGuide, resolve:null, attrib:loadAttrib, zone:loadZones,
+                 fleet:loadFleet, host:() => { doCheck(); drawRegister(); },
+                 mcp:loadMCP, ops:loadOps};
+function go(tab){
+  TAB = tab;
+  document.querySelectorAll('nav button').forEach(x => {
+    const on = x.dataset.t === tab;
+    x.classList.toggle('on', on);
+    // Narrow, the tabs are one scrolling strip: the tab you just landed on
+    // has to be the one you can see.
+    if (on) x.scrollIntoView({inline:'nearest', block:'nearest'});
+  });
+  document.querySelectorAll('section').forEach(s =>
+    s.classList.toggle('on', s.id === 's-' + tab));
+  const fn = LOADERS[tab]; if (fn) fn();
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => go(b.dataset.t));
+$('#mrun').onclick = runTool;
+$('#mtool').onchange = pickTool;
+$('#qgo').onclick = doResolve;
+$('#q').addEventListener('keydown', e => { if (e.key==='Enter') doResolve(); });
+$('#qtype').onchange = doResolve;
+$('#cgo').onclick = doCheck;
+$('#cname').addEventListener('keydown', e => { if (e.key==='Enter') doCheck(); });
+$('#pgo').onclick = doPlan;
+$('#pname').addEventListener('keydown', e => { if (e.key==='Enter') doPlan(); });
+$('#zsel').onchange = loadRecords;
+$('#zfilter').onchange = drawRecords;
+$('#zq').oninput = drawRecords;
+$('#zreload').onclick = loadZones;
+$('#fq').oninput = drawFleet;
+$('#fup').onclick = () => { ONLY_UP = !ONLY_UP;
+  $('#fup').textContent = ONLY_UP ? 'show every module' : 'only what is up'; drawFleet(); };
+
+
+// ── GUIDE-UI ───────────────────────────────────────────────────────
+// The beginner surface. Every sentence below comes from /guide, /guide/ask
+// and /guide/term — the same functions the MCP tools dns_guide, dns_ask and
+// dns_explain call, so the console cannot know anything the API doesn't.
+const SEEN = 'dns.seen';
+let GUIDE = null, ASKED = false, ACTIONS = [];
+
+function openDock(){
+  $('#dock').classList.add('on');
+  document.body.classList.add('docked');
+  $('#fab').classList.add('hide');
+  localStorage.setItem(SEEN, '1');
+  setTimeout(() => $('#askin').focus(), 220);
+}
+function closeDock(){
+  $('#dock').classList.remove('on');
+  document.body.classList.remove('docked');
+  $('#fab').classList.remove('hide');
+}
+
+function bubble(html, cls){
+  const d = document.createElement('div');
+  d.className = 'msg ' + (cls || 'a');
+  d.innerHTML = html;
+  $('#thread').appendChild(d);
+  $('#thread').scrollTop = $('#thread').scrollHeight;
+  return d;
+}
+
+function chips(list, attr, cls){
+  if (!list || !list.length) return '';
+  return '<div class="chips ' + (cls||'') + '">' + list.map(x => {
+    const v = (typeof x === 'string') ? x : x.word;
+    return `<button ${attr}="${esc(v)}">${esc(v)}</button>`;
+  }).join('') + '</div>';
+}
+
+// An answer carries the buttons that act on it: switch tab, fill the field,
+// press the button. A guide that can only talk is half a guide.
+function actionButtons(dos){
+  if (!dos || !dos.length) return '';
+  const from = ACTIONS.length;
+  ACTIONS = ACTIONS.concat(dos);
+  return '<div class="chips act">' + dos.map((d, i) =>
+    `<button data-act="${from + i}">${esc(d.label)}</button>`).join('') + '</div>';
+}
+
+function runAction(a){
+  if (!a) return;
+  if (a.signin) return signIn(false);
+  if (a.tab) go(a.tab);
+  if (a.fill) Object.entries(a.fill).forEach(([id, v]) => {
+    const el = document.getElementById(id); if (el) el.value = v;
+  });
+  if (a.glossary) setTimeout(() => {
+    const g = document.getElementById('glossary');
+    if (g) g.scrollIntoView({block:'start', behavior:'smooth'});
+  }, 120);
+  if (a.run) setTimeout(() =>
+    ({resolve:doResolve, check:doCheck, plan:doPlan}[a.run] || (()=>{}))(), 60);
+}
+
+function renderAnswer(d){
+  const paras = (d.answer||[]).map(p => `<p>${esc(p)}</p>`).join('');
+  const facts = (d.facts||[]).length ? '<div class="facts">' + d.facts.map(f =>
+    `<div><span>${esc(f.k)}</span><span>${epv(f.v)}</span></div>`).join('') + '</div>' : '';
+  const urls = (d.urls||[]).length ? '<div class="facts">' + d.urls.map(u =>
+    `<div><span>${esc(u.k)}</span><span><a href="${esc(u.v)}" target="_blank" rel="noopener">${esc(u.v)}</a></span></div>`).join('') + '</div>' : '';
+  const steps = (d.steps||[]).length ? '<ol>' + d.steps.map(s =>
+    `<li><b>${esc(s.do)}</b> — ${epv(s.how)}</li>`).join('') + '</ol>' : '';
+  const cli = (d.cli||[]).length ? '<div class="cli"><span class="why">from a terminal</span>'
+    + d.cli.map(c => `<code data-copy="${esc(c)}">${epv(c)}</code>`).join('') + '</div>' : '';
+  const head = `<div class="head"><span class="u">${esc(d.understood || 'not sure what that meant')}</span>`
+    + `<span class="c">${esc(d.confidence||'')}</span></div>`;
+  return head + paras + steps + facts + urls + actionButtons(d.do) + cli
+       + chips(d.terms||[], 'data-term', 'terms')
+       + chips(d.related||[], 'data-ask');
+}
+
+async function askGuide(question){
+  const q = (question || '').trim();
+  if (!q) return;
+  ASKED = true;
+  bubble(esc(q), 'you');
+  $('#askin').value = '';
+  $('#askin').style.height = 'auto';
+  const wait = bubble('<div class="thinking"><i></i><i></i><i></i></div>');
+  try {
+    const d = await api('/guide/ask?question=' + encodeURIComponent(q));
+    wait.innerHTML = renderAnswer(d);
+  } catch(e){
+    wait.innerHTML = `<p class="badv">${esc(e.message)}</p>`;
+  }
+  // Scroll to the TOP of the answer, not the bottom of the thread: a long
+  // answer that opens on its own last line reads as if it started mid-sentence.
+  wait.scrollIntoView({block:'start', behavior:'smooth'});
+}
+
+async function explainTerm(word){
+  try {
+    const d = await api('/guide/term?word=' + encodeURIComponent(word));
+    if (!d.known){
+      bubble(`<p>${esc(d.say)}</p>` + chips(d.closest||[], 'data-term', 'terms'));
+    } else {
+      bubble(`<b class="w">${esc(d.word)}</b><div class="m">${esc(d.means)}</div>`
+        + `<p>${esc(d.plainly)}</p><div class="h">here: ${esc(d.here)}</div>`
+        + chips(d.see_also||[], 'data-term', 'terms'), 'term');
+    }
+  } catch(e){ toast(e.message, true); }
+}
+
+function greet(){
+  const c = (GUIDE && GUIDE.checklist) || {};
+  bubble(`<div class="head"><span class="u">the guide</span></div>
+    <p>Ask me anything about this, in whatever words you have. There is no
+    syntax and no question is too basic — I read any name you mention, look it
+    up for real, and answer from what this box is actually doing.</p>
+    <p class="why">${esc(c.say || '')} ${esc(c.shortcut || '')}</p>`
+    + actionButtons([{label:'walk me through it', tab:'start'}])
+    + '<div class="chiplead">or start with one of these</div>'
+    + chips((GUIDE && GUIDE.ask) || [], 'data-ask'));
+  // bubble() follows the thread down, which is right for an answer and wrong
+  // for the opening line: it would land already scrolled past its own start.
+  $('#thread').scrollTop = 0;
+}
+
+async function loadGuide(){
+  try { GUIDE = await api('/guide'); } catch(e){ return toast(e.message, true); }
+  drawStart();
+  if (!$('#thread').children.length) greet();
+}
+
+function drawStart(){
+  if (!GUIDE) return;
+  const c = GUIDE.checklist, pct = Math.round(100 * c.done / c.total);
+  const steps = c.steps.map(s => {
+    const now = s.id === c.next;
+    return `<div class="step ${s.done?'done':''} ${now?'now':''}">
+      <div class="tick">${s.done?'&#10003;':'&#9642;'}</div>
+      <div>
+        <h4>${esc(s.title)}${now?' <span class="badge">YOU ARE HERE</span>':''}</h4>
+        <div class="why">${epv(s.why)}</div>
+        <div class="how">${epv(s.how)}</div>
+        <div class="acts">${s.action ? actionButtons([s.action]) : ''}
+          ${s.cli ? `<button class="link" data-copy="${esc(s.cli)}">${esc(s.cli)}</button>` : ''}
+        </div>
+      </div></div>`;
+  }).join('');
+  const words = GUIDE.glossary.map(t =>
+    `<button class="word" data-term="${esc(t.word)}"><b>${esc(t.word)}</b>
+      <span>${esc(t.means)}</span></button>`).join('');
+
+  $('#startout').innerHTML = `
+    <div class="hero">
+      <div class="kicker">START HERE</div>
+      <h1>NAMES, AND HOW TO GET ONE</h1>
+      <p class="prose">This module turns names into addresses. Ask it where a
+        module is and it tells you the page you can open, the API a program
+        would call, the endpoint an agent would call, and the raw address
+        behind the hostname — and it is the real name server answering for
+        them, not a directory of links.</p>
+      <p class="prose dim">${esc(c.shortcut||'')}</p>
+      <div class="row">
+        <button class="go" data-ask="where do I start?">ASK THE GUIDE</button>
+        <button class="ghost" data-ask="what is this thing?">what is this?</button>
+        <button class="ghost" data-ask="I have a domain — how do I use it here?">I have a domain</button>
+        <button class="ghost" data-ask="I do not have a domain, do I need one?">I don't have one</button>
+        <button class="ghost" data-ask="can I break something?">can I break anything?</button>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>your setup, scored against this box<span class="rest"></span></h2>
+      <div class="prog">
+        <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+        <div class="n">${c.done} / ${c.total} &nbsp;·&nbsp; ${esc(c.say)}</div>
+      </div>
+      ${steps}
+    </div>
+
+    <div class="box" id="glossary">
+      <h2>the words, in plain english<span class="rest"></span></h2>
+      <p class="prose dim">Click any of them. Each says what the word means in
+        general, and what it points at on this deployment.</p>
+      <div class="words">${words}</div>
+    </div>`;
+}
+
+// One delegated handler for everything the guide renders: the answer HTML is
+// rebuilt constantly and re-binding each button every time is how listeners
+// leak.
+document.addEventListener('click', e => {
+  const a = e.target.closest('[data-ask]');
+  if (a){ openDock(); askGuide(a.dataset.ask); return; }
+  const w = e.target.closest('[data-term]');
+  if (w){ openDock(); explainTerm(w.dataset.term); return; }
+  const k = e.target.closest('[data-act]');
+  if (k) runAction(ACTIONS[Number(k.dataset.act)]);
+});
+
+$('#fab').onclick = openDock;
+$('#helpbtn').onclick = () => { openDock(); if (!ASKED) go('start'); };
+$('#dclose').onclick = closeDock;
+$('#scrim').onclick = closeDock;
+$('#asksend').onclick = () => askGuide($('#askin').value);
+$('#askin').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); askGuide($('#askin').value); }
+});
+$('#askin').addEventListener('input', e => {
+  e.target.style.height = 'auto';
+  e.target.style.height = Math.min(130, e.target.scrollHeight) + 'px';
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('#dock').classList.contains('on')) closeDock();
+  if (e.key === '?' && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+    e.preventDefault(); openDock();
+  }
+});
+
+// A wallet that changes accounts is a different caller: the old token is not
+// theirs, so drop it rather than quietly acting as the previous address.
+(() => {
+  const p = wallet(); if (!p || !p.on) return;
+  p.on('accountsChanged', accounts => {
+    if (!TOKEN) return;
+    const now = (accounts && accounts[0] || '').toLowerCase();
+    if (!now){ keepToken(''); refreshYou(); toast('the wallet disconnected'); return; }
+    if (YOU.address && now !== YOU.address.toLowerCase()){
+      keepToken(''); refreshYou();
+      toast('the wallet switched to ' + short(now) + ' — sign in again to act as it');
+    }
+  });
+})();
+
+// The tube is a preference, not a decoration: scanlines that cannot be turned
+// off are a console you cannot read.
+(() => {
+  const on = localStorage.getItem('dns.crt') !== 'off';
+  document.body.classList.toggle('crt', on);
+  $('#crt').classList.toggle('on', on);
+  $('#crt').onclick = () => {
+    const now = !document.body.classList.contains('crt');
+    document.body.classList.toggle('crt', now);
+    $('#crt').classList.toggle('on', now);
+    localStorage.setItem('dns.crt', now ? 'on' : 'off');
+  };
+})();
+
+function drawStats(d){
+  const l = d.listener || {};
+  $('#stats').innerHTML = `
+    <div class="stat"><span class="k">host</span>
+      <span class="v hot">${copyable(d.host)}</span></div>
+    <div class="stat"><span class="k">points at</span>
+      <span class="v">${copyable(d.target||'no address')}</span></div>
+    <div class="stat"><span class="k">zones</span><span class="v">${d.zones.length}</span></div>
+    <div class="stat"><span class="k">modules</span>
+      <span class="v">${d.modules.routed} <span class="dimtxt">· ${d.modules.live} up</span></span></div>
+    <div class="stat"><span class="k">listener</span><span class="v">
+      ${l.running ? `<span class="dot live"></span> ${esc(l.bind)}:${l.port}`
+                  : '<span class="dot bad"></span> down'}</span></div>
+    ${MASKRE.test(String(d.target||''))
+      ? `<div class="stat" title="${PRIVANOTE}"><span class="k">addresses</span>
+           <span class="v warnv">PRIVATE</span></div>`
+      : d.you && d.you.is_owner
+      ? `<div class="stat" title="everyone else sees x.x.x.x — settings.private_ips turns this off">
+           <span class="k">addresses</span><span class="v goodv">OWNER ONLY</span></div>`
+      : ''}`;
+}
+
+(async () => {
+  drawIdentity();
+  try {
+    const d = await api('/overview');
+    STATE = d;
+    YOU = d.you || {role:'anon'};
+    if (TOKEN && !YOU.address){ toast('your saved token is no longer valid — sign in again', true);
+                                keepToken(''); }
+    drawStats(d);
+    drawIdentity();
+    $('#q').value = d.modules.names[0] || d.host;
+    $('#cname').value = d.host;
+    $('#pname').value = '';
+    doResolve();
+  } catch(e){
+    $('#stats').innerHTML = `<div class="stat"><span class="k">api</span>
+      <span class="v badv">unreachable — ${esc(e.message)}</span></div>`;
+  }
+  // The guide loads for everyone: the START tab and the dock both read it.
+  // A browser that has never been here opens on it, because this console is
+  // most people's first contact with DNS at all.
+  await loadGuide();
+  if (!localStorage.getItem(SEEN)){
+    go('start');
+    // On a narrow screen the dock is a bottom sheet, and a sheet that opens
+    // over the nav on arrival is a door with no handle. START HERE already
+    // carries the whole guide, so land there and let them open the sheet.
+    if (window.innerWidth > 1080) setTimeout(openDock, 600);
+    else localStorage.setItem(SEEN, '1');
+  }
+})();
+</script>
+</body>
+</html>

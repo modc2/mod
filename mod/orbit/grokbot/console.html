@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grokbot — Grok, with your key and your bots</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 8 8%27%3E%3Crect width=%278%27 height=%278%27 fill=%27%230a0b0f%27/%3E%3Cpath d=%27M1 1h2l4 6h-2z%27 fill=%27%23e8eaf2%27/%3E%3Cpath d=%27M5 1h2l-4 6h-2z%27 fill=%27%236ee7ff%27/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0a0b0f; --panel:#12141c; --raised:#171a25; --line:#252a38;
+    --ink:#e8eaf2; --dim:#9aa2b8; --faint:#666e85;
+    --hot:#6ee7ff; --good:#5dff9b; --warn:#ffce4d; --bad:#ff6b6b;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--mono)}
+  a{color:var(--hot)}
+  header{display:flex;align-items:center;gap:14px;padding:14px 18px;
+         border-bottom:1px solid var(--line);background:var(--panel);
+         position:sticky;top:0;z-index:5;flex-wrap:wrap}
+  h1{font-size:15px;margin:0;letter-spacing:.14em}
+  h1 span{color:var(--hot)}
+  .sub{color:var(--faint);font-size:12px;flex:1;min-width:0;overflow:hidden;
+       text-overflow:ellipsis;white-space:nowrap}
+  button{font:inherit;background:var(--raised);color:var(--ink);cursor:pointer;
+         border:1px solid var(--line);padding:7px 12px}
+  button:hover:not(:disabled){border-color:var(--hot);color:var(--hot)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.go{background:var(--hot);color:#04121b;border-color:var(--hot);font-weight:700}
+  button.small{padding:4px 8px;font-size:12px}
+  input,textarea,select{font:inherit;background:#0d0f16;color:var(--ink);
+        border:1px solid var(--line);padding:8px;width:100%}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--hot)}
+  textarea{resize:vertical}
+  main{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:16px;
+       align-items:start}
+  @media (max-width:880px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);padding:14px;
+        margin-bottom:16px}
+  .card h2{font-size:12px;letter-spacing:.16em;color:var(--dim);margin:0 0 10px;
+           text-transform:uppercase}
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .row > input,.row > select{flex:1;min-width:120px}
+  .row > textarea{flex:1;min-width:200px;width:auto}
+  .muted{color:var(--faint);font-size:12px}
+  .chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+        padding:5px 10px;background:var(--raised)}
+  .dot{width:8px;height:8px;background:var(--good);display:inline-block}
+  .dot.off{background:var(--faint)} .dot.owner{background:var(--warn)}
+  .bot{display:flex;justify-content:space-between;gap:8px;align-items:center;
+       border:1px solid var(--line);padding:8px;margin-bottom:6px;background:var(--raised)}
+  .bot.on{border-color:var(--hot)}
+  .bot b{font-weight:600} .bot .why{color:var(--faint);font-size:12px}
+  .bot > span:last-child{display:flex;gap:4px;white-space:nowrap}
+  #thread{min-height:46vh;max-height:62vh;overflow:auto;border:1px solid var(--line);
+          padding:12px;background:#0d0f16}
+  .msg{margin-bottom:14px;white-space:pre-wrap;word-break:break-word}
+  .msg .who{color:var(--faint);font-size:11px;letter-spacing:.12em;display:block;
+            margin-bottom:3px;text-transform:uppercase}
+  .msg.user .who{color:var(--dim)} .msg.grok .who{color:var(--hot)}
+  .msg.err{color:var(--bad)}
+  .cites{margin-top:6px;font-size:12px;color:var(--faint)}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+         background:var(--raised);border:1px solid var(--hot);padding:9px 16px;
+         opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
+  #toast.on{opacity:1} #toast.bad{border-color:var(--bad);color:var(--bad)}
+  .gate{border:1px dashed var(--line);padding:12px;color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <h1>GROK<span>BOT</span></h1>
+  <span class="sub" id="tagline">Grok, with your key and your bots</span>
+  <span id="idbox"></span>
+</header>
+
+<main>
+  <div>
+    <div class="card">
+      <h2>Your xAI key</h2>
+      <div id="keystate" class="muted">…</div>
+      <div id="keyform" style="display:none">
+        <div class="row" style="margin-top:8px">
+          <input id="key" type="password" placeholder="xai-…" autocomplete="off">
+        </div>
+        <div class="row">
+          <button class="go" id="savekey">SAVE KEY</button>
+          <button id="forgetkey">FORGET</button>
+          <span class="muted">from <a href="https://console.x.ai" target="_blank"
+            rel="noopener">console.x.ai</a></span>
+        </div>
+        <div class="muted">Stored 0600 under ~/.mod/grokbot against your address.
+          Every call spends your own credits.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Bots</h2>
+      <div id="bots"></div>
+      <div id="botform" style="display:none">
+        <div class="row"><input id="bname" placeholder="name — e.g. skeptic"></div>
+        <div class="row"><textarea id="bsystem" rows="3"
+          placeholder="system prompt — what this bot is"></textarea></div>
+        <div class="row">
+          <select id="bmodel"></select>
+          <select id="bsearch">
+            <option value="">search: off</option>
+            <option value="auto">search: auto</option>
+            <option value="on">search: on</option>
+          </select>
+        </div>
+        <div class="row"><button class="go" id="savebot">SAVE BOT</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Chat</h2>
+      <div class="row">
+        <select id="model"></select>
+        <select id="search">
+          <option value="">no search</option>
+          <option value="auto">search: auto</option>
+          <option value="on">search: on</option>
+        </select>
+        <button class="small" id="clear">CLEAR</button>
+      </div>
+      <div id="thread"></div>
+      <div class="row" style="margin-top:10px;align-items:flex-end">
+        <textarea id="prompt" rows="3"
+          placeholder="ask Grok — enter to send, shift+enter for a newline"></textarea>
+        <button class="go" id="send">SEND</button>
+      </div>
+      <div class="muted" id="chathint"></div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+// The console calls its own path + /_api, so it works served bare at :50890/
+// and mounted at /grokbot behind the gateway without knowing which it is.
+const P = location.pathname.replace(/\/+$/,'');
+const API = /\/grokbot$/.test(P) ? P + '/_api' : (P === '/console' ? '' : P + '/_api');
+const TKEY = 'grokbot.token', AKEY = 'grokbot.token.at';
+let TOKEN = localStorage.getItem(TKEY) || '';
+let YOU = null, MODELS = [], THREAD = [], BOT = null, BUSY = false;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = a => a && a.length > 12 ? a.slice(0,6) + '…' + a.slice(-4) : (a || '');
+
+let toastTimer;
+function toast(msg, bad){
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'on' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, 3200);
+}
+
+async function api(path, opts){
+  opts = opts || {};
+  const headers = {'content-type':'application/json'};
+  if (TOKEN) headers['authorization'] = 'Bearer ' + TOKEN;
+  const r = await fetch(API + path, {
+    method: opts.method || 'GET', headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch(e){ data = {error: text}; }
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+// ── signing in ─────────────────────────────────────────────────────
+// A mod-protocol token is base64url({data, time, key, signature}) where the
+// signature covers JSON.stringify({data, time}) — no spaces, that key order —
+// as an EIP-191 personal_sign. That is byte-for-byte what the auth mod
+// re-serializes and verifies, so a browser wallet, the `m` CLI and another
+// module all arrive at the same address by the same door.
+function b64url(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function wallet(){
+  const eth = window.ethereum;
+  if (!eth) return null;
+  if (Array.isArray(eth.providers) && eth.providers.length)
+    return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+  return eth;
+}
+
+async function mint(provider, address){
+  const data = {mod:'grokbot'};
+  const time = (Date.now()/1000).toString();
+  const signature = await provider.request({
+    method:'personal_sign',
+    params:[JSON.stringify({data, time}), address],
+  });
+  return b64url({data, time, key:address, signature});
+}
+
+function keepToken(token){
+  TOKEN = token || '';
+  if (TOKEN){ localStorage.setItem(TKEY, TOKEN);
+              localStorage.setItem(AKEY, String(Date.now())); }
+  else { localStorage.removeItem(TKEY); localStorage.removeItem(AKEY); }
+}
+
+async function signIn(pick){
+  const p = wallet();
+  if (!p){
+    const pasted = prompt(
+      'No wallet extension found in this browser.\n\n' +
+      'Install MetaMask, or paste a mod-protocol token minted on a box that ' +
+      'holds your key:\n\n    m.mod("auth")().token({})');
+    if (!pasted) return;
+    keepToken(pasted.trim());
+    await refresh(); toast('token accepted'); return;
+  }
+  try {
+    if (pick){
+      try { await p.request({method:'wallet_requestPermissions',
+                             params:[{eth_accounts:{}}]}); } catch(e){}
+    }
+    const accounts = await p.request({method:'eth_requestAccounts'});
+    const address = (accounts && accounts[0] || '').toLowerCase();
+    if (!address) throw new Error('the wallet returned no account');
+    keepToken(await mint(p, address));
+    await refresh();
+    toast('signed in as ' + short(address));
+  } catch(e){
+    toast(e.code === 4001 ? 'the signature was refused'
+                          : (e.message || 'the wallet refused'), true);
+  }
+}
+
+function signOut(){
+  keepToken(''); YOU = null; BOT = null;
+  refresh().then(() => toast('signed out'));
+}
+
+// ── drawing ────────────────────────────────────────────────────────
+function drawIdentity(){
+  const box = $('#idbox');
+  if (!YOU || !YOU.address){
+    box.innerHTML = '<button id="signin">CONNECT WALLET</button>';
+    $('#signin').onclick = () => signIn(false);
+    return;
+  }
+  box.innerHTML = `<span class="chip"><span class="dot ${
+      YOU.role === 'owner' ? 'owner' : ''}"></span>${esc(short(YOU.address))}
+      <button class="small" id="switch">SWITCH</button>
+      <button class="small" id="out">SIGN OUT</button></span>`;
+  $('#out').onclick = signOut;
+  $('#switch').onclick = () => signIn(true);
+}
+
+function drawKey(){
+  const st = (YOU && YOU.key) || {};
+  const signed = !!(YOU && YOU.address);
+  $('#keyform').style.display = signed ? '' : 'none';
+  if (!signed){
+    $('#keystate').innerHTML = '<div class="gate">Connect a wallet to keep a key '
+      + 'and bots of your own. Without one you can still chat by sending an '
+      + '<code>x-xai-key</code> header to the API.</div>';
+    return;
+  }
+  if (st.key)
+    $('#keystate').innerHTML = `<span class="chip"><span class="dot"></span>key ${
+      esc(st.fingerprint || 'set')}</span> <span class="muted">from ${
+      esc(st.source)}</span>`;
+  else
+    $('#keystate').innerHTML = '<span class="chip"><span class="dot off"></span>'
+      + 'no key yet</span> <span class="muted">paste one below to start</span>';
+}
+
+function drawBots(bots){
+  const wrap = $('#bots'), signed = !!(YOU && YOU.address);
+  $('#botform').style.display = signed ? '' : 'none';
+  if (!signed){ wrap.innerHTML = '<div class="muted">bots are per account</div>';
+                return; }
+  if (!bots.length){
+    wrap.innerHTML = '<div class="muted">no bots yet — a bot is a name, a model '
+      + 'and a system prompt.</div>';
+  } else {
+    wrap.innerHTML = bots.map(b => `
+      <div class="bot ${BOT === b.name ? 'on' : ''}">
+        <span><b>${esc(b.name)}</b>
+          <span class="why">${esc((b.model || 'default'))}${
+            b.search ? ' · search ' + esc(b.search) : ''}</span></span>
+        <span>
+          <button class="small use" data-bot="${esc(b.name)}">${
+            BOT === b.name ? 'ON' : 'USE'}</button>
+          <button class="small del" data-bot="${esc(b.name)}">X</button>
+        </span>
+      </div>`).join('');
+    wrap.querySelectorAll('.use').forEach(el => el.onclick = () => {
+      BOT = BOT === el.dataset.bot ? null : el.dataset.bot;
+      loadBots(); drawHint();
+    });
+    wrap.querySelectorAll('.del').forEach(el => el.onclick = async () => {
+      try { await api('/bots?name=' + encodeURIComponent(el.dataset.bot),
+                      {method:'DELETE'});
+            if (BOT === el.dataset.bot) BOT = null;
+            toast('deleted ' + el.dataset.bot); loadBots(); }
+      catch(e){ toast(e.message, true); }
+    });
+  }
+}
+
+function drawModels(){
+  const opts = ['<option value="">model: default</option>'].concat(
+    MODELS.map(m => `<option value="${esc(m.id)}">${esc(m.id)}${
+      m.prompt_usd_m != null ? ' — $' + m.prompt_usd_m + '/M in' : ''}</option>`));
+  $('#model').innerHTML = opts.join('');
+  $('#bmodel').innerHTML = opts.join('');
+}
+
+function drawHint(){
+  const bits = [];
+  if (BOT) bits.push('bot: ' + BOT);
+  if (!YOU || !YOU.key || !YOU.key.key) bits.push('no key resolved — save one above');
+  $('#chathint').textContent = bits.join(' · ');
+}
+
+function drawThread(){
+  if (!THREAD.length){
+    $('#thread').innerHTML = '<div class="muted">Nothing yet. Connect a wallet, '
+      + 'save your xAI key, and ask Grok something — turn on search and it will '
+      + 'read X and the web first, with citations.</div>';
+    return;
+  }
+  $('#thread').innerHTML = THREAD.map(m => `
+    <div class="msg ${esc(m.role)}"><span class="who">${
+      m.role === 'user' ? 'you' : m.role === 'err' ? 'error' : 'grok'}</span>${
+      esc(m.text)}${m.cites ? '<div class="cites">' + m.cites.map(
+        c => `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`
+      ).join('<br>') + '</div>' : ''}</div>`).join('');
+  $('#thread').scrollTop = $('#thread').scrollHeight;
+}
+
+// ── loading ────────────────────────────────────────────────────────
+async function refresh(){
+  try { YOU = await api('/me'); }
+  catch(e){ YOU = null; toast(e.message, true); }
+  if (YOU && !YOU.signed_in && TOKEN){ keepToken(''); }
+  drawIdentity(); drawKey(); drawHint();
+  await Promise.all([loadModels(), loadBots()]);
+}
+
+async function loadModels(){
+  if (!YOU || !YOU.key || !YOU.key.key){ MODELS = []; drawModels(); return; }
+  try { MODELS = (await api('/models')).models || []; }
+  catch(e){ MODELS = []; }
+  drawModels();
+}
+
+async function loadBots(){
+  if (!YOU || !YOU.address){ drawBots([]); return; }
+  try { drawBots((await api('/bots')).bots || []); }
+  catch(e){ drawBots([]); }
+}
+
+// ── actions ────────────────────────────────────────────────────────
+$('#savekey').onclick = async () => {
+  const key = $('#key').value.trim();
+  if (!key) return toast('paste your xAI key first', true);
+  try { await api('/key', {method:'POST', body:{key}});
+        $('#key').value = ''; toast('key saved'); await refresh(); }
+  catch(e){ toast(e.message, true); }
+};
+
+$('#forgetkey').onclick = async () => {
+  try { await api('/key', {method:'DELETE'}); toast('key forgotten');
+        await refresh(); }
+  catch(e){ toast(e.message, true); }
+};
+
+$('#savebot').onclick = async () => {
+  const body = {name: $('#bname').value.trim(), system: $('#bsystem').value,
+                model: $('#bmodel').value || null,
+                search: $('#bsearch').value || null};
+  if (!body.name) return toast('a bot needs a name', true);
+  try { await api('/bots', {method:'POST', body});
+        $('#bname').value = ''; $('#bsystem').value = '';
+        toast('saved ' + body.name); loadBots(); }
+  catch(e){ toast(e.message, true); }
+};
+
+$('#clear').onclick = () => { THREAD = []; drawThread(); };
+
+$('#prompt').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+$('#send').onclick = send;
+
+async function send(){
+  if (BUSY) return;
+  const prompt = $('#prompt').value.trim();
+  if (!prompt) return;
+  THREAD.push({role:'user', text:prompt});
+  $('#prompt').value = '';
+  drawThread();
+  BUSY = true; $('#send').disabled = true;
+  const body = {messages: THREAD.filter(m => m.role !== 'err')
+                  .map(m => ({role: m.role === 'user' ? 'user' : 'assistant',
+                              content: m.text}))};
+  if ($('#model').value) body.model = $('#model').value;
+  if ($('#search').value) body.search = $('#search').value;
+  if (BOT) body.bot = BOT;
+  try {
+    const out = await api('/chat', {method:'POST', body});
+    THREAD.push({role:'grok', text: out.text || '(no text)',
+                 cites: out.citations || null});
+  } catch(e){
+    THREAD.push({role:'err', text: e.message});
+  }
+  BUSY = false; $('#send').disabled = false;
+  drawThread(); drawHint();
+}
+
+api('/').then(d => { $('#tagline').textContent = d.what || ''; }).catch(() => {});
+drawThread();
+refresh();
+</script>
+</body>
+</html>

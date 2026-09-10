@@ -9,7 +9,8 @@ import {
   type Registry,
   type SearchResult,
 } from "@/lib/api";
-import { bloc, chain, type ModStakesAll } from "@/lib/chain";
+import { backing, type BookTotals } from "@/lib/backing";
+import { fmt } from "@/lib/bloctime";
 import { Nav, Footer } from "./components/Chrome";
 import { ModuleCard } from "./components/ModuleCard";
 import DepGraph from "./components/DepGraph";
@@ -23,7 +24,7 @@ export default function Home() {
   const [mods, setMods] = useState<Module[] | null>(null);
   const [registry, setRegistry] = useState<Registry | null>(null);
   const [graph, setGraph] = useState<Graph | null>(null);
-  const [stakes, setStakes] = useState<ModStakesAll | null>(null);
+  const [stakes, setStakes] = useState<BookTotals | null>(null);
   const [view, setView] = useState<View>("grid");
   const [q, setQ] = useState("");
   const [onchainOnly, setOnchainOnly] = useState(false);
@@ -44,7 +45,9 @@ export default function Home() {
     api.info().then((i) => alive && setInfo(i)).catch(() => {});
     api.registry().then((r) => alive && setRegistry(r)).catch(() => {});
     api.graph().then((g) => alive && setGraph(g)).catch(() => {});
-    chain.modStakes().then((s) => alive && setStakes(s)).catch(() => {});
+    // Merged backing book: the chain module's key-signed stakes plus the
+    // wallet-signed ones this API owns.
+    backing.totals().then((s) => alive && setStakes(s)).catch(() => {});
     return () => {
       alive = false;
     };
@@ -174,7 +177,7 @@ export default function Home() {
                         className="bloc-count"
                         title="BlocTime staked to modules across the catalog"
                       >
-                        ⧗ <b>{bloc(stakes?.total)}</b> BLOC staked
+                        ⧗ <b>{fmt(stakes?.total)}</b> BLOC staked
                       </span>
                     </>
                   )}

@@ -1,10 +1,20 @@
 # whitepaper
 
-MOD off-chain Merkle-tree registry whitepaper module. Ships the LaTeX source, a Next.js viewer, and a Python reference implementation of the tree.
+The MOD whitepaper module: the off-chain Merkle-tree registry (Part I) and the mod protocol it registers (Part II). Ships the LaTeX source, a Next.js viewer, and a Python + Rust reference implementation of the tree.
 
-## Why
+## What the paper says
 
-The current `Registry.sol` stores each module as its own row keyed by an IPFS CID. With 200+ modules and agent-driven publishing on the horizon, the linear per-row gas cost is the binding constraint. This module proposes (and demonstrates) replacing the per-module hash table with a single Merkle root anchored on chain. The full tree lives off chain in IPFS manifests; authenticity is preserved via Merkle inclusion proofs.
+The paper is in three parts:
+
+| Part | Contents |
+|------|----------|
+| I — The Registry Protocol | Merkle-root registry: construction, StakeTime publisher, priority, gas analysis, verifiability, off-chain storage |
+| II — The Mod Protocol | What the registry registers: the module, the three call surfaces + null call, the URL rule and DNS, nix + pm runtime, gateway and scale-to-zero, auth tokens and the owner/peer model, storage and content addressing, the agent interface, and the nine protocol invariants |
+| III — Adoption | Migration path, related work, conclusion |
+
+## Why (Part I)
+
+The current `Registry.sol` stores each module as its own row keyed by an IPFS CID. With 300+ modules and agent-driven publishing on the horizon, the linear per-row gas cost is the binding constraint. This module proposes (and demonstrates) replacing the per-module hash table with a single Merkle root anchored on chain. The full tree lives off chain in IPFS manifests; authenticity is preserved via Merkle inclusion proofs.
 
 ## Layout
 
@@ -13,7 +23,7 @@ mod/orbit/whitepaper/
   mod.py              # anchor class — Mod (Python protocol surface)
   config.json         # ports + proxy routing
   Caddyfile           # :3000 → /whitepaper (app) + /api/whitepaper (api)
-  whitepaper.tex      # LaTeX source
+  whitepaper.tex      # LaTeX source (v0.2 — Parts I/II/III)
   src/api/            # Rust API (axum + tiny-keccak)
     Cargo.toml
     src/main.rs       # routes + state
@@ -104,12 +114,6 @@ m whitepaper/tree_proof name=agent
 | POST   | `/mod/call`                | Subprocess bridge — `m <fn> [k=v ...]`                   |
 
 The bridge resolves the surrounding mod root automatically: from `mod/orbit/whitepaper/` it walks up until it finds the directory that contains both `orbit/` and `core/`. Both Python (`m.mods()`, `m.config(name)`) and Rust (`/mods`, `/mods/:name/config`) read the same on-disk state, with the same `{"data": {...}, "encrypted": ...}` unwrap so the resulting Merkle roots match across languages.
-
-Build the binary:
-
-```bash
-m whitepaper/build_api          # or: cd src/api && cargo build --release
-```
 
 Build the binary:
 

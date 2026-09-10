@@ -9,12 +9,19 @@ import {
 } from "../lib/api";
 import { approveAgentFlow } from "../lib/hlActions";
 import { useWallet } from "../lib/wallet";
+import { useSession } from "../lib/auth";
+import AuthGate from "./AuthGate";
 
 type LiveStatusResp = Awaited<ReturnType<typeof liveStatus>>;
 
 export default function LivePanel() {
   const wallet = useWallet();
-  const { address, kind } = wallet;
+  const { kind } = wallet;
+  // The engine trades this account's money on a server that only accepts
+  // orders signed for the token's own wallet, so `eoa` here is the *session*
+  // address, never merely an attached one. A watched address would build a
+  // valid-looking config and be refused at start.
+  const { address, me } = useSession();
   const eoa = address ?? "";
   const [agent, setAgent] = useState<string | null>(null);
   const [approved, setApproved] = useState<boolean | null>(null);
@@ -69,7 +76,7 @@ export default function LivePanel() {
   };
 
   const onStart = async () => {
-    if (!eoa) return;
+    if (!me) return;
     const traders: LiveTrader[] = tradersRaw
       .split(/[\s,]+/)
       .map((s) => s.trim())
@@ -79,7 +86,7 @@ export default function LivePanel() {
     setBusy(true); setErr(null);
     try {
       await liveStart({
-        eoa,
+        eoa: me,
         traders,
         interval_ms: intervalMs,
         size_pct: sizePct,
@@ -189,11 +196,17 @@ export default function LivePanel() {
               onChange={(e) => setCoinsAllow(e.target.value)} placeholder="BTC, ETH, SOL" />
           </label>
         </div>
-        <div className="flex items-center gap-2 pt-2">
+        <div className="flex items-start gap-2 pt-2">
           {running ? (
-            <button className="btn-danger" disabled={busy} onClick={onStop}>stop</button>
+            // Stopping is never gated behind anything but the session — if the
+            // engine is running with your money in it, the brake works first.
+            <AuthGate action="stop the engine">
+              <button className="btn-danger" disabled={busy} onClick={onStop}>stop</button>
+            </AuthGate>
           ) : (
-            <button className="btn-primary" disabled={busy} onClick={onStart}>start</button>
+            <AuthGate action="start copy-trading">
+              <button className="btn-primary" disabled={busy} onClick={onStart}>start</button>
+            </AuthGate>
           )}
           {err && <span className="text-danger text-xs">{err}</span>}
         </div>

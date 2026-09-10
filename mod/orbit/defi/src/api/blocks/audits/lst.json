@@ -1,0 +1,118 @@
+{
+  "block": "lst",
+  "contract": "ModLiquidStaking",
+  "file": "lst.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "critical",
+  "summary": "ModLiquidStaking is a 178-line share-priced liquid staking pool: submit() mints shares at totalPooled/totalSupply, requestWithdrawal() burns shares and books a fixed-asset claim payable after unbondingPeriod, an operator moves the buffer out with stakeOut() and adds yield with reportRewards(), and the protocol fee is minted as shares that are worth exactly the fee (the fee math at L140 checks out). The share accounting itself is sound: the rate is driven by internal totalPooled, not balanceOf, so donation and first-depositor inflation by outsiders do not work, rounding favours the pool, and both external-call orderings are safe against hook-bearing tokens. The worst finding is that the block is fully custodial in a way the docs do not say: stakeOut() sends every liquid token to the operator's EOA with no cap, bond, delay or forced-return path, and the owner can rotate that key instantly, so one signature drains 100% of deposits while exchangeRate() keeps reading 1e18 (LST-1). Building on that, the 'rewards must be real tokens' promise is hollow \u2014 the operator can recycle principal through stakeOut()->reportRewards() to set the rate to any value and mint itself fee shares every lap (LST-2), and there is no loss write-down at all, so any real staking loss turns exits into a first-out-whole bank run (LST-3). Because the catalog exports the share token as `erc20` and `vault`, that manipulable, monotonic, non-redeemable rate will end up as collateral pricing in other blocks, where the loss lands on strangers' deposits (LST-4). Not safe to deploy as-is with anyone but the operator's own funds; it is acceptable only as a single-operator, self-custody wrapper whose shares are never used as collateral.",
+  "counts": {
+    "critical": 1,
+    "high": 3,
+    "medium": 3,
+    "low": 1,
+    "info": 2
+  },
+  "findings": [
+    {
+      "id": "LST-1",
+      "severity": "critical",
+      "title": "stakeOut() hands the entire liquid buffer to the operator EOA with no cap, bond, timelock or return obligation",
+      "where": "stakeOut() L148-L154, returnStake() L156-L160, setOperator() L168-L171, constructor L59",
+      "detail": "stakeOut() pushes up to buffer() (every token held minus already-queued withdrawals) to msg.sender, the operator. `stakedOut` is a bookkeeping counter that nothing ever checks: returnStake() is voluntary, there is no strategy contract, no whitelist of destinations, no per-period cap and no delay. The operator defaults to the owner (L59) and the owner can replace the operator instantly (L168). Because the assets leave to an externally-owned key, the share token's backing is exactly the operator's honesty plus key hygiene. Users who notice cannot exit: requestWithdrawal() burns their shares and books a claim, but claim() reverts NO_LIQUIDITY (L116) forever if the tokens never come back, and buffer() only protects requests that existed before the stakeOut. This is not 'Lido shape' \u2014 Lido's ETH sits in validators reachable only by withdrawal credentials, not in a hot wallet that one call can empty.",
+      "exploit": "1) Users submit() 1,000 WETH; totalPooled = 1,000. 2) Operator (or owner after setOperator(self)) calls stakeOut(buffer()) = stakeOut(1,000): all 1,000 WETH land in the operator EOA in one transaction. 3) Operator never calls returnStake(). Holders still see exchangeRate() = 1e18 and totalPooled = 1,000 (L22, L146-147 keep it counted), so nothing on-chain looks wrong. 4) Any holder calling requestWithdrawal() burns shares and is queued; claim() reverts NO_LIQUIDITY indefinitely. Loss: 100% of deposits, one signature, no delay.",
+      "recommendation": "Never send principal to an EOA. Route stakeOut() to an IStrategy/whitelisted staking contract set by the owner (asset() must match, deposit()/withdraw() on that contract), keep a per-epoch cap and a minimum buffer ratio (e.g. buffer >= pendingWithdrawals + X% of totalPooled), put setOperator/setStrategy behind a timelock, and add an operator-independent path for users to force liquidity back (e.g. anyone can call strategy.withdraw() to cover the queue). At minimum, document the block as fully custodial."
+    },
+    {
+      "id": "LST-2",
+      "severity": "high",
+      "title": "'Rewards must be real tokens' is no guarantee: the operator can recycle principal through stakeOut()\u2192reportRewards() to pump the rate at will and mint itself fee shares each lap",
+      "where": "reportRewards() L132-L144, stakeOut() L148-L154, exchangeRate() L63-L66, sharesFor() L68-L70",
+      "detail": "reportRewards() pulls `rewards` tokens and adds them to totalPooled, but nothing distinguishes new yield from principal that was just taken out with stakeOut(). The buffer can therefore be round-tripped: each lap adds the whole buffer to totalPooled again without any new assets, and mints feeBps of it as shares to feeSink/owner at the post-report rate (L140-141). The exchange rate is monotonic (there is no downward report, see LST-3), so every fake lap is permanent. Two consequences: (a) the fee mint is a compounding drain \u2014 with the default 10% fee the sink owns ~9% of the pool after one lap, ~50% after roughly eight \u2014 and the sink can requestWithdrawal() those shares, which fixes assets at the inflated rate and gets paid first from the real buffer; (b) exchangeRate() is an operator-authored number, not a measurement, so any block that reads it (or prices the share token off it) is reading the operator's word. A secondary effect at a pumped rate: sharesFor() rounds down so small submits revert DUST or lose up to one share's worth of assets to the pool.",
+      "exploit": "Pool holds 1,000 WETH, 1,000 shares, feeBps = 1,000. Lap 1: operator stakeOut(1,000) \u2192 operator holds 1,000 WETH, buffer = 0; operator approve + reportRewards(1,000): totalPooled = 2,000, fee = 100, feeShares = 100*1,000/(2,000-100) \u2248 52.6 minted to owner. Real assets: still 1,000 (now back in the contract). Lap 2: stakeOut(1,000) again (buffer is 1,000 again), reportRewards(1,000): totalPooled = 3,000, another \u2248 55 shares to owner. After 8 laps owner holds ~half the supply while depositors put in all the assets. Owner calls requestWithdrawal(ownerShares) \u2192 assets fixed \u2248 500 WETH real value; after unbonding, claim() pays it from the buffer. Honest holders' claims are the ones that later revert NO_LIQUIDITY.",
+      "recommendation": "Track principal separately from reported rewards and bound reports: e.g. require rewards <= stakedOut * maxAprBps * elapsed / (10_000 * 365 days) per report, or derive rewards from a strategy's totalAssets() delta rather than an operator-supplied number. Do not allow stakeOut() and reportRewards() in the same block/epoch. If a strategy interface is adopted (LST-1), compute totalPooled = buffer + strategy.totalAssets() and make reportRewards() a permissionless sync that can only mint fee on the positive delta."
+    },
+    {
+      "id": "LST-3",
+      "severity": "high",
+      "title": "No loss or slashing write-down: totalPooled can only go up, so any staking loss or operator default leaves the rate overstated and turns exits into a bank run",
+      "where": "totalPooled L22, reportRewards() L132-L134 (rewards > 0), requestWithdrawal() L95-L109, claim() L111-L122",
+      "detail": "totalPooled decreases only by exactly the assets booked in requestWithdrawal(). There is no negative report, no slash(), and no reconciliation against asset.balanceOf + stakedOut. If the operator loses part of what it staked out (validator slashing, a hacked venue, a depeg on the destination), the contract keeps quoting the pre-loss exchange rate. requestWithdrawal() then fixes each exiting holder's assets at that stale, too-high rate and burns their shares, so early exiters take more than their real share and the shortfall is pushed entirely onto whoever is last \u2014 the last claims revert NO_LIQUIDITY with no shares left to sell. Requests already in the queue are also immune to a loss that is discovered after they were booked, even though the assets were never really there.",
+      "exploit": "1) 1,000 WETH deposited, operator stakeOut(900), 100 remains as buffer. 2) Operator's staking venue loses 300; real backing is now 700 but totalPooled = 1,000, exchangeRate() = 1e18. 3) A holder who hears first requestWithdrawal(100 shares) \u2192 assets = 100 booked at the stale rate; the operator returnStake(600) and that holder claims 100 in full. 4) Remaining holders hold 900 shares against 600 real assets; the queue pays 1:1 until the balance hits zero and the rest revert NO_LIQUIDITY. Loss is concentrated on the slowest 30% of holders instead of socialised.",
+      "recommendation": "Add an operator/owner `reportLoss(uint256)` (or a signed `report(int256)`) that reduces totalPooled, and make requestWithdrawal() settle at claim time against the rate then, or snapshot per-epoch as Lido's withdrawal queue does (finalise requests at min(request rate, current rate)). Expose an invariant view `backing() = asset.balanceOf(this) + stakedOut` and an `insolvent()` flag so downstream blocks can gate on it."
+    },
+    {
+      "id": "LST-4",
+      "severity": "high",
+      "title": "Composition: the share token is not safe collateral for lending/cdp blocks \u2014 its rate is operator-authored, monotonic, and there is no instant redemption for liquidations",
+      "where": "exchangeRate() L63-L66, assetsFor() L72-L74, requestWithdrawal() L95-L109, provides erc20 + vault (catalog)",
+      "detail": "The catalog advertises the block as `erc20` and `vault`, so its shares will be wired as collateral or as a vault asset elsewhere on the canvas, and the natural oracle is exchangeRate() * price(asset). That oracle can be set to any value by the operator with zero net capital (LST-2), can never fall to reflect a loss (LST-3), and the collateral has no atomic exit: converting shares to the underlying takes requestWithdrawal() plus unbondingPeriod plus the buffer actually being there (LST-1). A liquidator seizing mstETH therefore cannot repay the lender's asset from it; the lending block is left holding a token whose only sink is a queue the operator controls. The fund loss lands on the OTHER block's depositors, who never trusted this operator.",
+      "exploit": "1) Owner deploys lst + a lending block that accepts the lst share token as collateral priced by exchangeRate(). 2) Owner submit()s 100 WETH \u2192 100 shares. 3) Owner runs the LST-2 loop until exchangeRate() = 10e18; the shares now appraise at 1,000 WETH. 4) Owner posts the 100 shares as collateral and borrows 700 WETH of the lending pool's real assets. 5) Owner stakeOut()s the lst buffer as well and abandons both. The lending pool's depositors lose 700 WETH; liquidating the collateral yields a queue ticket that will never pay.",
+      "recommendation": "Do not price the share token from exchangeRate(). If it must be collateral, use an external market/TWAP oracle for the share token itself, apply a steep haircut and a supply cap, and require the LST to have a bounded-rate, strategy-backed rewards path (LST-2/LST-3 fixes) first. The catalog entry should not advertise `vault` for a block that has no synchronous withdraw."
+    },
+    {
+      "id": "LST-5",
+      "severity": "medium",
+      "title": "Owner can lock every exit and raise the fee to 30% instantly; unbondingPeriod is unbounded and overflows",
+      "where": "setParams() L173-L177, requestWithdrawal() L105/L108, setOperator() L168-L171, Owned.setOwner() common.sol L47-L50",
+      "detail": "setParams() accepts any unbondingPeriod. Setting it to e.g. 100 years makes every future requestWithdrawal() unclaimable for the life of the chain; setting it near type(uint256).max makes `block.timestamp + unbondingPeriod` (L105) overflow and revert, so nobody can even request. Existing requests keep their readyAt, but shares that have not been requested are trapped. feeBps can be moved 0\u21923,000 with immediate effect on the next report, and setOperator() re-points the custody key with no delay. Ownership is single-step (setOwner to a typo burns control, including the ability to rotate a compromised operator). None of the setters emit events, so holders have no signal to exit before a hostile change.",
+      "exploit": "1) Holders deposit under the default 7-day unbonding. 2) Owner calls setParams(3000, type(uint256).max - 1). 3) Any requestWithdrawal() now reverts on the checked addition at L105; setParams(3000, 3153600000) instead books every new request 100 years out. 4) Owner reports rewards at 30% fee, or simply sits on the trapped deposits (see LST-1 for the drain).",
+      "recommendation": "Cap unbondingPeriod (e.g. <= 30 days) in both the constructor and setParams(), cap fee increases per change or timelock them, emit events from every setter, use two-step ownership, and put setOperator() behind the same timelock as any custody change."
+    },
+    {
+      "id": "LST-6",
+      "severity": "medium",
+      "title": "reportRewards() is a lump-sum step in the rate that can be sandwiched; with unbondingPeriod = 0 it is a same-block risk-free skim",
+      "where": "reportRewards() L137, submit() L82-L90, requestWithdrawal() L97-L99, claim() L115",
+      "detail": "Rewards are credited to totalPooled in one step, so a depositor who enters one block before a report and requests one block after captures the whole period's yield pro-rata without having been staked. requestWithdrawal() fixes the assets at the post-report rate and burns the shares immediately, so the attacker carries no further pool risk while waiting \u2014 the only cost is capital idle for unbondingPeriod. With the default 7 days and a weekly report that is a full week's yield for a 7-day lockup (dilutes honest stakers by the attacker's size). With unbondingPeriod = 0, readyAt = block.timestamp and claim()'s `>=` passes in the same block, so it is a pure mempool sandwich: submit \u2192 (report) \u2192 requestWithdrawal \u2192 claim, paid from the buffer that the report just topped up.",
+      "exploit": "unbondingPeriod = 0, pool 1,000 WETH / 1,000 shares. Operator broadcasts reportRewards(10). Attacker front-runs with submit(9,000) \u2192 9,000 shares (rate 1e18). Report lands: totalPooled = 10,010, feeShares \u2248 100 to sink. Attacker back-runs: requestWithdrawal(9,000) \u2192 assets = 9,000 * 10,010 / 10,100 \u2248 8,919.8 \u2026 then claim() in the same tx. Honest holders kept \u2248 1 of the 10 rewarded WETH instead of 9.",
+      "recommendation": "Vest reported rewards linearly over the reporting interval (drip totalPooled up over, say, 24h as ERC-4626 vesting vaults do), or settle withdrawal requests at claim time, and enforce unbondingPeriod >= some floor so a same-block round-trip is impossible."
+    },
+    {
+      "id": "LST-7",
+      "severity": "medium",
+      "title": "Fee-on-transfer or rebasing assets desynchronise totalPooled from real balance; a positive rebase is silently harvestable by the operator fee-free",
+      "where": "submit() L86-L87, reportRewards() L135-L137, buffer() L77-L80, stakeOut() L150",
+      "detail": "submit() and reportRewards() credit the nominal amount to totalPooled but only receive what transferFrom delivered. With a fee-on-transfer asset every deposit overstates the rate and the last exiter is short. With a rebasing asset (stETH itself, ampleforth-style tokens) balance changes are never reflected in totalPooled: a negative rebase makes the pool insolvent exactly as in LST-3; a positive rebase raises asset.balanceOf but not totalPooled, so buffer() grows and the operator can stakeOut() the surplus with no fee and no report \u2014 holders never see it. The default share name 'Mod Staked ETH' invites wrapping WETH, which is fine, but nothing stops wiring a rebasing token.",
+      "exploit": "1) Wire a token that charges 1% on transfer. 2) Alice submit(100): contract receives 99, totalPooled = 100, 100 shares. 3) Bob submit(100): receives 99, totalPooled = 200, 100 shares. 4) Alice requestWithdrawal(100) \u2192 assets = 100; claim() pays 100 of the 198 held. 5) Bob is owed 100 with 98 present \u2192 NO_LIQUIDITY on the last 2. Rebasing variant: stETH rebases +1 WETH overnight; buffer() reports 1 extra; operator stakeOut(1) to its EOA; no Reported event, no fee.",
+      "recommendation": "Measure received amounts (balanceBefore/After) in submit() and reportRewards(), and either reject rebasing assets in the docs/catalog or reconcile against asset.balanceOf(this) + stakedOut in a permissionless sync that credits surplus to totalPooled (with fee) rather than leaving it in buffer()."
+    },
+    {
+      "id": "LST-8",
+      "severity": "low",
+      "title": "requestWithdrawal() burns shares for a zero-asset ticket when assetsFor() rounds to 0, and pushes unbounded queue entries",
+      "where": "requestWithdrawal() L96-L107, assetsFor() L72-L74, claim() L111-L122",
+      "detail": "Only `shares > 0` is checked; assetsFor(shares) floors and can be 0 for small share counts once the rate has grown (at rate 1e20 any request under 100 shares yields 0). The shares are still burned and a queue entry with assets = 0 is pushed; the user gets nothing and the value accrues to remaining holders. The queue is append-only with no minimum, so anyone can also grow `queue` with dust entries, which is harmless to the contract but bloats every off-chain indexer that walks queueLength().",
+      "exploit": "exchangeRate() = 1e20 after rewards. User holds 150 shares, calls requestWithdrawal(50): assets = 50 * totalPooled / totalSupply = 0 (floor), 50 shares burned, Requested(\u2026, 0, \u2026) emitted. User later claim()s and receives 0.",
+      "recommendation": "require(assets > 0, 'DUST') after computing assetsFor(), and consider an assets-denominated `requestWithdrawal(uint256 assets)` that rounds shares up."
+    },
+    {
+      "id": "LST-9",
+      "severity": "info",
+      "title": "stakedOut is cosmetic: it is never used in a solvency check and drifts on direct transfers",
+      "where": "stakedOut L23, stakeOut() L151, returnStake() L156-L160, buffer() L77-L80",
+      "detail": "stakedOut is incremented on stakeOut() and clamped-decremented on returnStake(), but no function reads it. An operator that returns tokens by plain transfer (or a third party donating) leaves stakedOut overstated; returnStake() with more than stakedOut clamps to 0 and the excess is untracked (it is not added to totalPooled, so it becomes buffer the operator can stakeOut() again without a report). Indexers and the console should not trust totalPooled == balance + stakedOut. Also note reentrancy was reviewed: submit() computes shares before the pull and claim() flips `claimed` before the push, so hook-bearing tokens (ERC777) cannot double-mint or double-claim.",
+      "exploit": "Operator stakeOut(500), then asset.transfer(lst, 500) directly: stakedOut still 500, balance back to full. Console reports 500 'staked out' that is sitting in the buffer; operator can stakeOut(500) again while the display shows 1,000 out.",
+      "recommendation": "Either enforce the invariant (returnStake only decreases stakedOut by the amount received, expose backing() = balance + stakedOut and require backing >= totalPooled in reportRewards) or drop the counter and derive it from a strategy's totalAssets()."
+    },
+    {
+      "id": "LST-10",
+      "severity": "info",
+      "title": "With a governor wired as owner the initial operator is the governor contract, and both operator paths need an ERC20 approval the console does not wire",
+      "where": "constructor L59, reportRewards() L135, returnStake() L158, catalog ctor `$input:governor|$owner`",
+      "detail": "operator defaults to owner_, so wiring a governor block makes the governor the operator. stakeOut() sends tokens to msg.sender (the governor contract) and reportRewards()/returnStake() pull via transferFrom from msg.sender, which requires the governor to have called asset.approve(lst, \u2026) first. Unless the governor can execute arbitrary calls, staking and reward reporting are dead until the owner runs setOperator() to a real operator address, and there is no post-deploy wire for that in the catalog. A deployer who does not notice ships a pool whose deposits can never earn.",
+      "exploit": "Deploy with governor input wired. Operator == governor. Anyone calling stakeOut()/reportRewards() from an EOA gets NOT_OPERATOR; the governor has no approve() proposal path in the composer, so reportRewards() reverts PULL_FAILED forever.",
+      "recommendation": "Add an `operator` input of type address to the catalog with a `setOperator(address)` wire, and document that the operator must approve the LST contract for the asset before reportRewards()/returnStake()."
+    }
+  ],
+  "safe_use": [
+    "Treat the operator key as holding 100% of deposits: use a hardware/multisig operator, keep operator == owner only if the owner is a multisig, and never let a hot server key be the operator.",
+    "Cap what leaves: only stakeOut() what an on-chain staking contract will receive in the same transaction (via a multisig batch), and keep a standing buffer of at least pendingWithdrawals plus a share of totalPooled so claims do not revert NO_LIQUIDITY.",
+    "Do not price mstETH from exchangeRate() anywhere on the canvas; do not wire the share token as lending/cdp collateral or as a vault asset until reports are bounded and a loss write-down exists.",
+    "Keep unbondingPeriod >= 1 day (the default 7 days is fine) and never set it to 0; report rewards frequently and in small amounts so a single report is not worth sandwiching.",
+    "Only wire a plain, non-rebasing, non-fee-on-transfer asset (WETH, USDC); never wrap stETH or similar rebasing tokens with this block.",
+    "If a governor is the owner, call setOperator() to a real operator right after deploy and have that operator approve() the LST contract for the asset, or reportRewards()/returnStake() will revert PULL_FAILED.",
+    "Publish an off-chain reconciliation of asset.balanceOf(lst) + real staked balance against totalPooled after every report; the contract will not detect insolvency for you.",
+    "Set feeSink explicitly; with it unset every fee share is minted to the owner address."
+  ]
+}

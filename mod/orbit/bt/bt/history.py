@@ -162,6 +162,24 @@ def _load_last_snapshot() -> None:
             _cache['block'] = rows[0][-1] if rows else None
 
 
+def _nearest_ts(conn, target: int) -> Optional[int]:
+    """The stored snapshot time closest to `target`.
+
+    Ordering by the absolute distance cannot use an index, so it reads every
+    row — a million of them, on every screener call. Two seeks against
+    idx_snaps_ts answer the same question in microseconds.
+    """
+    before = conn.execute(
+        'SELECT MAX(ts) FROM snaps WHERE ts <= ?', (target,)).fetchone()[0]
+    after = conn.execute(
+        'SELECT MIN(ts) FROM snaps WHERE ts >= ?', (target,)).fetchone()[0]
+    if before is None:
+        return after
+    if after is None:
+        return before
+    return before if (target - before) <= (after - target) else after
+
+
 def _prices_at(ago_sec: int, now: int, tolerance: float = 0.5) -> Dict[int, float]:
     """price per netuid at the snapshot closest to (now - ago_sec).
 
@@ -172,13 +190,11 @@ def _prices_at(ago_sec: int, now: int, tolerance: float = 0.5) -> Dict[int, floa
     with _db_lock:
         conn = _db()
         try:
-            row = conn.execute(
-                'SELECT ts FROM snaps ORDER BY ABS(ts - ?) LIMIT 1',
-                (target,)).fetchone()
-            if not row or abs(row[0] - target) > tolerance * ago_sec:
+            near = _nearest_ts(conn, target)
+            if near is None or abs(near - target) > tolerance * ago_sec:
                 return {}
             return dict(conn.execute(
-                'SELECT netuid, price FROM snaps WHERE ts = ?', (row[0],)))
+                'SELECT netuid, price FROM snaps WHERE ts = ?', (near,)))
         finally:
             conn.close()
 
@@ -252,13 +268,11 @@ def _volumes_at(ago_sec: int, now: int) -> Dict[int, float]:
     with _db_lock:
         conn = _db()
         try:
-            row = conn.execute(
-                'SELECT ts FROM snaps ORDER BY ABS(ts - ?) LIMIT 1',
-                (target,)).fetchone()
-            if not row or abs(row[0] - target) > 0.5 * ago_sec:
+            near = _nearest_ts(conn, target)
+            if near is None or abs(near - target) > 0.5 * ago_sec:
                 return {}
             return dict(conn.execute(
-                'SELECT netuid, volume FROM snaps WHERE ts = ?', (row[0],)))
+                'SELECT netuid, volume FROM snaps WHERE ts = ?', (near,)))
         finally:
             conn.close()
 

@@ -10,6 +10,7 @@
 // add up: each runs its own engine, so each holds only its own slice.
 
 import { useEffect, useRef, useState } from "react";
+import { getAccessToken } from "./access";
 import { fetchPositions } from "./polymarket";
 import { useAuth } from "../context/AuthContext";
 import { fetchLiveSessions, runningStrategyIds, type SessionStratLedger } from "./liveSessions";
@@ -22,8 +23,13 @@ export interface StratMoney {
   /** Those open positions marked to current prices (entry when unpriced). */
   openValue: number;
   unrealized: number;
-  /** Realized PnL from the engine's per-strat ledger (sells + redeems). */
+  /** Realized PnL from the engine's per-strat ledger (sells + redeems),
+      GROSS — before `fees`. */
   realized: number;
+  /** Polymarket taker fees this strat has paid. Real money, and the reason
+      `totalPnl` is not `realized + unrealized`: it is
+      `realized - fees + unrealized`. */
+  fees: number;
   totalPnl: number;
   /** totalPnl vs open cost basis; null when nothing is deployed. */
   pnlPct: number | null;
@@ -161,7 +167,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         const next: Record<string, StratMoney> = {};
         const entryFor = (id: string): StratMoney =>
           (next[id] ??= {
-            moneyIn: 0, openValue: 0, unrealized: 0, realized: 0,
+            moneyIn: 0, openValue: 0, unrealized: 0, realized: 0, fees: 0,
             totalPnl: 0, pnlPct: null, pnl24h: 0, roi24h: null,
             fills: 0, openPositions: 0, lastFillAt: 0,
           });
@@ -190,6 +196,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
           const s = entryFor(id);
           for (const l of ledgers) {
             s.realized += num(l.realized);
+            s.fees += num(l.fees);
             s.fills += num(l.buys) + num(l.sells) + num(l.redeems);
             s.lastFillAt = Math.max(s.lastFillAt, num(l.lastFillAt));
           }
@@ -203,7 +210,9 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         }
         for (const [id, s] of Object.entries(next)) {
           s.unrealized = s.openValue - s.moneyIn;
-          s.totalPnl = s.realized + s.unrealized;
+          // Fees are money that left the wallet — the strat's P&L is what it
+          // won MINUS what it paid Polymarket to win it.
+          s.totalPnl = s.realized - s.fees + s.unrealized;
           s.pnlPct = s.moneyIn > 0 ? (s.totalPnl / s.moneyIn) * 100 : null;
           const b = basis24h[id] ?? 0;
           s.roi24h = b > 0 ? (s.pnl24h / b) * 100 : null;
@@ -218,6 +227,56 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
   }, [address, pollMs]);
 
   return result;
+}
+
+// ── 7-day PnL curves ────────────────────────────────────────────
+//
+// The server-side sidecar (lib/server/stratPnl.ts) samples every strat's
+// total PnL every 10 minutes into a history file precisely because nothing
+// else keeps a per-strat time axis (the engine prunes realized events at
+// 48h). This hook is the cards' read of it: stratId → cumulative points.
+
+export interface StratPnlPoint {
+  t: number;
+  pnl: number;
+}
+
+/** Per-strat 7-day PnL series from /api/strat-pnl. Empty until the sidecar
+    has sampled (first deploy) or when the caller isn't the owner. Keyed off
+    the ACCESS token, not the wallet: the tab only mounts once the gate is
+    open, and a QR-paired phone session holds a token with no wallet at all. */
+export function useStratPnlHistory(days = 7, pollMs = 5 * 60_000): Record<string, StratPnlPoint[]> {
+  const [series, setSeries] = useState<Record<string, StratPnlPoint[]>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        // Same-origin Next route (not the Rust API): access.ts's fetch patch
+        // only stamps API-bound URLs, so attach the token explicitly.
+        const token = getAccessToken();
+        const res = await fetch(`/polymarket/api/strat-pnl?days=${days}`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as { series?: Record<string, Array<[number, number]>> };
+        if (cancelled || !j.series) return;
+        const next: Record<string, StratPnlPoint[]> = {};
+        for (const [id, pts] of Object.entries(j.series)) {
+          next[id] = pts
+            .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+            .map(([t, pnl]) => ({ t, pnl }));
+        }
+        setSeries(next);
+      } catch { /* transient — keep last */ }
+    };
+    void poll();
+    const t = setInterval(poll, pollMs);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [days, pollMs]);
+
+  return series;
 }
 
 /** Compact "$12.50 in · +$1.20" formatting shared by picker + cards. */

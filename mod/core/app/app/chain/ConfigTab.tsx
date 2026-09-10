@@ -49,7 +49,7 @@ export function ConfigTab({ network }: { network: string }) {
         <button
           onClick={() => toggle(path)}
           style={{
-            fontFamily: TERM_FONT, fontSize: '12px', color: 'var(--text-tertiary)',
+            fontFamily: TERM_FONT, fontSize: '14px', color: 'var(--text-tertiary)',
             background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0',
           }}
         >
@@ -57,7 +57,7 @@ export function ConfigTab({ network }: { network: string }) {
         </button>
         {isExpanded && entries.map(([k, v]) => (
           <div key={k} style={{ padding: '2px 0' }}>
-            <span style={{ color: 'var(--text-secondary)', fontFamily: TERM_FONT, fontSize: '12px' }}>{k}: </span>
+            <span style={{ color: 'var(--text-secondary)', fontFamily: TERM_FONT, fontSize: '14px' }}>{k}: </span>
             {renderValue(v, `${path}.${k}`, depth + 1)}
           </div>
         ))}
@@ -66,8 +66,8 @@ export function ConfigTab({ network }: { network: string }) {
   }
 
   return (
-    <div style={{ ...panelStyle, padding: '16px', fontFamily: TERM_FONT, fontSize: '12px' }}>
-      <div style={{ color: 'var(--text-tertiary)', marginBottom: '12px', letterSpacing: '0.1em', fontSize: '11px' }}>
+    <div style={{ ...panelStyle, padding: '16px', fontFamily: TERM_FONT, fontSize: '14px' }}>
+      <div style={{ color: 'var(--text-tertiary)', marginBottom: '12px', letterSpacing: '0.1em', fontSize: '13px' }}>
         {network.toUpperCase()} DEPLOYMENT CONFIG
       </div>
       {renderValue(config, 'root', 0)}

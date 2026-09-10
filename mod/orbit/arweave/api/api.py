@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 MODULE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODULE_DIR))
 
-from arweave import ArweaveClient  # noqa: E402
+from arlocal import ArweaveClient  # noqa: E402
 
 
 app = FastAPI(

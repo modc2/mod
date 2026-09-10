@@ -224,6 +224,26 @@ def query_dataset(id: str, select: Optional[str] = None,
 # registry
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Human titles for the tool list. Most read fine derived from the name
+# (`nyc_find_datasets` → "Find datasets"); these are the ones that don't.
+TITLES = {
+    'nyc_info': 'About this atlas',
+    'nyc_where': 'Geocode a place',
+    'nyc_layer': 'Read a map layer',
+    'nyc_layers': 'List map layers',
+    'nyc_housing': 'Housing prices by area',
+    'nyc_prices': 'Citywide price summary',
+    'nyc_trend': 'Price history by year',
+    'nyc_sales': 'Individual recorded sales',
+    'nyc_rents': 'Affordable rents',
+    'nyc_homes': 'Find affordable homes',
+    'nyc_affordable': 'Affordable housing built',
+    'nyc_traffic': 'Traffic speeds and when to drive',
+    'nyc_dataset': 'Describe a dataset',
+    'nyc_query': 'Query any dataset (SoQL)',
+}
+
+
 class Tool:
     def __init__(self, name: str, description: str, group: str,
                  params: Dict[str, Dict], handler: Callable[..., Any]):
@@ -232,6 +252,25 @@ class Tool:
         self.group = group
         self.params = params            # name -> {type, description, default?, required?}
         self.handler = handler
+
+    @property
+    def title(self) -> str:
+        if self.name in TITLES:
+            return TITLES[self.name]
+        stem = self.name[4:] if self.name.startswith('nyc_') else self.name
+        return stem.replace('_', ' ').capitalize()
+
+    @property
+    def annotations(self) -> Dict[str, Any]:
+        """
+        MCP tool annotations. Every tool here reads public open data over HTTP
+        and writes nothing, anywhere — so the whole registry is read-only,
+        idempotent and open-world (the answer depends on what the city
+        published today, not on anything this process holds).
+        """
+        return {'title': self.title, 'readOnlyHint': True,
+                'destructiveHint': False, 'idempotentHint': True,
+                'openWorldHint': True}
 
     @property
     def input_schema(self) -> Dict:
@@ -297,7 +336,8 @@ TOOLS: List[Tool] = [
     # ── map layers ───────────────────────────────────────────────────────
     Tool('nyc_layers',
          'The map layer catalogue: subway, bike network, parks, evacuation '
-         'zones, traffic injuries, affordable housing, boundaries.',
+         'zones, live traffic speeds, traffic volume, traffic injuries, '
+         'affordable housing, boundaries.',
          'layers', {}, _layers_compact),
     Tool('nyc_layer',
          'Rows from one map layer (feature properties, plus lat/lng for '
@@ -345,6 +385,21 @@ TOOLS: List[Tool] = [
           'max_price': _p('integer', 'Maximum sale price'),
           'search': _p('string', 'Filter by address/neighborhood substring')},
          _sales_table),
+
+    # ── traffic ──────────────────────────────────────────────────────────
+    Tool('nyc_traffic',
+         'When to drive in NYC. Returns the hour-by-hour traffic profile of '
+         "DOT's count locations — busiest hour, calmest hour, and the quiet "
+         'hours worth leaving in — plus what the live speed sensors are '
+         'reading on the highways right now. Filter by street or borough.',
+         'traffic',
+         {'street': _p('string', 'Street name to match, e.g. "Cross Bronx"'),
+          'borough': _p('string', 'Borough name'),
+          'hour': _p('integer', 'Hour 0-23 to report each location at'),
+          'limit': _p('integer', 'Max count locations returned', 20)},
+         lambda street='', borough='', hour=None, limit=20:
+             get_nyc().traffic(street=street, borough=borough,
+                               hour=hour, limit=limit)),
 
     # ── affordable homes ─────────────────────────────────────────────────
     Tool('nyc_rents',
@@ -406,9 +461,10 @@ _BY_NAME = {t.name: t for t in TOOLS}
 
 
 def list_tools() -> List[Dict]:
-    """MCP-shaped tool list."""
-    return [{'name': t.name, 'description': t.description,
-             'inputSchema': t.input_schema} for t in TOOLS]
+    """MCP-shaped tool list, including titles and behaviour annotations."""
+    return [{'name': t.name, 'title': t.title, 'description': t.description,
+             'inputSchema': t.input_schema, 'annotations': t.annotations}
+            for t in TOOLS]
 
 
 def call_tool(name: str, args: Optional[Dict] = None) -> Any:

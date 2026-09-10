@@ -19,8 +19,11 @@ On top of storage it adds a full **access model**:
 - **CID-agnostic** — objects can be native localfs/filecoin/hippius CIDs **or**
   references to any external system (arweave tx, ipfs from another node, s3 key,
   …) registered with an optional gateway URL.
-- **File / text / image input** — store an uploaded file, pasted text, or a
-  captured photo; all are content-addressed the same way.
+- **File / text / screenshot input** — store an uploaded file, pasted text, or a
+  screenshot pasted straight from the clipboard (⌘V / Ctrl+V anywhere in the
+  app) or dropped on the Add-data panel; all are content-addressed the same way.
+  Pasted images are named `screenshot-<timestamp>.png` so they render inline on
+  their object page and get a thumbnail in the object list.
 
 Access state lives OFF-CHAIN in `~/.mod/store/` (`access.db` for grants / pools
 / handoffs / per-object ACL; never committed).
@@ -370,6 +373,46 @@ can also do this live via `POST /whitelist`).
 | `HIPPIUS_S3_KEY` / `_SECRET` / `_BUCKET` | — | S3 credentials |
 | `HIPPIUS_IPFS_GATEWAY` | `https://get.hippius.network` | retrieval gateway |
 | `STORE_API_PORT` / `STORE_APP_PORT` | `50152` / `50151` | port overrides |
+
+## Themes
+
+The console ships **nine** skins, picked from the palette button in the top bar
+and remembered per browser (`store:theme` in localStorage). They differ in more
+than color — corner radius, border weight, shadow physics, type face and the
+page texture are all part of a theme:
+
+| id | look |
+|----|------|
+| `8bit-underground` | NES night level — pixel type, square corners, hard sprite shadows *(default)* |
+| `8bit-overworld` | the same console in SMB sky blue on cloud cream |
+| `soft-midnight` | quiet modern dark — rounded, blurred, low contrast |
+| `soft-porcelain` | quiet modern light |
+| `crt-green` | green phosphor terminal — mono everything, scanlines, blinking cursor |
+| `crt-amber` | the other phosphor |
+| `neon-synthwave` | magenta/cyan horizon grid, glowing rims, Orbitron chrome |
+| `print-broadsheet` | newsprint — serif headlines, flat rules, no shadows |
+| `blueprint-draft` | drafting sheet — cyan annotation on navy, 12px grid |
+
+`app/src/app/globals.css` is written entirely against tokens, so a theme is one
+block of custom properties: colors, `--radius*`, `--bw`, `--shadow-*`,
+`--font-display` / `--font-chrome`, `--page-tex`, and the primary/coin button
+recipes. Two attributes drive it, both set before hydration by the inline script
+in `app/src/app/layout.tsx` (so there is no flash of the wrong theme):
+
+```
+<html data-theme="crt-green" data-skin="crt">
+```
+
+`data-skin` is the part of the id before the first dash and carries the handful
+of structural rules a token can't express — the pixel `?` block, the CRT glow,
+the broadsheet masthead rule. Adding a theme means adding one
+`html[data-theme="…"]` block plus an entry in `app/src/lib/theme.ts`; the id list
+in `layout.tsx` has to learn the new id too.
+
+Interface chrome uses inline SVG icons, never emoji: emoji resolve to a color
+font that is missing on many Linux desktops (and every headless screenshot),
+where they land as tofu boxes. Icons live in `app/src/components/icons.tsx` and
+inherit `currentColor`, so each skin styles them for free.
 
 ## Architecture
 

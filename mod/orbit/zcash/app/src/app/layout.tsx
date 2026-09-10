@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Zcash Explorer',
-  description: 'Zcash blockchain explorer',
+  title: 'Zcash — explorer, wallet, bridge',
+  description: 'Zcash explorer, transparent wallet and cross-chain bridge',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

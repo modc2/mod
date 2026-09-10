@@ -121,5 +121,5 @@
         "ENCRYPT_SANDBOX_USER": "Unix user the circuit process drops to when the API runs as root (default: config sandbox.user)"
     },
     "key": "encrypt",
-    "schema": "QmXh3YY1mPGVaePSDNpVqcyNVp1XZ8TNkgbhbN1nj1ZpLd"
+    "schema": "QmdBYWCtskyxWpHLHeuCWMQE2qTx5EiWz7CjAMyKj9cxXe"
 }

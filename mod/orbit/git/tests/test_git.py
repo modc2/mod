@@ -18,6 +18,7 @@ def g(tmp_path, monkeypatch):
     inst.oauth_path = str(tmp_path / 'oauth.json')
     inst.pending_path = str(tmp_path / 'pending.json')
     inst.access_path = str(tmp_path / 'access.json')
+    inst.sessions_path = str(tmp_path / 'sessions.json')
     inst.owner_path = str(tmp_path / 'owner.json')
     inst.host_owner_path = str(tmp_path / 'host_owner.json')
     inst.clones = str(tmp_path / 'repos')
@@ -316,6 +317,90 @@ def test_host_owner_sources_in_order(g, monkeypatch):
     assert g._host_owner() == b                         # git's own file wins
     monkeypatch.setenv('GIT_OWNER', c)
     assert g._host_owner() == c                         # …and the env wins over both
+
+
+def test_a_session_outlives_the_signature_that_made_it(g, monkeypatch):
+    """The whole point: sign once, push all month without signing again."""
+    import mod.orbit.git.mod as gitmod
+    from eth_account import Account
+    host = Account.create()
+    g.set_owner(host.address, host=True)
+    hdr = {'Authorization': f'Bearer {wallet_token(host)}'}
+    who = g._authorize(hdr, need='write')
+    assert who['via'] == 'token'
+    s = g.session(address=who['address'], label='app')
+    assert s['token'].startswith(gitmod.SESSION_PREFIX) and s['role'] == 'owner'
+    # the raw signature dies within the hour; the session does not
+    ahead = time.time() + 2 * gitmod.TOKEN_TTL
+    monkeypatch.setattr(gitmod.time, 'time', lambda: ahead)
+    with pytest.raises(PermissionError):
+        g._authorize(hdr, need='write')
+    later = g._authorize({'Authorization': f"Bearer {s['token']}"}, need='write')
+    assert later['address'] == host.address.lower()
+    assert later['role'] == 'owner' and later['via'] == 'session'
+
+
+def test_only_the_hash_of_a_session_is_stored(g):
+    s = g.session(label='app')
+    _, sid, secret = s['token'].split('.', 2)
+    raw = json.load(open(g.sessions_path))
+    assert secret not in json.dumps(raw)
+    assert raw[sid]['hash'] == g._hash(secret)
+    assert oct(os.stat(g.sessions_path).st_mode)[-3:] == '600'
+    # a wrong secret for a real id is refused, not accepted as "some session"
+    with pytest.raises(PermissionError):
+        g._authorize({'Authorization': f'Bearer gits.{sid}.wrong'}, need='write')
+    with pytest.raises(PermissionError):
+        g._authorize({'Authorization': 'Bearer gits.nosuch.secret'}, need='write')
+
+
+def test_a_session_never_outranks_the_live_acl(g):
+    from eth_account import Account
+    friend = Account.create().address.lower()
+    g.grant(friend, role='write')
+    s = g.session(address=friend)
+    hdr = {'Authorization': f"Bearer {s['token']}"}
+    assert g._authorize(hdr, need='write')['role'] == 'write'
+    with pytest.raises(PermissionError):
+        g._authorize(hdr, need='admin')          # the session didn't promote them
+    g.revoke(friend)
+    with pytest.raises(PermissionError):         # …and revoking ends it
+        g._authorize(hdr, need='write')
+
+
+def test_sessions_expire_and_sign_out(g, monkeypatch):
+    import mod.orbit.git.mod as gitmod
+    from eth_account import Account
+    mine, theirs = (Account.create().address.lower() for _ in range(2))
+    g.grant(mine, role='write')
+    g.grant(theirs, role='write')
+    a, b = g.session(address=mine, label='laptop'), g.session(address=mine, label='phone')
+    other = g.session(address=theirs)
+    assert g.sessions(address=mine)['total'] == 2
+    assert {r['label'] for r in g.sessions(address=mine)['sessions']} == {'laptop', 'phone'}
+    # one key can't end another key's session by id…
+    with pytest.raises(PermissionError):
+        g.sign_out(id=other['id'], address=mine)
+    assert g.sign_out(id=a['id'], address=mine)['ended'] == 1
+    assert g.sign_out(address=mine)['ended'] == 1          # …and "all mine" spares theirs
+    assert g.sessions(address=theirs)['total'] == 1
+    with pytest.raises(PermissionError):
+        g._authorize({'Authorization': f"Bearer {b['token']}"}, need='write')
+    # the owner can end anyone's
+    assert g.sign_out(id=other['id'], address=m.key().address)['ended'] == 1
+    other = g.session(address=theirs)
+    # expiry is enforced on use and the dead row is swept
+    ahead = time.time() + 400 * 86400
+    monkeypatch.setattr(gitmod.time, 'time', lambda: ahead)
+    with pytest.raises(PermissionError):
+        g._authorize({'Authorization': f"Bearer {other['token']}"}, need='write')
+    assert json.load(open(g.sessions_path)) == {}
+
+
+def test_no_session_for_a_key_with_no_access(g):
+    from eth_account import Account
+    with pytest.raises(PermissionError):
+        g.session(address=Account.create().address.lower())
 
 
 def test_grants_are_case_insensitive(g):

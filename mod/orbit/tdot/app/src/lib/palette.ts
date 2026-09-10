@@ -196,9 +196,96 @@ const LIGHT: MapPalette = {
   LABEL: '#16202f',
 }
 
-/** The ramps and mark colours valid on a `base`-lit map surface. */
-export function mapPalette(base: ThemeBase): MapPalette {
-  return base === 'light' ? LIGHT : DARK
+/**
+ * Per-theme magnitude ramps.
+ *
+ * A theme that only skins the panels leaves the *map* — the thing the console
+ * exists to show — identical under all ten. So the theme reaches the choropleth
+ * too, and this is the table that lets it.
+ *
+ * What is themed and what is not is a deliberate split:
+ *
+ *   themed      SEQUENTIAL / SEQUENTIAL_ALT — magnitude. "How much" carries no
+ *               meaning in its hue, only in its position along the ramp, so the
+ *               hue is free to be the theme's.
+ *   not themed  DIVERGING (polarity: up-is-bad has to stay red), SEMANTIC
+ *               (reserved status colours), CATEGORY_COLOR (identity — a crime
+ *               category must not change colour when you change skin), and TTC
+ *               line colours (network identity). Re-hueing those would make the
+ *               theme change what the map *means*, not just how it looks.
+ *
+ * Each ramp was generated in OKLCH against the lightness/chroma schedule of the
+ * two validated base ramps above, with chroma binary-searched to the sRGB gamut
+ * boundary, then checked with the dataviz `validateOrdinal` gate: all twenty
+ * pass single-hue, monotone lightness, and the ≥0.06 adjacent-ΔL step gap. They
+ * sit at the same light-end contrast as the shipped baseline (1.47:1 vs 1.46:1)
+ * — the pale end of a choropleth recedes into the basemap on purpose; that end
+ * is "least", not a mark that has to stand alone.
+ */
+const THEME_RAMPS: Record<string, Pick<MapPalette, 'SEQUENTIAL' | 'SEQUENTIAL_ALT'>> = {
+  // GLASS — hue 255° on the dark surface, alt at 45°.
+  dark: {
+    SEQUENTIAL: ['#07376b', '#135095', '#216abf', '#3987e5', '#70a6ec', '#9fc5f4', '#cee2fb'],
+    SEQUENTIAL_ALT: ['#5e2200', '#853400', '#ae4701', '#d36022', '#e08b63', '#eeb297', '#f8d8ca'],
+  },
+  // DAYLIGHT — hue 256° on the light surface, alt at 46°.
+  day: {
+    SEQUENTIAL: ['#e3edfb', '#c3d9f6', '#99bdec', '#6c9ee0', '#3b79c8', '#19559e', '#0e3667'],
+    SEQUENTIAL_ALT: ['#fae8e0', '#f2cebd', '#e5ab90', '#d5855e', '#b95925', '#8d3900', '#5c2300'],
+  },
+  // PAPER — hue 55° on the light surface, alt at 205°.
+  paper: {
+    SEQUENTIAL: ['#f9e9df', '#f0cfba', '#e2ad8a', '#d18855', '#b55d09', '#844200', '#562800'],
+    SEQUENTIAL_ALT: ['#dcf1f3', '#b4e0e6', '#7bc9d2', '#21afbc', '#008894', '#00626b', '#003f45'],
+  },
+  // TTC — hue 29° on the dark surface, alt at 179°.
+  ttc: {
+    SEQUENTIAL: ['#621c15', '#892d24', '#b14034', '#d6594b', '#e48679', '#f0afa5', '#fad6d0'],
+    SEQUENTIAL_ALT: ['#004238', '#005f51', '#007d6c', '#009d88', '#35bba5', '#87d3c2', '#c4e9e0'],
+  },
+  // MATRIX — hue 151° on the dark surface, alt at 301°.
+  matrix: {
+    SEQUENTIAL: ['#00441d', '#00622c', '#00813d', '#17a151', '#68b97d', '#9cd1a8', '#cde8d2'],
+    SEQUENTIAL_ALT: ['#412763', '#5d3b8b', '#7b51b2', '#986bd7', '#b092e2', '#cab6ed', '#e4daf7'],
+  },
+  // NEON — hue 354° on the dark surface, alt at 144°.
+  neon: {
+    SEQUENTIAL: ['#5d1b3b', '#832b56', '#a93e71', '#cd578e', '#dd83a9', '#ebadc5', '#f7d5e1'],
+    SEQUENTIAL_ALT: ['#08440d', '#14611a', '#248029', '#3d9e40', '#74b773', '#a3cfa1', '#d0e7cf'],
+  },
+  // EMBER — hue 64° on the dark surface, alt at 214°.
+  ember: {
+    SEQUENTIAL: ['#522d00', '#754300', '#995900', '#c07100', '#d7934f', '#e6b78c', '#f4dbc4'],
+    SEQUENTIAL_ALT: ['#003f4a', '#005b6a', '#00788b', '#0097af', '#29b6d1', '#83cfe1', '#c2e7f0'],
+  },
+  // ABYSS — hue 233° on the dark surface, alt at 23°.
+  abyss: {
+    SEQUENTIAL: ['#003d55', '#005879', '#00749f', '#0092c7', '#49b0e1', '#8dcbec', '#c6e5f7'],
+    SEQUENTIAL_ALT: ['#621a1d', '#892b2e', '#b13e40', '#d65758', '#e48581', '#f1aeaa', '#fad6d3'],
+  },
+  // WIN95 — hue 264° on the light surface, alt at 54°.
+  win95: {
+    SEQUENTIAL: ['#e5ecfc', '#c7d7f7', '#a1baed', '#789ae1', '#4d74ca', '#2f519f', '#1c3368'],
+    SEQUENTIAL_ALT: ['#f9e9df', '#f1cfba', '#e2ad8b', '#d18855', '#b55d0d', '#854100', '#572800'],
+  },
+  // HI-CON — hue 262° on the light surface, alt at 52°.
+  contrast: {
+    SEQUENTIAL: ['#e4edfb', '#c6d8f7', '#9fbbed', '#769be1', '#4a75c9', '#2b529f', '#1a3467'],
+    SEQUENTIAL_ALT: ['#f9e9df', '#f1cfbb', '#e3ac8c', '#d28757', '#b65c14', '#874000', '#582700'],
+  },
+}
+
+/**
+ * The ramps and mark colours valid on a `base`-lit map surface, with the
+ * theme's own magnitude ramps swapped in.
+ *
+ * `theme` is optional so a caller that only knows the surface still gets a
+ * correct palette — it just gets the house blue rather than the theme's hue.
+ */
+export function mapPalette(base: ThemeBase, theme?: string): MapPalette {
+  const surface = base === 'light' ? LIGHT : DARK
+  const ramps = theme ? THEME_RAMPS[theme] : undefined
+  return ramps ? { ...surface, ...ramps } : surface
 }
 
 /**

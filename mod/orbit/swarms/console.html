@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>swarms — a runtime and a token</title>
+<style>
+  :root{
+    --bg:#07080c; --panel:#0d0f15; --panel2:#11141c; --line:#1d2130; --ink:#dce1eb;
+    --dim:#6c7590; --hot:#5ee0c0; --hot2:#9df3de; --good:#4ade80; --warn:#fbbf24;
+    --bad:#f87171; --gold:#e0b65e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:baseline;gap:14px;padding:13px 18px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:9}
+  h1{font-size:15px;margin:0;letter-spacing:.14em}
+  h1 b{color:var(--hot2)}
+  .sub{color:var(--dim);font-size:11px}
+  nav{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+  nav button{background:none;border:1px solid var(--line);color:var(--dim);
+             padding:5px 12px;cursor:pointer;font:inherit;font-size:11px;letter-spacing:.1em}
+  nav button:hover{color:var(--hot2);border-color:#28405a}
+  nav button.on{color:#04120e;background:var(--hot);border-color:var(--hot)}
+  main{padding:16px 18px;max-width:1500px}
+  section{display:none} section.on{display:block}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select,textarea{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+               padding:6px 9px;font:inherit}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--hot)}
+  textarea{width:100%;resize:vertical;line-height:1.5}
+  label.chk{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer}
+  button.go{background:var(--hot);color:#04120e;border:none;padding:7px 16px;
+            cursor:pointer;font:inherit;font-weight:600;letter-spacing:.08em}
+  button.go:disabled{opacity:.45;cursor:wait}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
+               padding:3px 9px;cursor:pointer;font:inherit;font-size:11px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot2)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
+     padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #11141c;vertical-align:top}
+  tr:hover td{background:#0e1119}
+  .p{display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:2px;
+     font-size:10px;color:var(--dim);margin:0 3px 3px 0}
+  .p.on{color:var(--hot2);border-color:#1d4a41}
+  .p.gold{color:var(--gold);border-color:#4a3c1d}
+  .p.bad{color:var(--bad);border-color:#4a1d1d}
+  .good{color:var(--good)} .warnv{color:var(--warn)} .badv{color:var(--bad)}
+  .dimtxt{color:var(--dim)} .id{color:var(--hot2)}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
+      font-size:11px;max-height:70vh;white-space:pre-wrap;word-break:break-word;margin:0}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px;margin-left:auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:12px}
+  .card h3{margin:0 0 6px;font-size:12px;letter-spacing:.1em;color:var(--dim)}
+  .card .big{font-size:22px;color:var(--hot2);line-height:1.2}
+  .card p{margin:6px 0 0;font-size:11px;color:var(--dim)}
+  .row{display:flex;justify-content:space-between;gap:8px;font-size:11px;
+       color:var(--dim);padding:2px 0}
+  .row b{color:var(--ink);font-weight:400}
+  .split{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:14px}
+  @media(max-width:900px){.split{grid-template-columns:1fr}}
+  .arch{background:var(--panel);border:1px solid var(--line);padding:10px;cursor:pointer}
+  .arch:hover{border-color:#28405a}
+  .arch.on{border-color:var(--hot);background:#0c1a17}
+  .arch h4{margin:0;font-size:12px;color:var(--hot2);letter-spacing:.06em}
+  .arch p{margin:4px 0 0;font-size:10.5px;color:var(--dim)}
+  h2{font-size:12px;letter-spacing:.14em;color:var(--dim);margin:18px 0 8px;
+     text-transform:uppercase;font-weight:400}
+  h2:first-child{margin-top:0}
+  .guard{border:1px solid #4a3c1d;background:#17130a;padding:10px;margin:10px 0;font-size:11.5px}
+  .guard b{color:var(--gold)}
+  a{color:var(--hot2)}
+  .stat{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>✦ <b>SWARMS</b></h1>
+  <span class="sub">a multi-agent runtime, and the token it is priced in</span>
+  <nav>
+    <button data-t="swarm" class="on">SWARM</button>
+    <button data-t="agent">AGENT</button>
+    <button data-t="market">MARKET</button>
+    <button data-t="token">$SWARMS</button>
+    <button data-t="account">ACCOUNT</button>
+    <button data-t="mcp">MCP</button>
+  </nav>
+</header>
+
+<main>
+
+<!-- ── SWARM ─────────────────────────────────────────────────── -->
+<section id="swarm" class="on">
+  <div class="split">
+    <div>
+      <h2>architecture</h2>
+      <div class="note">Picking this <i>is</i> the design decision — they all cost about
+        the same and produce very different work.</div>
+      <div id="archlist" style="display:grid;gap:6px;max-height:62vh;overflow:auto"></div>
+    </div>
+    <div>
+      <h2>the task</h2>
+      <textarea id="task" rows="4" placeholder="What should the swarm accomplish?"></textarea>
+      <div class="bar" style="margin-top:8px">
+        <input id="agents" placeholder="agents: researcher, analyst, critic" style="flex:1;min-width:260px">
+        <input id="loops" type="number" value="1" min="1" max="50" title="max_loops" style="width:80px">
+        <button class="ghost" id="autobuild">BUILD ROSTER FROM TASK</button>
+      </div>
+      <div class="bar">
+        <span class="dimtxt" id="picked">swarm_type: auto</span>
+        <label class="chk"><input type="checkbox" id="collab"> collaborate</label>
+        <label class="chk"><input type="checkbox" id="listall"> agents see each other</label>
+        <span class="flash" id="f-swarm"></span>
+      </div>
+      <div id="estimate"></div>
+      <div class="bar">
+        <button class="go" id="run">RUN SWARM</button>
+        <button class="ghost" id="estimatebtn">ESTIMATE COST</button>
+      </div>
+      <pre id="out-swarm">Pick an architecture, describe the task, press RUN.
+
+If you do not know what agents the task needs, press BUILD ROSTER FROM TASK —
+that is one cheap agent call, and it hands back a roster you can read and edit
+before paying to run it.</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ── AGENT ─────────────────────────────────────────────────── -->
+<section id="agent">
+  <div class="split">
+    <div>
+      <h2>one agent</h2>
+      <div class="note">The cheap path: one model, one system prompt, no committee.</div>
+      <div style="display:grid;gap:6px">
+        <input id="a-name" placeholder="agent name">
+        <select id="a-model"><option value="">model (default)</option></select>
+        <textarea id="a-system" rows="5" placeholder="system prompt"></textarea>
+        <div class="bar" style="margin:0">
+          <input id="a-temp" type="number" step="0.1" min="0" max="2" placeholder="temp" style="width:90px">
+          <input id="a-max" type="number" placeholder="max_tokens" style="width:120px">
+          <label class="chk"><input type="checkbox" id="a-reason"> reasoning</label>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h2>the task</h2>
+      <textarea id="a-task" rows="5" placeholder="What should the agent do?"></textarea>
+      <div class="bar" style="margin-top:8px">
+        <button class="go" id="a-run">RUN AGENT</button>
+        <span class="flash" id="f-agent"></span>
+      </div>
+      <pre id="out-agent">One agent, one task.</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ── MARKET ────────────────────────────────────────────────── -->
+<section id="market">
+  <div class="bar">
+    <select id="m-kind">
+      <option value="agents">agents</option>
+      <option value="prompts">prompts</option>
+      <option value="tools">tools</option>
+    </select>
+    <input id="m-q" placeholder="filter…" style="flex:1;min-width:200px">
+    <input id="m-limit" type="number" value="30" style="width:80px">
+    <button class="go" id="m-go">LOAD</button>
+    <span class="flash" id="f-market"></span>
+  </div>
+  <div class="note">swarms.world listings. Public — this is the one part of the runtime
+    that needs no key. A prompt id here works as <code>marketplace_prompt_id</code> on
+    any agent.</div>
+  <div class="cards" id="m-cards"></div>
+</section>
+
+<!-- ── TOKEN ─────────────────────────────────────────────────── -->
+<section id="token">
+  <div class="bar">
+    <input id="t-mint" placeholder="mint (blank = $swarms)" style="flex:1;min-width:340px">
+    <button class="go" id="t-go">LOAD</button>
+    <span class="flash" id="f-token"></span>
+  </div>
+  <div class="cards" id="t-cards"></div>
+
+  <h2>venues</h2>
+  <table><thead><tr><th>dex</th><th>pair</th><th>price</th><th>liquidity</th>
+    <th>24h vol</th><th>24h</th></tr></thead><tbody id="t-pools"></tbody></table>
+
+  <div class="split" style="margin-top:18px">
+    <div>
+      <h2>a wallet</h2>
+      <div class="bar">
+        <input id="t-owner" placeholder="Solana address" style="flex:1;min-width:220px">
+        <button class="ghost" id="t-bal">BALANCE</button>
+      </div>
+      <pre id="out-bal" style="max-height:30vh">SOL, $swarms, and what it is worth.</pre>
+    </div>
+    <div>
+      <h2>what a position would cost</h2>
+      <div class="bar">
+        <select id="q-side"><option value="buy">buy</option><option value="sell">sell</option></select>
+        <input id="q-amount" type="number" step="0.1" value="1" style="width:100px">
+        <select id="q-pay"><option>SOL</option><option>USDC</option></select>
+        <input id="q-slip" type="number" value="100" title="slippage bps" style="width:90px">
+        <button class="ghost" id="q-go">QUOTE</button>
+      </div>
+      <div class="note">A quote, never a trade — this module holds no keypair and
+        cannot sign or submit a Solana transaction.</div>
+      <pre id="out-quote" style="max-height:30vh">Price impact on a thin pair is the real cost of size.</pre>
+    </div>
+  </div>
+
+  <h2>concentration</h2>
+  <div class="note">Largest token <i>accounts</i> — a liquidity pool and an exchange's
+    hot wallet each show up as one holder, so read this as concentration, not a rich list.</div>
+  <div class="bar"><button class="ghost" id="t-holders">LOAD HOLDERS</button></div>
+  <table><thead><tr><th>#</th><th>account</th><th>amount</th><th>% of supply</th></tr></thead>
+    <tbody id="t-hold"></tbody></table>
+</section>
+
+<!-- ── ACCOUNT ───────────────────────────────────────────────── -->
+<section id="account">
+  <div class="bar">
+    <input id="k-key" type="password" placeholder="Swarms API key — stays in this browser unless you store it" style="flex:1;min-width:320px">
+    <button class="ghost" id="k-use">USE FOR THIS BROWSER</button>
+    <button class="ghost" id="k-store">STORE ON SERVER</button>
+    <button class="ghost" id="k-clear">CLEAR</button>
+    <span class="flash" id="f-key"></span>
+  </div>
+  <div class="note">BYOK. Every completion spends the caller's own Swarms credits —
+    this module holds no house key. USE FOR THIS BROWSER keeps the key in localStorage
+    and sends it as <code>x-swarms-key</code>; STORE ON SERVER writes it to
+    <code>~/.mod/swarms/key.json</code> (0600) for everyone using this box.
+    Get one at <a href="https://swarms.world/platform/api-keys" target="_blank">swarms.world/platform/api-keys</a>.</div>
+  <div class="cards" id="acct-cards"></div>
+  <h2>cost model</h2>
+  <div class="bar">
+    <input id="c-agents" type="number" value="5" style="width:90px" title="agents">
+    <input id="c-loops" type="number" value="1" style="width:90px" title="loops">
+    <input id="c-in" type="number" value="2000" style="width:110px" title="input tokens">
+    <input id="c-out" type="number" value="2000" style="width:110px" title="output tokens">
+    <button class="ghost" id="c-go">PRICE IT</button>
+  </div>
+  <pre id="out-acct" style="max-height:40vh">Credits, rate limits, live pricing.</pre>
+</section>
+
+<!-- ── MCP ───────────────────────────────────────────────────── -->
+<section id="mcp">
+  <div class="stat" id="mcp-stat"></div>
+  <div class="note">Every tool below is the same code the REST routes and this console
+    run. Point a client at <code id="mcp-ep"></code>.</div>
+  <div class="cards" id="mcp-tools"></div>
+  <h2>client config</h2>
+  <pre id="out-mcp">loading…</pre>
+</section>
+
+</main>
+
+<script>
+const API = (location.pathname.replace(/\/$/,'').replace(/\/index\.html$/,'') || '') + '/_api';
+const $ = s => document.querySelector(s);
+const el = (t, c, x) => { const n = document.createElement(t); if (c) n.className = c;
+                          if (x !== undefined) n.textContent = x; return n; };
+const KEYSTORE = 'swarms.key';
+
+function headers() {
+  const h = {'content-type': 'application/json'};
+  const k = localStorage.getItem(KEYSTORE);
+  if (k) h['x-swarms-key'] = k;
+  return h;
+}
+
+async function call(path, opts = {}) {
+  const r = await fetch(API + path, {...opts, headers: {...headers(), ...(opts.headers||{})}});
+  const body = await r.json().catch(() => ({error: `${r.status} — not JSON`}));
+  if (!r.ok) throw Object.assign(new Error(body.error || `HTTP ${r.status}`), {body});
+  return body;
+}
+
+const j = o => JSON.stringify(o, null, 2);
+const usd = v => (typeof v === 'number')
+  ? '$' + (Math.abs(v) < 0.01 ? v.toPrecision(3) : v.toLocaleString(undefined,
+      {minimumFractionDigits: 2, maximumFractionDigits: 2})) : '—';
+const big = v => (typeof v === 'number')
+  ? (v >= 1e9 ? (v/1e9).toFixed(2)+'B' : v >= 1e6 ? (v/1e6).toFixed(2)+'M'
+     : v >= 1e3 ? (v/1e3).toFixed(1)+'K' : v.toFixed(2)) : '—';
+const pct = v => typeof v === 'number'
+  ? `<span class="${v >= 0 ? 'good' : 'badv'}">${v >= 0 ? '+' : ''}${v.toFixed(2)}%</span>` : '—';
+
+function flash(id, msg, bad) {
+  const n = $(id); n.textContent = msg || '';
+  n.style.color = bad ? 'var(--bad)' : 'var(--warn)';
+}
+
+// ── tabs ──
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.t));
+  if (b.dataset.t === 'token' && !$('#t-cards').children.length) loadToken();
+  if (b.dataset.t === 'market' && !$('#m-cards').children.length) loadMarket();
+  if (b.dataset.t === 'account') loadAccount();
+  if (b.dataset.t === 'mcp' && !$('#mcp-tools').children.length) loadMcp();
+});
+
+// ── swarm ──
+let SWARM_TYPE = 'auto';
+
+async function loadArchitectures() {
+  const box = $('#archlist');
+  box.innerHTML = '';
+  let rows;
+  try {
+    const out = await call('/architectures');
+    rows = (out.swarm_types || []).map(t => typeof t === 'string' ? {swarm_type: t} : t);
+    if (out.note) $('#f-swarm').textContent = out.note;
+  } catch (e) { box.append(el('div', 'note', e.message)); return; }
+  rows.forEach(t => {
+    const name = t.swarm_type || t.name;
+    const d = el('div', 'arch' + (name === SWARM_TYPE ? ' on' : ''));
+    d.append(el('h4', '', t.name && t.name !== name ? `${name} — ${t.name}` : name));
+    if (t.description) d.append(el('p', '', t.description));
+    if (t.best_for && t.best_for.length) {
+      const p = el('div'); t.best_for.slice(0, 4).forEach(b => p.append(el('span', 'p', b)));
+      d.append(p);
+    }
+    d.onclick = () => {
+      SWARM_TYPE = name;
+      $('#picked').textContent = 'swarm_type: ' + name;
+      box.querySelectorAll('.arch').forEach(x => x.classList.toggle('on', x === d));
+    };
+    box.append(d);
+  });
+}
+
+function rosterFromInput() {
+  const raw = $('#agents').value.trim();
+  if (!raw) return null;
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function showEstimate(q) {
+  const n = $('#estimate');
+  n.innerHTML = '';
+  if (!q) return;
+  const d = el('div', 'guard');
+  d.innerHTML = `<b>${usd(q.usd.total)}</b> upper bound — ${q.agent_calls} agent call(s): ` +
+    `${usd(q.usd.agents)} per-agent + ${usd(q.usd.input)} in + ${usd(q.usd.output)} out. ` +
+    `Guard is ${usd(q.guard_usd)}. <span class="dimtxt">${q.basis}</span>`;
+  n.append(d);
+}
+
+$('#estimatebtn').onclick = async () => {
+  const agents = rosterFromInput();
+  try {
+    const q = await call(`/cost?agents=${(agents || []).length || 1}&loops=${$('#loops').value || 1}`);
+    showEstimate(q);
+  } catch (e) { flash('#f-swarm', e.message, true); }
+};
+
+$('#autobuild').onclick = async () => {
+  const task = $('#task').value.trim();
+  if (!task) return flash('#f-swarm', 'describe the task first', true);
+  const b = $('#autobuild'); b.disabled = true; flash('#f-swarm', 'building a roster…');
+  $('#out-swarm').textContent = 'thinking about what agents this needs…';
+  try {
+    const out = await call('/build', {method: 'POST', body: JSON.stringify({task, confirm: true})});
+    $('#out-swarm').textContent = j(out);
+    const found = findAgents(out);
+    if (found.length) {
+      $('#agents').value = found.map(a => a.agent_name || a.name).filter(Boolean).join(', ');
+      flash('#f-swarm', `${found.length} agents proposed — edit the roster, then RUN`);
+    } else flash('#f-swarm', 'built — see the output for the roster');
+  } catch (e) { $('#out-swarm').textContent = j(e.body || e.message);
+                flash('#f-swarm', e.message, true); }
+  b.disabled = false;
+};
+
+// The builder's response shape has moved between API versions, so find the
+// roster wherever it happens to be rather than pinning one path.
+function findAgents(o, depth = 0) {
+  if (!o || depth > 5) return [];
+  if (Array.isArray(o)) {
+    if (o.length && o.every(x => x && typeof x === 'object' && (x.agent_name || x.system_prompt)))
+      return o;
+    return o.flatMap(x => findAgents(x, depth + 1));
+  }
+  if (typeof o === 'object') return Object.values(o).flatMap(v => findAgents(v, depth + 1));
+  return [];
+}
+
+$('#run').onclick = async () => {
+  const task = $('#task').value.trim();
+  if (!task) return flash('#f-swarm', 'describe the task first', true);
+  const body = {task, swarm_type: SWARM_TYPE, max_loops: Number($('#loops').value) || 1};
+  const agents = rosterFromInput();
+  if (agents) body.agents = agents;
+  if ($('#collab').checked) body.multi_agent_collab_prompt = true;
+  if ($('#listall').checked) body.list_all_agents = true;
+  const b = $('#run'); b.disabled = true;
+  flash('#f-swarm', 'running — swarms take a while');
+  $('#out-swarm').textContent = `running ${SWARM_TYPE}…`;
+  try {
+    let out = await call('/run', {method: 'POST', body: JSON.stringify(body)});
+    if (out.needs_confirm) {
+      showEstimate(out.estimate);
+      if (confirm(`${out.reason}\n\nRun it anyway?`)) {
+        $('#out-swarm').textContent = 'confirmed — running…';
+        out = await call('/run', {method: 'POST',
+                                  body: JSON.stringify({...body, confirm: true})});
+      } else { flash('#f-swarm', 'held'); b.disabled = false;
+               $('#out-swarm').textContent = j(out); return; }
+    }
+    $('#out-swarm').textContent = j(out);
+    flash('#f-swarm', 'done');
+  } catch (e) { $('#out-swarm').textContent = j(e.body || e.message);
+                flash('#f-swarm', e.message, true); }
+  b.disabled = false;
+};
+
+// ── agent ──
+async function loadModels() {
+  try {
+    const out = await call('/models');
+    const sel = $('#a-model');
+    (out.models || []).forEach(m => {
+      const id = typeof m === 'string' ? m : (m.id || m.name || m.model_name);
+      if (!id) return;
+      const o = el('option', '', id); o.value = id; sel.append(o);
+    });
+  } catch (e) { /* no key yet — the default model still works */ }
+}
+
+$('#a-run').onclick = async () => {
+  const task = $('#a-task').value.trim();
+  if (!task) return flash('#f-agent', 'give it a task', true);
+  const body = {task};
+  const map = {agent_name: '#a-name', system_prompt: '#a-system', model_name: '#a-model'};
+  for (const [k, sel] of Object.entries(map)) { const v = $(sel).value.trim(); if (v) body[k] = v; }
+  if ($('#a-temp').value) body.temperature = Number($('#a-temp').value);
+  if ($('#a-max').value) body.max_tokens = Number($('#a-max').value);
+  if ($('#a-reason').checked) body.reasoning_enabled = true;
+  const b = $('#a-run'); b.disabled = true; flash('#f-agent', 'running…');
+  $('#out-agent').textContent = 'running…';
+  try {
+    let out = await call('/agent', {method: 'POST', body: JSON.stringify(body)});
+    if (out.needs_confirm && confirm(`${out.reason}\n\nRun it anyway?`))
+      out = await call('/agent', {method: 'POST',
+                                  body: JSON.stringify({...body, confirm: true})});
+    $('#out-agent').textContent = j(out);
+    flash('#f-agent', 'done');
+  } catch (e) { $('#out-agent').textContent = j(e.body || e.message);
+                flash('#f-agent', e.message, true); }
+  b.disabled = false;
+};
+
+// ── market ──
+async function loadMarket() {
+  const box = $('#m-cards'); box.innerHTML = '';
+  flash('#f-market', 'loading…');
+  try {
+    const q = new URLSearchParams({kind: $('#m-kind').value, limit: $('#m-limit').value || 30});
+    if ($('#m-q').value.trim()) q.set('q', $('#m-q').value.trim());
+    const out = await call('/market?' + q);
+    flash('#f-market', `${out.count} of ${out.total}`);
+    (out.items || []).forEach(it => {
+      const c = el('div', 'card');
+      c.append(el('h3', '', it.name || it.title || it.id || '—'));
+      const d = (it.description || '').slice(0, 260);
+      if (d) c.append(el('p', '', d));
+      const tags = el('div'); tags.style.marginTop = '8px';
+      (it.tags ? String(it.tags).split(',') : []).slice(0, 5).forEach(t =>
+        t.trim() && tags.append(el('span', 'p', t.trim())));
+      if (it.is_free === true) tags.append(el('span', 'p on', 'free'));
+      if (it.price_usd) tags.append(el('span', 'p gold', '$' + it.price_usd));
+      if (it.use_cases && it.use_cases.length)
+        tags.append(el('span', 'p', `${it.use_cases.length} use cases`));
+      c.append(tags);
+      if (it.id) {
+        const idl = el('div', 'dimtxt'); idl.style.fontSize = '10px';
+        idl.style.marginTop = '6px'; idl.textContent = it.id;
+        c.append(idl);
+      }
+      box.append(c);
+    });
+    if (!(out.items || []).length) box.append(el('div', 'note', 'nothing matched'));
+  } catch (e) { flash('#f-market', e.message, true); }
+}
+$('#m-go').onclick = loadMarket;
+$('#m-q').onkeydown = e => { if (e.key === 'Enter') loadMarket(); };
+
+// ── token ──
+async function loadToken() {
+  flash('#f-token', 'reading the chain…');
+  const box = $('#t-cards'); box.innerHTML = '';
+  const mint = $('#t-mint').value.trim();
+  try {
+    const t = await call('/token' + (mint ? '?mint=' + encodeURIComponent(mint) : ''));
+    const p = t.price || {}, m = t.market || {}, s = t.supply || {}, md = t.metadata || {};
+    const cards = [
+      ['PRICE', usd(p.usd), p.change_24h_pct !== undefined ? `24h ${pct(p.change_24h_pct)}` : ''],
+      ['MARKET CAP', usd(t.fdv_usd ?? m.market_cap), 'price × on-chain supply'],
+      ['LIQUIDITY', usd(m.liquidity_usd), `${m.venues || 0} venue(s)`],
+      ['24H VOLUME', usd(m.volume_24h_usd), ''],
+      ['SUPPLY', big(s.supply), `${s.decimals ?? '—'} decimals`],
+      ['TOKEN', md.symbol || (t.is_swarms ? 'swarms' : '?'), md.name || ''],
+    ];
+    cards.forEach(([h, v, sub]) => {
+      const c = el('div', 'card');
+      c.append(el('h3', '', h));
+      c.append(el('div', 'big', v));
+      if (sub) { const n = el('p'); n.innerHTML = sub; c.append(n); }
+      box.append(c);
+    });
+    const idc = el('div', 'card');
+    idc.append(el('h3', '', 'MINT'));
+    const a = el('a', 'id', t.mint); a.href = t.explorer; a.target = '_blank';
+    a.style.fontSize = '10.5px'; a.style.wordBreak = 'break-all';
+    idc.append(a);
+    const tag = el('div'); tag.style.marginTop = '8px';
+    tag.append(el('span', 'p' + (t.is_swarms ? ' on' : ' bad'),
+                  t.is_swarms ? 'the real $swarms' : 'NOT the $swarms mint'));
+    tag.append(el('span', 'p', 'read-only'));
+    idc.append(tag);
+    box.append(idc);
+
+    const tb = $('#t-pools'); tb.innerHTML = '';
+    (m.pools || []).forEach(pl => {
+      const tr = el('tr');
+      tr.innerHTML = `<td class="id">${pl.dex || '—'}</td>
+        <td class="dimtxt" style="font-size:10px">${(pl.base||'')}/${(pl.quote||'')}</td>
+        <td>${usd(pl.price_usd)}</td><td>${usd(pl.liquidity_usd)}</td>
+        <td>${usd(pl.volume_24h)}</td><td>${pct(pl.change_24h_pct)}</td>`;
+      tb.append(tr);
+    });
+    flash('#f-token', p.usd ? '' : 'no price — check the mint');
+  } catch (e) { flash('#f-token', e.message, true); }
+}
+$('#t-go').onclick = loadToken;
+
+$('#t-bal').onclick = async () => {
+  const owner = $('#t-owner').value.trim();
+  if (!owner) return flash('#f-token', 'paste an address', true);
+  $('#out-bal').textContent = 'reading…';
+  const mint = $('#t-mint').value.trim();
+  try {
+    const q = new URLSearchParams({owner}); if (mint) q.set('mint', mint);
+    $('#out-bal').textContent = j(await call('/balance?' + q));
+  } catch (e) { $('#out-bal').textContent = j(e.body || e.message); }
+};
+
+$('#q-go').onclick = async () => {
+  $('#out-quote').textContent = 'routing…';
+  const q = new URLSearchParams({side: $('#q-side').value, amount: $('#q-amount').value,
+                                 pay_with: $('#q-pay').value, slippage_bps: $('#q-slip').value});
+  const mint = $('#t-mint').value.trim(); if (mint) q.set('mint', mint);
+  try { $('#out-quote').textContent = j(await call('/quote?' + q)); }
+  catch (e) { $('#out-quote').textContent = j(e.body || e.message); }
+};
+
+$('#t-holders').onclick = async () => {
+  const tb = $('#t-hold'); tb.innerHTML = '';
+  flash('#f-token', 'reading holders…');
+  const mint = $('#t-mint').value.trim();
+  try {
+    const out = await call('/holders?limit=20' + (mint ? '&mint=' + encodeURIComponent(mint) : ''));
+    (out.holders || []).forEach((h, i) => {
+      const tr = el('tr');
+      tr.innerHTML = `<td class="dimtxt">${i + 1}</td>
+        <td class="id" style="font-size:10.5px">${h.account}</td>
+        <td>${big(h.amount)}</td>
+        <td>${h.pct_of_supply != null ? h.pct_of_supply.toFixed(2) + '%' : '—'}</td>`;
+      tb.append(tr);
+    });
+    flash('#f-token', out.note || '');
+  } catch (e) {
+    flash('#f-token', e.message, true);
+    const tr = el('tr');
+    tr.innerHTML = `<td colspan="4" class="dimtxt">${(e.body && e.body.hint) || e.message}</td>`;
+    tb.append(tr);
+  }
+};
+
+// ── account ──
+$('#k-use').onclick = () => {
+  const k = $('#k-key').value.trim();
+  if (!k) return flash('#f-key', 'paste a key first', true);
+  localStorage.setItem(KEYSTORE, k);
+  $('#k-key').value = '';
+  flash('#f-key', 'held in this browser only');
+  loadAccount(); loadModels();
+};
+$('#k-clear').onclick = () => { localStorage.removeItem(KEYSTORE);
+                                flash('#f-key', 'cleared'); loadAccount(); };
+$('#k-store').onclick = async () => {
+  const k = $('#k-key').value.trim() || localStorage.getItem(KEYSTORE);
+  if (!k) return flash('#f-key', 'paste a key first', true);
+  try {
+    const out = await call('/set_key', {method: 'POST', body: JSON.stringify({key: k})});
+    flash('#f-key', `stored ${out.key} at ${out.stored}`);
+    $('#k-key').value = '';
+  } catch (e) { flash('#f-key', e.message, true); }
+};
+
+async function loadAccount() {
+  const box = $('#acct-cards'); box.innerHTML = '';
+  try {
+    const out = await call('/account');
+    $('#out-acct').textContent = j(out);
+    const k = out.key || {};
+    const credits = out.credits || {};
+    const rl = (out.rate_limits || {}).rate_limits || out.rate_limits || {};
+    const bal = credits.credit_balance ?? credits.credits ?? credits.balance;
+    const cards = [
+      ['KEY', k.key || 'none', k.source ? `from ${k.source}` : 'set one below'],
+      ['CREDITS', typeof bal === 'number' ? usd(bal) : (bal ?? '—'), 'account balance'],
+      ['SPEND GUARD', usd(k.spend_guard_usd), 'runs above this need confirm'],
+      ['RATE LIMIT', String((rl.limits || {}).maximum_requests_per_minute ?? '—'), 'requests / minute'],
+    ];
+    cards.forEach(([h, v, sub]) => {
+      const c = el('div', 'card');
+      c.append(el('h3', '', h)); c.append(el('div', 'big', String(v)));
+      if (sub) c.append(el('p', '', sub));
+      box.append(c);
+    });
+  } catch (e) { $('#out-acct').textContent = j(e.body || e.message); }
+}
+
+$('#c-go').onclick = async () => {
+  const q = new URLSearchParams({agents: $('#c-agents').value, loops: $('#c-loops').value,
+                                 input_tokens: $('#c-in').value, output_tokens: $('#c-out').value});
+  try { $('#out-acct').textContent = j(await call('/cost?' + q)); }
+  catch (e) { $('#out-acct').textContent = j(e.body || e.message); }
+};
+
+// ── mcp ──
+async function loadMcp() {
+  try {
+    const [t, cfg] = await Promise.all([call('/mcp_tools'), call('/mcp_config')]);
+    $('#mcp-ep').textContent = cfg.endpoint;
+    const stat = $('#mcp-stat'); stat.innerHTML = '';
+    stat.append(el('span', 'p on', `${t.count} tools`));
+    stat.append(el('span', 'p', 'streamable http'));
+    stat.append(el('span', 'p', 'stdio'));
+    stat.append(el('span', 'p', 'json-rpc 2.0'));
+    const box = $('#mcp-tools'); box.innerHTML = '';
+    (t.tools || []).forEach(tool => {
+      const c = el('div', 'card');
+      c.append(el('h3', '', tool.name));
+      c.append(el('p', '', tool.description));
+      const args = Object.keys((tool.inputSchema || {}).properties || {});
+      const tags = el('div'); tags.style.marginTop = '8px';
+      const required = (tool.inputSchema || {}).required || [];
+      args.slice(0, 8).forEach(a =>
+        tags.append(el('span', 'p' + (required.includes(a) ? ' on' : ''), a)));
+      if (!args.length) tags.append(el('span', 'p', 'no arguments'));
+      c.append(tags);
+      box.append(c);
+    });
+    $('#out-mcp').textContent = `# Claude Code\n${cfg.claude_cli}\n\n` +
+      `# HTTP\n${j(cfg.http)}\n\n# stdio\n${j(cfg.stdio)}`;
+  } catch (e) { $('#out-mcp').textContent = j(e.body || e.message); }
+}
+
+// ── boot ──
+loadArchitectures();
+loadModels();
+</script>
+</body>
+</html>

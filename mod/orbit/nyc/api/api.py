@@ -15,19 +15,22 @@ import os
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 import mod as m
+from nycgis import layers as L
+from nycgis import mcp_server as mcp
 from nycgis import tools
 from nycgis.mcp_server import INSTRUCTIONS, PROTOCOL_VERSION, SERVER_INFO
 
@@ -50,7 +53,10 @@ app = FastAPI(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
-                   allow_methods=['*'], allow_headers=['*'])
+                   allow_methods=['*'], allow_headers=['*'],
+                   # A browser MCP client cannot read the session it was just
+                   # issued unless the header is explicitly exposed to it.
+                   expose_headers=['Mcp-Session-Id', 'MCP-Protocol-Version'])
 
 # Layer geometry changes daily at most; let the browser hold onto it.
 LAYER_CACHE = 'public, max-age=3600, stale-while-revalidate=86400'
@@ -122,7 +128,9 @@ def sales(
 def layer(layer_id: str):
     """Any catalogue layer as a GeoJSON FeatureCollection."""
     try:
-        return geo(nyc().layer(layer_id))
+        # Live layers (traffic speeds) carry their own, much shorter lifetime.
+        return geo(nyc().layer(layer_id),
+                   cache=L.cache_control(layer_id, LAYER_CACHE))
     except KeyError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -144,6 +152,16 @@ def prices(since: str = Query('2024-01-01'), until: Optional[str] = Query(None),
     """City-wide price summary: totals, most/least expensive, biggest movers."""
     return geo(nyc().prices(since=since, until=until, property_type=property_type),
                cache='public, max-age=3600')
+
+
+@app.get('/traffic')
+def traffic(street: str = Query(''), borough: str = Query(''),
+            hour: Optional[int] = Query(None, ge=0, le=23),
+            limit: int = Query(20, ge=1, le=200)):
+    """When to drive: hourly volume profiles plus the live speed picture."""
+    return geo(nyc().traffic(street=street, borough=borough, hour=hour,
+                             limit=limit),
+               cache='public, max-age=180')
 
 
 @app.get('/rents')
@@ -196,11 +214,25 @@ def cache():
 
 @app.get('/tools')
 def tools_list():
-    """Every tool, grouped — the same registry the MCP servers expose."""
-    return {'count': len(tools.TOOLS), 'groups': tools.groups(),
-            'tools': tools.list_tools(),
-            'mcp': {'http': '/nyc/api/mcp',
-                    'stdio': 'python3 -m nycgis.mcp_server'}}
+    """
+    The whole MCP surface as plain JSON — tools, prompts and resources, from
+    the same registry both transports serve. The docs page renders itself from
+    this, so a tool added to the registry documents itself.
+    """
+    return geo({
+        'count': len(tools.TOOLS),
+        'groups': tools.groups(),
+        'tools': tools.list_tools(),
+        'prompts': mcp._prompt_list(),
+        'resources': mcp._resources(),
+        'server': mcp.SERVER_INFO,
+        'instructions': INSTRUCTIONS,
+        'mcp': {'http': '/nyc/api/mcp',
+                'stdio': 'python3 -m nycgis.mcp_server',
+                'protocol': PROTOCOL_VERSION,
+                'supported': list(mcp.SUPPORTED_PROTOCOLS),
+                'capabilities': mcp.CAPABILITIES},
+    }, cache='public, max-age=300')
 
 
 @app.post('/tools/{name}')
@@ -221,39 +253,36 @@ async def tools_call(name: str, request: Request):
             'ok': False, 'tool': name, 'error': f'{type(e).__name__}: {e}'})
 
 
-def _mcp_handle(msg: dict):
-    method = msg.get('method')
-    id_ = msg.get('id')
-    if id_ is None:  # notification
-        return None
-    if method == 'initialize':
-        client_ver = (msg.get('params') or {}).get('protocolVersion')
-        result = {'protocolVersion': client_ver or PROTOCOL_VERSION,
-                  'capabilities': {'tools': {}}, 'serverInfo': SERVER_INFO,
-                  'instructions': INSTRUCTIONS}
-    elif method == 'ping':
-        result = {}
-    elif method == 'tools/list':
-        result = {'tools': tools.list_tools()}
-    elif method == 'tools/call':
-        params = msg.get('params') or {}
-        try:
-            out = tools.call_tool(params.get('name'), params.get('arguments') or {})
-            result = {'content': [{'type': 'text',
-                                   'text': json.dumps(out, indent=2, default=str)}],
-                      'isError': False}
-        except Exception as e:
-            result = {'content': [{'type': 'text',
-                                   'text': f'{type(e).__name__}: {e}'}],
-                      'isError': True}
-    else:
-        return {'jsonrpc': '2.0', 'id': id_,
-                'error': {'code': -32601, 'message': f'method not found: {method}'}}
-    return {'jsonrpc': '2.0', 'id': id_, 'result': result}
+# ── MCP streamable HTTP ──────────────────────────────────────────────────
+#
+# The JSON-RPC dispatch itself lives in nycgis.mcp_server and is shared with
+# the stdio transport; everything here is HTTP framing around it. Sessions are
+# tracked so a client that is handed an id gets told when it has gone stale
+# (a restarted API), but a client that sends no id at all is still served —
+# every tool is read-only and stateless, so there is nothing to protect.
+
+MCP_SESSIONS: set[str] = set()
+
+
+def _mcp_headers(session: Optional[str] = None) -> dict:
+    h = {'MCP-Protocol-Version': PROTOCOL_VERSION}
+    if session:
+        h['Mcp-Session-Id'] = session
+    return h
+
+
+def _sse(payloads: list) -> StreamingResponse:
+    """One JSON-RPC reply per SSE event, for clients that ask for a stream."""
+    def gen():
+        for p in payloads:
+            yield f'data: {json.dumps(p)}\n\n'
+    return StreamingResponse(gen(), media_type='text/event-stream',
+                             headers={'Cache-Control': 'no-cache',
+                                      'X-Accel-Buffering': 'no'})
 
 
 @app.post('/mcp')
-async def mcp_endpoint(request: Request):
+async def mcp_post(request: Request):
     """MCP streamable-HTTP endpoint — same JSON-RPC surface as the stdio server."""
     try:
         body = await request.json()
@@ -261,17 +290,54 @@ async def mcp_endpoint(request: Request):
         return JSONResponse(status_code=400, content={
             'jsonrpc': '2.0', 'id': None,
             'error': {'code': -32700, 'message': 'parse error'}})
+
+    # A session id we never issued means the client is talking to a different
+    # process than the one it initialised against — usually an API restart.
+    sent = request.headers.get('mcp-session-id')
+    if sent and sent not in MCP_SESSIONS:
+        return JSONResponse(status_code=404, headers=_mcp_headers(), content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32001, 'message': 'unknown session; reinitialize'}})
+
     msgs = body if isinstance(body, list) else [body]
-    replies = [r for r in (_mcp_handle(x) for x in msgs) if r is not None]
+    if not all(isinstance(x, dict) for x in msgs):
+        return JSONResponse(status_code=400, content={
+            'jsonrpc': '2.0', 'id': None,
+            'error': {'code': -32600, 'message': 'invalid request'}})
+
+    session = sent
+    if any(x.get('method') == 'initialize' for x in msgs):
+        session = uuid.uuid4().hex
+        MCP_SESSIONS.add(session)
+
+    replies = [r for r in (mcp.handle_message(x) for x in msgs) if r is not None]
+
+    # Notifications only: nothing to answer, and 202 with an empty body is what
+    # the spec asks for — a JSON `null` here trips strict clients.
     if not replies:
-        return JSONResponse(status_code=202, content=None)
-    return replies[0] if not isinstance(body, list) else replies
+        return Response(status_code=202, headers=_mcp_headers(session))
+
+    if 'text/event-stream' in request.headers.get('accept', '') \
+            and 'application/json' not in request.headers.get('accept', ''):
+        return _sse(replies)
+
+    payload = replies if isinstance(body, list) else replies[0]
+    return JSONResponse(payload, headers=_mcp_headers(session))
+
+
+@app.delete('/mcp')
+def mcp_delete(request: Request):
+    """End a session. Nothing is stored against it, so this is bookkeeping."""
+    MCP_SESSIONS.discard(request.headers.get('mcp-session-id') or '')
+    return Response(status_code=204, headers=_mcp_headers())
 
 
 @app.get('/mcp')
 def mcp_get():
-    return JSONResponse(status_code=405, content={
-        'error': 'POST JSON-RPC here (MCP streamable HTTP); SSE stream not offered'})
+    """No server-initiated stream: the spec's answer for that is a plain 405."""
+    return JSONResponse(status_code=405, headers=_mcp_headers(), content={
+        'error': 'POST JSON-RPC here (MCP streamable HTTP); '
+                 'this server opens no server-initiated SSE stream'})
 
 
 # ─────────────────────────────────────────────────────────────────── chat

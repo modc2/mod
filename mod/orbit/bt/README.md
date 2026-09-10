@@ -21,8 +21,9 @@ as **one open module you can read, run, and fork**, plus the whole protocol
    live market screener (price, 1h/24h/7d change, mcap, 24h volume, liquidity,
    sparklines), per-subnet detail with price chart + identity links + top
    validators, account explorer for any ss58, a **Traders** tab that tracks
-   any coldkey over time, Wallet, Trade, a generic tool Console, and a
-   **Docs** section generated live from the tool registry.
+   any coldkey over time, a **Chat** tab where an agent answers from those same
+   tools and opens what it is talking about, Wallet, Trade, a generic tool
+   Console, and a **Docs** section generated live from the tool registry.
 
 ## The open indexer
 
@@ -75,7 +76,8 @@ the MCP schemas can never drift apart.
 | Markets | `bt_screener` `bt_history` `bt_stats` `bt_price` `bt_scan` `bt_leaderboard` `bt_trades` |
 | Trading | `bt_portfolio` `bt_trader_balance` `bt_buy`\* `bt_sell`\* `bt_sell_all`\* `bt_swap`\* |
 | Traders | `bt_track` `bt_untrack` `bt_traders` `bt_trader_board` `bt_trader` `bt_trader_history` `bt_trader_flows` `bt_trader_snapshot` `bt_trader_at` `bt_prices_at` |
-| Network | `bt_rpc_health` `bt_best_rpc` |
+| Network | `bt_sync` `bt_rpc_health` `bt_best_rpc` |
+| Console | `bt_view` — opens a view in the console the caller is looking at |
 
 \* = real on-chain write (moves TAO or creates key material). The MCP server's
 instructions tell clients to confirm with the user first; the console asks
@@ -119,20 +121,64 @@ GET  /api          module info
 GET  /api/tools    MCP-shaped tool listing
 GET  /api/docs     grouped docs (drives the Docs section)
 POST /api/call     {"tool": "bt_screener", "args": {"limit": 5}}
-GET  /api/agent    ask-the-network agent status (auth, model, tool count)
-POST /api/ask      {"question": ...} -> SSE stream of agent events
 POST /mcp          MCP JSON-RPC (initialize / tools/list / tools/call)
+
+GET  /.well-known/agent.json   the agent card (also /api/agent/card)
+GET  /api/agent/status         auth, model, tool count, runs in flight
+GET  /api/agent/tools          the agent's toolbox, grouped
+GET  /api/agent/chats          conversations · /api/agent/chats/{id} one, with messages
+POST /api/agent/chat           {"message", "chat", "context"} -> SSE run
+POST /api/agent/ask            the same turn, run to completion, one JSON reply
+POST /api/agent/stop           {"chat"} -> kill the run in flight
 ```
 
-## Ask the network
+## Chat — the agent protocol
 
-The **Ask** tab runs a Claude agent (`bt/agent.py`) whose only toolbox is this
-module's own MCP server — every question becomes a run of tool calls streamed
-back as SSE. All parameters (model, max turns, timeout, allowed tools) sit at
-the top of `bt/agent.py`; on-chain write tools are always denied, so the agent
-can read anything and sign nothing. Auth resolves from `ANTHROPIC_API_KEY`,
-then `~/.mod/bt/anthropic.key` (auto-created 0600 if nothing else exists),
-then the Claude CLI's own login.
+The **Chat** tab is a conversation with a Claude agent (`bt/agent.py`) whose
+only toolbox is this module's own MCP server: every answer is a run of tool
+calls against the live chain and the local index, streamed back token by
+token. It speaks the fleet's agent protocol (`agent/1.0`) — a card at
+`/.well-known/agent.json` says who it is, what it can do and how to talk to
+it, and any client can hold the same conversation the console does.
+
+```sh
+curl -s localhost:50280/.well-known/agent.json | jq .        # who am I talking to
+curl -sN localhost:50280/api/agent/chat -H 'content-type: application/json' \
+  -d '{"message":"which subnet pumped hardest today?"}'      # SSE run
+curl -s localhost:50280/api/agent/ask -H 'content-type: application/json' \
+  -d '{"message":"how stale is the index?","chat":"<id>"}'   # one JSON reply
+```
+
+- **Multi-turn.** Every conversation carries a Claude session id; pass `chat`
+  and the next turn resumes it. The transcript — messages, the tools each
+  answer played, what the run cost — is kept in `~/.mod/bt/chats.db` and
+  served from `/api/agent/chats`, so a chat survives a reload or a restart.
+- **It drives the console.** `bt_view` is the one tool that touches no chain:
+  it opens the screener, a subnet with its chart, a trader or an account on
+  the screen of whoever is asking. The run emits a `view` event, the console
+  applies it, and the chip in the transcript replays it. The browser sends
+  back what it is looking at as `context`, so "and this one?" has a referent.
+- **Streamed.** Events are `start`, `status`, `text_delta`, `text`, `tool`,
+  `tool_done`, `view`, `done`, `error`. `POST /api/agent/stop` kills a run in
+  flight; the partial answer is kept.
+- **Read-only.** The six on-chain writes are denied by name, and so are the
+  CLI's own built-in tools — the agent can read anything and sign nothing.
+  Trading stays in the Trade tab, where a person signs it.
+
+All parameters (model, max turns, timeout, streaming) sit at the top of
+`bt/agent.py`. Auth resolves from `ANTHROPIC_API_KEY`, then
+`~/.mod/bt/anthropic.key` (auto-created 0600 if nothing else exists), then the
+Claude CLI's own login.
+
+## Index reads never wait on the chain
+
+Tools that answer from the local index or disk are marked `local` in the
+registry and skip the websocket lock that serializes chain reads: a console
+page load, or an agent's four screener calls, no longer queue behind a
+40-second `bt_scan`. The nearest-snapshot lookups behind the screener seek an
+index instead of ordering a million rows by distance, which took the screener
+from ~1s to ~0.1s, and `trader_snaps` is indexed by time (`MAX(ts)`,
+`COUNT(*)` and every window scan used to read the whole 10 GB table).
 
 ## Run
 

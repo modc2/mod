@@ -9,12 +9,15 @@
 //   - L1 actions (orders, vaultTransfer) use HL's chainId-1337 phantom-agent
 //     domain, which MetaMask will NOT sign → those are signed by the backend
 //     agent key the user approves once here.
-//   - Bridge deposits are a plain ERC-20 USDC transfer to HL's bridge.
+//   - Deposits are plain transactions on the source chain: an ERC-20
+//     USDC transfer to HL's bridge on Arbitrum, or one LI.FI router call
+//     from any other chain whose destination is the HL account itself.
 
 import {
   approveAgentIntent, depositBalances, depositQuote, depositStatus, exchangeRelay,
   intentWithdraw, intentUsdClassTransfer,
-  type DepositChain, type SignedIntent, type WalletNetConfig,
+  type DepositChain, type DepositQuote, type DepositSource,
+  type SignedIntent, type WalletNetConfig,
 } from "./api";
 
 type Signer = {
@@ -74,7 +77,7 @@ export async function bridgeDepositFlow(wallet: Signer, cfg: WalletNetConfig, am
   return wallet.sendTransaction({ to: cfg.usdcAddress, data, value: "0x0" });
 }
 
-// ── cross-chain deposit: any supported chain → Arbitrum USDC → HL bridge ──
+// ── cross-chain deposit: any supported chain/token → Hyperliquid, one tx ──
 
 const provider = () => {
   const p = (window as any).ethereum;
@@ -116,92 +119,99 @@ export type DepositStep =
   | { step: "quote"; msg: string }
   | { step: "switch"; msg: string }
   | { step: "approve"; msg: string }
-  | { step: "bridge"; msg: string; txHash?: string }
-  | { step: "bridging"; msg: string; txHash: string }
-  | { step: "deposit"; msg: string }
+  | { step: "send"; msg: string }
+  | { step: "arriving"; msg: string; txHash: string }
   | { step: "done"; msg: string; txHash: string; usdc: number };
 
 /**
- * The whole "money on chain X → funded Hyperliquid account" journey:
- *   1. quote a LI.FI route into Arbitrum USDC (self → self)
- *   2. switch MetaMask to the source chain, approve if ERC-20, send the
- *      bridge transaction
- *   3. poll LI.FI until the USDC lands on Arbitrum
- *   4. switch to Arbitrum and transfer the received USDC to the HL bridge
+ * The whole "money on chain X → funded Hyperliquid account" journey, in a
+ * single signed transaction:
+ *   1. quote a LI.FI route whose destination IS the Hyperliquid perps
+ *      account (LI.FI routes to Hyperliquid Core directly, so there is no
+ *      Arbitrum layover and no second wallet prompt)
+ *   2. switch MetaMask to the source chain, approve if the source is an
+ *      ERC-20, send the one transaction
+ *   3. poll LI.FI until Hyperliquid credits the USDC
  * Reports progress through `onStep` so the UI can render a stepper.
+ *
+ * `quote` may be supplied by a caller that already previewed the route, so
+ * the user isn't quoted twice between reading the preview and pressing go.
  */
 export async function crossChainDepositFlow(
   wallet: Signer,
-  hlCfg: WalletNetConfig,
-  chain: DepositChain,
-  token: "usdc" | "native",
+  source: DepositSource,
   amount: string,
   eoa: string,
   minDepositUsd: number,
   onStep: (s: DepositStep) => void,
+  quote?: DepositQuote | null,
 ): Promise<{ txHash: string; usdc: number }> {
-  onStep({ step: "quote", msg: `Finding the best route from ${chain.name}…` });
-  const q = await depositQuote({ from_chain_id: chain.chainId, token, amount, eoa });
-  if (!q.transactionRequest) throw new Error("No bridge route available for this amount.");
+  let q = quote ?? null;
+  if (!q) {
+    onStep({ step: "quote", msg: `Finding the best route from ${source.chainName}…` });
+    q = await depositQuote({
+      from_chain_id: source.chainId, token: source.address, amount, eoa,
+    });
+  }
+  if (!q.transactionRequest) throw new Error("No route available for this amount.");
   if (q.toUsdcMin < minDepositUsd) {
     throw new Error(
-      `This would arrive as ~$${q.toUsdcMin.toFixed(2)} USDC — Hyperliquid's minimum deposit is $${minDepositUsd}. Try a larger amount.`,
+      `This would arrive as ~$${q.toUsdcMin.toFixed(2)} — Hyperliquid's minimum deposit is $${minDepositUsd}. Try a larger amount.`,
     );
   }
 
+  const chain = source.chain;
   onStep({ step: "switch", msg: `Switching MetaMask to ${chain.name}…` });
   await wallet.ensureChain({
     chainIdHex: chain.chainIdHex, chainName: chain.name,
     rpcUrl: chain.rpcUrl, explorerUrl: chain.explorerUrl,
   });
 
-  if (token === "usdc" && q.approvalAddress) {
+  if (!source.native && q.approvalAddress) {
     const needed = BigInt(q.fromAmountUnits);
-    const have = await erc20Allowance(chain.usdcAddress, eoa, q.approvalAddress);
+    const have = await erc20Allowance(source.address, eoa, q.approvalAddress);
     if (have < needed) {
-      onStep({ step: "approve", msg: "Approve USDC in MetaMask (one-time per bridge)…" });
+      onStep({ step: "approve", msg: `Approve ${source.symbol} in MetaMask (one-time per router)…` });
       const data = `0x095ea7b3${pad32(q.approvalAddress.replace(/^0x/, ""))}${pad32(needed.toString(16))}`;
-      const approveTx = await wallet.sendTransaction({ to: chain.usdcAddress, data, value: "0x0" });
+      const approveTx = await wallet.sendTransaction({ to: source.address, data, value: "0x0" });
       onStep({ step: "approve", msg: "Waiting for the approval to confirm…" });
       await waitMined(approveTx);
     }
   }
 
-  onStep({ step: "bridge", msg: "Confirm the bridge transaction in MetaMask…" });
+  onStep({ step: "send", msg: "Confirm the deposit in MetaMask — this is the only transaction." });
   const tr = q.transactionRequest;
-  const txHash = await wallet.sendTransaction({
-    to: tr.to, data: tr.data, value: tr.value ?? "0x0",
-  });
+  const txHash = await wallet.sendTransaction({ to: tr.to, data: tr.data, value: tr.value ?? "0x0" });
 
-  onStep({ step: "bridging", msg: `Bridging to Arbitrum — usually ~${Math.max(1, Math.round(q.durationSec / 60))} min…`, txHash });
+  const eta = Math.max(1, Math.round(q.durationSec / 60));
+  onStep({ step: "arriving", msg: `Sent — Hyperliquid usually credits it within ~${eta} min.`, txHash });
   await waitMined(txHash);
 
   // LI.FI's indexer can lag the chain by a minute — NOT_FOUND is not failure.
   let received = q.toUsdcMin;
   const deadline = Date.now() + 40 * 60_000;
   for (;;) {
-    if (Date.now() > deadline) throw new Error("Bridge is taking unusually long — your funds are safe; check the tx on the explorer and retry the final deposit from Arbitrum.");
+    if (Date.now() > deadline) {
+      throw new Error(
+        "This is taking unusually long — your funds are safe and still in transit; check the source transaction on the explorer.",
+      );
+    }
     await sleep(12_000);
     try {
-      const st = await depositStatus(txHash, chain.chainId);
-      if (st.status === "DONE") { received = st.receivedUsdc ?? received; break; }
+      const st = await depositStatus(txHash, source.chainId);
+      if (st.status === "DONE") { received = st.receivedUsdc || received; break; }
       if (st.status === "FAILED" || st.status === "INVALID") {
-        throw new Error(`Bridge reported ${st.status}${st.substatusMessage ? `: ${st.substatusMessage}` : ""}`);
+        throw new Error(`Deposit reported ${st.status}${st.substatusMessage ? `: ${st.substatusMessage}` : ""}`);
       }
     } catch (e: any) {
-      if (String(e?.message ?? "").startsWith("Bridge reported")) throw e;
+      if (String(e?.message ?? "").startsWith("Deposit reported")) throw e;
       // transient status-API hiccup — keep polling
     }
-    onStep({ step: "bridging", msg: "Bridging to Arbitrum — still in transit…", txHash });
+    onStep({ step: "arriving", msg: "Still in transit to Hyperliquid…", txHash });
   }
 
-  onStep({ step: "deposit", msg: `$${received.toFixed(2)} USDC arrived on Arbitrum — confirm the deposit in MetaMask…` });
-  // Floor to whole cents so rounding can never exceed the received balance.
-  const depositUsd = Math.floor(received * 100) / 100;
-  const finalTx = await bridgeDepositFlow(wallet, hlCfg, depositUsd);
-
-  onStep({ step: "done", msg: "Deposit sent — Hyperliquid credits it in ~1 minute.", txHash: finalTx, usdc: depositUsd });
-  return { txHash: finalTx, usdc: depositUsd };
+  onStep({ step: "done", msg: "Credited to your Hyperliquid account.", txHash, usdc: received });
+  return { txHash, usdc: received };
 }
 
 // ── cross-chain withdraw: HL → Arbitrum USDC → any supported chain ──
@@ -310,7 +320,7 @@ export async function crossChainWithdrawFlow(
     await sleep(12_000);
     try {
       const st = await depositStatus(txHash, arb.chainId, toChain.chainId);
-      if (st.status === "DONE") { delivered = st.receivedUsdc ?? delivered; break; }
+      if (st.status === "DONE") { delivered = st.receivedUsdc || delivered; break; }
       if (st.status === "FAILED" || st.status === "INVALID") {
         throw new Error(`Bridge reported ${st.status}${st.substatusMessage ? `: ${st.substatusMessage}` : ""}`);
       }

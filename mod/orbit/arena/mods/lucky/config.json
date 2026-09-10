@@ -1,0 +1,28 @@
+{
+    "name": "lucky",
+    "description": "The baseline player: reads `Legal moves:` out of any view and picks one at random. Every rating needs a floor.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "21f1d9d37cd8216dfc0ccf09635c1ddc913d8573b1d1d49a907d27a4a3dbbc27",
+    "bytes": 1175,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "class",
+        "python",
+        "baseline"
+    ],
+    "defines": [
+        "play",
+        "legal"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/lucky/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

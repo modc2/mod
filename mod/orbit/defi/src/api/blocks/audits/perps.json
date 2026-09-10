@@ -1,0 +1,146 @@
+{
+  "block": "perps",
+  "contract": "ModPerpMarket",
+  "file": "perps.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "critical",
+  "summary": "ModPerpMarket is a 272-line GMX-shaped perp: traders post settlement-asset margin and take a position up to maxLeverageBps against oracle.price(); LPs deposit the same asset for an 18-decimal mPLP share and are the counterparty to every position, earning open fees, skew-based funding and liquidation remainders. The core accounting is internally consistent (poolAssets + marginDeposited always equals what has been pulled, payouts are capped to the pool, funding is poked before every OI change, and every external transfer happens after state is written), but the market is not safe to deploy as-is. It trusts the oracle verbatim with no deviation, staleness, hold-time or price-impact guard, and the composer offers only an owner-set fixed price or the AMM/StableSwap SPOT price on the `oracle` port: the former is a stale-price arbitrage machine whose pending setPrice() is a guaranteed win for a front-runner (and a one-tx drain for the oracle owner), and the latter is a same-block flash-loan drain of the whole pool. Beneath that, the LP share is never marked to market, so LPs can exit during a drawdown at a price that ignores what the pool already owes traders (the last trader to close has their profit silently truncated at L215), a flash-liquidity sandwich captures every liquidation and losing close, and the owner can confiscate all trader margin in one block via setRiskParams(maintenance=50%) + liquidate() with no timelock. Liquidation also takes the trader's entire remaining equity rather than the loss, underwater positions have no keeper incentive and become free options, and a wiped pool values dead shares at par. Deploy only behind a timelock governor, with a real (non-spot, deviation-bounded) feed, and after the mark-to-market and liquidation fixes below.",
+  "counts": {
+    "critical": 1,
+    "high": 3,
+    "medium": 4,
+    "low": 3,
+    "info": 2
+  },
+  "findings": [
+    {
+      "id": "PERPS-1",
+      "severity": "critical",
+      "title": "Oracle price is trusted verbatim: stale-feed front-running, oracle-owner drain, and a same-block flash-loan drain when wired to the AMM/StableSwap spot price",
+      "where": "open() L193, pnlOf() L141-L153, close() L203-L229, setOracle() L254-L257; oracle.sol setPrice() L34-L39; amm.sol price() L108-L111; stableswap.sol price() L120-L123",
+      "detail": "Every entry, exit and liquidation settles at whatever oracle.price() returns at that instant. The market adds no guard of its own: no deviation bound versus the last price, no minimum hold time between open() and close(), no price impact on size, no per-tx position lock, and pnlOf() is unbounded (a 2x move on a max-utilised long book owes the pool 160% of poolAssets, capped only by L215). Against the catalog's only dedicated feed, ModFixedOracle, the price is a discrete owner-set number: between updates the real market moves while the feed does not, so any trader who can read an exchange price has a levered position against a number they already know is wrong, and a pending setPrice() in the mempool is a guaranteed win for whoever back-runs an open() in front of it. The oracle owner (often the same key as the market owner) can simply set any price and take the whole pool. Worse, the AMM and StableSwap blocks both `provide: oracle` and both return a pure spot quote (reserve1/reserve0; getDy of one coin), so the composer will happily wire a levered perp to a price that a flash loan moves arbitrarily inside one transaction.",
+      "exploit": "(a) Fixed oracle, third party: watch the mempool for ModFixedOracle.setPrice(P_new). In the same block, ahead of it, call open(isLong = P_new > P_old, margin = M, leverageBps = maxLeverageBps) up to the OI cap (80% of poolAssets), then after setPrice lands call close(). PnL = size * |P_new-P_old|/P_old with zero market risk; repeat on every update until close() hits the L215 cap and the pool is empty. (b) Fixed oracle, owner: setPrice(1e18); open(true, M, max); setPrice(100e18); close() -> owed = poolAssets, whole pool paid out. (c) AMM spot oracle, single tx: flash-borrow (e.g. from the flashlender block) settlement + token1; addLiquidity to the perp if needed to raise the OI cap; open(true, M, max); swap a large amount into the AMM so reserve1/reserve0 rises 3x; close() -> pool pays 2x size capped at poolAssets; swap back; removeLiquidity; repay the flash loan. Net: the entire poolAssets in one block.",
+      "recommendation": "Do not let this block accept a spot-DEX oracle at all (the catalog should type the AMM/StableSwap `oracle` output as `spot` and require a `twap`/`chainlink` style feed here). In the market itself: require a minimum age between open() and close() for the same position (or settle at the next price update), add a max deviation check between consecutive prices with a circuit breaker, add price impact proportional to size/poolAssets, cap per-position PnL at a multiple of margin (e.g. 10x), and reject price == 0 or a price older than N seconds. If ModFixedOracle is used, the updater should be a commit-reveal or median-of-signers feed with a short maxStaleness, and the market owner should be a timelock so setOracle() cannot be used as a rug."
+    },
+    {
+      "id": "PERPS-2",
+      "severity": "high",
+      "title": "LP share price and free liquidity ignore unrealised trader PnL: LPs can run during a drawdown and traders' profit is silently truncated",
+      "where": "sharePrice() L108-L111, removeLiquidity() L122-L131, _freeLiquidity() L133-L137, close() L213-L217, open() L180-L183",
+      "detail": "poolAssets only changes when a position is closed or liquidated, so while traders are in profit the pool's real equity is poolAssets minus the sum of unrealised PnL, but sharePrice() and removeLiquidity() price shares off the gross number. _freeLiquidity() reserves just 30% of NET exposure (longOI - shortOI), while the OI cap lets each side reach 80% of poolAssets independently, so a book that is long 80% and short 80% reserves nothing at all even though the longs alone can be owed more than the pool holds after a large up-move. With longs at 80% utilisation and price +60%, traders are owed 0.48 P; LPs can still withdraw 0.76 P; whoever closes last finds L215 `if (owed > poolAssets) owed = poolAssets` quietly paying them less than their PnL with no revert and no event flag. The shortfall lands on the last-closing trader and the last-remaining LP, not on the LPs who left first.",
+      "exploit": "Pool P = 1,000,000 USDC from LP A and LP B (50/50). Trader opens long size 800,000 at 5x (margin 160,000) at price 100. Price rises to 160 -> trader unrealised PnL = 480,000, so the pool's true equity is 520,000, but sharePrice() still reports 1.0. LP A calls removeLiquidity(all): assets = 500,000 <= freeLiquidity (1,000,000 - 0.3 * 800,000 = 760,000), succeeds at the full unmarked price. LP B does the same for as much as the reserve allows: 260,000 (leaving poolAssets = 240,000). Trader calls close(): payout should be 160,000 + 480,000 = 640,000 but owed is capped to poolAssets = 240,000, so they receive 400,000 and silently lose 240,000 of PnL. LP A lost nothing, LP B lost nothing on what they got out; the trader ate the entire shortfall, and if LP B had stayed, B's remaining shares would be worth 0.",
+      "recommendation": "Mark the pool to market: sharePrice() and removeLiquidity() must use poolAssets minus aggregate unrealised trader PnL (track sum(size) and sum(size/entryPrice) per side so aggregate PnL is O(1) at the current price), and _freeLiquidity() should reserve the full max-payout of open positions (or at least gross OI * maintenance factor), not 30% of net skew. Add a withdrawal cooldown/queue, and either make close() revert when the pool cannot pay in full or emit a shortfall so it is visible. Pay realised profit from LP assets only after unrealised liabilities are reserved."
+    },
+    {
+      "id": "PERPS-3",
+      "severity": "high",
+      "title": "Just-in-time LP sandwich of liquidations and losing closes (no lockup, no mark-to-market)",
+      "where": "addLiquidity() L113-L120, removeLiquidity() L122-L131, liquidate() L241, close() L219, open() L187",
+      "detail": "Realised trader losses, open fees and confiscated margin are added to poolAssets pro rata to whoever holds LP shares at that block, and LP shares can be minted and burned in the same transaction with no cooldown. Because share price does not reflect the trader's already-certain unrealised loss (PERPS-2), an attacker can buy in at the pre-loss price, trigger the realisation, and exit. liquidate() is callable by anyone and pokes nothing that prices shares, so the attacker can do all three steps atomically and also collect the keeper fee. Existing LPs, who carried the risk while the position was open, receive almost none of the margin they earned.",
+      "exploit": "Pool P = 100,000; a trader's position with margin 20,000 is 0 equity (liquidatable). Attacker, in one tx: flash-borrow 10,000,000 settlement; addLiquidity(10,000,000) -> holds 99% of shares; liquidate(trader) -> poolAssets += 20,000 - keeperFee, keeperFee paid to attacker; removeLiquidity(all shares) -> receives 10,000,000 + ~19,800 (freeLiquidity is ample once the position is gone); repay. Attacker nets ~19,800 of the 20,000 that should have accrued to the original LPs. Same pattern in front of any close() where the trader is underwater (watch the mempool for close() and sandwich it), and around every open() for its fee.",
+      "recommendation": "Mark shares to market including unrealised PnL (fixes the price), and add an LP cooldown: record a deposit block/timestamp per address and require N blocks or a withdrawal request before removeLiquidity; alternatively route realised losses through a time-weighted accrual (drip into poolAssets over a window) so a single-block LP cannot capture them."
+    },
+    {
+      "id": "PERPS-4",
+      "severity": "high",
+      "title": "Owner can confiscate all trader margin or drain the pool in one block via setRiskParams()/setOracle(); no timelock, no bounds on funding",
+      "where": "setOracle() L254-L257, setRiskParams() L259-L271, isLiquidatable() L163-L167, liquidate() L233-L250",
+      "detail": "The owner may re-point the oracle to any address instantly and may raise maintenanceMarginBps to 5,000 (50% of size) with immediate effect. Because equityOf() is compared to size * maintenanceMarginBps, raising the threshold above the initial margin ratio of every open position makes them all liquidatable in the same transaction, and liquidate() pays the remaining equity to the pool (PERPS-5), so the owner (who can hold LP shares) takes traders' collateral wholesale. fundingRateBps has no upper bound (uint16 -> 655% per day at full skew), so a crowded side can be bled to zero equity within hours and then liquidated. There is no pause, no two-step ownership, and the catalog wires `governor` as optional, so the default deployment is a single EOA.",
+      "exploit": "Owner holds most LP shares. Traders hold 5x positions (margin = 20% of size) totalling 500,000 margin. Owner tx 1: setRiskParams(5_000, 100, 5_000, 8_000). Owner tx 2 (same block, or a bundle): liquidate(t1) ... liquidate(tN): each position has equity ~20% < 50% of size, keeperFee = 50% of equity to the owner as keeper, the rest into poolAssets that the owner owns via LP shares. All 500,000 of trader margin is now the owner's. Variant: setOracle(puppet) where puppet.price() returns 1 wei -> every long has equity 0 -> liquidate all; or returns 1e30 -> owner's own long closes for the whole pool.",
+      "recommendation": "Wire the `governor` input to the timelock block (and document that it is required, not optional, for a market that holds trader margin). Bound risk parameters so they cannot be weaponised: maintenanceMarginBps <= 10_000^2 / maxLeverageBps minus fees (i.e. always below the initial margin ratio), fundingRateBps <= e.g. 300, and apply parameter changes only to positions opened after the change or after a delay. Make setOracle() two-step with a delay and emit an event. Consider a pause that blocks open() only, never close()."
+    },
+    {
+      "id": "PERPS-5",
+      "severity": "medium",
+      "title": "Liquidation confiscates the trader's entire remaining equity, and open() never checks that initial margin exceeds maintenance",
+      "where": "liquidate() L239-L248, open() L169-L201, isLiquidatable() L166",
+      "detail": "At the maintenance threshold a position still has equity = 5% of size (default). liquidate() pays liquidationFeeBps of that equity to the keeper and puts the WHOLE margin minus the keeper fee into poolAssets (L241); the trader's remaining equity (up to 95% of the maintenance buffer) is never returned to them. For a 2x position that is 20% of the trader's margin lost to the pool on top of the actual loss. open() also does not require (margin - fee) / size > maintenanceMarginBps: the leverage cap is a uint16 (max 6.5535x, i.e. 15.3% initial margin, 10.3% after a 5% open fee), so any owner-set maintenanceMarginBps >= ~1,030 makes fresh max-leverage positions liquidatable in the block they are opened, and a MEV bot takes them. Separately, when liquidationFeeBps is high and a position is liquidatable while in profit (possible only in that instant-liquidation regime), keeperFee can exceed p.margin and L241 underflows, so the liquidation reverts until the price moves.",
+      "exploit": "Owner sets maintenanceMarginBps = 2_000 (allowed range is 100..5,000). Trader opens at 6x: size = 6M, margin net = M - 0.06M*fee ~ 0.994M = 16.6% of size < 20%. In the same block a searcher calls liquidate(trader): keeperFee = 10% of 0.994M to the searcher, 0.894M to the pool, trader receives nothing. No price movement was needed.",
+      "recommendation": "In liquidate(): keeperFee from equity, then return (equity - keeperFee) to the trader and add only (margin - equity) i.e. the realised loss to poolAssets (GMX/Synthetix shape). In open(): require((margin - fee) * 10_000 > size * maintenanceMarginBps + buffer). In setRiskParams(): enforce maintenanceMarginBps < 10_000 * 10_000 / maxLeverageBps - openFeeBps. Use checked subtraction semantics deliberately: if keeperFee > margin cap it at margin."
+    },
+    {
+      "id": "PERPS-6",
+      "severity": "medium",
+      "title": "Zero-equity positions have no liquidation incentive and stay open: a free option against the pool, plus stuck OI that blocks LP withdrawals",
+      "where": "liquidate() L239-L241, equityOf() L156-L161, fundingOwed() L98-L104, _freeLiquidity() L133-L137",
+      "detail": "The keeper fee is liquidationFeeBps of REMAINING equity, so it is largest right at the threshold and exactly zero once a position is underwater. With a discretely-updated oracle (ModFixedOracle jumps, or any sharp move) positions go straight from healthy to equity 0 and no keeper is paid to close them. The position is not dead: it keeps its size, its OI counts toward _freeLiquidity's reserve (so LPs are told 'UTILISED'), and if the price recovers the trader's equity comes back and they can close() at a profit. The loss beyond margin that the pool never collects while the position is underwater is bad debt socialised to LPs; the recovery is pure upside for the trader. Funding does keep accruing to the trader's debit, but that only lowers an equity that is already floored at zero.",
+      "exploit": "Trader opens long 5x, margin 10,000, size 50,000 at 100. Oracle updates 100 -> 75: pnl = -12,500, equity = 0, keeperFee = 0 -> nobody calls liquidate(). Oracle later updates 75 -> 110: pnl = +5,000, equity = 15,000; trader calls close() and takes 5,000 from the pool. Had the position been liquidated at 95 the pool would have kept the margin. Meanwhile every LP withdrawal was throttled by the 50,000 of stuck OI.",
+      "recommendation": "Pay the keeper a fee that does not depend on remaining equity: a fixed bounty from the pool (e.g. min(liquidationFeeBps * size / 10_000, margin) taken out of the confiscated margin first, topped up from poolAssets when margin is exhausted), plus liquidator gas refunds. Add a permissionless `settleDead(user)` for equity == 0 that anyone may call, and let the owner/keeper batch it."
+    },
+    {
+      "id": "PERPS-7",
+      "severity": "medium",
+      "title": "After the pool is wiped, dead LP shares are valued at par: the next depositor's assets go to the old share holders",
+      "where": "sharePrice() L108-L111, addLiquidity() L115, close() L215-L216",
+      "detail": "close() can drive poolAssets to exactly 0 while totalSupply stays > 0 (owed is capped to poolAssets and the LP shares are never burned). In that state sharePrice() returns 1e18 and addLiquidity() falls into the `poolAssets == 0 ? assets` branch, minting new shares 1:1 alongside the old worthless supply. The newcomer's claim is then assets * assets / (oldSupply + assets), which for any old supply larger than the deposit is a near-total loss, transferred to whoever still holds the old shares (typically the very account that drained the pool, or an attacker who bought the dead shares for nothing).",
+      "exploit": "Pool had 1,000,000 shares. Attacker drains it via PERPS-1 and keeps (or buys on the AMM for dust) 1,000,000 mPLP. A new LP sees sharePrice() == 1e18 and deposits 100,000 -> receives 100,000 shares; totalSupply = 1,100,000, poolAssets = 100,000. Attacker calls removeLiquidity(1,000,000) -> 90,909 assets (freeLiquidity is the whole pool since OI is 0). New LP is left with 9,091.",
+      "recommendation": "When poolAssets == 0 and totalSupply > 0, either burn the supply (reset the pool: totalSupply = 0 via an explicit `reseed()` guarded so it can only run at zero assets) or make addLiquidity() revert with a clear error and require the owner to reset. Also use an initial virtual offset (ERC-4626 style decimals offset) so share/asset rounding is never 1:1 at 1 wei."
+    },
+    {
+      "id": "PERPS-8",
+      "severity": "medium",
+      "title": "Fee-on-transfer or rebasing settlement tokens break the assets == poolAssets + marginDeposited invariant, leaving the last exit unpayable",
+      "where": "open() L185-L188, addLiquidity() L116-L117, close() L227, removeLiquidity() L129, liquidate() L248",
+      "detail": "SafeTransfer.pull() credits the requested amount, never the received amount. With a fee-on-transfer settlement asset every open() and addLiquidity() records more than arrived, so the contract's balance is permanently below poolAssets + marginDeposited; with a rebasing token the balance drifts either way with no way to sweep the surplus or cover the deficit. Payouts are computed off the internal numbers, so the last close()/removeLiquidity() reverts with PUSH_FAILED and the shortfall is a permanent freeze for whoever is last. No rescue function exists to fix accounting.",
+      "exploit": "Deploy with a 1% FoT token. LP adds 100,000 (contract receives 99,000; poolAssets = 100,000). Trader opens with margin 10,000 (receives 9,900; marginDeposited = 9,990 after 10 bps fee to pool). Trader closes flat: pushes 9,990, fine. LP removeLiquidity(all) -> tries to push 100,010, contract holds 98,910 -> reverts forever (until someone donates 1,100).",
+      "recommendation": "Measure balanceOf before/after pull() and credit the delta, or document and enforce (in the catalog) that the settlement port must be a plain ERC20 (the catalog's own ModToken is fine). Do not support rebasing tokens."
+    },
+    {
+      "id": "PERPS-9",
+      "severity": "low",
+      "title": "A position opened at entryPrice == 0 can never be closed or liquidated (division by zero), locking margin and OI forever",
+      "where": "open() L193, pnlOf() L147-L152",
+      "detail": "open() stores oracle.price() unchecked. The AMM's price() returns 0 when reserve0 == 0 and ModFixedOracle's constructor accepts initialPrice = 0, so a market wired to a not-yet-seeded feed accepts positions at entry 0. pnlOf() then divides by p.entryPrice on every path, so close(), liquidate(), equityOf() and isLiquidatable() all revert for that user. Their margin stays in marginDeposited, their size stays in longOI/shortOI (permanently raising _freeLiquidity's reserve for all LPs), and there is no admin path to delete a position.",
+      "exploit": "Deployer wires perps.oracle to a freshly deployed AMM before seeding it. Trader (or a griefer with dust) calls open(true, 1, 10_000) -> entryPrice = 0. Later the AMM is seeded. Griefer's position can never be removed; if they used max leverage against a large pool, up to 80% of poolAssets is reserved from LP withdrawals for good (30% of it via _freeLiquidity).",
+      "recommendation": "require(price > 0) in open() (and reject a price above/below a sane band). Provide a guarded `forceClose(user)` for the governor that settles at the current price for exactly this kind of stuck state."
+    },
+    {
+      "id": "PERPS-10",
+      "severity": "low",
+      "title": "A reverting oracle (STALE_PRICE) freezes close() and liquidate() while funding keeps accruing",
+      "where": "pnlOf() L144, close() L207, liquidate() L237, pokeFunding() L84-L96",
+      "detail": "ModFixedOracle.price() reverts once maxStaleness elapses. The market has no fallback (it never calls peek()), so a lapsed updater means no trader can close, no keeper can liquidate, and open() also reverts; only removeLiquidity() keeps working (subject to the reserve). Funding indices keep advancing in pokeFunding() (called by anyone) so the crowded side's equity is eroded during the outage and may be liquidatable the instant the feed returns. The market owner can setOracle() to a fresh feed, which is also the rug vector in PERPS-4.",
+      "exploit": "Oracle deployed with maxStaleness = 1 hour; updater key goes offline for a day while the price falls 30%. Longs cannot close to cut losses at hour 1; at hour 24 the feed is refreshed at -30% and every long is liquidated at zero equity. Shorts, meanwhile, could not realise their gains either and the pool's LPs could withdraw on the stale (high) share price.",
+      "recommendation": "Freeze funding accrual while the oracle is unavailable (wrap the read in try/catch; if it fails, do not advance lastFunding) and allow close() at the last good price after a grace period, or route all reads through a market-side `lastPrice/lastAt` cache with an explicit maxAge and a governor-only emergency settle."
+    },
+    {
+      "id": "PERPS-11",
+      "severity": "low",
+      "title": "addLiquidity() can pull assets and mint zero shares (round-down at high share price)",
+      "where": "addLiquidity() L115-L118",
+      "detail": "shares = assets * totalSupply / poolAssets rounds down and there is no require(shares > 0). Once the pool has accumulated trader losses so that poolAssets / totalSupply is large (or after the post-wipe state of PERPS-7 flips the other way), a deposit smaller than one share's worth is taken and mints nothing; the assets are donated to existing holders. Wallets and integrators that read sharePrice() at 1e18 scale will not anticipate this for 6-decimal settlement tokens.",
+      "exploit": "First LP deposits 1,000 wei of a 6-decimal stable (1,000 shares). Over time trader losses lift poolAssets to 1,000,000,000 (1,000 USDC) while totalSupply is still 1,000 shares, i.e. one share is worth 1e6 wei. A new LP deposits 999,999 wei (~1 USDC): shares = 999,999 * 1,000 / 1,000,000,000 = 0. The transfer succeeds, nothing is minted, and the 999,999 wei is donated to the first LP.",
+      "recommendation": "require(shares > 0, 'ZERO_SHARES') and, as in PERPS-7, use a virtual share/asset offset so the first deposit cannot set a degenerate ratio."
+    },
+    {
+      "id": "PERPS-12",
+      "severity": "info",
+      "title": "Effective max leverage is 6.5535x, not 50x: maxLeverageBps and leverageBps are uint16, so the `<= 500_000` check is dead code and the catalog help text is wrong",
+      "where": "constructor L60-L65, open() L169-L171; catalog params.maxLeverageBps_",
+      "detail": "uint16 tops out at 65,535 bps. `require(maxLeverageBps_ <= 500_000)` can never fail and the catalog's 'The contract caps this at 50x regardless' does not match. This is protective in practice (it is what keeps default maintenance margin 500 bps below the initial margin, see PERPS-5) but a deployer expecting 10x-50x will silently get a 6.5x market, and any UI that lets users type leverage above 65,535 will see the value truncated by the ABI encoder or rejected.",
+      "exploit": "Deploy with maxLeverageBps_ = 100_000 in a UI that does not clamp: the call reverts or the argument wraps; deploy with 65_535: traders get 6.55x maximum.",
+      "recommendation": "Fix the catalog text and `max` to 65535, or widen the fields to uint32 and add the missing maintenance-vs-initial-margin coupling before allowing higher leverage."
+    },
+    {
+      "id": "PERPS-13",
+      "severity": "info",
+      "title": "Composition: the mPLP share is 18-decimal and not marked to market, so any block that prices it (vault, AMM pair, staking, lending collateral) inherits PERPS-2/PERPS-7; reentrancy surface is CEI-clean",
+      "where": "ERC20Base(name_, symbol_, 18) L63, sharePrice() L108-L111; catalog provides: erc20",
+      "detail": "The catalog advertises the LP share as an erc20 output ('stake it, pair it, vault it'). Its on-chain value is only knowable by summing every open position's PnL, which sharePrice() does not do, so a lending pool taking mPLP as collateral or an AMM pairing it will be priced off a number that can be 100% wrong at the moment traders are most in profit, and reads 1e18 when the pool is empty. Shares are always 18 decimals even for a 6-decimal settlement, so 1 share != 1 unit of settlement in wallets. On the positive side, every external transfer happens after state updates (close L225-L227, liquidate L246-L248, removeLiquidity L127-L129) and open()'s pull-before-write can only harm a re-entering caller, so no reentrancy guard is required for plain ERC20 settlement.",
+      "exploit": "Wire mPLP as collateral in the lending block with the perp's own sharePrice() as its oracle; drive the perp into a state where traders are owed 90% of poolAssets; borrow against mPLP at full face value; the lending pool is left with collateral worth 10% of what it lent.",
+      "recommendation": "Do not use mPLP as collateral or as an oracle source anywhere until sharePrice() subtracts aggregate unrealised PnL; expose a `totalEquity()` view for integrators; consider matching share decimals to settlement decimals."
+    }
+  ],
+  "safe_use": [
+    "Never wire the `oracle` port to the AMM or StableSwap block: both return an unguarded spot price and a flash loan drains the pool in one transaction. Use a TWAP/Chainlink-style adapter with a deviation bound; if ModFixedOracle is unavoidable, treat the updater key as holding every LP's funds and update via a private relay, not the public mempool.",
+    "Wire `governor` to the timelock block (it is marked optional in the catalog, it is not optional here): setOracle() and setRiskParams() are instant rug paths for a single EOA.",
+    "Keep maintenanceMarginBps well below the initial margin at max leverage (with the uint16 cap of 6.5535x and default fee: below ~1,000 bps; the default 500 is fine) and keep fundingRateBps small (<= 300); the contract does not enforce either coupling.",
+    "Keep utilisationCapBps low (2,000-3,000) so that pool liabilities stay far below poolAssets; the 30%-of-net-skew reserve is not a solvency guarantee and trader profit is capped to poolAssets.",
+    "Use a plain ERC20 settlement token (the catalog's ModToken or a canonical stable). Fee-on-transfer and rebasing tokens permanently break the accounting.",
+    "Seed the oracle before deploying the market and confirm price() > 0 on-chain before opening the market to users; a position opened at entryPrice 0 can never be closed.",
+    "Run a keeper that liquidates underwater positions even when the keeper fee is zero, and monitor sum of unrealised PnL versus poolAssets off-chain, since nothing on-chain does.",
+    "Do not use the mPLP share as collateral, as an oracle source or in an AMM pair until sharePrice() is marked to market; it can read full value while the pool is effectively insolvent, and reads 1e18 when the pool is empty.",
+    "If the pool is ever drained to zero, do not re-deposit while old shares exist: the newcomer's assets go to the dead shares."
+  ]
+}

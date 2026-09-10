@@ -7,11 +7,49 @@
 
 import { API_BASE } from "./polymarket";
 
+/** One leaderboard the server keeps warm. These three fields ARE the server's
+    pipeline cache key, which is why they are the thing you can configure: a
+    board whose (days, minPerDay, pool) isn't on this list was never
+    aggregated, so opening it triggers a ~10-minute cold rebuild the fleet
+    activator kills long before it finishes. Pin the view, and it loads. */
+export interface WarmWindow {
+  days: number;
+  minPerDay: number;
+  pool: number;
+}
+
+/** The server's cache key for a window — same format sync.rs builds, so the
+    console can tell "this view is warm" from "this view will go cold". */
+export function windowKey(w: WarmWindow): string {
+  // `String()` matches Rust's `{}` on an f64 for the values this field can
+  // hold: 0 → "0", 2.5 → "2.5".
+  return `${w.days}:${String(w.minPerDay)}:${w.pool}`;
+}
+
+/** "30D · TOP 2000" / "3D · ≥2/DAY · TOP 500" — a window as a chip label. */
+export function describeWindow(w: WarmWindow): string {
+  const parts = [`${w.days}D`];
+  if (w.minPerDay > 0) parts.push(`≥${w.minPerDay}/DAY`);
+  parts.push(`TOP ${w.pool}`);
+  return parts.join(" · ");
+}
+
+export function hasWindow(list: WarmWindow[], w: WarmWindow): boolean {
+  const k = windowKey(w);
+  return list.some((x) => windowKey(x) === k);
+}
+
 export interface SyncSchedule {
   enabled: boolean;
   intervalSecs: number;
   minIntervalSecs: number;
   maxIntervalSecs: number;
+  /** The boards kept warm, in the order the owner listed them. */
+  windows: WarmWindow[];
+  maxWindows: number;
+  minPool: number;
+  maxPool: number;
+  maxDays: number;
   running: boolean;
   /** Unix SECONDS (not ms) — null until the first cycle of this API process. */
   lastRunAt: number | null;
@@ -26,15 +64,32 @@ export interface SyncSchedule {
   configPath: string;
 }
 
+/** An API binary from before the warm list was configurable answers
+    /sync/status without these fields. Default them rather than letting the
+    chip crash on `sched.windows.map` — the cadence half of the panel still
+    works against an older server. */
+function normalize(raw: Partial<SyncSchedule>): SyncSchedule {
+  return {
+    ...(raw as SyncSchedule),
+    windows: Array.isArray(raw.windows) ? raw.windows : [],
+    maxWindows: raw.maxWindows ?? 8,
+    minPool: raw.minPool ?? 50,
+    maxPool: raw.maxPool ?? 2000,
+    maxDays: raw.maxDays ?? 365,
+  };
+}
+
 export async function fetchSyncSchedule(): Promise<SyncSchedule> {
   const res = await fetch(`${API_BASE}/sync/status`);
   if (!res.ok) throw new Error(`sync status ${res.status}`);
-  return res.json();
+  return normalize(await res.json());
 }
 
 export async function updateSyncSchedule(patch: {
   enabled?: boolean;
   intervalSecs?: number;
+  /** Sent WHOLE — the list is the setting, not a merge target. */
+  windows?: WarmWindow[];
 }): Promise<SyncSchedule> {
   const res = await fetch(`${API_BASE}/sync/config`, {
     method: "POST",
@@ -43,14 +98,14 @@ export async function updateSyncSchedule(patch: {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || `sync config ${res.status}`);
-  return data as SyncSchedule;
+  return normalize(data as Partial<SyncSchedule>);
 }
 
 /** Ask the server to run a cycle now. Returns as soon as it's queued. */
 export async function runSyncNow(): Promise<SyncSchedule> {
   const res = await fetch(`${API_BASE}/sync/run`, { method: "POST" });
   if (!res.ok) throw new Error(`sync run ${res.status}`);
-  return res.json();
+  return normalize(await res.json());
 }
 
 /** "15M" / "1H" / "2H 30M" / "24H" — the cadence as the chip shows it. */

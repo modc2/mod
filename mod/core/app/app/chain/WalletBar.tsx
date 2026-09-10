@@ -1,21 +1,22 @@
 "use client"
 
-// Sign-in strip. MetaMask (or any injected wallet) is the front door and
-// reconnects itself on every visit; the browser-local key is the back door for
-// when you'd rather not click a popup. Whichever is active signs every deploy
-// and every write call on this page. The network picker lives here too, because
-// which chain you're on is part of who you're signed in as.
+// The sign-in layer. Two rosters, one active signer:
+//   browser — every account the injected wallet (MetaMask & friends) has
+//             permitted for this site. It reconnects itself on every visit;
+//             only an explicit SIGN OUT keeps us off it.
+//   local   — keys held in this browser: the app account, a builder key, and
+//             anything generated or imported since.
+// Whichever is active signs every deploy and every write on this page. The
+// picker that drives it lives in AccountPicker.tsx.
 
 import { useState, useEffect, useCallback } from 'react'
 import { ethers } from 'ethers'
-import { toast } from 'react-toastify'
 import {
-  TERM_FONT, ACCENT, WalletKind, chainName, ensureChain, getSigner, hasInjected, netInfo,
-  localAddress, localKeyIsAccount, localPrivateKey, readProvider,
-  savedWalletKind, saveWalletKind, signedOut, setSignedOut, short, explorerUrl, useIsMobile,
+  WalletKind, ensureChain, getSigner, hasInjected, readProvider,
+  localKeys as loadLocalKeys, selectedLocalKey, selectLocalKey, addLocalKey, removeLocalKey,
+  browserAccounts, requestBrowserAccounts, savedBrowserAddress, saveBrowserAddress,
+  savedWalletKind, saveWalletKind, signedOut, setSignedOut, type LocalKey,
 } from './shared'
-import { Btn, panelStyle } from './ui'
-import { NetworkPicker } from './NetworkPicker'
 
 export interface ChainWallet {
   kind: WalletKind | null
@@ -24,8 +25,17 @@ export interface ChainWallet {
   injectedChainId: number | null
   /** an injected wallet exists — resolved after mount, never during SSR */
   injected: boolean
+  /** accounts the injected wallet has permitted for this site */
+  accounts: string[]
+  /** keys held in this browser */
+  localKeys: LocalKey[]
   connecting: WalletKind | null
-  connect: (kind: WalletKind) => Promise<void>
+  /** sign in with a browser account (address) or a local key (id) */
+  connect: (kind: WalletKind, pick?: string) => Promise<void>
+  /** ask the browser wallet to expose more accounts */
+  connectMore: () => Promise<void>
+  newKey: (label: string, pk?: string) => LocalKey
+  dropKey: (id: string) => void
   disconnect: () => void
   signer: () => Promise<ethers.Signer>
   switchChain: () => Promise<void>
@@ -38,27 +48,34 @@ export function useChainWallet(network: string): ChainWallet {
   const [balance, setBalance] = useState<string | null>(null)
   const [injectedChainId, setInjectedChainId] = useState<number | null>(null)
   const [injected, setInjected] = useState(false)
+  const [accounts, setAccounts] = useState<string[]>([])
+  const [localKeys, setLocalKeys] = useState<LocalKey[]>([])
   const [connecting, setConnecting] = useState<WalletKind | null>(null)
   const [tick, setTick] = useState(0)
 
+  // Which permitted account signs: the one we picked last time if the wallet
+  // still exposes it, else whatever the wallet has selected.
+  const pickBrowser = (accs: string[]) => {
+    const saved = savedBrowserAddress().toLowerCase()
+    return accs.find(a => a.toLowerCase() === saved) || accs[0] || ''
+  }
+
   // ── silent reconnect ──
-  // An injected wallet that already trusts this site signs us straight back in,
-  // even on a first visit — no popup, no button. Only an explicit SIGN OUT
-  // (saved kind 'local') keeps us off it.
   useEffect(() => {
     setInjected(hasInjected())
+    setLocalKeys(loadLocalKeys())
     const saved = savedWalletKind()
     if (saved === 'local') {
-      try { setKind('local'); setAddress(localAddress()) } catch {}
-      return
+      try { setKind('local'); setAddress(selectedLocalKey().address) } catch {}
     }
-    if (!hasInjected() || signedOut()) return
+    if (!hasInjected()) return
     const eth = (window as any).ethereum
-    eth.request({ method: 'eth_accounts' })
-      .then((accs: string[]) => {
-        if (accs?.length) { setKind('browser'); setAddress(accs[0]); saveWalletKind('browser') }
-      })
-      .catch(() => {})
+    browserAccounts().then(accs => {
+      setAccounts(accs)
+      if (saved === 'local' || signedOut() || !accs.length) return
+      const addr = pickBrowser(accs)
+      setKind('browser'); setAddress(addr); saveWalletKind('browser'); saveBrowserAddress(addr)
+    })
     eth.request({ method: 'eth_chainId' })
       .then((id: string) => setInjectedChainId(parseInt(id, 16))).catch(() => {})
   }, [])
@@ -67,10 +84,13 @@ export function useChainWallet(network: string): ChainWallet {
   useEffect(() => {
     const eth = typeof window !== 'undefined' ? (window as any).ethereum : null
     if (!eth?.on) return
-    const onAccounts = (accs: string[]) => {
+    const onAccounts = (raw: string[]) => {
+      const accs = (raw || []).map(a => { try { return ethers.getAddress(a) } catch { return a } })
+      setAccounts(accs)
       if (savedWalletKind() !== 'browser') return
-      if (accs?.length) setAddress(accs[0])
-      else { setKind(null); setAddress(''); saveWalletKind(null) }
+      if (!accs.length) { setKind(null); setAddress(''); saveWalletKind(null); return }
+      const addr = pickBrowser(accs)
+      setAddress(addr); saveBrowserAddress(addr)
     }
     const onChain = (id: string) => setInjectedChainId(parseInt(id, 16))
     eth.on('accountsChanged', onAccounts)
@@ -96,17 +116,28 @@ export function useChainWallet(network: string): ChainWallet {
     return () => clearInterval(iv)
   }, [])
 
-  const connect = useCallback(async (want: WalletKind) => {
+  const connect = useCallback(async (want: WalletKind, pick?: string) => {
     setConnecting(want)
     setSignedOut(false)
     try {
       if (want === 'local') {
-        const addr = localAddress()
-        setKind('local'); setAddress(addr); saveWalletKind('local')
+        if (pick) selectLocalKey(pick)
+        const key = selectedLocalKey()
+        setLocalKeys(loadLocalKeys())
+        setKind('local'); setAddress(key.address); saveWalletKind('local')
       } else {
         if (!hasInjected()) throw new Error('No browser wallet found — install MetaMask')
-        const signer = await getSigner('browser', network)
-        const addr = await signer.getAddress()
+        let accs = await browserAccounts()
+        if (!accs.length) {
+          await (window as any).ethereum.request({ method: 'eth_requestAccounts' })
+          accs = await browserAccounts()
+        }
+        if (!accs.length) throw new Error('The wallet exposed no accounts')
+        setAccounts(accs)
+        const addr = pick && accs.some(a => a.toLowerCase() === pick.toLowerCase())
+          ? accs.find(a => a.toLowerCase() === pick.toLowerCase())!
+          : pickBrowser(accs)
+        saveBrowserAddress(addr)
         setKind('browser'); setAddress(addr); saveWalletKind('browser')
         const id = await (window as any).ethereum.request({ method: 'eth_chainId' })
         setInjectedChainId(parseInt(id, 16))
@@ -114,7 +145,39 @@ export function useChainWallet(network: string): ChainWallet {
     } finally {
       setConnecting(null)
     }
-  }, [network])
+  }, [])
+
+  const connectMore = useCallback(async () => {
+    setConnecting('browser')
+    setSignedOut(false)
+    try {
+      const accs = await requestBrowserAccounts()
+      setAccounts(accs)
+      if (!accs.length) return
+      // the wallet puts its newly selected account first — follow it
+      const addr = accs[0]
+      saveBrowserAddress(addr)
+      setKind('browser'); setAddress(addr); saveWalletKind('browser')
+      const id = await (window as any).ethereum.request({ method: 'eth_chainId' })
+      setInjectedChainId(parseInt(id, 16))
+    } finally {
+      setConnecting(null)
+    }
+  }, [])
+
+  const newKey = useCallback((label: string, pk?: string) => {
+    const key = addLocalKey(label, pk)
+    setLocalKeys(loadLocalKeys())
+    return key
+  }, [])
+
+  const dropKey = useCallback((id: string) => {
+    removeLocalKey(id)
+    const keys = loadLocalKeys()
+    setLocalKeys(keys)
+    // dropping the key that was signing falls back to the next one
+    if (kind === 'local') setAddress(selectedLocalKey().address)
+  }, [kind])
 
   const disconnect = useCallback(() => {
     setKind(null); setAddress(''); saveWalletKind(null); setSignedOut(true)
@@ -122,8 +185,8 @@ export function useChainWallet(network: string): ChainWallet {
 
   const signer = useCallback(async () => {
     if (!kind) throw new Error('Sign in with a wallet first')
-    return getSigner(kind, network)
-  }, [kind, network])
+    return getSigner(kind, network, kind === 'browser' ? address : undefined)
+  }, [kind, network, address])
 
   const switchChain = useCallback(async () => {
     await ensureChain(network)
@@ -132,134 +195,8 @@ export function useChainWallet(network: string): ChainWallet {
   }, [network])
 
   return {
-    kind, address, balance, injectedChainId, injected, connecting,
-    connect, disconnect, signer, switchChain, refresh: () => setTick(t => t + 1),
+    kind, address, balance, injectedChainId, injected, accounts, localKeys, connecting,
+    connect, connectMore, newKey, dropKey, disconnect, signer, switchChain,
+    refresh: () => setTick(t => t + 1),
   }
-}
-
-export function WalletBar({
-  wallet, network, setNetwork,
-}: {
-  wallet: ChainWallet
-  network: string
-  setNetwork: (key: string) => void
-}) {
-  const [showKey, setShowKey] = useState(false)
-  const [showMore, setShowMore] = useState(false)
-  const mobile = useIsMobile()
-  const net = netInfo(network)
-  const wrongChain = wallet.kind === 'browser'
-    && wallet.injectedChainId !== null
-    && wallet.injectedChainId !== net.chainId
-
-  // On a phone the strip keeps only what you need to read — who you are and
-  // whether you're on the right chain. The rest lives one tap away.
-  const more = !mobile || showMore
-
-  const copy = (text: string, what: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success(`${what} copied`)
-  }
-
-  const connectBrowser = () =>
-    wallet.connect('browser').catch(e => toast.error(e?.message || 'Connect failed'))
-
-  return (
-    <div style={{
-      ...panelStyle, padding: '10px 16px', marginBottom: '16px',
-      display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
-    }}>
-      <NetworkPicker network={network} setNetwork={setNetwork} />
-
-      {!wallet.kind ? (
-        <>
-          <Btn onClick={connectBrowser} size="sm" color="#f59e0b" disabled={!!wallet.connecting}>
-            {wallet.connecting === 'browser' ? 'CONNECTING…' : '▤ CONNECT METAMASK'}
-          </Btn>
-          <Btn onClick={() => wallet.connect('local')} size="sm" active={false} disabled={!!wallet.connecting}>
-            {wallet.connecting === 'local' ? 'SIGNING IN…' : 'USE LOCAL KEY'}
-          </Btn>
-          <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)' }}>
-            {wallet.injected
-              ? 'sign in to compile → test → deploy'
-              : 'no injected wallet detected — the local key works on its own'}
-          </span>
-        </>
-      ) : (
-        <>
-          <span style={{
-            fontFamily: TERM_FONT, fontSize: '11px', padding: '3px 8px',
-            border: `1px solid ${wallet.kind === 'local' ? ACCENT : '#f59e0b'}`,
-            color: wallet.kind === 'local' ? ACCENT : '#f59e0b',
-            letterSpacing: '0.1em',
-          }}>
-            {wallet.kind === 'local' ? (localKeyIsAccount() ? 'LOCAL / ACCOUNT' : 'LOCAL / BUILDER') : 'METAMASK'}
-          </span>
-
-          <button
-            onClick={() => copy(wallet.address, 'Address')}
-            title={wallet.address}
-            style={{
-              fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-primary)',
-              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            }}
-          >
-            {short(wallet.address, 8, 6)}
-          </button>
-
-          {explorerUrl(network, wallet.address) && (
-            <a
-              href={explorerUrl(network, wallet.address)}
-              target="_blank"
-              rel="noreferrer"
-              style={{ fontFamily: TERM_FONT, fontSize: '11px', color: 'var(--text-tertiary)', textDecoration: 'none' }}
-            >
-              {'↗'}
-            </a>
-          )}
-
-          {/* the picker shows the target chain, so say which one the wallet is
-              actually on — otherwise "Base Sepolia #84532" next to a red SWITCH
-              button reads as a contradiction. */}
-          {wrongChain && (
-            <Btn size="sm" color="#ef4444"
-              onClick={() => wallet.switchChain().catch(e => toast.error(e?.message || 'switch failed'))}>
-              ON {chainName(wallet.injectedChainId!).toUpperCase()} → SWITCH TO {net.name.toUpperCase()}
-            </Btn>
-          )}
-
-          {more && wallet.kind === 'local' && !localKeyIsAccount() && (
-            <Btn size="sm" active={false} onClick={() => {
-              if (showKey) { copy(localPrivateKey(), 'Private key'); setShowKey(false) }
-              else setShowKey(true)
-            }}>
-              {showKey ? 'CONFIRM: COPY KEY' : 'EXPORT KEY'}
-            </Btn>
-          )}
-
-          <div style={{
-            marginLeft: mobile ? 0 : 'auto', display: 'flex', gap: '8px',
-            flexWrap: 'wrap', width: mobile ? '100%' : undefined,
-          }}>
-            {mobile && (
-              <Btn size="sm" active={showMore} onClick={() => setShowMore(s => !s)}>
-                {showMore ? 'LESS' : 'WALLET ⋯'}
-              </Btn>
-            )}
-            {more && wallet.kind === 'local' && wallet.injected && (
-              <Btn size="sm" active={false} color="#f59e0b" onClick={connectBrowser}>
-                USE METAMASK
-              </Btn>
-            )}
-            {more && wallet.kind === 'browser' && (
-              <Btn size="sm" active={false} onClick={() => wallet.connect('local')}>
-                USE LOCAL
-              </Btn>
-            )}
-            {more && <Btn size="sm" active={false} onClick={wallet.disconnect}>SIGN OUT</Btn>}
-          </div>
-        </>
-      )}
-    </div>
-  )
 }

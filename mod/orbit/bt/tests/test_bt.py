@@ -45,7 +45,8 @@ def test_mutating_tools_flagged():
 def test_docs_grouping():
     groups = tools.docs()
     assert {g['group'] for g in groups} == {
-        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'Network'}
+        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'Network',
+        'Console'}
     total = sum(len(g['tools']) for g in groups)
     assert total == len(tools.TOOLS)
 
@@ -392,6 +393,9 @@ def test_sync_flags_a_subnet_that_stopped_reporting(store):
 def test_trader_sync_covers_the_watchlist(tstore, monkeypatch):
     now = int(time.time())
     monkeypatch.setattr(history, 'head_block', lambda bt=None: 8_758_500)
+    # track() snapshots on the spot; offline that must not reach the chain
+    monkeypatch.setattr(traders, 'snapshot', lambda a, bt=None: {
+        'ts': now, 'total_tao': 0.0, 'positions': []})
     traders.track(WHALE, label='whale')
     _snap(WHALE, now, [_pos(1, 100.0, 0.5)], block=8_758_400)
     s = traders.sync()
@@ -466,7 +470,7 @@ def test_http_info(client):
 
 def test_http_tools_and_docs(client):
     assert len(client.get('/api/tools').json()['tools']) == len(tools.TOOLS)
-    assert len(client.get('/api/docs').json()['groups']) == 6
+    assert len(client.get('/api/docs').json()['groups']) == 7
 
 
 def test_http_call(client):
@@ -489,7 +493,7 @@ def test_http_mcp(client):
 def test_http_serves_app(client):
     html = client.get('/').text
     assert 'Bittensor' in html and 'id="docs"' in html
-    assert 'id="ask"' in html and 'askNetwork' in html
+    assert 'id="ask"' in html and 'sendChat' in html and 'chat-thread' in html
 
 
 # ---------------------------------------------------------------- agent
@@ -515,16 +519,98 @@ def test_agent_cmd_shape():
 
 def test_agent_event_translation():
     from bt import agent
-    evs = list(agent._events({
+    run = agent._Run()
+    evs = list(run.events({
         'type': 'assistant', 'message': {'content': [
             {'type': 'text', 'text': 'hi'},
-            {'type': 'tool_use', 'name': 'mcp__bittensor__bt_stats', 'input': {}}]}}))
-    assert evs == [{'type': 'text', 'text': 'hi'},
-                   {'type': 'tool', 'name': 'bt_stats', 'args': {}}]
-    done = list(agent._events({'type': 'result', 'result': 'ans',
-                               'num_turns': 3, 'duration_ms': 10,
-                               'total_cost_usd': 0.01}))
+            {'type': 'tool_use', 'id': 't1', 'name': 'mcp__bittensor__bt_stats',
+             'input': {}}]}}))
+    assert evs[0] == {'type': 'text', 'text': 'hi'}
+    assert evs[1]['type'] == 'tool' and evs[1]['name'] == 'bt_stats'
+    done = list(run.events({'type': 'result', 'result': 'ans', 'num_turns': 3,
+                            'duration_ms': 10, 'total_cost_usd': 0.01}))
     assert done[0]['type'] == 'done' and done[0]['answer'] == 'ans'
+
+
+def test_agent_partial_stream_wins_over_blocks():
+    """With token streaming on, the whole text block must not be repeated."""
+    from bt import agent
+    run = agent._Run()
+    deltas = list(run.events({'type': 'stream_event', 'event': {
+        'type': 'content_block_delta',
+        'delta': {'type': 'text_delta', 'text': 'he'}}}))
+    assert deltas == [{'type': 'text_delta', 'delta': 'he'}]
+    list(run.events({'type': 'stream_event', 'event': {
+        'type': 'content_block_delta',
+        'delta': {'type': 'text_delta', 'text': 'llo'}}}))
+    assert list(run.events({'type': 'assistant', 'message': {'content': [
+        {'type': 'text', 'text': 'hello'}]}})) == []
+    assert run.answer == 'hello'
+
+
+def test_agent_paragraphs_between_answer_blocks():
+    """Two answers around a tool call are two paragraphs, not one run-on."""
+    from bt import agent
+    run = agent._Run()
+
+    def stream(ev):
+        return list(run.events({'type': 'stream_event', 'event': ev}))
+
+    def delta(index, text):
+        return stream({'type': 'content_block_delta', 'index': index,
+                       'delta': {'type': 'text_delta', 'text': text}})
+
+    delta(0, 'first.')
+    assert delta(2, 'second.')[0]['delta'].startswith('\n\n')
+    stream({'type': 'message_start'})          # indexes restart per message
+    assert delta(0, 'third.')[0]['delta'].startswith('\n\n')
+    assert run.answer == 'first.\n\nsecond.\n\nthird.'
+
+
+def test_agent_tool_result_carries_view_and_timing():
+    from bt import agent
+    run = agent._Run()
+    list(run.events({'type': 'assistant', 'message': {'content': [
+        {'type': 'tool_use', 'id': 't1', 'name': 'mcp__bittensor__bt_view',
+         'input': {'view': 'subnet', 'netuid': 64}}]}}))
+    evs = list(run.events({'type': 'user', 'message': {'content': [
+        {'type': 'tool_result', 'tool_use_id': 't1',
+         'content': json.dumps({'__view__': {'view': 'subnet', 'netuid': 64}})}]}}))
+    assert evs[0]['type'] == 'tool_done' and evs[0]['error'] is False
+    assert evs[0]['ms'] is not None
+    assert evs[1] == {'type': 'view', 'action': {'view': 'subnet', 'netuid': 64}}
+    assert run.tools[0]['name'] == 'bt_view' and run.views
+
+
+def test_agent_resume_and_context():
+    from bt import agent
+    cmd = agent.build_cmd('again', session='sess-1')
+    assert cmd[cmd.index('--resume') + 1] == 'sess-1'
+    assert agent.context_line({'view': 'markets', 'netuid': 4}).startswith('[console:')
+    assert agent.context_line(None) == ''
+
+
+def test_view_tool_drives_the_console():
+    out = tools.call_tool('bt_view', {'view': 'markets', 'sort_by': 'change_24h'})
+    assert out['__view__'] == {'view': 'markets', 'sort_by': 'change_24h'}
+    with pytest.raises(ValueError, match='needs a netuid'):
+        tools.call_tool('bt_view', {'view': 'subnet'})
+    with pytest.raises(ValueError, match='unknown view'):
+        tools.call_tool('bt_view', {'view': 'moon'})
+    with pytest.raises(ValueError, match='unknown sort_by'):
+        tools.call_tool('bt_view', {'view': 'markets', 'sort_by': 'vibes'})
+    assert not tools.TOOL_MAP['bt_view'].mutates      # the agent may call it
+
+
+def test_agent_card(client):
+    j = client.get('/api/agent/card').json()
+    assert j['protocol'] == 'agent/1.0' and j['name'] == 'bt-network-guide'
+    assert j['conversation']['multi_turn'] is True
+    assert 'text_delta' in j['events'] and 'view' in j['events']
+    assert 'bt_transfer' in j['denied_tools'] and j['writes'].startswith('none')
+    assert client.get('/.well-known/agent.json').json()['name'] == j['name']
+    groups = {g['group'] for g in j['skills']}
+    assert 'Markets' in groups and 'Console' in groups
 
 
 def test_agent_status_shape(client):
@@ -533,6 +619,108 @@ def test_agent_status_shape(client):
     assert j['tools'] + j['denied'] == len(tools.TOOLS)
 
 
-def test_ask_requires_question(client):
-    r = client.post('/api/ask', json={})
-    assert r.status_code == 400 and r.json()['ok'] is False
+def test_chat_requires_a_message(client):
+    for path in ('/api/ask', '/api/agent/chat', '/api/agent/ask'):
+        r = client.post(path, json={})
+        assert r.status_code == 400 and r.json()['ok'] is False
+
+
+# ----------------------------------------------------------------- chats
+
+@pytest.fixture
+def chatstore(tmp_path, monkeypatch):
+    monkeypatch.setenv('BT_DATA_DIR', str(tmp_path))
+    from bt import chats
+    return chats
+
+
+def test_chat_store_roundtrip(chatstore):
+    cid = chatstore.create('Which subnet pumped hardest today?')
+    chatstore.append(cid, 'user', 'Which subnet pumped hardest today?')
+    chatstore.append(cid, 'assistant', 'Subnet 64.',
+                     tools=[{'name': 'bt_screener', 'args': {}, 'ok': True, 'ms': 12}],
+                     meta={'views': [{'view': 'subnet', 'netuid': 64}], 'turns': 2})
+    chatstore.finish_turn(cid, session='sess-9', model='sonnet', turns=2,
+                          cost_usd=0.03)
+
+    got = chatstore.get(cid)
+    assert got['title'].startswith('Which subnet')
+    assert got['session'] == 'sess-9' and got['turns'] == 2
+    assert round(got['cost_usd'], 4) == 0.03 and got['msgs'] == 2
+    assert [m['role'] for m in got['messages']] == ['user', 'assistant']
+    assert got['messages'][1]['tools'][0]['name'] == 'bt_screener'
+    assert got['messages'][1]['meta']['views'][0]['netuid'] == 64
+
+    # a second turn resumes the same claude session, and cost accumulates
+    assert chatstore.session_of(cid) == 'sess-9'
+    chatstore.finish_turn(cid, session='sess-10', turns=1, cost_usd=0.02)
+    assert chatstore.session_of(cid) == 'sess-10'
+    assert round(chatstore.get(cid)['cost_usd'], 4) == 0.05
+
+    assert [c['id'] for c in chatstore.list_chats()] == [cid]
+    assert chatstore.stats()['chats'] == 1
+    assert chatstore.delete(cid)['ok'] and chatstore.get(cid) is None
+
+
+def test_chat_store_titles_and_rename(chatstore):
+    cid = chatstore.create('  ' + 'x' * 200)
+    assert len(chatstore.get(cid)['title']) == chatstore.MAX_TITLE
+    assert chatstore.create('')and chatstore.list_chats()[0]['title'] == 'New chat'
+    chatstore.rename(cid, 'whales')
+    assert chatstore.get(cid)['title'] == 'whales'
+    assert chatstore.exists(cid) and not chatstore.exists('nope')
+
+
+def test_chat_http_surface(client, tmp_path, monkeypatch):
+    monkeypatch.setenv('BT_DATA_DIR', str(tmp_path))
+    from bt import chats
+    cid = chats.create('hello world')
+    chats.append(cid, 'user', 'hello world')
+
+    listed = client.get('/api/agent/chats').json()
+    assert cid in [c['id'] for c in listed['chats']]
+    assert listed['stats']['chats'] >= 1
+    assert client.get(f'/api/agent/chats/{cid}').json()['messages'][0]['text'] == 'hello world'
+    assert client.get('/api/agent/chats/nope').status_code == 404
+    assert client.post(f'/api/agent/chats/{cid}/rename',
+                       json={'title': 'renamed'}).json()['title'] == 'renamed'
+    assert client.delete(f'/api/agent/chats/{cid}').json()['ok'] is True
+
+
+def test_stop_when_nothing_runs(client):
+    j = client.post('/api/agent/stop', json={'chat': 'nope'}).json()
+    assert j['ok'] is False and j['note'] == 'nothing running'
+
+
+def test_index_tools_do_not_queue_behind_the_chain():
+    """Index-only reads must not wait on the websocket lock."""
+    local = {t.name for t in tools.TOOLS if t.local}
+    assert {'bt_screener', 'bt_stats', 'bt_traders', 'bt_view'} <= local
+    assert not any(t.mutates for t in tools.TOOLS if t.local)
+    for name in ('bt_scan', 'bt_subnets', 'bt_sync', 'bt_transfer'):
+        assert not tools.TOOL_MAP[name].local          # these do touch chain
+
+    tools._call_lock.acquire()                          # a chain read in flight
+    try:
+        out = tools.call_tool('bt_view', {'view': 'traders'})   # must not block
+        assert out['__view__'] == {'view': 'traders'}
+    finally:
+        tools._call_lock.release()
+
+
+def test_nearest_snapshot_uses_seeks_not_a_scan(store):
+    now = int(time.time())
+    history.record(_synth_rows(1.0), ts=now - 3600, block=1)
+    history.record(_synth_rows(2.0), ts=now, block=2)
+    conn = history._db()
+    try:
+        assert history._nearest_ts(conn, now - 3600) == now - 3600
+        assert history._nearest_ts(conn, now + 500) == now         # past the end
+        assert history._nearest_ts(conn, now - 9999) == now - 3600  # before it
+        assert history._nearest_ts(conn, now - 1799) == now         # ties break late
+        assert history._nearest_ts(conn, now - 1801) == now - 3600
+    finally:
+        conn.close()
+    plan = ' '.join(str(r) for r in history._db().execute(
+        'EXPLAIN QUERY PLAN SELECT MAX(ts) FROM snaps WHERE ts <= ?', (now,)))
+    assert 'idx_snaps_ts' in plan

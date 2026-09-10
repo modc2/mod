@@ -725,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "hyperliquid-api"
-version = "0.5.0"
+version = "0.6.1"
 dependencies = [
  "aes-gcm",
  "anyhow",

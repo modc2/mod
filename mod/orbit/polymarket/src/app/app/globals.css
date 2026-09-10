@@ -774,6 +774,37 @@ input[type="radio"] {
   box-shadow: 0 0 0 3px rgba(var(--accent) / 0.18);
 }
 
+/* ── Dense variants ────────────────────────────────────────────────────────
+   This file loads AFTER `@tailwind utilities`, so `.pixel-btn` (13px / 8px 14px)
+   beats a `text-[9px] px-1.5` on the same element: single-class specificity,
+   later source wins. Every "tiny" button in a 340px column was therefore
+   rendering at full desk size, which is what made the copy sidebar wrap and
+   clip. These win the tie by carrying two classes, so a caller opts in with
+   `pixel-btn btn-xs` and gets the size it asked for. */
+.pixel-btn.btn-xs {
+  font-size: 9.5px;
+  padding: 3px 6px;
+  letter-spacing: 0.06em;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+.pixel-btn.btn-sm {
+  font-size: 11px;
+  padding: 5px 9px;
+  letter-spacing: 0.07em;
+  border-radius: var(--radius-sm);
+}
+.pixel-btn.btn-xs:hover,
+.pixel-btn.btn-sm:hover {
+  transform: none; /* a 3px lift on a 16px button reads as a jitter */
+  box-shadow: none;
+}
+.pixel-input-sm.input-xs {
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+
 /* Vibey rounded input */
 .pixel-input {
   background: var(--input-bg);
@@ -1086,6 +1117,10 @@ input[type="radio"] {
 :root { --strat-dock: 0px; }
 @media (min-width: 1024px) {
   html[data-strat-dock="open"] { --strat-dock: 340px; }
+  /* The column's BACKTEST/LIVE tabs carry the full workspace — the dock
+     widens for them (UserSidebar sets data-strat-dock="wide"), leaving the
+     board at least ~38vw so browsing and testing share the screen. */
+  html[data-strat-dock="wide"] { --strat-dock: min(760px, 62vw); }
 }
 .dock-inset { transition: padding-right 0.18s ease-out; }
 /* The header lives INSIDE the inset, so the nav tabs have 340px less room
@@ -1198,4 +1233,32 @@ input[type="radio"] {
 }
 [data-theme="mario"] .pixel-btn:active {
   transform: translateY(2px);
+}
+
+/* ── Access gate ───────────────────────────────────────────────────────────
+   The sign-in screen is the first thing anyone sees, so it gets an entrance
+   and a determinate-looking probe bar instead of a bare pulse. */
+@keyframes gate-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  to   { opacity: 1; transform: none; }
+}
+.gate-in { animation: gate-in 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes gate-sweep {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+.gate-sweep {
+  background: linear-gradient(90deg, transparent, rgb(var(--accent)), transparent);
+  animation: gate-sweep 1.1s ease-in-out infinite;
+}
+
+@keyframes gate-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.7; }
+}
+.gate-pulse { animation: gate-pulse 1.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-in, .gate-sweep, .gate-pulse { animation: none; }
 }

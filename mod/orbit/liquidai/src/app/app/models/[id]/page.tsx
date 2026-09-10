@@ -49,12 +49,12 @@ export default function ModelPage({ params: route }: { params: { id: string } })
           </span>
           <div className="flex gap-1.5 ml-auto">
             {runnable && m.onnx_repo && (
-              <Link href={`/run?model=${m.id}&runtime=browser`} className="pixel-btn topbar-ctl px-3 no-underline">
+              <Link href={`/chat?model=${m.id}&runtime=browser`} className="pixel-btn topbar-ctl px-3 no-underline">
                 ▶ IN BROWSER
               </Link>
             )}
             {runnable && m.torch_repo && (
-              <Link href={`/run?model=${m.id}&runtime=server`} className="pixel-btn topbar-ctl px-3 no-underline">
+              <Link href={`/chat?model=${m.id}&runtime=server`} className="pixel-btn topbar-ctl px-3 no-underline">
                 ▶ ON SERVER
               </Link>
             )}
@@ -107,7 +107,7 @@ export default function ModelPage({ params: route }: { params: { id: string } })
                         : <button
                             className="pixel-btn topbar-ctl px-2.5"
                             onClick={() => pullRepo(r.repo)
-                              .then(() => setNote(`pulling ${r.repo} — watch it on LOCAL`))
+                              .then(() => setNote(`pulling ${r.repo} — watch it in the CHAT rail on SERVER`))
                               .catch((e) => setNote(String(e)))}
                           >
                             PULL

@@ -1,0 +1,10 @@
+{
+  "name": "hello",
+  "description": "An ordinary WASI command \u2014 argv, stdin, stdout, no arena ABI at all. Proof that anything wasm runs.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "command",
+    "wasi"
+  ]
+}

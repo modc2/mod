@@ -1,7 +1,8 @@
 # Credits, provider funding, and the margin
 
 A guest who has no OpenRouter or Venice key can still run the agent: they
-top up with USDT/USDC and spend the credits on the module's own provider
+top up with USDT/USDC or ETH — straight from MetaMask in the console, on
+Base or Ethereum — and spend the credits on the module's own provider
 key. This document is how that money moves.
 
 **The loop.** A deposit is the guest pre-funding the provider credits their
@@ -11,7 +12,7 @@ buys OpenRouter/Venice credits out of the deposit float and logs it; the
 treasury says how much has to go over.
 
 ```
-guest deposits USDT/USDC ──▶ credit balance (1 credit = $1)
+guest deposits USDT/USDC/ETH ──▶ credit balance (1 credit = $1)
                                  │
                 run  ──▶ metered provider cost × (1 + fee_rate) debited
                                  │
@@ -47,11 +48,39 @@ to the flat `price_per_step`, so nothing runs free by accident.
 Tallies are per-thread — one Mod instance serves every concurrent run —
 and a chain accumulates across its stages, billed once at the end.
 
+## What a call costs, while it is being spent
+
+A price you only learn from the treasury is a price nobody watches, so
+every run reports its own — billed or not. An owner run costs real money
+on the provider key; it is just not charged to a ledger.
+
+The meter keeps one row per model call (`Meter.last()`, read once and
+cleared) and the loop hands it to the run's `on_usage` callback the
+moment the call resolves — a failed call included, since it burned the
+tokens it burned. From there:
+
+- **the stream** — `/run/stream` emits `{"type": "usage", "usage": {...}}`
+  after each call: `{call, step, model, cost, total, prompt_tokens,
+  completion_tokens, priced}`.
+- **the task row** — every run is a task, and the calls accumulate on it
+  (`cost`, `tokens`, `calls[]`), so `GET /tasks/{id}` answers the same
+  question after the fact.
+- **the answer** — `/run` and the stream's `done` event carry a `usage`
+  block (total, calls, tokens, model, `charged`, and the per-call rows),
+  which is the line the console prints under the message that spent it,
+  counting up while the run is still going.
+- **MCP** — `agent_run` returns the same `usage` block.
+
+`priced: false` means the model isn't in the provider's catalog, so the
+run falls back to `price_per_step` and the console says *unpriced model*
+rather than showing a `$0.00` that would read as free.
+
 ## Who pays
 
 | caller | billed |
 | --- | --- |
 | module owner | never — own key, own money |
+| co-owner | never — the owner's key, the owner's money |
 | guest, spend toggle ON | metered cost + `fee_rate`, clamped to balance |
 | guest, spend toggle OFF | nothing — the run is pinned to free models |
 
@@ -59,6 +88,33 @@ A charge is clamped to the balance and the clamped amount is split on the
 same ratio, so the books still say how much of what was collected is owed
 to the providers. An account never goes negative, and a zero balance
 closes the run gate again (`is_allowed`).
+
+## Co-owners
+
+The owner can hand another address the same standing:
+
+```
+POST /owners {op: "add", address: "0x…", key: <owner token>}
+POST /owners {op: "rm",  address: "0x…", key: <owner token>}
+GET  /owners?key=…            the owner and every co-owner
+GET  /owner                   public: owner + co-owner addresses
+```
+
+A co-owner passes every `is_owner()` gate — admin routes, the treasury,
+the harness agents — and their credit account is an **alias** of the
+owner's: one ledger entry, one balance, one history, whichever of them
+spends it. They run on the owner's provider key unbilled, exactly as the
+owner does, and a deposit either of them sends lands on the same account.
+
+Adding one is handing the module over, so it is the single thing a
+co-owner cannot do: only the primary owner may add or remove them. The
+list is private auth state — `~/.mod/agent/owner.json` (`co_owners`), or
+`AGENT_CO_OWNERS` as a comma-separated list where no writable home
+exists — never the committed config.
+
+```json
+{"owner": "0x89bc…", "co_owners": ["0xd779…"]}
+```
 
 ## The books
 
@@ -71,28 +127,106 @@ closes the run gate again (`is_allowed`).
 | `provider_cost` | the part of that owed to the providers |
 | `fees` / `fees_available` | our margin, earned / not yet withdrawn |
 | `topups` / `topups_total` | API credits bought at each provider |
+| `topup_pending` | bought on a key but not booked yet — confirm it |
 | `float` | cash held that isn't deployed or taken |
 | `user_credits` | unspent guest credits — the liability |
 | `funding_required` | that liability at cost (credits ÷ 1 + fee_rate) |
 | `provider_balance` | live balance across the provider keys |
 | **`topup_needed`** | `funding_required − provider_balance` — send this now |
 
+## Topping up from the console
+
+The credits sidebar (◈ chip, or **Credits** in the account menu) has a
+**Pay with MetaMask** button. Pick the coin (USDC, USDT or ETH), the chain
+(Base or Ethereum), optionally which key the money is *for* (OpenRouter,
+Venice, or any), type an amount and confirm in the wallet. The console:
+
+1. switches the wallet to the chosen chain (`wallet_switchEthereumChain`,
+   adding Base if the wallet lacks it),
+2. sends the transfer — a plain value send for ETH, an ERC-20 `transfer`
+   for the stablecoins, straight to the deposit address,
+3. waits for the receipt on the wallet's own node,
+4. submits the hash to `POST /credits/deposit`, which verifies it over a
+   public RPC and credits the **on-chain sender**.
+
+Nothing about step 4 trusts the browser: the hash is the only thing the
+console hands over, and the same endpoint serves a hash pasted from any
+other wallet ("send from another wallet instead" shows the address + QR).
+A page reload mid-confirmation is fine — the pending hash is kept in
+`localStorage` and picked up when the sidebar opens again.
+
+**ETH is priced by the chain.** A native deposit is credited at the
+Chainlink ETH/USD feed on the chain it landed on (`0x7104…bb70` on Base,
+`0x5f4e…8419` on Ethereum), read with `eth_call` over the same RPC the
+receipt came from. `GET /credits/price?network=` returns the number the
+next deposit would use; the console shows it beside the amount box.
+`AGENT_ETH_USD` pins the price (tests, air-gapped boxes); CoinGecko is the
+fallback when the RPC is unreachable.
+
+**"For OpenRouter" / "for Venice"** is an earmark, not a sub-balance: a
+guest has one credit balance and every run bills it whichever provider the
+model came from. The tag lands in the deposit note and in the treasury's
+`earmarked` per-provider totals, so the owner knows which key guests
+expect to be funded.
+
+The chain metadata the button needs — chain ids, token contracts and
+decimals, explorer URLs — comes from `GET /credits` (`deposit.networks`),
+so the console hardcodes none of it:
+
+```
+base      chain 8453  USDC 0x8335…2913  USDT 0xfde4…9bb2  ETH native
+ethereum  chain 1     USDC 0xa0b8…eb48  USDT 0xdac1…1ec7  ETH native
+```
+
+## Topping up a provider key
+
+Neither provider sells credits over an API. OpenRouter's Coinbase endpoint
+(`POST /api/v1/credits/coinbase`) was removed and answers **410 Gone** —
+"use the web credits purchase flow instead" — and Venice never had one. So
+the purchase itself is always a trip to the provider's page:
+
+| provider | buy credits at | what the module can read |
+| --- | --- | --- |
+| openrouter | `openrouter.ai/settings/credits` | `total_credits` — credits ever bought on the key, so a rise in it **is** the purchase, exactly |
+| venice | `venice.ai/settings/api` | the USD balance only — a rise above the last mark is a purchase, but spending moves it too |
+
+The console closes that loop instead of asking for a typed amount. The
+treasury panel's **Top up a provider key** row opens the provider's page and
+then watches the key: every eight seconds it re-reads the meter, and the
+moment the money lands it books exactly what arrived
+(`ledger` entry, `verified: true`, `ref: purchased 477.0 → 527.0`).
+
+`mark` is the meter as of the last booked top-up. For OpenRouter it only
+moves when a top-up is booked. For Venice the mark follows the balance
+*down* as the key is spent, so a purchase after a spend is still booked at
+full size — and only the rise above the mark counts. A hand-logged top-up
+walks the mark past its own amount, so the same money is never booked twice.
+
+```bash
+m agent/credit_verify provider=openrouter     # book what landed on the key
+```
+
 ## Endpoints
 
 ```
-GET  /credits                 deposit address, pricing, caller's account
-POST /credits/deposit         verify a tx hash, credit the on-chain sender
+GET  /credits                 deposit address, chains + token contracts, pricing, caller's account
+POST /credits/deposit         verify a tx hash {tx_hash, network, provider?}, credit the on-chain sender
+GET  /credits/price?network=  ETH/USD a native deposit is credited at (Chainlink)
 POST /credits/grant           owner: adjust an account (± amount)
 GET  /credits/treasury?live=  owner: the books above (live= skips provider calls)
 POST /credits/topup           owner: record credits bought {provider, amount, ref}
+POST /credits/topup/verify    owner: book what landed on a key {provider}
 POST /credits/withdraw        owner: take earned margin out {amount}
 POST /credits/config          owner: {fee_rate, price_per_step, cost_multiplier,
                                       deposit_address}
+GET  /owners                  owner: the owner and every co-owner
+POST /owners                  primary owner: add/remove a co-owner {op, address}
 ```
 
-The same actions exist on the mod protocol: `agent treasury`,
-`agent credit_topup provider=openrouter amount=25`, `agent credit_config
-fee_rate=0.1`.
+The same actions exist on the mod protocol: `agent credit_deposit
+tx_hash=0x… network=base provider=venice`, `agent credit_price`, `agent treasury`,
+`agent credit_topup provider=openrouter amount=25`, `agent credit_verify
+provider=openrouter`, `agent credit_config fee_rate=0.1`.
 
 ## Tailoring the margin
 

@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCPSCAN — every MCP server on the internet</title>
+<style>
+  :root {
+    --bg: #07090e; --panel: #0d1119; --panel2: #111725; --line: #1d2637;
+    --ink: #e6ecf5; --dim: #8b98ad; --faint: #5c6779;
+    --live: #35d6a0; --auth: #f0b23a; --down: #e0525f; --err: #b06cf0; --unknown: #55627a;
+    --accent: #4ea8ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { position: sticky; top: 0; z-index: 5; background: linear-gradient(180deg,#0b0f16 70%,rgba(11,15,22,.85));
+    border-bottom: 1px solid var(--line); padding: 14px 20px; }
+  .brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .brand h1 { font-size: 15px; letter-spacing: .22em; margin: 0; font-weight: 600; }
+  .brand .sub { color: var(--faint); font-size: 11px; letter-spacing: .06em; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .pill { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; color: var(--dim);
+    background: var(--panel); white-space: nowrap; font-size: 11px; }
+  .pill b { color: var(--ink); font-weight: 600; }
+  .pill.live b { color: var(--live); } .pill.auth b { color: var(--auth); }
+  .pill.down b { color: var(--down); } .pill.busy { border-color: var(--accent); color: var(--accent); }
+  .wrap { display: grid; grid-template-columns: minmax(0,1fr) 320px; gap: 18px; padding: 18px 20px 60px; }
+  @media (max-width: 980px) { .wrap { grid-template-columns: minmax(0,1fr); } }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  input, select, button, textarea { font: inherit; color: var(--ink); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  #q { flex: 1; min-width: 220px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  .card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+    padding: 11px 13px; margin-bottom: 8px; }
+  .card .top { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--unknown); }
+  .dot.live { background: var(--live); box-shadow: 0 0 8px var(--live); }
+  .dot.auth { background: var(--auth); } .dot.down { background: var(--down); }
+  .dot.error { background: var(--err); }
+  .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grow { flex: 1; min-width: 0; }
+  .tag { font-size: 10px; color: var(--faint); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 6px; white-space: nowrap; }
+  .desc { color: var(--dim); margin: 6px 0 0; }
+  .meta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 7px; color: var(--faint); font-size: 11px; }
+  .url { color: var(--dim); word-break: break-all; }
+  .tools { margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap; }
+  .tool { font-size: 10px; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 4px; padding: 1px 6px; color: var(--dim); }
+  .panel { border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+    padding: 12px 13px; margin-bottom: 14px; }
+  .panel h2 { font-size: 11px; letter-spacing: .16em; color: var(--faint); margin: 0 0 9px;
+    text-transform: uppercase; font-weight: 600; }
+  .feed div { padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: 11px; color: var(--dim); }
+  .feed div:last-child { border: 0; }
+  .src { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; font-size: 11px; }
+  .src .n { color: var(--dim); } .src .v { color: var(--faint); }
+  .muted { color: var(--faint); }
+  pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 9px;
+    overflow: auto; font-size: 11px; margin: 8px 0 0; max-height: 320px; }
+  .more { width: 100%; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>◈ MCPSCAN</h1>
+    <span class="sub">every MCP server on the internet, probed on a loop</span>
+  </div>
+  <div class="pills" id="pills"></div>
+</header>
+
+<div class="wrap">
+  <main>
+    <div class="bar">
+      <input id="q" placeholder="search 20,000 servers by name, description or tool name…" autocomplete="off" />
+      <select id="status">
+        <option value="">any status</option>
+        <option value="live">live</option>
+        <option value="auth">needs a key</option>
+        <option value="down">down</option>
+        <option value="error">error</option>
+        <option value="unknown">unprobed</option>
+      </select>
+      <select id="source"><option value="">every directory</option></select>
+      <select id="sort">
+        <option value="relevance">best match</option>
+        <option value="tools">most tools</option>
+        <option value="fast">fastest</option>
+        <option value="recent">newest</option>
+        <option value="name">name</option>
+      </select>
+    </div>
+    <div id="count" class="muted" style="margin-bottom:8px"></div>
+    <div id="list"></div>
+    <button class="more" id="more" style="display:none">load more</button>
+  </main>
+
+  <aside>
+    <div class="panel">
+      <h2>Scraper</h2>
+      <div id="scraper" class="muted">…</div>
+    </div>
+    <div class="panel">
+      <h2>Just probed</h2>
+      <div class="feed" id="feed"></div>
+    </div>
+    <div class="panel">
+      <h2>Directories</h2>
+      <div id="sources"></div>
+      <button id="crawl" style="width:100%;margin-top:9px">crawl now</button>
+      <button id="huntbtn" style="width:100%;margin-top:6px">hunt for endpoints</button>
+    </div>
+    <div class="panel">
+      <h2>Connect</h2>
+      <p class="muted" style="margin:0 0 6px">One MCP endpoint that searches and calls all of it.</p>
+      <pre id="connect">…</pre>
+    </div>
+  </aside>
+</div>
+
+<script>
+const BASE = location.port === "50701" ? "http://localhost:50700"
+  : (location.pathname.startsWith("/mcpscan") ? "/api/mcpscan" : "");
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const num = (n) => (n ?? 0).toLocaleString();
+const ago = (t) => { if (!t) return "never"; const s = Math.max(0, Math.floor(Date.now()/1000) - t);
+  return s < 60 ? s+"s ago" : s < 3600 ? Math.floor(s/60)+"m ago" : s < 86400 ? Math.floor(s/3600)+"h ago" : Math.floor(s/86400)+"d ago"; };
+const get = (p) => fetch(BASE + p).then(r => r.json());
+
+let offset = 0, total = 0, open = {};
+
+function statusLabel(s) {
+  return { live: "live", auth: "needs key", down: "down", error: "not MCP", unknown: "unprobed" }[s] || s;
+}
+
+function card(s) {
+  const st = s.status || "unknown";
+  const tools = (s.toolNames || []).slice(0, 14);
+  return `<div class="card" data-id="${esc(s.id)}">
+    <div class="top">
+      <span class="dot ${esc(st)}"></span>
+      <span class="nm grow">${esc(s.title || s.name)}</span>
+      ${(s.sources || []).map(x => `<span class="tag">${esc(x)}</span>`).join("")}
+    </div>
+    ${s.description ? `<p class="desc">${esc(s.description)}</p>` : ""}
+    ${s.url ? `<div class="meta"><span class="url">${esc(s.url)}</span></div>` : ""}
+    <div class="meta">
+      <span>${esc(statusLabel(st))}</span>
+      ${s.toolCount ? `<span>${s.toolCount} tools</span>` : ""}
+      ${s.latency_ms ? `<span>${s.latency_ms}ms</span>` : ""}
+      ${s.checked_at ? `<span>probed ${ago(s.checked_at)}</span>` : ""}
+      ${!s.url && s.packages && s.packages.length ? `<span>${esc(s.packages[0])}</span>` : ""}
+      ${s.repository ? `<a href="${esc(s.repository)}" target="_blank" rel="noopener">repo</a>` : ""}
+      ${s.error ? `<span class="muted">${esc(String(s.error).slice(0, 90))}</span>` : ""}
+    </div>
+    ${tools.length ? `<div class="tools">${tools.map(t => `<span class="tool">${esc(t)}</span>`).join("")}
+      ${s.toolCount > tools.length ? `<span class="tool">+${s.toolCount - tools.length}</span>` : ""}</div>` : ""}
+    ${open[s.id] ? `<pre>${esc(open[s.id])}</pre>` : ""}
+  </div>`;
+}
+
+async function search(append) {
+  if (!append) { offset = 0; open = {}; }
+  const p = new URLSearchParams({
+    q: $("q").value, status: $("status").value, source: $("source").value,
+    sort: $("sort").value, limit: "40", offset: String(offset)
+  });
+  const r = await get("/catalog?" + p);
+  total = r.total;
+  $("count").textContent = `${num(r.total)} matching servers`;
+  const html = r.servers.map(card).join("");
+  if (append) $("list").insertAdjacentHTML("beforeend", html); else $("list").innerHTML = html;
+  offset += r.servers.length;
+  $("more").style.display = offset < total ? "block" : "none";
+}
+
+async function refresh() {
+  const s = await get("/stats");
+  const st = s.by_status || {}, sc = s.scraper || {};
+  $("pills").innerHTML = [
+    `<span class="pill"><b>${num(s.servers)}</b> servers indexed</span>`,
+    `<span class="pill"><b>${num(s.endpoints)}</b> endpoints</span>`,
+    `<span class="pill live"><b>${num(st.live)}</b> live</span>`,
+    `<span class="pill auth"><b>${num(st.auth)}</b> need a key</span>`,
+    `<span class="pill down"><b>${num(st.down || 0)}</b> down</span>`,
+    `<span class="pill"><b>${num(st.unknown || 0)}</b> unprobed</span>`,
+    `<span class="pill"><b>${num(s.tools)}</b> tools seen</span>`,
+    sc.crawling ? `<span class="pill busy">crawling…</span>` : ""
+  ].join("");
+  $("scraper").innerHTML = `
+    <div>${num(sc.probes)} probes in ${num(sc.batches)} batches</div>
+    <div>last batch: ${sc.last_batch_size || 0} endpoints ${ago(sc.last_batch_at)}</div>
+    <div>hunted ${num(s.domains_hunted)} domains, ${num(sc.hunt_hits)} hits</div>
+    <div>last crawl ${ago(sc.last_crawl_at)}${sc.last_crawl_ms ? ` (${Math.round(sc.last_crawl_ms/1000)}s)` : ""}</div>`;
+  const opts = Object.keys(s.by_source || {}).sort();
+  const sel = $("source");
+  if (sel.options.length - 1 !== opts.length) {
+    sel.innerHTML = `<option value="">every directory</option>` +
+      opts.map(o => `<option value="${esc(o)}">${esc(o)} (${num(s.by_source[o])})</option>`).join("");
+  }
+  const f = await get("/recent?limit=18");
+  $("feed").innerHTML = (f.events || []).map(e =>
+    `<div><span class="dot ${esc(e.status)}" style="display:inline-block;margin-right:6px"></span>${esc(e.name || e.id)}
+     — ${esc(statusLabel(e.status))}${e.tools ? `, ${e.tools} tools` : ""}${e.found_by === "hunt" ? " (found by hunting)" : ""}</div>`
+  ).join("") || `<div class="muted">nothing yet — the prober warms up within a minute</div>`;
+  const src = await get("/sources");
+  $("sources").innerHTML = (src.reports || []).map(r =>
+    `<div class="src"><span class="n">${esc(r.source)}</span><span class="v">${
+      r.needs ? "needs " + esc(r.needs)
+        : r.ok ? `${num(r.found)}${r.total > r.found ? " of " + num(r.total) : ""} rows · ${ago(r.ran_at)}`
+        : esc(String(r.error || "failed").slice(0, 40))
+    }</span></div>`).join("") || `<div class="muted">no crawl has finished yet</div>`;
+}
+
+$("list").addEventListener("click", async (e) => {
+  const el = e.target.closest(".card");
+  if (!el || e.target.tagName === "A") return;
+  const id = el.dataset.id;
+  if (open[id]) { delete open[id]; return search(false); }
+  const r = await get("/catalog/" + encodeURIComponent(id));
+  open[id] = JSON.stringify(r, null, 2);
+  el.insertAdjacentHTML("beforeend", `<pre>${esc(open[id])}</pre>`);
+});
+$("more").onclick = () => search(true);
+$("q").addEventListener("input", () => { clearTimeout(window._t); window._t = setTimeout(() => search(false), 250); });
+["status", "source", "sort"].forEach(id => $(id).addEventListener("change", () => search(false)));
+$("crawl").onclick = async () => { $("crawl").textContent = "crawling…";
+  await fetch(BASE + "/crawl", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  setTimeout(() => { $("crawl").textContent = "crawl now"; refresh(); }, 3000); };
+$("huntbtn").onclick = async () => { $("huntbtn").textContent = "knocking…";
+  const r = await fetch(BASE + "/hunt", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"budget":12}' }).then(x => x.json());
+  $("huntbtn").textContent = `found ${(r.found || []).length}`;
+  setTimeout(() => { $("huntbtn").textContent = "hunt for endpoints"; refresh(); }, 2500); };
+
+get("/client_config?client=claude").then(r => {
+  $("connect").textContent = (r.config && r.config.command) || r.url;
+}).catch(() => {});
+
+search(false); refresh();
+setInterval(refresh, 6000);
+</script>
+</body>
+</html>

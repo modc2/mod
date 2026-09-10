@@ -1,0 +1,118 @@
+{
+ "block": "flashlender",
+ "contract": "ModFlashLender",
+ "file": "flashlender.sol",
+ "audited_at": "2026-08-30",
+ "auditor": "claude-fable-5 agent audit",
+ "risk": "critical",
+ "summary": "ModFlashLender is an ERC-3156 lender over a depositor-owned reserve: deposits mint an 18-decimal share priced off asset.balanceOf(lender), flashLoan() pushes up to the whole balance to a receiver, calls onFlashLoan(msg.sender, ...), checks the magic return, pulls amount+fee back from the receiver and re-checks the balance, then forwards an owner-set slice of the fee to a sink. The ERC-3156 surface itself is conformant. The reserve is not safe: deposit() and withdraw() are outside the `entered` guard and price shares off the live balance, which during the callback is whatever the borrower left behind (as little as 1 wei), so any borrower can mint shares at a near-zero price mid-loan, repay, and withdraw essentially the entire reserve in one transaction with only the fee as capital (FLASHLENDER-1). The share model also has the standard first-depositor donation attack with no zero-share guard (FLASHLENDER-2). Beyond its own reserve, this block is a permissionless single-transaction capital source for the rest of the canvas: every sibling that reads a live balance or a live AMM reserve becomes exploitable once a lender exists for its token — lending, cdp, perps and bonding when their oracle port is an AMM or StableSwap price() (FLASHLENDER-3), the governor when its votes token is transferable (FLASHLENDER-4), and the BlocTime treasury's weekly payout (FLASHLENDER-5). Vote-escrow, gauge boost, staking and the safety module are time-gated and are not flash-exploitable. Not safe to deploy as-is for third-party deposits; the reserve drain is unconditional and needs only a fix to the lender itself, while the composition findings need the sibling blocks to be wired to snapshot- or time-based weights.",
+ "counts": {
+  "critical": 2,
+  "high": 3,
+  "medium": 0,
+  "low": 2,
+  "info": 3
+ },
+ "findings": [
+  {
+   "id": "FLASHLENDER-1",
+   "severity": "critical",
+   "title": "deposit() inside the flash callback mints shares against a 1-wei pool: any borrower drains the whole reserve in one transaction",
+   "where": "deposit() L70-L77, withdraw() L79-L85, totalAssets() L62-L64, flashLoan() L95-L108 (guard L95-L96, push L102, callback L104, pull L107)",
+   "detail": "The reentrancy flag `entered` only protects flashLoan() against nested flash loans; deposit() and withdraw() do not check it. Shares are priced off totalAssets() = asset.balanceOf(this), and between the push at L102 and the pull at L107 that balance equals reserve minus the loan. A borrower who takes reserve-1 wei leaves totalAssets() == 1 and totalSupply == S, so deposit(X) at L73 computes shares = X * S / 1 = X*S — every existing holder is diluted to dust. If the borrower takes exactly the whole reserve the `pool == 0` branch mints 1:1 instead, which is the milder form (it prices shares at 1.0 regardless of accrued fees, stealing the accrued yield). The subsequent pull and NOT_REPAID check at L107-L108 pass because the deposit itself raised the balance; nothing detects that supply was inflated. After flashLoan returns, in the same transaction, the attacker withdraws the freshly minted shares at full post-repayment price.",
+   "exploit": "Reserve P = 1_000_000e18, supply S = 1_000_000e18, feeBps 9. Attacker contract A holds 901e18 (fee 900e18 + 1e18). 1) A calls flashLoan(A, asset, P-1, ''). Lender pushes P-1 to A; lender balance = 1 wei. 2) In onFlashLoan A calls lender.deposit(1e18): pool = 1, shares = 1e18 * 1e24 / 1 = 1e42 shares minted to A; supply = 1e24 + 1e42. A approves lender for P-1+900e18 and returns the magic value. 3) Lender pulls P-1+900e18 from A (A still holds P-1-1e18 of the loan plus its own 901e18); balance = P + 901e18 >= before + fee. 4) After flashLoan returns, A calls withdraw(1e42): assets = 1e42 * (P+901e18) / (1e24+1e42) ~= P + 901e18 - 1 wei. A leaves with ~1_000_901e18 having put in 901e18; the original depositors' 1e24 shares are now worth about 1 wei in total. With X = 1 wei the attacker still takes half the reserve. The 901e18 of working capital can itself be flash-borrowed elsewhere.",
+   "recommendation": "Stop pricing shares off the live balance during a loan: keep an internal `reserve` accounting variable (increment on deposit and on fee receipt, decrement on withdraw) and have totalAssets() return it, so a loan in flight never changes the share price. Additionally gate deposit() and withdraw() with require(!entered, 'REENTRANT') — the lender should be fully closed for the duration of a callback. Expose `entered` (or a `loanInFlight()` view) so downstream blocks that hold mFLASH can also refuse to act mid-loan."
+  },
+  {
+   "id": "FLASHLENDER-2",
+   "severity": "high",
+   "title": "First-depositor share inflation: 1-wei deposit plus a donation steals from or zeroes later deposits, and deposit() never checks shares > 0",
+   "where": "deposit() L70-L77, sharePrice() L66-L68, totalAssets() L62-L64",
+   "detail": "The first deposit mints 1:1 (L73, totalSupply == 0), there is no virtual offset, no dead shares and no minimum deposit, and totalAssets() is the raw balance so a direct transfer moves the share price. Unlike the vault block, deposit() does not require shares > 0: a victim whose deposit rounds to 0 shares has their assets pulled (L74) and receives nothing, and the entire amount accrues to the existing share holders. Because deposits into a flash reserve are expected to be large and from many parties, this is a live theft path on every fresh deployment until someone seeds it.",
+   "exploit": "1) Fresh lender, supply 0. Attacker deposit(1) -> 1 share. 2) Attacker asset.transfer(lender, 10_000e18) -> totalAssets = 10_000e18+1, supply 1. 3) Victim deposit(9_000e18) -> shares = 9_000e18 * 1 / (10_000e18+1) = 0; 9_000e18 is pulled and 0 shares are minted (no revert). 4) Attacker withdraw(1) -> 19_000e18+1. Victim deposits above the donation are floored to 1-2 shares and lose the rounding remainder to the attacker instead.",
+   "recommendation": "require(shares > 0, 'ZERO_SHARES') in deposit(); use internal reserve accounting so donations do not move sharePrice; adopt the OpenZeppelin ERC-4626 virtual shares/assets offset (add 10**offset to supply and 1 to assets in both conversions) or mint a fixed dead-share amount to address(0) on the first deposit. The composer should seed each new lender with a deployer deposit that is never withdrawn."
+  },
+  {
+   "id": "FLASHLENDER-3",
+   "severity": "critical",
+   "title": "Composition: with an AMM or StableSwap price() on the oracle port, a lender for either pool token lets anyone mint unbacked debt in lending, cdp and perps and buy bonds below market",
+   "where": "flashLoan() L89-L118 as the capital source; amm.sol price() L108-L111; stableswap.sol price() L120; lending.sol collateralValue() L60-L62, borrow() L104-L110, liquidate() L129; cdp.sol collateralValue() L77-L79, liquidate() L161; perps.sol open() L169-L193 (entryPrice = oracle.price()), close() L203-L228; bonding.sol bondPrice() L72-L79, deposit() L89-L100",
+   "detail": "amm.price() returns reserve1*1e18/reserve0 and stableswap.price() the equivalent spot, with no TWAP, no last-block guard and no manipulation bound; the lending block's own docs recommend wiring 'an AMM's price() for a (naive) on-chain feed'. Every consumer reads oracle.price() at the moment of the call: lending and cdp value collateral with it when borrowing/minting and when liquidating, perps stamps entryPrice from it, and bonding prices bonds off it. Without a flash lender such a manipulation costs the attacker real capital held across the swap; with this block deployed for token0 or token1 (or for the collateral or debt asset that also sits in the pool) the manipulation is free, atomic and repeatable by anyone. The lender's reserve is often the very token the AMM prices, because the composer makes the same erc20 output wirable to both.",
+   "exploit": "Lending wired collateral=T0, debtAsset=T1, oracle=AMM(T0/T1), flash lender for T1 with reserve R. 1) Attacker flashLoan(R of T1). 2) In the callback: amm.swap(T1->T0, most of R) pushes reserve1 up and reserve0 down, so amm.price() (T0 in T1) rises k-fold. 3) lending.depositCollateral(small T0), lending.borrow(maxBorrow) — maxBorrow = collateral * inflatedPrice * ltv, so the attacker drains the lending pool's T1 supply against collateral worth a fraction of it at the true price. 4) amm.swap(T0->T1) to unwind, repay R+fee. The debt is never repaid; suppliers hold bad debt and liquidate() at the true price seizes only the small collateral. The same sequence mints unbacked stablecoin in cdp (then dumps it on the psm/stableswap at par), opens a perps position at a false entryPrice paid out of the LP pool on close, and pushes bondPrice down to buy payoutToken at a discount bounded only by maxBondSize.",
+   "recommendation": "Never wire an AMM/StableSwap price() directly to lending, cdp, perps or bonding when a flash lender exists for any token in that pool; use ModFixedOracle (owner-published) or add a TWAP / last-block-observation guard to the AMM's price(). In the consumers, reject actions when the oracle price moved more than a bound within the same block, or require collateral deposits and borrows to be in different blocks. Document on the flashlender block's catalog entry that it turns every spot-price consumer on the canvas into a same-block attack surface."
+  },
+  {
+   "id": "FLASHLENDER-4",
+   "severity": "high",
+   "title": "Composition: governor counts live votes.balanceOf, so a flash lender for a transferable votes token lets anyone propose and pass proposals against every block the governor owns",
+   "where": "flashLoan() L89-L118 as the capital source; governor.sol propose() L129 (threshold off live balance), castVote() L148-L158 (weight = votes.balanceOf(msg.sender) at L151), quorum() L106-L108",
+   "detail": "ModGovernor has no snapshot: proposal threshold and vote weight are the caller's balance at call time, and hasVoted only stops one address from voting twice — not the same borrowed tokens being voted by many addresses. When the votes port is the token block (or any transferable erc20 such as an AMM LP, savings, lst or mFLASH share) and this block holds a reserve of it, an attacker borrows the reserve, votes with it, and repays inside one transaction; with votingDelay = 0 they can propose and vote in the same call. Quorum is quorumBps of totalSupply, so a reserve holding at least that fraction is enough on its own; smaller reserves are combined with voting from several fresh addresses across the window. The governor is the owner port for every other block, so a passed proposal can call setOracle, setStrategy, setFees, setOwner, rescue, withdraw or setTerms on any block it governs. A wired timelock delays execution but does not un-count the vote.",
+   "exploit": "Governor(votes = ModToken GOV, quorumBps 400, votingDelay 0, votingPeriod 3 days), flash lender holding 5% of GOV. 1) Attacker flashLoan(reserve). 2) In the callback: governor.propose([lending], [0], [setOracle(attackerOracle)]) passes the threshold check on the borrowed balance; governor.castVote(id, true) adds 5% of supply as forVotes (>= quorum); repay. 3) Honest holders would have to out-vote 5% of supply in 3 days, and the attacker can repeat step 2 from new addresses each block to keep forVotes ahead. 4) After p.end, execute(id): the lending oracle now returns whatever the attacker wants and the pool is emptied via borrow().",
+   "recommendation": "Wire the governor's votes port to the veescrow block (non-transferable, week-aligned locks) — it is the only weight source in the catalog that a flash loan cannot rent. If a transferable token must be used, add checkpointed balances (ERC20Votes-style getPastVotes at proposal start block) to the token and governor, and require a non-zero votingDelay. Keep a timelock on the governor so a captured vote is visible before it executes."
+  },
+  {
+   "id": "FLASHLENDER-5",
+   "severity": "high",
+   "title": "Composition: the BlocTime treasury pays the week out by live BLOC balanceOf and both registerFor and distribute are permissionless, so a flash lender for BLOC captures the whole distribution",
+   "where": "flashLoan() L89-L118 as the capital source; treasury.sol registerFor() L132-L134, totalWeight() L170-L173, distribute() L290-L319 (weight.balanceOf(who) at L303, credited to claimable at L307), claim() L321-L329",
+   "detail": "ModBlocTimeTreasury never stakes the weight token; distribute() walks the registered set and credits each participant amount * balanceOf(who) / totalWeight() at the moment of the call, and anyone may call it once the Friday window opens. The credit is stored in claimable and paid later by claim(), so the borrowed BLOC does not have to be held past the callback. A flash lender whose asset is the BLOC token therefore turns the weekly payout into a race: whoever calls distribute() inside a flash callback with the reserve in hand takes reserve/(reserve + honest weight) of the entire week.",
+   "exploit": "Treasury weight = BLOC, registered honest weight W = 100_000e18, week's distributable = 50_000 USDC; flash lender holds R = 900_000e18 BLOC. 1) Attacker registerFor(attacker) any time before Friday 17:00 UTC. 2) When distributionDue(): flashLoan(R). In onFlashLoan: treasury.distribute() -> totalWeight = 1_000_000e18, attacker credited 50_000 * 0.9 = 45_000 USDC in claimable; repay R + 810e18 fee (9 bps). 3) treasury.claim() -> 45_000 USDC. Honest participants share the remaining 5_000 and cannot call distribute() again this week. Repeats every week for the cost of the fee.",
+   "recommendation": "Have the treasury snapshot weight at a block before the window opens (or require participants to lock BLOC in the treasury for the week rather than reading balanceOf), or read weight from the veescrow block instead of a transferable balance. At minimum, refuse distribute() when weight balances changed in the same block, and do not deploy a flash lender for the BLOC token alongside a treasury that weights by it."
+  },
+  {
+   "id": "FLASHLENDER-6",
+   "severity": "low",
+   "title": "Owner can redirect 100% of future fees or zero them with no delay",
+   "where": "setFees() L126-L130, setFeeSink() L122-L124, flashLoan() L110-L113",
+   "detail": "protocolShareBps may be set to 10_000 at any time, routing the entire fee to feeSink (or to the owner when no sink is set); feeBps may be set to 0, making the reserve a free primitive for the attacks in FLASHLENDER-3/4/5 and removing all yield for depositors. No principal can be taken by the owner (there is no sweep, and withdraw only burns the caller's shares), so the exposure is to future income and to the deployment's attack economics, not to deposits. When the governor port is a plain EOA this is a silent rug of the yield the share was sold on.",
+   "exploit": "1) Depositors fund 1_000_000 tokens expecting 9 bps per loan. 2) Owner calls setFees(9, 10_000) and setFeeSink(ownerWallet). 3) Every subsequent flashLoan pushes the whole fee to ownerWallet at L112; sharePrice never moves and depositors earn nothing while still bearing FLASHLENDER-1.",
+   "recommendation": "Cap protocolShareBps below 10_000 (for example 5_000), emit events from setFees/setFeeSink, and wire the governor port to the timelock block so fee changes are visible before they apply. Consider a floor on feeBps so the reserve can never be a zero-cost loan."
+  },
+  {
+   "id": "FLASHLENDER-7",
+   "severity": "low",
+   "title": "Fee-on-transfer or rebasing reserve assets break both the loan check and the share price",
+   "where": "deposit() L73-L74, flashLoan() L100-L108, totalAssets() L62-L64",
+   "detail": "deposit() mints shares for the requested `assets` before the transfer, so a token that skims on transfer mints more shares than were delivered and dilutes existing holders. In flashLoan() the push and the pull each lose the skim, so totalAssets() after repayment is below before + fee and every loan reverts NOT_REPAID unless the fee exceeds twice the tax — the block is a dead lender for such tokens. Rebasing tokens pass through to sharePrice, which is acceptable, but a negative rebase during a loan also trips NOT_REPAID.",
+   "exploit": "Reserve asset charges 1% on transfer, feeBps 9. 1) Depositor A deposit(100e18) -> 100e18 shares, but the lender only received 99e18. 2) Depositor B deposit(100e18) -> shares = 100e18 * 100e18 / 99e18 = 101.01e18; B now owns more of the pool than A for the same delivered amount. 3) Any flashLoan(amount) pushes amount, receives 0.99*(amount+fee) back, and reverts at L108 because 0.99*(amount+fee) < amount + fee.",
+   "recommendation": "Measure balances before and after the pull in deposit() and mint against the delta, or document that only plain ERC20s (the token block, LP and share tokens from this catalog) are supported on the asset port."
+  },
+  {
+   "id": "FLASHLENDER-8",
+   "severity": "info",
+   "title": "ERC-3156 conformance is correct; receiver contracts must still check initiator because anyone may name them as receiver",
+   "where": "flashLoan() L89-L118, maxFlashLoan() L53-L55, flashFee() L57-L60",
+   "detail": "initiator is passed as msg.sender, the callback return is compared to keccak256('ERC3156FlashBorrower.onFlashLoan'), amount+fee is pulled from the receiver (not from msg.sender), maxFlashLoan returns 0 for foreign tokens and flashFee reverts for them, all as the standard requires. Per the standard, any address can call flashLoan naming any receiver; a receiver that has left an allowance to this lender and does not verify `initiator` and `msg.sender == lender` can be forced to take a loan and pay the fee, or to execute its strategy with attacker-supplied `data`.",
+   "exploit": "A receiver contract R with a standing approval to the lender and an onFlashLoan that acts on `data` without checking initiator. Attacker calls lender.flashLoan(R, asset, maxFlashLoan(asset), maliciousData); R runs the attacker's data and pays the fee out of its own balance.",
+   "recommendation": "Receivers built on this block should require(msg.sender == address(lender) && initiator == trustedCaller) at the top of onFlashLoan, and should set the repayment allowance inside the callback rather than leaving it standing."
+  },
+  {
+   "id": "FLASHLENDER-9",
+   "severity": "info",
+   "title": "The feeSink wire is inert until setFees() sets protocolShareBps, and defaults route the cut to the owner",
+   "where": "constructor L50, flashLoan() L110-L113, setFeeSink() L122-L124, catalog wires (setFeeSink only)",
+   "detail": "The composer's post-deploy wire calls setFeeSink(address) but protocolShareBps is initialised to 0 and no wire calls setFees, so a canvas with a feesplitter or treasury on the sink port receives nothing until the owner separately calls setFees(feeBps, protocolShareBps). Conversely, if protocolShareBps is later raised with no sink set, the cut goes to `owner`, which on a governed canvas is the governor or timelock contract and will hold the tokens until a proposal moves them.",
+   "exploit": "Deployer wires feeSink = treasury, expects 20% of fees to flow there, never calls setFees. Every flashLoan computes cut = fee * 0 / 10_000 = 0 at L110; the treasury receives nothing and the deployer only notices on the first distribution.",
+   "recommendation": "Add a protocolShareBps_ constructor param (with a catalog param and a max) or a second catalog wire that calls setFees when a sink is wired; require feeSink != address(0) whenever protocolShareBps > 0."
+  },
+  {
+   "id": "FLASHLENDER-10",
+   "severity": "info",
+   "title": "Shares are always 18-decimal and minted 1:1 to raw asset units, so mFLASH for a 6-decimal asset reads 1e-12 per unit downstream",
+   "where": "constructor L45 (ERC20Base(name_, symbol_, 18)), deposit() L73, sharePrice() L66-L68",
+   "detail": "The share token hard-codes 18 decimals while the first mint is one share per raw asset unit. For a USDC-like asset a 1_000_000 unit (1 USDC) deposit mints 1e6 shares, which an AMM, staking or gauge wired to the erc20 output displays as 0.000000000001 mFLASH; sharePrice() reports 1e18 as 'one whole token' but the whole token is 1e-12 of the asset. Nothing is lost, but any downstream block that assumes decimals() describes the unit (price displays, a fixed oracle published in 1e18 per whole token, AMM pairing against a real 18-decimal token) will be off by 1e12.",
+   "exploit": "Lender over USDC (6 dp). Deployer pairs mFLASH with WETH on the AMM block and seeds 1_000e18 'mFLASH' against 1 WETH by reading decimals()==18; 1_000e18 shares represent 1e15 USDC, which nobody holds, so the seeding transaction reverts or, if a smaller amount is used, the pair is priced 1e12 off and is arbitraged instantly.",
+   "recommendation": "Pass asset.decimals() to ERC20Base (mirroring the vault block) or scale the first mint by 10**(18 - asset.decimals())."
+  }
+ ],
+ "safe_use": [
+  "Do not deploy this block as-is for third-party deposits: FLASHLENDER-1 lets any borrower take the whole reserve in one transaction. Patch first — internal reserve accounting for totalAssets() plus require(!entered) on deposit() and withdraw() — then seed the first deposit yourself and never withdraw it (FLASHLENDER-2).",
+  "Treat every flash lender on the canvas as a public capital source for the token it holds: before adding one, list every sibling that reads that token's balanceOf or an AMM/StableSwap price() containing it at call time (lending, cdp, perps, bonding via the oracle port; governor via the votes port; treasury via the weight port) and either re-wire them to ModFixedOracle / veescrow / snapshotted weights or do not deploy the lender.",
+  "Never wire amm.price() or stableswap.price() to the oracle port of lending, cdp, perps or bonding on a canvas that also has a flash lender for either pool token; use ModFixedOracle or a TWAP.",
+  "Wire the governor's votes port to veescrow (non-transferable, week-aligned locks) rather than to the token block or any share token; keep a timelock on the governor and a non-zero votingDelay.",
+  "Do not deploy a flash lender whose asset is the BLOC weight token of a BlocTime treasury; if one exists, expect distribute() to be sniped every week.",
+  "Wire the governor port to the timelock block so setFees/setFeeSink/setOwner are visible before they apply, keep protocolShareBps well below 10_000, and remember the feeSink wire does nothing until setFees(feeBps, protocolShareBps > 0) is called.",
+  "Only use plain ERC20s from this catalog (token, LP, share tokens) on the asset port; fee-on-transfer tokens make every loan revert and mis-price deposits.",
+  "Receiver contracts must check msg.sender == lender and initiator == an address they trust inside onFlashLoan, and grant the repayment allowance inside the callback rather than leaving one standing."
+ ]
+}

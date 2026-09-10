@@ -1,0 +1,33 @@
+{
+    "name": "nim",
+    "description": "Nim with twenty-one stones, take one to three. A game whose move is a number and whose rule is arithmetic.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "wasm",
+    "lang": "wasm",
+    "anchor": "mod.py",
+    "artifact": "ae6a1fe139f7fe548f979b2deeb0980ce1168c98d39844cc4fe118053cc95afa",
+    "bytes": 55618,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game"
+    ],
+    "defines": [
+        "memory",
+        "alloc",
+        "game_done",
+        "game_info",
+        "game_init",
+        "game_result",
+        "game_step",
+        "game_view",
+        "__data_end",
+        "__heap_base"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/nim/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

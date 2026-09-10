@@ -5,6 +5,11 @@ One job: know what modules exist and what each one is. It walks the repo tree
 docs it ships (README.md / skill.md). Nothing here knows about protocol doc
 pages or the whitepaper — that's `docs`, which depends on this.
 
+The catalog is also a loopback service (api.py, :50520) copied from
+orbit/build's HUB data plane — module rows key-for-key with build's
+GET /modules, app screenshots, a batch port probe, and the autosnap CID
+loop. See README.md; start with `bash start.sh`.
+
 CLI (via `m`):
     m hub/modules [group=orbit|core|all]
     m hub/names orbit
@@ -12,6 +17,9 @@ CLI (via `m`):
     m hub/desc claude
     m hub/dir claude
     m hub/search auth
+    m hub/probe 8890,8893          # which local ports answer
+    m hub/screenshot claude        # cached PNG path for a module's app
+    m hub/snapshot_status          # how the autosnap loop is doing
 """
 import os
 import json
@@ -19,6 +27,7 @@ import mod as m
 
 HOME = os.path.expanduser("~")
 REPO = os.environ.get("MOD_REPO", os.path.join(HOME, "mod", "mod"))
+API_URL = os.environ.get("HUB_API_URL", "http://127.0.0.1:50520")
 
 GROUPS = ("orbit", "core")
 
@@ -87,6 +96,37 @@ class Mod:
         q = query.lower()
         return [x["name"] for x in self.modules("all")
                 if q in (x["name"] + " " + x["description"]).lower()]
+
+    # ── service (api.py :50520) ──────────────────────────────────────────
+    def probe(self, ports) -> dict:
+        """Which local ports answer — direct socket check, no api needed."""
+        import socket
+        out = {}
+        for p in str(ports).split(","):
+            p = p.strip()
+            if not p.isdigit():
+                continue
+            port = int(p)
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1):
+                    out[port] = True
+            except OSError:
+                out[port] = False
+        return out
+
+    def screenshot(self, module: str, refresh: bool = False) -> str:
+        """Capture (via the hub api) and return the cached PNG path."""
+        import urllib.request
+        q = "?refresh=1" if refresh else ""
+        with urllib.request.urlopen(f"{API_URL}/modules/{module}/screenshot{q}",
+                                    timeout=90) as resp:
+            resp.read()
+        return os.path.join(HOME, ".mod", "hub", "screenshots", f"{module}.png")
+
+    def snapshot_status(self) -> dict:
+        import urllib.request
+        with urllib.request.urlopen(f"{API_URL}/autosnap/status", timeout=10) as resp:
+            return json.load(resp)
 
     def info(self):
         mods = self.modules("all")

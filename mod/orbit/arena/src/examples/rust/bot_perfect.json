@@ -1,0 +1,6 @@
+{
+  "name": "bot-perfect",
+  "description": "Perfect Nim by arithmetic — leaves a multiple of four and never loses from a won position. The reference opponent.",
+  "author": "arena",
+  "tags": ["example", "player", "rust", "baseline"]
+}
