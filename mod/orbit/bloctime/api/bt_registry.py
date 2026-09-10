@@ -2,7 +2,7 @@
 BlocTime instance registry — the marketplace store.
 
 Every deployed BlocTime (the official one plus anyone's fork) is one entry:
-    { id, name, description, chainId, rpc, bloctime, nativeToken,
+    { id, name, description, chainId, rpc, bloctime, nativeToken, treasury,
       owner, official, explorer, createdAt }
 
 Entries live off-tree in ~/.mod/bloctime/registry.json; the official
@@ -52,6 +52,9 @@ EXPLORERS = {
     '8453': 'https://basescan.org',
     '84532': 'https://sepolia.basescan.org',
     '11155111': 'https://sepolia.etherscan.io',
+    '10': 'https://optimistic.etherscan.io',
+    '42161': 'https://arbiscan.io',
+    '137': 'https://polygonscan.com',
 }
 
 # Minimal ABI: just what verification and live stats need.
@@ -61,6 +64,13 @@ PROBE_ABI = json.loads('''[
   {"inputs":[],"name":"nextStakeId","outputs":[{"type":"uint256"}],"stateMutability":"view","type":"function"},
   {"inputs":[],"name":"nativeToken","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"},
   {"inputs":[],"name":"owner","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"}
+]''')
+
+# What a Treasury must answer to be recorded as one.
+TREASURY_PROBE_ABI = json.loads('''[
+  {"inputs":[],"name":"token","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"reserve","outputs":[{"type":"address"}],"stateMutability":"view","type":"function"},
+  {"inputs":[],"name":"reserveDecimals","outputs":[{"type":"uint8"}],"stateMutability":"view","type":"function"}
 ]''')
 
 
@@ -107,6 +117,7 @@ def official_entry():
         'rpc': contracts.get('url', ''),
         'bloctime': contracts['bloctime'],
         'nativeToken': contracts.get('nativeToken', ''),
+        'treasury': contracts.get('treasury', ''),
         'owner': '',
         'official': True,
         'explorer': explorer_for(chain_id, contracts['bloctime']),
@@ -130,7 +141,25 @@ def get_instance(instance_id):
     return None
 
 
-def verify_instance(rpc, bloctime, native_token=None):
+def verify_treasury(w3, treasury, native_token):
+    """The treasury must be a contract whose token() is this instance's
+    NativeToken — otherwise the market would advertise a mint door that
+    mints someone else's token (or nothing)."""
+    from web3 import Web3
+    addr = Web3.to_checksum_address(treasury)
+    if w3.eth.get_code(addr) in (b'', b'\x00'):
+        raise ValueError(f"No contract code at treasury {addr}")
+    c = w3.eth.contract(address=addr, abi=TREASURY_PROBE_ABI)
+    try:
+        token = c.functions.token().call()
+        c.functions.reserve().call()
+    except Exception as e:
+        raise ValueError(f"Address does not behave like a Treasury: {e}")
+    if Web3.to_checksum_address(token) != Web3.to_checksum_address(native_token):
+        raise ValueError("Treasury token() is not this instance's nativeToken")
+
+
+def verify_instance(rpc, bloctime, native_token=None, treasury=None):
     """Probe rpc/address on-chain; returns verified facts or raises ValueError."""
     from web3 import Web3
     w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={'timeout': 10}))
@@ -151,6 +180,8 @@ def verify_instance(rpc, bloctime, native_token=None):
         owner = c.functions.owner().call()
     except Exception:
         owner = ''
+    if treasury:
+        verify_treasury(w3, treasury, chain_token)
     return {
         'chainId': str(w3.eth.chain_id),
         'nativeToken': chain_token,
@@ -159,11 +190,11 @@ def verify_instance(rpc, bloctime, native_token=None):
     }
 
 
-def add_instance(name, rpc, bloctime, native_token=None, description='', verify=True):
+def add_instance(name, rpc, bloctime, native_token=None, description='', treasury=None, verify=True):
     """Verify on-chain and persist a new marketplace entry. Returns the entry."""
     if not name or not rpc or not bloctime:
         raise ValueError("name, rpc and bloctime address are required")
-    facts = verify_instance(rpc, bloctime, native_token) if verify else {
+    facts = verify_instance(rpc, bloctime, native_token, treasury) if verify else {
         'chainId': '', 'nativeToken': native_token or '', 'owner': '', 'totalBlocTime': '0',
     }
     entries = _load()
@@ -186,6 +217,7 @@ def add_instance(name, rpc, bloctime, native_token=None, description='', verify=
         'rpc': rpc,
         'bloctime': bloctime,
         'nativeToken': facts['nativeToken'],
+        'treasury': treasury or '',
         'owner': facts['owner'],
         'official': False,
         'explorer': explorer_for(facts['chainId'], bloctime),

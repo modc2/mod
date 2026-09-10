@@ -54,6 +54,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(info))
         .route("/health", get(health))
         .route("/status", get(status))
+        .route("/sync", get(sync_status))
 
         // ── auth (mod protocol-auth; gated, so reaching it proves the token) ──
         .route("/auth/me", get(auth_me))
@@ -88,6 +89,9 @@ pub fn router() -> Router<AppState> {
         .route("/signals/:id/ack", post(ack_signal))
 
         // ── indexes ──
+        // The unified strats board: baskets + vaults + copyable traders,
+        // one row shape, trailing 24h/7d APR each.
+        .route("/strats/board", get(strats_board))
         .route("/indexes", get(list_indexes).post(create_index))
         .route("/indexes/:id", get(get_index).patch(update_index).delete(delete_index))
         .route("/indexes/:id/perf", get(index_perf))
@@ -361,7 +365,7 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
         "endpoints": {
             // `crate::auth::is_public` is the authority; mcp::tools() carries
             // the same flag per tool and a test holds the two in agreement.
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/strats/board", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
             "gated": ["/auth/me", "/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote", "POST /indexes", "PATCH|DELETE /indexes/:id"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
@@ -385,6 +389,39 @@ async fn status(State(s): State<AppState>) -> Json<Value> {
         "mcp_tools": crate::mcp::tools().len(),
         // Agents currently attached over the HTTP+SSE transport.
         "mcp_sse_sessions": crate::mcp::session_count(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct SyncQuery { limit: Option<usize> }
+
+/// Data-integrity report: when each cached board was last computed, how
+/// complete the trader index is per window, and the recent history of
+/// background sync passes. Everything here is about the module's own caches —
+/// there is nothing user-scoped, so the route is a public read.
+async fn sync_status(State(s): State<AppState>, Query(q): Query<SyncQuery>) -> Json<Value> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let limit = q.limit.unwrap_or(80).min(crate::sync::HISTORY_CAP);
+    let (history, coverage) = s.syncs.snapshot(limit);
+    let boards = s.boards.summary();
+    let stale = boards.iter().filter(|b| now - b.updated_at > crate::sync::BOARD_STALE_MS).count();
+    Json(json!({
+        "now_ms": now,
+        "ok": stale == 0 && !boards.is_empty(),
+        // The refresher's cadence and what "stale" means, so a client renders
+        // judgements from the server's thresholds instead of inventing its own.
+        "refresh_interval_ms": 120_000,
+        "board_stale_after_ms": crate::sync::BOARD_STALE_MS,
+        "index_ttl_ms": crate::traders::INDEX_TTL_MS,
+        "boards": { "stale": stale, "entries": boards },
+        "index": {
+            "entries": s.index.len(),
+            "windows": s.index.summary(now),
+        },
+        // Deepener completeness: of the top-ranked wallets each window keeps
+        // warm, how many currently have fresh fill stats.
+        "coverage": coverage,
+        "history": history,
     }))
 }
 
@@ -933,6 +970,22 @@ async fn auto_index_preview(State(s): State<AppState>, Json(b): Json<AutoBody>)
         "days": days, "top": top, "legs": legs,
         "candidates": traders.into_iter().take(top).collect::<Vec<_>>(),
     })))
+}
+
+// ── strats board ──
+
+#[derive(Deserialize)]
+struct StratsBoardQ { vaults: Option<usize>, traders: Option<usize>, min_tvl: Option<f64> }
+/// Baskets + vaults + copyable traders as one board, each row carrying the
+/// trailing 24h/7d APR ("what a deposit made then would have annualized to").
+async fn strats_board(State(s): State<AppState>, Query(q): Query<StratsBoardQ>) -> Json<Value> {
+    let b = crate::strats_board::board(
+        &s,
+        q.vaults.unwrap_or(24).clamp(0, 500),
+        q.traders.unwrap_or(24).clamp(0, 500),
+        q.min_tvl,
+    ).await;
+    Json(serde_json::to_value(b).unwrap_or_else(|_| json!({"rows": []})))
 }
 
 // ── vaults ──

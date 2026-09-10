@@ -9,6 +9,8 @@ mod vaults;
 mod copytrade;
 mod indexes;
 mod store;
+mod strats_board;
+mod sync;
 mod mcp;
 mod routes;
 mod signer;
@@ -55,6 +57,8 @@ pub struct AppState {
     pub index: Arc<traders::TraderIndex>,
     /// Board scans running in the background (see `ScanJobs`).
     pub scans: Arc<traders::ScanJobs>,
+    /// Ledger of background sync passes — what `/sync` reports.
+    pub syncs: Arc<sync::SyncLog>,
     pub signer: Arc<signer::SignerStore>,
     pub meta: Arc<actions::MetaCache>,
     pub live: Arc<live_engine::EngineRegistry>,
@@ -141,10 +145,13 @@ async fn main() -> anyhow::Result<()> {
     // for 24h-active); enrichment is capped at ENRICH_CAP inside top_traders,
     // so the wide pool costs no extra /info calls — only the top slice by
     // rank is ever measured from fills.
+    let syncs = Arc::new(sync::SyncLog::load(&data_dir));
+
     let prewarm_hl = hl.clone();
     let prewarm_progress = progress.clone();
     let prewarm_boards = boards.clone();
     let prewarm_index = index.clone();
+    let prewarm_syncs = syncs.clone();
     tokio::spawn(async move {
         loop {
             // Standard boards first (ROI + PnL for each window, 24h-active),
@@ -171,6 +178,15 @@ async fn main() -> anyhow::Result<()> {
                             "board refresh days={} rank={} active={}: {} traders in {:?}",
                             days, rank.as_str(), active.as_str(), b.traders.len(), started.elapsed()
                         );
+                        prewarm_syncs.push(sync::SyncEvent {
+                            ts_ms: chrono::Utc::now().timestamp_millis(),
+                            kind: "board".into(),
+                            key: traders::board_key(days, rank, active),
+                            ok: true,
+                            rows: b.traders.len(),
+                            duration_ms: started.elapsed().as_millis() as u64,
+                            note: String::new(),
+                        });
                         // Warm the curves the cards on the first screen will
                         // ask for. Only the ROI board, because that is the
                         // board the page opens on, and the portfolio payload
@@ -180,12 +196,33 @@ async fn main() -> anyhow::Result<()> {
                         } else { Vec::new() };
                         prewarm_boards.put(days, rank, active, PREWARM_POOL, b.traders);
                         if !heads.is_empty() {
+                            let cstart = std::time::Instant::now();
                             let warmed = curve::trader_curves(prewarm_hl.clone(), &heads, days).await;
                             let ok = warmed.iter().filter(|c| c.available).count();
                             tracing::info!("curve prewarm days={days}: {ok}/{} available", warmed.len());
+                            prewarm_syncs.push(sync::SyncEvent {
+                                ts_ms: chrono::Utc::now().timestamp_millis(),
+                                kind: "curves".into(),
+                                key: format!("{days}d roi top {}", warmed.len()),
+                                ok: true,
+                                rows: ok,
+                                duration_ms: cstart.elapsed().as_millis() as u64,
+                                note: format!("{ok}/{} available", warmed.len()),
+                            });
                         }
                     }
-                    Err(e) => tracing::warn!("board refresh days={days} rank={} failed: {e}", rank.as_str()),
+                    Err(e) => {
+                        tracing::warn!("board refresh days={days} rank={} failed: {e}", rank.as_str());
+                        prewarm_syncs.push(sync::SyncEvent {
+                            ts_ms: chrono::Utc::now().timestamp_millis(),
+                            kind: "board".into(),
+                            key: traders::board_key(days, rank, active),
+                            ok: false,
+                            rows: 0,
+                            duration_ms: started.elapsed().as_millis() as u64,
+                            note: e.to_string(),
+                        });
+                    }
                 }
             }
             // Deepen the trader index past the boards' enrichment cap, a few
@@ -198,12 +235,28 @@ async fn main() -> anyhow::Result<()> {
                 let top: Vec<String> = ranked.into_iter().take(depth).collect();
                 let now = chrono::Utc::now().timestamp_millis();
                 let stale = prewarm_index.stale(days, &top, now);
+                // Completeness reading for /sync: of the wallets this window
+                // is supposed to keep warm, how many are inside the TTL now.
+                prewarm_syncs.set_coverage(sync::Coverage {
+                    days, target: top.len(),
+                    fresh: top.len().saturating_sub(stale.len()),
+                    checked_ms: now,
+                });
                 let batch: Vec<String> = stale.into_iter().take(DEEPEN_BATCH).collect();
                 if batch.is_empty() { continue; }
                 let started = std::time::Instant::now();
                 let n = prewarm_index.enrich(&prewarm_hl, days, &batch, None, 0).await;
                 tracing::info!("index deepen days={days}: {n} wallets in {:?} ({} indexed)",
                     started.elapsed(), prewarm_index.len());
+                prewarm_syncs.push(sync::SyncEvent {
+                    ts_ms: chrono::Utc::now().timestamp_millis(),
+                    kind: "deepen".into(),
+                    key: format!("{days}d"),
+                    ok: true,
+                    rows: n,
+                    duration_ms: started.elapsed().as_millis() as u64,
+                    note: format!("{} indexed total", prewarm_index.len()),
+                });
             }
             tokio::time::sleep(std::time::Duration::from_secs(120)).await;
         }
@@ -213,6 +266,7 @@ async fn main() -> anyhow::Result<()> {
         hl, http, store, copy, progress, boards, index, signer, meta, live,
         invest: invest_store, engine,
         scans: traders::ScanJobs::new(),
+        syncs,
         auth: auth::AuthCfg::from_env(),
         self_url: Arc::new(self_url),
     };

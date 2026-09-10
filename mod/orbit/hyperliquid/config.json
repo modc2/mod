@@ -10,6 +10,7 @@
         "api",
         "kill",
         "status",
+        "sync_status",
         "build",
         "logs",
         "test",
@@ -30,6 +31,7 @@
         "analyze_trader",
         "trader_curve",
         "leaderboard",
+        "strats_board",
         "list_indexes",
         "get_index",
         "create_index",
@@ -129,6 +131,6 @@
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
         "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },
-    "schema": "QmcPLRTGa8NbdTckGLisPxJ5c92D4Ppf5f7UqemKkaZYgn",
+    "schema": "QmcTGMjqh6HxDayYsXXri9ZeEF9PGVzeuEckUEwVvFG1hs",
     "gateway_port": 3919
 }

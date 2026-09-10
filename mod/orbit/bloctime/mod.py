@@ -562,11 +562,11 @@ class Mod:
                 e['stats'] = reg.instance_stats(e)
         return {'count': len(instances), 'instances': instances}
 
-    def register_instance(self, name, rpc, bloctime, native_token=None, description=''):
+    def register_instance(self, name, rpc, bloctime, native_token=None, description='', treasury=None):
         """Verify a deployed BlocTime on-chain and list it on the marketplace."""
         return self._registry().add_instance(
             name=name, rpc=rpc, bloctime=bloctime,
-            native_token=native_token, description=description,
+            native_token=native_token, description=description, treasury=treasury,
         )
 
     def unregister_instance(self, id):

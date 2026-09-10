@@ -47,7 +47,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_STRATS, orderedTemplates, traderIndexTemplate } from "../lib/defaultStrats";
 import { useStratManager } from "../lib/stratManager";
-import { useStratStats } from "../lib/stratStats";
+import { useStratStats, useStratPnlHistory, fmtUsd, type StratPnlPoint } from "../lib/stratStats";
 import { fetchPublicStrats, type PublicStratEntry } from "../lib/stratSync";
 import { FORMULA_EVENT, broadcastFormula, loadSavedFormula } from "../lib/scoreFormula";
 import { isTraderIndex } from "../lib/traderIndex";
@@ -56,9 +56,28 @@ import { shortAddress } from "../lib/auth";
 import AutoStratPanel from "./AutoStratPanel";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 import ScoreMarket from "./ScoreMarket";
+import Sparkline from "./Sparkline";
 import StratChat from "./StratChat";
 import StratLab from "./StratLab";
 import UserStratsPanel from "./UserStratsPanel";
+
+function timeSince(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 120) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+// Hover caption for the 7-day curve's buckets: when the point was sampled.
+function curveHover(points: StratPnlPoint[]) {
+  return (i: number, _v: number) => {
+    const p = points[i];
+    if (!p) return "7d live PnL";
+    const d = new Date(p.t);
+    return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  };
+}
 
 function SectionHeader({ label, hint }: { label: string; hint: string }) {
   return (
@@ -76,8 +95,10 @@ export default function StratsTab() {
     requestDelete, pendingDelete, confirmDelete, cancelDelete,
     stopStrat, setVisibility, importPublic, broadcast,
   } = useStratManager();
-  // Only the running set — the money columns live on INDEX.
-  const { running: liveStratIds } = useStratStats();
+  // Live money stats + running set: cards show deployed capital alongside backtest.
+  const { stats: liveStats, running: liveStratIds } = useStratStats();
+  // 7-day PnL curves per strat, from the server sidecar's 10-min samples.
+  const pnlHistory = useStratPnlHistory();
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -148,9 +169,73 @@ export default function StratsTab() {
         <span className="text-pixel-white">INDEX</span> tab: allocate there, run on LIVE.
       </div>
 
+      {/* ── INVESTED — just the strats your money is on, nothing else ──
+          The full roster below is a management surface; with 16 strats the
+          two or three that actually hold capital drown in it. This is the
+          plain answer to "where is my money": name · $ in play · PnL. */}
+      {(() => {
+        const invested = indexes.filter((idx) => {
+          const m = liveStats[idx.id];
+          return liveStratIds.has(idx.id) || (m != null && (m.moneyIn > 0 || m.openPositions > 0));
+        });
+        return (
+          <section className="space-y-1">
+            <SectionHeader label="INVESTED" hint="strats your money is on right now · click = active" />
+            {invested.length === 0 ? (
+              <div className="px-1.5 py-1 text-[10px] font-mono text-pixel-gray">
+                No money on any strat. Deposit on <span className="text-pixel-white">INDEX</span>, then start one on LIVE.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {invested.map((idx) => {
+                  const m = liveStats[idx.id];
+                  const isActive = idx.id === activeId;
+                  const isRunning = liveStratIds.has(idx.id);
+                  const inPlay = m?.openValue ?? 0;
+                  const totalPnl = m?.totalPnl ?? 0;
+                  const curve = pnlHistory[idx.id];
+                  return (
+                    <button
+                      key={idx.id}
+                      onClick={() => select(idx.id)}
+                      className={`flex items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-2 text-left transition-colors ${
+                        isActive
+                          ? "bg-green-400/[0.07] ring-1 ring-green-400/30"
+                          : "hover:bg-pixel-white/[0.04] ring-1 ring-pixel-border/60"
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          isRunning ? "bg-green-400 animate-pulse" : "bg-pixel-gray/50"
+                        }`}
+                        title={isRunning ? "Trading now" : "Holding positions, engine stopped"}
+                      />
+                      <span className={`flex-1 min-w-0 truncate text-[12px] font-mono font-semibold ${isActive ? "text-green-400" : "text-pixel-white"}`}>
+                        {idx.name}
+                      </span>
+                      {curve && curve.length >= 2 && (
+                        <span className="shrink-0" title="Last 7 days of live PnL">
+                          <Sparkline data={curve.map((p) => p.pnl)} width={64} height={18} />
+                        </span>
+                      )}
+                      <span className="shrink-0 text-[11px] font-mono tabular-nums text-pixel-white">
+                        {inPlay > 0 ? fmtUsd(inPlay) : "flat"}
+                      </span>
+                      <span className={`shrink-0 text-[11px] font-mono font-semibold tabular-nums ${totalPnl > 0 ? "text-green-400" : totalPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
+                        {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })()}
+
       {/* ── MY STRATS — the management list ── */}
-      <section className="space-y-1">
-        <SectionHeader label="MY STRATS" hint="click = active strat · double-click name to rename" />
+      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+        <SectionHeader label="MY STRATS" hint="click = active · live money + last backtest per card" />
         <div className="flex flex-col gap-0.5">
           {indexes.length === 0 && (
             <div className="px-1.5 py-2 text-[10.5px] font-mono text-pixel-gray">
@@ -163,124 +248,219 @@ export default function StratsTab() {
             const isRunning = liveStratIds.has(idx.id);
             const isPublic = idx.visibility === "public";
             const indexed = isTraderIndex(idx);
+            const money = liveStats[idx.id];
+            const pnl24h = money?.pnl24h ?? 0;
+            const roi24h = money?.roi24h ?? null;
+            const inPlay = money?.openValue ?? 0;
+            const openPos = money?.openPositions ?? 0;
+            const totalPnl = money?.totalPnl ?? 0;
+            const traded = openPos > 0 || (money?.fills ?? 0) > 0;
+            const hasBt = idx.lastBacktestAt != null;
+            // 7-day live PnL curve (server sidecar). Absent until the strat
+            // has traded and the sidecar has sampled — the band then hides.
+            const curve = pnlHistory[idx.id];
+            const curve7d = curve && curve.length >= 2 ? curve : null;
             return (
               <div
                 key={idx.id}
                 onClick={() => select(idx.id)}
-                className={`relative flex items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-left cursor-pointer transition-colors ${
+                className={`relative rounded-[var(--radius-sm)] cursor-pointer transition-colors overflow-hidden ${
                   isActive
-                    ? "text-green-400 bg-green-400/10"
-                    : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06]"
+                    ? "bg-green-400/[0.07] ring-1 ring-green-400/30"
+                    : "hover:bg-pixel-white/[0.04] ring-1 ring-pixel-border/60"
                 }`}
+                style={{ marginBottom: 2 }}
               >
+                {/* Active accent bar */}
                 <span
-                  className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-full bg-green-400 transition-all duration-200 ${
-                    isActive ? "h-5 opacity-100 shadow-[0_0_10px_rgba(74,222,128,0.7)]" : "h-0 opacity-0"
+                  className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l bg-green-400 transition-opacity ${
+                    isActive ? "opacity-100 shadow-[0_0_8px_rgba(74,222,128,0.6)]" : "opacity-0"
                   }`}
                 />
-                {isRunning && (
-                  <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" title="Engine running for this strat" />
-                )}
-                {renamingId === idx.id ? (
-                  <input
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null); }}
-                    onBlur={commitRename}
-                    onClick={(e) => e.stopPropagation()}
-                    autoFocus
-                    className="flex-1 min-w-0 bg-transparent border-b border-green-400 text-green-400 font-mono text-[12px] outline-none"
-                  />
-                ) : (
-                  <span
-                    onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(idx.id); setRenameValue(idx.name); }}
-                    className="flex-1 min-w-0"
-                    title="Double-click to rename"
-                  >
-                    <span className="block truncate text-[12px] font-mono font-semibold">
+
+                {/* ── Card header: name + badges ── */}
+                <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
+                  {isRunning && (
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" title="Engine is running for this strat" />
+                  )}
+                  {renamingId === idx.id ? (
+                    <input
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenamingId(null); }}
+                      onBlur={commitRename}
+                      onClick={(e) => e.stopPropagation()}
+                      autoFocus
+                      className="flex-1 min-w-0 bg-transparent border-b border-green-400 text-green-400 font-mono text-[12px] outline-none"
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(idx.id); setRenameValue(idx.name); }}
+                      className={`flex-1 min-w-0 truncate text-[12.5px] font-mono font-semibold ${isActive ? "text-green-400" : "text-pixel-white"}`}
+                      title="Double-click to rename"
+                    >
                       {idx.name}
                       {idx.identity && (
-                        <span className="ml-1.5 text-[9px] tracking-[0.1em] text-cyan-400" title={`IDENTITY strat — copies exactly one trader: ${idx.identity}`}>
-                          ID
-                        </span>
+                        <span className="ml-1.5 text-[9px] tracking-[0.1em] text-cyan-400"> ID</span>
                       )}
                     </span>
-                    <span className="block truncate text-[10px] font-mono text-pixel-gray">
-                      {indexed ? "1:1 · your $ ÷ their $" : "conviction · flow-sized"}
-                      {" "}· {idx.traders.length}T
-                      {idx.marketQuery?.trim() && (
-                        <span className="text-amber-300/70" title={`Copying only markets matching: ${idx.marketQuery.trim()}`}>
-                          {" "}· ⌕ {idx.marketQuery.trim()}
-                        </span>
-                      )}
-                      {idx.filter && (
-                        <span className="text-cyan-300/70">
-                          {" "}· ▼ {describeTraderFilter(idx.filter)}
-                        </span>
-                      )}
+                  )}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); void toggleVisibility(idx.id, idx.name, !isPublic); }}
+                    disabled={visBusy === idx.id}
+                    className={`shrink-0 px-1.5 py-0.5 rounded border text-[8.5px] font-mono font-semibold tracking-[0.1em] transition-colors ${
+                      isPublic
+                        ? "border-green-400/60 text-green-400 hover:border-red-400/60 hover:text-red-400"
+                        : "border-pixel-border/60 text-pixel-gray hover:border-green-400/60 hover:text-green-400"
+                    } ${visBusy === idx.id ? "opacity-40" : ""}`}
+                    title={isPublic ? "PUBLIC — click to make private" : "PRIVATE — click to publish"}
+                  >
+                    {isPublic ? "PUB" : "PRIV"}
+                  </button>
+                </div>
+
+                {/* Sizing sub-line */}
+                <div className="px-3 pb-1.5 text-[10px] font-mono text-pixel-gray truncate">
+                  {indexed ? "1:1 · your $ ÷ their $" : "conviction · flow-sized"}
+                  {" "}· {idx.traders.length}T
+                  {idx.marketQuery?.trim() && (
+                    <span className="text-amber-300/70" title={`Copying only markets matching: ${idx.marketQuery.trim()}`}>
+                      {" "}· ⌕ {idx.marketQuery.trim()}
                     </span>
-                  </span>
+                  )}
+                  {idx.filter && (
+                    <span className="text-cyan-300/70">
+                      {" "}· ▼ {describeTraderFilter(idx.filter)}
+                    </span>
+                  )}
+                </div>
+
+                {/* ── 7-day live PnL curve ── */}
+                {curve7d && (
+                  <div className="mx-3 mb-1.5">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-[8.5px] font-semibold tracking-[0.18em] text-pixel-gray">7D PNL</span>
+                      <span className={`text-[9px] font-mono tabular-nums ${
+                        curve7d[curve7d.length - 1].pnl - curve7d[0].pnl > 0 ? "text-green-400"
+                          : curve7d[curve7d.length - 1].pnl - curve7d[0].pnl < 0 ? "text-red-400" : "text-pixel-gray"
+                      }`}>
+                        {(() => { const d = curve7d[curve7d.length - 1].pnl - curve7d[0].pnl; return `${d >= 0 ? "+" : ""}${fmtUsd(d)}`; })()}
+                      </span>
+                    </div>
+                    <div className="text-pixel-gray">
+                      <Sparkline data={curve7d.map((p) => p.pnl)} height={26} stretch hoverLabel={curveHover(curve7d)} />
+                    </div>
+                  </div>
                 )}
 
-                {/* Visibility, on the row — the whole point of this tab.
-                    Private is the default; the toggle is the publish. */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); void toggleVisibility(idx.id, idx.name, !isPublic); }}
-                  disabled={visBusy === idx.id}
-                  className={`shrink-0 px-1.5 py-0.5 rounded border text-[9px] font-mono font-semibold tracking-[0.1em] transition-colors ${
-                    isPublic
-                      ? "border-green-400/60 text-green-400 hover:border-red-400/60 hover:text-red-400"
-                      : "border-pixel-border text-pixel-gray hover:border-green-400/60 hover:text-green-400"
-                  } ${visBusy === idx.id ? "opacity-40" : ""}`}
-                  title={
-                    isPublic
-                      ? "PUBLIC — on the community gallery, anyone can view and fork it. Click to make it private again."
-                      : "PRIVATE (the default) — only you can see it. Click to publish it to the community gallery, plaintext, forkable by anyone."
-                  }
+                {/* ── Stats grid: LIVE | BACKTEST ── */}
+                <div
+                  className="grid grid-cols-2 mx-3 mb-2 rounded-[var(--radius-sm)] overflow-hidden"
+                  style={{ border: "1px solid var(--border)" }}
                 >
-                  {isPublic ? "PUBLIC" : "PRIVATE"}
-                </button>
+                  {/* LIVE column */}
+                  <div className="px-2 py-1.5" style={{ borderRight: "1px solid var(--border)" }}>
+                    <div className="flex items-center gap-1 mb-1">
+                      <span className={`text-[8.5px] font-semibold tracking-[0.18em] ${isRunning ? "text-green-400" : "text-pixel-gray"}`}>
+                        LIVE
+                      </span>
+                      {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
+                    </div>
+                    {traded ? (
+                      <>
+                        <div className="text-[11px] font-mono font-semibold text-pixel-white tabular-nums">
+                          {openPos > 0 ? fmtUsd(inPlay) : "flat"}
+                        </div>
+                        <div className={`text-[9.5px] font-mono tabular-nums ${pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : "text-pixel-gray"}`}>
+                          24h {pnl24h >= 0 ? "+" : ""}{fmtUsd(pnl24h)}
+                          {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
+                        </div>
+                        <div className={`text-[9px] font-mono tabular-nums text-pixel-gray`}>
+                          total {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-[9.5px] font-mono text-pixel-gray/60">
+                        {isRunning ? "running · no positions" : "not trading"}
+                      </div>
+                    )}
+                  </div>
 
-                <button
-                  onClick={(e) => { e.stopPropagation(); setChatId(idx.id); }}
-                  className="text-[9.5px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 shrink-0"
-                  title={`Chat about "${idx.name}" — ask for a change in words and apply the patch it proposes`}
+                  {/* BACKTEST column */}
+                  <div className="px-2 py-1.5">
+                    <div className="text-[8.5px] font-semibold tracking-[0.18em] text-pixel-gray mb-1">BACKTEST</div>
+                    {hasBt ? (
+                      <>
+                        <div className={`text-[11px] font-mono font-semibold tabular-nums ${(idx.lastPnl ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {(idx.lastPnl ?? 0) >= 0 ? "+" : ""}{fmtUsd(idx.lastPnl ?? 0)}
+                        </div>
+                        {idx.lastRoi1k != null && (
+                          <div className={`text-[9.5px] font-mono tabular-nums ${idx.lastRoi1k >= 0 ? "text-green-400/80" : "text-red-400/80"}`}>
+                            ROI/1k {idx.lastRoi1k >= 0 ? "+" : ""}{fmtUsd(idx.lastRoi1k)}
+                          </div>
+                        )}
+                        <div className="text-[9px] font-mono text-pixel-gray">
+                          {idx.lastTradeCount ?? 0} trades
+                          {idx.lastBacktestAt && (
+                            <span className="text-pixel-gray/60">
+                              {" "}· {timeSince(idx.lastBacktestAt)}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-[9.5px] font-mono text-pixel-gray/60">never run</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Action strip ── */}
+                <div
+                  className="flex items-center gap-0 px-2 pb-1.5"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  ASK
-                </button>
-                {/* Text, not a glyph: U+2442 has no coverage in the console's
-                    font on this host and rendered as tofu. */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); fork(idx.id); }}
-                  className="text-[9.5px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 shrink-0"
-                  title={`Fork "${idx.name}" — an independent copy, stopped, un-funded and private`}
-                >
-                  FORK
-                </button>
-                {isRunning ? (
                   <button
-                    onClick={(e) => { e.stopPropagation(); void stopStrat(idx.id); }}
-                    className="text-[10px] font-mono text-pixel-gray hover:text-red-400 shrink-0"
-                    title="Stop this strat's engine — the wallet's other funded strats keep running"
+                    onClick={() => setChatId(idx.id)}
+                    className="px-2 py-0.5 text-[9px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 transition-colors"
+                    title={`Chat about "${idx.name}"`}
                   >
-                    ■
+                    ASK
                   </button>
-                ) : (
+                  <span className="text-pixel-border/60 text-[10px]">·</span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setRenamingId(idx.id); setRenameValue(idx.name); }}
-                    className="text-[11px] text-pixel-gray hover:text-green-400 shrink-0"
+                    onClick={() => fork(idx.id)}
+                    className="px-2 py-0.5 text-[9px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 transition-colors"
+                    title={`Fork "${idx.name}" — an independent copy, stopped, un-funded and private`}
+                  >
+                    FORK
+                  </button>
+                  <span className="text-pixel-border/60 text-[10px]">·</span>
+                  <button
+                    onClick={() => { setRenamingId(idx.id); setRenameValue(idx.name); }}
+                    className="px-2 py-0.5 text-[9px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 transition-colors"
                     title="Rename"
                   >
-                    ✎
+                    RENAME
                   </button>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); requestDelete(idx.id); }}
-                  className="text-[13px] text-pixel-gray hover:text-red-400 shrink-0"
-                  title="Delete (a published strat comes off the gallery too)"
-                >
-                  ×
-                </button>
+                  <span className="ml-auto flex items-center gap-1">
+                    {isRunning && (
+                      <button
+                        onClick={() => void stopStrat(idx.id)}
+                        className="px-2 py-0.5 text-[9px] font-mono font-semibold text-pixel-gray hover:text-red-400 transition-colors"
+                        title="Stop this strat's engine"
+                      >
+                        STOP
+                      </button>
+                    )}
+                    <button
+                      onClick={() => requestDelete(idx.id)}
+                      className="px-2 py-0.5 text-[13px] text-pixel-gray hover:text-red-400 transition-colors leading-none"
+                      title="Delete (a published strat comes off the gallery too)"
+                    >
+                      ×
+                    </button>
+                  </span>
+                </div>
               </div>
             );
           })}

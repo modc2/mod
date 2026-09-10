@@ -212,6 +212,19 @@ pub struct ActiveTradersQuery {
     /// docs on `Trader::first_trade_ts`. 0/absent = off.
     #[serde(rename = "minHistoryDays")]
     pub min_history_days: Option<f64>,
+    /// Consistency floor, 0–1: keep only traders whose PnL curve climbed in
+    /// at least this share of its moved segments — the same `consistency`
+    /// the console's SCORE bus computes, so the filter and the score variable
+    /// name one number. 0.9 is the smooth staircase; 0.5 is a coin flip.
+    ///
+    /// A trader whose consistency is UNKNOWN (-1: no curve, or fewer than 3
+    /// moved segments) is CUT while the floor is on — unlike the track-record
+    /// gate, the curve's shape IS this filter's subject, and "too little
+    /// movement to judge" is not a demonstrated smooth climb. Runs after the
+    /// marketQuery recompute, so it grades the query-scoped curve when one is
+    /// active. 0/absent = off.
+    #[serde(rename = "minConsistency")]
+    pub min_consistency: Option<f64>,
     pub status: Option<String>,
 }
 

@@ -211,8 +211,10 @@ pub fn is_public(method: &Method, path: &str) -> bool {
     if *method != Method::GET {
         return false;
     }
-    matches!(path, "/" | "/health" | "/status" | "/mids" | "/leaderboard" | "/scan/progress"
+    matches!(path, "/" | "/health" | "/status" | "/sync" | "/mids" | "/leaderboard" | "/scan/progress"
         | "/wallet/config" | "/indexes" | "/vaults" | "/market/meta"
+        // The unified strats board is browse-surface, like /indexes and /vaults.
+        | "/strats/board"
         // MCP discovery: the tool schema is the module's public fn surface.
         | "/mcp/schema"
         // Agent readiness (is a model key configured, how many tools). Asking

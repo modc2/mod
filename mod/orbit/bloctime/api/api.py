@@ -37,6 +37,7 @@ DEPLOY_PATH = MODULE_DIR / "deployment.json"
 CONFIG_PATH = MODULE_DIR / "config.json"
 ABI_PATH = MODULE_DIR / "artifacts" / "contracts" / "BlocTime.sol" / "BlocTime.json"
 TOKEN_ABI_PATH = MODULE_DIR / "artifacts" / "contracts" / "NativeToken.sol" / "NativeToken.json"
+TREASURY_ABI_PATH = MODULE_DIR / "artifacts" / "contracts" / "Treasury.sol" / "Treasury.json"
 
 # ── Signing-endpoint auth ────────────────────────────────────────────────
 # Every endpoint that spends the server's PRIVATE_KEY (stake, deploy,
@@ -947,11 +948,24 @@ LINEAR_POINTS = [
     {"lockSeconds": 0, "multiplier": 10000},    # flat 1x — pure usd × seconds
 ]
 
+# The dollar the treasury takes in, per chain — canonical Circle USDC.
+# On any other chain the deployer pastes their stable's address instead.
+RESERVE_TOKENS = {
+    "1":        {"symbol": "USDC", "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
+    "8453":     {"symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6},
+    "84532":    {"symbol": "USDC", "address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e", "decimals": 6},
+    "11155111": {"symbol": "USDC", "address": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", "decimals": 6},
+    "10":       {"symbol": "USDC", "address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", "decimals": 6},
+    "42161":    {"symbol": "USDC", "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831", "decimals": 6},
+    "137":      {"symbol": "USDC", "address": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "decimals": 6},
+}
+
 DEPLOY_DEFAULTS = {
     "initialSupply": "1000000",
     "maxLockSeconds": MAX_LOCK_SECONDS,
     "priceUsdMicro": 1_000_000,                 # $1.00 per token
     "secondsPerBlock": 2,
+    "reserveTokens": RESERVE_TOKENS,            # treasury mints 1 NTV per $1 of these
     "points": LINEAR_POINTS,
     "model": "usd_seconds_linear",
     "inflation": {
@@ -967,7 +981,7 @@ DEPLOY_DEFAULTS = {
 async def factory():
     """ABI + bytecode + default params so a browser wallet can deploy its own BlocTime."""
     out = {}
-    for key, path in (("bloctime", ABI_PATH), ("nativeToken", TOKEN_ABI_PATH)):
+    for key, path in (("bloctime", ABI_PATH), ("nativeToken", TOKEN_ABI_PATH), ("treasury", TREASURY_ABI_PATH)):
         if not path.exists():
             raise HTTPException(status_code=500, detail="Artifacts missing. Run 'npx hardhat compile' first.")
         with open(path) as f:
@@ -1154,6 +1168,7 @@ class RegisterReq(BaseModel):
     rpc: str
     bloctime: str
     nativeToken: str = ""
+    treasury: str = ""
     description: str = ""
 
 class UnregisterReq(BaseModel):
@@ -1199,6 +1214,7 @@ async def registry_register(req: RegisterReq):
         entry = bt_registry.add_instance(
             name=req.name, rpc=req.rpc, bloctime=req.bloctime,
             native_token=req.nativeToken or None, description=req.description,
+            treasury=req.treasury or None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

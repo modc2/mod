@@ -840,6 +840,11 @@ export async function fetchTradersPage(opts: {
       kept, so this narrows a board rather than emptying it. 0/undefined
       disables it. */
   minHistoryDays?: number;
+  /** Consistency floor, 0–1 — minimum share of the trader's PnL-curve moved
+      segments that climbed (the SCORE bus's `consistency`). 0.9 keeps the
+      smooth staircases; unknown-curve traders are cut while it's on.
+      0/undefined disables it. */
+  minConsistency?: number;
   /** When true, server bypasses agg + per-trader caches and runs
       a full re-aggregation from Polymarket. Used by the SYNC button. */
   force?: boolean;
@@ -868,6 +873,7 @@ export async function fetchTradersPage(opts: {
   if (opts.minTrades24h && opts.minTrades24h > 0) params.set("minTrades24h", String(opts.minTrades24h));
   if (opts.maxLastTradeHrs && opts.maxLastTradeHrs > 0) params.set("maxLastTradeHrs", String(opts.maxLastTradeHrs));
   if (opts.minHistoryDays && opts.minHistoryDays > 0) params.set("minHistoryDays", String(opts.minHistoryDays));
+  if (opts.minConsistency && opts.minConsistency > 0) params.set("minConsistency", String(opts.minConsistency));
 
   const base =
     opts.scanId != null ? `${API_URL}/scans/${opts.scanId}/traders` : `${API_URL}/active-traders`;

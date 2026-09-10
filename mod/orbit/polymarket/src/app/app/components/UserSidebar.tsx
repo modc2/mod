@@ -46,13 +46,12 @@
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 import CopyPanel from "./CopyPanel";
 import MoneyBlock, { OPEN_MONEY_EVENT } from "./MoneyBlock";
 import StratBlock, { OPEN_STRATS_EVENT } from "./StratBlock";
-import StratsTab from "./StratsTab";
 import DeskRoster from "./DeskRoster";
 import IndexBench from "./IndexBench";
 import SelectionTray from "./SelectionTray";
@@ -72,24 +71,25 @@ export const OPEN_SIDEBAR_EVENT = "poly-open-sidebar";
 //   INDEX     the account, the MONEY drawer and the ALLOCATION across your
 //             strats, plus the bench you're building and the copy book —
 //             everything "whose money and how much"
-//   STRATS    building and sharing: create/fork/rename/delete strats, the
-//             AUTO STRAT factory + STRAT LAB, and publishing — every strat
-//             is private by default, flipped public per row (StratsTab)
 //   BACKTEST  the full workspace (CopyIndex) replaying the bench on history
 //   LIVE      the same workspace against the real book
 //
+// STRATS was a rail tab for a day (2026-09-09 am) and is now a MAIN header
+// tab (/strats — see NavMenu): building and sharing is a destination, not a
+// drawer. An OPEN_STRATS_EVENT or a "STRATS" tab ask from anywhere routes
+// there instead of opening the column.
+//
 // BACKTEST/LIVE mount the SAME Workspace the old routes rendered (bare —
 // no TopBar), and the docked column WIDENS for every non-INDEX tab
-// (data-strat-dock="wide" → globals.css) because an engine — or a gallery —
-// built for the main pane earns more than 340px. /backtest, /live and
-// /strats survive as forwarders into these tabs.
-export type SidebarTab = "INDEX" | "STRATS" | "BACKTEST" | "LIVE";
+// (data-strat-dock="wide" → globals.css) because an engine built for the
+// main pane earns more than 340px. /backtest and /live survive as
+// forwarders into these tabs.
+export type SidebarTab = "INDEX" | "BACKTEST" | "LIVE";
 export const SIDEBAR_TAB_EVENT = "poly-sidebar-tab";
 const TAB_KEY = "poly_sidebar_tab";
-const TABS: SidebarTab[] = ["INDEX", "STRATS", "BACKTEST", "LIVE"];
+const TABS: SidebarTab[] = ["INDEX", "BACKTEST", "LIVE"];
 const TAB_HINTS: Record<SidebarTab, string> = {
   INDEX: "Your wallets, your money, and how it's allocated across your strats",
-  STRATS: "Create, build and share strats — private by default, publish to the gallery when ready",
   BACKTEST: "Replay the bench against history on simulated money — no wallet touched",
   LIVE: "Run the bench against the real book with real money",
 };
@@ -117,6 +117,7 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
 export default function UserSidebar() {
   const embedded = useEmbedded();
   const pathname = usePathname() || "";
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
   const [tab, setTab] = useState<SidebarTab>("INDEX");
@@ -165,9 +166,11 @@ export default function UserSidebar() {
     // is why the same event is handled in both places rather than relayed.
     const onOpenPlain = () => setDrawer(true);
     // A named-tab ask (the /backtest and /live forwarders, or anything else
-    // that wants a specific screen of the column).
+    // that wants a specific screen of the column). A stale "STRATS" ask
+    // routes to the main STRATS page — that tab left the rail.
     const onTab = (e: Event) => {
       const t = (e as CustomEvent).detail;
+      if (t === "STRATS") { router.push("/strats"); return; }
       if (isSidebarTab(t)) setTabPersisted(t);
       setDrawer(true);
     };
@@ -175,10 +178,10 @@ export default function UserSidebar() {
     // another tab must also bring INDEX forward, or the block expands
     // somewhere the user can't see.
     const onIndexBlock = () => { setTabPersisted("INDEX"); setDrawer(true); };
-    // The strat MANAGER moved to its own tab — an ask for "the strats"
-    // (AccountsPanel's shortcut, the allocation block's BUILD & SHARE link)
-    // opens STRATS, where building and sharing live now.
-    const onStratsTab = () => { setTabPersisted("STRATS"); setDrawer(true); };
+    // The strat MANAGER is a main header tab now (/strats) — an ask for "the
+    // strats" (AccountsPanel's shortcut, the allocation block's BUILD &
+    // SHARE link) navigates there rather than opening the column.
+    const onStratsTab = () => router.push("/strats");
     window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
     window.addEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
     window.addEventListener(OPEN_MONEY_EVENT, onIndexBlock);
@@ -191,7 +194,7 @@ export default function UserSidebar() {
       window.removeEventListener(OPEN_STRATS_EVENT, onStratsTab);
       window.removeEventListener(SIDEBAR_TAB_EVENT, onTab);
     };
-  }, [setDrawer, setTabPersisted]);
+  }, [setDrawer, setTabPersisted, router]);
 
   // Inset the console for the docked column (CSS var, read by .crt-screen in
   // layout.tsx and by BuildBadge). BACKTEST/LIVE carry the full workspace, so
@@ -273,7 +276,7 @@ export default function UserSidebar() {
             <MoneyBlock />
             {/* ALLOCATION — how the wallet is split across your strats, the
                 active strat BACKTEST/LIVE point at, and $ ALLOCATE to move
-                money amongst them. Building and sharing live on STRATS. */}
+                money amongst them. Building and sharing live on /strats. */}
             <StratBlock />
             {/* The active strat's bench — every + ADD from the board, each
                 with its current board SCORE, toggled or removed right here. */}
@@ -283,10 +286,6 @@ export default function UserSidebar() {
             <SelectionTray />
             {onDesk ? <DeskRoster /> : <CopyPanel />}
           </>
-        ) : tab === "STRATS" ? (
-          /* Build & share: the strat manager, the factory + lab, the public
-             gallery and the CID share path. Private by default throughout. */
-          <StratsTab />
         ) : (
           /* The full workspace, bare (no TopBar) — the same component the
              old /backtest and /live pages rendered. Keyed by tab so nothing

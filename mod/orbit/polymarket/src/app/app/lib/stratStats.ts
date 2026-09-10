@@ -10,6 +10,7 @@
 // add up: each runs its own engine, so each holds only its own slice.
 
 import { useEffect, useRef, useState } from "react";
+import { getAccessToken } from "./access";
 import { fetchPositions } from "./polymarket";
 import { useAuth } from "../context/AuthContext";
 import { fetchLiveSessions, runningStrategyIds, type SessionStratLedger } from "./liveSessions";
@@ -226,6 +227,57 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
   }, [address, pollMs]);
 
   return result;
+}
+
+// ── 7-day PnL curves ────────────────────────────────────────────
+//
+// The server-side sidecar (lib/server/stratPnl.ts) samples every strat's
+// total PnL every 10 minutes into a history file precisely because nothing
+// else keeps a per-strat time axis (the engine prunes realized events at
+// 48h). This hook is the cards' read of it: stratId → cumulative points.
+
+export interface StratPnlPoint {
+  t: number;
+  pnl: number;
+}
+
+/** Per-strat 7-day PnL series from /api/strat-pnl. Empty until the sidecar
+    has sampled (first deploy) or when the caller isn't the owner. */
+export function useStratPnlHistory(days = 7, pollMs = 5 * 60_000): Record<string, StratPnlPoint[]> {
+  const { auth } = useAuth();
+  const address = auth.address;
+  const [series, setSeries] = useState<Record<string, StratPnlPoint[]>>({});
+
+  useEffect(() => {
+    if (!address) { setSeries({}); return; }
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        // Same-origin Next route (not the Rust API): access.ts's fetch patch
+        // only stamps API-bound URLs, so attach the token explicitly.
+        const token = getAccessToken();
+        const res = await fetch(`/polymarket/api/strat-pnl?days=${days}`, {
+          cache: "no-store",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const j = (await res.json()) as { series?: Record<string, Array<[number, number]>> };
+        if (cancelled || !j.series) return;
+        const next: Record<string, StratPnlPoint[]> = {};
+        for (const [id, pts] of Object.entries(j.series)) {
+          next[id] = pts
+            .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+            .map(([t, pnl]) => ({ t, pnl }));
+        }
+        setSeries(next);
+      } catch { /* transient — keep last */ }
+    };
+    void poll();
+    const t = setInterval(poll, pollMs);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [address, days, pollMs]);
+
+  return series;
 }
 
 /** Compact "$12.50 in · +$1.20" formatting shared by picker + cards. */

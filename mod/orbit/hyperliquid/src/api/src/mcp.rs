@@ -113,6 +113,13 @@ pub fn tools() -> &'static [Tool] {
         tool("hl_status", "status", "GET", "/status", true,
             "Module status: mainnet/testnet, stored index and follow counts.",
             vec![], &[]),
+        tool("hl_sync_status", "sync_status", "GET", "/sync", true,
+            "Data-integrity report: every cached trader board with its last \
+             refresh time and row count, trader-index completeness per window \
+             (fresh vs total wallets, deepener coverage of the top ranks), and \
+             the recent background sync history — board refreshes, index \
+             deepens and curve prewarms with durations and any errors.",
+            vec![("limit", p("integer", "history events to return (default 80, max 400)"))], &[]),
         tool("hl_mids", "mids", "GET", "/mids", true,
             "Live mid price for every Hyperliquid market, keyed by coin \
              (spot keys look like `@1`, perp-dex keys carry `:`).",
@@ -238,6 +245,15 @@ pub fn tools() -> &'static [Tool] {
             vec![], &[]),
 
         // ── indexes / strats ──
+        tool("hl_strats_board", "strats_board", "GET", "/strats/board", true,
+            "The unified strats board: saved baskets, top vaults and copyable \
+             traders as one list, each row with its trailing 24h and 7d APR — \
+             what a deposit made at window start would have annualized to.",
+            vec![
+                ("vaults", p("integer", "vault rows to include, 0-500 (default 24)")),
+                ("traders", p("integer", "trader rows to include, 0-500 (default 24)")),
+                ("min_tvl", p("number", "minimum vault TVL in USD (default 10000)")),
+            ], &[]),
         tool("hl_list_indexes", "list_indexes", "GET", "/indexes", true,
             "All saved indexes (a.k.a. strats): weighted baskets of traders to \
              mirror, with legs, window and any linked vault.",

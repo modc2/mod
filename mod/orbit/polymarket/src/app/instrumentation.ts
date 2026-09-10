@@ -23,4 +23,11 @@ export async function register() {
     const { startAutoStratLoop } = await import("./app/lib/server/autoStrat");
     startAutoStratLoop();
   }
+  // STRAT PNL sidecar — samples per-strat total PnL every 10 minutes so the
+  // strat cards can draw a real 7-day curve (the engine itself only retains
+  // 48h of realized events). See app/lib/server/stratPnl.ts.
+  if (process.env.NEXT_RUNTIME === "nodejs" && process.env.POLYMARKET_STRAT_PNL !== "0") {
+    const { startStratPnlLoop } = await import("./app/lib/server/stratPnl");
+    startStratPnlLoop();
+  }
 }

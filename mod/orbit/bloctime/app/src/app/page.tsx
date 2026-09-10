@@ -26,6 +26,8 @@ import {
   ArrowsRightLeftIcon,
   CheckCircleIcon,
   XMarkIcon,
+  PlusIcon,
+  BanknotesIcon,
 } from '@heroicons/react/24/outline'
 import { useThemeColors } from './theme'
 import ThemePicker from './ThemePicker'
@@ -62,8 +64,31 @@ const NETWORKS: NetworkDef[] = [
 
 const DEFAULT_CHAIN = '84532'
 
+// User-added chains — the picker's "custom network" form appends here, so
+// a BlocTime can go to ANY EVM chain, not just the built-in eight. Kept in
+// localStorage; hydrated once on the client before first render needs it.
+const CUSTOM_NETS_KEY = 'bloctime_custom_nets'
+let CUSTOM_NETWORKS: NetworkDef[] = []
+
+function loadCustomNets(): NetworkDef[] {
+  if (typeof window === 'undefined') return []
+  try {
+    CUSTOM_NETWORKS = JSON.parse(localStorage.getItem(CUSTOM_NETS_KEY) || '[]')
+  } catch { CUSTOM_NETWORKS = [] }
+  return CUSTOM_NETWORKS
+}
+
+function saveCustomNet(net: NetworkDef) {
+  CUSTOM_NETWORKS = [...CUSTOM_NETWORKS.filter(n => n.chainId !== net.chainId), net]
+  try { localStorage.setItem(CUSTOM_NETS_KEY, JSON.stringify(CUSTOM_NETWORKS)) } catch {}
+}
+
 const netFor = (chainId: string): NetworkDef | null =>
-  NETWORKS.find(n => n.chainId === chainId) || null
+  NETWORKS.find(n => n.chainId === chainId) ||
+  CUSTOM_NETWORKS.find(n => n.chainId === chainId) || null
+
+// Hydrate saved custom nets before anything asks netFor about them.
+if (typeof window !== 'undefined') loadCustomNets()
 
 const netLabel = (chainId: string) => netFor(chainId)?.label || (chainId ? `Chain ${chainId}` : 'Unknown')
 
@@ -299,6 +324,7 @@ interface Instance {
   rpc: string
   bloctime: string
   nativeToken: string
+  treasury?: string
   owner: string
   official: boolean
   explorer: string
@@ -311,13 +337,20 @@ interface FactoryContract {
   bytecode: string
 }
 
+interface ReserveTokenDef {
+  symbol: string
+  address: string
+  decimals: number
+}
+
 interface FactoryKit {
-  contracts: { bloctime: FactoryContract; nativeToken: FactoryContract }
+  contracts: { bloctime: FactoryContract; nativeToken: FactoryContract; treasury?: FactoryContract }
   defaults: {
     initialSupply: string
     maxLockSeconds: number
     priceUsdMicro: number
     secondsPerBlock?: number
+    reserveTokens?: Record<string, ReserveTokenDef>
     points: { lockSeconds: number; multiplier: number }[]
     inflation: {
       initialRewardPerEpoch: string
@@ -1362,6 +1395,14 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
                   <span className="text-ink2">{fmtAddr(inst.bloctime)}</span>
                 </p>
                 {inst.owner && <p>owner <span className="text-ink2">{fmtAddr(inst.owner)}</span></p>}
+                {inst.treasury && (
+                  <p className="flex items-center gap-1.5">
+                    <BanknotesIcon className="w-3.5 h-3.5 shrink-0 text-gold" />
+                    <span className="text-gold">treasury</span>
+                    <span className="text-ink2">{fmtAddr(inst.treasury)}</span>
+                    <span className="text-faint">· mints 1 per $1</span>
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -1389,6 +1430,143 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
   )
 }
 
+// ── Treasury: the dollar door of an instance ────────────────────────────
+
+const TREASURY_MIN_ABI = [
+  'function info() view returns (address token_, address reserve_, uint8 reserveDecimals_, uint256 reserveBalance_, uint256 totalDeposited_, uint256 totalRedeemed_)',
+  'function deposit(uint256 reserveAmount) returns (uint256)',
+  'function redeem(uint256 tokenAmount) returns (uint256)',
+]
+const ERC20_MIN_ABI = [
+  'function symbol() view returns (string)',
+  'function balanceOf(address) view returns (uint256)',
+  'function allowance(address, address) view returns (uint256)',
+  'function approve(address, uint256) returns (bool)',
+]
+
+interface TreasuryInfo {
+  reserve: string
+  symbol: string
+  decimals: number
+  reserveBalance: bigint
+  totalDeposited: bigint
+  totalRedeemed: bigint
+}
+
+function TreasuryCard({ inst, connected, onChanged }: {
+  inst: Instance
+  connected: boolean
+  onChanged: () => void
+}) {
+  const [info, setInfo] = useState<TreasuryInfo | null>(null)
+  const [amount, setAmount] = useState('')
+  const [busy, setBusy] = useState<'deposit' | 'redeem' | null>(null)
+
+  const load = useCallback(async () => {
+    if (!inst.treasury) return
+    const provider = new ethers.JsonRpcProvider(inst.rpc)
+    const t = new ethers.Contract(inst.treasury, TREASURY_MIN_ABI, provider)
+    const [, reserve, decimals, reserveBalance, totalDeposited, totalRedeemed] = await t.info()
+    let symbol = 'USD'
+    try { symbol = await new ethers.Contract(reserve, ERC20_MIN_ABI, provider).symbol() } catch {}
+    setInfo({ reserve, symbol, decimals: Number(decimals), reserveBalance, totalDeposited, totalRedeemed })
+  }, [inst.treasury, inst.rpc])
+
+  useEffect(() => { load().catch(() => setInfo(null)) }, [load])
+
+  const run = useCallback(async (mode: 'deposit' | 'redeem') => {
+    if (!info || !inst.treasury) return
+    const dollars = parseFloat(amount)
+    if (!(dollars > 0)) { toast.error('Enter a dollar amount'); return }
+    const w = window as any
+    if (!w.ethereum) { toast.error('Install MetaMask'); return }
+    setBusy(mode)
+    try {
+      await ensureChain({ chainId: inst.chainId, rpc: inst.rpc })
+      const signer = await new ethers.BrowserProvider(w.ethereum).getSigner()
+      const me = await signer.getAddress()
+      const treasury = new ethers.Contract(inst.treasury, TREASURY_MIN_ABI, signer)
+      if (mode === 'deposit') {
+        // Dollars → reserve units at the reserve's own decimals.
+        const units = ethers.parseUnits(dollars.toFixed(info.decimals), info.decimals)
+        const reserve = new ethers.Contract(info.reserve, ERC20_MIN_ABI, signer)
+        if ((await reserve.allowance(me, inst.treasury)) < units) {
+          await (await reserve.approve(inst.treasury, units)).wait()
+        }
+        await (await treasury.deposit(units)).wait()
+        toast.success(`Deposited $${dollars} — minted ${dollars} NTV`)
+      } else {
+        const units = ethers.parseEther(String(dollars))
+        const token = new ethers.Contract(inst.nativeToken, ERC20_MIN_ABI, signer)
+        if ((await token.allowance(me, inst.treasury)) < units) {
+          await (await token.approve(inst.treasury, units)).wait()
+        }
+        await (await treasury.redeem(units)).wait()
+        toast.success(`Redeemed ${dollars} NTV for $${dollars}`)
+      }
+      setAmount('')
+      await load().catch(() => {})
+      onChanged()
+    } catch (err: any) {
+      toast.error(err?.reason || err?.shortMessage || err?.message || `${mode} failed`)
+    }
+    setBusy(null)
+  }, [info, inst, amount, load, onChanged])
+
+  if (!inst.treasury) return null
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <BanknotesIcon className="w-4 h-4 text-gold" />
+        <span className="lbl">Treasury</span>
+        <span className="lbl-dim ml-auto hidden sm:inline">1 NTV per $1 · redeem 1:1</span>
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="grid grid-cols-3 border border-hair rounded-lg overflow-hidden">
+          <div className="p-2 text-center border-r border-hair">
+            <p className="text-sm font-bold text-gold tabular-nums">
+              {info ? `$${ethers.formatUnits(info.reserveBalance, info.decimals)}` : '--'}
+            </p>
+            <p className="lbl-dim">{info?.symbol || 'Reserve'} held</p>
+          </div>
+          <div className="p-2 text-center border-r border-hair">
+            <p className="text-sm font-bold text-up tabular-nums">
+              {info ? `$${ethers.formatUnits(info.totalDeposited, info.decimals)}` : '--'}
+            </p>
+            <p className="lbl-dim">Deposited</p>
+          </div>
+          <div className="p-2 text-center">
+            <p className="text-sm font-bold text-down tabular-nums">
+              {info ? `$${ethers.formatUnits(info.totalRedeemed, info.decimals)}` : '--'}
+            </p>
+            <p className="lbl-dim">Redeemed</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            placeholder="Dollars"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            className="input flex-1"
+          />
+          <button onClick={() => run('deposit')} disabled={!connected || busy !== null} className="btn btn-accent">
+            {busy === 'deposit' ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : 'Deposit'}
+          </button>
+          <button onClick={() => run('redeem')} disabled={!connected || busy !== null} className="btn">
+            {busy === 'redeem' ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : 'Redeem'}
+          </button>
+        </div>
+        <p className="text-[10px] text-faint">
+          Deposit {info?.symbol || 'the reserve'} and the treasury mints NTV 1:1 per dollar to stake with;
+          redeem burns NTV and pays the dollar back from what the treasury holds.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ── Deploy your own ─────────────────────────────────────────────────────
 
 type StepState = 'pending' | 'active' | 'done' | 'error'
@@ -1406,6 +1584,8 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   const [maxLock, setMaxLock] = useState(String(MAX_LOCK_SECONDS))   // seconds
   const [priceUsd, setPriceUsd] = useState('1.00')                   // dollars per token
   const [rpc, setRpc] = useState(known?.rpc || '')
+  const [reserveToken, setReserveToken] = useState('')
+  const [reserveHint, setReserveHint] = useState<ReserveTokenDef | null>(null)
   const [busy, setBusy] = useState(false)
   const [forkCmd, setForkCmd] = useState('m bloctime/fork name=<yourname>')
   const [steps, setSteps] = useState<{ label: string; state: StepState }[]>([])
@@ -1424,23 +1604,38 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   // an RPC when the wallet sits on a chain we don't know a public one for.
   useEffect(() => { setRpc(netFor(chainId)?.rpc || '') }, [chainId])
 
+  // The treasury's dollar: prefill the chain's canonical USDC when we know
+  // it; any other chain takes a pasted stable address.
+  useEffect(() => {
+    getFactory().then(kit => {
+      const known = kit.defaults.reserveTokens?.[chainId] || null
+      setReserveHint(known)
+      setReserveToken(known?.address || '')
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chainId])
+
   const setStep = (i: number, state: StepState) =>
     setSteps(s => s.map((st, j) => j === i ? { ...st, state } : st))
 
   const handleDeploy = useCallback(async () => {
     if (!name.trim()) { toast.error('Name your instance'); return }
     if (!rpc.trim()) { toast.error('Set a public RPC URL for this network'); return }
+    if (!ethers.isAddress(reserveToken.trim())) { toast.error('Set the reserve token (the dollar the treasury takes in)'); return }
     const w = window as any
     if (!w.ethereum) { toast.error('Install MetaMask'); return }
     setBusy(true)
     const labels = [
-      'Switch network', 'Deploy NativeToken', 'Deploy BlocTime',
+      'Switch network', 'Deploy NativeToken', 'Deploy Treasury (1 per $1)',
+      'Hand mint keys to treasury', 'Deploy BlocTime',
       'Set multiplier curve', 'Set inflation params', 'Register on market',
     ]
     setSteps(labels.map((label, i) => ({ label, state: i === 0 ? 'active' : 'pending' })))
     let step = 0
+    let treasuryAddr = ''
     try {
       const kit = await getFactory()
+      if (!kit.contracts.treasury) throw new Error('Factory has no treasury artifact — recompile the module contracts')
       await ensureChain({ chainId, rpc })
       const provider = new ethers.BrowserProvider(w.ethereum)
       const signer = await provider.getSigner()
@@ -1453,6 +1648,17 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       const tokenAddr = await token.getAddress()
       setStep(step, 'done'); step = 2; setStep(step, 'active')
 
+      const treasuryFactory = new ethers.ContractFactory(
+        kit.contracts.treasury.abi as any, kit.contracts.treasury.bytecode, signer)
+      const treasury = await treasuryFactory.deploy(tokenAddr, reserveToken.trim())
+      await treasury.waitForDeployment()
+      treasuryAddr = await treasury.getAddress()
+      setStep(step, 'done'); step = 3; setStep(step, 'active')
+
+      // The treasury is the only minter: 1 NTV per $1 deposited.
+      await (await (token as unknown as ethers.Contract).transferOwnership(treasuryAddr)).wait()
+      setStep(step, 'done'); step = 4; setStep(step, 'active')
+
       const btFactory = new ethers.ContractFactory(
         kit.contracts.bloctime.abi as any, kit.contracts.bloctime.bytecode, signer)
       const maxLockN = BigInt(parseInt(maxLock) || MAX_LOCK_SECONDS)
@@ -1460,7 +1666,7 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       const bt = await btFactory.deploy(tokenAddr, maxLockN, priceMicro)
       await bt.waitForDeployment()
       const btAddr = await bt.getAddress()
-      setStep(step, 'done'); step = 3; setStep(step, 'active')
+      setStep(step, 'done'); step = 5; setStep(step, 'active')
 
       // Contract rejects points beyond maxLockSeconds.
       const points = kit.defaults.points.filter(p => BigInt(p.lockSeconds) <= maxLockN)
@@ -1472,7 +1678,7 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       if (!isDefaultCurve) {
         await (await btWrite.setPoints(points.map(p => ({ lockSeconds: BigInt(p.lockSeconds), multiplier: BigInt(p.multiplier) })))).wait()
       }
-      setStep(step, 'done'); step = 4; setStep(step, 'active')
+      setStep(step, 'done'); step = 6; setStep(step, 'active')
 
       const infl = kit.defaults.inflation
       await (await btWrite.setInflationParams(
@@ -1481,11 +1687,11 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
         ethers.parseEther(infl.minRewardPerEpoch || '0'),
         BigInt(infl.epochLength),
       )).wait()
-      setStep(step, 'done'); step = 5; setStep(step, 'active')
+      setStep(step, 'done'); step = 7; setStep(step, 'active')
 
       const entry: Instance = await api('registry/register', {
         name: name.trim(), description: description.trim(),
-        rpc, bloctime: btAddr, nativeToken: tokenAddr,
+        rpc, bloctime: btAddr, nativeToken: tokenAddr, treasury: treasuryAddr,
       })
       setStep(step, 'done')
       toast.success(`${entry.name} deployed and listed on the market`)
@@ -1495,7 +1701,7 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Deploy failed')
     }
     setBusy(false)
-  }, [name, description, supply, maxLock, priceUsd, rpc, chainId, getFactory, onDeployed])
+  }, [name, description, supply, maxLock, priceUsd, rpc, reserveToken, chainId, getFactory, onDeployed])
 
   const input = "w-full text-sm px-4 py-2.5 rounded-lg border border-line bg-field text-ink focus:outline-none focus:border-line2 font-mono transition-colors placeholder:text-faint"
 
@@ -1508,8 +1714,10 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
           <span className="lbl">Deploy your own BlocTime</span>
         </div>
         <p className="text-[11px] text-mute">
-          Deploys a fresh NativeToken + BlocTime pair from <span className="text-ink2">your wallet</span> —
-          you pay gas, you own the contracts. It is then listed on the market for everyone to browse and stake.
+          Deploys a fresh NativeToken + Treasury + BlocTime from <span className="text-ink2">your wallet</span>, on
+          whatever chain the header picker points at — you pay gas, you own the contracts. The treasury
+          mints <span className="text-ink2">1 token per $1</span> of the reserve deposited (and redeems back),
+          and the deployment is recorded on the market for everyone to browse and stake.
         </p>
 
         <div className="grid md:grid-cols-2 gap-3">
@@ -1527,6 +1735,15 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
               )}
             </p>
             <input type="number" value={maxLock} onChange={e => setMaxLock(e.target.value)} className={input} />
+            <p className="text-[10px] text-faint mt-1">Default 8 years — as owner you can change it any time via <span className="font-mono">setParams</span></p>
+          </div>
+          <div className="md:col-span-2">
+            <p className="lbl-dim mb-1">
+              Reserve token — the dollar the treasury takes in
+              {reserveHint && <span className="text-accent normal-case tracking-normal"> — {reserveHint.symbol} on this chain</span>}
+            </p>
+            <input type="text" value={reserveToken} onChange={e => setReserveToken(e.target.value)} className={input} placeholder="0x… (a USD stable, e.g. USDC)" />
+            <p className="text-[10px] text-faint mt-1">The treasury mints 1 token per $1 deposited and redeems 1:1 — it becomes the token&apos;s only minter</p>
           </div>
           <div>
             <p className="lbl-dim mb-1">Token price (USD, e.g. 1.00)</p>
@@ -1977,8 +2194,16 @@ function NetworkPicker({ chainId, onSelect }: {
   onSelect: (net: NetworkDef) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [customs, setCustoms] = useState<NetworkDef[]>([])
+  const [cId, setCId] = useState('')
+  const [cLabel, setCLabel] = useState('')
+  const [cRpc, setCRpc] = useState('')
+  const [cSymbol, setCSymbol] = useState('ETH')
   const ref = useRef<HTMLDivElement>(null)
   const known = netFor(chainId)
+
+  useEffect(() => { setCustoms(loadCustomNets()) }, [])
 
   useEffect(() => {
     if (!open) return
@@ -1986,6 +2211,23 @@ function NetworkPicker({ chainId, onSelect }: {
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [open])
+
+  const addCustom = () => {
+    const id = String(parseInt(cId) || 0)
+    if (id === '0') { toast.error('Chain ID must be a number'); return }
+    if (!/^https?:\/\//.test(cRpc.trim())) { toast.error('RPC must be an http(s) URL'); return }
+    const net: NetworkDef = {
+      chainId: id,
+      label: cLabel.trim() || `Chain ${id}`,
+      rpc: cRpc.trim(),
+      symbol: cSymbol.trim() || 'ETH',
+    }
+    saveCustomNet(net)
+    setCustoms(loadCustomNets())
+    setAdding(false); setCId(''); setCLabel(''); setCRpc('')
+    setOpen(false)
+    onSelect(net)
+  }
 
   return (
     <div ref={ref} className="relative">
@@ -2004,7 +2246,7 @@ function NetworkPicker({ chainId, onSelect }: {
       {open && (
         <div className="menu right-0 mt-2 w-60" role="menu">
           <p className="lbl-dim px-2.5 pt-1.5 pb-2">Network</p>
-          {NETWORKS.map(net => (
+          {[...NETWORKS, ...customs].map(net => (
             <button
               key={net.chainId}
               role="menuitemradio"
@@ -2017,6 +2259,27 @@ function NetworkPicker({ chainId, onSelect }: {
               <span className="font-mono text-faint">{net.chainId}</span>
             </button>
           ))}
+          {!adding ? (
+            <button onClick={() => setAdding(true)} className="menu-item text-mute">
+              <PlusIcon className="w-4 h-4 shrink-0" />
+              <span className="flex-1">Custom network…</span>
+            </button>
+          ) : (
+            <div className="px-2.5 py-2 space-y-1.5 border-t border-hair">
+              <p className="lbl-dim">Any EVM chain</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <input value={cId} onChange={e => setCId(e.target.value)} placeholder="Chain ID"
+                       className="text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+                <input value={cSymbol} onChange={e => setCSymbol(e.target.value)} placeholder="Symbol"
+                       className="text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+              </div>
+              <input value={cLabel} onChange={e => setCLabel(e.target.value)} placeholder="Name"
+                     className="w-full text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+              <input value={cRpc} onChange={e => setCRpc(e.target.value)} placeholder="https://rpc..."
+                     className="w-full text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+              <button onClick={addCustom} className="btn btn-sm w-full">Add & switch</button>
+            </div>
+          )}
           {!known && (
             <p className="px-2.5 py-2 text-[10px] text-gold leading-relaxed">
               Wallet is on chain {chainId || '?'} — deploys will ask for its RPC.
@@ -2622,6 +2885,12 @@ function BlocTimePageInner() {
         {/* ── Stake Tab ────────────────────────────────────────────────── */}
         {tab === 'stake' && (
           <div key="stake" className="space-y-4 animate-fade-up">
+            {/* The instance's dollar door, when it has one — deposit mints
+                the NTV the stake form below wants. */}
+            {instanceMode && activeInst?.treasury && (
+              <TreasuryCard inst={activeInst} connected={connected} onChanged={fetchAll} />
+            )}
+
             {/* Stake form and the curve it moves along, side by side — the
                 marker on the curve is the preview for the lock field. */}
             <div className="card">

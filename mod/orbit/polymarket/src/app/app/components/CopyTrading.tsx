@@ -18,14 +18,13 @@ import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
 import SyncScheduleChip from "./SyncScheduleChip";
 import ScanChip, { formatScanStamp } from "./ScanChip";
-import { requestSidebarTab } from "./UserSidebar";
 import { fetchSyncSchedule } from "../lib/syncSchedule";
 import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCache";
 
 import {
   DEFAULT_FORMULA, FORMULA_EVENT, FORMULA_VARS, SCORE_VAR_HINTS, formatScore,
   scoreInputs, scoreIsUnknown, loadSavedFormula, matchScorePreset, saveFormula,
-  scorePoolSortKey, JS_FN_TEMPLATE, PY_FN_TEMPLATE,
+  scorePoolSortKey, JS_FN_TEMPLATE, PY_FN_TEMPLATE, curveConsistency,
 } from "../lib/scoreFormula";
 import { useCompiledScore } from "../lib/useScore";
 import { publishScores } from "../lib/scoreBus";
@@ -146,6 +145,13 @@ export default function CopyTrading({
   } = useFilters();
 
   const [showFilters, setShowFilters] = useState(false);
+  // The whole control surface — DAYS, KEYWORD, the SYNC/SCANS/AUTO cluster,
+  // FILTERS and the RANK BY rail — folds behind one CONTROLS toggle,
+  // collapsed by default: at board width the chrome stacked taller than the
+  // first trader card. The collapsed row keeps only the facts (window,
+  // current rank, roster count, active keyword/filters, freshness); every
+  // one of them expands the controls when clicked.
+  const [showControls, setShowControls] = useState(false);
   const [formula, setFormula] = useState<string>(DEFAULT_FORMULA);
   // The formula editor on the RANK BY rail — folded by default, because the
   // score is normally a preset chip and the expression only matters when you
@@ -257,6 +263,12 @@ export default function CopyTrading({
   // Track-record floor, in days. Blank/0 = off: how much history a trader
   // needs behind them is the user's call, not the board's.
   const [minHistoryDays, setMinHistoryDays] = useState("");
+  // Consistency floor, 0–1 — keep only traders whose PnL curve climbed in at
+  // least this share of its moved segments (the SCORE bus's `consistency`).
+  // The knob for "only show me the smooth staircases". Blank/0 = off. While
+  // on, an unjudgeable curve (missing, or <3 moved segments) is CUT: the
+  // curve's shape is this filter's whole subject.
+  const [minConsistency, setMinConsistency] = useState("");
   // How many traders the two floors above removed, straight from the server.
   // An empty board means something different depending on it.
   const [activityDropped, setActivityDropped] = useState(0);
@@ -302,10 +314,11 @@ export default function CopyTrading({
         minTrades24h: Number(minTrades24h) || 0,
         maxLastTradeHrs: Number(maxLastTradeHrs) || 0,
         minHistoryDays: Number(minHistoryDays) || 0,
+        minConsistency: Number(minConsistency) || 0,
       }),
     [days, minTradesPerDay, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-     minTrades24h, maxLastTradeHrs, minHistoryDays],
+     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency],
   );
   // The initial-load effect below keys on [days, minTradesPerDay, reloadKey]
   // only — it reads the CURRENT view's key through this ref so the hydrate
@@ -357,6 +370,7 @@ export default function CopyTrading({
           minTrades24h: Number(minTrades24h) || undefined,
           maxLastTradeHrs: Number(maxLastTradeHrs) || undefined,
           minHistoryDays: Number(minHistoryDays) || undefined,
+          minConsistency: Number(minConsistency) || undefined,
           force: opts.force,
           // Time travel: read the archived scan instead of the live cache —
           // same paged shape, same server-side filters, older data.
@@ -417,7 +431,7 @@ export default function CopyTrading({
     },
     [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-     minTrades24h, maxLastTradeHrs, minHistoryDays, snapKeyFor, scanId],
+     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, snapKeyFor, scanId],
   );
 
   // Streaming load — used for cold cache (pipeline needs to run) AND
@@ -608,7 +622,7 @@ export default function CopyTrading({
     })();
   }, [cacheWarm, page, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
       minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
-      minTrades24h, maxLastTradeHrs, minHistoryDays, scanId]);
+      minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, scanId]);
 
   // Background staleness check. Re-fetches current page silently once data
   // crosses MAX_STALENESS_MS so the leaderboard never gets older than this
@@ -766,6 +780,10 @@ export default function CopyTrading({
         const age = historyDays(t);
         if (age !== null && age < mhd) return false;
       }
+      // Consistency floor — mirrors the server's curve-shape retain. Unknown
+      // (-1: no curve / too little movement) fails any positive floor.
+      const mc = Number(minConsistency);
+      if (minConsistency !== "" && Number.isFinite(mc) && mc > 0 && curveConsistency(t.pnlCurve) < mc) return false;
       const mbv = Number(minBuyVolume);
       if (minBuyVolume !== "" && Number.isFinite(mbv) && t.buyVolume < mbv) return false;
       const msv = Number(minSellVolume);
@@ -1119,6 +1137,59 @@ export default function CopyTrading({
   const snapshotOlderThanWindow =
     Number.isFinite(recencyHrs) && recencyHrs > 0 && staleAgeMs > recencyHrs * 3600_000;
 
+  // Freshness chip — the same fact (where the numbers came from and when)
+  // whether the header is collapsed or expanded, so it is built once here.
+  // An archived scan prints its AS OF timestamp instead of a live age; a
+  // freshness age on an archived board would just read "stale".
+  const freshnessChip = (() => {
+    if (scanId != null) {
+      if (!syncedAt) return null;
+      return (
+        <span
+          className="text-[11px] font-mono tracking-wider text-amber-400 shrink-0"
+          title={`Archived board — source data was pulled ${new Date(syncedAt).toLocaleString()}. Step with ‹ › or return to LIVE via the SCANS chip.`}
+        >
+          AS OF {formatScanStamp(Math.floor(syncedAt / 1000))}
+        </span>
+      );
+    }
+    // Prefer the server's syncedAt — it tells the user when the data was last
+    // actually pulled from Polymarket, not when the client hit the cache.
+    const stamp = syncedAt ?? lastUpdated;
+    if (stamp == null) return null;
+    const age = nowTick - stamp;
+    const color =
+      age < 5 * 60_000 ? "text-green-400" :
+      age < 30 * 60_000 ? "text-amber-400" :
+      "text-red-400";
+    const stampNote = syncedAt
+      ? `Source data last synced ${new Date(stamp).toLocaleTimeString()} (Polymarket data-api)`
+      : `Client cache fetched ${new Date(stamp).toLocaleTimeString()} — server didn't expose source sync time`;
+    const sourceNote =
+      source === "fresh"
+        ? "Pulled from Polymarket just now."
+        : source
+          ? "Served from the server's cache — press ↻ SYNC for a fresh pull."
+          : null;
+    return (
+      <span
+        className={`text-[11px] font-mono tracking-wider shrink-0 ${color}`}
+        title={sourceNote ? `${sourceNote} ${stampNote}` : stampNote}
+      >
+        {source === "fresh" ? "FRESH" : source ? "CACHED" : "sync"} {formatAgo(age)}
+      </span>
+    );
+  })();
+
+  // Which chip the board is ranked on right now — the collapsed header prints
+  // this one label instead of the whole RANK BY rail.
+  const rankLabel =
+    [
+      ...columns,
+      { key: "history" as TraderSort, label: "RECORD" },
+      { key: "last" as TraderSort, label: "LAST" },
+    ].find((c) => c.key === traderSort)?.label ?? "SCORE";
+
   return (
     <div className="space-y-3">
       {showSyncingBanner && (
@@ -1130,14 +1201,69 @@ export default function CopyTrading({
       )}
       {/* ── Single-line header ── */}
       <div className="pixel-panel px-4 py-2.5">
-        {/* Two columns, not one wrapping row. As a single flex-wrap row the
-            right-hand SYNC cluster would wrap whole and ml-auto would push it
-            to the far edge of an otherwise empty second line — half of row one
-            blank, half of row two blank. A grid keeps that cluster pinned
-            beside the title column at every width; the title column is what
-            reflows, and the keyword field stretches to eat whatever is left. */}
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
-          <div className="flex items-center gap-x-3 gap-y-2 flex-wrap min-w-0">
+        {!showControls && (
+          <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap">
+            <span className="text-[15px] text-pixel-white tracking-wider shrink-0">TOP TRADERS</span>
+            <span
+              className="text-[12px] font-mono text-pixel-gray-light shrink-0"
+              title="Ranking window — expand CONTROLS to change it"
+            >
+              {days}D
+            </span>
+            <button
+              onClick={() => setShowControls(true)}
+              className="text-[12px] font-mono tracking-wider text-pixel-gray-light hover:text-pixel-white shrink-0"
+              title={`Board is ranked by ${rankLabel} — expand to re-rank or edit the score`}
+            >
+              RANK {rankLabel} {sortDir === "asc" ? "▲" : "▼"}
+            </button>
+            {visibleTotal > 0 && !loading && (
+              <span className="text-[12px] font-mono text-pixel-gray shrink-0">
+                {visibleTotal} traders
+              </span>
+            )}
+            {ctxMarketQuery && (
+              <button
+                onClick={() => setShowControls(true)}
+                className="text-[11px] font-mono tracking-wider text-green-400 border border-green-400/40 bg-green-400/5 px-1.5 py-0.5 shrink-0 max-w-[180px] truncate"
+                title={`Keyword filter active — every trader's P&L / volume below is recomputed from only markets matching "${ctxMarketQuery}". Expand to edit or clear.`}
+              >
+                {ctxMarketQuery}
+              </button>
+            )}
+            {activeFilterCount > 0 && (
+              <button
+                onClick={() => { setShowControls(true); setShowFilters(true); }}
+                className="text-[11px] font-mono tracking-wider text-green-400 border border-green-500/40 bg-green-500/10 px-1.5 py-0.5 shrink-0"
+                title={`${activeFilterCount} advanced filter${activeFilterCount === 1 ? "" : "s"} active — expand to edit`}
+              >
+                {activeFilterCount} FILTERS
+              </button>
+            )}
+            <span className="ml-auto flex items-center gap-2 shrink-0">
+              {freshnessChip}
+              {(refreshing || loading) && <span className="text-[12px] text-green-400 animate-pulse">&#9679;</span>}
+              <button
+                onClick={() => setShowControls(true)}
+                className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                title="Expand the board controls — days, keyword, sync, scans, auto-warm, filters, ranking"
+              >
+                &#9656; CONTROLS
+              </button>
+            </span>
+          </div>
+        )}
+        {showControls && (
+        <>
+        {/* Two wrapping clusters, not a grid. The old grid-cols-[minmax(0,1fr)_auto]
+            let the SYNC cluster's auto track take the whole panel at narrow
+            widths — the title column collapsed to 0 and its DAYS input
+            rendered UNDER the SYNC button. As flex, the left cluster keeps a
+            real minimum (the keyword field still stretches to eat the rest),
+            and when the SYNC cluster no longer fits beside it, it drops whole
+            onto its own right-aligned line and wraps internally from there. */}
+        <div className="flex items-center justify-between gap-x-3 gap-y-2 flex-wrap">
+          <div className="flex items-center gap-x-3 gap-y-2 flex-wrap min-w-0 flex-1 basis-[260px]">
           {/* Title + days + count */}
           <span className="text-[15px] text-pixel-white tracking-wider shrink-0">TOP TRADERS</span>
 
@@ -1192,8 +1318,10 @@ export default function CopyTrading({
 
           </div>
 
-          {/* Right side: source + filters */}
-          <div className="flex items-center gap-2 shrink-0">
+          {/* Right side: source + filters. flex-wrap because this cluster is
+              wider than a narrow viewport — without it the chips can't give
+              and the whole run rides over the DAYS input in the left column. */}
+          <div className="flex items-center justify-end gap-x-2 gap-y-1.5 flex-wrap min-w-0 ml-auto">
             {/* Manual SYNC button — bypasses the 60s cache by routing
                 through the streaming path so the user sees enrichment
                 progress (`enriching 1240/2000`) instead of an opaque
@@ -1224,49 +1352,7 @@ export default function CopyTrading({
                 ? "SYNCING…"
                 : "↻ SYNC"}
             </button>
-            {/* Time-travel banner: while an archived scan is on screen, its
-                TIMESTAMP is the fact that matters — not a freshness age that
-                would just read "stale". The chip below (live freshness)
-                yields to it. */}
-            {scanId != null && syncedAt && (
-              <span
-                className="text-[11px] font-mono tracking-wider text-amber-400"
-                title={`Archived board — source data was pulled ${new Date(syncedAt).toLocaleString()}. Step with ‹ › or return to LIVE via the SCANS chip.`}
-              >
-                AS OF {formatScanStamp(Math.floor(syncedAt / 1000))}
-              </span>
-            )}
-            {scanId == null && (syncedAt ?? lastUpdated) && (() => {
-              // Prefer the server's syncedAt — it tells the user when the data
-              // was last actually pulled from Polymarket, not when the client
-              // hit the cache. Falls back to lastUpdated if the server didn't
-              // expose one (old binary). Data source (FRESH/CACHED) folds into
-              // this same chip — it's the same fact (where the numbers came
-              // from and when), and one chip keeps the header on a single row.
-              const stamp = syncedAt ?? lastUpdated!;
-              const age = nowTick - stamp;
-              const color =
-                age < 5 * 60_000 ? "text-green-400" :
-                age < 30 * 60_000 ? "text-amber-400" :
-                "text-red-400";
-              const stampNote = syncedAt
-                ? `Source data last synced ${new Date(stamp).toLocaleTimeString()} (Polymarket data-api)`
-                : `Client cache fetched ${new Date(stamp).toLocaleTimeString()} — server didn't expose source sync time`;
-              const sourceNote =
-                source === "fresh"
-                  ? "Pulled from Polymarket just now."
-                  : source
-                    ? "Served from the server's cache — press ↻ SYNC for a fresh pull."
-                    : null;
-              return (
-                <span
-                  className={`text-[11px] font-mono tracking-wider ${color}`}
-                  title={sourceNote ? `${sourceNote} ${stampNote}` : stampNote}
-                >
-                  {source === "fresh" ? "FRESH" : source ? "CACHED" : "sync"} {formatAgo(age)}
-                </span>
-              );
-            })()}
+            {freshnessChip}
             {refreshing && <span className="text-[12px] text-green-400 animate-pulse">&#9679;</span>}
 
             {/* Server-side schedule behind that "sync {age}" number — the API
@@ -1325,6 +1411,14 @@ export default function CopyTrading({
                   {activeFilterCount}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => { setShowControls(false); setShowFilters(false); setShowScore(false); }}
+              className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+              title="Collapse the controls back to the summary row"
+            >
+              &#9652;
             </button>
           </div>
         </div>
@@ -1433,6 +1527,8 @@ export default function CopyTrading({
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
 
       {/* ── Progress ── */}
@@ -1489,7 +1585,11 @@ export default function CopyTrading({
         <>
           {/* SORT rail — the table headers used to carry these clicks; on a
               card grid the ranking needs its own row. Same handleSort, same
-              keys, so server-side paging by sort is unchanged. */}
+              keys, so server-side paging by sort is unchanged. Folded with
+              the rest of the chrome: the collapsed header prints the active
+              rank (RANK {label} ▼) and expands to here. */}
+          {showControls && (
+          <>
           <div className="flex items-center gap-1.5 flex-wrap px-1">
             <span className="text-[11px] text-pixel-gray tracking-wider shrink-0">RANK BY</span>
             {([
@@ -1665,8 +1765,8 @@ export default function CopyTrading({
                   never a silent bad ranking. */}
               <ScoreAsk formula={formula} setFormula={setFormula} days={days} />
 
-              {/* Or shop for one: the ▦ SCORE MARKET lives in the sidebar's
-                  STRATS tab (its one home — build/share artifacts live there).
+              {/* Or shop for one: the ▦ SCORE MARKET lives on the STRATS
+                  main tab (its one home — build/share artifacts live there).
                   USE over there drops the source into this box live. */}
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]" title="A searchable shelf of score functions — curated consistency hunters plus anything published from this deploy.">
@@ -1674,8 +1774,8 @@ export default function CopyTrading({
                 </span>
                 <button
                   className="pixel-btn text-[11px] px-2.5 py-1 border-pixel-border text-pixel-gray hover:text-pixel-green hover:border-pixel-green/60"
-                  onClick={() => requestSidebarTab("STRATS")}
-                  title='Browse score functions in the STRATS tab — USE drops the source into this box'
+                  onClick={() => router.push("/strats")}
+                  title='Browse score functions on the STRATS tab — USE drops the source into this box'
                 >
                   BROWSE SCORE FUNCTIONS → STRATS
                 </button>
@@ -1703,6 +1803,8 @@ export default function CopyTrading({
                 )}
               </div>
             </div>
+          )}
+          </>
           )}
 
           {pageTraders.length === 0 ? (

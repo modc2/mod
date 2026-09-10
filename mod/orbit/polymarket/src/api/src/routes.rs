@@ -907,6 +907,35 @@ async fn active_traders(
     }
 }
 
+/// How steadily a PnL curve was made: of the segments where money moved, the
+/// share that moved UP. 1.0 = every active stretch was green, 0.5 = coin-flip
+/// streaks, -1.0 = unknown (no curve, or too little movement to judge).
+/// MUST mirror the console's `curveConsistency` (lib/scoreFormula.ts) exactly —
+/// it is the same `consistency` the SCORE bus exposes, and the board's
+/// client-side cold-cache filter reuses that JS twin.
+fn curve_consistency(curve: Option<&Vec<f64>>) -> f64 {
+    let Some(curve) = curve else { return -1.0 };
+    if curve.len() < 4 {
+        return -1.0;
+    }
+    let mut up = 0u32;
+    let mut moved = 0u32;
+    for w in curve.windows(2) {
+        let d = w[1] - w[0];
+        if d == 0.0 {
+            continue;
+        }
+        moved += 1;
+        if d > 0.0 {
+            up += 1;
+        }
+    }
+    if moved < 3 {
+        return -1.0;
+    }
+    up as f64 / moved as f64
+}
+
 fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, source: &str) -> Value {
     let sort = q.sort.as_deref().unwrap_or("pnl");
     let order = q.order.as_deref().unwrap_or("desc");
@@ -1033,6 +1062,15 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
     if let Some(min_sv) = q.min_sell_volume {
         if min_sv > 0.0 {
             traders.retain(|t| t.sell_volume >= min_sv);
+        }
+    }
+    // Consistency floor — the shape filter. Grades the curve as it stands
+    // HERE, i.e. the query-scoped curve when a marketQuery recompute ran
+    // above, so "consistent at what this board shows" is what passes.
+    // Unknown (-1) fails any positive floor by construction.
+    if let Some(min_c) = q.min_consistency {
+        if min_c > 0.0 {
+            traders.retain(|t| curve_consistency(t.pnl_curve.as_ref()) >= min_c);
         }
     }
 
@@ -1805,6 +1843,31 @@ mod tests {
         );
 
         assert_eq!(addresses(&result), vec!["0xedge", "0xwhale", "0xghost"]);
+    }
+
+    /// The consistency floor keeps the smooth staircase, cuts the choppy
+    /// curve, and cuts UNKNOWN (no curve) — the curve's shape is the filter's
+    /// whole subject, so "can't judge" doesn't pass. Off (absent/0) keeps all.
+    #[test]
+    fn min_consistency_filters_on_curve_shape() {
+        let mut smooth = trader_with_markets("0xsmooth", &[("Bitcoin above $110,000", 0.0, 1)]);
+        smooth.pnl_curve = Some(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]); // 5/5 up = 1.0
+        let mut choppy = trader_with_markets("0xchoppy", &[("Bitcoin above $110,000", 0.0, 1)]);
+        choppy.pnl_curve = Some(vec![0.0, 2.0, -1.0, 3.0, 0.0, 4.0]); // 3/5 up = 0.6
+        let blind = trader_with_markets("0xblind", &[("Bitcoin above $110,000", 0.0, 1)]);
+        assert!(blind.pnl_curve.is_none());
+
+        let all = payload(vec![smooth, choppy, blind]);
+        let filtered = apply_pagination(
+            &all,
+            &paged_query(json!({"minConsistency": 0.8, "sort": "pnl", "order": "desc"})),
+            "memory",
+        );
+        assert_eq!(addresses(&filtered), vec!["0xsmooth"]);
+        assert_eq!(filtered["total"].as_u64(), Some(1));
+
+        let off = apply_pagination(&all, &paged_query(json!({})), "memory");
+        assert_eq!(off["total"].as_u64(), Some(3));
     }
 
     /// Match count still decides — it just decides ties now, which is what

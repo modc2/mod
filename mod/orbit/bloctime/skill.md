@@ -9,10 +9,11 @@ Time-weighted staking protocol on Base Sepolia. Stake native tokens for a wall-c
 - **Multiplier Curve** — optional owner-configurable piecewise-linear boost on top of the linear model (`setPoints`, keyed on lockSeconds); the deployed default is one flat 1x point, i.e. pure USD × seconds
 - **Weekly Pot** — rewards collect in a pot (inflation mints into it, anyone can `fundPot`); every Friday at 12:00 EST the whole pot is swept to BLOC holders pro-rata. Permissionless trigger, one payout per week
 - **Unstaking** — withdraw after lock expires, BLOC balance snapshots on unstake
-- **Deploy** — deploy new BlocTime contracts via MetaMask from the app
+- **Deploy** — deploy new BlocTime contracts via MetaMask from the app, on ANY EVM chain (built-in picker covers Base/Ethereum/OP/Arbitrum/Polygon + testnets; "Custom network…" adds any chainId/RPC)
+- **Treasury** — every fresh deployment includes a Treasury that mints NativeToken **1:1 per dollar** of reserve (USDC by default, prefilled per chain) and redeems 1:1; the treasury owns the token's mint keys. STAKE tab shows a deposit/redeem card on treasury-backed instances
 - **Fork** — `m bloctime/fork name=x` copies the whole module into orbit/x with its own ports/route
-- **Marketplace** — registry of deployed BlocTime instances (`~/.mod/bloctime/registry.json`); MARKET tab browses them, USE switches the app onto any instance (reads via its RPC, writes via wallet)
-- **Self-deploy** — DEPLOY tab ships ABI+bytecode (`GET /factory`) so anyone deploys NativeToken+BlocTime from their own wallet, then auto-registers on the market
+- **Marketplace** — registry of deployed BlocTime instances (`~/.mod/bloctime/registry.json`) records every deployment: chain, RPC, contracts, treasury, owner; MARKET tab browses them, USE switches the app onto any instance (reads via its RPC, writes via wallet)
+- **Self-deploy** — DEPLOY tab ships ABI+bytecode (`GET /factory`) so anyone deploys NativeToken+Treasury+BlocTime from their own wallet (default 8-year max lock, owner-changeable via `setParams`), then auto-registers on the market
 - **Bridge** — BRIDGE tab + `/bridge/*` proxy into the bridge module (Substrate/Solana snapshot → Base claims), with activator wake-on-access fallback
 
 ## Usage

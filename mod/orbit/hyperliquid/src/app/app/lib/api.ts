@@ -398,6 +398,28 @@ export const autoIndex = (b: { days?: number; top?: number; min_per_day?: number
     `/indexes/auto`, { method: "POST", body: JSON.stringify(b) }
   );
 
+// ── strats board ──
+// One row per investable thing: a saved basket, an HL vault, or a copyable
+// trader. `apr_24h`/`apr_7d` are trailing: what a deposit made at window
+// start would have annualized to. `null` = not measurable — render "—".
+export type StratRow = {
+  kind: "basket" | "vault" | "trader";
+  id: string;          // basket id / vault address / trader address
+  name: string;
+  by: string;          // owner / leader / the trader itself
+  apr_24h: number | null;
+  apr_7d: number | null;
+  capital: number;     // vault TVL / trader equity / Σ basket-leg equity
+  legs: number;
+  legs_priced: number; // legs the leaderboard could price (baskets only)
+  age_days: number;
+  vault_address: string | null;
+};
+export const stratsBoard = (vaults = 24, traders = 24) =>
+  j<{ rows: StratRow[]; baskets: number; vaults: number; traders: number; updated_ms: number }>(
+    `/strats/board?vaults=${vaults}&traders=${traders}`
+  );
+
 // ── vaults ──
 export type Vault = {
   address: string;
@@ -406,6 +428,9 @@ export type Vault = {
   apr: number;       // percent
   tvl: number;       // USD
   age_days: number;
+  /** Trailing-window APRs (percent, annualized); null = not measurable. */
+  apr_24h?: number | null;
+  apr_7d?: number | null;
 };
 export const listVaults = (pool = 300, minTvl?: number) =>
   j<{ vaults: Vault[] }>(`/vaults?pool=${pool}${minTvl != null ? `&min_tvl=${minTvl}` : ""}`);
@@ -701,6 +726,16 @@ export const fmtUsd = (n: number) => {
 export const fmtPnl = (n: number) => `${n >= 0 ? "+" : "-"}${fmtUsd(Math.abs(n))}`;
 
 export const fmtPct = (n: number, digits = 1) => `${(n).toFixed(digits)}%`;
+
+/** Trailing APR, honest about scale: "—" when unmeasured (null), signed, and
+ *  k-notation past 1000% so a hot week doesn't wallpaper the card in digits. */
+export const fmtApr = (n: number | null | undefined): string => {
+  if (n == null) return "—";
+  const sign = n >= 0 ? "+" : "-";
+  const a = Math.abs(n);
+  if (a >= 1000) return `${sign}${(a / 1000).toFixed(1)}k%`;
+  return `${sign}${a.toFixed(1)}%`;
+};
 
 export const shortAddr = (a: string) =>
   a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;

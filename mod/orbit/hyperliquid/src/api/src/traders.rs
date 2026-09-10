@@ -275,7 +275,7 @@ fn window_for_days(days: u32) -> &'static str {
 // (a $50 account that doubles shows +100% ROI), which would otherwise crowd
 // out real, copyable traders. Require a minimum account equity so the board
 // is "top ROI among accounts worth copying", not "top ROI among dust".
-const MIN_ACCOUNT_VALUE: f64 = 1_000.0;
+pub const MIN_ACCOUNT_VALUE: f64 = 1_000.0;
 
 // We render every selected row straight from the leaderboard (real ROI / PnL /
 // volume), and only hit /info for per-fill colour (win%, sharpe, trade count,
@@ -363,6 +363,57 @@ fn parse_lb_ranked(v: &Value, window: &str, rank: Rank, active: Active) -> Vec<(
     scored
 }
 
+/// One wallet's official day + week ROI off the leaderboard scrape — HL's own
+/// "return had you invested at window start", the number the strats board
+/// annualizes into a 24h/7d APR for traders and (weight-summed) for baskets.
+#[derive(Debug, Clone, Default)]
+pub struct LbWindows {
+    /// Last-24h ROI as a fraction (0.05 == +5%). `None` when the CDN row
+    /// carries no day window.
+    pub roi_day: Option<f64>,
+    /// Last-7d ROI as a fraction.
+    pub roi_week: Option<f64>,
+    pub account_value: f64,
+    pub day_vlm: f64,
+}
+
+/// Parse the raw leaderboard payload into an address → window-ROI map.
+/// Unlike [`parse_lb_ranked`] this keeps *both* the day and week windows per
+/// row, so one pass prices every leg of every basket and every copyable
+/// trader without a second scrape.
+pub fn parse_lb_windows(v: &Value) -> std::collections::HashMap<String, LbWindows> {
+    let mut out = std::collections::HashMap::new();
+    let Some(rows) = v.get("leaderboardRows").and_then(|x| x.as_array()) else { return out };
+    for row in rows {
+        let addr = row.get("ethAddress").and_then(|x| x.as_str()).unwrap_or("");
+        if !addr.starts_with("0x") || addr.len() != 42 { continue; }
+        let mut w = LbWindows::default();
+        w.account_value = row.get("accountValue").and_then(|x| x.as_str())
+            .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        if let Some(perfs) = row.get("windowPerformances").and_then(|x| x.as_array()) {
+            for p in perfs {
+                let Some(pair) = p.as_array() else { continue };
+                if pair.len() != 2 { continue; }
+                let name = pair[0].as_str().unwrap_or("");
+                let body = &pair[1];
+                let roi = body.get("roi").and_then(|x| x.as_str())
+                    .and_then(|s| s.parse::<f64>().ok());
+                match name {
+                    "day" => {
+                        w.roi_day = roi;
+                        w.day_vlm = body.get("vlm").and_then(|x| x.as_str())
+                            .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                    }
+                    "week" => w.roi_week = roi,
+                    _ => {}
+                }
+            }
+        }
+        out.insert(addr.to_lowercase(), w);
+    }
+    out
+}
+
 /// Score one wallet's fills over a window.
 ///
 /// The arithmetic lives in [`crate::stats`] so that the board, `/analyze` and
@@ -393,6 +444,19 @@ impl BoardEntry {
     }
 }
 
+/// One board's freshness row in `/sync` — everything but the traders.
+#[derive(Debug, Clone, Serialize)]
+pub struct BoardMetaRow {
+    pub key: String,
+    pub days: u32,
+    pub rank: String,
+    pub active: String,
+    pub updated_at: i64,
+    pub rows: usize,
+    pub pool: usize,
+    pub all: bool,
+}
+
 pub struct BoardCache {
     path: std::path::PathBuf,
     // Keyed by `board_key(days, rank, active)`.
@@ -418,6 +482,24 @@ impl BoardCache {
     /// combination a visitor asked for once keeps getting refreshed.
     pub fn keys(&self) -> Vec<(u32, Rank, Active)> {
         self.boards.lock().keys().filter_map(|k| parse_board_key(k)).collect()
+    }
+    /// Per-board freshness metadata for `/sync` — no trader rows, just when
+    /// each board was last computed and how much it holds.
+    pub fn summary(&self) -> Vec<BoardMetaRow> {
+        let g = self.boards.lock();
+        let mut out: Vec<BoardMetaRow> = g.iter().filter_map(|(k, e)| {
+            let (days, rank, active) = parse_board_key(k)?;
+            Some(BoardMetaRow {
+                key: k.clone(), days,
+                rank: rank.as_str().to_string(),
+                active: active.as_str().to_string(),
+                updated_at: e.updated_at,
+                rows: e.traders.len(),
+                pool: e.pool, all: e.all,
+            })
+        }).collect();
+        out.sort_by(|a, b| (a.days, &a.rank, &a.active).cmp(&(b.days, &b.rank, &b.active)));
+        out
     }
     pub fn put(&self, days: u32, rank: Rank, active: Active, pool: usize, traders: Vec<TopTrader>) {
         let all = pool == ALL;
@@ -504,6 +586,16 @@ pub fn wanted_coins(raw: &[String]) -> Vec<String> {
     out
 }
 
+/// One window's slice of the trader index, summarised for `/sync`.
+#[derive(Debug, Clone, Serialize)]
+pub struct IndexWindowSummary {
+    pub days: u32,
+    pub total: usize,
+    pub fresh: usize,
+    pub oldest_ms: i64,
+    pub newest_ms: i64,
+}
+
 pub struct TraderIndex {
     path: std::path::PathBuf,
     // Keyed by `"{days}:{addr}"` — stats are window-scoped.
@@ -521,6 +613,28 @@ impl TraderIndex {
         Self { path, entries: Mutex::new(entries) }
     }
     pub fn len(&self) -> usize { self.entries.lock().len() }
+    /// Per-window completeness for `/sync`: how many wallets each window
+    /// holds, how many are inside the TTL right now, and the age range.
+    pub fn summary(&self, now_ms: i64) -> Vec<IndexWindowSummary> {
+        let g = self.entries.lock();
+        let mut by_days: std::collections::HashMap<u32, IndexWindowSummary> =
+            std::collections::HashMap::new();
+        for (k, e) in g.iter() {
+            let Some(days) = k.split(':').next().and_then(|d| d.parse::<u32>().ok()) else { continue };
+            let s = by_days.entry(days).or_insert(IndexWindowSummary {
+                days, total: 0, fresh: 0, oldest_ms: i64::MAX, newest_ms: 0,
+            });
+            s.total += 1;
+            if e.is_fresh(now_ms) { s.fresh += 1; }
+            s.oldest_ms = s.oldest_ms.min(e.scanned_at);
+            s.newest_ms = s.newest_ms.max(e.scanned_at);
+        }
+        let mut out: Vec<IndexWindowSummary> = by_days.into_values()
+            .map(|mut s| { if s.total == 0 { s.oldest_ms = 0; } s })
+            .collect();
+        out.sort_by_key(|s| s.days);
+        out
+    }
     pub fn get(&self, days: u32, addr: &str) -> Option<IndexEntry> {
         self.entries.lock().get(&Self::key(days, addr)).cloned()
     }

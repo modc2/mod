@@ -72,7 +72,7 @@ class Hyperliquid(m.Mod):
         "weighted indexes, and back them with private vaults"
     )
     fns = [
-        "forward", "serve", "app", "api", "kill", "status",
+        "forward", "serve", "app", "api", "kill", "status", "sync_status",
         "build", "logs", "test",
         "build_cid", "publish_build", "build_onchain",
         # MCP tool server (the same fn surface, spoken as JSON-RPC)
@@ -85,7 +85,8 @@ class Hyperliquid(m.Mod):
         "whoami",
         # data passthroughs
         "top_traders", "analyze_trader", "trader_curve", "leaderboard",
-        # indexes
+        # indexes / strats
+        "strats_board",
         "list_indexes", "get_index", "create_index", "update_index",
         "delete_index", "index_perf", "auto_index",
         # follows
@@ -594,7 +595,16 @@ class Hyperliquid(m.Mod):
 
     def leaderboard(self) -> Any: return self._get("/leaderboard")
 
-    # indexes
+    # indexes / strats
+    def strats_board(self, vaults: Optional[int] = None, traders: Optional[int] = None,
+                     min_tvl: Optional[float] = None) -> Any:
+        """The unified strats board: baskets + vaults + copyable traders, each
+        with trailing 24h/7d APR (what a deposit made then would have
+        annualized to)."""
+        q = {k: v for k, v in {"vaults": vaults, "traders": traders,
+                               "min_tvl": min_tvl}.items() if v is not None}
+        return self._get("/strats/board", **q)
+
     def list_indexes(self) -> Any: return self._get("/indexes")
     def get_index(self, id: str) -> Any: return self._get(f"/indexes/{id}")
     def create_index(self, **body) -> Any:
@@ -762,6 +772,11 @@ class Hyperliquid(m.Mod):
         return self._get("/deposit/status", **params)
 
     # ── market / wallet data passthroughs ──
+
+    def sync_status(self, limit: int = 80) -> Any:
+        """Data-integrity report: board freshness, per-window trader-index
+        completeness, deepener coverage, and recent background sync history."""
+        return self._get("/sync", limit=limit)
 
     def mids(self) -> Any: return self._get("/mids")
     def meta(self) -> Any: return self._get("/market/meta")
