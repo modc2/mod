@@ -35,11 +35,11 @@ export default function ManifestoPage() {
           <div className="text-coral text-[11px] font-bold uppercase tracking-[0.25em] mb-4">What that means in practice</div>
           <ul className="space-y-4 text-white/72 text-base leading-relaxed">
             <li className="flex gap-4">
-              <span className="text-coral font-black shrink-0">1–5%</span>
+              <span className="text-coral font-black shrink-0">0–5%</span>
               is all the protocol may take, and the band is a constant in the contract — not a number on a pricing page. <Link href="/split" className="text-coral hover:underline">See the split →</Link>
             </li>
             <li className="flex gap-4">
-              <span className="text-coral font-black shrink-0">95–99%</span>
+              <span className="text-coral font-black shrink-0">95–100%</span>
               stays with the property, divided between the renter's equity and the owner's income by a model the owner picks. <Link href="/simulator" className="text-coral hover:underline">Run the numbers →</Link>
             </li>
             <li className="flex gap-4">

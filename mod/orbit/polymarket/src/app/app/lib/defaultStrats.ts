@@ -108,6 +108,9 @@ export interface StratTemplate {
     category?: string;
     marketQuery?: string;
     count?: number;
+    /** Server sort the roster is pulled under. Absent ⇒ "pnl" — see
+        `fetchTopTraderAddresses`. */
+    sort?: string;
   };
   /** Strat fields layered over the blank-strat defaults. */
   params: Partial<SavedIndex>;
@@ -221,6 +224,26 @@ export const DEFAULT_STRATS: StratTemplate[] = [
       // side or price band would drop the leader's exits (SELLS) and leave
       // this strat holding positions its leaders have already closed. The
       // filtered variants are the other cards on the shelf.
+    },
+  },
+  {
+    slug: "dollar-rider",
+    name: "$1 RIDER",
+    lane: "any",
+    description:
+      "Just copy the buys. Seeds the traders whose settled buys most often rode ALL the way to a full $1 resolution — the pickers, not the scalpers — then mirrors ONLY their entries: their sells are ignored and every position rides toward resolution, with the stop-loss, take-profit and auto-redeem as the only exits. Rank the board by the $1 WINS score to see who it would copy.",
+    // Seed by resolveRate over a month: the buy-and-hold hit rate needs a
+    // real settled sample behind it, and 7 days of settlements is noise.
+    seed: { days: 30, count: 8, sort: "resolveRate" },
+    params: {
+      // THE knob this card exists for — leader SELLs never mirror.
+      copySells: false,
+      // Riding to resolution parks capital longer than trade-for-trade
+      // copying, so give the bench room to stack positions.
+      maxOpenPositions: 24,
+      // Protective exits stay at the console defaults (stop-loss 0.75,
+      // take-profit 0.99): "hold to $1" is the thesis, not a suicide pact —
+      // a pick decaying to a quarter of entry is a miss, book it.
     },
   },
   // ── THE BITCOIN LANE ──
@@ -699,6 +722,7 @@ export async function templateRoster(t: StratTemplate): Promise<string[]> {
       minPerDay: t.seed.minPerDay,
       category: t.seed.category,
       marketQuery: t.seed.marketQuery,
+      sort: t.seed.sort,
     },
     count,
   );

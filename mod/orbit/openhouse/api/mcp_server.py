@@ -37,8 +37,8 @@ SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
 DEFAULT_PROTOCOL_VERSION = '2025-03-26'
 
 INSTRUCTIONS = (
-    'OpenHouse is rent-to-own housing on-chain: the protocol takes 1-5% '
-    '(owner-set, hard-capped in the contract) and the remaining 95-99% of '
+    'OpenHouse is rent-to-own housing on-chain: the protocol takes 0-5% '
+    '(owner-set, hard-capped in the contract) and the remaining 95-100% of '
     'every payment stays with the property, split between the renter\'s '
     'equity and the owner\'s income by whichever rent-to-own model the '
     'owner picked. Start with openhouse_terms (the live deal) and '
@@ -130,6 +130,10 @@ def _t_dividends(args, oh):
     return {'distributions': len(history), 'history': history}
 
 
+def _t_civic(args, oh):
+    return oh.civic()
+
+
 def _t_landscape(args, oh):
     return oh.compare(refresh=bool(args.get('refresh')))
 
@@ -180,7 +184,7 @@ TOOLS = {
         'description': 'The live deal: rent-to-own model, protocol fee, the '
                        'share of each payment credited as renter equity vs '
                        'owner income, home price, monthly payment and the '
-                       '1-5% fee band the contract enforces. Start here.',
+                       '0-5% fee band the contract enforces. Start here.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_terms,
     },
@@ -198,7 +202,7 @@ TOOLS = {
     },
     'openhouse_models': {
         'description': 'The rent-to-own presets an owner can start from '
-                       '(full credit / hybrid / classic / lease), the 1-5% '
+                       '(full credit / hybrid / classic / lease), the 0-5% '
                        'protocol fee band, and the published take rates of '
                        'the platforms OpenHouse is measured against.',
         'inputSchema': {'type': 'object', 'properties': {}},
@@ -267,6 +271,17 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_dividends,
     },
+    'openhouse_civic': {
+        'description': 'The civic seat on this property: whether a government '
+                       '(a city housing authority, a state) is chartered, '
+                       'whether its pause or foreclosure hold stands, and '
+                       'every override it has issued from its own servers. '
+                       'Governments verify and override via the server in '
+                       'civic/server.py; a city-owned rent-to-own program is '
+                       'the same machinery with the city as owner too.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_civic,
+    },
     'openhouse_landscape': {
         'description': 'OpenHouse against every other on-chain housing '
                        'project, sorted by who ends up owning the house — '
@@ -316,13 +331,13 @@ TOOLS = {
     },
     'openhouse_set_terms': {
         'description': 'WRITES. Set the deal: pick a model preset and/or tune '
-                       'the dials. fee_pct is rejected outside the 1-5% band '
+                       'the dials. fee_pct is rejected outside the 0-5% band '
                        'and credit_pct outside 0-100. Once an owner address '
                        'is recorded, only that address may change the terms — '
                        'pass it as `owner`.',
         'inputSchema': {'type': 'object', 'properties': {
             'model': {'type': 'string', 'enum': ['full_credit', 'hybrid', 'classic', 'lease'], 'description': 'preset to start from'},
-            'fee_pct': {'type': 'number', 'description': 'protocol take, 1-5'},
+            'fee_pct': {'type': 'number', 'description': 'protocol take, 0-5 — 0 means take nothing'},
             'credit_pct': {'type': 'number', 'description': 'share of the post-fee payment credited as equity, 0-100'},
             'option_fee_pct': {'type': 'number', 'description': 'upfront option fee, % of home price'},
             'home_price': {'type': 'number', 'description': 'price to own outright, ETH'},

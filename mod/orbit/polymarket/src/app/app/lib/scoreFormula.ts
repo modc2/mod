@@ -12,7 +12,7 @@
 import type { TopTrader } from "./polymarket";
 
 /** The variables a formula can use, in the order they're passed in. */
-export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve"] as const;
+export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve", "resolveRate"] as const;
 
 /** What each variable IS, in one line — rendered beside the formula box on
     the board's SCORE editor. A formula language with no vocabulary printed
@@ -31,6 +31,7 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
   consistency: "How steadily the window's PnL was made: of the PnL-curve segments where money moved, the share that moved UP. 1 = every active stretch was green, 0.5 = coin-flip streaks. -1 = unknown (no curve or too little movement to judge)",
   decided: "How many settled positions winRate is computed over \u2014 a win rate over 4 positions is not a track record",
   curve: "The raw ~12-point cumulative PnL curve as an array (functions only \u2014 slope/drawdown math is yours)",
+  resolveRate: "Share of settled buys whose token rode ALL the way to a full $1 resolution, 0\u2013100. winRate asks \u201cdid the position make money\u201d (an early profitable scalp counts); this asks \u201cdid the thing they bought finish at $1\u201d \u2014 the hit rate of copying their buys and just holding. -1 = nothing settled yet",
 };
 
 /** Named formulas the SCORE can be parameterized with — the first is the
@@ -62,6 +63,13 @@ export const SCORE_PRESETS = [
     formula: "winRate",
     poolSort: "winRate",
     hint: "Of the positions this trader bought that have a known outcome, the % that resolved their way. -1 = nothing decided yet.",
+  },
+  {
+    key: "resolveRate",
+    label: "$1 WINS",
+    formula: "resolveRate",
+    poolSort: "resolveRate",
+    hint: "Of this trader's settled buys, the % that rode ALL the way to a full $1 resolution — the buy-and-hold hit rate. WIN RATE credits a profitable early exit; this only counts tokens that finished at $1, so it's the number to rank by if the plan is to just copy the buys and hold to redemption. -1 = nothing settled yet.",
   },
   {
     key: "exitEntry",
@@ -162,6 +170,7 @@ export interface ScoreInputs {
   consistency: number;
   decided: number;
   curve: number[];
+  resolveRate: number;
 }
 
 /** How steadily the window's PnL was made, read off the ~12-point cumulative
@@ -198,6 +207,7 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
     consistency: curveConsistency(t.pnlCurve),
     decided: t.decidedPositions,
     curve: t.pnlCurve ?? [],
+    resolveRate: t.resolveRate,
   };
 }
 
@@ -208,6 +218,7 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
 export const PROBE_INPUTS: ScoreInputs = {
   sharpe: 0, pnl: 0, volume: 0, buyVolume: 0, sellVolume: 0, positions: 0,
   winRate: 0, markets: 0, exitEntry: 0, consistency: 0, decided: 0, curve: [],
+  resolveRate: 0,
 };
 
 /** A compiled score: fn returns the trader's score, or NULL when the user's
@@ -280,6 +291,7 @@ export function scoreIsUnknown(formula: string, t: ScoreInputs): boolean {
   const preset = matchScorePreset(formula);
   if (!preset) return false;
   return (preset.key === "winRate" && t.winRate < 0)
+    || (preset.key === "resolveRate" && t.resolveRate < 0)
     || (preset.key === "exitEntry" && t.exitEntry < 0)
     // The ratio presets divide by dollars — none traded means no ratio,
     // not a 0% one.

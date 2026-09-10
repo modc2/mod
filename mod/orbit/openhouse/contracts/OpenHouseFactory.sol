@@ -34,6 +34,7 @@ contract OpenHouseFactory {
         OpenHouseTrust.Basis basis;
         uint256   feeBps;
         uint256   advanceRateBps;
+        address   authority;      // the civic seat the group is asking for; zero = none
         uint64    filedAt;
         State     state;
         address   trust;          // set on underwriting
@@ -75,6 +76,12 @@ contract OpenHouseFactory {
         OpenHouseTrust.Basis basis;
         uint256 feeBps;
         uint256 advanceRateBps;
+        /// The government the group wants party to the deal — a city housing
+        /// authority's key, registered in CivicRegistry. Filed in the open so
+        /// the bank underwrites the charter along with the borrowers: the
+        /// trust is born with the authority seated, and the bank can never
+        /// unseat it. Zero files a plain, uncharted deal.
+        address authority;
         address[] founders;
     }
 
@@ -98,6 +105,7 @@ contract OpenHouseFactory {
         f.basis = p.basis;
         f.feeBps = p.feeBps;
         f.advanceRateBps = p.advanceRateBps;
+        f.authority = p.authority;
         f.filedAt = uint64(block.timestamp);
         f.state = State.Proposed;
         for (uint256 i = 0; i < p.founders.length; i++) {
@@ -140,6 +148,7 @@ contract OpenHouseFactory {
             oracle: oracle,
             servicer: servicer,
             purchasePrice: purchasePrice,
+            authority: f.authority,
             founders: f.founders
         }));
 

@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchBoard, fetchScanProgress, BoardMeta, ScanProgress, TopTrader, fmtPnl, fmtUsd, fmtPct, shortAddr, ago, defensibleWin, sharpeMeasured } from "../lib/api";
 import Link from "next/link";
 import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, PageHead, SparkBars, SplitBar, Switch } from "./BoardBits";
 import TraderCell, { ROW_ATTR, isCoreCoin } from "./TraderCell";
 import TraderCard from "./TraderCard";
 import { useCurves } from "../lib/curves";
+import {
+  JS_FN_TEMPLATE, PY_FN_TEMPLATE, SCORE_PRESETS, SCORE_VAR_HINTS, FORMULA_VARS,
+  addSavedRatio, detectScoreLang, formatScore, loadSavedFormula, loadSavedRatios,
+  matchSavedRatio, matchScorePreset, removeSavedRatio, saveFormula, scoreInputs,
+  scoreIsUnknown, suggestRatioName, type SavedRatio,
+} from "../lib/scoreFormula";
+import { useCompiledScore } from "../lib/useScore";
 
-type SortKey = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe";
+type SortKey = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe" | "score";
 type Rank = "roi" | "pnl" | "volume";
 
 // How the board is drawn. Cards are the default: a card has room for the PnL
@@ -27,9 +34,16 @@ const SORT_LABELS: { k: SortKey; label: string }[] = [
   { k: "trades", label: "trades" },
 ];
 
-// HL's native ROI windows are day / week / month — 1, 7, 30 days. Other values
-// would just bucket back to these, so we don't pretend to offer them.
+// HL's native ROI windows are day / week / month — 1, 7, 30 days. Any other
+// window is real too, just split-sourced: the leaderboard-priced columns
+// (roi / pnl / volume) come from the NEAREST official window, while the
+// measured fill stats (win%, sharpe, trades, pnl-from-fills) are scored
+// against the exact N-day cutoff. `nearestWindow` is the client mirror of
+// traders.rs::window_for_days, so the blurb can say which window prices a
+// custom board instead of letting "14d roi" silently mean "30d roi".
 const DAY_OPTIONS = [1, 7, 30];
+const MAX_DAYS = 90;
+const nearestWindow = (d: number) => (d <= 1 ? 1 : d <= 7 ? 7 : d <= 30 ? 30 : 0); // 0 = all-time
 // How many top rows (by rank) get fill stats. Every row past the leaderboard
 // scrape costs one throttled /info query, so this is the only knob that
 // spends anything — the board itself is always the whole gated universe.
@@ -65,10 +79,16 @@ const STAT_KEYS: SortKey[] = ["win_rate", "trades", "sharpe"];
 // the same rule already governed the badges it draws.
 
 // Shared column template: trader | roi(+pnl) | equity | volume | win%(+trades) | sharpe | last | copy.
+// With a custom score active a ƒ column slots in right after the trader —
+// it's the ranking, so it reads before the metrics it was computed from.
 const GRID = "grid grid-cols-[minmax(0,2.6fr)_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_auto] gap-2 px-4";
+const GRID_SCORED = "grid grid-cols-[minmax(0,2.4fr)_0.9fr_1.15fr_1fr_1fr_1fr_0.9fr_0.9fr_auto] gap-2 px-4";
 
 export default function TopTraders() {
   const [days, setDays] = useState(7);
+  // The free-form "n days" box — committed on enter/blur, clamped 1–90 (the
+  // API's own clamp). Kept as text so half-typed numbers don't refetch.
+  const [dayDraft, setDayDraft] = useState("");
   const [rank, setRank] = useState<Rank>("roi");
   const [enrich, setEnrich] = useState(120);
   const [seed, setSeed] = useState("");
@@ -97,6 +117,33 @@ export default function TopTraders() {
   const [view, setView] = useState<View>("cards");
   const [visible, setVisible] = useState(PAGE.cards);
   const coinKey = useMemo(() => Array.from(coinFilter).sort().join(","), [coinFilter]);
+
+  // ── the custom score ──
+  // Empty formula = the score is OFF and the board ranks on its server
+  // metrics. Non-empty = a ƒ column appears, the board can rank on it, and a
+  // FUNCTION (js/py) that returns null hides the row. Everything runs in the
+  // browser — the same trust model as typing a formula anywhere else.
+  const [formula, setFormula] = useState("");
+  const [ratios, setRatios] = useState<SavedRatio[]>([]);
+  useEffect(() => { setFormula(loadSavedFormula()); setRatios(loadSavedRatios()); }, []);
+  useEffect(() => { saveFormula(formula); }, [formula]);
+  const scoreActive = formula.trim().length > 0;
+  const { compiled: scoreCompiled, lang: scoreLang, loading: scoreLoading, scoreFor } =
+    useCompiledScore(formula, days);
+  // Functions filter; expressions never do (a bad value shows as "---").
+  const scoreFilters = scoreActive && scoreLang !== "expr" && !!scoreCompiled.fn;
+  // A formula box that is a function (or just long) needs lines, not a strip.
+  const formulaIsBlock = scoreLang !== "expr" || formula.includes("\n") || formula.length > 60;
+
+  // Writing a score is asking to rank on it; clearing it hands the order
+  // back. Only the transitions switch, so picking another sort while a
+  // formula is live sticks.
+  const scoreWasActive = useRef(false);
+  useEffect(() => {
+    if (scoreActive && !scoreWasActive.current) setSortKey("score");
+    if (!scoreActive && scoreWasActive.current) setSortKey((k) => (k === "score" ? "roi" : k));
+    scoreWasActive.current = scoreActive;
+  }, [scoreActive]);
 
   // Folded or open is a preference, not a per-visit decision. So is cards vs
   // table: someone who reads this board as a spreadsheet should not have to
@@ -164,7 +211,7 @@ export default function TopTraders() {
   // Refetch when requirements change.
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [days, rank, enrich, coinKey]);
   // Any change to what's shown restarts paging from the top.
-  useEffect(() => { setVisible(PAGE[view]); }, [days, rank, enrich, coinKey, floors, sortKey, sortDir, view]);
+  useEffect(() => { setVisible(PAGE[view]); }, [days, rank, enrich, coinKey, floors, sortKey, sortDir, view, formula]);
 
   // Auto-refresh every 60s (matches the API-side cache TTL ceiling).
   useEffect(() => {
@@ -213,7 +260,7 @@ export default function TopTraders() {
     return out;
   }, [floors]);
 
-  const filtered = useMemo(() => {
+  const preScore = useMemo(() => {
     const f = {
       roi: num(floors.roi), sharpe: num(floors.sharpe), win: num(floors.win),
       equity: num(floors.equity), volume: num(floors.volume), trades: num(floors.trades),
@@ -237,15 +284,24 @@ export default function TopTraders() {
     });
   }, [traders, coinFilter, floors]);
 
+  // A score FUNCTION is a filter too: null/None hides the row. Expressions
+  // never hide — their bad values stay visible as "---".
+  const filtered = useMemo(
+    () => (scoreFilters ? preScore.filter((t) => scoreFor(t) !== null) : preScore),
+    [preScore, scoreFilters, scoreFor],
+  );
+  const scoreHidden = scoreFilters ? preScore.length - filtered.length : 0;
+
   const sorted = useMemo(() => {
     const arr = [...filtered];
     const statSort = STAT_KEYS.includes(sortKey);
     const metric = (t: TopTrader) => {
+      if (sortKey === "score") return scoreFor(t) ?? -Infinity;
       if (statSort && !hasStats(t)) return -Infinity;
       // Both fill-derived ratios rank on their evidence, not their headline.
       if (sortKey === "win_rate") return winScore(t);
       if (sortKey === "sharpe") return sharpeMeasured(t) ? t.sharpe : -Infinity;
-      return t[sortKey] as number;
+      return t[sortKey as Exclude<SortKey, "score">] as number;
     };
     arr.sort((a, b) => {
       const ma = metric(a), mb = metric(b);
@@ -255,7 +311,7 @@ export default function TopTraders() {
       return sortDir === "desc" ? -cmp : cmp;
     });
     return arr;
-  }, [filtered, sortKey, sortDir]);
+  }, [filtered, sortKey, sortDir, scoreFor]);
 
   const togglePick = (a: string) => {
     setPicked((p) => {
@@ -329,6 +385,8 @@ export default function TopTraders() {
   const shown = sorted.slice(0, visible);
   const fmtN = (n: number) => n.toLocaleString("en-US");
   const coinList = Array.from(coinFilter);
+  // A live score adds a ƒ column right after the trader.
+  const grid = scoreActive ? GRID_SCORED : GRID;
 
   // Curves for exactly the cards on screen — one request per screenful, and
   // none at all in table view, where the curve is a hover. `lib/curves` caches
@@ -350,8 +408,16 @@ export default function TopTraders() {
           <>
             Every wallet on the Hyperliquid leaderboard with at least $1k of equity that traded in the
             last 24h, ranked by {days}-day return on equity
-            {coinList.length > 0 ? ` and trading ${coinList.join(" / ")}` : ""}. Fill stats are
-            measured for the top {enrich} by {rank}. Copy one outright, or pick a few and build a strat.
+            {coinList.length > 0 ? ` and trading ${coinList.join(" / ")}` : ""}.
+            {!DAY_OPTIONS.includes(days) && (
+              <>
+                {" "}A {days}d window is split-sourced: roi / pnl / volume come from HL&apos;s
+                nearest official window ({nearestWindow(days) === 0 ? "all-time" : `${nearestWindow(days)}d`}),
+                while measured fill stats are exact {days}-day figures.
+              </>
+            )}
+            {" "}Fill stats are measured for the top {enrich} by {rank}.
+            {scoreActive ? " Your ƒ score ranks the board." : ""} Copy one outright, or pick a few and build a strat.
           </>
         }
         right={
@@ -380,12 +446,28 @@ export default function TopTraders() {
           </button>
           {filtersOpen ? (
             <>
-              <Field label="window" title="ROI window">
+              <Field label="window" title="How many days of trading the board scores — HL's official windows, or any 1–90">
                 <div className="seg">
                   {DAY_OPTIONS.map((d) => (
-                    <button key={d} onClick={() => setDays(d)}
+                    <button key={d} onClick={() => { setDays(d); setDayDraft(""); }}
                       className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
                   ))}
+                  <input
+                    className={`seg-btn w-12 bg-transparent outline-none text-center font-mono
+                      ${!DAY_OPTIONS.includes(days) ? "seg-btn-active" : ""}`}
+                    placeholder="n d" inputMode="numeric"
+                    title={`Any window, 1–${MAX_DAYS} days — enter to apply. Ranking uses HL's nearest official window; measured fill stats are exact.`}
+                    value={dayDraft}
+                    onChange={(e) => setDayDraft(e.target.value.replace(/[^0-9]/g, ""))}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      const n = parseInt(dayDraft, 10);
+                      if (Number.isFinite(n)) setDays(Math.min(MAX_DAYS, Math.max(1, n)));
+                    }}
+                    onBlur={() => {
+                      const n = parseInt(dayDraft, 10);
+                      if (Number.isFinite(n)) setDays(Math.min(MAX_DAYS, Math.max(1, n)));
+                    }} />
                 </div>
               </Field>
               <Field label="measure" title="which top wallets get fill stats — win%, sharpe, trades, coins">
@@ -409,6 +491,7 @@ export default function TopTraders() {
                 <div className="seg">
                   <select className="seg-btn !text-ink bg-transparent outline-none cursor-pointer"
                     value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+                    {scoreActive && <option value="score" className="bg-bg text-ink">ƒ score</option>}
                     {SORT_LABELS.map((s) => (
                       <option key={s.k} value={s.k} className="bg-bg text-ink">{s.label}</option>
                     ))}
@@ -431,6 +514,12 @@ export default function TopTraders() {
               {floorSummary.map((f) => (
                 <span key={f} className="pill !border-accent/40 !text-accent !bg-accent/10">{f}</span>
               ))}
+              {scoreActive && (
+                <span className="pill !border-accent/40 !text-accent !bg-accent/10" title={formula}>
+                  ƒ {matchScorePreset(formula)?.label ?? matchSavedRatio(formula, ratios)?.name
+                    ?? (scoreLang === "expr" ? "custom" : `${scoreLang} score`)}
+                </span>
+              )}
               {coinList.length > 0 && (
                 <span className="pill !border-accent/40 !text-accent !bg-accent/10">
                   {coinList.slice(0, 4).join(" / ")}{coinList.length > 4 ? ` +${coinList.length - 4}` : ""}
@@ -469,7 +558,7 @@ export default function TopTraders() {
         {filtersOpen && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-white/[0.05] pt-3">
             <span className="eyebrow mr-1"
-              title="Score floors — applied instantly to every wallet on the board">score</span>
+              title="Score floors — applied instantly to every wallet on the board">floors</span>
             {floorInput("roi", "roi", "%", "window return on equity, percent — priced for every wallet")}
             {floorInput("equity", "equity", "$", "account value — priced for every wallet", "w-20")}
             {floorInput("volume", "volume", "$", "window volume — priced for every wallet", "w-20")}
@@ -481,6 +570,95 @@ export default function TopTraders() {
             </span>
             {floorsActive && (
               <button className="pill hover:text-ink" onClick={() => setFloors(NO_FLOORS)}>✕ clear</button>
+            )}
+          </div>
+        )}
+
+        {/* ƒ SCORE — a user-written ranking. Expressions rank; JS/Python
+            FUNCTIONS rank AND filter (return null/None to hide a row). All of
+            it runs in this tab — user code never reaches the server. */}
+        {filtersOpen && (
+          <div className="space-y-2 border-t border-white/[0.05] pt-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="eyebrow mr-1"
+                title="Custom score — write the number the board should rank on, using the variables below. A js/python FUNCTION can also filter: return null/None to hide a trader.">
+                ƒ score
+              </span>
+              {SCORE_PRESETS.map((p) => (
+                <button key={p.key} title={p.hint}
+                  onClick={() => setFormula(p.formula)}
+                  className={`pill transition-colors ${formula.trim() === p.formula
+                    ? "!border-accent/60 !text-accent !bg-accent/10" : "hover:text-ink hover:border-white/20"}`}>
+                  {p.label}
+                </button>
+              ))}
+              {ratios.map((r) => (
+                <span key={r.name}
+                  className={`pill inline-flex items-center gap-1 cursor-pointer transition-colors
+                    ${matchSavedRatio(formula, ratios)?.name === r.name
+                      ? "!border-accent/60 !text-accent !bg-accent/10" : "hover:text-ink hover:border-white/20"}`}
+                  title={r.formula} onClick={() => setFormula(r.formula)}>
+                  {r.name}
+                  <button className="opacity-40 hover:opacity-100 hover:text-loss" title={`delete ${r.name}`}
+                    onClick={(e) => { e.stopPropagation(); setRatios(removeSavedRatio(ratios, r.name)); }}>
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <span className="mx-1 h-4 w-px bg-white/[0.08]" />
+              <button className="pill hover:text-ink" title="Drop in a JavaScript function template"
+                onClick={() => setFormula(JS_FN_TEMPLATE)}>JS ƒ</button>
+              <button className="pill hover:text-ink" title="Drop in a Python function template (runs in your browser via Pyodide)"
+                onClick={() => setFormula(PY_FN_TEMPLATE)}>PY ƒ</button>
+              {scoreActive && !matchScorePreset(formula) && !matchSavedRatio(formula, ratios) && !scoreCompiled.error && (
+                <button className="pill !border-accent/40 !text-accent hover:!bg-accent/10"
+                  title="Save this score as a named chip"
+                  onClick={() => setRatios(addSavedRatio(ratios, suggestRatioName(formula), formula))}>
+                  save as {suggestRatioName(formula)}
+                </button>
+              )}
+              {scoreActive && (
+                <button className="pill hover:text-ink" title="Clear the score — the board goes back to its server ranking"
+                  onClick={() => setFormula("")}>✕ clear</button>
+              )}
+            </div>
+            {formulaIsBlock ? (
+              <textarea
+                className="input w-full font-mono text-[11px] leading-relaxed resize-y min-h-[80px]"
+                spellCheck={false} value={formula}
+                onChange={(e) => setFormula(e.target.value)} />
+            ) : (
+              <input
+                className="input w-full font-mono text-[11px]"
+                placeholder="rank traders your way — e.g. 100 * pnl / volume · sharpe * winRateLo / 100 · or a js / python function"
+                spellCheck={false} value={formula}
+                onChange={(e) => setFormula(e.target.value)} />
+            )}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="eyebrow !text-[9px] mr-1"
+                title="Every variable a score can use — click to append. Hover any of them for what it means. roi / pnl / volume / equity exist on every row; the rest are fill-measured (gate on `measured`).">
+                vars
+              </span>
+              {FORMULA_VARS.map((v) => (
+                <button key={v} title={SCORE_VAR_HINTS[v]}
+                  className="pill !text-[9px] !py-0 hover:text-ink hover:border-white/20 font-mono"
+                  onClick={() => setFormula((f) => (f.trim() ? `${f.trimEnd()} ${v}` : v))}>
+                  {v}
+                </button>
+              ))}
+            </div>
+            {(scoreCompiled.error || scoreLoading || (scoreFilters && scoreHidden > 0)) && (
+              <div className="flex flex-wrap items-center gap-3 text-[10px]">
+                {scoreCompiled.error && <span className="text-loss">✕ {scoreCompiled.error}</span>}
+                {scoreLoading && (
+                  <span className="text-warn animate-pulse">PY — loading the Python runtime…</span>
+                )}
+                {scoreFilters && scoreHidden > 0 && (
+                  <span className="text-muted">
+                    your function is hiding {scoreHidden.toLocaleString("en-US")} trader{scoreHidden === 1 ? "" : "s"} right now
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -606,8 +784,9 @@ export default function TopTraders() {
       {/* Table — horizontal scroll on narrow screens instead of crushed columns */}
       <div className="panel overflow-x-auto">
        <div className="min-w-[760px]">
-        <div className={`${GRID} py-2.5 table-head`}>
+        <div className={`${grid} py-2.5 table-head`}>
           <div className="eyebrow !tracking-wider">trader</div>
+          {scoreActive && <div>{sortHeader("score", "ƒ score", "right", "your custom score — the formula in the ƒ score box")}</div>}
           <div>{sortHeader("roi", "roi")}</div>
           <div>{sortHeader("account_value", "equity")}</div>
           <div>{sortHeader("volume", "volume")}</div>
@@ -619,14 +798,16 @@ export default function TopTraders() {
         {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
         {(loading || scanning) && sorted.length === 0 &&
           [...Array(6)].map((_, i) => (
-            <div key={i} className={`${GRID} py-3 items-center table-row`}>
+            <div key={i} className={`${grid} py-3 items-center table-row`}>
               <div className="skeleton h-4 w-44" />
-              {[...Array(7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+              {[...Array(scoreActive ? 8 : 7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
             </div>
           ))}
         {!err && !loading && !scanning && sorted.length === 0 && (
           <div className="px-4 py-10 text-center text-xs text-muted">
-            {coinFilter.size > 0
+            {scoreFilters && scoreHidden > 0 && filtered.length === 0
+              ? `your ƒ score function filtered out all ${fmtN(preScore.length)} wallets — loosen its conditions, or gate on \`measured\` so unmeasured rows aren't hidden by fill-stat checks.`
+              : coinFilter.size > 0
               ? `no active wallet in the top ${meta?.depth ?? "—"} of the leaderboard traded ${coinList.join(" / ")} in the last ${days}d — try another coin or a longer window.`
               : floorsActive
                 ? `none of the ${fmtN(traders.length)} active wallets clear these floors — loosen a score, or raise "measure · top" so more rows are measured.`
@@ -639,7 +820,7 @@ export default function TopTraders() {
           const isPicked = picked.has(t.address);
           return (
           <div key={t.address}
-            className={`group ${GRID} py-2.5 items-center table-row hover:bg-accent/[0.04] ${isPicked ? "bg-accent/[0.05]" : ""}`}>
+            className={`group ${grid} py-2.5 items-center table-row hover:bg-accent/[0.04] ${isPicked ? "bg-accent/[0.05]" : ""}`}>
             <div className="flex items-center gap-2.5 min-w-0">
               <Medal rank={rank} />
               <input type="checkbox" className="accent-accent" checked={isPicked}
@@ -669,6 +850,18 @@ export default function TopTraders() {
                 );
               })()}
             </div>
+            {scoreActive && (() => {
+              const v = scoreFor(t);
+              const unknown = v != null && Number.isFinite(v) && scoreIsUnknown(formula, scoreInputs(t, days));
+              return (
+                <div className={`num text-right ${sortKey === "score" ? "text-accent" : "text-ink/90"}`}
+                  title={unknown
+                    ? "this preset's inputs aren't known for this wallet yet — not a bad score, a missing one"
+                    : `your score for this wallet${scoreLoading ? " — python still compiling" : ""}`}>
+                  {v == null || unknown ? "—" : formatScore(v)}
+                </div>
+              );
+            })()}
             <div className="text-right"
               title={t.account_value > 0 ? `on ${fmtUsd(t.account_value)} equity` : undefined}>
               <div className={`num font-semibold ${pos ? "text-win" : "text-loss"}`}>

@@ -267,6 +267,12 @@ def test_set_terms_holds_the_fee_band(client):
     assert 'between 0% and 100%' in errtext(call(client, 'openhouse_set_terms', credit_pct=140))
 
 
+def test_zero_fee_is_a_legal_setting(client):
+    t = data(call(client, 'openhouse_set_terms', fee_pct=0))['terms']
+    assert t['fee_pct'] == 0 and t['zero_fee'] is True
+    assert t['to_property_pct'] == 100.0
+
+
 def test_set_terms_needs_something_to_set(client):
     assert 'nothing to set' in errtext(call(client, 'openhouse_set_terms'))
 

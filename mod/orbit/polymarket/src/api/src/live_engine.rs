@@ -498,6 +498,17 @@ pub struct EngineConfig {
     /// Omitted ⇒ 300s; explicit 0 ⇒ off.
     #[serde(rename = "maxTradeAgeSec", default = "default_max_trade_age_sec")]
     pub max_trade_age_sec: Option<f64>,
+    /// `false` = "just copy the buys": mirror leader BUYs but ignore their
+    /// SELLs entirely — positions ride to resolution and exit via stop-loss,
+    /// take-profit, or auto-redeem instead of the leader's exits. Also turns
+    /// off the `leader_flat_exits` sweep, whose whole premise (leader flat ⇒
+    /// we exit) this mode rejects. Deliberate carve-out from the
+    /// exits-never-gated invariant: that rule exists so positions are never
+    /// STRANDED, and here the stop-loss/take-profit/redeem paths remain the
+    /// exits. Default `true` — normal mirroring. Mirror of strat.ts
+    /// `copySells`.
+    #[serde(rename = "copySells", default = "default_true")]
+    pub copy_sells: bool,
 }
 
 /// Mirror of `TradeFilters` in app/lib/types.ts, applied by
@@ -2897,7 +2908,18 @@ impl EngineRegistry {
                                         true
                                     }
                                 }
-                                "SELL" => market_ok || held_tokens.contains(&t.token_id),
+                                // `copySells: false` = "just copy the buys":
+                                // leader exits are ignored wholesale; the
+                                // stop-loss / take-profit / auto-redeem paths
+                                // own every exit instead.
+                                "SELL" => {
+                                    if !cfg.copy_sells {
+                                        gated.entry("copy sells off").or_default().hit(&t.trader);
+                                        false
+                                    } else {
+                                        market_ok || held_tokens.contains(&t.token_id)
+                                    }
+                                }
                                 _ => false,
                             };
                             if mirror_ok && !t.token_id.is_empty() {
@@ -3284,7 +3306,9 @@ impl EngineRegistry {
             // opened copying them, they are out and so are we. Runs after the
             // FILTER so a swept exit can't be dropped by it, and before
             // execution so it rides the same sell path as a seen SELL.
-            {
+            // "Just copy the buys" (`copySells: false`) rejects the premise —
+            // leader flatness is not an exit signal there, so no sweep.
+            if cfg.copy_sells {
                 let flat = {
                     let s = state.read();
                     let queued: HashSet<String> = mirror_candidates

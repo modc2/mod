@@ -83,7 +83,7 @@ class Mod:
             'credit_pct': 0.0,
             'option_fee_pct': 0.0,
             'headline': 'No equity, still no extraction',
-            'detail': 'A normal tenancy. The renter builds nothing, but the owner keeps 95–99% of the '
+            'detail': 'A normal tenancy. The renter builds nothing, but the owner keeps 95–100% of the '
                       'rent instead of handing a platform double digits.',
         },
     ]
@@ -127,6 +127,7 @@ class Mod:
         self.rent_path = self.store_dir / 'rent.json'
         self.pool_path = self.store_dir / 'pool.json'
         self.peers_cache_path = self.store_dir / 'peers_cache.json'
+        self.civic_path = self.store_dir / 'civic.json'
 
         # Config
         self.network = self.config.get('network', 'testnet')
@@ -356,6 +357,9 @@ class Mod:
         """
         if not renter:
             return {'error': 'Renter address required'}
+        blocked = self._civic_block()
+        if blocked:
+            return blocked
         split = self.quote(amount, kind=kind)
         if 'error' in split:
             return split
@@ -432,6 +436,122 @@ class Mod:
             'owned_pct': round(credit / price * 100, 4) if price > 0 else 0.0,
             'home_price': price,
         }
+
+    # ━━ The civic seat ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #
+    # A government — a city housing authority, a state — can hold a seat on
+    # this property. It runs its own verification server (civic/server.py)
+    # off-chain and holds two overrides on: a civic pause that freezes
+    # payments and a civic hold that blocks a taking. Mirrors the `authority`
+    # seat in contracts/OpenHouseTrust.sol: the owner charters once, by
+    # choice; after that only the authority itself can leave, and its flags
+    # are not the owner's to clear. A city-owned rent-to-own program is the
+    # same machinery with the city as owner too. The key checks here are
+    # address matches, not signatures — the local store mirrors the contract,
+    # where `onlyAuthority` does the real enforcing.
+
+    def _load_civic(self):
+        return self._load_json(self.civic_path, {})
+
+    def _save_civic(self, data):
+        self._save_json(self.civic_path, data)
+
+    def civic(self) -> dict:
+        """The civic seat: who holds it, what stands, every override on record."""
+        c = self._load_civic()
+        auth = c.get('authority')
+        return {
+            'chartered': bool(auth),
+            'authority': auth,
+            'civic_paused': bool(c.get('civic_paused')),
+            'civic_hold': bool(c.get('civic_hold')),
+            'overrides': list(reversed(c.get('overrides', [])))[:50],
+            'contract': 'the authority seat in OpenHouseTrust.sol + CivicRegistry.sol',
+        }
+
+    def civic_charter(self, key: str, name: str = '', region: str = '',
+                      uri: str = '', owner: str = None) -> dict:
+        """The owner charters a government into the civic seat — once, while
+        it is empty. After this the owner cannot remove it, cannot clear its
+        pause, and a city-owned program simply charters itself.
+
+        Args:
+            key:    the government's server key (see civic/server.py, GET /city)
+            name:   e.g. "Cleveland Housing Authority"
+            region: ISO 3166-2, e.g. "US-OH"
+            uri:    the civic server it runs — a .gov URL that publishes the key
+            owner:  address making the change; must match the recorded owner
+        """
+        if not key:
+            return {'error': 'Authority key required'}
+        terms = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        recorded_owner = (terms.get('owner') or '').lower()
+        if recorded_owner and (owner or '').lower() != recorded_owner:
+            return {'error': 'Only the property owner can charter an authority'}
+        c = self._load_civic()
+        if c.get('authority'):
+            return {'error': 'Civic seat is taken — only the authority can resign it',
+                    'authority': c['authority']}
+        c['authority'] = {'key': key, 'name': name or 'Chartered Authority',
+                          'region': region, 'uri': uri, 'chartered': int(time.time())}
+        c.setdefault('overrides', [])
+        self._save_civic(c)
+        return {'success': True, 'authority': c['authority']}
+
+    def civic_override(self, action: str, key: str, reason: str = '') -> dict:
+        """The chartered government exercises its seat, from its own server.
+
+        Args:
+            action: pause | unpause (freeze/thaw payments) or
+                    hold | release  (block/permit a taking)
+            key:    must match the chartered authority's key
+            reason: on the record, next to the action
+        """
+        c = self._load_civic()
+        auth = c.get('authority')
+        if not auth:
+            return {'error': 'No authority is chartered on this property'}
+        if (key or '').lower() != auth['key'].lower():
+            return {'error': 'Not the authority'}
+        if action not in ('pause', 'unpause', 'hold', 'release'):
+            return {'error': f'Unknown action: {action} '
+                             '(pause | unpause | hold | release)'}
+        if action in ('pause', 'unpause'):
+            c['civic_paused'] = action == 'pause'
+        else:
+            c['civic_hold'] = action == 'hold'
+        entry = {'timestamp': int(time.time()), 'action': action,
+                 'key': auth['key'], 'authority': auth['name'], 'reason': reason}
+        c.setdefault('overrides', []).append(entry)
+        self._save_civic(c)
+        return {'success': True, **entry,
+                'civic_paused': c['civic_paused'], 'civic_hold': bool(c.get('civic_hold'))}
+
+    def civic_resign(self, key: str) -> dict:
+        """The government leaves the seat — the only way it empties — and its
+        pause and hold lift with it, so a departed city holds nothing."""
+        c = self._load_civic()
+        auth = c.get('authority')
+        if not auth:
+            return {'error': 'No authority is chartered on this property'}
+        if (key or '').lower() != auth['key'].lower():
+            return {'error': 'Not the authority'}
+        c['authority'] = None
+        c['civic_paused'] = False
+        c['civic_hold'] = False
+        c.setdefault('overrides', []).append(
+            {'timestamp': int(time.time()), 'action': 'resign',
+             'key': auth['key'], 'authority': auth['name'], 'reason': ''})
+        self._save_civic(c)
+        return {'success': True, 'resigned': auth['name']}
+
+    def _civic_block(self):
+        """The standing civic pause, if one stands — checked where money moves."""
+        c = self._load_civic()
+        if c.get('civic_paused'):
+            who = (c.get('authority') or {}).get('name') or 'the chartered authority'
+            return {'error': f'Civic pause: {who} has frozen payments on this property'}
+        return None
 
     # ━━ The pool ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     #
@@ -945,6 +1065,9 @@ class Mod:
         """
         if not buyer:
             return {'error': 'Buyer address required'}
+        blocked = self._civic_block()
+        if blocked:
+            return blocked
         share_count = int(share_count)
         if share_count <= 0:
             return {'error': 'Must purchase at least 1 share'}
@@ -1150,6 +1273,14 @@ class Mod:
         ('contracts/OpenHouseFactory.sol', 'solidity',
          'Where a group becomes a borrower: anyone can file a formation, only the '
          'named bank can underwrite it into a live trust.'),
+        ('contracts/CivicRegistry.sol', 'solidity',
+         'Where a government puts its name on the protocol: its key, its '
+         'jurisdiction, the URL of the server it verifies from, and the deals '
+         'it publicly endorses.'),
+        ('civic/server.py', 'python',
+         'The server a city runs: re-derives every split in a property\'s '
+         'ledger from scratch, and exercises the civic pause and hold from '
+         'the government\'s own infrastructure.'),
         ('mod.py', 'python',
          'Module logic — shares, dividends, governance, serving.'),
         ('api/api.py', 'python',

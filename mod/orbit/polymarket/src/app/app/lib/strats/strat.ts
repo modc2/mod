@@ -16,6 +16,9 @@
 //   filter           trader-quality gate: rank the watchlist every cycle by
 //                    a score and copy only the top N
 //   mirror           false = never mirror per-trade (origination only)
+//   copySells        false = "just copy the buys": ignore leader SELLs;
+//                    positions ride to resolution, exits come from
+//                    stop-loss / take-profit / redemption instead
 //   slippageBps      limit-price widening toward the fillable side
 //   flow { … }       opt-in flow-momentum ORIGINATION: buy watchlist
 //                    consensus from history, exit when flow flips
@@ -246,6 +249,16 @@ export interface StratParams {
   /** false = never mirror individual upstream trades (origination only).
       Default true. */
   mirror?: boolean;
+  /** false = "just copy the buys": leader SELLs are ignored instead of
+      mirrored, so every copied position rides toward resolution and exits
+      only via stop-loss, take-profit, or redemption. The pair to the
+      `resolveRate` score — a trader picked for how often their buys finish
+      at $1 is being copied for their PICKS, not their exits. This is a
+      deliberate carve-out from the exits-never-gated rule: that rule exists
+      so positions are never stranded with no signal that can close them,
+      and here the protective exits stay armed. Default true. Mirror of
+      live_engine.rs `EngineConfig::copy_sells`. */
+  copySells?: boolean;
   /** Limit-price widening in basis points toward the fillable side
       (BUY = up, SELL = down) so mirrors don't sit unfilled behind the
       market. 300 = 3¢ tolerance on a 100¢ market. Default 300. */
@@ -360,7 +373,9 @@ export class Strat {
   shouldMirror(trade: TraderTrade, history: StratHistory): boolean {
     if (this.params.mirror === false) return false;
     if (!marketMatchesQuery(trade.market, this.params.marketQuery ?? "")) return false;
-    if (trade.side === "SELL") return true;
+    // `copySells: false` is the one param that gates a SELL — see its doc
+    // above for why that doesn't strand positions.
+    if (trade.side === "SELL") return this.params.copySells !== false;
     // Gate ORDER matches live_engine.rs's cycle — market query, trade
     // filters, trader FILTER, staleness, time-to-close. Every gate is AND-ed,
     // so order can't change WHICH trades pass; it decides which gate gets the

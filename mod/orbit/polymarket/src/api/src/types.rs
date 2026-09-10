@@ -26,6 +26,11 @@ pub struct MarketMetric {
     /// Settled positions in this market — the market has finished deciding
     /// them, win or burn. Denominator of buy-accuracy.
     pub decided: u32,
+    /// Settled positions in this market whose token settled at $1
+    /// (`curPrice ≥ 0.99`) — numerator of `resolveRate`. `#[serde(default)]`
+    /// keeps older cached payloads loadable.
+    #[serde(default)]
+    pub resolved: u32,
     /// Per-closed-SELL fractional returns `(price − avgCost) / avgCost` in
     /// this market — lets `apply_pagination` recompute Sharpe scoped to the
     /// markets matching a search/category/topic query.
@@ -51,6 +56,16 @@ pub struct Trader {
     pub pnl: f64,
     #[serde(rename = "winRate")]
     pub win_rate: f64,
+    /// Share of settled positions that rode ALL THE WAY to a full $1
+    /// resolution (settlement `curPrice ≥ 0.99`), 0–100. Distinct from
+    /// `winRate`, which is a money question — a position scalped out early
+    /// for profit counts there but not here. This is the buy-and-hold hit
+    /// rate: how often buying what this trader buys and just holding to
+    /// resolution pays out. `-1` = unknown (nothing settled in the window /
+    /// settled book unreachable) — same sentinel discipline as `winRate`;
+    /// the default keeps older cached payloads loadable.
+    #[serde(rename = "resolveRate", default = "unknown_stat")]
+    pub resolve_rate: f64,
     /// Sharpe ratio over the analysis window: mean of per-closed-trade
     /// fractional returns / their sample stdev (0 below 3 closed trades) —
     /// same `stats_from_returns` formula the live engine ranks copies with.

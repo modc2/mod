@@ -1,7 +1,7 @@
 {
     "name": "polymarket",
     "version": "2.9.0",
-    "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. One trader board plus a side panel whose rail is INDEX (money + allocation across strats) · STRATS (create, build and share strats — private by default, publishable to the community gallery) · BACKTEST · LIVE. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
+    "description": "Copy a bench of Polymarket traders as an INDEX sized to your own capital \u2014 the default strat scales every one of their trades by yourCapital/theirBankroll, so when they stake 2% of their book you stake 2% of yours, with no per-name dollar amounts. Gate what you copy by MARKET SENTIMENT \u2014 only their with-the-crowd entries, or only their contrarian ones. One trader board plus a side panel whose rail is INDEX (money + allocation across strats) \u00b7 STRATS (create, build and share strats \u2014 private by default, publishable to the community gallery) \u00b7 BACKTEST \u00b7 LIVE. The older per-trader copy desk still runs underneath. Driven from the console or over MCP",
     "port": 50091,
     "app_port": 3091,
     "urls": {
@@ -147,7 +147,7 @@
             "docs": "AUTO STRAT \u2014 the strat factory (served by the Next app, owner-gated). One run: a headless claude agent invents a copy-index recipe off the live leaderboard (it can only pick addresses actually on the board \u2014 the roster is the whitelist), the lab bench replays it over 1/3/7 days, and the result REGISTERS twice: as a paused strat the sidebar adopts (clicked runs always; loop runs only when they beat the bench bar) and as a generated Python Strat class in polymarket-user-strats/<id>/mod.py that runs standalone as its own MCP server (strat_info/strat_signal/strat_backtest/strat_state \u2014 read-only by design). GET returns settings + the run in flight + recent runs; POST {enabled, intervalSecs} flips the server-side loop (default 60s, OFF until a human enables it \u2014 every run spends inference); POST ?run=1 {theme?} is the console's RANDOM NEW STRAT. Nothing here ever starts a live session."
         }
     },
-    "schema": "QmWgKv7DWSSVXHR3P9625MQtBJ3HUvjWQyNNfNtQ8k7wPq",
+    "schema": "QmP1fnUD7dPtKURUNw4J1Wm5q1yvW2JaeVjf5ZBR6teyBm",
     "gateway_port": 3091,
     "mcp": {
         "stdio": "python3 src/mcp.py",

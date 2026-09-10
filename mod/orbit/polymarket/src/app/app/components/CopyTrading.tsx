@@ -740,7 +740,7 @@ export default function CopyTrading({
           // Placeholder for a strat address the leaderboard pool never
           // reached: -1 = unknown, the same sentinel the API uses. A 0 here
           // would read as "never wins".
-          pnl: 0, winRate: -1, decidedPositions: 0, sharpe: 0, exitEntry: -1, positions: 0,
+          pnl: 0, winRate: -1, resolveRate: -1, decidedPositions: 0, sharpe: 0, exitEntry: -1, positions: 0,
           marketTitles: [], recentTrades: 0,
         },
       );
@@ -821,7 +821,7 @@ export default function CopyTrading({
     });
     return list;
   }, [cacheWarm, streamedAll, search, category, marketQuery, minVolume, minPnl,
-      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor, scoreFilters,
+      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor, scoreFilters,
       stratFilter, stratAddrs]);
 
   const sortedTraders = useMemo(() => {
@@ -856,7 +856,7 @@ export default function CopyTrading({
   // Reset page on filter/sort change
   useEffect(() => { setPage(0); }, [search, category, marketQuery, traderSort, sortDir,
     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter,
-    minTrades24h, maxLastTradeHrs, minHistoryDays]);
+    minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency]);
 
   const totalPages = Math.max(1, Math.ceil(visibleTotal / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -1107,7 +1107,7 @@ export default function CopyTrading({
 
   // Count active advanced filters
   const activeFilterCount = [
-    minTrades, minBuyVolume, minSellVolume, minPnl,
+    minTrades, minBuyVolume, minSellVolume, minPnl, minConsistency,
   ].filter((v) => v !== "").length
     + (minVolume !== "100" && minVolume !== "" ? 1 : 0)
     + (minPerDay !== "0" && minPerDay !== "" ? 1 : 0)
@@ -1493,6 +1493,11 @@ export default function CopyTrading({
                 // 30D ranking mean 30 days: a wallet that opened last week can
                 // top a 30D board, and its 30D backtest is mostly flat line.
                 { label: "MIN HISTORY DAYS", value: minHistoryDays, onChange: onDec(setMinHistoryDays), ph: "off" },
+                // Consistency floor, 0–1 — the shape filter: minimum share of
+                // the PnL curve's moved segments that climbed. 0.9 keeps the
+                // smooth staircase curves; blank/0 = off. Same `consistency`
+                // the SCORE bus exposes, so the filter and the variable agree.
+                { label: "MIN CONSISTENCY", value: minConsistency, onChange: onDec(setMinConsistency), ph: "0–1" },
                 { label: "MIN BUY VOL", value: minBuyVolume, onChange: onDec(setMinBuyVolume), ph: "any" },
                 { label: "MIN SELL VOL", value: minSellVolume, onChange: onDec(setMinSellVolume), ph: "any" },
                 { label: "MIN P&L", value: minPnl, onChange: onDec(setMinPnl), ph: "any" },
@@ -1520,7 +1525,7 @@ export default function CopyTrading({
 
             {/* Reset all */}
             <div className="flex items-center justify-end">
-              <button onClick={() => { setDaysAgo(""); setCategory(""); setMarketQuery(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setFormula(DEFAULT_FORMULA); reload(); }}
+              <button onClick={() => { setDaysAgo(""); setCategory(""); setMarketQuery(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setMinHistoryDays(""); setMinConsistency(""); setFormula(DEFAULT_FORMULA); reload(); }}
                 className="pixel-btn text-[12px] px-3 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-red-400 hover:text-red-400 transition-colors">
                 RESET ALL
               </button>

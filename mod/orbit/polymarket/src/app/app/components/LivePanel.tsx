@@ -93,6 +93,11 @@ const GATE_LABELS: Record<string, { name: string; fix: string; off: string }> = 
     fix: "this strat sets MAX TRADE AGE and the leader traded longer ago than that. The gate is off by default — clear maxTradeAgeSec on the strat to copy the flow whole.",
     off: "GATE OFF",
   },
+  "copy sells off": {
+    name: "copy sells switch",
+    fix: "this strat only copies the buys — leader sells are ignored and positions ride to resolution, with stop-loss / take-profit / redeem as the exits. That's usually the point of the strat.",
+    off: "COPY SELLS TOO",
+  },
 };
 
 // The cadence the engine will actually run at for `traderCount` traders —
@@ -678,6 +683,9 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       case "stale":
         patchStrat({ maxTradeAgeSec: 0 });
         break;
+      case "copy sells off":
+        patchStrat({ copySells: true });
+        break;
       default:
         break;
     }
@@ -779,6 +787,11 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       marketQuery: activeStrat.marketQuery,
       // Semantic per-trade filters (side / price band / size band / category).
       tradeFilters: activeStrat.tradeFilters,
+      // "Just copy the buys" — false stops leader SELLs from mirroring and
+      // turns off the leader-flat sweep; stop-loss / take-profit / redeem
+      // own every exit. Only sent when the strat sets it, so the engine's
+      // own default (true) stays the source of truth otherwise.
+      ...(activeStrat.copySells !== undefined && { copySells: activeStrat.copySells }),
       // Trader FILTER — copy only the top-ranked traders on the watchlist.
       filter: activeStrat.filter,
       // Price-momentum origination — buys rising outcomes, no watchlist needed.

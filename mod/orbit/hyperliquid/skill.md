@@ -25,6 +25,7 @@ hl = m.mod('hyperliquid')()
 hl.build()                     # cargo build --release
 hl.serve()                     # api on 8919, app on 3919
 hl.status()                    # service + api health
+hl.sync_status()               # data integrity: board freshness, index coverage, sync history
 hl.kill()                      # stop both
 ```
 

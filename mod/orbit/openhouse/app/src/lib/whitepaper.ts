@@ -4,13 +4,13 @@
 export const MANIFESTO = [
   "Rent is a tax on being broke.",
   "Platforms take 15% off the top for holding the money.",
-  "OpenHouse takes 1–5% — and every check buys you the house.",
+  "OpenHouse takes 0–5% — and every check buys you the house.",
 ]
 
 export const ABSTRACT =
   "OpenHouse is rent-to-own, on-chain. You rent a home like normal — but the " +
-  "protocol keeps 1–5% (the owner picks the number; the cap is written into the " +
-  "contract, not a promise) and 95–99% of every payment stays with the property. " +
+  "protocol keeps 0–5% (the owner picks the number; the cap is written into the " +
+  "contract, not a promise) and 95–100% of every payment stays with the property. " +
   "The owner chooses a rent-to-own model that decides how that money splits between " +
   "your equity and their income — from a classic 25% rent credit to every net dollar " +
   "buying the house. Each quarter ownership is redistributed by principal paid off. " +
@@ -83,11 +83,11 @@ export const SECTIONS: PaperSection[] = [
       "Airbnb clears roughly 15% of what a guest pays. Vrbo lands near 13%. A property " +
         "manager takes 8–12% of the rent and calls it a service. None of it buys the person " +
         "paying so much as a doorknob.",
-      "OpenHouse takes 1–5%. Not as a pledge on a pricing page — MIN_FEE_BPS and MAX_FEE_BPS " +
+      "OpenHouse takes 0–5%. Not as a pledge on a pricing page — MIN_FEE_BPS and MAX_FEE_BPS " +
         "are constants in the contract, so no future version of us can widen the band without " +
         "deploying a different contract in front of everybody. Inside it, the property's owner " +
         "sets the number. Their building, their call.",
-      "The other 95–99% never leaves the property. It splits between the renter's equity and " +
+      "The other 95–100% never leaves the property. It splits between the renter's equity and " +
         "the owner's income by whichever rent-to-own model the owner picked — and both halves " +
         "are visible on-chain, per payment, forever.",
     ],
@@ -104,7 +104,7 @@ export const SECTIONS: PaperSection[] = [
         "yield instead of rent. Hybrid: half equity, half income — the honest deal when the owner " +
         "still carries a mortgage. Classic lease-option: a 25% rent credit plus an upfront option " +
         "fee, the shape the industry already uses. Plain lease: no equity, but the owner still " +
-        "keeps 95–99% instead of handing a platform double digits.",
+        "keeps 95–100% instead of handing a platform double digits.",
       "The owner picks a model, then tunes it — credit percentage, option fee, monthly payment. " +
         "The renter sees the exact split before paying, because the same function that moves the " +
         "money will quote it first.",
@@ -214,6 +214,40 @@ export const SECTIONS: PaperSection[] = [
     ],
     pull: "Total control is what buys total liability. Spread the keys and you spread the losses.",
   },
+  {
+    no: "10",
+    slug: "the-city",
+    kicker: "The City",
+    title: "Any government can hold a seat here.",
+    body: [
+      "Housing is the most regulated market on earth, and the regulator has never been able to " +
+        "see it. A city learns a landlord cooked the books from an eviction filing, years late. " +
+        "OpenHouse inverts that: every term and every split of every payment is public, and a " +
+        "government that wants more than visibility can take a seat in the contract itself.",
+      "The civic seat works like everything else here — powers that exist are written as " +
+        "functions, powers that don't were never written. A chartered authority runs its own " +
+        "verification servers, on its own infrastructure, re-deriving every split in a " +
+        "property's ledger from scratch: the fee inside the band, the equity clamp, the totals. " +
+        "It doesn't audit our arithmetic by trusting our arithmetic. And what it verifies it " +
+        "can enforce: a civic pause that freezes payments and the bank cannot clear, and a " +
+        "foreclosure hold — notice, thirty days in the open, and no taking while the hold is " +
+        "up, for as long as the city keeps it up.",
+      "The charter cuts both ways, plainly. Once the owner seats an authority it cannot unseat " +
+        "it — only the government can resign, and its flags lift when it leaves. And the " +
+        "authority cannot touch a balance, mint a share, or move a cent: a civic pause protects " +
+        "people from the deal, never the deal from its people. A city that registers in " +
+        "CivicRegistry publishes its key on its own .gov domain, so 'adopted by the city' is a " +
+        "claim anyone can check both halves of.",
+      "And a city that wants the whole program doesn't need our permission or a special mode. " +
+        "The lender in this protocol is an address. A housing authority takes the bank seat, " +
+        "runs its own oracle reporters, charters itself — or its state — as authority, sets the " +
+        "fee to zero, and operates city-owned rent-to-own in public, supervised by its own " +
+        "servers, auditable by anyone. Every city can run this. That's the point of shipping it " +
+        "as open source instead of as a company.",
+    ],
+    pull: "Verification from the city's own servers. Override written into the contract. " +
+      "City-owned rent-to-own is the city taking the bank seat.",
+  },
 ]
 
 /** One section plus the two either side of it — everything a section page needs. */
@@ -224,8 +258,8 @@ export function paperSection(slug: string) {
 }
 
 export const TOKENOMICS = [
-  { label: "Protocol take", value: "1–5%", note: "owner-set, capped in code" },
-  { label: "Stays with the home", value: "95–99%", note: "equity + owner income" },
+  { label: "Protocol take", value: "0–5%", note: "owner-set, capped in code" },
+  { label: "Stays with the home", value: "95–100%", note: "equity + owner income" },
   { label: "Your stake", value: "Principal ÷ price", note: "real equity, not points" },
   { label: "Redistribution", value: "Quarterly", note: "every 90 days, on-chain" },
   { label: "Paid in full", value: "100% = title", note: "own it outright" },
@@ -237,7 +271,7 @@ export const BENCHMARKS = [
   { name: "Airbnb", take: 15, note: "host 3% + guest ~14%" },
   { name: "Vrbo / Booking", take: 13, note: "commission + processing" },
   { name: "Property manager", take: 10, note: "8–12% of monthly rent" },
-  { name: "OpenHouse", take: 3, note: "owner-set, 1–5% hard cap", ours: true },
+  { name: "OpenHouse", take: 3, note: "owner-set, 0–5% hard cap", ours: true },
 ]
 
 export const ROADMAP = [
@@ -254,8 +288,8 @@ export const ROADMAP = [
 export const TICKER = [
   "TESTNET · LAUNCH TBA",
   "RENT IS EXTRACTION",
-  "THEY TAKE 15% · WE TAKE 1–5%",
-  "95–99% STAYS WITH THE HOME",
+  "THEY TAKE 15% · WE TAKE 0–5%",
+  "95–100% STAYS WITH THE HOME",
   "EVERY CHECK BUYS THE HOUSE",
   "PRINCIPAL = OWNERSHIP",
   "REDISTRIBUTED QUARTERLY",

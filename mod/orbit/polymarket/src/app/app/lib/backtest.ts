@@ -615,7 +615,14 @@ export function runBacktestSim(
     // Strict-in-window FIFO: a copy-trader starting at cutoffMs has no
     // pre-window inventory, so SELLs that would consume pre-window basis
     // shouldn't appear in the feed (they're not actually replicable).
-    const inWindowAll = replayTrades.filter((t) => t.timestamp >= cutoffMs && t.timestamp <= endMs);
+    // "Just copy the buys" (`copySells: false`) drops leader SELLs here —
+    // one gate covering both the per-trade branch and the aggregated
+    // rebalance-window rows, so neither path mirrors an exit. The sim's own
+    // stop-loss / take-profit / settlement passes below stay armed, exactly
+    // like live.
+    const inWindowAll = replayTrades
+      .filter((t) => t.timestamp >= cutoffMs && t.timestamp <= endMs)
+      .filter((t) => t.side !== "SELL" || strat.params.copySells !== false);
     // Apply SAMPLE % so the feed matches the chart's sampled trade set.
     const inWindowSampled = samplePct >= 100
       ? inWindowAll
@@ -1200,6 +1207,7 @@ export function stratFromIndex(idx: SavedIndex): Strat {
     // Staleness gate + the poll cadence it models discovery lag against. The
     // engine's default is OFF, so only send what the strat actually set.
     ...(idx.maxTradeAgeSec !== undefined && { maxTradeAgeSec: idx.maxTradeAgeSec }),
+    ...(idx.copySells !== undefined && { copySells: idx.copySells }),
     pollIntervalMs: Math.round(stratBacktestParams(idx).pollMinutes * 60_000),
     ...(idx.maxUpscale !== undefined && { maxUpscale: idx.maxUpscale }),
     ...(idx.sizing !== undefined && { sizing: idx.sizing }),

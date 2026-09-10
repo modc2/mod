@@ -242,14 +242,13 @@ export interface StratPnlPoint {
 }
 
 /** Per-strat 7-day PnL series from /api/strat-pnl. Empty until the sidecar
-    has sampled (first deploy) or when the caller isn't the owner. */
+    has sampled (first deploy) or when the caller isn't the owner. Keyed off
+    the ACCESS token, not the wallet: the tab only mounts once the gate is
+    open, and a QR-paired phone session holds a token with no wallet at all. */
 export function useStratPnlHistory(days = 7, pollMs = 5 * 60_000): Record<string, StratPnlPoint[]> {
-  const { auth } = useAuth();
-  const address = auth.address;
   const [series, setSeries] = useState<Record<string, StratPnlPoint[]>>({});
 
   useEffect(() => {
-    if (!address) { setSeries({}); return; }
     let cancelled = false;
     const poll = async () => {
       try {
@@ -275,7 +274,7 @@ export function useStratPnlHistory(days = 7, pollMs = 5 * 60_000): Record<string
     void poll();
     const t = setInterval(poll, pollMs);
     return () => { cancelled = true; clearInterval(t); };
-  }, [address, days, pollMs]);
+  }, [days, pollMs]);
 
   return series;
 }

@@ -38,7 +38,7 @@ function TakeComparison({ ourTake }: { ourTake: number }) {
       ))}
       <p className="text-[10px] text-white/50 leading-relaxed pt-1">
         Published headline rates for comparison. Only the OpenHouse number is enforced by this contract —
-        and only inside the 1–5% band written into it.
+        and only inside the 0–5% band written into it.
       </p>
     </div>
   )
@@ -48,7 +48,7 @@ function TakeComparison({ ourTake }: { ourTake: number }) {
 function TermsDesk({ terms, models, onSaved }: {
   terms: TermsData | null; models: ModelPreset[]; onSaved: () => void
 }) {
-  const band = terms?.fee_band ?? { min_pct: 1, max_pct: 5 }
+  const band = terms?.fee_band ?? { min_pct: 0, max_pct: 5 }
   const [model, setModel] = useState('full_credit')
   const [feePct, setFeePct] = useState(2.5)
   const [creditPct, setCreditPct] = useState(100)
@@ -218,10 +218,10 @@ function SplitPageInner() {
     <Shell>
       <PageHead
         kicker="Where the rent goes"
-        title={<>THEY TAKE 15%.<br /><span className="text-surf-grad">WE TAKE {terms ? terms.fee_pct : '1–5'}%.</span></>}>
-        {terms ? `${terms.to_property_pct}%` : '95–99%'} of every payment stays with the property —
+        title={<>THEY TAKE 15%.<br /><span className="text-surf-grad">WE TAKE {terms ? terms.fee_pct : '0–5'}%.</span></>}>
+        {terms ? `${terms.to_property_pct}%` : '95–100%'} of every payment stays with the property —
         split between the renter's equity and the owner's income by whichever rent-to-own model the owner picked.
-        The 1–5% band is a constant in the contract, not a promise on a pricing page.
+        The 0–5% band is a constant in the contract, not a promise on a pricing page.
       </PageHead>
 
       <div className="max-w-6xl mx-auto px-5 md:px-8">

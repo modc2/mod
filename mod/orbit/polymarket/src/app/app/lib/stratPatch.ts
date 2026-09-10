@@ -75,6 +75,8 @@ export const PARAM_SPECS: readonly ParamSpec[] = [
     describe: "Refuse to ENTER a market resolving sooner than this many minutes. 60 excludes the sub-hour candle games; 0 turns the gate off. Exits are never gated." },
   { path: "maxTradeAgeSec", kind: "number", min: 0, max: 86_400, nullable: true,
     describe: "Refuse to mirror a leader trade older than this many seconds — after a fetch outage a backlog would otherwise enter at prices the leader never paid. 0 or null = off." },
+  { path: "copySells", kind: "boolean", nullable: true,
+    describe: "false = 'just copy the buys': leader SELLs are ignored entirely; positions ride to resolution and exit only via stop-loss, take-profit, or redemption. Pair with a watchlist picked by resolveRate (buys that finish at $1). true or null = mirror their exits too (the default). Not the same as tradeFilters.sides, which only gates entries." },
   { path: "livePollMinutes", kind: "number", min: 0.5, max: 60,
     describe: "Live engine scan cadence in minutes. The engine clamps anything under 0.5 up to the 30s rate-limit floor." },
 

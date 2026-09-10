@@ -986,9 +986,13 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                     // ended up winning (saturated to $1) over decided
                     // positions, capped at 100.
                     let total_wins: u32 = matching.iter().map(|m| m.wins).sum();
+                    let total_resolved: u32 = matching.iter().map(|m| m.resolved).sum();
                     let total_decided: u32 = matching.iter().map(|m| m.decided).sum();
                     t.win_rate = if total_decided > 0 {
                         (total_wins as f64 / total_decided as f64 * 100.0).round().min(100.0)
+                    } else { -1.0 };
+                    t.resolve_rate = if total_decided > 0 {
+                        (total_resolved as f64 / total_decided as f64 * 100.0).round().min(100.0)
                     } else { -1.0 };
                     // Sharpe + exit/entry scoped to the matching markets'
                     // closed-trade returns — same query-scoped recompute the
@@ -1154,6 +1158,9 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             "volume" => a.volume.partial_cmp(&b.volume),
             "positions" => a.positions.partial_cmp(&b.positions),
             "winRate" => a.win_rate.partial_cmp(&b.win_rate),
+            // Buy-and-hold hit rate — settled buys that rode to a full $1
+            // resolution; -1 "unknown" sentinel sinks naturally on desc.
+            "resolveRate" => a.resolve_rate.partial_cmp(&b.resolve_rate),
             "trades" => Some(a.recent_trades.cmp(&b.recent_trades)),
             // Default SCORE metric — lets server pagination order the whole
             // set by Sharpe instead of the old pnl proxy.
@@ -1736,6 +1743,7 @@ mod tests {
                 pnl: *pnl,
                 trades: *trades,
                 wins: 0,
+                resolved: 0,
                 decided: 0,
                 returns: vec![],
                 curve: vec![],
@@ -1750,6 +1758,7 @@ mod tests {
             // that passes on these has proven the filter recomputed the stats.
             pnl: 999_999.0,
             win_rate: -1.0,
+            resolve_rate: -1.0,
             sharpe: 0.0,
             exit_entry: -1.0,
             decided_positions: 0,

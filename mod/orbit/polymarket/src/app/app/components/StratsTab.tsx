@@ -55,6 +55,7 @@ import { describeTraderFilter } from "../lib/strats/strat";
 import { shortAddress } from "../lib/auth";
 import AutoStratPanel from "./AutoStratPanel";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
+import PositionsHistoryPanel from "./PositionsHistoryPanel";
 import ScoreMarket from "./ScoreMarket";
 import Sparkline from "./Sparkline";
 import StratChat from "./StratChat";
@@ -100,6 +101,12 @@ export default function StratsTab() {
   // 7-day PnL curves per strat, from the server sidecar's 10-min samples.
   const pnlHistory = useStratPnlHistory();
 
+  // STRATS = the manager (everything below) · TRADES = the account's actual
+  // fills as positions, each with its own P&L (PositionsHistoryPanel — the
+  // same record the LIVE tab buries under its trades view). The user asked
+  // "show me the trades that were made and their pnl" from THIS page, so the
+  // record gets a first-class tab here instead of a pointer at LIVE.
+  const [view, setView] = useState<"strats" | "trades">("strats");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   // Held by ID, not by object: the list re-reads every couple of seconds and
@@ -162,6 +169,53 @@ export default function StratsTab() {
 
   return (
     <div className="p-2 space-y-3">
+      {/* ── View switch + the always-visible + ──
+          STRATS is the manager below; TRADES is the account's full trading
+          record (every position ever held, each with its P&L). The + sits in
+          this row because with 16 cards the dashed + NEW STRAT at the list's
+          end is below the fold — creating a strat must not require scrolling
+          past every existing one. */}
+      <div className="flex items-center gap-2 px-1">
+        <div className="flex gap-1 border border-pixel-border rounded-full overflow-hidden">
+          {([
+            ["strats", "STRATS"],
+            ["trades", "TRADES"],
+          ] as const).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-3 py-1 text-[10px] font-semibold tracking-[0.14em] transition-colors ${
+                view === v ? "bg-pixel-border-light text-pixel-white" : "text-pixel-gray hover:bg-pixel-border-light/50"
+              }`}
+              title={v === "strats" ? "Build, manage and share your strats" : "Every trade this account has made, each with its P&L"}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => { forkDefault(traderIndexTemplate()); setView("strats"); }}
+          title="New strat — a TRADER INDEX seeded with this week's best traders. Private until you publish it."
+          className="ml-auto shrink-0 px-2.5 py-1 rounded-full border border-green-400/50 text-[10px] font-mono font-semibold tracking-[0.1em] text-green-400 hover:bg-green-400/10 transition-colors"
+        >
+          + NEW STRAT
+        </button>
+      </div>
+
+      {/* ── TRADES — the trading record, one row per position with its P&L ── */}
+      {view === "trades" && (
+        <section className="space-y-1">
+          {auth.connected ? (
+            <PositionsHistoryPanel />
+          ) : (
+            <div className="px-1.5 py-2 text-[10.5px] font-mono text-pixel-gray">
+              Sign in to see your trades — every position the account has held, with its P&amp;L.
+            </div>
+          )}
+        </section>
+      )}
+
+      {view === "strats" && (<>
       <div className="px-1 text-[9.5px] font-mono leading-snug text-pixel-gray">
         Build, manage and share your strats here. Every strat is{" "}
         <span className="text-pixel-white">private by default</span> — publish one to the
@@ -601,6 +655,7 @@ export default function StratsTab() {
           <ScoreMarket formula={formula} setFormula={setFormula} />
         </div>
       </section>
+      </>)}
 
       <ConfirmDeleteStrat
         name={pendingDelete === null ? null : indexes.find((i) => i.id === pendingDelete)?.name ?? pendingDelete}

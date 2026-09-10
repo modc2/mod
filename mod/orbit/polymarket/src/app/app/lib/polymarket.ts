@@ -19,7 +19,14 @@ export interface TopTrader {
       as unknown, never as 0. Read it together with `decidedPositions`: this
       is a percentage, and a percentage of four is not a track record. */
   winRate: number;
-  /** How many settled positions `winRate` is computed over. */
+  /** Share of settled positions whose token rode ALL the way to a full $1
+      resolution, 0-100. `winRate` is the made-money rate (an early
+      profitable scalp counts); this is the buy-and-hold hit rate — the
+      chance that copying this trader's BUY and just holding pays out at
+      resolution. Same `-1` = unknown sentinel and `decidedPositions`
+      denominator as `winRate`. */
+  resolveRate: number;
+  /** How many settled positions `winRate` / `resolveRate` are computed over. */
   decidedPositions: number;
   /** Sharpe ratio over the window (per-closed-trade returns), computed
       server-side by the same `stats_from_returns` formula the live engine
@@ -941,7 +948,7 @@ export const WARMED_CANDIDATE_POOL = 2000;
 // the window, not an idle market — fall back to the unfiltered top N rather
 // than hand the caller an empty roster.
 export async function fetchTopTraderAddresses(
-  opts: { days?: number; minPerDay?: number; category?: string; marketQuery?: string },
+  opts: { days?: number; minPerDay?: number; category?: string; marketQuery?: string; sort?: string },
   n = 10,
 ): Promise<string[]> {
   const query = {
@@ -950,7 +957,9 @@ export async function fetchTopTraderAddresses(
     pool: WARMED_CANDIDATE_POOL,
     category: opts.category || undefined,
     marketQuery: opts.marketQuery || undefined,
-    sort: "pnl",
+    // Any server sort key (routes.rs) — "resolveRate" seeds the buy-and-hold
+    // pickers; the default stays PnL, the roster sort this has always used.
+    sort: opts.sort || "pnl",
     order: "desc",
     pageSize: n,
     page: 0,
@@ -1040,6 +1049,7 @@ export async function fetchTopTradersStream(
           sellVolume: Number(t.sellVolume || 0),
           pnl: Number(t.pnl || 0),
           winRate: Number(t.winRate ?? -1),
+          resolveRate: Number(t.resolveRate ?? -1),
           decidedPositions: Number(t.decidedPositions || 0),
           sharpe: Number(t.sharpe || 0),
           exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,
@@ -1090,6 +1100,7 @@ export async function fetchTopTraders(
     sellVolume: Number(t.sellVolume || 0),
     pnl: Number(t.pnl || 0),
     winRate: Number(t.winRate ?? -1),
+    resolveRate: Number(t.resolveRate ?? -1),
     decidedPositions: Number(t.decidedPositions || 0),
     sharpe: Number(t.sharpe || 0),
     exitEntry: typeof t.exitEntry === "number" ? t.exitEntry : -1,

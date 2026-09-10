@@ -278,6 +278,51 @@ export type ScanProgress = {
 };
 export const fetchScanProgress = () => j<ScanProgress>(`/scan/progress`);
 
+// ── sync ledger (`/sync`) — the module's data-integrity report ──
+// Everything below is about the API's own caches (boards, trader index,
+// background passes), not any user's data, so the route is a public read.
+export type SyncBoardRow = {
+  key: string;          // "7:roi:24h"
+  days: number;
+  rank: string;         // "roi" | "pnl" | "vlm"
+  active: string;       // "24h" | "window"
+  updated_at: number;   // ms epoch of the compute that produced this board
+  rows: number;         // traders held in memory
+  pool: number;
+  all: boolean;         // true ⇒ the whole gated leaderboard
+};
+export type SyncIndexWindow = {
+  days: number;
+  total: number;        // wallets this window holds fill stats for
+  fresh: number;        // of those, inside the index TTL right now
+  oldest_ms: number;
+  newest_ms: number;
+};
+/** Deepener completeness: of the top `target` ranked wallets kept warm for a
+ *  window, how many had fresh fill stats when the deepener last checked. */
+export type SyncCoverage = { days: number; target: number; fresh: number; checked_ms: number };
+export type SyncEvent = {
+  ts_ms: number;
+  kind: "board" | "deepen" | "curves" | string;
+  key: string;
+  ok: boolean;
+  rows: number;
+  duration_ms: number;
+  note: string;
+};
+export type SyncStatus = {
+  now_ms: number;
+  ok: boolean;                    // no board is past the stale threshold
+  refresh_interval_ms: number;    // the refresher's sleep between cycles
+  board_stale_after_ms: number;   // server's definition of a stale board
+  index_ttl_ms: number;           // how long one wallet's fill stats count as current
+  boards: { stale: number; entries: SyncBoardRow[] };
+  index: { entries: number; windows: SyncIndexWindow[] };
+  coverage: SyncCoverage[];
+  history: SyncEvent[];           // newest first
+};
+export const fetchSyncStatus = (limit = 120) => j<SyncStatus>(`/sync?limit=${limit}`);
+
 // `coins` is a requirement, not a display filter: the API walks the ranked
 // leaderboard until it holds `pool` wallets that traded one of them, and
 // reports how deep it went as `depth`.

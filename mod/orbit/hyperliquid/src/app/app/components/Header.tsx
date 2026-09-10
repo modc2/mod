@@ -26,6 +26,7 @@ const MORE = [
   { href: "/live", label: "Live engine" },
   { href: "/follows", label: "Follows" },
   { href: "/signals", label: "Signals" },
+  { href: "/sync", label: "Data" },
   { href: "/mcp", label: "MCP" },
 ];
 

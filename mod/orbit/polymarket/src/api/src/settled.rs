@@ -95,9 +95,12 @@ pub struct SettledLeg {
 #[derive(Debug, Clone, Default)]
 pub struct SettledAccuracy {
     pub wins: u32,
+    /// Legs whose token settled at $1 — see `leg_resolved`. Numerator of
+    /// `resolveRate`; shares `decided` as its denominator.
+    pub resolved: u32,
     pub decided: u32,
-    /// Market title → (wins, decided).
-    pub per_title: HashMap<String, (u32, u32)>,
+    /// Market title → (wins, resolved, decided).
+    pub per_title: HashMap<String, (u32, u32, u32)>,
 }
 
 /// A settled position won when it returned more money than it cost.
@@ -111,6 +114,16 @@ pub fn leg_won(leg: &SettledLeg) -> bool {
     if leg.realized_pnl != 0.0 {
         return leg.realized_pnl > 0.0;
     }
+    leg.cur_price >= 0.99
+}
+
+/// A settled position RESOLVED when the outcome held settled at $1 —
+/// deliberately the opposite emphasis from `leg_won`: this ignores the
+/// trader's exits entirely and asks only whether the thing they bought rode
+/// (or would have ridden) to a full $1 resolution. It is the hit rate behind
+/// "just copy their buys and hold to redemption" — a scalp sold at 60¢ that
+/// later burned counts as a `leg_won` win and a `leg_resolved` miss.
+pub fn leg_resolved(leg: &SettledLeg) -> bool {
     leg.cur_price >= 0.99
 }
 
@@ -131,15 +144,22 @@ pub fn accuracy_from_legs(legs: &[SettledLeg], cutoff_sec: u64) -> SettledAccura
             continue;
         }
         let won = leg_won(leg);
+        let resolved = leg_resolved(leg);
         acc.decided += 1;
         if won {
             acc.wins += 1;
         }
+        if resolved {
+            acc.resolved += 1;
+        }
         if !leg.title.is_empty() {
-            let e = acc.per_title.entry(leg.title.clone()).or_insert((0, 0));
-            e.1 += 1;
+            let e = acc.per_title.entry(leg.title.clone()).or_insert((0, 0, 0));
+            e.2 += 1;
             if won {
                 e.0 += 1;
+            }
+            if resolved {
+                e.1 += 1;
             }
         }
     }
@@ -291,11 +311,26 @@ mod tests {
             leg(10.0, 1.0, 5.0, 200, "Election"),
         ];
         let acc = accuracy_from_legs(&legs, 100);
-        assert_eq!(acc.per_title.get("Yankees"), Some(&(1, 2)));
-        assert_eq!(acc.per_title.get("Election"), Some(&(1, 1)));
+        assert_eq!(acc.per_title.get("Yankees"), Some(&(1, 1, 2)));
+        assert_eq!(acc.per_title.get("Election"), Some(&(1, 1, 1)));
         let tw: u32 = acc.per_title.values().map(|v| v.0).sum();
-        let td: u32 = acc.per_title.values().map(|v| v.1).sum();
-        assert_eq!((tw, td), (acc.wins, acc.decided));
+        let tr: u32 = acc.per_title.values().map(|v| v.1).sum();
+        let td: u32 = acc.per_title.values().map(|v| v.2).sum();
+        assert_eq!((tw, tr, td), (acc.wins, acc.resolved, acc.decided));
+    }
+
+    /// The score's whole point: a profitable early exit whose token later
+    /// burned is a `wins` win but NOT `resolved` — and the overpaid favorite
+    /// that settled at $1 is `resolved` even though it lost money.
+    #[test]
+    fn resolved_counts_settlement_not_money() {
+        let legs = vec![
+            leg(120.0, 0.0, 300.0, 200, "scalped then burned"),
+            leg(-40.0, 1.0, 970.0, 200, "overpaid favorite"),
+            leg(500.0, 1.0, 300.0, 200, "held to $1"),
+        ];
+        let acc = accuracy_from_legs(&legs, 100);
+        assert_eq!((acc.wins, acc.resolved, acc.decided), (2, 2, 3));
     }
 
     /// `curPrice` decides only when there is no money signal at all.

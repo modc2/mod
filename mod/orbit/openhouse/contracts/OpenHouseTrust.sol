@@ -42,6 +42,18 @@ interface IERC20 {
 ///         Contribution` is the softer deal, where every dollar you send toward
 ///         the mortgage counts. The owner picks one at formation and it is
 ///         immutable afterwards — it is the deal, not a setting.
+///
+///         A GOVERNMENT CAN HOLD A SEAT HERE. The `authority` is an optional
+///         civic key — a housing authority, a city, a state — that runs its own
+///         verification servers off-chain and holds two override powers on:
+///         it can freeze the trust with a pause the bank cannot clear, and it
+///         can stand between the bank and a foreclosure (notice, a 30-day
+///         review, and an indefinite hold). It cannot touch a balance, mint a
+///         share, or move a cent — the functions were never written. The bank
+///         charters an authority once, by choice; after that only the
+///         authority itself can leave the seat. And a city that wants to run
+///         the whole program — city-owned rent-to-own — takes the bank seat
+///         itself: the lender here is an address, not a charter type.
 contract OpenHouseTrust {
     // ═══════════════════════════════════════════ The house ══
 
@@ -65,6 +77,22 @@ contract OpenHouseTrust {
     enum Status { Forming, Active, Default, Foreclosed, Discharged }
     Status public status;
     bool   public paused;
+
+    // ═════════════════════════════════════════════ The city ══
+
+    /// The civic seat. Zero means no government is party to this deal and the
+    /// bank's powers are exactly what they were. Set, it is a second, narrower
+    /// control room: verification runs on the government's own servers, and
+    /// what it verifies it can enforce with `civicPaused` and `civicHold`.
+    address public authority;
+    address public pendingAuthority;   // two-step handover, city keys rotate too
+    bool    public civicPaused;        // the authority's own brake — bank cannot clear it
+    bool    public civicHold;          // blocks foreclosure while raised
+    uint64  public foreclosureNoticeAt;
+    /// How long a noticed foreclosure must sit in the open before it can
+    /// execute, when an authority holds the seat. The review is the point:
+    /// a taking the city never got to look at is not a supervised taking.
+    uint64  public constant CIVIC_REVIEW = 30 days;
 
     /// How a dollar becomes equity.
     enum Basis { Contribution, Principal }
@@ -191,6 +219,13 @@ contract OpenHouseTrust {
     event BankNominated(address indexed to);
     event BankChanged(address indexed from, address indexed to);
     event SponsorSet(address indexed sponsor);
+    event AuthorityChartered(address indexed authority);
+    event AuthorityNominated(address indexed to);
+    event AuthorityChanged(address indexed from, address indexed to);
+    event AuthorityResigned(address indexed authority);
+    event CivicPausedSet(bool paused);
+    event CivicHoldSet(bool hold);
+    event ForeclosureNoticed(uint64 at, uint64 earliest);
     event Reissued(address indexed from, address indexed to, uint256 shares);
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -202,9 +237,15 @@ contract OpenHouseTrust {
         _;
     }
 
+    modifier onlyAuthority() {
+        require(msg.sender == authority, "Trust: not the authority");
+        _;
+    }
+
     modifier live() {
         require(status == Status.Active, "Trust: not active");
         require(!paused, "Trust: paused");
+        require(!civicPaused, "Trust: civic pause");
         _;
     }
 
@@ -234,6 +275,7 @@ contract OpenHouseTrust {
         address oracle;           // the bank's feed; zero leaves the trust Forming
         address servicer;         // where mortgage money is wired; zero leaves it Forming
         uint256 purchasePrice;
+        address authority;        // the civic seat; zero means no government is party
         address[] founders;       // admitted at birth — the list the bank underwrote
     }
 
@@ -262,6 +304,10 @@ contract OpenHouseTrust {
         transferPolicy = TransferPolicy.MembersOnly;
         status = Status.Forming;
         lienTouchedAt = uint64(block.timestamp);
+        if (init.authority != address(0)) {
+            authority = init.authority;
+            emit AuthorityChartered(init.authority);
+        }
         emit Formed(init.bank, init.sponsor, init.property);
 
         for (uint256 i = 0; i < init.founders.length; i++) {
@@ -732,18 +778,42 @@ contract OpenHouseTrust {
         _setStatus(Status.Default);
     }
 
+    /// @notice Put the members and the authority on notice that the lender
+    ///         intends to take the house. Only required — only possible — when
+    ///         a government holds the civic seat: it opens the review window
+    ///         the authority supervises. Without an authority the bank
+    ///         forecloses directly, as any lender can.
+    function noticeForeclosure() external onlyBank {
+        require(status == Status.Default, "Trust: not in default");
+        require(authority != address(0), "Trust: no authority to notice");
+        require(foreclosureNoticeAt == 0, "Trust: already noticed");
+        foreclosureNoticeAt = uint64(block.timestamp);
+        emit ForeclosureNoticed(foreclosureNoticeAt, foreclosureNoticeAt + CIVIC_REVIEW);
+    }
+
     /// @notice Take the house. The lender's remedy, and the reason it holds the
     ///         keys to this contract at all. On-chain it stops the mint and
     ///         turns the trust into a claim on whatever the sale returns.
+    ///         Under a civic charter the remedy survives but slows down:
+    ///         notice first, thirty days in the open, and no execution while
+    ///         the authority's hold is up.
     function foreclose() external onlyBank {
         require(status == Status.Default, "Trust: not in default");
+        if (authority != address(0)) {
+            require(foreclosureNoticeAt != 0, "Trust: foreclosure not noticed");
+            require(block.timestamp >= foreclosureNoticeAt + CIVIC_REVIEW, "Trust: civic review running");
+            require(!civicHold, "Trust: civic hold");
+        }
         _setStatus(Status.Foreclosed);
     }
 
     /// @notice The loan came back current. Only out of Default, and never out
-    ///         of Foreclosed — that one does not unwind on-chain.
+    ///         of Foreclosed — that one does not unwind on-chain. A cure tears
+    ///         up any standing foreclosure notice: the next attempt starts its
+    ///         review from zero.
     function cure() external onlyBank {
         require(status == Status.Default, "Trust: not in default");
+        foreclosureNoticeAt = 0;
         _setStatus(Status.Active);
     }
 
@@ -855,6 +925,71 @@ contract OpenHouseTrust {
         pendingBank = address(0);
     }
 
+    // ═══════════════════════════════ The city's control room ═
+
+    /// @notice The bank charters a government into the civic seat — once, into
+    ///         an empty seat, by choice. This is the door a city walks through
+    ///         when it adopts the protocol: after this call the bank cannot
+    ///         remove the authority, cannot clear its pause, and cannot
+    ///         foreclose without notice, review and the authority standing
+    ///         aside. Chartering is what a city demands before it endorses a
+    ///         deal; a deal can also be born chartered via `Init.authority`.
+    function charterAuthority(address _authority) external onlyBank {
+        require(_authority != address(0), "Trust: zero authority");
+        require(authority == address(0), "Trust: seat taken");
+        authority = _authority;
+        emit AuthorityChartered(_authority);
+    }
+
+    /// @notice The government freezes the trust from its own servers. Same
+    ///         shape as the bank's pause — money stops moving, none moves —
+    ///         but a separate flag, so neither seat can clear the other's
+    ///         brake. Settle and withdraw stay open: a civic pause protects
+    ///         people from the deal, never the deal from its people.
+    function civicSetPaused(bool p) external onlyAuthority {
+        civicPaused = p;
+        emit CivicPausedSet(p);
+    }
+
+    /// @notice The authority stands in front of the house. While the hold is
+    ///         up a noticed foreclosure cannot execute — for as long as the
+    ///         government keeps it up. This is the override: the city's
+    ///         verification servers found something, and the taking waits
+    ///         until the city is satisfied. It stops the remedy, not the debt;
+    ///         nothing here forgives a dollar of the loan.
+    function setCivicHold(bool h) external onlyAuthority {
+        civicHold = h;
+        emit CivicHoldSet(h);
+    }
+
+    /// @notice The authority hands the seat to a successor key — an election,
+    ///         a key rotation, a transfer to the state. Two-step, like the
+    ///         bank's, because a typo in a government key is still a typo.
+    function nominateAuthority(address to) external onlyAuthority {
+        require(to != address(0), "Trust: zero authority");
+        pendingAuthority = to;
+        emit AuthorityNominated(to);
+    }
+
+    function acceptAuthority() external {
+        require(msg.sender == pendingAuthority, "Trust: not nominated");
+        emit AuthorityChanged(authority, msg.sender);
+        authority = msg.sender;
+        pendingAuthority = address(0);
+    }
+
+    /// @notice The government leaves the deal. The only way the seat empties —
+    ///         the bank has no function for it — and it leaves clean: the
+    ///         civic pause and hold lift with it, so a departed city cannot
+    ///         freeze a trust it no longer answers for.
+    function resignAuthority() external onlyAuthority {
+        emit AuthorityResigned(authority);
+        authority = address(0);
+        pendingAuthority = address(0);
+        if (civicPaused) { civicPaused = false; emit CivicPausedSet(false); }
+        if (civicHold)   { civicHold = false;   emit CivicHoldSet(false); }
+    }
+
     function _setStatus(Status to) internal {
         emit StatusChanged(status, to);
         status = to;
@@ -888,6 +1023,7 @@ contract OpenHouseTrust {
     ///      never on the balance.
     function _transfer(address from, address to, uint256 amount) internal {
         require(!paused, "Trust: paused");
+        require(!civicPaused, "Trust: civic pause");
         require(to != address(0), "Trust: zero recipient");
         require(transferPolicy != TransferPolicy.Locked, "Trust: shares are locked");
         require(!members[from].frozen && !members[to].frozen, "Trust: frozen");

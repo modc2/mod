@@ -253,7 +253,7 @@ DEFAULT_ACTIVE_HOURS = 6
 
 # The ranking metric is parameterized; winRate is the default, matching the
 # console's SCORE preset. Keys are the server's sort keys verbatim.
-TRADER_SORTS = ('winRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
+TRADER_SORTS = ('winRate', 'resolveRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
 
 
 def _t_top_traders(args):
@@ -983,8 +983,12 @@ TOOLS = {
             'sort': {'type': 'string', 'description': 'ranking metric: winRate (default; share '
                                                       'of SETTLED positions that made money — read '
                                                       'it with decidedPositions, a rate off five '
-                                                      'legs is noise) | exitEntry | sharpe | pnl | '
-                                                      'volume | history (longest track record first)'},
+                                                      'legs is noise) | resolveRate (share of settled '
+                                                      'buys that rode to a full $1 resolution — the '
+                                                      'buy-and-hold hit rate; a profitable early scalp '
+                                                      'counts for winRate but not here) | exitEntry | '
+                                                      'sharpe | pnl | volume | history (longest track '
+                                                      'record first)'},
         }},
         'handler': _t_top_traders,
     },

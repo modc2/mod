@@ -38,7 +38,7 @@ function SimulatorInner() {
   const [price, setPrice] = useState(120)     // home price, Ξ
   const [monthly, setMonthly] = useState(2)   // monthly payment, Ξ
   const [apy, setApy] = useState(5)           // lowfi APY, %
-  const [feePct, setFeePct] = useState(feeInit)          // protocol take, 1–5%
+  const [feePct, setFeePct] = useState(feeInit)          // protocol take, 0–5%
   const [creditPct, setCreditPct] = useState(creditInit) // of the net payment → principal
   // Follow the live deal until someone drags a slider of their own.
   const touched = useRef(false)
@@ -105,7 +105,7 @@ function SimulatorInner() {
             <SimField label="Home price" value={price} set={setPrice} min={1} max={100000} step={1} unit="Ξ" />
             <SimField label="Monthly payment" value={monthly} set={setMonthly} min={0.01} max={10000} step={0.1} unit="Ξ" />
             <SimField label="lowfi APY" value={apy} set={setApy} min={0} max={50} step={0.5} unit="%" />
-            <SimField label="Protocol fee" value={feePct} set={n => { touched.current = true; setFeePct(n) }} min={1} max={5} step={0.1} unit="%" />
+            <SimField label="Protocol fee" value={feePct} set={n => { touched.current = true; setFeePct(n) }} min={0} max={5} step={0.1} unit="%" />
             <SimField label="Rent credit" value={creditPct} set={n => { touched.current = true; setCreditPct(n) }} min={0} max={100} step={1} unit="%" />
           </div>
 

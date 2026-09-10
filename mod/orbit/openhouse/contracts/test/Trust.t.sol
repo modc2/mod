@@ -110,6 +110,7 @@ contract TrustTest {
             basis: basis,
             feeBps: feeBps,
             advanceRateBps: 500,
+            authority: address(0),
             founders: founders
         }));
     }
@@ -624,7 +625,7 @@ contract TrustTest {
         factory.file(OpenHouseFactory.Filing({
             bank: bank, asset: address(usd), property: "x", name: "x", symbol: "X",
             deedRef: bytes32(0), basis: OpenHouseTrust.Basis.Contribution,
-            feeBps: 501, advanceRateBps: 0, founders: founders
+            feeBps: 501, advanceRateBps: 0, authority: address(0), founders: founders
         }));
 
         address[] memory none = new address[](0);
@@ -634,7 +635,8 @@ contract TrustTest {
             bank: bank, sponsor: sponsor, asset: address(usd),
             basis: OpenHouseTrust.Basis.Contribution,
             feeBps: 501, advanceRateBps: 0,
-            oracle: address(0), servicer: address(0), purchasePrice: 0, founders: none
+            oracle: address(0), servicer: address(0), purchasePrice: 0,
+            authority: address(0), founders: none
         }));
 
         _deploy(OpenHouseTrust.Basis.Contribution, 500);

@@ -359,6 +359,13 @@ export interface SavedIndex {
   // AND-ed with marketQuery to carve a unique slice of the watched flow.
   // Empty/undefined ⇒ no per-trade gating beyond marketQuery.
   tradeFilters?: TradeFilters;
+  // false = "just copy the buys": leader SELLs are ignored entirely, so
+  // positions ride toward resolution and exit only via stop-loss,
+  // take-profit, or redemption. Pairs with a watchlist picked by
+  // `resolveRate` (how often a trader's buys finish at $1). Distinct from
+  // `tradeFilters.sides`, which only gates ENTRIES and can never stop a
+  // sell mirror. undefined/true ⇒ their exits are your exits (default).
+  copySells?: boolean;
   // Trader-quality gate: re-rank the watchlist every cycle and only copy the
   // top scorers (see TraderFilter). Absent ⇒ every enabled trader is copied.
   filter?: TraderFilter;

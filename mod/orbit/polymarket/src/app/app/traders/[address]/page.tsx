@@ -278,6 +278,7 @@ function TraderPageInner() {
       sellVolume,
       pnl: 0,
       winRate: -1,
+      resolveRate: -1,
       decidedPositions: 0,
       sharpe: 0,
       exitEntry: -1,

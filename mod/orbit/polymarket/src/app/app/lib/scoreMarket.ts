@@ -67,6 +67,18 @@ if (winRate < 55) return null;
 return winRate * Math.min(1, decided / 30); // thin samples rank lower`,
   },
   {
+    id: "dollar-rider",
+    name: "$1 RIDER",
+    description:
+      "Win rate, the strict version: of the trader's settled buys, the share that rode ALL the way to a full $1 resolution. No credit for scalps sold early — this is the hit rate you'd get by just copying their buys and holding to redemption (pair it with a strat whose COPY SELLS is off). Needs 10+ settled positions; thin samples rank lower.",
+    tags: ["winrate", "resolution", "hold", "buys", "settled"],
+    builtin: true,
+    source: `// Chance a BUY finishes at $1. resolveRate is 0–100; -1 = unknown.
+if (resolveRate < 0) return null;  // nothing settled to judge
+if (decided < 10) return null;     // a percentage of four is not a track record
+return resolveRate * Math.min(1, decided / 30); // thin samples rank lower`,
+  },
+  {
     id: "smooth-curve",
     name: "SMOOTH CURVE (PY)",
     description:

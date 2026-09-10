@@ -186,6 +186,14 @@ console.log("\n── shouldMirror + propose defaults ──");
   const btc = new Strat({ marketQuery: "bitcoin" });
   check("marketQuery still gates SELL",
     btc.shouldMirror(buildTrade({ side: "SELL", market: "Presidential debate?" }), H) === false);
+  // copySells: false — "just copy the buys". The ONE param that gates a
+  // SELL: entries mirror as usual, leader exits are ignored (positions ride
+  // to resolution; stop-loss / take-profit / redeem do the exiting).
+  const buysOnly = new Strat({ copySells: false });
+  check("copySells:false ignores leader SELL", buysOnly.shouldMirror(buildTrade({ side: "SELL", price: 0.65 }), H) === false);
+  check("copySells:false still mirrors BUY", buysOnly.shouldMirror(buildTrade({ side: "BUY", price: 0.65 }), H) === true);
+  check("copySells:true mirrors SELL (explicit default)",
+    new Strat({ copySells: true }).shouldMirror(buildTrade({ side: "SELL", price: 0.65 }), H) === true);
 }
 
 console.log("\n── STALE — maxTradeAgeSec, the backtest half of live's staleness gate ──");

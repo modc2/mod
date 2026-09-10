@@ -48,7 +48,7 @@ function buildPrompt(body: AskRequest): string {
     `EACH TRADER IS A ROW OF NUMBERS over the last ${body.days || 30} days:`,
     vars,
     ``,
-    `Sentinels: winRate, exitEntry and consistency are -1 when there is nothing to judge yet (nothing settled/closed, or a PnL curve too flat/short) — a formula that uses them should usually treat -1 as "unknown" (gate it with a null return), never multiply by it. winRate is a 0-100 percent, not a 0-1 fraction.`,
+    `Sentinels: winRate, resolveRate, exitEntry and consistency are -1 when there is nothing to judge yet (nothing settled/closed, or a PnL curve too flat/short) — a formula that uses them should usually treat -1 as "unknown" (gate it with a null return), never multiply by it. winRate and resolveRate are 0-100 percents, not 0-1 fractions. winRate = settled positions that MADE MONEY (a profitable early scalp counts); resolveRate = settled buys whose token FINISHED AT $1 (the buy-and-hold hit rate) — an ask about "the outcome resolving their way" means resolveRate.`,
     ``,
     `THREE SHAPES THE SCORE BOX ACCEPTS (detected from the text itself):`,
     `1. EXPRESSION — plain arithmetic over the variables: "100 * pnl / volume". Ranks only, hides nobody. Prefer this when the ask is purely about ordering.`,

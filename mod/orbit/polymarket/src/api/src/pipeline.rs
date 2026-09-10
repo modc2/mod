@@ -258,6 +258,7 @@ impl PipelineState {
                     sell_volume: 0.0,
                     pnl: 0.0,
                     win_rate: 0.0,
+                    resolve_rate: -1.0,
                     sharpe: 0.0,
                                         decided_positions: 0,
 exit_entry: -1.0,
@@ -429,12 +430,18 @@ pub async fn fill_settled_accuracy(
         } else {
             -1.0
         };
-        // The filtered board (routes.rs) recomputes the rate by summing these,
-        // so it has to see the same settled book the unfiltered number does.
+        trader.resolve_rate = if acc.decided > 0 {
+            ((acc.resolved as f64 / acc.decided as f64) * 100.0).round().min(100.0)
+        } else {
+            -1.0
+        };
+        // The filtered board (routes.rs) recomputes the rates by summing these,
+        // so it has to see the same settled book the unfiltered numbers do.
         if let Some(ref mut mm) = trader.market_metrics {
             for m in mm.iter_mut() {
-                let (w, d) = acc.per_title.get(&m.title).copied().unwrap_or((0, 0));
+                let (w, r, d) = acc.per_title.get(&m.title).copied().unwrap_or((0, 0, 0));
                 m.wins = w;
+                m.resolved = r;
                 m.decided = d;
             }
         }
@@ -615,6 +622,7 @@ async fn enrich_trader_with_url(
     // this column read 100%. `fill_settled_accuracy` runs afterwards, off the
     // settled book. Until it does, the honest value is "unknown".
     trader.win_rate = -1.0;
+    trader.resolve_rate = -1.0;
     trader.decided_positions = 0;
 
     trader.market_metrics = if metrics.per_market.is_empty() { None } else { Some(metrics.per_market) };
@@ -753,7 +761,7 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         MarketMetric {
             title, volume: m.volume, buy_volume: m.buy_volume,
             sell_volume: m.sell_volume, pnl: m.pnl, trades: m.trades,
-            wins: m.wins, decided: m.decided, returns: m.returns,
+            wins: m.wins, resolved: 0, decided: m.decided, returns: m.returns,
             curve: m.curve,
         }
     }).collect();
@@ -1317,7 +1325,7 @@ mod tests {
         Trader {
             address: address.to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0,
+            pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0,
             positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0,
             last_trade_ts: None, first_trade_ts: None,
@@ -1432,7 +1440,7 @@ mod tests {
         MarketMetric {
             title: title.to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0, pnl: 0.0,
-            trades: 0, wins: 0, decided: 0, returns: vec![], curve: vec![],
+            trades: 0, wins: 0, resolved: 0, decided: 0, returns: vec![], curve: vec![],
         }
     }
 
@@ -1451,7 +1459,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
+            pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1482,7 +1490,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
+            pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1520,7 +1528,7 @@ mod tests {
         let trader = Trader {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
+            pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
         };
 
@@ -1545,7 +1553,7 @@ mod tests {
                 Trader {
                     address: "0xaaa".to_string(),
                     volume: 5000.0, buy_volume: 3000.0, sell_volume: 2000.0,
-                    pnl: 150.0, win_rate: 65.0, sharpe: 0.0, exit_entry: -1.0, positions: 10,
+                    pnl: 150.0, win_rate: 65.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 10,
                     decided_positions: 0,
                     market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: Some(vec![0.0; 12]), market_metrics: None,
@@ -1553,7 +1561,7 @@ mod tests {
                 Trader {
                     address: "0xbbb".to_string(),
                     volume: 3000.0, buy_volume: 1500.0, sell_volume: 1500.0,
-                    pnl: -50.0, win_rate: 40.0, sharpe: 0.0, exit_entry: -1.0, positions: 5,
+                    pnl: -50.0, win_rate: 40.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 5,
                     decided_positions: 0,
                     market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: None, market_metrics: None,
@@ -1593,7 +1601,7 @@ mod tests {
             traders: vec![Trader {
                 address: "0xccc".to_string(),
                 volume: 100.0, buy_volume: 60.0, sell_volume: 40.0,
-                pnl: 5.0, win_rate: 50.0, sharpe: 0.0, exit_entry: -1.0, positions: 2,
+                pnl: 5.0, win_rate: 50.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 2,
                     decided_positions: 0,
                 market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
                 pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None,
@@ -1637,6 +1645,7 @@ mod tests {
             sell_volume: 5345.67,
             pnl: -420.69,
             win_rate: 55.0,
+            resolve_rate: -1.0,
             decided_positions: 0,
             sharpe: 1.25,
             exit_entry: 1.08,
@@ -1681,7 +1690,7 @@ mod tests {
         let trader = Trader {
             address: "0x".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
-            pnl: 0.0, win_rate: 0.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
+            pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
             pnl_curve: None, market_metrics: None,
         };
