@@ -93,7 +93,7 @@ INSTRUCTIONS = (
     'Before running, agent_agents says which personas exist and agent_parts says '
     'what the live one is built from; agent_tools is the registry those tools come '
     'from and agent_tool_run calls one directly when no model is needed. '
-    'agent_recall / agent_retrieve read the memory the agent thinks with, and '
+    'agent_graphs is the layer above a single run: graphs CONNECT agents — gates, routers, joins and loops between whole agents — and agent_graph_run executes one. agent_recall / agent_retrieve read the memory the agent thinks with, and '
     'agent_remember writes to it. Reads are open; running, writing and calling a '
     'shell tool need a signed token — pass it as `key` or as an Authorization: '
     'Bearer header, and check it with agent_whoami. Runs by a non-owner are billed '
@@ -361,6 +361,55 @@ def _t_build(a: dict, key):
         goal=a.get('prompt') or a.get('goal') or '', icon=a.get('icon') or '>_',
         tools=a.get('tools'), model=a.get('model'), memory=a.get('memory'),
         harness=a.get('harness'), key=key)))
+
+
+def _t_graphs(a: dict, key):
+    """Graphs of agents: the protocol, the saved flows, or one in full."""
+    if a.get('protocol'):
+        return _fwd('graph_kinds', key)
+    name = (a.get('id') or '').strip()
+    if name:
+        try:
+            return _clean(_fwd('graph', key, id=name))
+        except KeyError:
+            return {'error': f'no graph named {name!r}',
+                    'available': [g['id'] for g in _fwd('graphs', key)['graphs']]}
+    return _clean(_fwd('graphs', key))
+
+
+def _t_graph_save(a: dict, key):
+    graph = {k: a.get(k) for k in ('id', 'name', 'description', 'nodes', 'edges')
+             if a.get(k) is not None}
+    if not graph.get('nodes'):
+        return {'error': 'a graph needs nodes — see agent_graphs protocol=true'}
+    check = _fwd('graph_validate', key, graph=graph)
+    if not check.get('ok') and not a.get('force'):
+        return {'error': 'the graph will not run', **check}
+    try:
+        return _clean(_fwd('graph_save', key, graph=graph))
+    except (PermissionError, ValueError) as e:
+        return {'error': str(e)}
+
+
+def _t_graph_run(a: dict, key):
+    """Run a graph. It is several agent runs, so it is billed like several."""
+    api = _api()
+    body = {'query': a.get('query') or '', 'key': key,
+            'free': bool(a.get('free')), 'model': a.get('model'),
+            'provider': a.get('provider'),
+            'max_nodes': int(a.get('max_nodes') or 40)}
+    if a.get('graph'):
+        body['graph'] = a['graph']
+    else:
+        body['id'] = a.get('id')
+    if not (body.get('graph') or body.get('id')):
+        return {'error': 'name a saved graph (id) or send one (graph)'}
+    res = api.run_graph_route(api.GraphRunRequest(**body))
+    if not a.get('full'):
+        res = {**res, 'trail': [{k: v for k, v in t.items()
+                                 if k in ('node', 'kind', 'name', 'ports', 'ms', 'ok')}
+                                for t in (res.get('trail') or [])]}
+    return _clean(res)
 
 
 def _t_vibe(a: dict, key):
@@ -689,6 +738,66 @@ TOOLS: Dict[str, dict] = {
             'key': _KEY,
         }, 'required': ['name']},
         'handler': _t_build,
+    },
+    'agent_graphs': {
+        'description': 'Graphs of agents — how agents are CONNECTED, never how one '
+                       'is built. A graph is nodes and edges: an agent node runs a '
+                       'whole agent from the registry, and the control kinds around '
+                       'it (gate, judge, router, join, loop, tool, human) decide what '
+                       'runs next, what runs at the same time, and what is allowed '
+                       'through. With no arguments, every saved graph; with `id`, '
+                       'that one in full; with protocol=true, the vocabulary itself — '
+                       'every node kind, its ports and the predicates a gate may '
+                       'test. Read the protocol before writing one with '
+                       'agent_graph_save.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _str('one graph instead of the list'),
+            'protocol': _bool('the node kinds, ports and gate predicates'),
+            'key': _KEY}},
+        'handler': _t_graphs,
+    },
+    'agent_graph_save': {
+        'auth': True,
+        'description': 'Save a graph of agents. Nodes are {id, kind, data}; edges are '
+                       '{from, to, port} — the port is which output the message '
+                       'leaves by (out/err on an agent, pass/fail on a gate or judge, '
+                       "a route's own name on a router). Every agent node names an "
+                       'agent that already exists: this writes wiring, never an '
+                       'agent, so build the agents first with agent_build. The graph '
+                       'is validated before it is stored and refuses to save if it '
+                       'cannot run. Signed in only, and filed under your address.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'name': _str('what the graph is called'),
+            'id': _str('slug to write to (default: from the name)'),
+            'description': _str('one line: what the flow is for'),
+            'nodes': _list('[{id, kind, data}] — see agent_graphs protocol=true'),
+            'edges': _list('[{from, to, port}]'),
+            'force': _bool('save even though validation objects'),
+            'key': _KEY,
+        }, 'required': ['name', 'nodes']},
+        'handler': _t_graph_save,
+    },
+    'agent_graph_run': {
+        'auth': True,
+        'description': 'Run a graph: a saved one by `id`, or one sent inline as '
+                       '`graph` without saving it. Returns what reached the output '
+                       'nodes, the trail of every node that fired in order, anything '
+                       'parked at a Human node, and what the whole thing cost. A '
+                       'graph is several agent runs, so it answers to run policy and '
+                       'is billed like several; max_nodes is the ceiling that keeps a '
+                       'miswired loop from spending.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _str('a saved graph'),
+            'graph': {'type': 'object', 'description': 'an unsaved graph: {nodes, edges}'},
+            'query': _str('what goes into the Input node'),
+            'model': _str('default model for nodes that name none'),
+            'provider': _str('openrouter | venice | liquidai | …'),
+            'free': _bool('run every node on a zero-cost model'),
+            'max_nodes': _num('ceiling on node firings (default 40)'),
+            'full': _bool('the whole trail, with each node input and output'),
+            'key': _KEY,
+        }},
+        'handler': _t_graph_run,
     },
     'agent_vibe': {
         'auth': True,

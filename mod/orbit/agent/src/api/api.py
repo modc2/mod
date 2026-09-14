@@ -196,6 +196,36 @@ class RunRequest(BaseModel):
     harness_args: Optional[dict] = None     # runner-specific knobs for a harness agent (chainmod: project, address, network)
     key: Optional[str] = None
 
+class GraphSaveRequest(BaseModel):
+    """A graph of agents. `nodes`/`edges` are the protocol's own shape — see
+    GET /graph/kinds, which is what the console's palette is built from."""
+    name: str
+    id: Optional[str] = None
+    description: str = ""
+    nodes: List[dict] = []
+    edges: List[dict] = []
+    viewport: Optional[dict] = None
+    key: Optional[str] = None
+
+class GraphRunRequest(BaseModel):
+    """Run a saved graph (`id`) or one straight off the canvas (`graph`) —
+    a flow has to be runnable before it is worth saving."""
+    query: str = ""
+    id: Optional[str] = None
+    graph: Optional[dict] = None
+    model: Optional[str] = None            # default model for nodes that name none
+    provider: Optional[str] = None
+    free: bool = False
+    max_nodes: int = 40                    # the run's ceiling on node firings
+    parallel: int = 4                      # agents allowed to run at once
+    inputs: Optional[dict] = None          # per-input-node text, keyed by node id
+    session: Optional[str] = None
+    key: Optional[str] = None
+
+class GraphImportRequest(BaseModel):
+    cid: str
+    key: Optional[str] = None
+
 class ToolRunRequest(BaseModel):
     name: str
     params: dict = {}
@@ -2774,6 +2804,197 @@ def run_agent_stream(req: RunRequest):
             # a worker thread parked until the bridge times out
             if session:
                 BROWSER.close(session)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ── graphs of agents ─────────────────────────────────────────────────
+#
+# The graph layer connects agents; it never builds one. An agent is made in
+# the registry (POST /agents) with its own prompt, model, toolbox and memory,
+# and a graph picks it up whole — what these routes add is the wiring between
+# agents: gates, routers, joins, loops, and the runs that follow them.
+
+
+def _graph_req(gr: "GraphRunRequest") -> "RunRequest":
+    """A graph run is several agent runs, so it is metered as one run: the
+    task registry, the budget and the credit ledger all speak RunRequest."""
+    return RunRequest(query=gr.query or "", model=gr.model, provider=gr.provider,
+                      free=gr.free, agent="graph", key=gr.key, session=gr.session)
+
+
+def _graph_executor(mod, gr: "GraphRunRequest", task: dict, on_step=None, on_usage=None):
+    """Bind the graph's node runners to this run's meter and task.
+
+    Every agent node's steps land in the same task as a single-agent run's do,
+    so a graph shows up in RUNS as one run with a longer trace rather than as
+    a dozen orphans.
+    """
+    req = _graph_req(gr)
+    budget = _run_budget(req, task)
+
+    def run_agent(**kw):
+        return mod._graph_agent(
+            provider=gr.provider,
+            **{**kw,
+               "model": kw.get("model") or gr.model,
+               "free": gr.free if kw.get("free") is None else kw.get("free")},
+            on_step=lambda st: (_task_step(task, st), on_step(st) if on_step else None),
+            on_usage=lambda u: (_task_usage(task, u), on_usage(u) if on_usage else None),
+            budget=budget)
+
+    def run_tool(name, params, key=None):
+        return mod._graph_tool(name, params, key=key)
+
+    return mod.graphs._executor(gr.key, run_agent=run_agent, run_tool=run_tool)
+
+
+@app.get("/graph/kinds")
+def graph_kinds():
+    """The protocol: every node kind, the ports it answers on, the fields it
+    carries, and the fixed set of predicates a gate may test. The console
+    builds its palette from this rather than hardcoding one."""
+    return get_mod().forward('graph_kinds')
+
+
+@app.get("/graphs")
+def list_graphs(key: Optional[str] = None):
+    """Every saved graph, yours first."""
+    return get_mod().forward('graphs', key=key)
+
+
+@app.get("/graphs/{graph_id}")
+def get_graph(graph_id: str, key: Optional[str] = None):
+    """One graph in full — nodes, edges, and what validation says about it."""
+    try:
+        return get_mod().forward('graph', id=graph_id, key=key)
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
+
+
+@app.post("/graphs/validate")
+def validate_graph(req: GraphSaveRequest):
+    """What is wrong with this graph, without saving it."""
+    return get_mod().forward('graph_validate', graph=req.model_dump())
+
+
+@app.post("/graphs")
+def save_graph(req: GraphSaveRequest):
+    """Create or update a graph. It is filed under the address that saved it;
+    editing a shipped starter forks it rather than changing everyone's."""
+    try:
+        return get_mod().forward('graph_save', graph=req.model_dump(), key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (ValueError, KeyError) as e:
+        return {"error": str(e), "code": 400}
+
+
+@app.delete("/graphs/{graph_id}")
+def delete_graph(graph_id: str, key: Optional[str] = None):
+    try:
+        return get_mod().forward('graph_rm', id=graph_id, key=key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
+
+
+@app.post("/graphs/import")
+def import_graph(req: GraphImportRequest):
+    """Install a graph someone shared as a localfs CID."""
+    try:
+        return get_mod().forward('graph_import', cid=req.cid, key=req.key)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except Exception as e:
+        return {"error": str(e), "code": 400}
+
+
+@app.post("/graphs/run")
+def run_graph_route(req: GraphRunRequest):
+    """Run a graph and hand back what came out of it."""
+    mod = get_mod()
+    graph = req.graph or req.id
+    if not graph:
+        return {"error": "name a saved graph (id) or send one (graph)", "code": 400}
+    task = _task_create(_graph_req(req), chain=True, agent="graph")
+    try:
+        res = mod.graph_run(graph, req.query, key=req.key,
+                            execute=_graph_executor(mod, req, task),
+                            max_nodes=req.max_nodes, parallel=req.parallel,
+                            inputs=req.inputs)
+    except PermissionError as e:
+        _task_finish(task, 'error', str(e))
+        return {"error": str(e), "code": 403}
+    except Exception as e:
+        _task_finish(task, 'error', str(e))
+        return {"error": str(e)}
+    _task_finish(task, 'done' if res.get("ok") else 'error',
+                 res.get("error") or res.get("answer", ""))
+    charge = _charge_run(_graph_req(req), task)
+    return {"graph": True, "task_id": task["id"], **res,
+            "charged": charge, "usage": _usage_of(task)}
+
+
+@app.post("/graphs/run/stream")
+def run_graph_stream(req: GraphRunRequest):
+    """The same run, streamed, so a canvas can light up while it executes.
+
+        {"type": "graph_start"|"node_start"|"node_done"|"message"|"parked"}
+            — the graph's own events, each naming the node it happened at
+        {"type": "step",  "node": id, "step": {...}}   — a step inside a node
+        {"type": "usage", "usage": {...}}              — what that call cost
+        {"type": "done",  "result": {...}}             — outputs, trail, spend
+        {"type": "error", "error": "..."}
+    """
+    mod = get_mod()
+    events: "queue.Queue" = queue.Queue()
+    graph = req.graph or req.id
+    task = _task_create(_graph_req(req), chain=True, agent="graph")
+
+    def worker():
+        try:
+            if not graph:
+                emit_err = {"type": "error", "error": "name a saved graph (id) or send one (graph)"}
+                events.put(emit_err)
+                return
+            res = mod.graph_run(
+                graph, req.query, key=req.key,
+                execute=_graph_executor(
+                    mod, req, task,
+                    on_step=lambda st: events.put({"type": "step", "step": st}),
+                    on_usage=lambda u: events.put({"type": "usage", "usage": u})),
+                on_event=lambda ev: events.put({"type": ev.get("event", "event"),
+                                                **{k: v for k, v in ev.items() if k != "event"}}),
+                max_nodes=req.max_nodes, parallel=req.parallel, inputs=req.inputs)
+            _task_finish(task, 'done' if res.get("ok") else 'error',
+                         res.get("error") or res.get("answer", ""))
+            charge = _charge_run(_graph_req(req), task)
+            events.put({"type": "done", "task_id": task["id"], "result": res,
+                        "charged": charge, "usage": _usage_of(task)})
+        except PermissionError as e:
+            _task_finish(task, 'error', str(e))
+            events.put({"type": "error", "error": str(e), "code": 403})
+        except Exception as e:
+            _task_finish(task, 'error', str(e))
+            events.put({"type": "error", "error": str(e)})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        while True:
+            try:
+                ev = events.get(timeout=15)
+            except queue.Empty:
+                yield ": ping\n\n"
+                continue
+            if ev is None:
+                break
+            yield f"data: {json.dumps(ev, default=str)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

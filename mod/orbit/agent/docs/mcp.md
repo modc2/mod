@@ -1,6 +1,6 @@
 # MCP
 
-The module's API, spoken as Model Context Protocol. Twenty-two tools, seven
+The module's API, spoken as Model Context Protocol. Twenty-five tools, seven
 resources, and the prompt library — over one endpoint.
 
 ```
@@ -77,6 +77,9 @@ connection dying under it.
 | `agent_agents` | the personas, with owner, model, toolbox, memory, prompt |
 | `agent_build` | write a new agent, or change one you wrote |
 | `agent_vibe` | vibecode one: a description in, a named-and-tooled agent out |
+| `agent_graphs` | graphs of agents, and the protocol they are written in |
+| `agent_graph_save` | wire agents together — nodes, edges, ports; never an agent |
+| `agent_graph_run` | run a graph, saved or inline; outputs, trail, what it cost |
 | `agent_parts` | the live agent box |
 | `agent_tools` | the registry: shipped, custom, and the fleet |
 | `agent_toolbox` | the bundles; snap one on, pin an exact list, save a box |

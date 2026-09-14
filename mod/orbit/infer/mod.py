@@ -70,8 +70,12 @@ class Mod:
     different answers to one greedy question is `divergent`, and the board says
     which character they parted on. The optimizer half fuses, folds and
     quantizes any architecture on one standard binary, running unchanged in
-    onnxruntime here and onnxruntime-web in a browser tab. Twenty-eight MCP
-    tools, a REST API and a console on one port.
+    onnxruntime here and onnxruntime-web in a browser tab. Forty MCP tools, a
+    REST API and a console on one port.
+
+    And, in front of both, the router: every inference provider that settles in
+    crypto and asks for no documents, merged into one multimodal catalog and
+    called cheapest-first with crypto top-ups handled in the background.
     """
 
     def __init__(self, port=None, **kwargs):
@@ -79,6 +83,83 @@ class Mod:
         cfg = self.config()
         self.port = int(port or os.environ.get('PORT') or cfg.get('port', 50820))
         self.base = cfg.get('base_path', '/infer')
+
+
+    # ── the router ───────────────────────────────────────────────
+
+    def routers(self):
+        """Every crypto-settled router, and the terms each one trades on."""
+        import mcp
+        return mcp.call_tool('infer_routers', {})
+
+    def market(self, q=None, input=None, output=None, coin=None, kyc=None,
+               sort='price', limit=30, **kw):
+        """The market: one row per model, every router that serves it, cheapest first.
+
+            m infer/market input=image          # everything that can see
+            m infer/market coin=XMR             # what Monero can buy
+            m infer/market output=audio         # every voice in the registry
+        """
+        import mcp
+        return mcp.call_tool('infer_router_models', {
+            'q': q, 'input': input, 'output': output, 'coin': coin, 'kyc': kyc,
+            'sort': sort, 'limit': limit, **kw})
+
+    router_models = market
+
+    def modalities(self):
+        """What this registry can actually do, counted from live catalogs."""
+        import mcp
+        return mcp.call_tool('infer_router_modalities', {})
+
+    def plan_route(self, model, require=None, kyc=None, provider=None):
+        """Who would serve this model, ranked, and what the saving is. Spends nothing."""
+        import mcp
+        return mcp.call_tool('infer_router_plan', {
+            'model': model, 'require': require, 'kyc': kyc, 'provider': provider})
+
+    def route(self, model, prompt=None, messages=None, require=None, kyc=None,
+              provider=None, max_tokens=1024, confirm=False, **kw):
+        """Call a model through whichever crypto router serves it cheapest."""
+        import mcp
+        return mcp.call_tool('infer_router_chat', {
+            'model': model, 'prompt': prompt, 'messages': messages,
+            'require': require, 'kyc': kyc, 'provider': provider,
+            'max_tokens': max_tokens, 'confirm': confirm, **kw})
+
+    chat = route
+
+    def spend(self):
+        """What every router has cost, and whether its bills match its prices."""
+        import mcp
+        return mcp.call_tool('infer_router_spend', {})
+
+    # ── settlement ───────────────────────────────────────────────
+
+    def settle(self, **kw):
+        """Settlement status, or change the policy by passing fields to set."""
+        import mcp
+        if not kw:
+            return mcp.call_tool('infer_settle', {})
+        return mcp.call_tool('infer_settle_policy', kw)
+
+    def balances(self, kyc=None):
+        """What each funded router says is left."""
+        import mcp
+        return mcp.call_tool('infer_settle_balances', {'kyc': kyc})
+
+    def sweep(self, execute=None):
+        """One settlement pass: read balances, propose or (if armed) execute."""
+        import mcp
+        return mcp.call_tool('infer_settle_sweep', {'execute': execute})
+
+    def pay(self, provider=None, usd=None, proposal=None, address=None,
+            rail=None, coin=None, confirm=False):
+        """Fund a router. Without confirm=true it prints the transfer it would make."""
+        import mcp
+        return mcp.call_tool('infer_settle_pay', {
+            'provider': provider, 'usd': usd, 'proposal': proposal,
+            'address': address, 'rail': rail, 'coin': coin, 'confirm': confirm})
 
     # ── plumbing ─────────────────────────────────────────────────
 

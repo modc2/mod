@@ -8,6 +8,56 @@ never get different numbers.
 
 API `:50820` (`/api/infer`) · console `/infer` · MCP `POST /mcp`
 
+## The router half: reaching a model you do not host
+
+`infer` fronts six inference routers that settle in crypto and ask for no
+documents. Reach for it when somebody wants a model called cheaply, privately,
+or without an account — and especially when they name a coin.
+
+```
+m infer/market input=image            # every model that can see, cheapest first
+m infer/market coin=XMR               # what Monero can actually buy
+m infer/plan_route gpt-oss-120b       # who serves it, and the saving
+m infer/route gpt-oss-120b prompt=... # call the cheapest funded router
+```
+
+**Three things to get right:**
+
+1. **`coin=` is about funding, not quoting.** `coin=XMR` asks which routers
+   accept Monero as a deposit (NanoGPT). `quote_coin=DIEM` asks which price
+   their catalog *in* DIEM (Venice). Conflating them makes `coin=XMR` return
+   nothing while the router that takes it is sitting right there.
+
+2. **`kyc` is a ceiling and the default is strict.** `kyc=none` admits only
+   routers that want money and nothing else; `kyc=account` also admits io.net
+   and OpenRouter. A router whose policy has not been read is excluded entirely
+   and only `kyc=any` reaches it. Never widen the filter to make a search
+   return more rows without saying so — the filter is the point of the module.
+
+3. **Prices are USD per million tokens, always.** They arrive in six different
+   units and two routers spell different units with the same key name, so never
+   compare a raw catalog number from one router to another. Use
+   `usd_per_call`, which is normalized and blended over a stated token mix.
+
+**Never trust a zero.** A published `0` is "no token price here" (a per-clip
+music model, a meta-router), not "free". Only a `:free` id is free. The catalog
+already enforces this; do not re-derive a price from the raw fields.
+
+## Settlement: what you may and may not do unattended
+
+The background payer is **disarmed by default** and that default is load-bearing.
+Disarmed, it prices top-ups and files proposals. Armed, it can move funds.
+
+- `m infer/sweep` is always safe: it reads balances and files proposals.
+- `m infer/pay ...` without `confirm=true` is a dry run that prints the exact
+  transfer it would make.
+- **Do not arm settlement on a user's behalf.** Arming takes `confirm=true`, a
+  rail and a daily cap, and it is the one action here that grants a background
+  process spending authority. Offer it; let them run it.
+
+Keys never enter this module — transfers go to `eth`, `solana` or `near`, which
+hold them. If a rail is down, say so; do not retry.
+
 ## When to reach for it
 
 - "this model is too slow" / "too big to ship" — and you have (or can produce)

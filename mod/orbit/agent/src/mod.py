@@ -44,6 +44,7 @@ from .privacy.mod import Privacy, SealError
 from .discover.mod import Discover
 from .harness.mod import Harness, DEFAULT_TIMEOUT as HARNESS_TIMEOUT
 from .arena.mod import Arena, Scheduler
+from .graph.mod import Graphs
 from .identity import Identity
 
 
@@ -2112,8 +2113,17 @@ class Mod(Agent):
         # module must never kick off runs on somebody's provider key.
         self.arena = Arena(runner=self.arena_run, agents=self.agents)
 
+        # the graph layer: how agents are CONNECTED. An agent is built in the
+        # registry above; a graph never builds one, it wires whole agents to
+        # each other through gates, routers, joins and loops. The runners are
+        # injected rather than imported so the protocol stays a document and
+        # this module stays the only thing that spends a provider key.
+        self.graphs = Graphs(identity=self.identity, agents=self.agents,
+                             run_agent=self._graph_agent, run_tool=self._graph_tool)
+
         self._public_actions = {'status', 'health', 'schema',
                                 'agents', 'agent', 'chains', 'harnesses', 'agent_cids',
+                                'graph_kinds', 'graphs', 'graph', 'graph_validate',
                                 'agent_load', 'library', 'prompts', 'prompt_add',
                                 'prompt_rm', 'memory', 'memory_add', 'memory_rm',
                                 'upload', 'library_import', 'formats',
@@ -2164,7 +2174,14 @@ class Mod(Agent):
                                 # own sign-in / authorship
                                 'openarena', 'openarena_task', 'openarena_sources',
                                 'openarena_task_add', 'openarena_task_rm',
-                                'openarena_preview', 'openarena_import'}
+                                'openarena_preview', 'openarena_import',
+                                # graphs: reading the protocol and the saved
+                                # flows is open, saving one takes a sign-in and
+                                # editing one takes owning it (Graphs enforces
+                                # both), and running one answers to run policy
+                                # exactly like a single agent does
+                                'graph_save', 'graph_rm', 'graph_import',
+                                'graph_run'}
         self._admin_actions = {'run', 'plan', 'serve', 'kill',
                                'test', 'grant', 'revoke', 'acl',
                                'agent_save', 'agent_install', 'set_key',
@@ -2989,6 +3006,10 @@ class Mod(Agent):
         Actions:
           Public (anyone):
             status, health, schema, agents, agent, chains, harnesses,
+            graph_kinds - the graph protocol: node kinds, ports, gate ops
+            graphs      - every saved graph of agents
+            graph       - one graph in full (id=)
+            graph_validate - what is wrong with a graph (graph=)
             toolboxes, toolbox, snapped, tools, tool, mods,
             recall, episodes, facts, exchanges, memory_state,
             arena, arena_tasks, arena_matches, arena_card, arena_status,
@@ -3000,6 +3021,9 @@ class Mod(Agent):
                         - credit a USDT/USDC/ETH transfer to the deposit address
 
           Signed-in (self-scoped to the caller's verified address):
+            graph_save  - Save a graph of agents (graph={...})
+            graph_rm    - Delete one of yours (id=)
+            graph_import- Install a shared graph (cid=)
             vaults      - List your key-value vaults
             vaults_get  - Read a vault (name=, reveal= to unseal private values)
             vaults_set  - Upsert an entry (name=, entry=, value=, private=)
@@ -3010,6 +3034,7 @@ class Mod(Agent):
 
           Admin (owner + granted users):
             run         - Run the agent loop (toolbox= snaps a bundle for the run)
+            graph_run   - Run a graph of agents (id= or graph={...}, query=)
             snap        - Snap a toolbox onto the agent (name=)
             unsnap      - Detach a toolbox (name=) or all (no args)
             select      - Pin the loadout to an exact list (tools=[...], none = boxes)
@@ -3070,6 +3095,11 @@ class Mod(Agent):
             'agents': lambda: self.agents.forward(kwargs.get('name'), **kwargs),
             'agent': lambda: self.agents.forward(kwargs.get('name') or self.default_agent(key)),
             'chains': lambda: self.agents.chains(),
+            # the graph layer: what connects agents to each other
+            'graph_kinds': lambda: self.graphs.kinds(),
+            'graphs': lambda: {'graphs': self.graphs.ls(key)},
+            'graph': lambda: self.graphs.get(kwargs.get('id', ''), key=key),
+            'graph_validate': lambda: self.graphs.validate(kwargs.get('graph') or {}),
             # external agent CLIs an agent can hand its run to, + what's installed here
             'harnesses': lambda: self.harness.forward(kwargs.get('name')),
             'agent_cids': lambda: self.agents.forward(action='cids'),
@@ -3084,6 +3114,11 @@ class Mod(Agent):
             'prompts': lambda: {'prompts': self.library.prompts()},
             'prompt_add': lambda: self.library.prompt_add(kwargs.get('name', ''), kwargs.get('text', ''), kwargs.get('description', ''), kwargs.get('tags'), kwargs.get('id'), key=key),
             'prompt_rm': lambda: self.library.prompt_rm(kwargs.get('id', ''), key=key),
+            'graph_save': lambda: self.graphs.save(kwargs.get('graph') or {}, key=key),
+            'graph_rm': lambda: self.graphs.rm(kwargs.get('id', ''), key=key),
+            'graph_import': lambda: self.graphs.import_cid(kwargs.get('cid', ''), key=key),
+            'graph_run': lambda: self.graph_run(kwargs.get('graph') or kwargs.get('id', ''),
+                                               kwargs.get('query', ''), key=key),
             'memory': lambda: {'memory': self.library.notes()},
             'memory_add': lambda: self.library.note_add(kwargs.get('name', ''), kwargs.get('content', ''), kwargs.get('tags'), kwargs.get('id'), key=key),
             'memory_rm': lambda: self.library.note_rm(kwargs.get('id', ''), key=key),
@@ -4192,6 +4227,81 @@ class Mod(Agent):
             except Exception:
                 usage = {}
         return (trace or last), usage
+
+    # ── graph of agents ──────────────────────────────────────────────
+
+    @staticmethod
+    def graph_answer(trace) -> str:
+        """What a run actually said, for the next node to read.
+
+        A step trace is not an answer: the finish summary is, and failing that
+        the last thing the run responded with. Handing the raw trace down an
+        edge would make every downstream agent read a log instead of the work.
+        """
+        if not isinstance(trace, list):
+            return str(trace or "")
+        summary, responses, error = "", [], ""
+        for st in trace:
+            if not isinstance(st, dict):
+                continue
+            if st.get("tool") == "finish":
+                summary = st.get("params", {}).get("summary", "") or summary
+            elif st.get("tool") == "response" and st.get("result"):
+                responses.append(str(st["result"]))
+            elif st.get("tool") == "error" and st.get("error") and not error:
+                error = str(st["error"])
+        return summary or (responses[-1] if responses else "") or error
+
+    def _graph_agent(self, agent: str, query: str, model: str = None, steps=None,
+                     toolbox=None, free=None, key=None, node=None, provider=None,
+                     on_step=None, on_usage=None, budget=None, **kw):
+        """One agent node of a graph: run the agent whole, hand back its answer.
+
+        Every setting the node did not override is the agent's own — the graph
+        says which agent runs here, not what that agent is.
+        """
+        trace = []
+        try:
+            last = self._run(query=query, agent_type=agent, model=model or None,
+                             provider=provider or None,
+                             steps=int(steps) if steps else 25,
+                             toolbox=toolbox or None, free=bool(free), key=key,
+                             budget=budget,
+                             on_step=lambda st: (trace.append(st),
+                                                 on_step(st) if on_step else None),
+                             on_usage=on_usage)
+        except Exception as e:
+            return {"ok": False, "error": str(e), "agent": agent}
+        steps_run = trace or (last if isinstance(last, list) else [])
+        text = self.graph_answer(steps_run)
+        failed = bool(steps_run) and all(
+            isinstance(st, dict) and st.get("tool") == "error" for st in steps_run)
+        return {"ok": not failed and bool(text or steps_run),
+                "text": text or ("the run produced nothing" if not failed else ""),
+                "error": None if not failed else self.graph_answer(steps_run),
+                "agent": agent, "trace": steps_run}
+
+    def _graph_tool(self, name: str, params: dict = None, key=None, **kw):
+        """One tool node: a call with no model in the loop."""
+        try:
+            out = self.run_tool(name, **(params or {}))
+        except Exception as e:
+            return {"ok": False, "error": f"{name}: {e}"}
+        if isinstance(out, dict) and out.get("error"):
+            return {"ok": False, "error": str(out["error"]), "data": out}
+        text = out if isinstance(out, str) else json.dumps(out, indent=2, default=str)[:8000]
+        return {"ok": True, "text": text,
+                "data": out if isinstance(out, dict) else {}}
+
+    def graph_run(self, graph=None, query: str = "", key=None, **kw):
+        """Run a graph — by id, or one handed over inline from the canvas.
+
+        A graph is several agent runs, so it answers to exactly the policy one
+        run does: the owner, a granted address, or a signed-in caller with
+        credits. Nothing about drawing it on a canvas makes it free.
+        """
+        self.require_allowed(key, 'run')
+        return self.graphs.run(graph, query, key=key, **kw)
 
     def arena_scheduler(self, on: bool = True, delay: float = 15.0):
         """Start (or stop) the background process that keeps the board current.

@@ -23,9 +23,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
+import catalog as CAT                                       # noqa: E402
 import engine as E                                          # noqa: E402
 import mcp                                                  # noqa: E402
+import ledger as LED                                        # noqa: E402
+import pick as PICK                                         # noqa: E402
 import proofs as P                                          # noqa: E402
+import router as R                                          # noqa: E402
+import settle as SET                                        # noqa: E402
 from engine import InferError                               # noqa: E402
 
 BASE = os.environ.get('BASE_PATH', '/infer')
@@ -36,10 +41,14 @@ def info():
     return {
         'name': 'infer',
         'version': mcp.version(),
-        'what': 'a board where model output at temperature 0 is a signed, '
-                'content-addressed, re-runnable claim — and the optimizer that '
-                'produces the bit-exact half of it',
+        'what': 'one aggregator over every inference router that takes crypto '
+                'and asks for no documents — plus the board that proves what a '
+                'model said, and the optimizer that runs it locally instead',
         'halves': {
+            'router': 'every crypto-settled, no-KYC inference router as one '
+                      'catalog — text, image, audio, video and embeddings — '
+                      'routed by price, paid in crypto, settled in the '
+                      'background',
             'proofs': 'post what a model said at temperature 0, hash it, sign '
                       'it, publish it to core/store, and let anyone run the '
                       'same question again and file the answer beside yours',
@@ -166,6 +175,24 @@ def route(method, path, query, body):
         v = args.get(name)
         return default if v is None else str(v).lower() not in ('0', 'false', 'no', '')
 
+    def _list(v):
+        if not v:
+            return ()
+        return tuple(x.strip() for x in (v.split(',') if isinstance(v, str) else v)
+                     if str(x).strip())
+
+    def _tri(v):
+        """None means 'caller said nothing', which is not the same as False."""
+        if v is None or v == '':
+            return None
+        return str(v).lower() not in ('0', 'false', 'no')
+
+    def _kyc(v):
+        """`kyc=any` is the only way to reach a router whose policy is unread."""
+        if v is None or v == '':
+            return 'none'
+        return None if str(v).lower() in ('any', 'all', 'none-of-your-business') else v
+
     def model_arg():
         m = arg('model') or arg('id') or arg('name')
         if not m:
@@ -286,6 +313,87 @@ def route(method, path, query, body):
         return P.set_key(arg('provider'), arg('key'))
     if path == '/import':
         return P.fetch(arg('cid'), post_it=flag('post', True))
+
+    # ── the router: every crypto-settled, no-KYC router as one ──
+    if path == '/router':
+        return {'providers': [p.describe() for p in R.every(kyc=None)],
+                'default_kyc': 'none',
+                'note': 'kyc= is a ceiling: none < email < account < full; '
+                        'kyc=any drops the filter and admits unverified policies'}
+    if path == '/router/models':
+        return CAT.models(limit=num('limit', 50), sort=arg('sort') or 'price',
+                          kyc=_kyc(arg('kyc')), names=arg('provider'),
+                          max_age=num('max_age'), q=arg('q'),
+                          inp=arg('input'), out=arg('output'), coin=arg('coin'),
+                          quote_coin=arg('quote_coin'), kyc_row=arg('router_kyc'),
+                          max_usd=num('max_usd'), min_context=num('min_context'),
+                          multimodal=_tri(arg('multimodal')), tag=arg('tag'),
+                          free=flag('free', False))
+    if path == '/router/offerings':
+        return CAT.search(limit=num('limit', 50), sort=arg('sort') or 'price',
+                          kyc=_kyc(arg('kyc')), names=arg('provider'),
+                          max_age=num('max_age'), q=arg('q'),
+                          inp=arg('input'), out=arg('output'), coin=arg('coin'),
+                          quote_coin=arg('quote_coin'), kyc_row=arg('router_kyc'),
+                          max_usd=num('max_usd'), min_context=num('min_context'),
+                          multimodal=_tri(arg('multimodal')), tag=arg('tag'),
+                          free=flag('free', False),
+                          provider=arg('only'))
+    if path == '/router/modalities':
+        return CAT.modalities(kyc=_kyc(arg('kyc')), max_age=num('max_age'))
+    if path == '/router/refresh':
+        return {k: v for k, v in CAT.refresh(
+            names=arg('provider'), kyc=_kyc(arg('kyc'))).items()
+            if k != 'offerings'}
+    if path == '/router/plan':
+        return PICK.plan(model_arg(), kyc=_kyc(arg('kyc')), names=arg('provider'),
+                         require=_list(arg('require')), limit=num('limit', 10))
+    if path == '/router/chat':
+        return PICK.chat(model_arg(), messages=arg('messages'), prompt=arg('prompt'),
+                         kyc=_kyc(arg('kyc')), names=arg('provider'),
+                         require=_list(arg('require')),
+                         max_tokens=num('max_tokens', 1024),
+                         confirm=flag('confirm', False),
+                         attempts=num('attempts', 3),
+                         temperature=num('temperature'))
+    if path == '/router/key':
+        return R.set_key(arg('provider'), arg('key'))
+    if path == '/router/spend':
+        return LED.spend()
+    if path == '/router/ledger':
+        return {'entries': LED.entries(limit=num('limit', 100),
+                                       provider=arg('provider'))}
+    # ── settlement ──────────────────────────────────────────
+    if path == '/settle':
+        return SET.status()
+    if path == '/settle/balances':
+        return SET.balances(kyc=_kyc(arg('kyc')))
+    if path == '/settle/rails':
+        return SET.rails()
+    if path == '/settle/policy':
+        if method == 'POST':
+            return SET.configure(confirm=flag('confirm', False),
+                                 armed=_tri(arg('armed')),
+                                 interval=num('interval'), rail=arg('rail'),
+                                 coin=arg('coin'), floor_usd=num('floor_usd'),
+                                 topup_usd=num('topup_usd'),
+                                 daily_cap_usd=num('daily_cap_usd'))
+        return SET.policy()
+    if path == '/settle/sweep':
+        return SET.sweep(kyc=_kyc(arg('kyc')), execute=_tri(arg('execute')))
+    if path == '/settle/proposals':
+        return {'proposals': SET.proposals(limit=num('limit', 50),
+                                           state=arg('state'))}
+    if path == '/settle/pay':
+        return SET.pay(proposal_id=arg('proposal'), provider=arg('provider'),
+                       usd=num('usd'), address=arg('address'), rail=arg('rail'),
+                       coin=arg('coin'), confirm=flag('confirm', False))
+    if path == '/settle/address':
+        return SET.set_address(arg('provider'), arg('address'), coin=arg('coin'))
+    if path == '/settle/start':
+        return SET.start()
+    if path == '/settle/stop':
+        return SET.stop()
 
     if path == '/reports':
         model = arg('model')

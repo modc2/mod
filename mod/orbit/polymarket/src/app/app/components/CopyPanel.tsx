@@ -6,9 +6,7 @@
 // desk is a SET of traders, each with a different amount behind them. So this
 // column is built around a roster, not a row —
 //
-//   TRADERS   the book. Check any number of them and the bar above acts on all
-//             of them at once: fund each with $N, START, STOP, PAUSE, drop.
-//             Paste ten addresses in one go; they all land with the same size.
+//   TRADERS   the book. One line per leader: the name, their $, run/stop.
 //   MEASURE   what those amounts would have done — $N over the last M days,
 //             per trader, through the exact pipeline the live engine runs.
 //   TRADES    what they actually DID and what I actually got, joined
@@ -18,21 +16,26 @@
 // is a POST /copy/* — the same routes the `pm_copy_*` MCP tools call, so an
 // allocation an agent moved shows up here on the next poll and vice versa.
 //
-// The chrome SCALES TO THE ROSTER. This block used to render its full desk
-// apparatus — a bankroll field, SPLIT EVENLY, a desk-wide PAPER|REAL, START
-// ALL / STOP ALL, a checkbox per row — over a book of ONE trader, where every
-// one of those is either a no-op or a second copy of the row's own control.
-// Four `$` inputs and three mode switches in a 340px column is how "which
-// number is the real one" becomes unanswerable. So:
+// ONE LAYER OF CONTROLS. This block used to stack four copies of the same
+// apparatus — a desk-wide PAPER|REAL + START ALL, a SPLIT bar, a checkbox
+// bulk bar with its own $ / mode / ▶ / ■, and a PAPER|REAL + ▶ on every row.
+// Four mode switches in a 340px column is how "which one is the real one"
+// becomes unanswerable. Now:
 //
-//   • With ≤1 trader the bulk apparatus is not rendered at all. The row's own
-//     $, PAPER|REAL and ▶ ARE the desk.
-//   • With ≥2 it comes back as ONE gesture — SPLIT $N EVENLY — not a field
-//     that does nothing beside a button that uses it. Bankroll was never a
-//     budget; the engine budgets per allocation. It is the number you divide.
+//   • There is ONE mode switch, at the top. A row's ▶ starts that row in the
+//     desk's mode; START ALL starts everyone in it. A RUNNING row shows the
+//     mode it is actually in by dot color — green REAL, amber PAPER — read
+//     off the server, never off a browser toggle.
+//   • Rows are one line: name · $ · ▶/■ · ×. No checkboxes, no bulk bar —
+//     mixing modes per trader, pausing several at once and sizing the whole
+//     set live on the row's own page (/copy/0x…), the desk (/copy) and the
+//     basket (/copy/basket). The sidebar is for glancing and the one obvious
+//     act, not for the whole instrument panel.
+//   • SPLIT $N EVENLY stays as the one bulk sizing gesture, only with ≥2
+//     traders to split across.
 //   • The roll-up line reconciles the desk against the WALLET. "$100 on 1
-//     trader" sitting under "MONEY $0.18" with nothing between them is a lie
-//     by juxtaposition; short desks now say so, and say it as a link to MONEY.
+//     trader" over "MONEY $0.18" with nothing between them is a lie by
+//     juxtaposition; short desks say so, as a link to MONEY.
 //
 // Three deliberate restraints, all of them about cost:
 //
@@ -138,27 +141,9 @@ function CopyBookBody() {
   // funded one, and auth.address lags a wallet switch. Same rule as the desk.
   const eoa = getOwnerAddress() ?? auth.address ?? null;
   const {
-    book, rows, error, busy, modeFor, deskMode, arm,
+    book, rows, error, busy, deskMode, arm,
     allocate, remove, setEnabled, setBankrollUsd, rebalance, start, stop,
   } = useCopyBook(eoa);
-
-  // ── Which rows the bulk bar acts on. Addresses, not indices: the book is
-  //    re-read every 15s and an agent may have reordered it. ──
-  const [picked, setPicked] = useState<string[]>([]);
-  const pickedSet = useMemo(() => new Set(picked), [picked]);
-  useEffect(() => {
-    // Drop anyone who left the book, so a stale check can't act on a stranger.
-    const live = new Set(rows.map((r) => r.address));
-    setPicked((p) => (p.every((a) => live.has(a)) ? p : p.filter((a) => live.has(a))));
-  }, [rows]);
-  const togglePick = (address: string) =>
-    setPicked((p) => (p.includes(address) ? p.filter((a) => a !== address) : [...p, address]));
-  const targets = picked.length ? rows.filter((r) => pickedSet.has(r.address)) : [];
-  useEffect(() => {
-    // Below two rows there is no checkbox to un-tick, so a stale pick would
-    // strand the bulk bar over a desk that doesn't need one.
-    if (rows.length < 2) setPicked((p) => (p.length ? [] : p));
-  }, [rows.length]);
 
   // ── Sections. Each is its own mount, because each has its own cost. ──
   const [measureOpen, setMeasureOpen] = useState(false);
@@ -203,18 +188,15 @@ function CopyBookBody() {
   /** Short only when we actually READ a balance — a failed read is not $0. */
   const short = funded !== null && allocated > funded + 0.01;
 
-  /** The roster decides the chrome. One trader needs no bulk apparatus: the
-      row already carries a $, a PAPER|REAL and a ▶. */
+  /** SPLIT only exists with something to split across. */
   const many = rows.length > 1;
 
-  /** Arm a typed sentence as a real gate. Applies to the CHECKED traders, or
-      to the whole book when nothing is checked. The confirm is shared with
-      /copy/trades (lib/armGate.ts) so both say the same thing. */
+  /** Arm a typed sentence as a real gate, on the whole book. The confirm is
+      shared with /copy/trades (lib/armGate.ts) so both say the same thing. */
   const armGate = async (gate: CompiledGate) => {
-    const who = picked.length ? targets : rows;
-    const names = who.map((r) => r.label?.trim() || shortAddress(r.address));
+    const names = rows.map((r) => r.label?.trim() || shortAddress(r.address));
     if (!confirmGate(gate, names)) return;
-    for (const row of who) {
+    for (const row of rows) {
       await allocate(row.address, row.allocationUsd, undefined, gatePatch(gate));
     }
   };
@@ -259,71 +241,35 @@ function CopyBookBody() {
         </button>
       )}
 
-      {/* ── Bulk apparatus. Only with a roster to act on: over ONE trader,
-             every control here is a second copy of that row's own. ── */}
-      {many && (
-        <>
-          <div className="px-3 pb-1.5 flex items-center gap-1.5">
-            <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">
-              SPLIT $
-            </span>
-            <input
-              className="pixel-input-sm input-xs w-[62px] font-mono"
-              value={bankrollDraft}
-              inputMode="decimal"
-              onChange={(e) => setBankrollDraft(e.target.value)}
-              placeholder="total"
-              title="A total to divide across the book. It is not a budget — the engine budgets against each trader's own $."
-            />
-            <button
-              className="pixel-btn btn-xs"
-              disabled={busy !== null || !(Number(bankrollDraft) > 0)}
-              onClick={async () => {
-                const v = Number(bankrollDraft);
-                if (!Number.isFinite(v) || v <= 0) return;
-                if (v !== book?.bankroll) await setBankrollUsd(v);
-                await rebalance("equal");
-              }}
-              title={`Give each of the ${rows.length} traders the same share of this total`}
-            >
-              EVENLY
-            </button>
-            <Link
-              href="/copy/basket"
-              className="ml-auto text-[9.5px] font-mono tracking-[0.1em] text-pixel-gray hover:text-cyan-300 shrink-0"
-              title="Size the whole set at once: different amounts per trader, replayed together, with the equal-split counterfactual"
-            >
-              BASKET →
-            </Link>
-          </div>
-
-          <div className="px-3 pb-1.5 flex items-center gap-1.5">
-            <ModeSwitch
-              mode={deskMode}
-              canGoLive={allocated > 0}
-              onPick={(m) => arm("", m)}
-            />
-            <button
-              className="pixel-btn btn-xs flex-1"
-              disabled={busy !== null || !eoa || rows.length === 0}
-              onClick={() => {
-                if (deskMode === "LIVE" && !confirmGoLive(`all ${rows.length} traders`, allocated)) return;
-                void start(undefined, deskMode);
-              }}
-              title={eoa ? `Start every enabled trader in ${deskMode}` : "Sign in a wallet first"}
-            >
-              ▶ START ALL
-            </button>
-            <button
-              className="pixel-btn btn-xs border-red-400/60 text-red-400"
-              disabled={busy !== null || !eoa || running === 0}
-              onClick={() => void stop()}
-              title="Stop every running session"
-            >
-              ■ STOP ALL
-            </button>
-          </div>
-        </>
+      {/* ── THE control row. One mode switch for the whole panel: rows start
+             in it, START ALL starts everyone in it. ── */}
+      {rows.length > 0 && (
+        <div className="px-3 pb-1.5 flex items-center gap-1.5">
+          <ModeSwitch
+            mode={deskMode}
+            canGoLive={allocated > 0}
+            onPick={(m) => arm("", m)}
+          />
+          <button
+            className="pixel-btn btn-xs flex-1"
+            disabled={busy !== null || !eoa || rows.length === 0}
+            onClick={() => {
+              if (deskMode === "LIVE" && !confirmGoLive(`all ${rows.length} traders`, allocated)) return;
+              void start(undefined, deskMode);
+            }}
+            title={eoa ? `Start every enabled trader in ${MODE[deskMode].label}` : "Sign in a wallet first"}
+          >
+            ▶ START{many ? " ALL" : ""}
+          </button>
+          <button
+            className="pixel-btn btn-xs border-red-400/60 text-red-400"
+            disabled={busy !== null || !eoa || running === 0}
+            onClick={() => void stop()}
+            title="Stop every running session"
+          >
+            ■ STOP{many ? " ALL" : ""}
+          </button>
+        </div>
       )}
 
       {error && (
@@ -338,34 +284,9 @@ function CopyBookBody() {
         </div>
       )}
 
-      {/* ── Bulk bar. Appears only with a selection: an always-on row of
-             destructive buttons over a list is how the wrong trader gets
-             dropped. ── */}
-      {many && picked.length > 0 && (
-        <BulkBar
-          count={picked.length}
-          busy={busy !== null}
-          onSize={(usd) => { for (const r of targets) void allocate(r.address, usd); }}
-          onStart={(mode) => {
-            if (mode === "LIVE" && !confirmGoLive(`${picked.length} traders`, targets.reduce((s, r) => s + r.allocationUsd, 0))) return;
-            for (const r of targets) void start(r.address, mode);
-          }}
-          onStop={() => { for (const r of targets) void stop(r.address); }}
-          onPause={() => { for (const r of targets) void setEnabled(r, false); }}
-          onResume={() => { for (const r of targets) void setEnabled(r, true); }}
-          onRemove={() => {
-            if (!window.confirm(`Stop copying ${picked.length} trader(s) and drop them from the book?`)) return;
-            for (const r of targets) void remove(r.address);
-            setPicked([]);
-          }}
-          onClear={() => setPicked([])}
-          basketHref={`/copy/basket?add=${picked.join(",")}`}
-        />
-      )}
-
       {/* ── The book. Capped and scrollable: the sections below it are
              furniture too, and neither gets to push the other off screen. ── */}
-      <div className="max-h-[34vh] overflow-y-auto px-1.5 space-y-1">
+      <div className="max-h-[34vh] overflow-y-auto px-1.5 space-y-0.5">
         {book === null ? (
           <div className="px-1.5 py-2 text-[10.5px] font-mono text-pixel-gray">
             reading the copy book…
@@ -380,17 +301,13 @@ function CopyBookBody() {
             <CopyRow
               key={row.address}
               row={row}
-              picked={pickedSet.has(row.address)}
-              selectable={many}
-              onPick={() => togglePick(row.address)}
               busy={busy}
-              mode={modeFor(row)}
-              onMode={(m) => arm(row.address, m)}
+              deskMode={deskMode}
               onAllocate={(usd) => void allocate(row.address, usd)}
               onResume={() => void setEnabled(row, true)}
-              onStart={(m) => {
-                if (m === "LIVE" && !confirmGoLive(row.name, row.allocationUsd)) return;
-                void start(row.address, m);
+              onStart={() => {
+                if (deskMode === "LIVE" && !confirmGoLive(row.name, row.allocationUsd)) return;
+                void start(row.address, deskMode);
               }}
               onStop={() => void stop(row.address)}
               onRemove={() => void remove(row.address)}
@@ -399,6 +316,43 @@ function CopyBookBody() {
           ))
         )}
       </div>
+
+      {/* ── The one bulk sizing gesture: divide a total across the set. ── */}
+      {many && (
+        <div className="px-3 pt-1.5 flex items-center gap-1.5">
+          <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">
+            SPLIT $
+          </span>
+          <input
+            className="pixel-input-sm input-xs w-[62px] font-mono"
+            value={bankrollDraft}
+            inputMode="decimal"
+            onChange={(e) => setBankrollDraft(e.target.value)}
+            placeholder="total"
+            title="A total to divide across the book. It is not a budget — the engine budgets against each trader's own $."
+          />
+          <button
+            className="pixel-btn btn-xs"
+            disabled={busy !== null || !(Number(bankrollDraft) > 0)}
+            onClick={async () => {
+              const v = Number(bankrollDraft);
+              if (!Number.isFinite(v) || v <= 0) return;
+              if (v !== book?.bankroll) await setBankrollUsd(v);
+              await rebalance("equal");
+            }}
+            title={`Give each of the ${rows.length} traders the same share of this total`}
+          >
+            EVENLY
+          </button>
+          <Link
+            href="/copy/basket"
+            className="ml-auto text-[9.5px] font-mono tracking-[0.1em] text-pixel-gray hover:text-cyan-300 shrink-0"
+            title="Size the whole set at once: different amounts per trader, replayed together, with the equal-split counterfactual"
+          >
+            BASKET →
+          </Link>
+        </div>
+      )}
 
       {/* ── Add one, or add ten ── */}
       <AddTraders
@@ -418,10 +372,9 @@ function CopyBookBody() {
         <MeasureBlock
           rows={rows}
           busy={busy !== null}
-          onFund={(usd, only) => {
-            for (const r of (only ?? rows)) void allocate(r.address, usd);
+          onFund={(usd) => {
+            for (const r of rows) void allocate(r.address, usd);
           }}
-          picked={targets}
         />
       </Section>
 
@@ -436,7 +389,7 @@ function CopyBookBody() {
           <CopyTradesPanel compact defaultDays={1} onArm={(g) => void armGate(g)} />
           <div className="mt-1 flex items-center justify-between">
             <span className="text-[9px] font-mono text-pixel-gray/70">
-              {picked.length ? `ARM applies to ${picked.length} checked` : "ARM applies to every trader"}
+              ARM applies to every trader
             </span>
             <Link
               href="/copy/trades"
@@ -527,86 +480,6 @@ function ModeSwitch({
   );
 }
 
-/** What the checked traders can be made to do, all at once. */
-function BulkBar({
-  count, busy, onSize, onStart, onStop, onPause, onResume, onRemove, onClear, basketHref,
-}: {
-  count: number;
-  busy: boolean;
-  onSize: (usd: number) => void;
-  onStart: (mode: TradingMode) => void;
-  onStop: () => void;
-  onPause: () => void;
-  onResume: () => void;
-  onRemove: () => void;
-  onClear: () => void;
-  basketHref: string;
-}) {
-  const [each, setEach] = useState("100");
-  const [mode, setMode] = useState<TradingMode>("TEST");
-  const usd = Number(each);
-  return (
-    <div
-      className="mx-1.5 mb-1.5 px-2 py-1.5 rounded-[var(--radius-sm)] space-y-1"
-      style={{ background: "rgb(var(--accent-2) / 0.08)", border: "1px solid rgba(var(--accent-2)/0.35)" }}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className="text-[9.5px] font-mono tracking-[0.1em] text-cyan-300">
-          {count} SELECTED
-        </span>
-        <span className="flex-1" />
-        <button onClick={onClear} className="text-[9px] font-mono text-pixel-gray hover:text-pixel-white">
-          clear
-        </button>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-[9px] font-mono text-pixel-gray shrink-0">$</span>
-        <input
-          className="pixel-input-sm input-xs w-[52px] font-mono"
-          value={each}
-          inputMode="decimal"
-          onChange={(e) => setEach(e.target.value)}
-          title="Give each checked trader this much"
-        />
-        <button
-          className="pixel-btn btn-xs"
-          disabled={busy || !Number.isFinite(usd) || usd < 0}
-          onClick={() => onSize(usd)}
-          title="Set every checked trader's allocation to this amount"
-        >
-          SET EACH
-        </button>
-        <ModeSwitch mode={mode} canGoLive onPick={setMode} />
-        <button className="pixel-btn btn-xs" disabled={busy} onClick={() => onStart(mode)} title={`Start all checked in ${mode}`}>
-          ▶
-        </button>
-        <button className="pixel-btn btn-xs border-red-400/60 text-red-400" disabled={busy} onClick={onStop} title="Stop all checked">
-          ■
-        </button>
-      </div>
-      <div className="flex items-center gap-1">
-        <button className="pixel-btn btn-xs" disabled={busy} onClick={onPause} title="Keep them in the book but out of START ALL">
-          PAUSE
-        </button>
-        <button className="pixel-btn btn-xs" disabled={busy} onClick={onResume} title="Un-pause">
-          RESUME
-        </button>
-        <Link href={basketHref} className="pixel-btn btn-xs" title="Size these together on the basket screen">
-          BASKET
-        </Link>
-        <button
-          className="pixel-btn btn-xs ml-auto border-red-400/60 text-red-400"
-          disabled={busy}
-          onClick={onRemove}
-          title="Drop them from the book"
-        >
-          DROP
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /** Paste one address or a whole list. Anything that looks like an address in
     the blob is taken — a copied table, a comma list and a column of lines all
     behave the same, which is how "copy these five" stops being five gestures. */
@@ -683,13 +556,11 @@ function AddTraders({
 
 /** "$N over the last M days", for every row at once. */
 function MeasureBlock({
-  rows, busy, picked, onFund,
+  rows, busy, onFund,
 }: {
   rows: CopyBookRow[];
   busy: boolean;
-  /** The checked rows, if any — what USE funds when a selection exists. */
-  picked: CopyBookRow[];
-  onFund: (usd: number, only?: CopyBookRow[]) => void;
+  onFund: (usd: number) => void;
 }) {
   const [days, setDays] = useState(1);
   const [simStr, setSimStr] = useState("");
@@ -744,14 +615,13 @@ function MeasureBlock({
             : `replayed at the $ you already gave each of them, over ${days}D`}
           {worker?.at ? "" : " · no worker pass yet"}
         </span>
-        {/* Simulated a size and liked it? Fund exactly what was measured —
-            for the checked traders if there are any, else the whole book. */}
+        {/* Simulated a size and liked it? Fund exactly what was measured. */}
         {sim > 0 && rows.length > 0 && (
           <button
             className="pixel-btn btn-xs shrink-0"
             disabled={busy}
-            onClick={() => onFund(sim, picked.length ? picked : undefined)}
-            title={`Set ${picked.length ? `the ${picked.length} checked trader(s)` : `all ${rows.length} traders`} to the ${fmtUsd(sim, 0)} this replay used`}
+            onClick={() => onFund(sim)}
+            title={`Set all ${rows.length} traders to the ${fmtUsd(sim, 0)} this replay used`}
           >
             USE {fmtUsd(sim, 0)}
           </button>
@@ -780,23 +650,20 @@ function MeasureBlock({
   );
 }
 
-/** One leader: the money, the switch, and the gate it copies under. */
+/** One leader, one line: the name, the money, run/stop, drop. A RUNNING row's
+    dot says which mode the SERVER has it in — green REAL, amber PAPER — so
+    the roster never renders a mode the engine isn't actually in. */
 function CopyRow({
-  row, picked, selectable, onPick, busy, mode, canRun,
-  onAllocate, onResume, onMode, onStart, onStop, onRemove,
+  row, busy, deskMode, canRun,
+  onAllocate, onResume, onStart, onStop, onRemove,
 }: {
   row: CopyBookRow;
-  picked: boolean;
-  /** Only a roster gets checkboxes — see the file header. */
-  selectable: boolean;
-  onPick: () => void;
   busy: string | null;
-  mode: TradingMode;
+  deskMode: TradingMode;
   canRun: boolean;
   onAllocate: (usd: number) => void;
   onResume: () => void;
-  onMode: (mode: TradingMode) => void;
-  onStart: (mode: TradingMode) => void;
+  onStart: () => void;
   onStop: () => void;
   onRemove: () => void;
 }) {
@@ -809,6 +676,7 @@ function CopyRow({
   }, [row.allocationUsd, editing]);
 
   const running = !!row.live?.running;
+  const real = !!row.live?.autoExecute;
   const rowBusy = busy?.endsWith(row.address) ?? false;
   const gated = !!row.params?.marketQuery?.trim() || !!row.params?.tradeFilters;
 
@@ -821,31 +689,21 @@ function CopyRow({
 
   return (
     <div
-      className={`rounded-[var(--radius-sm)] px-1.5 py-1.5 ${
-        picked ? "bg-cyan-400/[0.08]" : running ? "bg-green-400/[0.07]" : "hover:bg-pixel-white/[0.05]"
+      className={`rounded-[var(--radius-sm)] px-1.5 py-1 ${
+        running ? "bg-green-400/[0.07]" : "hover:bg-pixel-white/[0.05]"
       }`}
-      style={picked ? { boxShadow: "inset 2px 0 0 rgb(var(--accent-2))" } : undefined}
     >
       <div className="flex items-center gap-1.5">
-        {selectable && (
-          <input
-            type="checkbox"
-            checked={picked}
-            onChange={onPick}
-            className="shrink-0 accent-cyan-400 w-3 h-3"
-            title="Select for the bulk bar — fund, start, pause or drop several traders at once"
-          />
-        )}
         {running && (
           <span
-            className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0"
-            title={`Copying — ${row.live?.ordersPlaced ?? 0} orders placed`}
+            className={`w-1.5 h-1.5 rounded-full animate-pulse shrink-0 ${real ? "bg-green-400" : "bg-amber-400"}`}
+            title={`Copying in ${real ? MODE.LIVE.label : MODE.TEST.label} — ${row.live?.ordersPlaced ?? 0} orders placed`}
           />
         )}
         <Link
           href={`/copy/${row.address}`}
-          className="min-w-0 flex-1 truncate text-[11.5px] font-mono font-semibold text-pixel-white hover:text-green-400"
-          title={`${row.address} — open this copy's own screen`}
+          className="min-w-0 flex-1 truncate text-[11px] font-mono font-semibold text-pixel-white hover:text-green-400"
+          title={`${row.address} — open this copy's own screen: its trades, its wallet, its own mode and knobs`}
         >
           {row.label?.trim() || shortAddress(row.address)}
         </Link>
@@ -861,22 +719,9 @@ function CopyRow({
             PAUSED
           </button>
         )}
-        <button
-          onClick={onRemove}
-          disabled={rowBusy}
-          className="text-[12px] leading-none text-pixel-gray hover:text-red-400 shrink-0"
-          title="Stop copying this trader and drop them from the book"
-        >
-          ×
-        </button>
-      </div>
-
-      {/* Money + run state. The $ IS the sizing model: the engine budgets
-          against it and the replay sizes with it. */}
-      <div className="flex items-center gap-1.5 mt-1">
         <span className="text-[9px] font-mono text-pixel-gray shrink-0">$</span>
         <input
-          className="pixel-input-sm input-xs w-[56px] font-mono"
+          className="pixel-input-sm input-xs w-[52px] font-mono shrink-0"
           value={draft}
           inputMode="decimal"
           onFocus={() => setEditing(true)}
@@ -888,29 +733,33 @@ function CopyRow({
           }}
           title="Dollars behind this leader — the live engine budgets against it"
         />
-        <span className="flex-1" />
         {running ? (
           <button
             onClick={onStop}
             disabled={rowBusy}
             className="pixel-btn btn-xs border-red-400/60 text-red-400 shrink-0"
-            title="Stop copying — other traders keep running"
+            title="Stop copying this trader — others keep running"
           >
-            ■ STOP
+            ■
           </button>
         ) : (
-          <>
-            <ModeSwitch mode={mode} canGoLive={row.allocationUsd > 0} onPick={onMode} />
-            <button
-              onClick={() => onStart(mode)}
-              disabled={rowBusy || !canRun}
-              className="pixel-btn btn-xs shrink-0"
-              title={canRun ? `Start copying in ${mode}` : "Sign in a wallet first"}
-            >
-              ▶
-            </button>
-          </>
+          <button
+            onClick={onStart}
+            disabled={rowBusy || !canRun}
+            className="pixel-btn btn-xs shrink-0"
+            title={canRun ? `Start copying in ${MODE[deskMode].label} — the switch above picks the mode` : "Sign in a wallet first"}
+          >
+            ▶
+          </button>
         )}
+        <button
+          onClick={onRemove}
+          disabled={rowBusy}
+          className="text-[12px] leading-none text-pixel-gray hover:text-red-400 shrink-0"
+          title="Stop copying this trader and drop them from the book"
+        >
+          ×
+        </button>
       </div>
 
       {/* The gate this copy runs under — the markets AND the trades inside

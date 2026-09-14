@@ -367,12 +367,14 @@ export default function Home() {
   const [showDefaultPick, setShowDefaultPick] = useState(false)
   const [defaultErr, setDefaultErr] = useState<string | null>(null)
   const [agentOptions, setAgentOptions] = useState<AgentOption[]>(DEFAULT_AGENTS)
-  // agent to preload on the visual builder canvas (null = fresh canvas)
+  // an agent to start a new FLOW with (null = an empty canvas)
   const [builderAgent, setBuilderAgent] = useState<string | null>(null)
+  // a saved flow to open on the canvas
+  const [builderGraph, setBuilderGraph] = useState<string | null>(null)
   // which face of the AGENTS shelf is up: 'browse' shows the registry (the
-  // agents themselves), 'agent' the wiring canvas. Plain navigation always
-  // lands on browse; only openBuilder() asks for the canvas.
-  const [builderMode, setBuilderMode] = useState<'browse' | 'agent' | 'task'>('browse')
+  // agents themselves), 'flow' the canvas that connects them. Plain
+  // navigation always lands on browse; only openFlow() asks for the canvas.
+  const [builderMode, setBuilderMode] = useState<'browse' | 'flow' | 'task'>('browse')
   // a nonce, not a boolean: "open the new-agent form" has to fire again the
   // second time it is asked for, and a boolean that is already true does not
   const [builderCreate, setBuilderCreate] = useState(0)
@@ -822,7 +824,7 @@ export default function Home() {
   // open the hub on one of its shelves. Everything that used to be its own
   // top-level tab comes through here, so a caller still says where it wants to
   // land — it just lands inside HUB instead of beside it.
-  const openHub = (pane: HubPane, opts?: { mode?: 'browse' | 'agent' | 'task'; create?: boolean }) => {
+  const openHub = (pane: HubPane, opts?: { mode?: 'browse' | 'flow' | 'task'; create?: boolean }) => {
     if (pane === 'tasks') fetchServerTasks()
     // the AGENTS shelf has three faces, and a caller that knows which one it
     // wants says so — "make me an agent" should land on the form, not on a
@@ -837,12 +839,14 @@ export default function Home() {
     try { localStorage.setItem('agent_hub_pane', pane) } catch {}
   }
 
-  // jump to the AGENTS canvas, optionally preloading an agent to edit.
-  // This is the explicit "wire it as a graph" path — plain navigation to the
-  // AGENTS shelf lands on BROWSE, the registry itself.
-  const openBuilder = (name?: string | null) => {
-    setBuilderAgent(name || null)
-    setBuilderMode('agent')
+  // jump to the FLOW canvas — the graph that connects agents. An agent name
+  // starts a new flow with that agent already on it; a graph id opens that
+  // saved flow. Plain navigation to the AGENTS shelf lands on BROWSE, the
+  // registry itself, because that is where an agent is made.
+  const openFlow = (opts?: { agent?: string | null; graph?: string | null }) => {
+    setBuilderAgent(opts?.agent || null)
+    setBuilderGraph(opts?.graph || null)
+    setBuilderMode('flow')
     setShowPicker(false)
     openHub('agents')
   }
@@ -3784,7 +3788,7 @@ export default function Home() {
       onMakeDefault={setDefaultAgentPick}
       onSaved={(name) => { fetchAgents(auth?.token); libChanged(); setAgentEdit({ name }) }}
       onClose={() => setAgentEdit(null)}
-      onOpenCanvas={(name) => { setAgentEdit(null); openBuilder(name) }}
+      onUseInFlow={(name) => { setAgentEdit(null); openFlow({ agent: name }) }}
       onUse={(name) => {
         selectAgent(name)
         setAgentEdit(null)
@@ -3834,10 +3838,10 @@ export default function Home() {
           className="flex-1 min-w-0 text-left px-2.5 py-2 rounded-md text-xs whitespace-nowrap transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
           <span className="w-5 text-center shrink-0">+</span> new agent
         </button>
-        <button onClick={() => openBuilder()}
-          title="Open the canvas — wire an agent as a graph"
+        <button onClick={() => openFlow()}
+          title="Open the flow canvas — wire agents together into a graph"
           className="px-2 py-2 rounded-md text-[10px] uppercase tracking-wider transition border border-white/[0.08] text-gray-500 hover:text-violet-300 hover:border-violet-400/30 shrink-0">
-          canvas
+          flow
         </button>
       </div>
     </>
@@ -4348,15 +4352,17 @@ export default function Home() {
     </div>
   )
 
-  // --- Hub: the agents canvas — the graph an agent is wired on, and the
-  //     TASK mode that writes what agents are scored on. The rail's AGENTS
-  //     pane covers making and editing one; this is the graph view of it. ---
+  // --- Hub: the AGENTS shelf — the registry (where an agent is made), the
+  //     FLOW canvas (where agents are connected to each other) and the TASK
+  //     mode that writes what they are scored on. ---
   const agentsCanvas = (
     <div className="flex-1 min-h-0">
       <Builder
-        key={`${builderAgent || 'new'}·${builderMode}·${builderCreate}`}
+        key={`${builderAgent || 'new'}·${builderGraph || ''}·${builderMode}·${builderCreate}`}
         initialAgent={builderAgent}
+        initialGraph={builderGraph}
         initialMode={builderMode}
+        onEditAgent={(name) => openAgentEditor(name)}
         initialCreate={builderCreate > 0}
         onUseAgent={(name, memoryIds) => {
           selectAgent(name)
@@ -4378,8 +4384,6 @@ export default function Home() {
           setTimeout(() => inputRef.current?.focus(), 60)
         }}
         onAgentsChanged={() => { fetchAgents(auth?.token); libChanged() }}
-        onManageKey={(p) => { setKeyPanelProvider(p); setShowKeyPanel(true) }}
-        keyVersion={keyVersion}
         token={auth?.token}
         isHost={isHost}
         onSignIn={signIn}
@@ -4518,7 +4522,7 @@ export default function Home() {
               ))}
               {hubPane !== 'tasks' && (
                 <span className="text-[10px] text-gray-600 truncate min-w-0 hidden lg:block">
-                  {hubPane === 'agents' ? 'every agent — its prompt, model, memory · or wire one on the canvas'
+                  {hubPane === 'agents' ? 'every agent — its prompt, model, memory · or wire agents together on FLOW'
                     : 'prompts, tools, memory, agents — pull one into a chat'}
                 </span>
               )}

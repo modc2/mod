@@ -76,7 +76,7 @@ close by naming what comes next.
 
 A box with five swappable parts — prompt, model, toolbox, tool registry, memory
 module — all visible in one place (the console's agent box, and `/parts`).
-Wire one on the hub's `AGENTS` canvas, or pick one from the rail.
+Make one in the hub's `AGENTS` registry, or pick one from the rail.
 
 Which one you talk to is a choice made in the chat itself. The agent named in
 the console toolbar opens a list of every agent and library prompt on the
@@ -97,12 +97,10 @@ name of your own. Open a built-in, or anyone else's agent, and the editor
 starts in that second mode — the form is never read-only, it just lands
 somewhere you own.
 
-On the canvas the agent is **one node**. Its template requires four
-integrations wired into it — a prompt, a model, a toolbox and a memory — and
-the node has one input port for each. A port that has nothing on it reads
-`required`, and the agent will not save until every port is wired; the list
-comes from the agent template itself (`requires` in `src/agents/mod.py`,
-reported by `GET /agents/{name}` and `/parts`), not from the console.
+The canvas is **not** one of those destinations. It used to be: an AGENT node
+with a Prompt, a Model, a Toolbox and a Memory wired into four fixed ports —
+which is a form drawn as a graph, competing with the two real forms beside it
+for the same job. It now draws the thing that actually is a graph. See below.
 
 The tool registry holds three kinds at once: the 26 tools shipped here, custom
 shell tools you describe and parameterise from the console, and every
@@ -115,6 +113,38 @@ Three shipped tools point back at the box rather than out at the world:
 runs will find, and `toolbox` snaps a bundle on mid-run — so an agent that
 discovers it needs version control asks for those tools instead of failing and
 being re-run with a bigger loadout.
+
+## Connecting agents
+
+A graph connects agents; it does not build one. Every node on the hub's **FLOW**
+canvas is an agent that already exists, picked whole off the registry, and what
+gets drawn is the part with nowhere else to live — what runs after what, what
+runs at the same time, and what is allowed through.
+
+```
+▷ input ─▶ ◆ architect ─▶ ⊘ gate ──pass──▶ ◆ builder ─▶ ⚖ judge ──pass──▶ ◎ output
+                             │                             │
+                             └──fail──▶ (stops)            └──fail──▶ ↻ loop ─▶ architect
+```
+
+Ten node kinds, and only one of them runs a model by itself: `agent` runs one
+from the registry, `gate` tests a fixed predicate (no expression, ever — a
+graph is a document people share), `judge` spends a model call on the yes/no a
+predicate cannot settle, `router` branches more than two ways, `join` waits for
+the branches and merges them, `tool` calls one tool with no model in the loop,
+`loop` counts passes so a cycle is a retry rather than a bill, `human` parks a
+branch for a person instead of blocking on one, and `input`/`output` are the
+ends.
+
+Execution is a message net run in waves, so a fan-out of three agents is three
+agents running. Two budgets stand between a wiring mistake and a spend, a cycle
+that does not pass through a Loop node is refused before it runs, and the whole
+thing is metered as one run against exactly the policy a single agent run
+answers to.
+
+The vocabulary is the server's: `GET /graph/kinds` returns every kind, its
+ports, its fields and the predicates a gate may test, and the palette, the port
+rows and the inspectors are generated from it. See `docs/graph.md`.
 
 ## Scored on what it did
 
@@ -154,9 +184,10 @@ See `docs/arena.md`.
 
 ## More
 
+- `docs/graph.md` — the graph protocol: node kinds, ports, gates, how a run executes
 - `docs/arena.md` — scoring, Elo, the openarena bridge, the models board
 - `docs/credits.md` — metering, margin, MetaMask top-ups (USDC/USDT/ETH on Base or Ethereum), the treasury panel
-- `docs/mcp.md` — the 20 MCP tools, same handlers as the REST routes
+- `docs/mcp.md` — the MCP tools, same handlers as the REST routes
 - `docs/memory.md` — the working/episodic/dialogue/semantic layers
 - `docs/models.md` — free models, including WebGPU runs in the visitor's tab
 - `docs/privacy.md` — module sealing

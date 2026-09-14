@@ -56,33 +56,33 @@
     "saved": 1788935739.1266174
   },
   {
-    "cid": "QmPwCtL4bzWqkWdnJhGrEPY5kDQLJQCArfHoJksVRwkZVu",
-    "name": "vibe-smoke-test-agent",
-    "saved": 1789413144.5934505
-  },
-  {
     "cid": "QmfQAfRuuW4JufMVUWExgUcEMNVQDDyTp8Pt5ZkEjxL1vz",
     "name": "reads-repo-agent",
     "saved": 1789413240.8084624
   },
   {
-    "cid": "QmavatZbZvPv4G3ZkjgQTKncryQJtQsMmwSJELD5efTs4r",
+    "cid": "QmbM7xhPzGUW2iH1LawmyXnaFNPbiP2fbCFeWzAoKeWqgN",
     "name": "test-custom-agent",
-    "saved": 1789413338.6728423
+    "saved": 1789416431.2960348
   },
   {
-    "cid": "Qmd6gvnYpZWCN6RS9NJXU7uHDYTfQkGk7AYGZe8ieB4yMZ",
+    "cid": "QmWymvKCoCKwVMdATCV3yVNUjbhLAbCexEkNheadn8Q39h",
     "name": "test-owned-agent",
-    "saved": 1789413338.690669
+    "saved": 1789416431.3222668
   },
   {
-    "cid": "QmX4TpFLhJGSfyzGMig71RYRcoJEtbPE9CXhEFhuMi9u8h",
+    "cid": "QmWhGwGM1tdr8UsADiBTX5iDGY3BdSg3vYzirWuTvSKHxv",
     "name": "test-unbound-agent",
-    "saved": 1789413338.6956007
+    "saved": 1789416431.327197
   },
   {
-    "cid": "QmaKtZyyTigCcgRFshsnVXqGcj4Nv7wTT5CXFAMfBeoqxS",
+    "cid": "QmVvQ5KY5u8wZrtnwBbh7vmc9g6c1FjEerEshcnPLjUtZM",
     "name": "test-harness-agent",
-    "saved": 1789413395.7472093
+    "saved": 1789416492.9622371
+  },
+  {
+    "cid": "Qmb9a26UpsWoooSYod5yvVhHqcxo87iZBYT2wuVHGkUjub",
+    "name": "vibe-smoke-test-agent",
+    "saved": 1789416578.0293045
   }
 ]

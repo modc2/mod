@@ -785,6 +785,309 @@ def _error(id_, code, message):
     return {'jsonrpc': '2.0', 'id': id_, 'error': {'code': code, 'message': message}}
 
 
+# ── the router half: handlers ────────────────────────────────────────────
+
+def _lazy():
+    """Imported on call, not at module load.
+
+    `mcp` is imported by `api` before the server binds, and the router half
+    reaches the network. Importing it eagerly would make a cold `--help` do a
+    catalog fan-out.
+    """
+    import catalog, ledger, pick, router, settle
+    return catalog, ledger, pick, router, settle
+
+
+def _mods(args, key):
+    v = args.get(key)
+    if not v:
+        return ()
+    return tuple(x.strip() for x in (v.split(',') if isinstance(v, str) else v)
+                 if str(x).strip())
+
+
+def _kyc(args):
+    v = args.get('kyc')
+    if v in (None, ''):
+        return 'none'
+    return None if str(v).lower() in ('any', 'all') else v
+
+
+def _t_routers(args):
+    _, _, _, R, _ = _lazy()
+    return {'providers': [p.describe() for p in R.every(kyc=None)],
+            'default_kyc': 'none',
+            'note': 'kyc is a ceiling: none < email < account < full. The '
+                    'default admits only routers that want money and nothing '
+                    'else; kyc="any" is the only way to reach one whose policy '
+                    'has not been read.'}
+
+
+def _t_router_models(args):
+    C, _, _, _, _ = _lazy()
+    return C.models(limit=args.get('limit') or 30, sort=args.get('sort') or 'price',
+                    kyc=_kyc(args), names=args.get('provider'),
+                    q=args.get('q'), inp=args.get('input'), out=args.get('output'),
+                    coin=args.get('coin'), max_usd=args.get('max_usd'),
+                    min_context=args.get('min_context'),
+                    multimodal=args.get('multimodal'), free=args.get('free'))
+
+
+def _t_router_plan(args):
+    _, _, P, _, _ = _lazy()
+    return P.plan(args['model'], kyc=_kyc(args), names=args.get('provider'),
+                  require=_mods(args, 'require'), limit=args.get('limit') or 10)
+
+
+def _t_router_chat(args):
+    _, _, P, _, _ = _lazy()
+    return P.chat(args['model'], messages=args.get('messages'),
+                  prompt=args.get('prompt'), kyc=_kyc(args),
+                  names=args.get('provider'), require=_mods(args, 'require'),
+                  max_tokens=args.get('max_tokens') or 1024,
+                  confirm=bool(args.get('confirm')),
+                  temperature=args.get('temperature'))
+
+
+def _t_router_modalities(args):
+    C, _, _, _, _ = _lazy()
+    return C.modalities(kyc=_kyc(args))
+
+
+def _t_router_key(args):
+    _, _, _, R, _ = _lazy()
+    return R.set_key(args.get('provider'), args.get('key'))
+
+
+def _t_router_spend(args):
+    _, L, _, _, _ = _lazy()
+    return L.spend()
+
+
+def _t_settle_status(args):
+    _, _, _, _, S = _lazy()
+    return {**S.status(), 'rails': S.rails()['up']}
+
+
+def _t_settle_balances(args):
+    _, _, _, _, S = _lazy()
+    return S.balances(kyc=_kyc(args))
+
+
+def _t_settle_policy(args):
+    _, _, _, _, S = _lazy()
+    if not any(k in args for k in ('armed', 'rail', 'coin', 'floor_usd',
+                                   'topup_usd', 'daily_cap_usd', 'interval')):
+        return S.policy()
+    return S.configure(confirm=bool(args.get('confirm')), armed=args.get('armed'),
+                       rail=args.get('rail'), coin=args.get('coin'),
+                       floor_usd=args.get('floor_usd'),
+                       topup_usd=args.get('topup_usd'),
+                       interval=args.get('interval'),
+                       daily_cap_usd=args.get('daily_cap_usd'))
+
+
+def _t_settle_sweep(args):
+    _, _, _, _, S = _lazy()
+    return S.sweep(kyc=_kyc(args), execute=args.get('execute'))
+
+
+def _t_settle_pay(args):
+    _, _, _, _, S = _lazy()
+    return S.pay(proposal_id=args.get('proposal'), provider=args.get('provider'),
+                 usd=args.get('usd'), address=args.get('address'),
+                 rail=args.get('rail'), coin=args.get('coin'),
+                 confirm=bool(args.get('confirm')))
+
+
+_MODALITY = ['text', 'image', 'audio', 'video', 'file', 'embedding']
+
+ROUTER_TOOLS = {
+    'infer_routers': {
+        'description': 'Every inference router this module can reach, and the '
+                       'terms each one trades on: what it accepts as payment, '
+                       'whether it wants an account, what its KYC demand is, and '
+                       'when that claim was last checked. The registry holds only '
+                       'routers that take crypto; none of them asks for a '
+                       'document. Read this before trusting any `kyc` field '
+                       'elsewhere — those are declarations about somebody else\'s '
+                       'onboarding policy, dated, not guarantees.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_routers,
+    },
+    'infer_router_models': {
+        'description': 'The market: one row per model, every no-KYC router that '
+                       'serves it, cheapest first. This is the call that makes '
+                       'aggregation pay — the same weights are on several routers '
+                       'at different prices, and `spread` on each row is the '
+                       'ratio between the dearest and the cheapest. Filter by '
+                       'modality (`input=image`, `output=audio`) to reach the '
+                       'multimodal half, or by `coin` to see only what a '
+                       'particular currency can buy. Prices are USD per million '
+                       'tokens everywhere, normalized from six different units.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'q': _str('substring of the model name or id'),
+            'input': _str('only models accepting this input modality',
+                          enum=_MODALITY),
+            'output': _str('only models producing this output modality',
+                           enum=_MODALITY),
+            'coin': _str('only routers that accept this coin for funding, e.g. '
+                         'XMR, TAO, USDC — this is a question about payment, '
+                         'not about what the router quotes prices in'),
+            'provider': _str('restrict to these routers, comma separated'),
+            'kyc': _str('ceiling: none (default), email, account, full, or any',
+                        enum=['none', 'email', 'account', 'full', 'any']),
+            'max_usd': _num('only calls costing less than this (1k in, 500 out)'),
+            'min_context': _num('only models with at least this context'),
+            'multimodal': _bool('only models taking more than one modality'),
+            'free': _bool('only models priced at zero'),
+            'sort': _str('price (default), context, fast, name',
+                         enum=['price', 'context', 'fast', 'name']),
+            'limit': _num('rows (default 30)')}},
+        'handler': _t_router_models,
+    },
+    'infer_router_plan': {
+        'description': 'What would happen if you asked for this model: every '
+                       'router that serves it, ranked cheapest first, which ones '
+                       'are funded, and what the saving is between best and '
+                       'worst. Spends nothing. The executor uses this exact '
+                       'ranking, so the plan is the decision rather than a '
+                       'description of it.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'model': _str('the model, in any router\'s spelling'),
+            'require': _str('modalities the router must accept, comma separated '
+                            '— ask for "image" and a text-only match is dropped'),
+            'kyc': _str('ceiling (default none)',
+                        enum=['none', 'email', 'account', 'full', 'any']),
+            'provider': _str('restrict to these routers'),
+            'limit': _num('candidates to return (default 10)')},
+            'required': ['model']},
+        'handler': _t_router_plan,
+    },
+    'infer_router_chat': {
+        'description': 'Call a model through whichever crypto-settled router '
+                       'serves it cheapest, and fail over to the next one if '
+                       'that router refuses. Returns the completion plus a '
+                       '`routing` block: who served it, what it actually cost '
+                       'computed from the usage they reported, what the catalog '
+                       'estimated beforehand, and every router tried and '
+                       'rejected on the way. Over INFER_SPEND_USD it returns '
+                       'needs_confirm instead of spending; a router that '
+                       'publishes no price counts as over the limit, never '
+                       'under it.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'model': _str('the model, in any router\'s spelling'),
+            'prompt': _str('a single user message'),
+            'messages': _MSGS,
+            'require': _str('modalities the router must accept'),
+            'kyc': _str('ceiling (default none)',
+                        enum=['none', 'email', 'account', 'full', 'any']),
+            'provider': _str('restrict to these routers'),
+            'max_tokens': _num('cap on the completion (default 1024)'),
+            'temperature': _num('leave unset for the router default'),
+            'confirm': _bool('spend past the guard'),
+            'attempts': _num('how many routers to try before giving up (3)')},
+            'required': ['model']},
+        'handler': _t_router_chat,
+    },
+    'infer_router_modalities': {
+        'description': 'What this registry can actually do, counted from the '
+                       'live catalogs rather than claimed: every input→output '
+                       'modality pair with how many models serve it, and which '
+                       'modalities each router covers.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'kyc': _str('ceiling (default none)',
+                        enum=['none', 'email', 'account', 'full', 'any'])}},
+        'handler': _t_router_modalities,
+    },
+    'infer_router_key': {
+        'description': 'Store a router API key, 0600, off the tree. Send an '
+                       'empty key to forget one. Keys are never returned by any '
+                       'route or tool.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'provider': _str('which router'),
+            'key': _str('the key, or empty to delete')},
+            'required': ['provider']},
+        'handler': _t_router_key,
+    },
+    'infer_router_spend': {
+        'description': 'What every router has actually cost, from the '
+                       'append-only ledger: calls, USD, tokens, p50 latency, and '
+                       '`drift` — billed over estimated. Drift far from 1.0 '
+                       'means a router\'s published prices and its bills '
+                       'disagree, which is the one thing a price aggregator '
+                       'cannot notice any other way.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_router_spend,
+    },
+    'infer_settle': {
+        'description': 'Crypto settlement status: whether the background watcher '
+                       'is running, whether it is ARMED to move funds unattended, '
+                       'the caps it works inside, what it has spent in 24h, and '
+                       'which payment rails are reachable. Disarmed by default — '
+                       'it prices top-ups and files them as proposals, and moving '
+                       'money takes one deliberate action.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_settle_status,
+    },
+    'infer_settle_balances': {
+        'description': 'What each funded router says is left on the key. A '
+                       'router with no key, or one that publishes no balance, '
+                       'says which of the two it is rather than reporting zero.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'kyc': _str('ceiling (default none)',
+                        enum=['none', 'email', 'account', 'full', 'any'])}},
+        'handler': _t_settle_balances,
+    },
+    'infer_settle_policy': {
+        'description': 'Read or change the settlement policy: the balance floor '
+                       'that triggers a top-up, the size of one, the 24h ceiling, '
+                       'the rail to pay from, and whether the watcher is armed. '
+                       'Arming requires confirm=true, a rail and a daily cap — an '
+                       'unbounded autopayer is not a feature.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'armed': _bool('let the watcher execute top-ups itself'),
+            'rail': _str('which chain module pays', enum=['eth', 'solana', 'near']),
+            'coin': _str('what to send, e.g. USDC'),
+            'floor_usd': _num('top up when a router drops below this'),
+            'topup_usd': _num('how much to add'),
+            'daily_cap_usd': _num('the 24h ceiling, never crossed'),
+            'interval': _num('seconds between sweeps'),
+            'confirm': _bool('required to arm')}},
+        'handler': _t_settle_policy,
+    },
+    'infer_settle_sweep': {
+        'description': 'One settlement pass right now: read every balance, and '
+                       'for each router under its floor either file a top-up '
+                       'proposal or, if armed, execute it. This is the whole '
+                       'background loop — the timer adds nothing to it, so what '
+                       'runs unattended is exactly what a manual sweep does.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'execute': _bool('override the armed flag for this sweep only'),
+            'kyc': _str('ceiling (default none)')}},
+        'handler': _t_settle_sweep,
+    },
+    'infer_settle_pay': {
+        'description': 'Fund one router with crypto. Without confirm=true it is '
+                       'a dry run that returns the exact transfer it would make. '
+                       'The private key never enters this module: the transfer is '
+                       'handed to the eth, solana or near module, which holds the '
+                       'key and gates its own writes.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'proposal': _str('a proposal id from infer_settle_sweep'),
+            'provider': _str('which router to fund'),
+            'usd': _num('how much'),
+            'address': _str('the deposit address the router issued you'),
+            'rail': _str('which chain to pay from', enum=['eth', 'solana', 'near']),
+            'coin': _str('what to send'),
+            'confirm': _bool('actually move the funds')}},
+        'handler': _t_settle_pay,
+    },
+}
+
+TOOLS.update(ROUTER_TOOLS)
+
+
 def call_tool(name, args):
     """Run one tool by name. Shared with the REST layer, so a route and an MCP
     tools/call cannot drift apart."""

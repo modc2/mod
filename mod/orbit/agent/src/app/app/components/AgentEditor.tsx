@@ -44,8 +44,10 @@ type Props = {
   /** called with the slug that was written, after a successful save */
   onSaved: (name: string) => void
   onClose: () => void
-  /** hand this agent to the full canvas (tool graph, memory nodes, prompts) */
-  onOpenCanvas: (name: string | null) => void
+  /** hand this agent to the FLOW canvas: a graph with it already on it.
+      The canvas connects agents to each other — it is not a second place to
+      build one, which is what this form is for. */
+  onUseInFlow: (name: string | null) => void
   /** save-and-run: select the agent in the console */
   onUse?: (name: string) => void
   /** make the saved agent the one unnamed runs land on */
@@ -86,7 +88,7 @@ function useFleetSearch(query: string) {
 
 export default function AgentEditor({
   name, from, token, isHost, address, defaultAgent,
-  onSaved, onClose, onOpenCanvas, onUse, onMakeDefault,
+  onSaved, onClose, onUseInFlow, onUse, onMakeDefault,
 }: Props) {
   // `copy` is the save-as-new path: you opened an agent, changed it, and the
   // change belongs in an agent of your own rather than in that one. It is a
@@ -365,10 +367,10 @@ export default function AgentEditor({
           <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-300/90 shrink-0"
             title="unnamed runs land on this agent">default</span>
         )}
-        <button onClick={() => onOpenCanvas(stored && !copy ? name : null)}
+        <button onClick={() => onUseInFlow(stored && !copy ? name : null)}
           className="ml-auto text-[10px] px-1.5 py-0.5 rounded border border-violet-400/25 text-violet-300/90 hover:bg-violet-500/10 transition shrink-0"
-          title="Open this agent on the canvas — the same fields, wired as a graph">
-          canvas ↗
+          title="Wire this agent into a flow — the canvas connects agents to each other">
+          flow ↗
         </button>
       </div>
 

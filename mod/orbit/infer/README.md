@@ -1,21 +1,130 @@
 # infer
 
-Inference optimization for any model architecture, on one standard binary.
+Every inference router that settles in crypto and asks for no documents, merged
+into one multimodal catalog — and the two older halves, a temperature-0 receipts
+board and an ONNX optimizer, for when the cheapest router is no router at all.
 
 ```
-m infer/examples                          # three models to work on
-m infer/inspect mlp                       # ops, params, shapes, opset
-m infer/plan cnn target=web               # what to try, and why
-m infer/optimize mlp slim,extended        # do it — measured both ways
-m infer/compare cnn                       # every pass, side by side
-m infer/bench cnn runs=100 threads=1      # p50/p90/p99, warmed up
-m infer/parity mlp mlp+slim+extended      # did the answers survive
-m infer/portable cnn+slim+extended        # will it run in a browser
-m infer/export torchvision:resnet18       # torch → the standard binary
-m infer/serve
+m infer/routers                           # who trades here, and on what terms
+m infer/market input=image                # every model that can see, cheapest first
+m infer/market coin=XMR                   # what Monero can buy
+m infer/market output=audio               # every voice in the registry
+m infer/plan_route gpt-oss-120b           # who would serve it, and the saving
+m infer/route gpt-oss-120b prompt="hi"    # call the cheapest funded one
+m infer/spend                             # what each router cost, and billing drift
+m infer/settle                            # the background payer, and its caps
+m infer/sweep                             # read balances, propose top-ups
+m infer/pay nanogpt usd=10 rail=eth       # dry run unless confirm=true
 ```
 
-API `:50820` (`/api/infer`) · console `/infer` · MCP `POST /mcp` (14 tools)
+API `:50820` (`/api/infer`) · console `/infer` · MCP `POST /mcp` (40 tools)
+
+## The router
+
+Six catalogs, fetched at once and merged: **NanoGPT**, **Venice**, **PPQ**,
+**Chutes**, **io.net** and **OpenRouter**. Around 1,350 offerings of ~1,120
+distinct models — text, image, audio, video and embeddings.
+
+| router | KYC | takes | note |
+|---|---|---|---|
+| nanogpt | none | XMR BTC ETH USDC LTC SOL XNO | no account at all; 601 models |
+| venice | none | VVV USDC ETH BTC | quotes a DIEM column; 362 models incl. image, TTS, embeddings |
+| ppq | none | BTC ETH USDC SOL | key bought with crypto; 369 models |
+| chutes | none | TAO USDC | Bittensor-native, TEE-attested chutes |
+| io.net | account | IO SOL USDC | Solana-native; publishes measured latency |
+| openrouter | account | USDC on Base | 447 models — the yardstick |
+
+`kyc` is a **ceiling**, not an equality test, and the default is `none`. A
+router whose policy has not been read is `unknown` and is excluded — `kyc=any`
+is the only way to reach one. That asymmetry is deliberate: being wrong in the
+other direction hands somebody's passport to a provider they were avoiding.
+
+These are dated declarations about **somebody else's onboarding policy**, not
+guarantees. `m infer/routers` prints when each was last checked.
+
+### Why aggregating pays, measured
+
+217 models are served by more than one no-KYC router, and the spread between
+the dearest and the cheapest reaches **5.6x for identical weights**:
+
+```
+gpt-oss-120b            ppq / nanogpt      5.63x
+deepseek-v4-flash-0731  nanogpt/venice/ppq 4.46x
+llama-3.2-3b-instruct   nanogpt / ppq      4.11x
+```
+
+## The unit trap
+
+No two routers publish prices in the same unit, and **two of them use the same
+key name for different units**:
+
+| router | field | unit |
+|---|---|---|
+| openrouter | `pricing.prompt` | USD **per token**, as a string |
+| chutes | `pricing.prompt` | USD **per million tokens** |
+| nanogpt | `pricing.prompt` + `pricing.unit` | declares its own — the only one that does |
+| ppq | `input_per_1M_tokens` | per million, self-naming |
+| io.net | `input_token_price` | per token, as a float |
+| venice | `pricing.input.usd` | per million, plus a DIEM column |
+
+Read a chute the way OpenRouter is read and it looks **a million times** too
+expensive, so a cheapest-first router silently never picks it. Units are
+therefore **declared by each adapter and never inferred**; everything
+downstream is USD per million tokens. `sniff()` exists for a provider that
+declares nothing, and it returns its own confidence rather than guessing
+quietly.
+
+### A published zero is not a price
+
+PPQ lists `input_per_1M_tokens: 0` for the Lyria music models because they bill
+per clip; NanoGPT lists it for `auto-model` because the real price depends on
+what it routes to. Read as free, those rows sort to the **top** of a
+cheapest-first ranking and walk straight through the spend guard. So zero
+across every field means *unknown* unless the router declares the model free
+(`:free`), in which case it really is.
+
+## Settlement
+
+Crypto, in the background, and **disarmed by default**. The watcher reads
+balances on a timer, prices any top-up a router needs, and files it as a
+proposal. Nothing moves.
+
+```
+m infer/settle armed=true confirm=true rail=eth daily_cap_usd=25
+```
+
+Arming needs `confirm=true`, a rail and a daily cap — an unbounded autopayer is
+not a feature. Once armed it works inside three guards: a per-top-up size cap
+(4x the configured amount), a rolling 24h ceiling it will not cross for any
+reason, and a deposit address that must already be on file. Nothing here
+invents an address.
+
+**Private keys never enter this module.** A transfer is an authenticated call
+to the `eth` (:50730), `solana` (:50710) or `near` (:50910) module, each of
+which holds its own key and gates its own writes. A rail that is not listening
+is reported as down rather than retried into a timeout.
+
+The same code path runs armed and disarmed — a proposal is an execution that
+stopped before `rail.send` — so what you approve is what already got priced.
+
+## Routing a call
+
+`plan` and `chat` share one candidate function, so the dry run **is** the
+decision rather than a description of it.
+
+```
+m infer/route gpt-oss-120b prompt="name three primes" require=image
+```
+
+Falls over to the next router when one refuses — a 429 is not an outage when
+four others serve the same weights. Every answer carries a `routing` block:
+who served it, what it **actually** cost computed from the usage they reported,
+what the catalog estimated beforehand, and every router tried on the way. The
+gap between billed and estimated accumulates in the ledger as `drift`, which is
+the only way to notice a router whose bills and published prices disagree.
+
+Above `INFER_SPEND_USD` (default $0.50) a call returns `needs_confirm` instead
+of running, and a model with no usable price counts as **over** the limit.
 
 ## The standard binary
 
@@ -174,6 +283,29 @@ and it is not one you can estimate from server timings.
 ## Endpoints
 
 ```
+GET  /router                 every router and the terms it trades on
+GET  /router/models          the market: one row per model, cheapest router first
+                             ?q= &input= &output= &coin= &kyc= &max_usd=
+                             &min_context= &multimodal= &free= &sort= &limit=
+GET  /router/offerings       one row per (router, model) — same filters
+GET  /router/modalities      what the registry can do, counted from live catalogs
+GET  /router/refresh         re-fetch every catalog now
+GET  /router/plan?model=     the ranking, spending nothing
+POST /router/chat            {model, prompt|messages, require?, confirm?}
+POST /router/key             {provider, key} — 0600, off the tree
+GET  /router/spend           per-router cost, latency and billing drift
+GET  /router/ledger          the append-only call log
+
+GET  /settle                 watcher state, arming, caps, 24h spend
+GET  /settle/balances        what each funded router has left
+GET  /settle/rails           which chain modules are reachable
+GET  /settle/policy          POST {armed, rail, coin, floor_usd, topup_usd,
+                             daily_cap_usd, confirm} — arming needs confirm
+POST /settle/sweep           one pass: read balances, propose or execute
+GET  /settle/proposals       the queue    POST /settle/pay {..., confirm}
+POST /settle/address         {provider, address, coin}
+POST /settle/start           run the sweep on a timer   POST /settle/stop
+
 GET  /health          runtime versions, execution providers, available passes
 GET  /models          the store          POST /models {data|path|url}
 GET  /blob/:id        raw .onnx bytes — what the browser fetches
@@ -187,7 +319,7 @@ GET  /portable?model=
 POST /compare         {model, passes?} — every pass on its own, ranked
 POST /export          {source, shape?, weights?}
 POST /report          what a browser measured    GET /reports?model=
-POST /mcp             MCP JSON-RPC 2.0 (14 tools)
+POST /mcp             MCP JSON-RPC 2.0 (40 tools)
 ```
 
 ## State and requirements
