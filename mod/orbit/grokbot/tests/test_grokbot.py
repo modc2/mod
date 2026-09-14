@@ -24,12 +24,15 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.delenv('GROK_API_KEY', raising=False)
     import client
     import identity
+    import runs
     monkeypatch.setattr(client, 'STATE', str(tmp_path))
     monkeypatch.setattr(client, 'USERS', str(tmp_path / 'users'))
     monkeypatch.setattr(client, 'KEY_FILE', str(tmp_path / 'key.json'))
     monkeypatch.setattr(client, '_MODELS_CACHE', {})
     monkeypatch.setattr(identity, 'OWNER_PATH', tmp_path / 'owner.json')
     monkeypatch.setattr(identity, 'STATE', tmp_path)
+    monkeypatch.setattr(runs, 'STATE', str(tmp_path))
+    monkeypatch.setattr(runs, 'DIR', str(tmp_path / 'runs'))
     yield tmp_path
 
 
@@ -214,6 +217,87 @@ def test_routes_that_need_a_signature_say_so():
     for method, path in (('POST', '/key'), ('GET', '/bots'), ('POST', '/bots')):
         with pytest.raises(identity.AuthError):
             api.route(method, path, '', {'key': 'xai-x', 'name': 'b'}, None, None)
+
+
+def test_signin_is_forced_on_everything_that_touches_grok():
+    """A BYOK key alone is not enough anywhere — sign-in is mandatory."""
+    import api
+    import identity
+    spends = (('POST', '/chat', {'prompt': 'hi'}),
+              ('GET', '/models', {}),
+              ('GET', '/model', {'id': 'grok-4-fast'}),
+              ('GET', '/keyinfo', {}),
+              ('POST', '/images', {'prompt': 'a cat'}),
+              ('POST', '/raw', {'path': '/models'}),
+              ('GET', '/runs', {}))
+    for method, path, body in spends:
+        with pytest.raises(identity.AuthError):
+            api.route(method, path, '', body, None, 'xai-byok-key')
+
+
+def test_mcp_chat_without_a_token_is_a_401_not_a_spend():
+    import mcp
+    out = mcp.handle({'jsonrpc': '2.0', 'id': 9, 'method': 'tools/call',
+                      'params': {'name': 'grok_chat',
+                                 'arguments': {'prompt': 'hi',
+                                               'key': 'xai-byok'}}})
+    assert out['result']['isError'] is True
+    assert '401' in json.dumps(out['result'])
+
+
+# ── the run ledger ───────────────────────────────────────────────────
+
+def test_a_run_opens_live_and_closes_done_with_the_counts():
+    import runs
+    rid = runs.start(ADDR, 'chat', model='grok-4-fast', prompt='hi', search=True)
+    board = runs.list_runs(ADDR)
+    assert board['counts'] == {'all': 1, 'live': 1, 'done': 0, 'error': 0}
+    runs.finish(ADDR, rid, runs.DONE, ms=1234, tokens=99)
+    board = runs.list_runs(ADDR)
+    assert board['counts'] == {'all': 1, 'live': 0, 'done': 1, 'error': 0}
+    row = board['runs'][0]
+    assert row['ms'] == 1234 and row['tokens'] == 99 and row['search'] is True
+
+
+def test_a_failed_run_lands_on_the_error_pill():
+    import runs
+    rid = runs.start(ADDR, 'chat', model='grok-4-fast')
+    runs.finish(ADDR, rid, runs.ERROR, error='429: rate limited')
+    board = runs.list_runs(ADDR, status='error')
+    assert board['counts']['error'] == 1
+    assert board['runs'][0]['error'].startswith('429')
+
+
+def test_runs_are_scoped_to_one_address_and_the_prompt_is_truncated():
+    import runs
+    runs.start(ADDR, 'chat', prompt='x' * 500)
+    assert runs.list_runs('0xsomeone-else')['counts']['all'] == 0
+    assert len(runs.list_runs(ADDR)['runs'][0]['prompt']) == runs.PROMPT_HEAD
+
+
+def test_a_live_run_older_than_any_timeout_is_reaped_as_lost():
+    import runs
+    rid = runs.start(ADDR, 'chat')
+    with runs._LOCK:
+        rows = runs._load(runs._path(ADDR))
+        rows[0]['ts'] -= runs.STALE_AFTER + 10
+        runs._save(runs._path(ADDR), rows)
+    board = runs.list_runs(ADDR)
+    assert board['counts'] == {'all': 1, 'live': 0, 'done': 0, 'error': 1}
+    assert 'lost' in board['runs'][0]['error']
+    assert rid  # it was a real run
+
+
+def test_the_ledger_never_holds_a_key_and_stays_0600():
+    import client
+    import runs
+    client.set_user_key(ADDR, 'xai-secret')
+    rid = runs.start(ADDR, 'chat', model='grok-4-fast', prompt='hello')
+    runs.finish(ADDR, rid, runs.DONE)
+    path = runs._path(ADDR)
+    assert os.stat(path).st_mode & 0o777 == 0o600
+    with open(path) as f:
+        assert 'xai-secret' not in f.read()
 
 
 def test_info_lists_every_route_and_never_leaks_a_key():

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../lib/api";
+import { runEvmPlan, runSolanaSwap, walletFor, type StepUpdate } from "../lib/wallet";
 import type { Prefill } from "./Hub";
 
 type Props = {
@@ -134,7 +135,12 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
   const [confirm, setConfirm] = useState(false);
   const [quote, setQuote] = useState<any>(null);
   const [outcome, setOutcome] = useState<any>(null);
-  const [busy, setBusy] = useState<"" | "quote" | "enter">("");
+  const [busy, setBusy] = useState<"" | "quote" | "enter" | "paper">("");
+  // Who signs is decided by the operation: an EVM or Solana module offers the
+  // user's own browser wallet beside the chain module; Bittensor never does.
+  const [signer, setSigner] = useState<"browser" | "module">("module");
+  const [steps, setSteps] = useState<StepUpdate[]>([]);
+  const [paper, setPaper] = useState<any>(null);
 
   const params = useMemo(
     () => ({
@@ -193,12 +199,34 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
     setQuote(null);
     setOutcome(null);
     setConfirm(false);
+    setSteps([]);
+    setPaper(null);
     api.getModule(picked.id, true).then(setDetail).catch(() => {});
   }, [picked]);
 
   const chainModule = detail?.adapter?.module ?? "eth";
   const accountHint =
     chainModule === "solana" ? "solana keystore wallet" : chainModule === "bt" ? "bittensor coldkey" : "eth account name";
+  const wallet = walletFor(detail?.chain);
+
+  // Default to the wallet the operation calls for, when the browser has it.
+  useEffect(() => {
+    setSigner(wallet.kind && wallet.available ? "browser" : "module");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id]);
+
+  const openPaper = async () => {
+    if (!detail) return;
+    if (paper?.id === detail.id) return setPaper(null);
+    setBusy("paper");
+    try {
+      setPaper(await api.getModuleWhitepaper(detail.id));
+    } catch (e: any) {
+      say(e.message, true);
+    } finally {
+      setBusy("");
+    }
+  };
 
   const runQuote = async () => {
     if (!detail) return;
@@ -215,9 +243,49 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
     }
   };
 
+  /// The browser-wallet path: the API plans, the user's own wallet signs, the
+  /// book records only what was actually sent.
+  const enterBrowser = async () => {
+    if (!detail) return;
+    if (!address) return say("connect your wallet (top right) first — the book needs an owner to attribute the position to", true);
+    setBusy("enter");
+    setSteps([]);
+    setOutcome(null);
+    const onStep = (u: StepUpdate) =>
+      setSteps((s) => {
+        const next = [...s];
+        const i = next.findIndex((x) => x.label === u.label || u.label.startsWith(x.label));
+        if (i >= 0) next[i] = u;
+        else next.push(u);
+        return next;
+      });
+    try {
+      const q = await api.quoteModule(detail.id, { amount: amount.trim() });
+      setQuote(q);
+      const plan = q?.wallet;
+      if (!plan?.available) throw new Error(plan?.reason ?? "no browser wallet path for this module — use the server module");
+      const testnet = detail.chain === "sepolia" || detail.chain === "base-sepolia";
+      if (!testnet && !confirm) {
+        setOutcome({ needs_confirm: true, reason: `${detail.chain_label} is real money — tick confirm, then your wallet asks once more.` });
+        return;
+      }
+      const { txs, owner } =
+        plan.kind === "solana" ? await runSolanaSwap(plan, onStep) : await runEvmPlan(plan, onStep);
+      const out = await api.recordPosition({ module: detail.id, amount: amount.trim(), address: owner, txs });
+      setOutcome(out);
+      say(`in — your wallet signed ${txs.length} tx${txs.length === 1 ? "" : "s"} → ${detail.project}`);
+    } catch (e: any) {
+      setOutcome({ error: e.message });
+      say(e.message, true);
+    } finally {
+      setBusy("");
+    }
+  };
+
   const enter = async () => {
     if (!detail) return;
     if (detail.adapter?.kind === "treasury_lock") return onOpenTreasury();
+    if (signer === "browser") return enterBrowser();
     setBusy("enter");
     try {
       const body: any = { module: detail.id, amount: amount.trim(), confirm };
@@ -477,6 +545,21 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                 </div>
               )}
 
+              <button className="ghost" onClick={openPaper} disabled={busy === "paper"} style={{ marginTop: 10, padding: "3px 9px", fontSize: 11 }}>
+                {busy === "paper" ? "writing…" : paper?.id === detail.id ? "close whitepaper" : "✦ whitepaper"}
+              </button>
+              {paper?.id === detail.id && (
+                <div className="card" style={{ marginTop: 8 }}>
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 10.5, lineHeight: 1.6, margin: 0, maxHeight: 260, overflow: "auto" }}>
+                    {paper.markdown}
+                  </pre>
+                  <div className="mono-small" style={{ marginTop: 8, lineHeight: 1.6, wordBreak: "break-all" }}>
+                    stored under the protocol · CID <b>{paper.cid ?? "—"}</b>
+                    {paper.share ? ` · ${paper.share}` : ""}
+                  </div>
+                </div>
+              )}
+
               {detail.addable && (
                 <>
                   <div className="label" style={{ marginTop: 18 }}>Add money</div>
@@ -486,8 +569,38 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                   </div>
                   {detail.adapter?.kind !== "treasury_lock" && (
                     <>
-                      <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder={accountHint} style={{ marginTop: 6 }} />
-                      <input value={auth} onChange={(e) => setAuth(e.target.value)} type="password" placeholder={`bearer token for the ${chainModule} module (optional)`} style={{ marginTop: 6 }} />
+                      {/* Who signs — the operation's chain decides what is on offer. */}
+                      {wallet.kind ? (
+                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                          <button
+                            className={`chip ${signer === "browser" ? "active" : ""}`}
+                            onClick={() => setSigner("browser")}
+                            disabled={!wallet.available}
+                            title={wallet.available ? "your own wallet signs — no key or bearer leaves the browser" : "no injected wallet found in this browser"}
+                            style={{ flex: 1 }}
+                          >
+                            ◈ {wallet.label}
+                          </button>
+                          <button
+                            className={`chip ${signer === "module" ? "active" : ""}`}
+                            onClick={() => setSigner("module")}
+                            title={`the ${chainModule} module's keystore signs server-side, under its own guards`}
+                            style={{ flex: 1 }}
+                          >
+                            {chainModule} module
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="mono-small" style={{ marginTop: 8 }}>
+                          Signed by the <b>{chainModule}</b> module — no browser wallet speaks this chain.
+                        </div>
+                      )}
+                      {signer === "module" && (
+                        <>
+                          <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder={accountHint} style={{ marginTop: 6 }} />
+                          <input value={auth} onChange={(e) => setAuth(e.target.value)} type="password" placeholder={`bearer token for the ${chainModule} module (optional)`} style={{ marginTop: 6 }} />
+                        </>
+                      )}
                     </>
                   )}
                   <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
@@ -498,7 +611,11 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                       <button className="primary" onClick={onOpenTreasury} style={{ flex: 1 }}>open the treasury</button>
                     ) : (
                       <button className="primary" onClick={enter} disabled={busy !== "" || !amount.trim()} style={{ flex: 1 }}>
-                        {busy === "enter" ? "sending…" : confirm ? "ADD MONEY" : "add (dry until confirmed)"}
+                        {busy === "enter"
+                          ? signer === "browser" ? "signing…" : "sending…"
+                          : confirm
+                            ? signer === "browser" ? "SIGN & ADD" : "ADD MONEY"
+                            : "add (dry until confirmed)"}
                       </button>
                     )}
                   </div>
@@ -532,6 +649,21 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                     </div>
                   )}
 
+                  {steps.length > 0 && (
+                    <div className="card" style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>your wallet, step by step</div>
+                      <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.7 }}>
+                        {steps.map((s, i) => (
+                          <div key={i} style={{ color: s.status === "failed" ? "var(--warn)" : s.status === "done" ? undefined : "var(--muted)" }}>
+                            {s.status === "done" ? "✓" : s.status === "failed" ? "✕" : "…"} {s.label}
+                            {s.tx ? ` · ${s.tx.slice(0, 10)}…` : ""}
+                            {s.error ? ` — ${s.error}` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {outcome && (
                     <div className="card" style={{ marginTop: 10, borderColor: outcome.entered ? "var(--accent-dim)" : outcome.error ? "#3a2126" : "var(--line)" }}>
                       <div style={{ fontSize: 12, fontWeight: 600 }}>
@@ -549,8 +681,10 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                     </div>
                   )}
                   <div className="mono-small" style={{ marginTop: 10, lineHeight: 1.6 }}>
-                    Executed by the {chainModule} module with its own guards; this desk holds no key.
-                    {!address && " Sign in to have positions attributed to your wallet."}
+                    {signer === "browser"
+                      ? "Your own wallet signs every transaction — this desk only plans the calls and records what was sent. Sign in (top right) so the book knows whose position it is."
+                      : `Executed by the ${chainModule} module with its own guards; this desk holds no key.`}
+                    {signer !== "browser" && !address && " Sign in to have positions attributed to your wallet."}
                   </div>
                 </>
               )}

@@ -147,16 +147,18 @@ mod/orbit/copytensor/
     └── app/                     # Next.js frontend (pixel theme, CRT shell)
 ```
 
-## The strat agent
+## The desk agent
 
-A conversation whose output is a basket. `/agent` in the console, `ct.ask()` from
-Python, `m copytensor/ask` from a shell — all three drive the same run.
+A conversation whose output is a basket — and, when you say so, a change to the
+book. `/agent` in the console, `ct.ask()` from Python, `m copytensor/ask` from a
+shell — all three drive the same run.
 
 **The shape.** `src/agent/agent.py` runs the Claude CLI headless
 (`claude -p --output-format stream-json`) with `src/agent/mcp_server.py` as its only
 toolbox, and translates the CLI's stream into console events:
-`start | text | tool | tool_done | strat | done | error`. `strat` is the event that
-matters — it carries the validated basket, which the UI renders as a card.
+`start | text | tool | tool_done | strat | approval | approval_done | ping | done |
+error`. `strat` carries the validated basket the UI renders as a card; `approval`
+carries a write the agent wants to make and has *not* made.
 
 **The toolbox reads this module's own API**, not the chain. `ct_traders` (the tracked
 board, and the pool a basket is picked from), `ct_trader`, `ct_trader_flows`,
@@ -173,12 +175,57 @@ every pick off the live board — so the card renders without a second round-tri
 the agent gets told what it actually picked (a coldkey with no index history comes
 back flagged `tracked: false` in `warning`).
 
-**It cannot trade.** There is no write tool in the registry at all, so no prompt can
-reach `/copy` or a wallet. A proposal lands in the console as a card; SAVE writes it
-into the same localStorage strat library the strat maker uses (`copytensor:indexes:v1`,
-with `thesis` alongside the weights), and OPEN IN STRAT MAKER saves then loads it into
-the drawer's builder for the hotkey and the ACTIVATE click. Going live stays exactly
-where it was.
+A proposal lands in the console as a card; SAVE writes it into the strat library, and
+OPEN IN STRAT MAKER loads it into the drawer's builder for the hotkey and the ACTIVATE
+click.
+
+### It can act — and it asks first, every time
+
+Since v0.12.0 the agent holds the **whole** toolbox, ops included: it can start a
+copy, re-size one, pause or delete one, watch a coldkey, and sync the book to the
+chain. What makes that safe is not a short tool list, it is that every *write* stops
+for a human.
+
+**The gate is `src/agent/approvals.py`, and it lives below the agent.** A gated call
+never reaches the API route. The MCP dispatcher parks it (`POST /agent/approvals`),
+blocks on `GET /agent/approvals/{id}/wait`, and only calls the tool if the answer is
+yes. The agent cannot route around it, a resumed session cannot, and neither can
+another MCP client — Claude Code connected over `POST /mcp` parks its writes in the
+same queue, and you answer them from the same console.
+
+| | |
+|---|---|
+| Free | every read, `propose_strat`, and `ct_sync(dry_run=true)` — a preview signs nothing, so the agent is *encouraged* to show you the plan before it asks |
+| Gated | `ct_create_copy`, `ct_resize_copy`, `ct_delete_copy`, `ct_pause_copy`, `ct_resume_copy`, `ct_watch`, `ct_unwatch`, and a live `ct_sync` |
+
+The set is `tools.WRITE_TOOLS` — named explicitly, never derived, so a new tool has to
+opt *in* to being free.
+
+**A decline is a turn of the conversation, not an error.** The reason you type comes
+back as the tool RESULT (`isError: false`), so "too much TAO, halve it" makes the
+agent halve it rather than retry or apologise. `tools.describe()` writes the one line
+on the card — "Start copying 5Gsb…pZX9 with 40 τ behind it" — with the raw arguments
+under it.
+
+**Failure modes all close.** Nobody answers → the request expires into a decline after
+`agent_approval_ttl_sec` (600s). The approval queue is unreachable → decline. The
+console closes mid-run → `ask()` declines everything still parked for that run.
+
+**A human is not a hang.** While a write is parked the CLI prints nothing, so `ask()`
+pumps stdout on a thread and keeps ticking: the cards reach the console on the same
+SSE stream, the timeout watchdog stops counting, and `ping` frames hold the socket
+open for as long as you take.
+
+```bash
+m copytensor/ask question="start a 20 TAO copy of the best 7d name" # prompts [y/N]
+m copytensor/ask question="..." approve=never                      # research only
+m copytensor/approvals                                             # what is waiting
+m copytensor/approve <id>  /  m copytensor/decline <id> note="..."
+```
+
+A non-TTY caller (cron, a pipe) auto-declines: a write nobody watched is exactly what
+the gate is for. `COPYTENSOR_MCP_APPROVAL=0` runs an MCP client ungated — the module's
+own agent always sets it to its run id and cannot turn it off.
 
 **Talking, not asking.** Every event carries the CLI's `session_id`; sending it back
 with the next question resumes that conversation (`--resume`), so "cut it to the best
@@ -188,7 +235,10 @@ is shared by every module on this host).
 
 **Auth** cascades `ANTHROPIC_API_KEY` → `~/.mod/copytensor/anthropic.key` (created
 empty at 0600 if nothing exists) → Claude CLI OAuth. `GET /agent` reports which one
-answered, and `m copytensor/test` fails the `agent` check when none do.
+answered, and `m copytensor/test` fails the `agent` check when none do. It also
+returns `auth_note`: the OAuth file existing is not the same as the login working, and
+without that note a stale `claude login` shows a green READY badge and then answers
+"OAuth session expired" only after you have asked it something.
 
 ## MCP — sync the book from any client
 

@@ -321,3 +321,24 @@ export const positionValue = (id: string) =>
 
 export const forgetPosition = (id: string) =>
   call<any>(`/positions/${encodeURIComponent(id)}`, { method: "DELETE" });
+
+/// The browser-wallet half of the book: after YOUR wallet signed an entry or an
+/// exit, these write down what actually happened. Both need sign-in — the book
+/// attributes, it never guesses.
+export const recordPosition = (body: Record<string, any>) =>
+  call<any>("/positions/record", { method: "POST", body: JSON.stringify(body) });
+
+export const settlePosition = (id: string, body: Record<string, any>) =>
+  call<any>(`/positions/${encodeURIComponent(id)}/settle`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+// ── whitepapers ────────────────────────────────────────────────────────────
+// The module's own, and one per finance module — generated from the live card,
+// dated, and stored content-addressed under the protocol.
+
+export const getWhitepaper = () => call<any>("/whitepaper");
+
+export const getModuleWhitepaper = (id: string) =>
+  call<any>(`/modules/${encodeURIComponent(id)}/whitepaper`);

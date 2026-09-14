@@ -9,8 +9,10 @@ Two headers matter and they are not the same thing:
     Authorization: Bearer <mod-protocol token>   who you are (sign-in)
     x-xai-key: xai-…                             whose Grok credits get spent
 
-Signing in is what gives you somewhere to *keep* a key and a bot. Sending the
-key per request works too, and stores nothing.
+Sign-in is required: every route that touches Grok demands the token, and the
+account behind it is where your key, your bots and your run ledger live. The
+x-xai-key header still decides whose credits are spent for one call, and
+stores nothing — but it never substitutes for signing in.
 
     python3 api.py [--port 50890]
 """
@@ -28,6 +30,7 @@ if HERE not in sys.path:
 import client as C     # noqa: E402
 import identity        # noqa: E402
 import mcp             # noqa: E402
+import runs as R       # noqa: E402
 from client import Client, GrokError    # noqa: E402
 
 BASE = os.environ.get('BASE_PATH', '/grokbot')
@@ -49,6 +52,10 @@ def info():
                  'env': 'XAI_API_KEY, GROK_API_KEY',
                  'rule': "every call spends the caller's own xAI credits — this "
                          'module holds no house key'},
+        'signin_required': 'every route that touches Grok (/chat, /models, '
+                           '/model, /keyinfo, /images, /raw, /runs) demands a '
+                           'signed mod-protocol token — a BYOK key says whose '
+                           'credits, never who you are',
         'default_model': C.DEFAULT_MODEL,
         'mcp': {'endpoint': 'POST /mcp', 'transport': 'Streamable HTTP (JSON-RPC 2.0)',
                 'stdio': 'python3 mcp.py', 'tools': len(mcp.TOOLS)},
@@ -65,6 +72,9 @@ def info():
             'GET /bots': 'your saved bots',
             'POST /bots': '{name, system, model, temperature, search, description}',
             'DELETE /bots': 'name=… — delete one',
+            'GET /runs': 'your run ledger — every chat/stream/image, '
+                         'status=live|done|error to filter, with the counts',
+            'DELETE /runs': 'clear your run ledger',
             'POST /images': '{prompt, model, n}',
             'POST /raw': '{path, method, body, params} — any xAI route',
             'GET /stats': 'accounts and bots on this deployment (owner only)',
@@ -101,16 +111,14 @@ def route(method, path, query, body, token, key):
     def signed():
         return identity.require(token)
 
-    def caller():
-        """The address if there is one — chat works signed-in or BYOK."""
-        return identity.whoami(token)
-
     if path in ('', '/'):
         return info()
     if path == '/health':
         return {'ok': True, 'tools': len(mcp.TOOLS), 'upstream': C.BASE}
     if path == '/me':
-        address = caller()
+        # The one identity read that works unsigned — it is how the console
+        # discovers it has to show you the sign-in gate.
+        address = identity.whoami(token)
         user = C.load_user(address) if address else {}
         return {'address': address, 'role': identity.role(address),
                 'signed_in': bool(address),
@@ -126,14 +134,20 @@ def route(method, path, query, body, token, key):
                                   persist=b.get('persist', True))
         return Client(key=key, address=address).key_state()
     if path == '/models':
-        return Client(key=key, address=caller()).models(
+        return Client(key=key, address=signed()).models(
             refresh=str(arg('refresh', '')) in ('1', 'true'))
     if path == '/model':
-        return Client(key=key, address=caller()).model(_need(arg('id'), 'id'))
+        return Client(key=key, address=signed()).model(_need(arg('id'), 'id'))
     if path == '/keyinfo':
-        return Client(key=key, address=caller()).key_info()
+        return Client(key=key, address=signed()).key_info()
     if path == '/chat' and method == 'POST':
-        return Client(key=key, address=caller()).chat(**b)
+        return Client(key=key, address=signed()).chat(**b)
+    if path == '/runs':
+        address = signed()
+        if method == 'DELETE':
+            return R.clear(address)
+        return R.list_runs(address, status=arg('status'),
+                           limit=arg('limit', 60))
     if path == '/bots':
         address = signed()
         if method == 'POST':
@@ -146,11 +160,11 @@ def route(method, path, query, body, token, key):
             return C.delete_bot(address, _need(arg('name'), 'name'))
         return {'bots': C.bots(address), 'address': address}
     if path == '/images' and method == 'POST':
-        return Client(key=key, address=caller()).images(
+        return Client(key=key, address=signed()).images(
             _need(b.get('prompt'), 'prompt'), model=b.get('model', 'grok-2-image'),
             n=b.get('n', 1))
     if path == '/raw' and method == 'POST':
-        return Client(key=key, address=caller()).raw(
+        return Client(key=key, address=signed()).raw(
             _need(b.get('path'), 'path'), method=b.get('method') or 'GET',
             body=b.get('body'), params=b.get('params'))
     if path == '/stats':
@@ -242,7 +256,8 @@ def serve(port=PORT, base=BASE):
             self.close_connection = True
             started = False
             try:
-                c = Client(key=key, address=identity.whoami(token))
+                # Streaming spends credits like anything else: sign in first.
+                c = Client(key=key, address=identity.require(token))
                 for chunk in c.stream(**body):
                     if not started:
                         self.send_response(200)
@@ -254,6 +269,10 @@ def serve(port=PORT, base=BASE):
                         started = True
                     self.wfile.write(chunk)
                     self.wfile.flush()
+            except identity.AuthError as e:
+                if not started:
+                    return self._send(401, {'error': str(e), 'signin':
+                                            'connect a wallet in the console'})
             except GrokError as e:
                 if not started:
                     return self._send(e.status if e.status in range(400, 600)

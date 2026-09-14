@@ -112,6 +112,8 @@ The app serves under basePath `/bloctime` → http://localhost:8852/bloctime.
 | GET | /health | Service health |
 | GET | /stats | Contract stats (totalBlocTime, supply, stakes) |
 | GET | /points | Multiplier curve points |
+| POST | /set_points | Owner: reshape the curve ({points:[{lock_seconds, multiplier bps \| multiplier_x}]}, server-side signer; the console applies via the owner wallet) |
+| GET | /treasury | Live treasury connection probe — configured/connected, reserve symbol + $ held |
 | GET | /params | Contract params (maxLockSeconds, secondsPerBlock) |
 | GET | /price | Owner-set token price ($/token) for the linear model |
 | POST | /set_price | Owner: reprice the token (server-side signer) |

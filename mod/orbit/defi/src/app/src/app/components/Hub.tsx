@@ -41,13 +41,21 @@ export default function Hub({ say, onExplore }: Props) {
   const [chain, setChain] = useState("");
   const [picked, setPicked] = useState<any>(null);
   const [detail, setDetail] = useState<any>(null);
+  // The full chain roster survives filtering: the API's `chains` collapses to
+  // the selected chain once a filter is on, so keep the unfiltered snapshot.
+  const [allChains, setAllChains] = useState<any[]>([]);
+  const [showChains, setShowChains] = useState(false);
 
   useEffect(() => {
     let dead = false;
     setError(null);
     api
       .getHub(chain ? { chain } : {})
-      .then((d) => !dead && setData(d))
+      .then((d) => {
+        if (dead) return;
+        setData(d);
+        if (!chain) setAllChains(d.chains ?? []);
+      })
       .catch((e) => !dead && setError(e.message));
     return () => {
       dead = true;
@@ -103,8 +111,16 @@ export default function Hub({ say, onExplore }: Props) {
           <span className="stat-n">{data ? rows.length : "…"}</span>
           <span className="stat-l">vetted protocols</span>
         </div>
-        <div className="stat">
-          <span className="stat-n">{data ? data.chains?.length ?? 0 : "…"}</span>
+        <div
+          className="stat"
+          style={{ cursor: "pointer" }}
+          title="show every chain the vetted protocols run on"
+          onClick={() => setShowChains((s) => !s)}
+        >
+          <span className="stat-n">
+            {allChains.length || (data ? data.chains?.length ?? 0 : "…")}{" "}
+            <span style={{ fontSize: 10, color: "var(--accent)" }}>{showChains ? "▴" : "▾"}</span>
+          </span>
           <span className="stat-l">chains</span>
         </div>
         <div className="stat">
@@ -121,6 +137,34 @@ export default function Hub({ say, onExplore }: Props) {
           market&apos;s, not ours.
         </span>
       </div>
+
+      {/* ── every chain the vetted protocols run on, each one a filter ── */}
+      {showChains && (
+        <div className="band" style={{ flexWrap: "wrap", rowGap: 5 }}>
+          {allChains.map((c: any) => {
+            const active = chain.toLowerCase() === String(c.chain).toLowerCase() || (c.desk && chain === c.desk);
+            return (
+              <button
+                key={c.chain}
+                className={`hub-chain ${c.desk ? "in-reach" : ""}`}
+                style={active ? { borderColor: "var(--accent)", background: "rgba(52, 211, 153, 0.15)" } : {}}
+                title={
+                  c.desk
+                    ? `this desk has a route to ${c.chain} through the ${c.module} module`
+                    : `${c.chain} is read-only from this desk — bridge first`
+                }
+                onClick={() => setChain(active ? "" : String(c.chain).toLowerCase())}
+              >
+                <span className={`chain-dot ${c.desk ?? ""}`} />
+                {c.chain}
+                <b>{c.protocols}</b>
+                <span className="dim">{money(c.tvl_usd)}</span>
+              </button>
+            );
+          })}
+          {allChains.length === 0 && <span className="dim">reading the chain roster…</span>}
+        </div>
+      )}
 
       <div className="fin-body">
         {/* ── the cards ─────────────────────────────────────────────── */}
@@ -204,14 +248,17 @@ export default function Hub({ say, onExplore }: Props) {
               <div style={{ fontSize: 22, color: "var(--accent)" }}>✦</div>
               <div style={{ marginTop: 10, lineHeight: 1.7 }}>
                 A short list made the cut: a real track record, a named team, public audits, and a
-                way in for plain USD — plus Bittensor, the one TAO-in entry, which says so on its
-                card. Pick a card to see <b>why it&apos;s here</b>, <b>what can go wrong</b>, and
-                every chain it runs on — then put money in through the module that owns that chain.
+                way in for plain USD — plus three entries that say so on their cards: Bittensor
+                (TAO in), Hyperliquid vaults (USDC behind a perps leader, trailing APR quoted not
+                promised) and Polymarket copy-trading (one trader mirrored one-to-one). Pick a card
+                to see <b>why it&apos;s here</b>, <b>what can go wrong</b>, and every chain it runs
+                on — then put money in through the module that owns that chain.
               </div>
               <div className="mono-small" style={{ marginTop: 12, lineHeight: 1.6 }}>
                 Green chains are enterable from this desk — Ethereum and Base through <b>eth</b>,
-                Solana through <b>solana</b>, Bittensor through <b>bt</b>. The rest are shown
-                honestly as read-only.
+                Solana through <b>solana</b>, Bittensor through <b>bt</b>, vaults through{" "}
+                <b>hyperliquid</b>, copy sessions through <b>polymarket</b> (owner-gated). The rest
+                are shown honestly as read-only.
               </div>
             </div>
           ) : (

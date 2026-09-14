@@ -13,6 +13,11 @@
 //                           model turn). Returns {note, params}; the console
 //                           drops the params into the VIBE editor — testing
 //                           and saving stay human presses.
+//   POST ?vibe=1 {ask}      the two above as ONE press: draft the words, then
+//                           bench the draft. Returns {note, params, bench}.
+//                           This is what the console's VIBE box calls — the
+//                           answer a person asked for is the numbers, not the
+//                           JSON in between. Saving is still a human press.
 //   DELETE ?id=lab_x        kill a running agent
 //
 // Owner-gated like /api/hub and /api/strat-chat: this route spends inference
@@ -23,7 +28,7 @@ import { NextResponse } from "next/server";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
 import {
   candidateBacktest, draftCandidate, labRunning, listLabRuns, readLabRun,
-  startLabRun, stopLabRun,
+  startLabRun, stopLabRun, vibeCandidate,
 } from "../../lib/server/lab";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +66,19 @@ export async function POST(req: Request) {
     if (!ask) return NextResponse.json({ error: "need {ask}" }, { status: 400 });
     try {
       return NextResponse.json(await draftCandidate(ask.slice(0, 4000)));
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : String(e) },
+        { status: 502 },
+      );
+    }
+  }
+
+  if (url.searchParams.get("vibe") === "1") {
+    const ask = typeof body.ask === "string" ? body.ask.trim() : "";
+    if (!ask) return NextResponse.json({ error: "need {ask}" }, { status: 400 });
+    try {
+      return NextResponse.json(await vibeCandidate(ask.slice(0, 4000), body.windows));
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : String(e) },

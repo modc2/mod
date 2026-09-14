@@ -65,6 +65,41 @@
          opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}
   #toast.on{opacity:1} #toast.bad{border-color:var(--bad);color:var(--bad)}
   .gate{border:1px dashed var(--line);padding:12px;color:var(--dim);font-size:13px}
+
+  /* the sign-in gate — nothing works until a wallet has signed */
+  #signgate{position:fixed;inset:0;z-index:8;display:none;align-items:center;
+            justify-content:center;background:rgba(10,11,15,.88);
+            backdrop-filter:blur(4px)}
+  #signgate.on{display:flex}
+  .gatecard{background:var(--panel);border:1px solid var(--line);padding:34px 38px;
+            max-width:460px;text-align:center}
+  .gatecard h1{margin:0 0 14px;font-size:18px;letter-spacing:.18em}
+  .gatecard p{color:var(--dim);font-size:13px;margin:0 0 18px}
+  .gatecard .go{padding:12px 28px;font-size:14px;letter-spacing:.12em}
+  .gatecard .alt{margin-top:16px;color:var(--faint);font-size:12px}
+
+  /* the runs board — ALL · LIVE · DONE · ERROR */
+  .pills{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:8px 22px;
+        background:transparent;color:var(--dim);font:inherit;font-size:12px;
+        letter-spacing:.22em;text-transform:uppercase;cursor:pointer;
+        display:inline-flex;gap:9px;align-items:center}
+  .pill b{font-weight:600;color:var(--faint)}
+  .pill:hover{border-color:var(--hot);color:var(--hot)}
+  .pill.on{background:var(--raised);border-color:var(--dim);color:var(--ink)}
+  .pill.on b{color:var(--dim)}
+  .pill .ldot{width:7px;height:7px;border-radius:50%;background:var(--hot);
+              animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  .run{display:flex;gap:10px;align-items:baseline;border:1px solid var(--line);
+       background:var(--raised);padding:7px 10px;margin-bottom:6px;font-size:12px;
+       flex-wrap:wrap}
+  .run .sdot{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}
+  .run.live .sdot{background:var(--hot);animation:pulse 1.2s infinite}
+  .run.done .sdot{background:var(--good)}
+  .run.error .sdot{background:var(--bad)}
+  .run .what{color:var(--ink)} .run .meta{color:var(--faint)}
+  .run .oops{color:var(--bad);flex-basis:100%;padding-left:18px}
 </style>
 </head>
 <body>
@@ -134,8 +169,31 @@
       </div>
       <div class="muted" id="chathint"></div>
     </div>
+
+    <div class="card">
+      <h2>Runs</h2>
+      <div class="pills" id="runpills"></div>
+      <div id="runlist"></div>
+      <div class="row" style="margin-top:8px">
+        <button class="small" id="clearruns">CLEAR LEDGER</button>
+        <span class="muted">every chat, stream and image on your account —
+          from here, the API or MCP — lands on this board</span>
+      </div>
+    </div>
   </div>
 </main>
+
+<div id="signgate">
+  <div class="gatecard">
+    <h1>GROK<span style="color:var(--hot)">BOT</span></h1>
+    <p>Sign-in required. This console runs on your wallet credentials —
+       the signature mints the mod-protocol token that owns your xAI key,
+       your bots and your run ledger. Nothing here works without it.</p>
+    <button class="go" id="gatesignin">CONNECT WALLET</button>
+    <div class="alt">no wallet in this browser? paste a token minted with
+      <code>m.mod("auth")().token({})</code> — the button will ask</div>
+  </div>
+</div>
 
 <div id="toast"></div>
 
@@ -147,6 +205,8 @@ const API = /\/grokbot$/.test(P) ? P + '/_api' : (P === '/console' ? '' : P + '/
 const TKEY = 'grokbot.token', AKEY = 'grokbot.token.at';
 let TOKEN = localStorage.getItem(TKEY) || '';
 let YOU = null, MODELS = [], THREAD = [], BOT = null, BUSY = false;
+let RUNS = [], RCOUNTS = {all:0, live:0, done:0, error:0}, RFILTER = 'all';
+let runTimer = null;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
@@ -266,9 +326,8 @@ function drawKey(){
   const signed = !!(YOU && YOU.address);
   $('#keyform').style.display = signed ? '' : 'none';
   if (!signed){
-    $('#keystate').innerHTML = '<div class="gate">Connect a wallet to keep a key '
-      + 'and bots of your own. Without one you can still chat by sending an '
-      + '<code>x-xai-key</code> header to the API.</div>';
+    $('#keystate').innerHTML = '<div class="gate">Sign in first — your xAI key '
+      + 'and your bots hang off your wallet address.</div>';
     return;
   }
   if (st.key)
@@ -345,13 +404,74 @@ function drawThread(){
   $('#thread').scrollTop = $('#thread').scrollHeight;
 }
 
+// ── the runs board — ALL · LIVE · DONE · ERROR ─────────────────────
+function drawRuns(){
+  const pills = [['all','ALL'], ['live','LIVE'], ['done','DONE'],
+                 ['error','ERROR']];
+  $('#runpills').innerHTML = pills.map(([k, label]) => `
+    <button class="pill ${RFILTER === k ? 'on' : ''}" data-f="${k}">${
+      k === 'live' && RCOUNTS.live ? '<span class="ldot"></span>' : ''}${
+      label} <b>${RCOUNTS[k] || 0}</b></button>`).join('');
+  $('#runpills').querySelectorAll('.pill').forEach(el => el.onclick = () => {
+    RFILTER = el.dataset.f; drawRuns();
+  });
+  const rows = RFILTER === 'all' ? RUNS
+             : RUNS.filter(r => r.status === RFILTER);
+  if (!rows.length){
+    $('#runlist').innerHTML = '<div class="muted">' + (RCOUNTS.all
+      ? 'nothing under this filter'
+      : 'no runs yet — every call you make lands here') + '</div>';
+    return;
+  }
+  const ago = ts => { const s = Math.max(0, Date.now()/1000 - ts);
+    return s < 60 ? Math.floor(s) + 's' : s < 3600 ? Math.floor(s/60) + 'm'
+         : s < 86400 ? Math.floor(s/3600) + 'h' : Math.floor(s/86400) + 'd'; };
+  $('#runlist').innerHTML = rows.slice(0, 40).map(r => `
+    <div class="run ${esc(r.status)}"><span class="sdot"></span>
+      <span class="what">${esc(r.kind)}${r.bot ? ' · ' + esc(r.bot) : ''}</span>
+      <span class="meta">${esc(r.model || '')}${r.search ? ' · search' : ''}</span>
+      ${r.prompt ? `<span class="meta">“${esc(r.prompt.slice(0, 60))}${
+        r.prompt.length > 60 ? '…' : ''}”</span>` : ''}
+      <span class="meta" style="margin-left:auto">${
+        r.ms != null ? (r.ms/1000).toFixed(1) + 's · ' : ''}${
+        r.tokens ? r.tokens + ' tok · ' : ''}${ago(r.ts)} ago</span>
+      ${r.error ? `<span class="oops">${esc(r.error)}</span>` : ''}
+    </div>`).join('');
+}
+
+async function loadRuns(){
+  clearTimeout(runTimer);
+  if (!YOU || !YOU.signed_in){
+    RUNS = []; RCOUNTS = {all:0, live:0, done:0, error:0}; drawRuns(); return;
+  }
+  try {
+    const out = await api('/runs?limit=60');
+    RUNS = out.runs || [];
+    RCOUNTS = out.counts || RCOUNTS;
+  } catch(e){}
+  drawRuns();
+  if (RCOUNTS.live > 0) runTimer = setTimeout(loadRuns, 4000);
+}
+
+$('#clearruns').onclick = async () => {
+  try { await api('/runs', {method:'DELETE'}); toast('ledger cleared');
+        loadRuns(); }
+  catch(e){ toast(e.message, true); }
+};
+
 // ── loading ────────────────────────────────────────────────────────
+function drawGate(){
+  const signed = !!(YOU && YOU.signed_in);
+  $('#signgate').className = signed ? '' : 'on';
+  document.querySelector('main').style.visibility = signed ? '' : 'hidden';
+}
+
 async function refresh(){
   try { YOU = await api('/me'); }
   catch(e){ YOU = null; toast(e.message, true); }
   if (YOU && !YOU.signed_in && TOKEN){ keepToken(''); }
-  drawIdentity(); drawKey(); drawHint();
-  await Promise.all([loadModels(), loadBots()]);
+  drawGate(); drawIdentity(); drawKey(); drawHint();
+  await Promise.all([loadModels(), loadBots(), loadRuns()]);
 }
 
 async function loadModels(){
@@ -414,6 +534,7 @@ async function send(){
   if ($('#model').value) body.model = $('#model').value;
   if ($('#search').value) body.search = $('#search').value;
   if (BOT) body.bot = BOT;
+  setTimeout(loadRuns, 500);          // catch the run while it is LIVE
   try {
     const out = await api('/chat', {method:'POST', body});
     THREAD.push({role:'grok', text: out.text || '(no text)',
@@ -422,8 +543,10 @@ async function send(){
     THREAD.push({role:'err', text: e.message});
   }
   BUSY = false; $('#send').disabled = false;
-  drawThread(); drawHint();
+  drawThread(); drawHint(); loadRuns();
 }
+
+$('#gatesignin').onclick = () => signIn(false);
 
 api('/').then(d => { $('#tagline').textContent = d.what || ''; }).catch(() => {});
 drawThread();

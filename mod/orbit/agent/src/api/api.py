@@ -413,6 +413,18 @@ class TaskDraftRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+
+class AgentVibeRequest(BaseModel):
+    """A plain description in, a whole agent out — see /agents/vibe."""
+    description: str
+    name: Optional[str] = None       # omit it and an untaken one is minted
+    model: Optional[str] = None      # the DRAFTING run's model, not the agent's
+    provider: Optional[str] = None
+    free: bool = False
+    steps: int = 4                   # the drafting agent's own budget
+    save: bool = False               # true = file it now instead of a draft
+    key: Optional[str] = None
+
 class TaskSaveRequest(BaseModel):
     title: str
     prompt: str
@@ -1425,6 +1437,31 @@ def set_default_agent(req: DefaultAgentRequest):
         return {"error": str(e), "code": 403}
     except ValueError as e:
         return {"error": str(e), "code": 400}
+
+@app.post("/agents/vibe")
+def agent_vibe(req: AgentVibeRequest):
+    """Vibecode an agent: a plain description in, a whole agent out.
+
+    The vibe-builder agent designs it against the live tool catalog (read off
+    this module's own MCP server), and the name is minted untaken when the
+    caller didn't pick one. By default the draft comes back for review in the
+    editor; `save=true` files it under the caller's address straight away.
+    This is a model run, so it needs whatever a run needs: the host, a
+    granted address, or credits.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in to vibecode an agent", "code": 401}
+    try:
+        return get_mod().forward('agent_vibe', key=req.key,
+                                 description=req.description, name=req.name,
+                                 model=req.model, provider=req.provider,
+                                 free=req.free, steps=req.steps, save=req.save)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (FileExistsError, ValueError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/agents/{name}")
 def get_agent(name: str):

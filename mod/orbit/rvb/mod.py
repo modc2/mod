@@ -52,9 +52,9 @@ if HERE not in sys.path:
 
 import mod as m  # noqa: E402
 
-from rvbsrc import arena, builtins as bimod, corpus  # noqa: E402
-from rvbsrc import defense as defmod  # noqa: E402
-from rvbsrc import judge as judgemod, models, store  # noqa: E402
+from rvb import arena, builtins as bimod, corpus  # noqa: E402
+from rvb import defense as defmod  # noqa: E402
+from rvb import judge as judgemod, models, store  # noqa: E402
 
 
 class Mod:
@@ -88,7 +88,7 @@ class Mod:
 
     def info(self):
         """The rules, the scoring, and everything you can call."""
-        from rvbsrc import api
+        from rvb import api
         return api.info()
 
     forward = info
@@ -253,10 +253,10 @@ class Mod:
         port = int(port or self.port)
         bind = bind or os.environ.get('RVB_BIND', '127.0.0.1')
         if not background:
-            from rvbsrc import api
+            from rvb import api
             return api.serve(port, bind=bind)
         proc = subprocess.Popen(
-            [sys.executable, '-m', 'rvbsrc.api', '--port', str(port),
+            [sys.executable, '-m', 'rvb.api', '--port', str(port),
              '--bind', bind],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd=HERE)
         return {'pid': proc.pid, 'port': port, 'bind': bind,
@@ -264,7 +264,7 @@ class Mod:
 
     def mcp(self, tool=None, **args):
         """The MCP registry, or one tool invoked directly."""
-        from rvbsrc import mcp as mcpsrv
+        from rvb import mcp as mcpsrv
         if tool is None:
             return {'tools': mcpsrv.tool_list(), 'count': len(mcpsrv.TOOLS)}
         return mcpsrv.call_tool(tool, args)

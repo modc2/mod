@@ -116,7 +116,7 @@
         "reads": "a set is addressed by a 16-hex unguessable id; GET /sets (the list) answers only loopback callers or x-wingman-token from ~/.mod/wingman/token",
         "writes": "open on the same terms \u2014 this module holds personal photos, not keys or money; bind to 127.0.0.1 or put it behind the gateway's auth if it must be public"
     },
-    "schema": "QmfSAQ9zySfJicR8t4fhwpzyeKBsTh6by8kpSUWPiEEGBd",
+    "schema": "QmSy4Qn8Bik1D1SUMJVb8CuSpvpLzXekD8Aoz4waqHtALj",
     "privacy": {
         "default": "audit, lineup, render and export never open a socket; renders carry no exif, icc, xmp or thumbnail",
         "read": "the one verb that sends. What leaves is re-encoded from decoded pixels at 768 px as JPEG \u2014 the original file never moves and no EXIF, GPS or ICC goes with it",

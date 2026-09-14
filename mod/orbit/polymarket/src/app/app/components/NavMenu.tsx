@@ -16,6 +16,14 @@
 // BACKTEST and LIVE stay in the side panel's rail (UserSidebar) — testing
 // and running the bench happen BESIDE whatever page you're on. Don't re-add
 // them here.
+//
+// The MARK is the agent's handle. It used to be inert badge ("not a button"),
+// while the console agent was a robot icon in the crowded top-right cluster.
+// Now clicking the logo slides the agent column out of the LEFT edge and
+// clicking it again puts it away — the one piece of chrome that's on every
+// page, holding the one thing that explains every page. It stays visible at
+// every width (it was ≥480px-only as a badge) because it's the only handle
+// the agent has.
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -26,7 +34,13 @@ const MAIN_TABS: { label: string; href: string }[] = [
   { label: "STRATS", href: "/strats" },
 ];
 
-export default function NavMenu() {
+interface NavMenuProps {
+  /** Agent column state — owned by TopBar, since the logo toggles it. */
+  agentOpen?: boolean;
+  onToggleAgent?: () => void;
+}
+
+export default function NavMenu({ agentOpen = false, onToggleAgent }: NavMenuProps) {
   const embedded = useEmbedded();
   const pathname = usePathname() || "/";
 
@@ -35,13 +49,28 @@ export default function NavMenu() {
 
   return (
     <nav className="flex items-center gap-1 min-w-0">
-      {/* The mark is the console's badge, not a button. */}
-      <span
-        className="hidden min-[480px]:grid place-items-center w-[22px] h-[22px] rounded-[6px] bg-green-400 shrink-0 mx-1.5"
-        style={{ boxShadow: "0 0 12px rgba(74,222,128,0.55), inset 0 1px 0 rgba(255,255,255,0.4)" }}
+      {/* The mark IS the agent toggle — see the note at the top. */}
+      <button
+        type="button"
+        onClick={onToggleAgent}
+        aria-expanded={agentOpen}
+        aria-label="Console agent"
+        title={`${agentOpen ? "Hide" : "Ask"} the console agent — where things are and how this console works`}
+        className="grid place-items-center w-[22px] h-[22px] rounded-[6px] bg-green-400 shrink-0 mx-1.5 transition-transform hover:scale-110 active:scale-95"
+        style={{
+          boxShadow: agentOpen
+            ? "0 0 0 2px rgb(var(--pixel-bg-rgb)), 0 0 0 3.5px rgba(74,222,128,0.9), 0 0 16px rgba(74,222,128,0.75), inset 0 1px 0 rgba(255,255,255,0.4)"
+            : "0 0 12px rgba(74,222,128,0.55), inset 0 1px 0 rgba(255,255,255,0.4)",
+        }}
       >
-        <span className="w-[7px] h-[7px] rounded-[2px] bg-pixel-black" />
-      </span>
+        {/* Open, the dot squares off into the agent's little head — the mark
+            tells you which state you're in without a second glyph. */}
+        <span
+          className={`bg-pixel-black transition-all ${
+            agentOpen ? "w-[11px] h-[9px] rounded-[2px]" : "w-[7px] h-[7px] rounded-[2px]"
+          }`}
+        />
+      </button>
       {MAIN_TABS.map((t) => {
         // Everything that isn't the strat manager is a view of the board
         // (profiles, markets, the copy desk), so TRADERS is the default lit tab.

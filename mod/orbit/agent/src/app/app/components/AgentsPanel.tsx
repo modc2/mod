@@ -82,6 +82,9 @@ type Props = {
   onRun?: (name: string, prompt: string, memoryIds: string[]) => void
   /** the registry changed — the console refetches its own agent list */
   onChanged?: () => void
+  /** land with the new-agent form already open — asked for by whoever sent
+      you here to make one (the arena's + AGENT, the hub strip's) */
+  initialCreate?: boolean
 }
 
 const ICONS = ['>_', '△', '◉', '⬡', '◈', '✦', '⚙', '◆', '▣', '✧']
@@ -102,7 +105,7 @@ const writeNoteBindings = (map: Record<string, string[]>) => {
 }
 
 export default function AgentsPanel({
-  token, address, isHost, onSignIn, onEditOnCanvas, onRun, onChanged,
+  token, address, isHost, onSignIn, onEditOnCanvas, onRun, onChanged, initialCreate,
 }: Props) {
   const [agents, setAgents] = useState<Record<string, AgentSchema>>({})
   const [order, setOrder] = useState<string[]>([])
@@ -126,8 +129,17 @@ export default function AgentsPanel({
   const [noteIds, setNoteIds] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
 
-  const [creating, setCreating] = useState(false)
+  // signed out the form is no use — the server refuses an unsigned create —
+  // so an asked-for create falls back to the sign-in door the header uses
+  const [creating, setCreating] = useState(!!initialCreate && !!token)
   const [newName, setNewName] = useState('')
+  // asked to make an agent while signed out: the server refuses an unsigned
+  // create, so the ask becomes the sign-in it actually needs rather than a
+  // click that appears to do nothing
+  useEffect(() => {
+    if (initialCreate && !token) onSignIn?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // the source of the selected agent, once OPEN CODE asks for it
   const [source, setSource] = useState<{ path: string; text: string } | null>(null)

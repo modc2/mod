@@ -24,7 +24,13 @@ import Link from "next/link";
 
 import { getAccessToken } from "../lib/access";
 import { shortAddress } from "../lib/identityStrat";
-import type { ForwardVerdict, HubBacktest } from "../lib/hubReplay";
+import {
+  DEFAULT_STEADY_FLOOR,
+  steadyEnough,
+  type ForwardVerdict,
+  type HubBacktest,
+  type WinRecord,
+} from "../lib/hubReplay";
 import Sparkline from "./Sparkline";
 
 const API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/hub/autocopy`;
@@ -72,6 +78,63 @@ const VERDICT_STYLE: Record<ForwardVerdict, { label: string; cls: string; hint: 
   idle: { label: "IDLE", cls: "text-pixel-gray border-pixel-border", hint: "No trades in either window." },
 };
 
+/** "WIN 63% · STEADY 4/5" — how the TEST P&L was made, not just how much of
+    it there was. WIN is the hit rate over the legs the window decided; STEADY
+    is the shape — of the stretches this trader traded in, the share that came
+    out AHEAD in dollars. Read together they say which KIND of book it is: 40%
+    / 6-of-6 is a longshot buyer being paid for its tail, 100% / 1-of-5 is a
+    scalper whose expiries eat it alive. UNRATED (too few decided legs, or too
+    few stretches to see a shape) is a third state, never a zero. */
+function SteadyCell({ bt, floor }: { bt: HubBacktest; floor: number }) {
+  const w: WinRecord | undefined = bt.wins;
+  const rated = !!w && w.consistency >= 0;
+  const pct = w && w.winRate >= 0 ? Math.round(w.winRate * 100) : null;
+  const tone = !rated
+    ? "text-pixel-gray"
+    : w!.consistency >= 0.75
+      ? "text-green-400"
+      : w!.consistency >= 0.5
+        ? "text-amber-400"
+        : "text-red-400";
+  return (
+    <span
+      className="flex flex-col items-end shrink-0 min-w-[76px]"
+      title={
+        w
+          ? `WIN RECORD over the ${bt.days}d test window — ${w.wins} of ${w.decided} DECIDED ` +
+            "legs came back for more than they cost. A leg is decided when the copy was SOLD " +
+            "(realized P&L net of the closing fee) or when its market RESOLVED under us ($1 or " +
+            "$0). Resolutions count because leaders sell their winners and let their losers " +
+            "expire — score only the sales and an expiring book reads as a perfect record. " +
+            "Still-open positions, and legs valued at a last observed price, are not " +
+            "counted.\n\n" +
+            (rated
+              ? `STEADY ${w.winningBuckets}/${w.activeBuckets}: the window is cut into six equal ` +
+                `stretches, ${w.activeBuckets} of them decided a leg, and copying this trader came ` +
+                `out AHEAD in ${w.winningBuckets} of those (${w.consistency.toFixed(2)}).\n\n` +
+                "Dollars, not leg count — and the two disagree constantly here. A book that buys " +
+                "longshots is right well under half the time and still makes money; a book that " +
+                "scalps pennies is right almost always and still bleeds. STEADY asks the question " +
+                "a copier is actually asking: did it come out ahead, stretch after stretch." +
+                (floor > 0 ? ` The STEADY ≥ ${floor.toFixed(2)} filter is on.` : "")
+              : `UNRATED: ${w.decided} decided leg(s) across ${w.activeBuckets} stretch(es) — ` +
+                "under 5 legs, or inside fewer than 3 stretches, there is no shape to judge. " +
+                "The STEADY filter hides these rather than guessing.")
+          : "No win record on this card — it was replayed before win records existed, or it " +
+            "closed nothing. The STEADY filter hides it rather than guessing."
+      }
+    >
+      <span className="text-[9px] tracking-[0.14em] text-pixel-gray">WIN</span>
+      <span className={`text-[11px] font-semibold tabular-nums ${pct === null ? "text-pixel-gray" : pct >= 50 ? "text-green-400" : "text-red-400"}`}>
+        {pct === null ? "—" : `${pct}%`}
+      </span>
+      <span className={`text-[9.5px] tabular-nums ${tone}`}>
+        {rated ? `STEADY ${w!.winningBuckets}/${w!.activeBuckets}` : "UNRATED"}
+      </span>
+    </span>
+  );
+}
+
 function PnlCell({ label, bt, title }: { label: string; bt: HubBacktest; title: string }) {
   const pos = bt.pnl > 0;
   const neg = bt.pnl < 0;
@@ -96,6 +159,13 @@ export default function AutoCopyBoard() {
   const [draftTest, setDraftTest] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [rerunning, setRerunning] = useState(false);
+  // STEADY floor — 0 = off. When on, a card must have won the majority of its
+  // legs in at least this share of the stretches it traded in, measured on the
+  // TEST window (the out-of-sample one). Local to the board, like the trader
+  // index's MIN CONSISTENCY: a view filter, not a saved setting the worker
+  // reads — the cards themselves are always kept so turning it off shows the
+  // whole board again.
+  const [steadyFloor, setSteadyFloor] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -122,6 +192,15 @@ export default function AutoCopyBoard() {
     Number.isFinite(trainDays) && Number.isFinite(testDays) && trainDays >= 1 && testDays >= 1;
   const overCap = validNums && trainDays + testDays > maxLookbackDays;
   const dirty = trainDays !== settings.trainDays || testDays !== settings.testDays;
+
+  // The STEADY cut, applied to the TEST window — the out-of-sample half. A
+  // steady TRAIN record is what put a trader on the board in the first place;
+  // it is the test window that says whether the hit rate survived the data it
+  // was picked on, so that is the one worth sampling from.
+  const shown = steadyFloor > 0
+    ? snap.cards.filter((c) => steadyEnough(c.test, steadyFloor))
+    : snap.cards;
+  const hidden = snap.cards.length - shown.length;
 
   const now = Date.now();
   const testStart = now - testDays * 86400_000;
@@ -204,6 +283,48 @@ export default function AutoCopyBoard() {
         >
           {settings.enabled ? "● AUTO ON" : "○ AUTO OFF"}
         </button>
+        {/* The filter the board exists for: keep only the traders whose copy
+            record is STEADY — winning in most of the stretches they traded in,
+            not in one lucky burst — so what gets sampled from here is a
+            repeatable hit rate rather than a single good week. UNRATED and
+            unrecorded cards are CUT while it is on: the shape of the record IS
+            the subject of this filter, so "we can't tell" cannot read as
+            "it's fine" (same exception the board's MIN CONSISTENCY makes). */}
+        <label
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-[var(--radius-sm)] border text-[9.5px] font-mono font-semibold tracking-[0.1em] transition-colors ${
+            steadyFloor > 0
+              ? "border-green-400/60 text-green-400 bg-green-400/[0.10]"
+              : "border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60"
+          }`}
+          title={
+            steadyFloor > 0
+              ? `Showing only traders whose test-window copy record won the majority of its legs in ≥ ${steadyFloor.toFixed(2)} of the stretches it traded in. Cards with too few closed legs to judge (UNRATED) are hidden too. Click ◈ STEADY to turn off.`
+              : "Filter the board down to traders with a CONSISTENT win rate — won most of their legs in most stretches of the test window, not all at once. Click to turn on (default 0.75 = three stretches in four)."
+          }
+        >
+          <button
+            type="button"
+            onClick={() => setSteadyFloor((v) => (v > 0 ? 0 : DEFAULT_STEADY_FLOOR))}
+            className="tracking-[0.1em]"
+          >
+            {steadyFloor > 0 ? "◈ STEADY" : "◇ STEADY"}
+          </button>
+          {steadyFloor > 0 && (
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={steadyFloor}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setSteadyFloor(Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0);
+              }}
+              className="w-[46px] bg-transparent border border-green-400/40 rounded-[var(--radius-sm)] px-1 py-0 text-[10px] font-mono text-green-400 tabular-nums outline-none focus:border-green-400"
+              title="The floor, 0–1. 1.00 = won in every stretch it traded in; 0.75 = three stretches in four."
+            />
+          )}
+        </label>
         <button
           onClick={() => void rerun()}
           disabled={rerunning || status.running}
@@ -269,9 +390,24 @@ export default function AutoCopyBoard() {
             ? "No cards yet — the worker builds them on its next pass (it fetches each trader's 30-day feed first, so a cold start takes a cycle or two)."
             : "Auto copy is off. Turn it on and the worker will replay the top-PnL board in the background."}
         </div>
+      ) : shown.length === 0 ? (
+        /* An empty STEADY shelf is an answer, and a common one — say it in
+           words so it can't be read as a broken filter. */
+        <div className="px-3 py-2 rounded-[var(--radius-sm)] border border-amber-400/40 text-[10.5px] font-mono text-amber-400/90 leading-relaxed">
+          None of the {snap.cards.length} traders on this board won the majority of their copied
+          legs in {steadyFloor.toFixed(2)} of the stretches of the last {testDays}d — each one
+          either won in bursts, or closed too few trades to judge. That is a result, not a broken
+          filter: turn ◈ STEADY off, or lower the floor, to see what each card actually did.
+        </div>
       ) : (
         <div className="space-y-0.5">
-          {snap.cards.map((c) => {
+          {hidden > 0 && (
+            <div className="px-2.5 pb-1 text-[9.5px] font-mono text-pixel-gray">
+              ◈ STEADY ≥ {steadyFloor.toFixed(2)} · {hidden} of {snap.cards.length} hidden (won in
+              too few stretches, or too few closed legs to rate)
+            </div>
+          )}
+          {shown.map((c) => {
             const v = VERDICT_STYLE[c.verdict] ?? VERDICT_STYLE.idle;
             const h = c.test.holdout;
             return (
@@ -300,6 +436,7 @@ export default function AutoCopyBoard() {
                   bt={c.test}
                   title={`The last ${c.test.days} days, replayed after the train window ended. ${c.test.note ?? ""}`}
                 />
+                <SteadyCell bt={c.test} floor={steadyFloor} />
                 <span
                   className="flex flex-col items-end shrink-0 min-w-[70px]"
                   title={h

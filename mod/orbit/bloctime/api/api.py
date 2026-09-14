@@ -10,7 +10,7 @@ import secrets
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -80,6 +80,29 @@ async def _require_signer(authorization: str = Header(default="")):
 
 
 SIGNER = [Depends(_require_signer)]
+
+
+async def _require_owner(authorization: str = Header(default="")):
+    """Strict variant of _require_signer for owner-curated state (the reserve
+    token allowlist): never waves a request through when no token is
+    configured — it mints one into the off-tree file so the operator can
+    read it, then rejects the caller."""
+    token = _api_token()
+    if not token:
+        API_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_hex(24)
+        API_TOKEN_PATH.write_text(token)
+        API_TOKEN_PATH.chmod(0o600)
+    supplied = authorization.removeprefix("Bearer ").strip()
+    if not supplied or not secrets.compare_digest(supplied, token):
+        raise HTTPException(
+            status_code=401,
+            detail="Owner only — send 'Authorization: Bearer <token>' "
+                   "(see ~/.mod/bloctime/api_token on the server, or BLOCTIME_API_TOKEN)",
+        )
+
+
+OWNER = [Depends(_require_owner)]
 
 
 def _load_deploy_info():
@@ -207,6 +230,14 @@ class QuoteReq(BaseModel):
 
 class SetPriceReq(BaseModel):
     price_usd: float         # dollars per whole token (e.g. 1.0)
+
+class CurvePointReq(BaseModel):
+    lock_seconds: int
+    multiplier: Optional[int] = None      # basis points, 10000 = 1x
+    multiplier_x: Optional[float] = None  # same thing in x (1.5 = 15000 bps)
+
+class SetPointsReq(BaseModel):
+    points: List[CurvePointReq]
 
 class FundPotReq(BaseModel):
     amount: str
@@ -468,6 +499,40 @@ async def get_points():
     return {"result": [{"lockSeconds": p[0], "multiplier": p[1], "multiplierX": p[1] / 10000} for p in pts]}
 
 
+@app.post("/set_points", dependencies=SIGNER)
+async def set_points(req: SetPointsReq):
+    """Owner-only: reshape the lock-length → multiplier curve. Each point is
+    {lock_seconds, multiplier (bps) | multiplier_x}; the contract interpolates
+    between them. Mirrors the contract's requires so a bad curve fails here
+    with a readable message instead of a gas estimate revert."""
+    w3, contract, account, _ = load_contract()
+    if not contract or not account:
+        raise HTTPException(status_code=500, detail="Contract not deployed or no signer — "
+                            "apply the curve from the console with the owner wallet instead")
+    pts = []
+    for p in req.points:
+        mult = p.multiplier if p.multiplier is not None else (
+            round(p.multiplier_x * 10000) if p.multiplier_x is not None else 0)
+        pts.append((int(p.lock_seconds), int(mult)))
+    if not pts:
+        raise HTTPException(status_code=400, detail="Need at least 1 point")
+    max_lock = _call(contract.functions.params(), None)
+    for i, (lock, mult) in enumerate(pts):
+        if mult < 10000:
+            raise HTTPException(status_code=400, detail="Multiplier must be >= 1x (10000 bps)")
+        if max_lock and lock > max_lock[0]:
+            raise HTTPException(status_code=400, detail=f"Point exceeds max lock ({max_lock[0]}s)")
+        if i > 0 and lock <= pts[i - 1][0]:
+            raise HTTPException(status_code=400, detail="Lock seconds must strictly increase")
+        if i > 0 and mult < pts[i - 1][1]:
+            raise HTTPException(status_code=400, detail="Multipliers must not decrease")
+    try:
+        result = _send_tx(w3, account, contract.functions.setPoints(pts))
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/params")
 async def get_params():
     w3, contract, _, _ = load_contract()
@@ -479,6 +544,71 @@ async def get_params():
         "maxLockSeconds": p[0],
         "secondsPerBlock": p[1],
     }}
+
+
+def _treasury_address():
+    """The configured treasury for the served instance — deployment.json
+    first, then config.json's per-network contracts. Empty for the official
+    v2, whose NativeToken predates the mintable/Ownable treasury model."""
+    _, _, deploy = _load_deploy_info()
+    if deploy.get("treasury"):
+        return deploy["treasury"]
+    net = deploy.get("network", "testnet")
+    return (deploy.get("contracts", {}).get(net, {}) or {}).get("treasury", "") or ""
+
+
+TREASURY_VIEW_ABI = [
+    {"inputs": [], "name": "info", "outputs": [
+        {"type": "address"}, {"type": "address"}, {"type": "uint8"},
+        {"type": "uint256"}, {"type": "uint256"}, {"type": "uint256"}],
+     "stateMutability": "view", "type": "function"},
+]
+ERC20_SYMBOL_ABI = [
+    {"inputs": [], "name": "symbol", "outputs": [{"type": "string"}],
+     "stateMutability": "view", "type": "function"},
+]
+
+
+@app.get("/treasury")
+async def treasury_status():
+    """Is this instance connected to a treasury? A live probe, not a config
+    echo: the address must hold code and its token() must be this instance's
+    NativeToken — only then do deposits mint the token the stake form takes,
+    1:1 per dollar."""
+    w3, _, _, _ = load_contract()
+    if not w3:
+        raise HTTPException(status_code=500, detail="No RPC connection")
+    _, ntv_addr, _ = _load_deploy_info()
+    taddr = _treasury_address()
+    if not taddr:
+        return {"result": {"configured": False, "connected": False, "address": "",
+                           "note": "No treasury — tokens on this instance are not dollar-backed"}}
+    out = {"configured": True, "connected": False, "address": taddr}
+    try:
+        addr = Web3.to_checksum_address(taddr)
+        if not w3.eth.get_code(addr):
+            out["note"] = "No contract code at the treasury address"
+            return {"result": out}
+        t = w3.eth.contract(address=addr, abi=TREASURY_VIEW_ABI)
+        token, reserve, decimals, held, deposited, redeemed = t.functions.info().call()
+        matches = bool(ntv_addr) and token.lower() == ntv_addr.lower()
+        symbol = _call(w3.eth.contract(
+            address=reserve, abi=ERC20_SYMBOL_ABI).functions.symbol(), "")
+        out.update({
+            "connected": matches,
+            "token": token,
+            "tokenMatches": matches,
+            "reserve": {"address": reserve, "symbol": symbol, "decimals": decimals},
+            "reserveHeld": str(held),
+            "reserveHeldUsd": held / (10 ** decimals) if decimals is not None else 0,
+            "totalDeposited": str(deposited),
+            "totalRedeemed": str(redeemed),
+        })
+        if not matches:
+            out["note"] = "Treasury answers but its token() is not this instance's NativeToken"
+    except Exception as e:
+        out["note"] = f"Treasury unreachable: {e}"
+    return {"result": out}
 
 
 @app.get("/stats")
@@ -514,8 +644,17 @@ async def stats():
         max_lock, spb = 0, SECONDS_PER_BLOCK_DEFAULT
     price_micro = _call(contract.functions.priceUsdMicro(), 0)
 
+    # Who can reshape the curve / params, and whether a dollar door exists —
+    # the console's owner gates and the treasury strip key off these.
+    owner_addr = _call(contract.functions.owner(), "") or ""
+    chain_id = deploy.get("chainId") or \
+        (deploy.get("contracts", {}).get(deploy.get("network", "testnet"), {}) or {}).get("chainId", "")
+
     return {"result": {
         "pot": pot,
+        "owner": owner_addr,
+        "treasury": _treasury_address(),
+        "chainId": str(chain_id or ""),
         "maxLockSeconds": max_lock,
         "secondsPerBlock": spb,
         "priceUsdMicro": price_micro,
@@ -948,8 +1087,9 @@ LINEAR_POINTS = [
     {"lockSeconds": 0, "multiplier": 10000},    # flat 1x — pure usd × seconds
 ]
 
-# The dollar the treasury takes in, per chain — canonical Circle USDC.
-# On any other chain the deployer pastes their stable's address instead.
+# Seed list for the owner-curated allowlist below — canonical Circle USDC
+# per chain. Once ~/.mod/bloctime/reserve_tokens.json exists, that file is
+# the only source of truth and these are never consulted again.
 RESERVE_TOKENS = {
     "1":        {"symbol": "USDC", "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "decimals": 6},
     "8453":     {"symbol": "USDC", "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", "decimals": 6},
@@ -960,12 +1100,33 @@ RESERVE_TOKENS = {
     "137":      {"symbol": "USDC", "address": "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", "decimals": 6},
 }
 
+# ── Reserve token allowlist — owner-curated ──────────────────────────────
+# The deploy form only offers reserve tokens from this per-chain list; it
+# is the website owner's allowlist, editable solely with the API bearer
+# token. Lives off-tree next to the registry, shape:
+#     { "<chainId>": [ {symbol, address, decimals}, ... ] }
+RESERVE_STORE_PATH = Path(os.path.expanduser("~/.mod/bloctime")) / "reserve_tokens.json"
+MAX_RESERVE_TOKENS_PER_CHAIN = 50
+
+
+def _load_reserve_tokens():
+    if RESERVE_STORE_PATH.exists():
+        with open(RESERVE_STORE_PATH) as f:
+            return json.load(f)
+    return {cid: [dict(t)] for cid, t in RESERVE_TOKENS.items()}
+
+
+def _save_reserve_tokens(data):
+    RESERVE_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(RESERVE_STORE_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+
+
 DEPLOY_DEFAULTS = {
     "initialSupply": "1000000",
     "maxLockSeconds": MAX_LOCK_SECONDS,
     "priceUsdMicro": 1_000_000,                 # $1.00 per token
     "secondsPerBlock": 2,
-    "reserveTokens": RESERVE_TOKENS,            # treasury mints 1 NTV per $1 of these
     "points": LINEAR_POINTS,
     "model": "usd_seconds_linear",
     "inflation": {
@@ -987,11 +1148,75 @@ async def factory():
         with open(path) as f:
             artifact = json.load(f)
         out[key] = {"abi": artifact["abi"], "bytecode": artifact["bytecode"]}
+    lists = _load_reserve_tokens()
+    defaults = dict(DEPLOY_DEFAULTS)
+    defaults["reserveTokenLists"] = lists
+    # First entry per chain, for callers that still expect one token/chain.
+    defaults["reserveTokens"] = {cid: toks[0] for cid, toks in lists.items() if toks}
     return {"result": {
         "contracts": out,
-        "defaults": DEPLOY_DEFAULTS,
+        "defaults": defaults,
         "fork": "m bloctime/fork name=<yourname>   # copies the whole module into orbit/<yourname>",
     }}
+
+
+@app.get("/reserve-tokens")
+async def reserve_tokens():
+    """Per-chain allowlist of reserve tokens the deploy form may offer."""
+    return {"result": _load_reserve_tokens()}
+
+
+class ReserveTokenAdd(BaseModel):
+    chainId: str
+    symbol: str
+    address: str
+    decimals: int = 6
+
+
+@app.post("/reserve-tokens/add", dependencies=OWNER)
+async def reserve_tokens_add(req: ReserveTokenAdd):
+    chain_id = str(req.chainId).strip()
+    if not chain_id.isdigit():
+        raise HTTPException(status_code=400, detail="chainId must be a decimal chain id")
+    if not Web3.is_address(req.address):
+        raise HTTPException(status_code=400, detail="Not an EVM address")
+    symbol = req.symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.$+-]{1,12}", symbol):
+        raise HTTPException(status_code=400, detail="Symbol must be 1-12 chars (A-Z, 0-9)")
+    if not (0 <= req.decimals <= 36):
+        raise HTTPException(status_code=400, detail="Decimals out of range (0-36)")
+    address = Web3.to_checksum_address(req.address)
+    data = _load_reserve_tokens()
+    tokens = data.get(chain_id, [])
+    if any(t["address"].lower() == address.lower() for t in tokens):
+        raise HTTPException(status_code=400, detail="Already listed on this chain")
+    if len(tokens) >= MAX_RESERVE_TOKENS_PER_CHAIN:
+        raise HTTPException(status_code=400, detail=f"List full ({MAX_RESERVE_TOKENS_PER_CHAIN} per chain)")
+    tokens.append({"symbol": symbol, "address": address, "decimals": req.decimals})
+    data[chain_id] = tokens
+    _save_reserve_tokens(data)
+    return {"result": data}
+
+
+class ReserveTokenRemove(BaseModel):
+    chainId: str
+    address: str
+
+
+@app.post("/reserve-tokens/remove", dependencies=OWNER)
+async def reserve_tokens_remove(req: ReserveTokenRemove):
+    chain_id = str(req.chainId).strip()
+    data = _load_reserve_tokens()
+    tokens = data.get(chain_id, [])
+    kept = [t for t in tokens if t["address"].lower() != req.address.strip().lower()]
+    if len(kept) == len(tokens):
+        raise HTTPException(status_code=400, detail="Not on the list for this chain")
+    if kept:
+        data[chain_id] = kept
+    else:
+        data.pop(chain_id, None)
+    _save_reserve_tokens(data)
+    return {"result": data}
 
 
 # ── Deploy anything: compile Solidity and put it on chain ────────────────

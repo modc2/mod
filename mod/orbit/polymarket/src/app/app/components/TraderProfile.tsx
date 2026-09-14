@@ -13,6 +13,7 @@ import CopySimPanel from "./CopySimPanel";
 import type { AllocationParams } from "../lib/identityStrat";
 import PnlChart from "./PnlChart";
 import type { CurvePoint } from "./PnlChart";
+import TradeShape, { isSettledWin } from "./TradeShape";
 // No recharts — pure SVG charts for reliability with any version.
 
 interface Props {
@@ -489,29 +490,40 @@ export default function TraderProfile({
   ///
   /// Scoped by the same market-title filter as `filteredTrades`, so a
   /// filtered profile and a filtered board agree about the record.
-  const settledStats = useMemo(() => {
-    if (!settled) return { rate: -1, wins: 0, decided: 0, known: false };
+  ///
+  /// The scoped book itself, oldest-first — the WIN RATE tile and the
+  /// win-rate curve in TradeShape both read it, so a tile saying 100% and a
+  /// line ending anywhere else is not expressible.
+  const settledScoped = useMemo(() => {
+    if (!settled) return null;
     const titles = filterActive
       ? new Set(filteredTrades.map((t) => t.market.toLowerCase()))
       : null;
+    return settled
+      .filter((p) => {
+        if (p.timestamp < cutoffMs) return false;
+        if (titles && !titles.has(p.market.toLowerCase())) return false;
+        // Never bought and never booked anything — nothing was decided.
+        if (p.totalBought <= 0 && p.realizedPnl === 0) return false;
+        return true;
+      })
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }, [settled, filteredTrades, filterActive, cutoffMs]);
+
+  const settledStats = useMemo(() => {
+    if (!settledScoped) return { rate: -1, wins: 0, decided: 0, known: false };
     let wins = 0;
-    let decided = 0;
-    for (const p of settled) {
-      if (p.timestamp < cutoffMs) continue;
-      if (titles && !titles.has(p.market.toLowerCase())) continue;
-      if (p.totalBought <= 0 && p.realizedPnl === 0) continue;
-      decided += 1;
-      // Money decides, not the outcome: a position bought at 97¢ that
-      // resolves YES and exits at 96¢ resolved your way and still lost.
-      if (p.realizedPnl !== 0 ? p.realizedPnl > 0 : p.curPrice >= 0.99) wins += 1;
-    }
+    // Money decides, not the outcome: a position bought at 97¢ that
+    // resolves YES and exits at 96¢ resolved your way and still lost.
+    for (const p of settledScoped) if (isSettledWin(p)) wins += 1;
+    const decided = settledScoped.length;
     return {
       rate: decided > 0 ? Math.round((wins / decided) * 100) : -1,
       wins,
       decided,
       known: true,
     };
-  }, [settled, filteredTrades, filterActive, cutoffMs]);
+  }, [settledScoped]);
 
   // Per-market realized results inside the window.
   // "Closed in window" = market had SELL activity in the window AND
@@ -972,6 +984,25 @@ export default function TraderProfile({
               );
             })}
           </div>
+
+          {/* ── TRADE SHAPE ──
+              The tiles above are six averages; this is the shape underneath
+              them. Left: every fill's size on a time axis with the running
+              win rate (right axis, pinned 0–100) drawn over it. Right below:
+              the distribution — what the tape is actually made of by size,
+              entry price or realized exit. An "AVG TRADE $1.30" over a
+              hundred 70¢ fills and one whale is the number that decides
+              whether this trader is copyable, and only the histogram says so.
+              It sits above the simulator because it is still the TRADER's
+              record, like the tiles it follows. */}
+          {filteredTrades.length > 0 && (
+            <TradeShape
+              trades={filteredTrades}
+              settled={settledScoped}
+              dayLabel={dayLabel}
+              filtered={filterActive}
+            />
+          )}
 
           {/* ── SIMULATE THE COPY ──
               The stats above are the TRADER's record. This is YOURS: the same

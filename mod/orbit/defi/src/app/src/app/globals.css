@@ -357,6 +357,8 @@ a { color: var(--link); }
 .hub-chain.in-reach { border-color: var(--accent-dim); color: var(--text); background: rgba(52, 211, 153, 0.05); }
 .hub-chain.in-reach b { color: var(--accent); }
 .hub-chain.dim-chain { color: var(--dim); border-style: dashed; }
+button.hub-chain { background: var(--panel); }
+button.hub-chain:hover:not(:disabled) { border-color: var(--accent-dim); color: var(--text); }
 .hub-foot { display: flex; align-items: flex-end; gap: 10px; margin-top: auto; padding-top: 4px; }
 .hub-best { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
 .hub-best-sub { font-size: 10px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

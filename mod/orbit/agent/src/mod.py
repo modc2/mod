@@ -2155,6 +2155,10 @@ class Mod(Agent):
                                 # it — each of these enforces that itself, and
                                 # a draft additionally answers to run policy
                                 'arena_task_draft', 'arena_task_add', 'arena_task_rm',
+                                # vibecoding an agent enforces its own sign-in
+                                # and, being a model run, run policy — exactly
+                                # like a task draft
+                                'agent_vibe',
                                 # the openarena schema: the board next door is
                                 # public too, and each write here enforces its
                                 # own sign-in / authorship
@@ -3162,6 +3166,13 @@ class Mod(Agent):
                 steps=kwargs.get('steps', 4), key=key),
             'arena_task_add': lambda: self.arena_task_add(
                 kwargs.get('spec') or {}, slug=kwargs.get('slug'), key=key),
+            # vibecode an agent: description in, a reviewed draft (or, with
+            # save=true, a filed agent) out — see agent_vibe
+            'agent_vibe': lambda: self.agent_vibe(
+                kwargs.get('description', ''), name=kwargs.get('name'),
+                model=kwargs.get('model'), provider=kwargs.get('provider'),
+                free=bool(kwargs.get('free')), steps=kwargs.get('steps', 4),
+                save=bool(kwargs.get('save')), key=key),
             'arena_task_rm': lambda: self.arena_task_rm(kwargs.get('slug', ''), key=key),
             # the openarena schema: a statement plus graded cases, stored and
             # judged next door (see arena/openarena.py)
@@ -3910,6 +3921,203 @@ class Mod(Agent):
                 if out.get('tests'):
                     return out
             elif out.get('prompt'):
+                return out
+        return None
+
+    # ── vibecode an agent (one box in, a whole persona out) ──────────
+
+    VIBE_BUILDER = 'vibe-builder'
+
+    def _vibe_catalog(self, key=None) -> Dict[str, Any]:
+        """The tool surface a vibe draft may attach, read through the module's
+        own MCP server (the agent_tools handler) so the draft picks from
+        exactly the list an MCP client sees. Outside the API process — CLI,
+        tests — the registry is read directly instead of booting a second API.
+        """
+        import sys
+        try:
+            if any(hasattr(sys.modules.get(n), 'get_mod')
+                   for n in ('api', 'src.api.api')):
+                from src import mcp as mcp_server
+                out = mcp_server.TOOLS['agent_tools']['handler'](
+                    {'brief': True, 'limit': 400}, key)
+                if isinstance(out, dict) and out.get('tools'):
+                    return {'tools': out['tools'],
+                            'toolboxes': out.get('toolboxes') or [],
+                            'via': 'mcp'}
+        except Exception:
+            pass
+        tools = [{k: v for k, v in t.items() if k != 'params'}
+                 for t in self.tools.items()]
+        return {'tools': tools, 'toolboxes': self.toolboxes.items(),
+                'via': 'local'}
+
+    def _free_agent_name(self, preferred: str = None, ideas: List[str] = None,
+                         description: str = '') -> str:
+        """A slug no existing agent answers to.
+
+        A name the caller chose is honored as given (slugified) — colliding
+        with it is create()'s error to raise, not something to silently
+        rename out from under them. With no name given, the drafter's
+        candidates are walked most distinctive first, then a slug derived
+        from the description, and a numeric suffix is the last resort.
+        """
+        def slug(s):
+            return re.sub(r'[^a-z0-9]+', '-', str(s or '').lower()).strip('-')[:40]
+        if slug(preferred):
+            return slug(preferred)
+        if isinstance(ideas, str):
+            ideas = [ideas]
+        taken = {n.lower() for n in self.agents.ls()}
+        # a 1-2 char candidate is a parse artifact (a model that emitted the
+        # list as a string arrives here as its characters), not a name
+        candidates = [c for c in (slug(i) for i in (ideas or [])) if len(c) >= 3]
+        stop = {'the', 'and', 'for', 'with', 'that', 'this', 'who', 'what',
+                'which', 'from', 'into', 'can', 'will', 'should', 'one',
+                'agent', 'agents', 'you', 'your', 'like', 'want', 'make'}
+        words = [w for w in re.findall(r'[a-z0-9]+', str(description).lower())
+                 if len(w) > 2 and w not in stop][:2]
+        if words:
+            candidates.append(slug('-'.join(words) + '-agent'))
+        for c in candidates:
+            if c not in taken:
+                return c
+        base = candidates[0] if candidates else 'vibe-agent'
+        if base not in taken:
+            return base
+        for i in range(2, 100):
+            cand = f'{base}-{i}'[:40]
+            if cand not in taken:
+                return cand
+        return f'{base}-{int(time.time())}'[:40]
+
+    def _vibe_clean_tools(self, picked, catalog) -> tuple:
+        """The drafted tool list against the real registry: a toolbox name
+        expands to its bundle, an invented name is dropped and reported, and
+        an empty result means "no restriction" rather than "no tools"."""
+        known = {t.get('name') for t in catalog.get('tools', [])}
+        # the terminal step is always callable, but it is a plan anchor, not
+        # a registry entry — an agent may still list it (task-builder does)
+        known.add('finish')
+        boxes = {b.get('name'): list(b.get('tools') or [])
+                 for b in catalog.get('toolboxes', [])}
+        if isinstance(picked, str):
+            picked = [picked]
+        out, dropped, seen = [], [], set()
+        for name in (picked or []):
+            name = str(name).strip()
+            expanded = (boxes[name] if name in boxes
+                        else [name] if name in known else None)
+            if expanded is None:
+                if name:
+                    dropped.append(name)
+                continue
+            out.extend(t for t in expanded
+                       if t in known and not (t in seen or seen.add(t)))
+        return (out or None), dropped
+
+    def agent_vibe(self, description: str, name: str = None, model: str = None,
+                   provider: str = None, free: bool = False, steps: int = 4,
+                   save: bool = False, key=None) -> dict:
+        """Vibecode an agent: a plain description in, a whole agent out.
+
+        The vibe-builder agent designs it — name, icon, prompt — with the
+        live tool catalog (read off this module's MCP server) in front of it,
+        so the tools it attaches are real; every pick is validated against
+        that catalog anyway and inventions are dropped. A caller who named
+        the agent gets that name; anyone else gets one the drafter made up
+        that no existing agent answers to.
+
+        `save=False` returns the draft for the editor to review and file
+        itself; `save=True` creates the agent under the caller's address
+        straight away — the one-click path an MCP client wants.
+        """
+        self.identity.require_signed_in(key, operation="vibecode an agent")
+        # a draft is a model run on somebody's key, so it answers to the same
+        # policy a run does: the host, a granted address, or credits on hand
+        self.require_allowed(key, 'run')
+        description = str(description or '').strip()
+        if len(description) < 8:
+            raise ValueError("describe the agent in a sentence or two first")
+        catalog = self._vibe_catalog(key)
+        taken = sorted(n.lower() for n in self.agents.ls())
+        tool_lines = '\n'.join(
+            f"  {t.get('name')} — {str(t.get('description') or '').strip()[:100]}"
+            for t in catalog['tools'] if t.get('name'))
+        box_lines = '\n'.join(
+            f"  {b.get('name')}: {', '.join(b.get('tools') or [])}"
+            for b in catalog.get('toolboxes', []) if b.get('name'))
+        query = (f"Design an agent for this request:\n\n{description}\n\n"
+                 f"NAMES ALREADY TAKEN (never propose these):\n"
+                 f"  {', '.join(taken)}\n\n"
+                 f"TOOL CATALOG (pick only these exact names):\n{tool_lines}\n\n"
+                 f"TOOLBOXES (a name here in \"tools\" takes the bundle):\n"
+                 f"{box_lines or '  (none)'}")
+        trace = self._run(
+            query=query,
+            agent_type=self.VIBE_BUILDER, model=model, provider=provider,
+            steps=max(2, min(int(steps or 4), 8)), free=free, key=key,
+            # the agent has no file tools, but a stray write must not land in
+            # whatever directory the API happens to be running from
+            path=str(Path.home() / '.mod' / 'agent'),
+        )
+        answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
+        spec = self._parse_agent_json(answer)
+        if spec is None and isinstance(trace, list):
+            # a small model sometimes leaves the JSON in a think step and
+            # finishes with prose — the spec anywhere in the trace still counts
+            for s in trace:
+                if not isinstance(s, dict):
+                    continue
+                for t in [s.get('result'), *(s.get('params') or {}).values()]:
+                    spec = self._parse_agent_json(t) if isinstance(t, str) else None
+                    if spec:
+                        break
+                if spec:
+                    break
+        if spec is None:
+            return {"error": "the vibe-builder did not return an agent spec — "
+                             "try describing the agent more concretely",
+                    "answer": answer}
+        tools, dropped = self._vibe_clean_tools(spec.get('tools'), catalog)
+        ideas = spec.get('names')
+        ideas = [ideas] if isinstance(ideas, str) else list(ideas or [])
+        draft = {
+            'name': self._free_agent_name(name, ideas=ideas,
+                                          description=description),
+            'icon': str(spec.get('icon') or '✦').strip()[:4] or '✦',
+            'description': str(spec.get('description') or '').strip()[:200],
+            'goal': str(spec.get('prompt') or spec.get('goal') or '').strip(),
+            'tools': tools,
+            'model': str(spec.get('model')).strip() if spec.get('model') else None,
+            'name_ideas': [str(n) for n in ideas][:5],
+        }
+        out = {"draft": draft, "catalog_via": catalog.get('via'),
+               **({"tools_dropped": dropped} if dropped else {})}
+        if not save:
+            return out
+        created = self.agents.create(
+            name=draft['name'], description=draft['description'],
+            goal=draft['goal'], icon=draft['icon'], tools=draft['tools'],
+            model=draft['model'], key=key)
+        return {**out, "agent": created, "saved": True}
+
+    @staticmethod
+    def _parse_agent_json(text: str) -> Optional[Dict[str, Any]]:
+        """The agent spec out of the drafter's answer — fenced block first,
+        then the outermost braces. The field that cannot be missing is the
+        `prompt` (or `goal`); a spec without one is not an agent."""
+        text = str(text or '')
+        candidates = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        for raw in candidates:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(out, dict) and (out.get('prompt') or out.get('goal')):
                 return out
         return None
 

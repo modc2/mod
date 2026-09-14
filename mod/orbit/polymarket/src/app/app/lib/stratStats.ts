@@ -18,6 +18,10 @@ import { fetchLiveSessions, runningStrategyIds, type SessionStratLedger } from "
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
 
 export interface StratMoney {
+  /** USDC committed to this strat — its session's `capital` allocation.
+      This is "how much of my money is on this strat"; `moneyIn` below is
+      the slice of it currently deployed into open positions. */
+  capital: number;
   /** Open cost basis the strat currently has deployed (USDC). */
   moneyIn: number;
   /** Those open positions marked to current prices (entry when unpriced). */
@@ -136,7 +140,17 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
             strategyId: e.strategyId || s.strategyId || s.config?.strategyId || "",
           })),
         );
-        if (positions.length === 0 && Object.keys(ledger).length === 0) {
+        // Committed capital per strat, straight from each session's config —
+        // a strat can be "invested" (money reserved for it, engine running)
+        // while holding zero open positions, and the sidebar must still be
+        // able to answer "how much of my money is on it".
+        const capital: Record<string, number> = {};
+        for (const s of sessions) {
+          const id = s.strategyId || s.config?.strategyId;
+          const c = num(s.config?.capital);
+          if (id && c > 0) capital[id] = (capital[id] ?? 0) + c;
+        }
+        if (positions.length === 0 && Object.keys(ledger).length === 0 && Object.keys(capital).length === 0) {
           if (!cancelled) setResult({ stats: {}, cash, running });
           return;
         }
@@ -167,7 +181,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         const next: Record<string, StratMoney> = {};
         const entryFor = (id: string): StratMoney =>
           (next[id] ??= {
-            moneyIn: 0, openValue: 0, unrealized: 0, realized: 0, fees: 0,
+            capital: 0, moneyIn: 0, openValue: 0, unrealized: 0, realized: 0, fees: 0,
             totalPnl: 0, pnlPct: null, pnl24h: 0, roi24h: null,
             fills: 0, openPositions: 0, lastFillAt: 0,
           });
@@ -192,6 +206,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
             basis24h[id] = (basis24h[id] ?? 0) + cost;
           }
         }
+        for (const [id, c] of Object.entries(capital)) entryFor(id).capital = c;
         for (const [id, ledgers] of Object.entries(ledger)) {
           const s = entryFor(id);
           for (const l of ledgers) {

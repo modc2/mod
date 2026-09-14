@@ -167,6 +167,9 @@ export interface BacktestSim {
   open: PerfPosition[];
   /** How much of the replay's exit value is FACT vs guess — see `Settlement`. */
   settlement: Settlement;
+  /** Every position closed by settlement rather than by a sell — the legs
+      that never appear in `rows`. See `SettledLeg`. */
+  settledLegs: SettledLeg[];
 }
 
 /** Where the money the replay says it ended with actually came from.
@@ -192,6 +195,33 @@ export interface Settlement {
   /** Legs closed at the last observed price, and their $ value. */
   marked: number;
   markedUsd: number;
+}
+
+/** One position the replay closed WITHOUT a sell — a market that resolved (or
+    went quiet) while the sim still held it. `settleDead` books these straight
+    to cash and draws a REDEEM marker, never a feed row, so anything scoring
+    the replay's outcomes off `rows` alone is blind to them.
+
+    That blindness is not cosmetic: leaders ride winners out through the book
+    and let losers EXPIRE, so the legs missing from `rows` are exactly the
+    losing ones. Measured on the live AUTO COPY board (2026-09-14) a trader
+    read 20/20 closed legs won — 100% — while the replay lost $119.59, all of
+    it in 31 resolutions nothing was counting. */
+export interface SettledLeg {
+  ts: number;
+  market: string;
+  conditionId: string;
+  /** What the leg paid out — `shares × (resolution ?? last observed price)`. */
+  proceeds: number;
+  /** What it cost — `shares × avg entry`. */
+  basis: number;
+  /** proceeds − basis. No fee: a redeem is not a CLOB fill. */
+  net: number;
+  /** TRUE when the payout came from a looked-up resolution ($1 or $0 — fact),
+      FALSE when it fell back to the last observed price (a guess, and a
+      biased one — see `Settlement`). A hit-rate scorer should count the
+      facts and leave the guesses undecided. */
+  resolved: boolean;
 }
 
 export function emptySettlement(): Settlement {
@@ -582,6 +612,7 @@ export function runBacktestSim(
     costs: ledger.breakdown({}, 0), volume: 0,
     cash: capital, posValue: 0, unrealized: 0, costBasis: 0, open: [],
     settlement: emptySettlement(),
+    settledLegs: [],
   };
   if (watchlist.length === 0 || loading) return empty;
   const endMs = windowEnd(input);
@@ -789,6 +820,7 @@ export function runBacktestSim(
   const STALE_SETTLE_MS = 30 * 60_000;
   let settles = 0;
   const settlement = emptySettlement();
+  const settledLegs: SettledLeg[] = [];
   const settleDead = (now: number) => {
     for (const [k, b] of [...book]) {
       if (b.shares <= 1e-9) { book.delete(k); continue; }
@@ -810,6 +842,15 @@ export function runBacktestSim(
       // either (a redeem is not a CLOB fill; at p = 0 or 1 the fee is 0 anyway).
       cash += proceeds;
       settles++;
+      settledLegs.push({
+        ts: now,
+        market: b.market,
+        conditionId: k,
+        proceeds,
+        basis: b.shares * b.avgPx,
+        net: proceeds - b.shares * b.avgPx,
+        resolved: truth !== undefined,
+      });
       book.delete(k);
       markers.push({
         t: now,
@@ -1148,6 +1189,7 @@ export function runBacktestSim(
       marked: settlement.marked,
       markedUsd: round2(settlement.markedUsd),
     },
+    settledLegs,
   };
 }
 

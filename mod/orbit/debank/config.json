@@ -146,7 +146,7 @@
         ],
         "note": "an Authorization bearer is never read as a DeBank key \u2014 the gateway puts its own session tokens there"
     },
-    "schema": "QmexAcL1QwcMv67rVZ1SMBwHddJdsR5weBy3gnK1manTWu",
+    "schema": "QmZhDrHBaqfcKVpUEKgXx7KHrRWFcXxw8jXc4BaXZAzJBZ",
     "wallet": {
         "standard": "EIP-1193 (window.ethereum) \u2014 MetaMask, Rabby, Coinbase Wallet, Brave",
         "actions": [

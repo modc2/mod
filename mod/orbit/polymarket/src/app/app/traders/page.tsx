@@ -190,7 +190,7 @@ function TradersInner() {
 
   return (
     <div className="max-w-[1920px] mx-auto">
-      <TopBar searchPlaceholder="SEARCH TRADERS..." />
+      <TopBar searchPlaceholder="SEARCH TRADER OR MARKET — e.g. bitcoin, trump…" />
       <div className="p-4 space-y-4">
         <CopyTrading
           days={days}

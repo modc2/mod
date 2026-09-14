@@ -40,6 +40,25 @@ class CopyUpdate(BaseModel):
     poll_interval_sec: Optional[int] = None
 
 
+class ApprovalCreate(BaseModel):
+    """A write the agent wants to make, parked for a human.
+
+    Posted by the MCP dispatcher (src/agent/mcp_server.py), never by a
+    browser — the console only ever *answers* one of these.
+    """
+    run_id: str = "mcp"
+    tool: str
+    args: Dict[str, Any] = {}
+    summary: str = ""
+    risk: str = "medium"
+
+
+class ApprovalDecision(BaseModel):
+    """The human's answer. `note` is handed to the model as the reason."""
+    approve: bool
+    note: str = ""
+
+
 class AskRequest(BaseModel):
     """A turn of the strat-agent conversation.
 

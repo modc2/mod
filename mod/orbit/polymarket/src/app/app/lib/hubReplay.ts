@@ -20,7 +20,7 @@ import { fetchPositions, fetchWalletTradesUntil, MAX_LOOKBACK_DAYS } from "./pol
 import { fetchTraderBankrolls } from "./liveSessions";
 import {
   runBacktest, stratBacktestParams, stratFromIndex,
-  type EntryFunnel, type Settlement,
+  type EntryFunnel, type LinkedTrade, type SettledLeg, type Settlement,
 } from "./backtest";
 import { tapeFor } from "./momentumTape";
 import type { PriceTape } from "./originationBacktest";
@@ -131,6 +131,160 @@ export interface HoldoutCheck {
   ok: boolean;
 }
 
+/// ── THE WIN RECORD ──
+/// A card's headline P&L cannot tell two very different strats apart: nine
+/// small winners against one loser, and one 10-bagger against nine losers,
+/// print the SAME +$X. Copying the first is sampling from an edge; copying the
+/// second is buying a lottery ticket whose winning draw already happened.
+///
+/// So every replay also reports how its closed trades LANDED — the win rate,
+/// and whether the wins were spread through the window or clustered in one
+/// stretch of it. `consistency` is the second question, and it is deliberately
+/// the same SHAPE of number as `curveConsistency` on the trader board
+/// (lib/scoreFormula.ts): a share of active buckets that went the right way,
+/// with `-1` meaning "too little to judge" rather than zero.
+
+/** Time slices the window is cut into for `consistency`. Six is small enough
+    that a 1D card still gets 4h buckets and large enough that a 30D card is
+    not judged on five samples. */
+export const WIN_BUCKETS = 6;
+/** Below this many closed trades the win rate is noise, and its distribution
+    across buckets is worse than noise → `consistency` is unknown. */
+export const MIN_DECIDED_FOR_CONSISTENCY = 5;
+/** A verdict off one or two active stretches is not a verdict about shape. */
+export const MIN_ACTIVE_BUCKETS = 3;
+
+/** How a replay's closed trades landed, and how evenly the wins were spread.
+    Absent on snapshots written before this existed — a surface must read that
+    as UNKNOWN, never as a zero win rate. */
+export interface WinRecord {
+  /** Legs the window DECIDED. Two kinds, and both are needed:
+
+        SOLD      an exit in `rows`, with a cost basis.
+        RESOLVED  a position the replay still held when its market settled —
+                  paid out at $1 or $0 (`SettledLeg.resolved`). These never
+                  appear in `rows` at all (`settleDead` books them straight to
+                  cash), and leaving them out is not a rounding error: leaders
+                  sell their winners and let their losers EXPIRE, so the legs
+                  missing from `rows` are the losing ones. One live AUTO COPY
+                  card read 20/20 sold legs won — 100% — while the replay lost
+                  $119.59 across 31 resolutions nobody was counting.
+
+      Positions still open at the end are NOT counted, and neither are legs
+      settled at the last observed price (`Settlement.marked`) — a guess is
+      not an outcome, and that particular guess is biased toward the entry
+      price of things that quietly expired. */
+  decided: number;
+  /** Of those, the ones that gave back more than they cost — `realized` NET
+      of the fee that closed them, or `proceeds − basis` on a resolution. A
+      leg that made 3¢ and paid 5¢ in fees is not a win however the gross
+      reads. */
+  wins: number;
+  /** wins / decided, 0–1. `-1` when nothing closed. */
+  winRate: number;
+  /** Share of ACTIVE buckets (window slices that decided ≥1 leg) that came
+      out AHEAD — the stretch's decided legs netted more than they cost. 1 =
+      every stretch it traded in made money, 0.5 = half of them did. `-1` =
+      unknown: fewer than `MIN_DECIDED_FOR_CONSISTENCY` decided legs, or fewer
+      than `MIN_ACTIVE_BUCKETS` active buckets.
+
+      MONEY, not leg count, and the difference is the whole point. Counting
+      legs sounds like the same question and is not: on this board (measured
+      2026-09-14) the best earner on the wall, +$292 over ten days, wins only
+      41% of its legs — it buys longshots, eats a pile of small expiries and
+      gets paid on the few that land. A majority-of-legs rule scores that
+      trader 1/6 and hides them, while ranking a 100%-hit-rate book that lost
+      $90 at the top. "Did copying them come out ahead, stretch after
+      stretch" is the question a copier is actually asking. */
+  consistency: number;
+  /** The "4/5" behind `consistency`: stretches that came out ahead, stretches
+      that decided anything at all. */
+  winningBuckets: number;
+  activeBuckets: number;
+}
+
+/** Score a replay's rows. Pure — the worker, the browser and the tests all
+    call this one function, so a card and the filter that hides it can never
+    disagree about what "steady" means.
+
+    `from`/`to` are the replay window in ms; rows outside it are ignored (a
+    walk-forward pass hands in its own bounds).
+
+    `settled` is the OTHER half of the outcomes — positions the replay closed
+    by resolution rather than by selling (`BacktestSim.settledLegs`). Pass it:
+    without it this function scores only the legs the leaders chose to sell,
+    which is the half that wins. */
+export function winRecord(
+  rows: LinkedTrade[],
+  from: number,
+  to: number,
+  settled: SettledLeg[] = [],
+): WinRecord {
+  const span = Math.max(1, to - from);
+  const netIn = new Array<number>(WIN_BUCKETS).fill(0);
+  const legsIn = new Array<number>(WIN_BUCKETS).fill(0);
+  let decided = 0;
+  let wins = 0;
+  const bucketOf = (ts: number) =>
+    Math.min(WIN_BUCKETS - 1, Math.max(0, Math.floor(((ts - from) / span) * WIN_BUCKETS)));
+  const book = (ts: number, net: number) => {
+    decided++;
+    if (net > 0) wins++;
+    const b = bucketOf(ts);
+    legsIn[b]++;
+    netIn[b] += net;
+  };
+  for (const r of rows) {
+    // Exits only: a BUY has no outcome yet, and `realized` on one is 0.
+    if (r.side !== "SELL") continue;
+    if (r.ts < from || r.ts > to) continue;
+    book(r.ts, r.realized - (r.fee || 0));
+  }
+  for (const l of settled) {
+    // Only FACTS: a leg settled at the last observed price was never decided
+    // by anything, and scoring the guess would just re-import the bias the
+    // settlement model already warns about.
+    if (!l.resolved) continue;
+    if (l.ts < from || l.ts > to) continue;
+    if (!(l.basis > 0)) continue;
+    book(l.ts, l.net);
+  }
+  let activeBuckets = 0;
+  let winningBuckets = 0;
+  for (let i = 0; i < WIN_BUCKETS; i++) {
+    if (legsIn[i] === 0) continue;
+    activeBuckets++;
+    if (netIn[i] > 0) winningBuckets++;
+  }
+  const judgeable = decided >= MIN_DECIDED_FOR_CONSISTENCY && activeBuckets >= MIN_ACTIVE_BUCKETS;
+  return {
+    decided,
+    wins,
+    winRate: decided > 0 ? wins / decided : -1,
+    consistency: judgeable ? winningBuckets / activeBuckets : -1,
+    winningBuckets,
+    activeBuckets,
+  };
+}
+
+/** The hub's default STEADY floor: came out ahead in at least three of every
+    four stretches it traded in. */
+export const DEFAULT_STEADY_FLOOR = 0.75;
+
+/** Does this replay clear a `floor` on win-rate consistency?
+
+    UNKNOWN IS CUT — a card with no win record, nothing closed, or too few
+    trades to shape-judge does NOT pass. This is the same deliberate exception
+    the board's MIN CONSISTENCY filter makes: everywhere else in this console
+    an unknown passes a filter, but here the shape of the record IS the
+    filter's subject, so "we can't tell" cannot read as "it's fine". */
+export function steadyEnough(bt: HubBacktest | undefined, floor: number): boolean {
+  if (!(floor > 0)) return true;
+  const w = bt?.wins;
+  if (!w || w.consistency < 0) return false;
+  return w.consistency >= floor;
+}
+
 /** How much price data an origination replay stood on — the JSON-safe half of
     `PriceTape` (its `series`/`resolved` are far too big for a card). */
 export interface TapeCoverage {
@@ -181,6 +335,11 @@ export interface HubBacktest {
       entry price for anything that quietly expired worthless. Absent on
       snapshots written before resolutions were fetched. */
   settlement?: Settlement;
+  /** HOW the P&L above was made: hit rate over the window's closed trades, and
+      how evenly the wins were spread through it — see `WinRecord`. This is the
+      number the hub's STEADY filter reads. Absent on older snapshots and on
+      replays that closed nothing. */
+  wins?: WinRecord;
   /** WALK-FORWARD: the same strat replayed over the window immediately BEFORE
       this one, and the verdict of comparing the two. The card above is the
       "next day"; this is the "previous day" it's judged against. Absent when
@@ -515,6 +674,9 @@ export async function backtestOne(
     days,
     traders: watchlist.length,
     curve: thinCurve(sim.equityHistory),
+    // Same window the replay ran over, so a card's "STEADY 4/5" counts the
+    // stretches of exactly the span it is labelled with.
+    wins: winRecord(sim.rows, now - windowMs, now, sim.settledLegs),
     settlement: sim.settlement,
     forward,
     holdout,

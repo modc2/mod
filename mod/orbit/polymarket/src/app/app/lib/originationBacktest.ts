@@ -58,7 +58,7 @@ import { legKey, legOutcome } from "./leg";
 // so every rate here is inferred from the market's category — which is exactly
 // why `CostBreakdown.coverage` reports how many rates were modelled.
 import { emptyFunnel, emptySettlement,
-  type BacktestSim, type EntryFunnel, type LinkedTrade, type Settlement,
+  type BacktestSim, type EntryFunnel, type LinkedTrade, type SettledLeg, type Settlement,
 } from "./backtest";
 import {
   CostLedger, FeeBook, FALLBACK_GAS_QUOTE, NEW_DEPLOYMENT_GAS_OPS, mergeCostBreakdowns,
@@ -213,6 +213,7 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
   const equityHistory: EquitySnapshot[] = [];
   const markers: EquityMarker[] = [];
   const settlement: Settlement = emptySettlement();
+  const settledLegs: SettledLeg[] = [];
   const book = new Map<string, Hold>();
   const cooldown = new Map<string, number>();
   let cash = capital;
@@ -231,6 +232,7 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
     costs: ledger.breakdown({}, 0), volume: 0,
     cash: capital, posValue: 0, unrealized: 0, costBasis: 0, open: [],
     settlement,
+    settledLegs,
   };
   if (tape.series.length === 0) return empty;
 
@@ -316,6 +318,15 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
       // Relayer-paid, and a resolution is not a CLOB fill — no gas, no fee.
       cash += proceeds;
       settles++;
+      settledLegs.push({
+        ts: t,
+        market: b.market,
+        conditionId: b.conditionId,
+        proceeds,
+        basis: b.shares * b.avgPx,
+        net: proceeds - b.shares * b.avgPx,
+        resolved: truth !== undefined,
+      });
       book.delete(k);
       markers.push({
         t,
@@ -621,6 +632,7 @@ export function runOriginationSim(input: OriginationInput): BacktestSim {
       marked: settlement.marked,
       markedUsd: round2(settlement.markedUsd),
     },
+    settledLegs,
   };
 }
 
@@ -675,5 +687,6 @@ export function mergeSims(copy: BacktestSim, orig: BacktestSim, capital: number)
       marked: copy.settlement.marked + orig.settlement.marked,
       markedUsd: round2(copy.settlement.markedUsd + orig.settlement.markedUsd),
     },
+    settledLegs: [...copy.settledLegs, ...orig.settledLegs].sort((a, b) => a.ts - b.ts),
   };
 }

@@ -26,13 +26,13 @@
 import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 
-import { API_BASE } from "../polymarket";
 import { paramReference } from "../stratPatch";
 import type { IndexTrader, SavedIndex } from "../types";
 import { digJson, runClaude } from "./agentCli";
+import { type BoardRow, boardLine, boardSnapshot } from "./board";
 import { writeAtomic } from "./feedStore";
 import { candidateBacktest } from "./lab";
-import { mintOwnerToken, ownerAddress, stateDir } from "./ownerToken";
+import { ownerAddress, stateDir } from "./ownerToken";
 
 /** Drafting a recipe is translation work, not the lab's judgment work — and
     this can fire every minute. Sonnet by default; the deployment can raise it. */
@@ -137,38 +137,6 @@ const THEMES = [
   "wildcard: pick mid-board traders the obvious indexes skip",
 ];
 
-interface BoardRow {
-  address: string;
-  pnl?: number;
-  volume?: number;
-  winRate?: number;
-  sharpe?: number;
-  exitEntry?: number;
-  positions?: number;
-  decidedPositions?: number;
-}
-
-/** The warm leaderboard, same paged read pm_top_traders does — answers from
-    cache or reports cold; a cold board fails the run rather than blocking a
-    minute-cadence loop on a minutes-long aggregation. */
-async function boardSnapshot(): Promise<BoardRow[]> {
-  const token = mintOwnerToken();
-  if (!token) throw new Error("no owner/secret on this deployment — cannot read the leaderboard");
-  const qs = new URLSearchParams({
-    days: "7", pool: "2000", paged: "1", pageSize: "40", page: "0",
-    sort: "sharpe", order: "desc", maxLastTradeHrs: "6",
-  });
-  const res = await fetch(`${API_BASE}/active-traders?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`leaderboard read failed: HTTP ${res.status}`);
-  const body = (await res.json()) as { cold?: boolean; traders?: BoardRow[] };
-  if (body.cold || !Array.isArray(body.traders) || body.traders.length === 0) {
-    throw new Error("leaderboard cache is cold — the sync loop hasn't warmed it yet; retry in a few minutes");
-  }
-  return body.traders;
-}
-
 function shuffled<T>(rows: T[]): T[] {
   const a = [...rows];
   for (let i = a.length - 1; i > 0; i--) {
@@ -178,12 +146,8 @@ function shuffled<T>(rows: T[]): T[] {
   return a;
 }
 
-const num = (v: number | undefined, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(d) : "?");
-
 function buildPrompt(theme: string, board: BoardRow[]): string {
-  const rows = shuffled(board).slice(0, 30).map((t) =>
-    `${t.address}  pnl7d=$${num(t.pnl)}  winRate=${t.winRate === -1 ? "?" : num((t.winRate ?? 0) * 100)}%` +
-    `(${t.decidedPositions ?? 0} decided)  sharpe=${num(t.sharpe, 2)}  vol=$${num(t.volume)}`);
+  const rows = shuffled(board).slice(0, 30).map(boardLine);
   return [
     `You design ONE new copy-index strategy for a self-hosted Polymarket copy-trading console. A copy index watches trader wallets and mirrors their entries, sized to the owner's capital; parameters gate WHICH fills get copied and how positions exit. Your output is a recipe that gets backtested and registered automatically — you place no orders and run no tools.`,
     ``,

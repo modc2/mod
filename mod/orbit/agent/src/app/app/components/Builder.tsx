@@ -182,6 +182,10 @@ type Props = {
   // itself — unless an agent was handed over for the canvas: "show agents"
   // means the agents, not an empty graph
   initialMode?: 'browse' | 'agent' | 'task'
+  /** land with BROWSE's new-agent form already open — "make me an agent"
+      asked from somewhere else (the arena, the hub strip) should arrive at
+      the form, not at a list with the form behind a button */
+  initialCreate?: boolean
   // opens the encrypted-vault key panel for a provider — API keys are entered here, not in the console
   onManageKey?: (provider: string) => void
   // bumped by the parent after a key save/unlock so provider key state refreshes
@@ -203,7 +207,7 @@ type Props = {
   onRunAgent?: (name: string, prompt: string, memoryIds: string[]) => void
 }
 
-export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, initialMode, onManageKey, keyVersion, token, isHost, onSignIn, address, onOpenArena, onRunAgent }: Props) {
+export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, initialMode, initialCreate, onManageKey, keyVersion, token, isHost, onSignIn, address, onOpenArena, onRunAgent }: Props) {
   // BROWSE reads the registry, AGENT builds the thing, TASK builds what it is
   // measured on
   const [mode, setMode] = useState<'browse' | 'agent' | 'task'>(
@@ -1097,6 +1101,7 @@ export default function Builder({ onUseAgent, onAgentsChanged, initialAgent, ini
         <div className="flex-1 min-h-0">
           <AgentsPanel
             token={token} address={address} isHost={isHost} onSignIn={onSignIn}
+            initialCreate={initialCreate}
             onEditOnCanvas={name => { setMode('agent'); loadAgent(name) }}
             onRun={(name, prompt, memoryIds) => onRunAgent
               ? onRunAgent(name, prompt, memoryIds)

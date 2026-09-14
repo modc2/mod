@@ -12,6 +12,7 @@ neither can drift away from the other when a rule changes.
     agent_task         watch a run that outlived the call
     agent_agents       the personas, and what each is built from
     agent_build        write a new one
+    agent_vibe         vibecode one: a description in, a whole agent out
     agent_parts        the live agent box: model, memory, toolbox, prompt
     agent_tools        the whole registry — shipped, custom, and the fleet
     agent_toolbox      the bundles, and snapping one on
@@ -362,6 +363,14 @@ def _t_build(a: dict, key):
         harness=a.get('harness'), key=key)))
 
 
+def _t_vibe(a: dict, key):
+    return _clean(_fwd('agent_vibe', key,
+                       description=a.get('description') or '',
+                       name=a.get('name'), model=a.get('model'),
+                       provider=a.get('provider'), free=bool(a.get('free')),
+                       steps=a.get('steps') or 4, save=bool(a.get('save'))))
+
+
 def _t_parts(a: dict, key):
     return _clean(_fwd('parts', key))
 
@@ -680,6 +689,30 @@ TOOLS: Dict[str, dict] = {
             'key': _KEY,
         }, 'required': ['name']},
         'handler': _t_build,
+    },
+    'agent_vibe': {
+        'auth': True,
+        'description': 'Vibecode an agent: describe what you want and the '
+                       'vibe-builder designs the whole thing — system prompt, icon, '
+                       'description, and a tool loadout picked from this very MCP '
+                       "server's live agent_tools catalog (inventions are dropped, "
+                       'and reported as tools_dropped). Omit `name` and it mints one '
+                       'no existing agent answers to. The draft comes back for '
+                       'review; save=true files it under your address in the same '
+                       'call. This is a model run, so it answers to run policy like '
+                       'agent_run does.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'description': _str('what the agent should be — the whole brief'),
+            'name': _str('the name you want, verbatim — omit to have one made up '
+                         'that is not taken'),
+            'save': _bool('create the agent now instead of returning a draft'),
+            'model': _str("the DRAFTING run's model — not the new agent's"),
+            'provider': _str('openrouter | venice | liquidai | …'),
+            'free': _bool('draft on a zero-cost model'),
+            'steps': _num('the drafting run\'s step budget (default 4, max 8)'),
+            'key': _KEY,
+        }, 'required': ['description']},
+        'handler': _t_vibe,
     },
     'agent_parts': {
         'description': 'The live agent box: the model it will use, the memory module '

@@ -26,6 +26,7 @@ if HERE not in sys.path:
 
 import client as C          # noqa: E402
 import identity             # noqa: E402
+import runs as R            # noqa: E402
 from client import Client, GrokError    # noqa: E402
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
@@ -38,11 +39,13 @@ INSTRUCTIONS = (
     'citations come back with the text. grok_models lists what a key can '
     'actually see (xAI requires a key even to list models). A "grokbot" is a '
     'saved name + model + system prompt: grok_bot_save creates one, grok_bots '
-    'lists them, and grok_chat bot=<name> runs it. Bots and stored keys hang off '
-    'a signed-in address, so anything that touches them needs `token` — a '
-    'mod-protocol token (m.mod("auth")().token({}), or wallet sign-in in the '
-    "console). Every call spends the CALLER'S own xAI credits: pass `key` for one "
-    'call, or grok_set_key to store it off-tree at 0600.'
+    'lists them, and grok_chat bot=<name> runs it. Sign-in is REQUIRED: every '
+    'tool that touches Grok needs `token` — a mod-protocol token '
+    '(m.mod("auth")().token({}), or wallet sign-in in the console) — and the '
+    'address inside it is where your key, your bots and your run ledger live. '
+    "Every call spends the CALLER'S own xAI credits: pass `key` for one call, "
+    'or grok_set_key to store it off-tree at 0600. grok_runs is the board — '
+    'every chat/stream/image as ALL/LIVE/DONE/ERROR with duration and tokens.'
 )
 
 
@@ -56,8 +59,13 @@ def _need_who(a, token):
 
 
 def _client(a, token, key):
-    """Per-call keys never leave this process and are never echoed back."""
-    return Client(key=a.pop('key', None) or key, address=_who(a, token))
+    """Per-call keys never leave this process and are never echoed back.
+
+    Sign-in is required to spend: every tool built on this raises 401 without
+    a token, the same rule the REST API and the console enforce. A `key` says
+    whose xAI credits — it is never an identity.
+    """
+    return Client(key=a.pop('key', None) or key, address=_need_who(a, token))
 
 
 # ── tools ──
@@ -108,6 +116,11 @@ def _t_bot_save(a, token, key):
 
 def _t_bot_delete(a, token, key):
     return C.delete_bot(_need_who(a, token), a['name'])
+
+
+def _t_runs(a, token, key):
+    return R.list_runs(_need_who(a, token), status=a.get('status'),
+                       limit=a.get('limit') or 60)
 
 
 def _t_raw(a, token, key):
@@ -195,6 +208,15 @@ TOOLS = {
         'description': 'Delete one of your bots.',
         'inputSchema': {'type': 'object', 'required': ['name'], 'properties': {
             'name': {'type': 'string'}, 'token': _TOKEN}},
+    },
+    'grok_runs': {
+        'fn': _t_runs,
+        'description': 'Your run ledger — every chat, stream and image this '
+                       'account ran, as live/done/error with duration, tokens '
+                       'and the counts the console board shows.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'status': {'type': 'string', 'enum': ['live', 'done', 'error']},
+            'limit': {'type': 'integer'}, 'token': _TOKEN}},
     },
     'grok_raw': {
         'fn': _t_raw,

@@ -144,6 +144,11 @@ class Mod:
         import client
         return client.delete_bot(self._who(), name)
 
+    def runs(self, status=None, limit=60):
+        """Your run ledger — every chat/stream/image, live/done/error."""
+        import runs as R
+        return R.list_runs(self._who(), status=status, limit=limit)
+
     # ── keys ─────────────────────────────────────────────────────
 
     def set_key(self, key, persist=True, mine=False):

@@ -1122,7 +1122,15 @@ input[type="radio"] {
      board at least ~38vw so browsing and testing share the screen. */
   html[data-strat-dock="wide"] { --strat-dock: min(760px, 62vw); }
 }
-.dock-inset { transition: padding-right 0.18s ease-out; }
+/* The console AGENT docks on the opposite edge (HelpAgent, opened by the
+   logo). It waits for a wider viewport than the money column does: below
+   1280px there isn't room for two columns plus a board, so it falls back to
+   the modal overlay drawer and the inset stays 0. */
+:root { --agent-dock: 0px; }
+@media (min-width: 1280px) {
+  html[data-agent-dock="open"] { --agent-dock: 320px; }
+}
+.dock-inset { transition: padding-right 0.18s ease-out, padding-left 0.18s ease-out; }
 /* The header lives INSIDE the inset, so the nav tabs have 340px less room
    than their own media query thinks. Drop their labels to icons until the
    viewport can spare the column plus the 900px the labelled row needs. */

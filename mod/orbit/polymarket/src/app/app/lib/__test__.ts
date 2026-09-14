@@ -22,7 +22,11 @@ import {
   basketTotal, compareToEqualSplit, equalSplit, replaySleeve, runBasketSim, sleeveFloor,
   weightedSplit, type BasketFeeds, type BasketLeg,
 } from "./basketSim";
-import { forwardVerdict } from "./hubReplay";
+import {
+  DEFAULT_STEADY_FLOOR, forwardVerdict, steadyEnough, winRecord,
+  MIN_ACTIVE_BUCKETS, MIN_DECIDED_FOR_CONSISTENCY, WIN_BUCKETS,
+  type HubBacktest,
+} from "./hubReplay";
 import { Strat } from "./strats/strat";
 import { legKey } from "./leg";
 import { computeFifoTrades } from "./pnlEngine";
@@ -216,6 +220,17 @@ console.log("\n─ settlement: a loser that nobody sold ─");
     truth.markers.some((m) => m.label.startsWith("EXPIRED WORTHLESS")),
     "the chart marks it as an expiry, not a redeem",
   );
+  // …and the leg reaches the SCORER, not just the chart. This is the wiring
+  // the win record stands on: an expiry closes a position without ever
+  // touching `rows`, so unless the sim hands it over separately, a book that
+  // expired worthless scores as "nothing decided".
+  ok(truth.settledLegs.length === 1, `the expiry is reported as a settled leg (got ${truth.settledLegs.length})`);
+  ok(truth.settledLegs[0].resolved && truth.settledLegs[0].net < 0,
+    "…carrying its own verdict: resolved, and a loss");
+  ok(truth.rows.every((r) => r.side !== "SELL"), "nothing was ever sold, so `rows` alone knows nothing");
+  const scored = winRecord(truth.rows, 0, Date.now() + 1, truth.settledLegs);
+  ok(scored.decided === 1 && scored.wins === 0,
+    `so the win record reads 0/1, not 0/0 (got ${scored.wins}/${scored.decided})`);
 }
 
 console.log("\n─ settlement: a winner is booked at $1, not at the last print ─");
@@ -1112,6 +1127,140 @@ console.log("\n─ the HOLDOUT split: trader stats can't peek at the window they
     "…and the funnel names why: no scoreable edge on the train-window record");
   ok(inSample.netPnl > holdout.netPnl,
     `the gap is the overlap inflation — $${inSample.netPnl.toFixed(2)} in-sample vs $${holdout.netPnl.toFixed(2)} blind`);
+}
+
+console.log("\n─ the win record: a hit rate AND where in the window it was earned ─");
+{
+  // Hand-built exits, placed by which SIXTH of the window they land in. The
+  // filter's whole claim is that these two feeds are not the same strat even
+  // though their win rates are identical, so they are built to tie: 8 of 12.
+  const from = 0;
+  const to = WIN_BUCKETS * 1000;          // one bucket = 1000ms, six buckets
+  const exit = (bucket: number, net: number) => ({
+    ts: from + bucket * 1000 + 500,
+    market: "m", conditionId: "0x1", trader: "0xa",
+    side: "SELL" as const, amount: 10, price: 0.5, fee: 0.1,
+    realized: net + 0.1,                  // net is AFTER the closing fee
+    runningPnl: 0, pnlDelta: 0, cash: 0, pos: 0,
+  });
+
+  // SPREAD: came out ahead in five of the six stretches it traded in.
+  const spread = [0, 1, 2, 3, 4, 5].flatMap((b) =>
+    b === 5 ? [exit(b, -1), exit(b, -1)] : [exit(b, 1), exit(b, 1)],
+  );
+  const s = winRecord(spread, from, to);
+  ok(s.decided === 12 && s.wins === 10, `spread: 10/12 legs won (got ${s.wins}/${s.decided})`);
+  ok(s.activeBuckets === 6 && s.winningBuckets === 5,
+    `spread: ahead in 5 of 6 stretches (got ${s.winningBuckets}/${s.activeBuckets})`);
+  ok(Math.abs(s.consistency - 5 / 6) < 1e-9, `spread consistency is 0.83 (got ${s.consistency.toFixed(2)})`);
+
+  // BURST: the same 10 wins, all inside one afternoon, then two losing
+  // stretches. Identical win rate, a record you cannot sample tomorrow.
+  const burst = [
+    ...Array.from({ length: 10 }, () => exit(0, 1)),
+    exit(3, -1), exit(4, -1),
+  ];
+  const b = winRecord(burst, from, to);
+  ok(b.wins === s.wins && b.decided === s.decided, "burst: the SAME 10/12 win rate as spread");
+  ok(b.winningBuckets === 1 && b.activeBuckets === 3,
+    `burst: only 1 of its 3 active stretches came out ahead (got ${b.winningBuckets}/${b.activeBuckets})`);
+  ok(b.consistency < s.consistency,
+    `so consistency separates them — ${b.consistency.toFixed(2)} vs ${s.consistency.toFixed(2)}`);
+
+  // Open positions have no outcome: a BUY never counts, in either column.
+  const withBuys = winRecord(
+    [...spread, { ...exit(2, 1), side: "BUY" as const, realized: 0 }],
+    from, to,
+  );
+  ok(withBuys.decided === s.decided, "BUYs are not decided legs — an open position has no outcome yet");
+
+  // Out-of-window rows belong to the other window's card.
+  ok(winRecord(spread, from, to - 1000).activeBuckets === 5,
+    "rows outside [from,to] are ignored — a walk-forward pass scores its own window");
+
+  // A leg that made 3¢ gross and paid 5¢ in fees is not a win.
+  const feeEaten = winRecord([exit(0, -0.02), exit(1, -0.02), exit(2, -0.02)], from, to);
+  ok(feeEaten.wins === 0, "a leg whose fee ate the gain is a loss, however the gross reads");
+
+  // Too little to judge → UNKNOWN (-1), never 0.
+  const thin = winRecord([exit(0, 1), exit(1, 1), exit(2, 1)], from, to);
+  ok(thin.decided < MIN_DECIDED_FOR_CONSISTENCY && thin.consistency === -1,
+    "under 5 closed legs consistency is UNKNOWN (-1), not 0");
+  const narrow = winRecord(
+    Array.from({ length: 8 }, (_, i) => exit(i % 2, 1)),
+    from, to,
+  );
+  ok(narrow.activeBuckets < MIN_ACTIVE_BUCKETS && narrow.consistency === -1,
+    "8 legs inside 2 stretches is still UNKNOWN — no shape in two points");
+  ok(winRecord([], from, to).winRate === -1, "nothing closed is an UNKNOWN win rate, not 0%");
+
+  // ── The half that never reaches `rows` ──
+  // Leaders SELL their winners and let their losers EXPIRE. Those expiries
+  // are closed by `settleDead`, which books them to cash and draws a REDEEM
+  // marker — no feed row. Scoring rows alone therefore reads a trader who
+  // lost money as a perfect one. This is the live 0x57b4… card: 20 sold legs,
+  // 20 "wins", and a replay down $119.59.
+  const settledLeg = (bucket: number, net: number, resolved = true) => ({
+    ts: from + bucket * 1000 + 500,
+    market: "m", conditionId: "0x1",
+    proceeds: Math.max(0, 10 + net), basis: 10, net, resolved,
+  });
+  const soldWinners = [0, 1, 2, 3, 4, 5].map((b) => exit(b, 1));
+  const expiredLosers = [0, 1, 2, 3, 4, 5].flatMap((b) => [settledLeg(b, -10), settledLeg(b, -10)]);
+  const blind = winRecord(soldWinners, from, to);
+  ok(blind.winRate === 1 && blind.consistency === 1,
+    "rows-only: six sold winners read as a flawless 100% / 1.00 record");
+  const whole = winRecord(soldWinners, from, to, expiredLosers);
+  ok(whole.decided === 18 && whole.wins === 6,
+    `with the resolutions counted it is 6/18 (got ${whole.wins}/${whole.decided})`);
+  ok(Math.abs(whole.winRate - 1 / 3) < 1e-9, `…a 33% win rate, not 100% (got ${(whole.winRate * 100).toFixed(0)}%)`);
+  ok(whole.consistency === 0, "and STEADY 0/6 — it lost money in every stretch it traded in");
+
+  // MONEY, not leg count. The live board's best earner (+$292 over ten days)
+  // wins 41% of its legs: a pile of small expiries paid for by a few big
+  // hits. A majority-of-legs rule scores that shape 0/6 and hides the trader;
+  // asking whether each stretch came out AHEAD keeps it, which is the whole
+  // reason the bucket test is denominated in dollars.
+  const longshot = [0, 1, 2, 3, 4, 5].flatMap((bk) => [exit(bk, -1), exit(bk, -1), exit(bk, 9)]);
+  const ls = winRecord(longshot, from, to);
+  ok(ls.winRate < 0.4, `longshot book: a ${(ls.winRate * 100).toFixed(0)}% hit rate…`);
+  ok(ls.consistency === 1, "…and STEADY 6/6 — every stretch still came out ahead");
+  const bleeder = [0, 1, 2, 3, 4, 5].flatMap((bk) => [exit(bk, 1), exit(bk, 1), exit(bk, -9)]);
+  const bl = winRecord(bleeder, from, to);
+  ok(bl.winRate > 0.6, `bleeder book: a ${(bl.winRate * 100).toFixed(0)}% hit rate…`);
+  ok(bl.consistency === 0, "…and STEADY 0/6 — it lost money in all six, however often it was right");
+
+  // A leg settled at the LAST OBSERVED PRICE decided nothing: that fallback
+  // marks a quietly-expiring loser at its own entry price, so scoring it
+  // would just re-import the bias the settlement model warns about.
+  const guessed = winRecord(soldWinners, from, to, expiredLosers.map((l) => ({ ...l, resolved: false })));
+  ok(guessed.decided === blind.decided, "MARKED settlements stay undecided — a guess is not an outcome");
+
+  // A resolution that paid out MORE than the leg cost is a win like any other.
+  const redeemed = winRecord([], from, to, [0, 1, 2, 3, 4].map((b) => settledLeg(b, 5)));
+  ok(redeemed.wins === 5 && redeemed.winRate === 1, "a $1 redemption is a win even though nothing was sold");
+}
+
+console.log("\n─ the STEADY filter: unknown is CUT, because shape is its subject ─");
+{
+  const card = (consistency: number): HubBacktest => ({
+    pnl: 1, roi: 1, trades: 9, skipped: 0, capital: 1000, days: 10, traders: 1, curve: [],
+    at: Date.now(),
+    wins: {
+      decided: 12, wins: 8, winRate: 8 / 12,
+      consistency,
+      winningBuckets: Math.round(consistency * 6), activeBuckets: 6,
+    },
+  } as HubBacktest);
+
+  ok(steadyEnough(card(0.8), DEFAULT_STEADY_FLOOR), "0.80 clears the 0.75 floor");
+  ok(steadyEnough(card(DEFAULT_STEADY_FLOOR), DEFAULT_STEADY_FLOOR), "the floor itself passes (≥, not >)");
+  ok(!steadyEnough(card(0.5), DEFAULT_STEADY_FLOOR), "a coin-flip-by-stretch record is cut");
+  ok(!steadyEnough(card(-1), DEFAULT_STEADY_FLOOR), "UNRATED is CUT — “we can’t tell” must not read as “it’s fine”");
+  ok(!steadyEnough(undefined, DEFAULT_STEADY_FLOOR), "a card with no replay at all is cut");
+  ok(!steadyEnough({ ...card(0.9), wins: undefined } as HubBacktest, DEFAULT_STEADY_FLOOR),
+    "an OLD snapshot with no win record is cut, not grandfathered in");
+  ok(steadyEnough(card(-1), 0), "floor 0 = filter off: everything passes, including UNRATED");
 }
 
 activityCeilingChecks().then(() => {

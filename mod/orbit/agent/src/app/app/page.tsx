@@ -31,7 +31,7 @@ type Usage = { cost?: number | null; tokens?: number; calls?: number; model?: st
 // landing token by token, running is the tool call in flight right now. Both
 // are superseded by the real step events and dropped when the run finishes.
 type RunningTool = { tool: string; params?: any; i?: number; n?: number }
-type Message = { role: 'user' | 'agent' | 'system'; text: string; steps?: any[]; live?: boolean; images?: string[]; thumbs?: string[]; usage?: Usage; draft?: string; running?: RunningTool | null }
+type Message = { role: 'user' | 'agent' | 'system'; text: string; agent?: string; steps?: any[]; live?: boolean; images?: string[]; thumbs?: string[]; usage?: Usage; draft?: string; running?: RunningTool | null }
 // uid/cid/synced tie a conversation to the server-side store: uid is the
 // stable cross-device id, cid the localfs pin, synced whether the server copy
 // is current. Anonymous sessions only ever live in localStorage.
@@ -372,7 +372,10 @@ export default function Home() {
   // which face of the AGENTS shelf is up: 'browse' shows the registry (the
   // agents themselves), 'agent' the wiring canvas. Plain navigation always
   // lands on browse; only openBuilder() asks for the canvas.
-  const [builderMode, setBuilderMode] = useState<'browse' | 'agent'>('browse')
+  const [builderMode, setBuilderMode] = useState<'browse' | 'agent' | 'task'>('browse')
+  // a nonce, not a boolean: "open the new-agent form" has to fire again the
+  // second time it is asked for, and a boolean that is already true does not
+  const [builderCreate, setBuilderCreate] = useState(0)
   // the rail's inline agent editor: null = the list, {name: null} = a new
   // agent, {name} = editing that one. Creating and changing an agent is a
   // sidebar job — the canvas is where you go for the wiring, not the naming.
@@ -819,8 +822,16 @@ export default function Home() {
   // open the hub on one of its shelves. Everything that used to be its own
   // top-level tab comes through here, so a caller still says where it wants to
   // land — it just lands inside HUB instead of beside it.
-  const openHub = (pane: HubPane) => {
+  const openHub = (pane: HubPane, opts?: { mode?: 'browse' | 'agent' | 'task'; create?: boolean }) => {
     if (pane === 'tasks') fetchServerTasks()
+    // the AGENTS shelf has three faces, and a caller that knows which one it
+    // wants says so — "make me an agent" should land on the form, not on a
+    // list with the form behind a button
+    if (opts?.mode) setBuilderMode(opts.mode)
+    // asked for by a caller that wants the form; cleared by every other way
+    // in, so coming back to the shelf later does not reopen it
+    if (opts?.create) { setBuilderMode('browse'); setBuilderCreate(n => n + 1) }
+    else setBuilderCreate(0)
     setHubPane(pane)
     setView('hub')
     try { localStorage.setItem('agent_hub_pane', pane) } catch {}
@@ -1647,7 +1658,7 @@ export default function Home() {
     const id = ++taskId.current
     const agentLabel = promptSel ? `¶ ${promptSel.name}` : (currentAgentDef?.label || agentType)
     const userMsg: Message = {
-      role: 'user', text: `[${agentLabel}] ${q}`,
+      role: 'user', text: q, agent: agentLabel,
       ...(shots.length ? { images: shots.map(a => a.url), thumbs: shots.map(a => a.thumb) } : {}),
     }
     const task: TaskEntry = { id, uid: genUid(), query: q, status: 'running', messages: [userMsg], agent_type: agentType, startedAt: Date.now() }
@@ -2726,8 +2737,21 @@ export default function Home() {
       )}
       {showUserMenu && auth && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-          <div className="pop" role="menu" aria-label="Account">
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setShowUserMenu(false)} />
+          {/* The account menu is a sidebar, not a popover — same drawer as
+              Credits next door, so "who am I" and "what can I spend" open
+              from the same edge with the same furniture. */}
+          <aside className="fixed inset-y-0 right-0 w-[340px] max-w-[92vw] z-50 bg-surface-1 border-l border-white/10 shadow-2xl flex flex-col"
+            role="dialog" aria-label="Account">
+            <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-2 shrink-0">
+              <span className="text-emerald-300">◉</span>
+              <span className="text-[11px] text-gray-300 uppercase tracking-wider font-medium">Account</span>
+              <button onClick={() => setShowUserMenu(false)}
+                className="ml-auto w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-gray-200 hover:bg-white/[0.06] transition">
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto min-h-0">
             <div className="pop__id">
               <span className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-mono border shrink-0 bg-emerald-500/20 border-emerald-500/35 text-emerald-200">
                 {auth.address.slice(2, 4).toUpperCase()}
@@ -2827,8 +2851,9 @@ export default function Home() {
                 </div>
               </div>
             )}
+            </div>
             {hostRow}
-          </div>
+          </aside>
         </>
       )}
     </div>
@@ -3482,6 +3507,12 @@ export default function Home() {
             // a system message we can read gets said properly, and the server's
             // own words move under a disclosure rather than leading with them
             const notice = msg.role === 'system' ? runNotice(msg.text) : null
+            // which agent the message went to lives in the meta row, not the
+            // text; conversations saved before that carried it as a "[label] "
+            // prefix, so peel it back out of those on render
+            const legacyTag = msg.role === 'user' && !msg.agent ? msg.text.match(/^\[([^\]\n]{1,60})\] /) : null
+            const agentTag = msg.role === 'user' ? (msg.agent || legacyTag?.[1] || null) : null
+            const bodyText = legacyTag ? msg.text.slice(legacyTag[0].length) : msg.text
             return (
             <div key={i} className={`${msg.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-full'}`}>
               <div className={`rounded-lg px-3 py-2.5 msg-in ${
@@ -3494,6 +3525,9 @@ export default function Home() {
                 {!notice && (
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-xs text-gray-500">{msg.role}</span>
+                    {agentTag && (
+                      <span className="text-[10px] text-emerald-400/60 font-mono truncate max-w-[16rem]" title={`sent to ${agentTag}`}>→ {agentTag}</span>
+                    )}
                   </div>
                 )}
                 {shots.length > 0 && (
@@ -3518,7 +3552,7 @@ export default function Home() {
                   </>
                 ) : (
                   <div className="whitespace-pre-wrap text-sm text-gray-300 leading-relaxed">
-                    {msg.text ? renderText(msg.text) : null}
+                    {bodyText ? renderText(bodyText) : null}
                     {/* the model's output, landing as it streams. Prose shows
                         with a caret; a tool call being written folds into an
                         indicator naming the tool it is shaping up to be */}
@@ -4320,9 +4354,10 @@ export default function Home() {
   const agentsCanvas = (
     <div className="flex-1 min-h-0">
       <Builder
-        key={`${builderAgent || 'new'}·${builderMode}`}
+        key={`${builderAgent || 'new'}·${builderMode}·${builderCreate}`}
         initialAgent={builderAgent}
         initialMode={builderMode}
+        initialCreate={builderCreate > 0}
         onUseAgent={(name, memoryIds) => {
           selectAgent(name)
           if (memoryIds.length) {
@@ -4465,26 +4500,44 @@ export default function Home() {
         {view === 'hub' && (
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="border-b border-white/[0.06] px-3 py-1.5 shrink-0 flex items-center gap-1.5 flex-wrap">
+              {/* the third shelf is the RUNS shelf, not the "tasks" shelf: a
+                  task in the arena is what an agent is scored on, and two
+                  different things under one word in one console is how you
+                  end up looking for the arena's tasks in here */}
               {(['agents', 'library', 'tasks'] as HubPane[]).map(p => (
                 <button key={p} onClick={() => openHub(p)}
                   className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider transition border ${
                     hubPane === p ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
                                   : 'bg-white/[0.03] border-white/[0.06] text-gray-600 hover:text-gray-300'
                   }`}>
-                  {p}
+                  {p === 'tasks' ? 'runs' : p}
                   {p === 'tasks' && runningCount > 0 && (
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   )}
                 </button>
               ))}
-              {/* the tasks shelf says this in its own header a line down, so
-                  the strip stays quiet there */}
               {hubPane !== 'tasks' && (
-                <span className="ml-auto text-[10px] text-gray-600 hidden sm:block">
+                <span className="text-[10px] text-gray-600 truncate min-w-0 hidden lg:block">
                   {hubPane === 'agents' ? 'every agent — its prompt, model, memory · or wire one on the canvas'
                     : 'prompts, tools, memory, agents — pull one into a chat'}
                 </span>
               )}
+              {/* the two things people come to the hub to make. Both have
+                  always been in here somewhere — behind a mode strip, behind a
+                  button in a corner — and "somewhere" is how a door gets
+                  looked for. They are on the strip now, on every shelf. */}
+              <span className="ml-auto flex items-center gap-1.5">
+                <button onClick={() => openHub('agents', { create: true })}
+                  title="make a new agent — a folder of code under src/agents/, on the board within a minute"
+                  className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border border-emerald-500/25 bg-emerald-500/[0.12] text-emerald-200 hover:bg-emerald-500/25 transition">
+                  + agent
+                </button>
+                <button onClick={() => openHub('agents', { mode: 'task' })}
+                  title="write a task — what every agent on the arena board is scored on"
+                  className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border border-white/[0.08] bg-white/[0.03] text-gray-400 hover:text-gray-200 transition">
+                  + task
+                </button>
+              </span>
             </div>
             <div className="flex-1 min-h-0 flex">
               {hubPane === 'tasks' && tasksPage}
@@ -4497,7 +4550,9 @@ export default function Home() {
         {/* arena — every agent on the same tasks, one ranked board */}
         {view === 'arena' && (
           <div className="flex-1 min-h-0 flex">
-            <Arena token={auth?.token} isHost={isHost} />
+            <Arena token={auth?.token} isHost={isHost} address={auth?.address}
+              onSignIn={signIn}
+              onNewAgent={() => openHub('agents', { create: true })} />
           </div>
         )}
 

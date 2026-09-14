@@ -408,9 +408,9 @@ fn finance_tools() -> serde_json::Value {
         },
         {
             "name": "defi_modules",
-            "description": "[public] The finance modules: every place money can go that gives a return — DefiLlama's pools on Ethereum, Base and Solana; Bittensor subnets through the bt module; vaults you composed and deployed; the BlocTime treasury. Each row carries returns (apy, apy_base, emissions_share, 30d mean), liquidity (tvl, entry, exit mode, exit_delay_days, lock_days), conditions, and an adapter saying how THIS desk enters it (or null = read-only). Filters: chain (ethereum|base|solana|tao|evm), kind, q, addable, instant, min_tvl, stable, organic, sort (score|apy|tvl|base|mean30d), limit.",
+            "description": "[public] The finance modules: every place money can go that gives a return — DefiLlama's pools on Ethereum, Base and Solana; Bittensor subnets through the bt module; Hyperliquid perps vaults through the hyperliquid module (trailing APR, quoted not promised); Polymarket one-to-one copy-trading through the polymarket module (a module is one trader mirrored at weight 1.0 — owner-gated, so the board lists only with its access token); vaults you composed and deployed; the BlocTime treasury. Each row carries returns, liquidity, conditions, and an adapter saying how THIS desk enters it (or null = read-only). Filters: chain (ethereum|base|solana|tao|hyperliquid|polymarket|evm), kind, q, addable, instant, min_tvl, stable, organic, sort (score|apy|tvl|base|mean30d), limit.",
             "inputSchema": { "type": "object", "properties": {
-                "chain": { "type": "string" }, "kind": { "type": "string", "description": "Lending, Liquid Staking, Dexs, Yield, Subnet (dTAO), Composed vault… see defi_module_facets" },
+                "chain": { "type": "string" }, "kind": { "type": "string", "description": "Lending, Liquid Staking, Dexs, Yield, Subnet (dTAO), Perps vault, Copy trading, Composed vault… see defi_module_facets" },
                 "q": { "type": "string" }, "addable": { "type": "boolean", "description": "only modules this desk can enter" },
                 "instant": { "type": "boolean", "description": "only modules you can leave instantly (natively or at market)" },
                 "min_tvl": { "type": "number" }, "stable": { "type": "boolean" }, "organic": { "type": "boolean" },
@@ -424,7 +424,7 @@ fn finance_tools() -> serde_json::Value {
         },
         {
             "name": "defi_module",
-            "description": "[public] One module in full by id (llama:<pool>, tao:sn<netuid>, own:<protocol>:<node>, treasury), with up to a year of rate history for index pools and the live pool price for a subnet.",
+            "description": "[public] One module in full by id (llama:<pool>, tao:sn<netuid>, hl:vault:<address>, pm:copy:<trader>, own:<protocol>:<node>, treasury), with up to a year of rate history for index pools, the live pool price for a subnet, and the live vault profile + PnL series for a Hyperliquid vault.",
             "inputSchema": { "type": "object", "properties": { "id": { "type": "string" }, "history": { "type": "boolean", "default": true } }, "required": ["id"] }
         },
         {
@@ -457,6 +457,56 @@ fn finance_tools() -> serde_json::Value {
             "name": "defi_position_value",
             "description": "What a position is worth now, read on chain where this desk can (vault shares → assets, Comet balance, receipt balance); a pointer to sol_portfolio / bt_portfolio otherwise.",
             "inputSchema": { "type": "object", "properties": { "id": { "type": "string" } }, "required": ["id"] }
+        },
+        {
+            "name": "defi_whitepaper",
+            "description": "[public] The whitepaper of the defi module itself: the modular-finance thesis, the architecture, who signs what (browser wallet vs chain module, per operation), the content-addressed storage rule, and the honesty rules. Returns markdown plus the CID it is stored under in the protocol object store.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "defi_module_whitepaper",
+            "description": "[public] One finance module's whitepaper, generated from its live card: what it is, returns (fees apart from emissions), liquidity, conditions, the exact execution path with who signs it, provenance. Dated, content-addressed and stored under the protocol — the CID rides alongside the markdown.",
+            "inputSchema": { "type": "object", "properties": { "id": { "type": "string", "description": "an id from defi_modules" } }, "required": ["id"] }
+        }
+    ])
+}
+
+/// The copy desks — Hyperliquid vaults and Polymarket one-to-one mirrors.
+/// Its own group, same reason as the others: the json! macro's recursion
+/// limit is real.
+fn copy_desk_tools() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "name": "defi_hl_vaults",
+            "description": "[public] Hyperliquid's open vaults ranked by APR, straight off the hyperliquid module (hl_list_vaults): address, name, leader, TVL, age, trailing APR with its 7d and 24h reads. The APR is realized PnL annualized — quoted, never promised. Each vault is enterable as module hl:vault:<address> via defi_enter.",
+            "inputSchema": { "type": "object", "properties": {
+                "pool": { "type": "integer", "description": "how many vaults, 1-2000 (default 300)" },
+                "min_tvl": { "type": "number", "description": "minimum TVL in USD (default 10000)" }
+            } }
+        },
+        {
+            "name": "defi_hl_vault",
+            "description": "[public] One Hyperliquid vault's full profile — leader, TVL, APR, lock-up, portfolio history — and, when `user` is given, that follower's stake and max withdrawable.",
+            "inputSchema": { "type": "object", "properties": {
+                "address": { "type": "string", "description": "vault address" },
+                "user": { "type": "string", "description": "look up this wallet's follower state" }
+            }, "required": ["address"] }
+        },
+        {
+            "name": "defi_pm_traders",
+            "description": "The Polymarket trader board this desk can mirror one-to-one: 30-day PnL, volume, win rate, resolve rate, Sharpe per wallet. The polymarket deployment is owner-only — this call needs its access token (your bearer, or auth=). Each trader is enterable as module pm:copy:<address> via defi_enter: a single-leader, weight-1.0, bankroll-fidelity live session, DRY RUN until autoExecute=true.",
+            "inputSchema": { "type": "object", "properties": {
+                "days": { "type": "integer", "description": "ranking window in days (default 30)" },
+                "pool": { "type": "integer", "description": "candidate pool size, 50-2000 (default 200)" },
+                "auth": { "type": "string", "description": "the polymarket access token, if not the bearer on this call" }
+            } }
+        },
+        {
+            "name": "defi_pm_sessions",
+            "description": "The live copy sessions running on the polymarket module — one per (eoa, strategyId), each with its running flag, config (leader, capital, sizing, autoExecute) and session ledger. Owner-gated like every polymarket call.",
+            "inputSchema": { "type": "object", "properties": {
+                "auth": { "type": "string", "description": "the polymarket access token, if not the bearer on this call" }
+            } }
         }
     ])
 }
@@ -464,7 +514,7 @@ fn finance_tools() -> serde_json::Value {
 /// Every tool this server offers, in one list.
 fn tools() -> serde_json::Value {
     let mut all = composer_and_desk_tools();
-    for rest in [yield_and_treasury_tools(), finance_tools()] {
+    for rest in [yield_and_treasury_tools(), finance_tools(), copy_desk_tools()] {
         if let (Some(a), Some(b)) = (all.as_array_mut(), rest.as_array()) {
             a.extend(b.iter().cloned());
         }
@@ -808,36 +858,64 @@ async fn call_tool(
             let min_tvl = args.get("min_tvl").and_then(|v| v.as_f64()).unwrap_or(1_000_000.0);
             let (pools, fetched) = state.yields.all().await?;
             let (subnets, tao_usd) = crate::hub_tao_inputs(&state).await;
-            Ok(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd))
+            let hl = crate::hub_hl_inputs(&state).await;
+            Ok(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd, &hl))
         }
         "defi_hub_protocol" => {
             let id = arg_str(&args, "id")?;
             let min_tvl = args.get("min_tvl").and_then(|v| v.as_f64()).unwrap_or(1_000_000.0);
             let (pools, fetched) = state.yields.all().await?;
             let (subnets, tao_usd) = crate::hub_tao_inputs(&state).await;
-            state.hub.protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd)
+            let hl = crate::hub_hl_inputs(&state).await;
+            let trust = crate::hub_trust_inputs(&state, &id, &subnets).await;
+            state.hub.protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd, &hl, &trust)
         }
         "defi_modules" => {
             let filter = crate::finance::Filter::from_query(&args);
-            state.finance.modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury).await
+            state.finance.modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, peer_auth(&args, &token)).await
         }
         "defi_module_facets" => {
-            state.finance.facets(&state.yields, &state.dex, &state.store, &state.catalog, &state.treasury).await
+            state.finance.facets(&state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, token.as_deref()).await
         }
         "defi_module" => {
             let id = arg_str(&args, "id")?;
             let history = args.get("history").and_then(|v| v.as_bool()).unwrap_or(true);
-            state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history).await
+            state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history, peer_auth(&args, &token)).await
         }
         "defi_module_quote" => {
             let id = arg_str(&args, "id")?;
-            let module = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false).await?;
+            let module = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false, peer_auth(&args, &token)).await?;
             state.finance.quote(&module, &args, &state.dex, peer_auth(&args, &token)).await
         }
         "defi_enter" => {
             let id = arg_str(&args, "module")?;
-            let module = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false).await?;
+            let module = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false, peer_auth(&args, &token)).await?;
             state.finance.enter(&module, &args, who.as_deref(), &state.dex, &state.treasury, peer_auth(&args, &token)).await
+        }
+        "defi_hl_vaults" => {
+            let mut call = serde_json::Map::new();
+            for key in ["pool", "min_tvl"] {
+                if let Some(v) = args.get(key) {
+                    call.insert(key.into(), v.clone());
+                }
+            }
+            state.dex.peer("hyperliquid", "hl_list_vaults", serde_json::Value::Object(call), None).await
+        }
+        "defi_hl_vault" => {
+            let address = arg_str(&args, "address")?;
+            let mut call = serde_json::json!({ "address": address });
+            if let Some(u) = args.get("user") {
+                call["user"] = u.clone();
+            }
+            state.dex.peer("hyperliquid", "hl_vault_details", call, peer_auth(&args, &token)).await
+        }
+        "defi_pm_traders" => {
+            let days = args.get("days").and_then(|v| v.as_u64()).unwrap_or(30);
+            let pool = args.get("pool").and_then(|v| v.as_u64()).unwrap_or(200);
+            state.dex.rest("polymarket", "GET", &format!("/active-traders?days={days}&pool={pool}"), None, peer_auth(&args, &token)).await
+        }
+        "defi_pm_sessions" => {
+            state.dex.rest("polymarket", "GET", "/live/sessions", None, peer_auth(&args, &token)).await
         }
         "defi_positions" => state.finance.positions(&state.yields, who.as_deref()).await,
         "defi_exit" => {
@@ -847,6 +925,29 @@ async fn call_tool(
         "defi_position_value" => {
             let id = arg_str(&args, "id")?;
             state.finance.value(&id, &state.dex, token.as_deref()).await
+        }
+        "defi_whitepaper" => {
+            let md = crate::whitepaper::SELF;
+            let cid = state.store.put_object(md.as_bytes()).ok();
+            Ok(serde_json::json!({
+                "module": "defi", "markdown": md, "cid": cid,
+                "share": cid.as_ref().map(|c| format!("/objects/{c}")),
+            }))
+        }
+        "defi_module_whitepaper" => {
+            let id = arg_str(&args, "id")?;
+            let module = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false, peer_auth(&args, &token)).await?;
+            let now = auth::now();
+            let markdown = crate::whitepaper::module_paper(&module, now);
+            let object = serde_json::json!({
+                "type": "defi-module-whitepaper", "module_id": module.get("id"),
+                "as_of": now, "markdown": markdown, "module": module,
+            });
+            let cid = serde_json::to_vec(&object).ok().and_then(|b| state.store.put_object(&b).ok());
+            Ok(serde_json::json!({
+                "id": module.get("id"), "as_of": now, "markdown": markdown, "cid": cid,
+                "share": cid.as_ref().map(|c| format!("/objects/{c}")),
+            }))
         }
         "defi_treasury_choose" => {
             let who = who.ok_or("sign in with your wallet first")?;

@@ -1,4 +1,5 @@
 {
+    "agent_approval_ttl_sec": 600,
     "anchor": "src/mod.py",
     "app_port": 3150,
     "archive_pool_size": 6,
@@ -7,7 +8,7 @@
     "bt_url": "http://localhost:50280",
     "cooldown_sec": 60,
     "daily_limit_tao": 100.0,
-    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), a strat agent you can talk to builds the baskets, and an MCP server (POST /mcp) drives the book \u2014 create copies, sync the portfolio, backtest",
+    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), and a desk agent you can talk to does the work: it builds the baskets, starts and re-sizes copies and syncs the book \u2014 but every write stops for your approval first. An MCP server (POST /mcp) drives the same book under the same gate",
     "endpoints": {
         "/account/{ss58}": {
             "docs": "Coldkey allocations + N-day PnL",
@@ -22,11 +23,26 @@
             "method": "GET"
         },
         "/agent": {
-            "docs": "Strat-agent status \u2014 auth, model, and the tools it can reach",
+            "docs": "Desk-agent status \u2014 auth, model, the tools it can reach, and which of them need your approval",
+            "method": "GET"
+        },
+        "/agent/approvals": {
+            "docs": "Writes an agent is waiting on you for (?run_id=... for one conversation)",
+            "method": "GET"
+        },
+        "/agent/approvals/{id}": {
+            "docs": "Read one parked write, or POST {approve, note} to answer it \u2014 the note is handed to the agent as the reason",
+            "method": [
+                "GET",
+                "POST"
+            ]
+        },
+        "/agent/approvals/{id}/wait": {
+            "docs": "Long-poll one request until it is decided (?timeout=25) \u2014 how the blocked MCP client waits",
             "method": "GET"
         },
         "/agent/ask": {
-            "docs": "Talk to the strat agent (SSE: start|text|tool|tool_done|strat|done|error). Send session_id to continue the conversation",
+            "docs": "Talk to the desk agent (SSE: start|text|tool|tool_done|strat|approval|approval_done|ping|done|error). An `approval` is a write it wants to make, parked \u2014 answer it at /agent/approvals/{id}. Send session_id to continue",
             "method": "POST"
         },
         "/copies": {
@@ -74,7 +90,7 @@
             "method": "GET"
         },
         "/mcp": {
-            "docs": "MCP streamable-HTTP endpoint (JSON-RPC 2.0, batches ok) \u2014 25 tools: every read the strat agent has plus the ops set (ct_copies, ct_create_copy, ct_sync, ct_portfolio, ct_backtest...). `claude mcp add --transport http copytensor <this url>`",
+            "docs": "MCP streamable-HTTP endpoint (JSON-RPC 2.0, batches ok) \u2014 25 tools: every read the desk agent has plus the ops set (ct_copies, ct_create_copy, ct_sync, ct_portfolio, ct_backtest...). Writes park for human approval unless COPYTENSOR_MCP_APPROVAL=0. `claude mcp add --transport http copytensor <this url>`",
             "method": "POST"
         },
         "/mcp/schema": {
@@ -228,7 +244,10 @@
         "forward",
         "portfolio",
         "sync_portfolio",
-        "resize_copy"
+        "resize_copy",
+        "approvals",
+        "approve",
+        "decline"
     ],
     "gateway_port": 3001,
     "leaderboard_pool_size": 1000,
@@ -263,7 +282,7 @@
     ],
     "rebalance_threshold_pct": 5.0,
     "route": true,
-    "schema": "QmPWsocbWzx23ZnzPvvru2CdFZvegBGqAxqdcjGfGiCRKY",
+    "schema": "QmXGQiyEg8M42hcHXWjeCTZMcjuX5DPriQ1aVzRYhyfQ4G",
     "seed_validators": [
         {
             "label": "Top delegate #1 owner",
@@ -302,7 +321,7 @@
         "gateway_app": "http://localhost:3001/copytensor",
         "mcp": "http://localhost:50150/mcp"
     },
-    "version": "0.10.0",
+    "version": "0.12.0",
     "watched_accounts": [
         "5GsbTgfvgCH4xdqSkiPb7EaBBFLHjWH5vfEALhJaewSFpZX9",
         "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",

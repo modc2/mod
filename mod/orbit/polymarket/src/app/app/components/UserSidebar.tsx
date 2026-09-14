@@ -14,20 +14,19 @@
 //   ACCOUNT  (AccountsPanel)  — every wallet this browser has signed in as and
 //                               the USDC each holds. It carries the column's
 //                               × close, so the user block IS the header.
-//   MONEY    (MoneyBlock)     — topping up and taking money back out. It was a
-//                               subtab of the live workspace, which put funding
-//                               a navigation away from every screen that needed
-//                               it; money is a drawer, not a destination. Any
-//                               screen that finds itself short fires
-//                               OPEN_MONEY_EVENT and this opens over it.
-//   STRATS   (StratBlock)     — the saved strategies, and which one BACKTEST
-//                               and LIVE are looking at. The default one is a
-//                               TRADER INDEX: every trade the bench makes,
-//                               copied 1:1 and scaled by your capital against
-//                               that trader's own book.
+//   STRATS   (StratBlock)     — the saved strategies with the money on each,
+//                               and which one BACKTEST and LIVE are looking
+//                               at. The default one is a TRADER INDEX: every
+//                               trade the bench makes, copied 1:1 and scaled
+//                               by your capital against that trader's book.
 //   COPY     (CopyPanel)      — the copy book: pick a leader, set the dollars
 //                               behind them, replay $N over the last M days,
 //                               start or stop each one.
+//
+// MONEY (topping up / taking out) used to be a drawer block between ACCOUNT
+// and STRATS; it's a rail TAB now (see below) — the expanded wallet tiles
+// were shoving the allocation list off-screen and repeating the balance the
+// header already prints. OPEN_MONEY_EVENT lands on that tab.
 //
 // They are one column because they are one question. A copy session, its
 // ledger and its money are all keyed by (wallet, leader): "whose money" and
@@ -50,7 +49,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 import CopyPanel from "./CopyPanel";
-import MoneyBlock, { OPEN_MONEY_EVENT } from "./MoneyBlock";
+import MoneyTab, { OPEN_MONEY_EVENT } from "./MoneyBlock";
 import StratBlock, { OPEN_STRATS_EVENT } from "./StratBlock";
 import DeskRoster from "./DeskRoster";
 import IndexBench from "./IndexBench";
@@ -68,9 +67,13 @@ export const OPEN_SIDEBAR_EVENT = "poly-open-sidebar";
 // picked is the side panel's job — tab between them without ever leaving
 // the traders you're browsing. So the column carries the rail now:
 //
-//   INDEX     the account, the MONEY drawer and the ALLOCATION across your
-//             strats, plus the bench you're building and the copy book —
-//             everything "whose money and how much"
+//   INDEX     the account and the ALLOCATION across your strats — each one's
+//             money in play, its P&L, which is active — plus the bench
+//             you're building and the copy book
+//   MONEY     top up / take out (WalletPanel). It was a drawer INSIDE the
+//             INDEX column; expanded, its wallet tiles pushed the allocation
+//             list below the fold and printed the balance a third time. The
+//             rail is the drawer handle now.
 //   BACKTEST  the full workspace (CopyIndex) replaying the bench on history
 //   LIVE      the same workspace against the real book
 //
@@ -84,12 +87,13 @@ export const OPEN_SIDEBAR_EVENT = "poly-open-sidebar";
 // (data-strat-dock="wide" → globals.css) because an engine built for the
 // main pane earns more than 340px. /backtest and /live survive as
 // forwarders into these tabs.
-export type SidebarTab = "INDEX" | "BACKTEST" | "LIVE";
+export type SidebarTab = "INDEX" | "MONEY" | "BACKTEST" | "LIVE";
 export const SIDEBAR_TAB_EVENT = "poly-sidebar-tab";
 const TAB_KEY = "poly_sidebar_tab";
-const TABS: SidebarTab[] = ["INDEX", "BACKTEST", "LIVE"];
+const TABS: SidebarTab[] = ["INDEX", "MONEY", "BACKTEST", "LIVE"];
 const TAB_HINTS: Record<SidebarTab, string> = {
-  INDEX: "Your wallets, your money, and how it's allocated across your strats",
+  INDEX: "Your strats and the money on each — allocation, the bench, the copy book",
+  MONEY: "Top up your trading balance, take money out, or send it somewhere",
   BACKTEST: "Replay the bench against history on simulated money — no wallet touched",
   LIVE: "Run the bench against the real book with real money",
 };
@@ -174,23 +178,22 @@ export default function UserSidebar() {
       if (isSidebarTab(t)) setTabPersisted(t);
       setDrawer(true);
     };
-    // The money/accounts blocks live on INDEX — an ask for one of them from
-    // another tab must also bring INDEX forward, or the block expands
-    // somewhere the user can't see.
-    const onIndexBlock = () => { setTabPersisted("INDEX"); setDrawer(true); };
+    // Money is its own rail tab — anything that finds itself short of funds
+    // (LIVE's FUND NOW, the header's balance chip) lands straight on it.
+    const onMoney = () => { setTabPersisted("MONEY"); setDrawer(true); };
     // The strat MANAGER is a main header tab now (/strats) — an ask for "the
     // strats" (AccountsPanel's shortcut, the allocation block's BUILD &
     // SHARE link) navigates there rather than opening the column.
     const onStratsTab = () => router.push("/strats");
     window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
     window.addEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
-    window.addEventListener(OPEN_MONEY_EVENT, onIndexBlock);
+    window.addEventListener(OPEN_MONEY_EVENT, onMoney);
     window.addEventListener(OPEN_STRATS_EVENT, onStratsTab);
     window.addEventListener(SIDEBAR_TAB_EVENT, onTab);
     return () => {
       window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
       window.removeEventListener(OPEN_SIDEBAR_EVENT, onOpenPlain);
-      window.removeEventListener(OPEN_MONEY_EVENT, onIndexBlock);
+      window.removeEventListener(OPEN_MONEY_EVENT, onMoney);
       window.removeEventListener(OPEN_STRATS_EVENT, onStratsTab);
       window.removeEventListener(SIDEBAR_TAB_EVENT, onTab);
     };
@@ -198,10 +201,11 @@ export default function UserSidebar() {
 
   // Inset the console for the docked column (CSS var, read by .crt-screen in
   // layout.tsx and by BuildBadge). BACKTEST/LIVE carry the full workspace, so
-  // the docked column takes the WIDE width for them (globals.css).
+  // the docked column takes the WIDE width for them (globals.css); INDEX and
+  // MONEY are column-shaped.
   useEffect(() => {
     const el = document.documentElement;
-    if (open && docked) el.dataset.stratDock = tab === "INDEX" ? "open" : "wide";
+    if (open && docked) el.dataset.stratDock = tab === "INDEX" || tab === "MONEY" ? "open" : "wide";
     else delete el.dataset.stratDock;
     return () => { delete el.dataset.stratDock; };
   }, [open, docked, tab]);
@@ -271,12 +275,10 @@ export default function UserSidebar() {
       <div className="flex-1 overflow-y-auto">
         {tab === "INDEX" ? (
           <>
-            {/* Money first, under the wallet it belongs to: top up, take out.
-                Collapsed to one line until you want it. */}
-            <MoneyBlock />
-            {/* ALLOCATION — how the wallet is split across your strats, the
+            {/* ALLOCATION leads — your strats and the money on each, the
                 active strat BACKTEST/LIVE point at, and $ ALLOCATE to move
-                money amongst them. Building and sharing live on /strats. */}
+                money amongst them. Building and sharing live on /strats;
+                topping up and taking out live on the MONEY tab. */}
             <StratBlock />
             {/* The active strat's bench — every + ADD from the board, each
                 with its current board SCORE, toggled or removed right here. */}
@@ -286,6 +288,10 @@ export default function UserSidebar() {
             <SelectionTray />
             {onDesk ? <DeskRoster /> : <CopyPanel />}
           </>
+        ) : tab === "MONEY" ? (
+          /* Top up / take out / send — WalletPanel and, behind MORE, the
+             bridge and the legacy Safe. */
+          <MoneyTab />
         ) : (
           /* The full workspace, bare (no TopBar) — the same component the
              old /backtest and /live pages rendered. Keyed by tab so nothing
@@ -316,7 +322,7 @@ export default function UserSidebar() {
       <aside
         onClick={(e) => e.stopPropagation()}
         className={`absolute inset-y-0 right-0 flex flex-col backdrop-blur-md ${
-          tab === "INDEX" ? "w-[340px] max-w-[85vw]" : "w-[760px] max-w-[95vw]"
+          tab === "INDEX" || tab === "MONEY" ? "w-[340px] max-w-[85vw]" : "w-[760px] max-w-[95vw]"
         }`}
         style={{
           background:

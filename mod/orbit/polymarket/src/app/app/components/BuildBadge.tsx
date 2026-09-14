@@ -161,12 +161,15 @@ export default function BuildBadge() {
     // opacity so it reads as a watermark over the page it floats on, and
     // comes back to full strength on hover (or while a publish is running).
     // Bottom-LEFT: the right edge belongs to the docked copy book, and the
-    // badge used to have to dodge it (`--strat-dock`); the left gutter is
-    // empty on every page, so no offset is needed there.
+    // badge used to have to dodge it (`--strat-dock`). The left gutter now
+    // belongs to the docked agent column, so the badge dodges THAT instead
+    // (`--agent-dock`) — it's z-40 over the column's z-30 and would otherwise
+    // sit on top of the agent's input box.
     <div
-      className={`fixed bottom-2 left-2 z-40 flex flex-col items-start gap-1 transition-opacity duration-200 hover:opacity-100 ${
+      className={`fixed bottom-2 z-40 flex flex-col items-start gap-1 transition-opacity duration-200 hover:opacity-100 ${
         status || busy ? "opacity-100" : "opacity-45"
       }`}
+      style={{ left: "calc(var(--agent-dock, 0px) + 0.5rem)" }}
     >
       {status && (
         <div className="pixel-btn text-[12px] px-2 py-0.5 font-mono border-pixel-border text-green-400 bg-pixel-black/80 backdrop-blur-sm">

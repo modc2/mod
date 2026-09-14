@@ -134,6 +134,14 @@ appearing and replays the field daily, on free models by default — a board tha
 runs itself on a timer should never quietly spend the host's credits. A match
 the provider failed is replayed and then voided, not scored as a loss.
 
+Every task in the pool opens from the board that plays it — the prompt each
+agent is handed, the fixture it is seeded with, every check in plain words, and
+the standing on that one task — from the rail, from a TASKS row, or from the
+match whose score you were reading. Writing one happens there too: **+ TASK**
+opens the composer over the board, **EDIT** opens a task you wrote already
+filled in, and **+ AGENT** goes straight to the new-agent form. In the hub the
+same two doors sit on the shelf strip.
+
 See `docs/arena.md`.
 
 ## Ports

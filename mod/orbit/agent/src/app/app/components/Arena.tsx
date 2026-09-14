@@ -20,6 +20,7 @@
 
 import { Fragment, useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
+import TaskBuilder from './TaskBuilder'
 
 type Row = {
   rank: number; agent: string; icon: string; active: boolean
@@ -39,7 +40,19 @@ type Match = {
   checks?: { type: string; passed: boolean; reason: string; score?: number
              cases?: { name: string; passed: boolean; hidden: boolean }[] }[]
 }
-type Task = { key: string; suite: string; title: string; prompt: string; steps?: number | null }
+type Scorer = { type: string; path?: string; text?: string; pattern?: string
+                name?: string; n?: number; task?: string; language?: string }
+// GET /arena/tasks hands back the whole spec, not a summary — the prompt every
+// agent is given, the fixture it is given it in, and the checks that decide
+// whether it did the job. The board reads all three.
+type Task = {
+  key: string; suite: string; title: string; prompt: string; steps?: number | null
+  index?: string | number; description?: string
+  scorers?: Scorer[]; setup?: { files?: Record<string, string> }
+  owner?: string | null; custom?: boolean; updated?: number
+  openarena?: { slug?: string; mode?: string; language?: string
+                cases?: number; hidden?: number; tags?: string[]; author?: string }
+}
 // one openarena task, as the bridge reports it
 type OaTask = {
   key: string; slug: string; title: string; mode: string; language: string
@@ -224,7 +237,17 @@ const Empty = ({ title, body, hint }: { title: string; body: string; hint?: stri
   </div>
 )
 
-export default function Arena({ token, isHost }: { token?: string | null; isHost: boolean }) {
+export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: {
+  token?: string | null
+  isHost: boolean
+  /** the signed-in address — a task is editable by the address that wrote it */
+  address?: string | null
+  /** open the sign-in flow: writing a task is filed under an address */
+  onSignIn?: () => void
+  /** take me to where an agent is made — the board is where you find out one
+      is missing, so it is where the door belongs */
+  onNewAgent?: () => void
+}) {
   const [board, setBoard] = useState<Row[]>([])
   const [status, setStatus] = useState<Status | null>(null)
   const [matches, setMatches] = useState<Match[]>([])
@@ -244,6 +267,11 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
   const [modelCard, setModelCard] = useState<ModelCard | null>(null)
   const [taskRows, setTaskRows] = useState<TaskRow[]>([])
   const [openTask, setOpenTask] = useState<string | null>(null)
+  // the task pool, read rather than counted: `spec` is the task open in the
+  // reader — its prompt, its fixture and the checks it is scored by — and
+  // `compose` is the task form open over the board (slug null = a new one)
+  const [spec, setSpec] = useState<string | null>(null)
+  const [compose, setCompose] = useState<{ slug: string | null } | null>(null)
   const [tiers, setTiers] = useState<TiersPayload | null>(null)
   const [openTier, setOpenTier] = useState<string | null>(null)
   const [tierField, setTierField] = useState<TierField | null>(null)
@@ -287,13 +315,13 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
       fetch(`${API_URL}/arena/tiers`, { signal }).then(r => r.json())
         .then(d => setTiers(d?.error ? null : { tiers: [], catalog: [], flat: [], ...d })).catch(() => {})
     }
-    // the rail's task pane wears each task's leader too, so the board is
-    // fetched for either surface that shows it
-    if (view === 'tasks' || pane === 'tasks') {
+    // the rail's task pane wears each task's leader too, and so does the
+    // open task sheet — the board is fetched for any surface that shows it
+    if (view === 'tasks' || pane === 'tasks' || spec) {
       fetch(`${API_URL}/arena/board/tasks`, { signal }).then(r => r.json())
         .then(d => setTaskRows(d.tasks || [])).catch(() => {})
     }
-  }, [view, pane])
+  }, [view, pane, spec])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadBoards() }, [loadBoards, matches.length])
@@ -401,6 +429,73 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
   // writing a task or importing a benchmark is filed under an address
   const canWrite = !!token || isHost
 
+  // ── the pool, addressable ─────────────────────────────────────────
+  //
+  // Every surface that names a task — the rail, the TASKS board, a match —
+  // can open the task itself, so they all look it up the same way.
+  const taskByKey = useMemo(() => {
+    const out: Record<string, Task> = {}
+    for (const t of tasks) out[t.key] = t
+    return out
+  }, [tasks])
+  const openSpec = taskByKey[spec || ''] || null
+
+  // a hand-written task is editable by the address that wrote it, and by the
+  // host. Everything else in the pool is a python file in the tree.
+  const mine = (t?: Task | null) =>
+    !!t?.custom && (isHost || (!!t.owner && !!address
+                               && t.owner.toLowerCase() === address.toLowerCase()))
+
+  // one check, in words. The form writes these specs; this reads them back,
+  // because a task nobody can read is a task nobody can argue with.
+  const checkLine = (c: Scorer): string => {
+    switch (c.type) {
+      case 'file_exists':       return `the file ${c.path} exists`
+      case 'file_contains':     return `${c.path} contains "${c.text}"`
+      case 'file_not_contains': return `${c.path} no longer contains "${c.text}"`
+      case 'file_regex':        return `${c.path} matches /${c.pattern}/`
+      case 'contains':          return `the answer says "${c.text}"`
+      case 'regex':             return `the answer matches /${c.pattern}/`
+      case 'tool_used':         return `it used the ${c.name} tool`
+      case 'tool_not_used':     return `it never used the ${c.name} tool`
+      case 'no_errors':         return 'no step errored'
+      case 'finished':          return 'it ended by finishing'
+      case 'max_steps':         return `it took at most ${c.n} steps`
+      case 'step_count_at_least': return `it took at least ${c.n} steps`
+      case 'openarena':         return `openarena grades ${c.path} against every case for ${c.task}`
+      case 'arena':             return `the arena scores the round it played`
+      default:                  return c.type
+    }
+  }
+
+  // the task in one line: what it asks for, with the scratch-dir boilerplate
+  // taken out — {workdir} is an implementation detail of every task here
+  const oneLine = (t: Task) =>
+    (t.description || t.prompt || '')
+      .replace(/Your working directory is \{workdir\}\.?\s*/i, '')
+      .replace(/\{workdir\}/g, '')
+      .split(/\s+/).join(' ').slice(0, 180)
+
+  // writing one is the same door whether the pool is empty or full — signed
+  // out it asks for a sign-in first, since a task is filed under an address
+  const newTask = () => (canWrite ? setCompose({ slug: null }) : onSignIn?.())
+
+  const removeTask = async (t: Task) => {
+    const slug = String(t.index ?? '')
+    if (!slug) return
+    if (!confirm(`Delete "${t.title}"? Matches already played keep their scores.`)) return
+    setErr(null)
+    try {
+      const r = await fetch(
+        `${API_URL}/arena/tasks/${encodeURIComponent(slug)}` +
+        (token ? `?key=${encodeURIComponent(token)}` : ''),
+        { method: 'DELETE' }).then(x => x.json())
+      if (r?.error) { setErr(r.error); return }
+      setSpec(null)
+      load()
+    } catch (e: any) { setErr(e?.message || 'delete failed') }
+  }
+
   // ── header ────────────────────────────────────────────────────────
   //
   // One line: what this is, which of the three reads you're on, and the two
@@ -426,6 +521,24 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
       </div>
 
       <div className="flex items-center gap-3 ml-auto text-[10px] shrink-0">
+        {/* the board is where you find out the pool is thin or the field is
+            small, so it is where both doors belong — neither is host-only:
+            anyone signed in writes a task, anyone at all goes and makes an
+            agent */}
+        <button onClick={newTask}
+          title={canWrite
+            ? 'write a task every agent on this board will play — by hand, or described to the task-builder agent'
+            : 'sign in — a task is filed under the address that wrote it'}
+          className="uppercase tracking-wider text-gray-500 hover:text-emerald-300 transition">
+          + task
+        </button>
+        {onNewAgent && (
+          <button onClick={onNewAgent}
+            title="make an agent — it is qualified against the whole board within a minute of coming online"
+            className="uppercase tracking-wider text-gray-500 hover:text-emerald-300 transition">
+            + agent
+          </button>
+        )}
         <span className={`flex items-center gap-1.5 ${status?.scheduler?.alive ? 'text-gray-500' : 'text-amber-400'}`}
           title={status?.scheduler?.last_error || status?.scheduler?.last_action
                  || 'the board runs itself: a new agent is qualified within a minute, and a round plays only what changed — a new agent, an edited task'}>
@@ -969,9 +1082,20 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
   const taskBoard = (
     <div className="flex-1 min-w-0 overflow-y-auto no-scrollbar">
       {taskRows.length === 0 ? (
-        <Empty title="nothing has been played"
-          body="this read lists every task with its leader — the agent holding the best score on it. open a task for the full agent ranking, and the models underneath."
-          hint="the task pool is in the rail on the right" />
+        <div className="h-full min-h-[240px] flex items-center justify-center p-8">
+          <div className="max-w-[380px] text-center space-y-3">
+            <div className="section-label text-gray-500">nothing has been played</div>
+            <p className="text-[11px] text-gray-600 leading-relaxed">
+              this read lists every task with its leader — the agent holding the best score on
+              it. Open a task for the full agent ranking, and the models underneath. The pool
+              itself is in the rail on the right, and every task in it opens.
+            </p>
+            <button onClick={newTask}
+              className="lit-btn px-3 py-1.5 rounded-md uppercase tracking-wider text-[10px]">
+              + write a task
+            </button>
+          </div>
+        </div>
       ) : (
         <table className="board text-[11px]">
           <thead>
@@ -1024,6 +1148,25 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                   <td className="text-right tabular-nums text-gray-500">{t.matches}</td>
                   <td className="text-right tabular-nums text-gray-600">{t.avg_seconds.toFixed(1)}</td>
                 </tr>
+                {openTask === t.task && (
+                  <tr className="bg-white/[0.02] text-[10px]">
+                    <td colSpan={7} className="pl-8 py-2">
+                      <div className="flex items-start gap-3">
+                        <p className="text-gray-500 leading-relaxed flex-1 min-w-0">
+                          {taskByKey[t.task]
+                            ? oneLine(taskByKey[t.task])
+                            : 'no longer in the pool — the matches it played stay on the record'}
+                        </p>
+                        {taskByKey[t.task] && (
+                          <button onClick={e => { e.stopPropagation(); setSpec(t.task) }}
+                            className="shrink-0 uppercase tracking-wider text-[9px] text-emerald-300/80 hover:text-emerald-200 transition">
+                            read the task ›
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
                 {openTask === t.task && (t.agents || []).map((a, i) => (
                   <tr key={`${t.task}:agent:${a.agent}`} className="bg-white/[0.02] text-[10px]">
                     <td className="pl-8">
@@ -1614,7 +1757,8 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
             </button>
           ))}
         </div>
-        <div className="px-3 pb-1.5 pt-1 text-[10px] text-gray-600 truncate">
+        <div className="px-3 pb-1.5 pt-1 text-[10px] text-gray-600 flex items-baseline gap-2">
+          <span className="truncate min-w-0">
           {pane === 'matches' ? (
             <>
               {shown.length} recent
@@ -1627,6 +1771,18 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
             </>
           ) : pane === 'tasks' ? `${tasks.length} in the pool, across ${Object.keys(suites).length} suites`
             : oa?.available ? `${oa.pool.length} program-graded tasks` : 'the openarena bridge'}
+          </span>
+          {/* the pool is the one shelf you can add to from here, so the door
+              sits on the shelf rather than in a tab two screens away */}
+          {pane === 'tasks' && (
+            <button onClick={newTask}
+              title={canWrite
+                ? 'write a task — by hand, or described to the task-builder agent'
+                : 'sign in — a task is filed under the address that wrote it'}
+              className="ml-auto shrink-0 uppercase tracking-wider text-emerald-300/80 hover:text-emerald-200 transition">
+              + new task
+            </button>
+          )}
         </div>
       </div>
 
@@ -1666,7 +1822,16 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
           <div key={m.id} className="card card-hover p-2.5 space-y-2">
             <div className="flex items-baseline gap-2">
               <span className="text-[11px] text-gray-100 shrink-0">{m.agent}</span>
-              <span className="text-[10px] text-gray-600 truncate flex-1" title={m.title}>{m.title}</span>
+              {/* the task a score was posted on, opened from the score — a
+                  match nobody can read the exam for is a number on its own */}
+              {taskByKey[m.task] ? (
+                <button onClick={() => setSpec(m.task)} title={`${m.title} — open the task`}
+                  className="text-[10px] text-gray-600 hover:text-emerald-300 transition truncate flex-1 text-left">
+                  {m.title}
+                </button>
+              ) : (
+                <span className="text-[10px] text-gray-600 truncate flex-1" title={m.title}>{m.title}</span>
+              )}
               <span className={`text-[12px] tabular-nums shrink-0 ${
                 m.passed ? 'text-emerald-300' : m.score >= 0.5 ? 'text-gray-200' : 'text-gray-500'}`}>
                 {pct(m.score)}
@@ -1712,6 +1877,15 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
           </div>
         ))}
 
+        {pane === 'tasks' && tasks.length === 0 && (
+          <div className="p-6 text-center text-[10px] text-gray-600 leading-relaxed space-y-2">
+            <div>the pool is empty — nothing to rank anybody on</div>
+            <button onClick={newTask}
+              className="lit-btn px-3 py-1.5 rounded-md uppercase tracking-wider text-[9px]">
+              write the first task
+            </button>
+          </div>
+        )}
         {pane === 'tasks' && Object.entries(suites).map(([suite, list]) => (
           <div key={suite} className="space-y-1">
             <div className="section-label px-1 pt-2 pb-0.5 flex items-baseline gap-2">
@@ -1721,16 +1895,26 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
             {list.map(t => {
               const lead = leadersByTask[t.key]
               return (
-              <div key={t.key} className={`card card-hover p-2 ${roundKeys.has(t.key) ? 'card-on' : ''}`}>
+              <div key={t.key} onClick={() => setSpec(t.key)}
+                title="open the task — its prompt, its fixture and the checks it is scored by"
+                className={`card card-hover p-2 cursor-pointer ${roundKeys.has(t.key) ? 'card-on' : ''} ${
+                  spec === t.key ? 'card-on' : ''}`}>
                 <div className="flex items-baseline gap-2">
                   <span className="text-[10px] text-gray-200 flex-1 truncate" title={t.title}>{t.title}</span>
                   {roundKeys.has(t.key) && (
                     <span className="text-[9px] uppercase tracking-wider text-emerald-300 shrink-0">this round</span>
                   )}
+                  {mine(t) && (
+                    <button onClick={e => { e.stopPropagation(); setCompose({ slug: String(t.index) }) }}
+                      title="edit this task — it keeps its key, so the scores already recorded against it stay attached"
+                      className="text-[9px] uppercase tracking-wider text-gray-600 hover:text-emerald-300 transition shrink-0">
+                      edit
+                    </button>
+                  )}
                   {isHost && (
                     <button disabled={busy || !!live}
                       title="play this task now — every agent, even ones with a standing score"
-                      onClick={() => post('run', { task: t.key, force: true })}
+                      onClick={e => { e.stopPropagation(); post('run', { task: t.key, force: true }) }}
                       className="text-[9px] uppercase tracking-wider text-gray-600 hover:text-emerald-300 transition disabled:opacity-40 shrink-0">
                       play
                     </button>
@@ -1738,6 +1922,12 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
                 </div>
                 <div className="text-[9px] text-gray-600 mt-0.5 truncate">
                   {t.key} · budget {t.steps || cfg.steps || 8} steps
+                  {(t.scorers?.length || 0) > 0 && ` · ${t.scorers!.length} check${t.scorers!.length === 1 ? '' : 's'}`}
+                </div>
+                {/* the first line of what the agent is actually asked to do —
+                    a pool listed by title alone says nothing about itself */}
+                <div className="text-[9px] text-gray-500 mt-1 leading-relaxed line-clamp-2">
+                  {oneLine(t)}
                 </div>
                 {lead?.leader && (
                   <div className="text-[9px] mt-0.5 flex items-center gap-1.5 min-w-0"
@@ -1753,6 +1943,187 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
         ))}
 
         {pane === 'openarena' && oaPane}
+      </div>
+    </div>
+  )
+
+  // ── the task, read in full ────────────────────────────────────────
+  //
+  // A board that ranks agents on tasks nobody can read is a board nobody can
+  // argue with. This is the task itself: the prompt every agent is handed, the
+  // fixture it is handed it in, the checks that decide whether it did the job,
+  // and who wrote it — plus the standing on it, so the ranking and the thing
+  // being ranked are one click apart rather than two screens.
+  const specSheet = openSpec && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+      onClick={() => setSpec(null)}>
+      <div onClick={e => e.stopPropagation()}
+        className="w-full max-w-3xl max-h-[85vh] overflow-y-auto no-scrollbar rounded-xl border border-white/[0.08] bg-surface-1 shadow-2xl">
+        <div className="sticky top-0 z-10 bg-surface-1 border-b border-white/[0.06] px-4 py-3 flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] text-gray-100 truncate" title={openSpec.title}>{openSpec.title}</div>
+            <div className="text-[9px] text-gray-600 mt-0.5 flex items-center gap-2 flex-wrap">
+              <span className="text-gray-500">{openSpec.key}</span>
+              <span>budget {openSpec.steps || cfg.steps || 8} steps</span>
+              {roundKeys.has(openSpec.key) && (
+                <span className="text-emerald-300 uppercase tracking-wider">this round</span>
+              )}
+              {openSpec.custom && (
+                <span title={openSpec.owner || 'unowned — the host administers it'}>
+                  written here{openSpec.owner ? ` by ${openSpec.owner.slice(0, 6)}…${openSpec.owner.slice(-4)}` : ''}
+                </span>
+              )}
+              {openSpec.openarena && (
+                <span className="text-sky-300/80">
+                  {openSpec.openarena.cases || 0} graded cases · {openSpec.openarena.hidden || 0} hidden
+                  {openSpec.openarena.language ? ` · ${openSpec.openarena.language}` : ''}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3 shrink-0 text-[10px]">
+            {mine(openSpec) && (
+              <>
+                <button onClick={() => setCompose({ slug: String(openSpec.index) })}
+                  title="edit it — the key stays, so the scores already recorded against it stay attached"
+                  className="uppercase tracking-wider text-gray-500 hover:text-emerald-300 transition">
+                  edit
+                </button>
+                <button onClick={() => removeTask(openSpec)}
+                  title="delete it — the matches it already played stay on the record"
+                  className="uppercase tracking-wider text-gray-600 hover:text-red-400 transition">
+                  delete
+                </button>
+              </>
+            )}
+            {isHost && (
+              <button disabled={busy || !!live}
+                onClick={() => post('run', { task: openSpec.key, force: true })}
+                title="play this task now — every agent, even ones with a standing score"
+                className="uppercase tracking-wider text-gray-500 hover:text-emerald-300 transition disabled:opacity-40">
+                play
+              </button>
+            )}
+            <button onClick={() => setSpec(null)}
+              className="uppercase tracking-wider text-gray-600 hover:text-gray-300 transition">
+              close
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* what the agent is handed. {workdir} is substituted per match — an
+              absolute path into that match's own scratch directory */}
+          <div className="space-y-1.5">
+            <div className="section-label">the prompt every agent gets</div>
+            <pre className="text-[11px] text-gray-300 leading-relaxed whitespace-pre-wrap bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+              {openSpec.prompt || '—'}
+            </pre>
+            <div className="text-[9px] text-gray-600">
+              {'{workdir}'} becomes that match&apos;s own scratch directory, seeded fresh for every agent
+            </div>
+          </div>
+
+          {/* the fixture: identical for every agent, deleted after the match */}
+          {Object.keys(openSpec.setup?.files || {}).length > 0 && (
+            <div className="space-y-1.5">
+              <div className="section-label">
+                the fixture · {Object.keys(openSpec.setup!.files!).length} file(s) seeded into the scratch dir
+              </div>
+              {Object.entries(openSpec.setup!.files!).map(([name, body]) => (
+                <div key={name} className="border border-white/[0.06] rounded-lg overflow-hidden">
+                  <div className="px-2.5 py-1 bg-white/[0.03] text-[10px] text-gray-400">{name}</div>
+                  <pre className="px-2.5 py-2 text-[10px] text-gray-500 leading-relaxed whitespace-pre-wrap max-h-52 overflow-y-auto no-scrollbar">
+                    {body || '(empty)'}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* the checks: what the 70% of the score is actually measuring */}
+          <div className="space-y-1.5">
+            <div className="section-label">
+              scored on · {(openSpec.scorers || []).length} check{(openSpec.scorers || []).length === 1 ? '' : 's'}
+            </div>
+            {(openSpec.scorers || []).length === 0 ? (
+              <div className="text-[10px] text-amber-400/80">
+                no checks — this task cannot score anybody
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {(openSpec.scorers || []).map((c, i) => (
+                  <div key={i} className="flex items-baseline gap-2 text-[10px]">
+                    <span className="text-gray-700 tabular-nums w-4 shrink-0">{i + 1}</span>
+                    <span className="text-gray-300 flex-1 min-w-0">{checkLine(c)}</span>
+                    <span className="text-[9px] text-gray-700 shrink-0">{c.type}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-[9px] text-gray-600 leading-relaxed">
+              the checks are 70% of the score; the rest is reliability (no errored steps, and it
+              finished) and what it left of the step budget
+            </div>
+          </div>
+
+          {/* the standing on this one task, so the ranking and the thing being
+              ranked are never more than a click apart */}
+          <div className="space-y-1.5">
+            <div className="section-label">standing on this task</div>
+            {(leadersByTask[openSpec.key]?.agents || []).length === 0 ? (
+              <div className="text-[10px] text-gray-600">
+                {taskRows.length === 0
+                  ? 'reading the record…'
+                  : 'never played — it joins the rotation, or the host can PLAY it from here'}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {(leadersByTask[openSpec.key]!.agents || []).map((a, i) => (
+                  <div key={a.agent} className="flex items-center gap-2 text-[10px]">
+                    <span className="text-gray-700 tabular-nums w-4 shrink-0">{i + 1}</span>
+                    <Glyph icon={a.icon} />
+                    <span className={`truncate flex-1 min-w-0 ${i === 0 ? 'text-emerald-200' : 'text-gray-300'}`}>
+                      {a.agent}
+                    </span>
+                    <span className="w-24 shrink-0"><ScoreBar value={a.last} /></span>
+                    <span className="tabular-nums text-gray-400 w-9 text-right shrink-0">{pct(a.last)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  // ── the task form, over the board ─────────────────────────────────
+  //
+  // The same composer the hub holds, opened where the need for it shows up.
+  // It writes to the same store, so a task saved here is in the pool the
+  // moment it is saved — the board behind it reloads on close.
+  const composer = compose && (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-6xl h-[92vh] flex flex-col rounded-xl border border-white/[0.08] bg-surface-1 shadow-2xl overflow-hidden">
+        <div className="shrink-0 border-b border-white/[0.06] px-4 py-2.5 flex items-center gap-3">
+          <span className="text-[11px] uppercase tracking-[0.22em] text-emerald-300">
+            {compose.slug ? 'edit task' : 'new task'}
+          </span>
+          <span className="text-[10px] text-gray-600 truncate min-w-0 hidden sm:block">
+            a saved task joins the pool every agent on this board plays
+          </span>
+          <button onClick={() => { setCompose(null); load(); loadBoards() }}
+            className="ml-auto shrink-0 text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-200 transition">
+            close ✕
+          </button>
+        </div>
+        <div className="flex-1 min-h-0">
+          <TaskBuilder token={token} address={address} isHost={isHost} onSignIn={onSignIn}
+            initialSlug={compose.slug}
+            onSaved={() => { load(); loadBoards() }}
+            onOpenArena={() => { setCompose(null); load(); loadBoards() }} />
+        </div>
       </div>
     </div>
   )
@@ -1782,6 +2153,8 @@ export default function Arena({ token, isHost }: { token?: string | null; isHost
         </div>
         {feed}
       </div>
+      {specSheet}
+      {composer}
     </div>
   )
 }

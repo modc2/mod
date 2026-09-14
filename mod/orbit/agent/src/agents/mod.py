@@ -44,7 +44,7 @@ except ImportError:  # running the registry standalone
 # shipped agents — host-owned; anyone else must clone them into a custom agent
 BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
             "safety", "claude-code", "codex", "claude-mod", "build-mod", "chain-mod",
-            "task-builder"}
+            "task-builder", "vibe-builder"}
 
 # the integrations an agent is built from. An agent is one node; these are
 # the four things wired into it, and the template written below declares all

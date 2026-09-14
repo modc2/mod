@@ -25,6 +25,7 @@ import { fundedUsd } from "../lib/funding";
 import { getActiveIndexId } from "../lib/indexStore";
 import { useStratStats, fmtUsd } from "../lib/stratStats";
 import type { SavedIndex } from "../lib/types";
+import { OPEN_MONEY_EVENT } from "./MoneyBlock";
 import { OPEN_STRATS_EVENT } from "./StratBlock";
 import WalletTokenPanel from "./WalletTokenPanel";
 
@@ -207,12 +208,19 @@ export default function AccountsPanel({
                     {shortAddress(auth.address).toLowerCase()}
                   </div>
                 </div>
-                <div className="flex flex-col items-end shrink-0">
+                {/* The balance is the door to the MONEY tab — the one place
+                    to top up / take out, so the number you'd want to change
+                    is the thing you click to change it. */}
+                <button
+                  onClick={() => window.dispatchEvent(new Event(OPEN_MONEY_EVENT))}
+                  title="Your tradable balance — click to top up or take money out (MONEY tab)"
+                  className="flex flex-col items-end shrink-0 rounded-[3px] px-1 -mx-1 hover:bg-pixel-white/[0.06] transition-colors"
+                >
                   {fundedChip(auth.address)}
                   <span className={`text-[9.5px] font-mono ${auth.authenticated ? "text-green-400/80" : "text-amber-400"}`}>
                     {auth.authenticated ? "CLOB ✓" : "CLOB…"}
                   </span>
-                </div>
+                </button>
               </div>
               <ActiveStratStrip />
               <div

@@ -3,7 +3,7 @@
 Compose a DeFi protocol out of typed Solidity blocks, see what every DeFi
 protocol is actually paying, lock what you pick into a treasury that pays out
 weekly on BlocTime's clock, and trade on the DEXes of Solana, Ethereum, Base and
-Bittensor. 45 MCP tools, a REST API on `:50500`, a canvas console on `/defi`.
+Bittensor. 51 MCP tools, a REST API on `:50500`, a canvas console on `/defi`.
 
 API `:50500` (`/api/defi`) · console `/defi` · MCP `POST /mcp`
 
@@ -173,3 +173,52 @@ the concrete exploit sequence, the fix, and `safe_use` guidance. `common` is the
 shared base. Read the audit of every block in a graph before `defi_plan`, repeat
 its worst finding to the person deploying, and say plainly that an agent audit
 reduces the unknowns without certifying anything — especially with real money.
+
+## Hyperliquid vaults · Polymarket copy-trading
+
+Two more places money can go, each through the module that owns the venue —
+never a key here.
+
+**Hyperliquid vaults** — `defi_hl_vaults` is the open board (trailing APR:
+realized PnL annualized, quoted never promised); `defi_hl_vault {address}`
+is one profile (with `user=` a follower's stake and max withdrawable). Each
+vault is the module `hl:vault:<address>`: `defi_module` for the full card,
+`defi_module_quote` for the plan, `defi_enter {module, amount, account}`
+deposits USDC via `hl_vault_transfer` (needs `confirm=true` — real money —
+and a bearer the hyperliquid module accepts for that `account`). Exit
+withdraws the same way once the vault's lock-up passes (a day for user
+vaults, four for HLP). The hub card is `hyperliquid-vaults`.
+
+**Polymarket one-to-one copy** — `defi_pm_traders` is the 30-day board (PnL,
+win rate, resolve rate, Sharpe); `defi_pm_sessions` the running mirrors. A
+trader is the module `pm:copy:<address>`: `defi_enter` starts a single-leader,
+weight-1.0, bankroll-fidelity live session with your `amount` as its capital.
+It starts in **DRY RUN** — nothing reaches the CLOB until you re-enter with
+`autoExecute=true` (plus `confirm=true`). `defi_exit` stops the mirror and is
+never confirm-gated; open copied positions are sold/redeemed on the polymarket
+console, not by stopping. The whole polymarket deployment is owner-only: its
+access token (`auth=` or your bearer) opens the board and the engine, and
+anonymous callers see the gate stated honestly instead of stale numbers.
+
+## Browser wallets · whitepapers · the protocol store
+
+**The operation picks the signer.** Every EVM module quote carries a
+machine-readable `wallet` plan — approve/call/swap steps with `$you` for the
+connected address — that the user's own browser wallet signs in the console
+(MetaMask/Rabby on Ethereum, Base and the Sepolias; Phantom via Jupiter on
+Solana). The server path through `eth`/`solana` keystores still exists beside
+it; Bittensor is bt-coldkey-only and says so. A browser-signed entry is
+recorded with `POST /positions/record {module, amount, address, txs[]}`
+(sign-in required, txs required) and marked `signer: "browser"` in the book.
+Exiting such a position returns a *plan*, not an execution — no chain module
+can move what the user's wallet holds — and `POST /positions/{id}/settle`
+writes what the wallet actually sent.
+
+**Whitepapers, stored under the protocol.** `defi_whitepaper` is the module's
+own (thesis, architecture, signer table, honesty rules). `defi_module_whitepaper
+{id}` generates one for any finance module from its live card — returns with
+fees apart from emissions, liquidity, conditions, the execution path and its
+signers — dated, content-addressed (CIDv1) into `~/.mod/defi/objects`, and
+served back at `/objects/{cid}`. REST: `GET /whitepaper`,
+`GET /modules/{id}/whitepaper`, both with `?format=md`. Quote a rate to someone?
+Hand them the whitepaper CID with it — same numbers, with the risks attached.

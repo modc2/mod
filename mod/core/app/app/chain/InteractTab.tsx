@@ -44,6 +44,15 @@ interface AbiFn {
 
 type Source = 'build' | 'fleet' | 'saved'
 
+/** An ABI the console can hand you: a past deploy or a compiled contract. */
+interface AbiSource {
+  label: string
+  /** where it came from — a network name or a project name */
+  note: string
+  abi: any[]
+  abiCid?: string
+}
+
 /** One card in the deck: a target plus what the book says about it. */
 interface Card extends InteractTarget {
   source: Source
@@ -430,6 +439,14 @@ export function InteractTab({
   const [showManual, setShowManual] = useState(false)
   const mobile = useIsMobile()
 
+  // ── ABIs you already own: builds shipped on other networks, and anything a
+  // project of yours compiles to. Picking one fills the form — only the
+  // address is left to type.
+  const [ownAbis, setOwnAbis] = useState<AbiSource[] | null>(null)
+  const [projList, setProjList] = useState<{ name: string }[]>([])
+  const [compiled, setCompiled] = useState<Record<string, AbiSource[]>>({})
+  const [compilingProj, setCompilingProj] = useState('')
+
   // ── load callable contracts ──
   useEffect(() => {
     let cancelled = false
@@ -567,7 +584,8 @@ export function InteractTab({
       const abi = JSON.parse(manualAbi)
       if (!Array.isArray(abi)) throw new Error('ABI must be a JSON array')
       const address = ethers.getAddress(manualAddr.trim())
-      adopt({ name: manualName.trim() || short(address), address, abi })
+      adopt({ name: manualName.trim() || short(address), address, abi,
+        abiCid: manualCid.trim() || undefined })
     } catch (e: any) {
       toast.error(e?.message || 'invalid ABI')
     }
@@ -592,6 +610,56 @@ export function InteractTab({
       toast.error(e?.message || 'could not load that CID')
     } finally {
       setFetchingCid(false)
+    }
+  }
+
+  // Opening the form fetches what you already own: deployments on OTHER
+  // networks (this network's are already cards in the deck) and the list of
+  // your projects. Projects compile on demand, not up front.
+  useEffect(() => {
+    if (!showManual) return
+    let cancelled = false
+    const q = wallet.address ? `?address=${wallet.address}` : ''
+    Promise.all([
+      chainApi(`/build/deployments${q}`).catch(() => ({ deployments: [] })),
+      chainApi(`/build/projects${q}`).catch(() => ({ projects: [] })),
+    ]).then(([dep, proj]) => {
+      if (cancelled) return
+      setOwnAbis((dep.deployments || [])
+        .filter((d: any) => d.abi?.length && d.network !== network)
+        .map((d: any) => ({ label: d.name, note: d.network, abi: d.abi, abiCid: d.abi_cid })))
+      setProjList(proj.projects || [])
+    })
+    return () => { cancelled = true }
+  }, [showManual, wallet.address, network])
+
+  /** A picked ABI fills the form; the address is all that's left to type. */
+  const pickOwnAbi = (s: AbiSource) => {
+    setManualName(n => n.trim() ? n : s.label)
+    setManualAbi(JSON.stringify(s.abi))
+    setManualCid(s.abiCid || '')
+    toast.success(`${s.label} ABI loaded — add the address`)
+  }
+
+  const compileProject = async (name: string) => {
+    setCompilingProj(name)
+    try {
+      const q = wallet.address ? `?address=${wallet.address}` : ''
+      const proj = await chainApi(`/build/projects/${encodeURIComponent(name)}${q}`)
+      const sources = Object.fromEntries(
+        Object.entries(proj.files || {}).filter(([p]) => p.endsWith('.sol')))
+      if (!Object.keys(sources).length) throw new Error('no .sol files in this project')
+      const res = await chainApi('/build/compile', { body: { sources, optimize: true } })
+      const built: AbiSource[] = (res.contracts || [])
+        .filter((c: any) => !c.abstract && c.abi?.length)
+        .map((c: any) => ({ label: c.name, note: name, abi: c.abi }))
+      if (!built.length) throw new Error(res.ok ? 'nothing deployable in this project' : 'compile failed')
+      setCompiled(prev => ({ ...prev, [name]: built }))
+      if (built.length === 1) pickOwnAbi(built[0])
+    } catch (e: any) {
+      toast.error(e?.message || 'compile failed')
+    } finally {
+      setCompilingProj('')
     }
   }
 
@@ -797,6 +865,51 @@ export function InteractTab({
       {showManual && deckVisible && (
         <Panel style={{ marginBottom: '16px' }}>
           <Label style={{ color: NEON.coin }} note="joins the deck as a SAVED card">ANY CONTRACT</Label>
+
+          {(projList.length > 0 || (ownAbis?.length ?? 0) > 0) && (
+            <div style={{ marginBottom: '14px' }}>
+              <Label style={{ color: ACCENT }} note="pick an ABI you already built — then just add the address">
+                FROM YOUR PROJECTS
+              </Label>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {(ownAbis || []).map(s => (
+                  <Btn key={`d-${s.note}-${s.label}`} size="sm" color={READ}
+                    active={manualAbi === JSON.stringify(s.abi)}
+                    onClick={() => pickOwnAbi(s)}
+                    title={`ABI from your ${s.note} deploy`}>
+                    {s.label} · {s.note}
+                  </Btn>
+                ))}
+                {projList.map(p => {
+                  const arts = compiled[p.name]
+                  return arts ? arts.map(s => (
+                    <Btn key={`c-${p.name}-${s.label}`} size="sm" color={NEON.coin}
+                      active={manualAbi === JSON.stringify(s.abi)}
+                      onClick={() => pickOwnAbi(s)}
+                      title={`compiled from project ${p.name}`}>
+                      {s.label} · {p.name}
+                    </Btn>
+                  )) : (
+                    <Btn key={`p-${p.name}`} size="sm" active={false}
+                      onClick={() => compileProject(p.name)}
+                      disabled={!!compilingProj}
+                      title={`compile ${p.name} and use its ABI`}>
+                      {compilingProj === p.name
+                        ? <span className="arc-blink">COMPILING…</span>
+                        : `${p.name} · COMPILE`}
+                    </Btn>
+                  )
+                })}
+              </div>
+              <div style={{
+                fontFamily: TERM_FONT, fontSize: '13px', color: 'var(--text-tertiary)',
+                lineHeight: 1.5, marginTop: '6px',
+              }}>
+                deploys from other networks load instantly · a project compiles first
+              </div>
+            </div>
+          )}
+
           <Label>NAME</Label>
           <Input value={manualName} onChange={setManualName} placeholder="what to call it (optional)" />
 

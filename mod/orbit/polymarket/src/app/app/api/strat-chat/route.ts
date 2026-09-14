@@ -27,6 +27,7 @@
 import { NextResponse } from "next/server";
 
 import { AGENT_MODEL, digJson, runClaude } from "../../lib/server/agentCli";
+import { autopsyContext } from "../../lib/server/stratAutopsy";
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
 import {
   currentSettings, paramReference, validatePatch,
@@ -66,7 +67,7 @@ function deny() {
  *  The reference and the current settings both come from lib/stratPatch, so
  *  the agent is briefed on exactly the parameters the validator will accept —
  *  a prompt that listed more would just generate rejections. */
-function buildPrompt(body: ChatRequest): string {
+function buildPrompt(body: ChatRequest, autopsy?: string): string {
   const { strat } = body;
   const watchlist = strat.traders?.filter((t) => t.enabled !== false) ?? [];
   const originates = !!strat.momentum;
@@ -94,6 +95,7 @@ function buildPrompt(body: ChatRequest): string {
     ``,
     body.context?.backtest ? `LATEST BACKTEST\n${body.context.backtest}\n` : ``,
     body.context?.live ? `LIVE SESSION\n${body.context.live}\n` : ``,
+    autopsy ? `LIVE PERFORMANCE — SETTLEMENT GROUND TRUTH\n${autopsy}\n` : ``,
     `HOW THIS SYSTEM ACTUALLY BEHAVES — do not contradict these:`,
     `- Entry gates are BUY-only. Exits (stop-loss, take-profit, momentum flip) are never gated, so tightening a filter can never strand a position.`,
     `- Polymarket's order floor is max($1, 5 shares × price). At 60¢ that is $3.00, so a minTrade under it does not produce smaller orders — it produces skipped ones.`,
@@ -108,6 +110,7 @@ function buildPrompt(body: ChatRequest): string {
     `- Change the fewest parameters that accomplish the ask. Do not tidy neighbouring settings you were not asked about.`,
     `- If the ask cannot be done with these parameters (it needs different traders, a different strategy kind, or a feature that does not exist), say so plainly and propose nothing.`,
     `- If a request would plainly hurt the strategy, say so in one sentence — then still propose it if they asked for it. It is their strategy.`,
+    `- Asked WHY the strategy lost money (a prognosis / postmortem): answer from LIVE PERFORMANCE's dollar decomposition, not from theory — name the market class and price band the losses actually sit in, say whether the bleed is ongoing or historical from the monthly trend, and note when the engine ledger disagrees with settlement truth and why. This is the one question where a short paragraph beats two sentences. If a config red flag explains the loss, a patch fixing exactly that flag is worth proposing unprompted.`,
     ``,
     `CONVERSATION`,
     history,
@@ -145,7 +148,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "need {strat, messages}" }, { status: 400 });
   }
 
-  const run = await runClaude(buildPrompt(body));
+  // Settlement ground truth, fetched here rather than trusted from the
+  // browser: the chat must not answer "why did this lose money?" from a
+  // context the client could have trimmed. Cached on disk; a cold fetch adds
+  // seconds to the first message only, and failure degrades to no section.
+  const autopsy = await autopsyContext(body.strat.id);
+
+  const run = await runClaude(buildPrompt(body, autopsy));
   if (run.ok === false) return NextResponse.json({ error: run.error }, { status: 502 });
 
   const parsed = parseReply(run.text);

@@ -72,12 +72,14 @@ function saveThread(id: string, turns: Turn[]): void {
 function prompts(strat: SavedIndex): string[] {
   if (strat.momentum) {
     return [
+      "Prognosis: is this making or losing money live, and why?",
       "Why isn't this trading more often?",
       "Make the entries stricter — I want fewer, higher-conviction trades.",
       "The stop-loss feels too tight for a 5-minute candle. What would you set it to?",
     ];
   }
   return [
+    "Prognosis: is this making or losing money live, and why?",
     "Why did this only trade a handful of times?",
     "Stop buying longshots — I only want likely winners.",
     "Cut the risk per trade roughly in half.",

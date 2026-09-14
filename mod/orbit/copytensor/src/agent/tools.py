@@ -762,6 +762,81 @@ BY_NAME: Dict[str, Tool] = {t.name: t for t in ALL_TOOLS}
 SCOPES: Dict[str, List[Tool]] = {"agent": TOOLS, "ops": OPS_TOOLS, "all": ALL_TOOLS}
 
 
+# ── the approval gate ────────────────────────────────────────────
+#
+# Reads are free. Everything below moves money, stake or the watchlist, so
+# it is parked for a human (src/agent/approvals.py) before it runs. The set
+# is named explicitly rather than derived from OPS_TOOLS: half of those are
+# reads (ct_portfolio, ct_trades, ct_backtest...) and a new tool should have
+# to opt IN to being free, never default to it.
+WRITE_TOOLS: Dict[str, str] = {
+    "ct_create_copy": "high",
+    "ct_resize_copy": "high",
+    "ct_delete_copy": "high",
+    "ct_sync": "high",
+    "ct_pause_copy": "medium",
+    "ct_resume_copy": "medium",
+    "ct_watch": "low",
+    "ct_unwatch": "low",
+}
+
+
+def needs_approval(name: str, args: Optional[Dict] = None) -> bool:
+    """Does this call need a human? ct_sync is the one that depends on args:
+    a dry run signs nothing, which is exactly the preview we want the agent
+    taking freely before it asks for the live pass."""
+    if name not in WRITE_TOOLS:
+        return False
+    if name == "ct_sync" and (args or {}).get("dry_run"):
+        return False
+    return True
+
+
+def risk_of(name: str, args: Optional[Dict] = None) -> str:
+    return WRITE_TOOLS.get(name, "low")
+
+
+def _who(args: Dict, key: str = "ss58") -> str:
+    v = str(args.get(key) or "?")
+    return v if len(v) <= 12 else f"{v[:6]}…{v[-4:]}"
+
+
+def _tao(args: Dict, key: str = "alloc_tao") -> str:
+    v = args.get(key)
+    return f"{v} \u03c4" if isinstance(v, (int, float)) else "—"
+
+
+def describe(name: str, args: Optional[Dict] = None) -> str:
+    """One plain line for the approval card. The args are shown in full
+    underneath it — this is the sentence, not the record."""
+    a = dict(args or {})
+    cid = str(a.get("copy_id") or "?")
+    if name == "ct_create_copy":
+        label = a.get("label") or _who(a, "target_ss58")
+        return f"Start copying {label} with {_tao(a)} behind it"
+    if name == "ct_resize_copy":
+        bits = []
+        if a.get("alloc_tao") is not None:
+            bits.append(f"to {_tao(a)}")
+        if a.get("label"):
+            bits.append(f'label \u201c{a["label"]}\u201d')
+        return f"Re-size copy {cid} " + (", ".join(bits) or "(limits only)")
+    if name == "ct_delete_copy":
+        return f"Delete copy {cid} — its stake unwinds on the next sync"
+    if name == "ct_pause_copy":
+        return f"Pause copy {cid} — it drops out of the book"
+    if name == "ct_resume_copy":
+        return f"Resume copy {cid}"
+    if name == "ct_sync":
+        return ("SYNC THE BOOK TO THE CHAIN — signs the stake/unstake "
+                "extrinsics that close every sleeve's gap")
+    if name == "ct_watch":
+        return f"Watch {a.get('label') or _who(a)} — start indexing them"
+    if name == "ct_unwatch":
+        return f"Stop watching {_who(a)}"
+    return name
+
+
 def list_tools(scope: str = "all") -> List[Dict]:
     return [t.schema() for t in SCOPES.get(scope, ALL_TOOLS)]
 

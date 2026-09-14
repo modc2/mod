@@ -10,9 +10,11 @@ hands the token to `m.mod('auth')` and gets back one lowercase address.
 That address is the account: it is what a stored xAI key and a saved bot hang
 off. There is no password, no email, no session table.
 
-    anon     reads the module's own description and health. Can still chat by
-             sending an xAI key per request (BYOK, nothing stored).
-    signed   any wallet. Owns its key and its bots, and nobody else's.
+    anon     reads the module's own description and health. Nothing more —
+             sign-in is required for anything that touches Grok.
+    signed   any wallet. Owns its key, its bots and its run ledger, and
+             nobody else's. A BYOK key still says whose credits get spent,
+             but it never substitutes for signing in.
     owner    first signed caller claims the deployment; sees /stats.
 
 `GROKBOT_OPEN=1` collapses every caller into one local identity, for a box with
@@ -151,8 +153,8 @@ def status():
         'token_max_age': TOKEN_MAX_AGE,
         'standings': {
             'owner': 'the deployment stats; the first signed caller claims it',
-            'signed': 'own xAI key, own bots, own chats',
-            'anon': 'reads the module description; can chat only by sending an '
-                    'xAI key per request',
+            'signed': 'own xAI key, own bots, own chats, own run ledger — and '
+                      'sign-in is required for anything that touches Grok',
+            'anon': 'reads the module description and health, nothing more',
         },
     }

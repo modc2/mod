@@ -31,6 +31,7 @@ mod hub;
 mod mcp;
 mod storage;
 mod treasury;
+mod whitepaper;
 mod yields;
 
 use axum::{
@@ -201,9 +202,13 @@ async fn main() {
         .route("/modules/:id", get(get_module))
         .route("/modules/:id/quote", post(post_module_quote))
         .route("/modules/:id/enter", post(post_module_enter))
+        .route("/modules/:id/whitepaper", get(get_module_whitepaper))
+        .route("/whitepaper", get(get_whitepaper))
         .route("/positions", get(get_positions).post(post_position))
+        .route("/positions/record", post(post_position_record))
         .route("/positions/:id", get(get_position).delete(delete_position))
         .route("/positions/:id/exit", post(post_position_exit))
+        .route("/positions/:id/settle", post(post_position_settle))
         .route("/positions/:id/value", get(get_position_value))
         .route("/mcp", get(mcp::describe).post(mcp::rpc))
         .layer(
@@ -1091,7 +1096,8 @@ async fn get_hub(
         .unwrap_or(1_000_000.0);
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
     let (subnets, tao_usd) = hub_tao_inputs(&state).await;
-    Ok(Json(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd)))
+    let hl = hub_hl_inputs(&state).await;
+    Ok(Json(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd, &hl)))
 }
 
 /// What the hub's Bittensor entry joins against: the bt module's subnet list
@@ -1105,6 +1111,17 @@ async fn hub_tao_inputs(state: &Shared) -> (std::sync::Arc<Vec<serde_json::Value
     let subnets = state.finance.subnets(&state.dex).await.unwrap_or_default();
     let tao_usd = state.yields.tao_usd().await;
     (subnets, tao_usd)
+}
+
+/// What the hub's Hyperliquid entry joins against: the hyperliquid module's
+/// vault board (cached five minutes by the finance registry). A dark module
+/// degrades to an empty board — the card shows empty chains, never a stale
+/// number.
+pub async fn hub_hl_inputs(state: &Shared) -> std::sync::Arc<Vec<serde_json::Value>> {
+    if !state.hub.wants_hl_vaults() {
+        return Default::default();
+    }
+    state.finance.hl_vaults(&state.dex).await.unwrap_or_default()
 }
 
 /// Trusted stake for the subnets the Bittensor card lists — read only when
@@ -1137,10 +1154,11 @@ async fn get_hub_protocol(
         .unwrap_or(1_000_000.0);
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
     let (subnets, tao_usd) = hub_tao_inputs(&state).await;
+    let hl = hub_hl_inputs(&state).await;
     let trust = hub_trust_inputs(&state, &id, &subnets).await;
     state
         .hub
-        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd, &trust)
+        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd, &hl, &trust)
         .map(Json)
         .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
 }
@@ -1429,12 +1447,21 @@ async fn post_register(
 
 async fn get_modules(
     State(state): State<Shared>,
+    headers: HeaderMap,
     raw: axum::extract::RawQuery,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let filter = finance::Filter::from_query(&query_value(&raw.0.unwrap_or_default()));
+    let query = query_value(&raw.0.unwrap_or_default());
+    let filter = finance::Filter::from_query(&query);
+    // The polymarket source is owner-gated on ITS side; an explicit ?auth=
+    // (or the caller's bearer) is what opens that board, forwarded unchanged.
+    let token = query
+        .get("auth")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| bearer(&headers));
     state
         .finance
-        .modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury)
+        .modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, token.as_deref())
         .await
         .map(Json)
         .map_err(yields_err)
@@ -1442,10 +1469,12 @@ async fn get_modules(
 
 async fn get_module_facets(
     State(state): State<Shared>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let token = bearer(&headers);
     state
         .finance
-        .facets(&state.yields, &state.dex, &state.store, &state.catalog, &state.treasury)
+        .facets(&state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, token.as_deref())
         .await
         .map(Json)
         .map_err(yields_err)
@@ -1454,13 +1483,19 @@ async fn get_module_facets(
 async fn get_module(
     State(state): State<Shared>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     raw: axum::extract::RawQuery,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let query = query_value(&raw.0.unwrap_or_default());
     let history = query.get("history").and_then(|v| v.as_str()) != Some("0");
+    let token = query
+        .get("auth")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| bearer(&headers));
     state
         .finance
-        .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history)
+        .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history, token.as_deref())
         .await
         .map(Json)
         .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
@@ -1475,7 +1510,7 @@ async fn post_module_quote(
     let token = peer_token(&headers, &body);
     let module = state
         .finance
-        .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false)
+        .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false, token.as_deref())
         .await
         .map_err(bad)?;
     state
@@ -1510,7 +1545,7 @@ async fn post_position(
         .ok_or_else(|| bad("'module' is required — an id from /modules"))?;
     let module = state
         .finance
-        .module(id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false)
+        .module(id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false, token.as_deref())
         .await
         .map_err(bad)?;
     state
@@ -1570,4 +1605,108 @@ async fn get_position_value(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let token = bearer(&headers);
     state.finance.value(&id, &state.dex, token.as_deref()).await.map(Json).map_err(dex_err)
+}
+
+/// A browser wallet signed an entry itself; write the row it earned. The desk
+/// sent nothing, so sign-in is required — the book attributes, it never guesses.
+async fn post_position_record(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = require_caller(&state, &headers)?;
+    let id = body
+        .get("module")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| bad("'module' is required — an id from /modules"))?;
+    let module = state
+        .finance
+        .module(id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false, bearer(&headers).as_deref())
+        .await
+        .map_err(bad)?;
+    state.finance.record_entry(&module, &body, Some(&who)).map(Json).map_err(bad)
+}
+
+async fn post_position_settle(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = require_caller(&state, &headers)?;
+    state.finance.settle(&id, &body, &who, &state.owner).map(Json).map_err(bad)
+}
+
+/// The module's own whitepaper — hand-written, compiled in, content-addressed
+/// into the protocol object store on every read (same bytes, same CID).
+async fn get_whitepaper(
+    State(state): State<Shared>,
+    raw: axum::extract::RawQuery,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let md = whitepaper::SELF;
+    let cid = state.store.put_object(md.as_bytes()).ok();
+    let q = query_value(&raw.0.unwrap_or_default());
+    if q.get("format").and_then(|v| v.as_str()) == Some("md") {
+        return (
+            [(axum::http::header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
+            md.to_string(),
+        )
+            .into_response();
+    }
+    Json(serde_json::json!({
+        "module": "defi",
+        "markdown": md,
+        "cid": cid,
+        "share": cid.as_ref().map(|c| format!("/objects/{c}")),
+        "stored": "~/.mod/defi/objects — the protocol's content-addressed store",
+    }))
+    .into_response()
+}
+
+/// One finance module's whitepaper, generated from its live card, dated, and
+/// stored under the protocol at its CID.
+async fn get_module_whitepaper(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    raw: axum::extract::RawQuery,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let module = match state
+        .finance
+        .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, false, None)
+        .await
+    {
+        Ok(m) => m,
+        Err(e) => {
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))).into_response()
+        }
+    };
+    let now = auth::now();
+    let markdown = whitepaper::module_paper(&module, now);
+    let object = serde_json::json!({
+        "type": "defi-module-whitepaper",
+        "module_id": module.get("id"),
+        "as_of": now,
+        "markdown": markdown,
+        "module": module,
+    });
+    let cid = serde_json::to_vec(&object).ok().and_then(|b| state.store.put_object(&b).ok());
+    let q = query_value(&raw.0.unwrap_or_default());
+    if q.get("format").and_then(|v| v.as_str()) == Some("md") {
+        return (
+            [(axum::http::header::CONTENT_TYPE, "text/markdown; charset=utf-8")],
+            markdown,
+        )
+            .into_response();
+    }
+    Json(serde_json::json!({
+        "id": module.get("id"),
+        "as_of": now,
+        "markdown": markdown,
+        "cid": cid,
+        "share": cid.as_ref().map(|c| format!("/objects/{c}")),
+        "stored": "~/.mod/defi/objects — the protocol's content-addressed store; the object holds the card and the paper together",
+    }))
+    .into_response()
 }

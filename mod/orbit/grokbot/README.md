@@ -7,8 +7,14 @@ The xAI API is one endpoint and a bearer token; the interesting question is
 sign in from the website with a wallet, that mints a mod-protocol token, and
 the address inside it is the account your xAI key and your saved bots hang off.
 
-API `:50890` · console `/grokbot` · MCP `POST /mcp` (10 tools) · stdlib only,
+API `:50890` · console `/grokbot` · MCP `POST /mcp` (11 tools) · stdlib only,
 no dependencies.
+
+**Sign-in is required.** Every route that touches Grok — chat, models, images,
+raw, the run ledger — demands a signed mod-protocol token, over REST, MCP and
+the console alike. The console shows nothing but the CONNECT WALLET gate until
+a wallet has signed. A BYOK key still decides whose credits are spent; it never
+substitutes for signing in.
 
 ## What a grokbot is
 
@@ -39,8 +45,9 @@ EIP-191 `personal_sign` over `JSON.stringify({data, time})`.
   caller into one local identity. `GET /me` always says when it is on.
 
 Standings: **owner** (the first signed caller claims the deployment; sees
-`/stats`) · **signed** (owns their key, their bots, nothing else) · **anon**
-(reads the description; can still chat by sending a key per request).
+`/stats`) · **signed** (owns their key, their bots and their run ledger,
+nothing else) · **anon** (reads the description and health — nothing more;
+sign-in is required for anything that touches Grok).
 
 ## Keys — BYOK, always
 
@@ -72,6 +79,7 @@ save one.
 | `GET /keyinfo` | what xAI says about the key itself |
 | `POST /chat` | `{prompt\|messages, model, system, bot, temperature, max_tokens, search, stream}` |
 | `GET/POST/DELETE /bots` | your saved bots |
+| `GET /runs` `DELETE /runs` | your run ledger — every chat/stream/image as ALL · LIVE · DONE · ERROR |
 | `POST /images` | `{prompt, model, n}` |
 | `POST /raw` | any xAI route, with the resolved key attached |
 | `GET /stats` | accounts and bots on this deployment (owner only) |
@@ -81,12 +89,23 @@ save one.
 `stream: true` on `/chat` is an SSE passthrough — xAI's frames, forwarded byte
 for byte, which is what the console renders.
 
+## The run ledger
+
+Every spend — a chat, a stream, an image, from the console, the REST API, MCP
+or the CLI — opens a LIVE row in your ledger and closes it DONE or ERROR with
+the duration, the token usage and the error text if there was one. The console
+renders it as the RUNS board: **ALL · LIVE · DONE · ERROR** pills that filter
+the list. Per account, newest 200 kept, prompt truncated to a head, the key
+never written. A row still LIVE past every timeout is reaped as
+`lost — the server went away mid-call`.
+
 ## MCP
 
-Ten tools: `grok_chat`, `grok_models`, `grok_model`, `grok_key_info`,
+Eleven tools: `grok_chat`, `grok_models`, `grok_model`, `grok_key_info`,
 `grok_whoami`, `grok_set_key`, `grok_bots`, `grok_bot_save`, `grok_bot_delete`,
-`grok_raw`. Each takes an optional `token` (who you are) and `key` (whose
-credits). Over HTTP the server reads both from the request headers instead.
+`grok_runs`, `grok_raw`. Each takes `token` (who you are — required for
+anything that touches Grok) and optionally `key` (whose credits). Over HTTP the
+server reads both from the request headers instead.
 
 ```
 m grokbot/mcp_config     # drop-in config for Claude Code / Desktop
@@ -134,6 +153,7 @@ client.py      the xAI client, and the per-address key/bot store
 identity.py    sign-in: token → address → standing
 api.py         REST + console + MCP on one port (stdlib http.server)
 mcp.py         the ten tools, JSON-RPC 2.0, stdio or HTTP
-console.html   the website: wallet sign-in, key, bots, chat
-tests/         29 tests; none of them can spend a credit
+runs.py        the run ledger — ALL · LIVE · DONE · ERROR, per account
+console.html   the website: the sign-in gate, key, bots, chat, the runs board
+tests/         36 tests; none of them can spend a credit
 ```

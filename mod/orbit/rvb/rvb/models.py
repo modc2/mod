@@ -59,8 +59,13 @@ def providers():
     """Which backends can actually run right now, and why not if they cannot."""
     out = {}
     cli = _which('claude')
+    # `ready` here means the backend can be *reached*, not that its login is
+    # live: the CLI's OAuth expires and only a real call finds out. Say so,
+    # rather than let a round discover it one ModelError at a time.
     out['claude'] = {'ready': bool(cli), 'how': cli or 'claude CLI not on PATH',
-                     'keyless': True}
+                     'keyless': True,
+                     'note': 'binary on PATH — ping it to prove the login has '
+                             'not expired'}
     for name, env, files in (
             ('openrouter', 'OPENROUTER_API_KEY', ['~/.mod/openrouter/key']),
             ('anthropic', 'ANTHROPIC_API_KEY', ['~/.mod/rvb/anthropic.key']),
@@ -149,7 +154,11 @@ def _claude(messages, system, name, max_tokens, timeout):
         cmd += ['--system-prompt', system]
     cmd.append(_flatten(messages))
     try:
+        # stdin=DEVNULL, not inherited: under a supervisor (pm2) our stdin is
+        # an open pipe that never sends anything, and the CLI waits on it,
+        # warns about it and exits 1 with the prompt unanswered.
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                           stdin=subprocess.DEVNULL,
                            cwd=os.path.expanduser('~'),
                            env={**os.environ, 'CLAUDE_CODE_DISABLE_TELEMETRY': '1'})
     except subprocess.TimeoutExpired:

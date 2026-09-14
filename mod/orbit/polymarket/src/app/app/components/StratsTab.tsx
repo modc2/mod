@@ -60,6 +60,7 @@ import ScoreMarket from "./ScoreMarket";
 import Sparkline from "./Sparkline";
 import StratChat from "./StratChat";
 import StratLab from "./StratLab";
+import StratVibe from "./StratVibe";
 import UserStratsPanel from "./UserStratsPanel";
 
 function timeSince(ts: number): string {
@@ -245,7 +246,11 @@ export default function StratsTab() {
                   const m = liveStats[idx.id];
                   const isActive = idx.id === activeId;
                   const isRunning = liveStratIds.has(idx.id);
-                  const inPlay = m?.openValue ?? 0;
+                  // "How much of my money is on this strat" = the session's
+                  // committed capital; open cost basis is the fallback for
+                  // sessions predating the capital field.
+                  const inPlay = m?.moneyIn ?? 0;
+                  const invested = (m?.capital ?? 0) > 0 ? m!.capital : inPlay;
                   const totalPnl = m?.totalPnl ?? 0;
                   const curve = pnlHistory[idx.id];
                   return (
@@ -272,8 +277,11 @@ export default function StratsTab() {
                           <Sparkline data={curve.map((p) => p.pnl)} width={64} height={18} />
                         </span>
                       )}
-                      <span className="shrink-0 text-[11px] font-mono tabular-nums text-pixel-white">
-                        {inPlay > 0 ? fmtUsd(inPlay) : "flat"}
+                      <span
+                        className={`shrink-0 text-[11px] font-mono tabular-nums ${invested > 0 ? "text-pixel-white" : "text-pixel-gray"}`}
+                        title={`${fmtUsd(invested)} of your money on this strat · ${fmtUsd(inPlay)} currently deployed in open positions`}
+                      >
+                        {fmtUsd(invested)} in
                       </span>
                       <span className={`shrink-0 text-[11px] font-mono font-semibold tabular-nums ${totalPnl > 0 ? "text-green-400" : totalPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
                         {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
@@ -571,7 +579,12 @@ export default function StratsTab() {
 
       {/* ── BUILD — the machines that write strats for you ── */}
       <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
-        <SectionHeader label="BUILD" hint="agents that invent + bench strats, registered above when they land" />
+        <SectionHeader label="BUILD" hint="describe a strat and test it, or let an agent invent one" />
+        {/* VIBE first, and unfolded: describing what you want is the shortest
+            path from an idea to a backtest, so it is the one that gets the
+            top of the section. The two agents below are for when you would
+            rather be handed an idea than have one. */}
+        <StratVibe />
         {/* The factory: one agent run invents a strat off the live board and
             benches it over 1/3/7 days — on demand or on a loop. */}
         <AutoStratPanel />

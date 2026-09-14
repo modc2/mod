@@ -226,6 +226,53 @@ export default function AgentEditor({
 
   const flash = (ok: boolean, text: string) => setMsg({ ok, text })
 
+  // ── vibe — describe the agent, the rest of the form is drafted ──
+  // POST /agents/vibe runs the vibe-builder against the live tool catalog
+  // (read off the module's own MCP server) and comes back with a draft:
+  // name, icon, description, prompt, tools. Nothing is saved — the draft
+  // lands in these fields and `create` below is still the caller's click.
+  const [vibeText, setVibeText] = useState('')
+  const [vibing, setVibing] = useState(false)
+
+  const vibe = useCallback(async () => {
+    const brief = vibeText.trim()
+    if (brief.length < 8) { flash(false, 'describe the agent in a sentence or two first'); return }
+    if (!token) { flash(false, 'sign in to vibecode an agent'); return }
+    setVibing(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`${API_URL}/agents/vibe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // drafting is a model run — give it minutes, not the 8s a read gets
+        signal: AbortSignal.timeout(180000),
+        body: JSON.stringify({
+          description: brief,
+          // a name already typed into the form is the caller's choice — the
+          // drafter only mints one when the field is empty
+          name: slugify(slug) || null,
+          key: token,
+        }),
+      })
+      const data = await res.json()
+      if (data?.error) { flash(false, data.error); return }
+      const d = data.draft || {}
+      if (d.name) setSlug(d.name)
+      if (d.icon) setIcon(d.icon)
+      if (d.description) setDescription(d.description)
+      if (d.goal) setGoal(d.goal)
+      setTools(Array.isArray(d.tools) ? d.tools : [])
+      if (d.model) setModel(d.model)
+      const dropped = (data.tools_dropped || []) as string[]
+      flash(true, `drafted "${d.name}" — review it, then create${
+        dropped.length ? ` · dropped unknown tools: ${dropped.join(', ')}` : ''}`)
+    } catch (e: any) {
+      flash(false, e?.name === 'TimeoutError' ? 'the draft timed out — try again' : e?.message || 'vibe failed')
+    } finally {
+      setVibing(false)
+    }
+  }, [vibeText, token, slug])
+
   const save = useCallback(async (thenUse: boolean) => {
     const s = isNew ? slugify(slug) : name!
     if (!s) { flash(false, 'give the agent a name'); return }
@@ -329,6 +376,30 @@ export default function AgentEditor({
         <div className="flex-1 flex items-center justify-center text-xs text-gray-600">loading…</div>
       ) : (
       <div className="flex-1 overflow-y-auto min-h-0 p-2.5 space-y-3">
+        {/* vibe — one box that fills the whole form. Create-mode only: an
+            existing agent is edited, not re-imagined out from under itself */}
+        {isNew && (
+          <div className="border border-violet-400/20 rounded-md p-2 bg-violet-500/[0.04]">
+            <div className={legend}>
+              ✧ vibe
+              <span className="text-gray-700 normal-case tracking-normal">· describe it, the rest is drafted</span>
+            </div>
+            <textarea value={vibeText} onChange={e => setVibeText(e.target.value)} rows={3}
+              disabled={vibing}
+              placeholder="an agent that reviews python diffs for security bugs and writes a report…"
+              className={`${field} resize-y leading-relaxed ${vibing ? 'opacity-60' : ''}`} />
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <span className="text-[9px] text-gray-600 min-w-0">
+                tools come from the live MCP catalog; leave the name blank and an untaken one is made up
+              </span>
+              <button onClick={vibe} disabled={vibing || loading}
+                className="ml-auto shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-violet-400/30 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 transition">
+                {vibing ? 'vibing…' : '✧ vibe'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* identity */}
         <div>
           <div className={legend}>name</div>

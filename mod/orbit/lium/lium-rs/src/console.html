@@ -96,6 +96,11 @@ input,select,textarea{background:rgba(0,0,0,.35);border:1px solid var(--line);bo
 input:hover,select:hover{border-color:rgba(255,255,255,.16)}
 input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(94,234,212,.1)}
 input::placeholder{color:#5c6a80}
+/* browser autofill must not repaint the field pale — keep it on-theme */
+input:-webkit-autofill,input:-webkit-autofill:hover,input:-webkit-autofill:focus{
+  -webkit-text-fill-color:var(--text);caret-color:var(--text);
+  -webkit-box-shadow:0 0 0 100px #0b0f16 inset;border-color:var(--line);
+  transition:background-color 9999s ease-in-out 0s}
 select{appearance:none;padding-right:28px;cursor:pointer;
   background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);
   background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
@@ -150,7 +155,7 @@ pre{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:10px;pa
       <span class="tag" id="up">…</span>
     </div>
     <div class="keyrow">
-      <input id="key" type="password" placeholder="Lium API key — this tab only">
+      <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Lium API key — this tab only">
       <button class="ghost" id="savekey">use key</button>
     </div>
   </header>
@@ -200,7 +205,7 @@ pre{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:10px;pa
         <thead><tr><th>name</th><th>status</th><th>gpu</th><th>$/hr</th><th>ssh</th><th>created</th><th></th></tr></thead>
         <tbody><tr><td colspan="7" class="mut">—</td></tr></tbody>
       </table></div>
-      <pre id="p_out" style="margin-top:12px">—</pre>
+      <pre id="p_out" style="margin-top:12px;display:none"></pre>
     </div>
   </section>
 
@@ -461,6 +466,7 @@ async function loadPods(){
         <button class="ghost danger" data-down="${p.id}">stop</button>
       </td></tr>`).join('') || '<tr><td colspan="7" class="mut">no pods running</td></tr>';
     const act = async (name, args, verb) => {
+      $('p_out').style.display = 'block';
       $('p_out').textContent = verb + '…';
       try { $('p_out').textContent = JSON.stringify(await tool(name, args), null, 2); loadPods(); }
       catch (e) { $('p_out').innerHTML = `<span class="bad">${e.message}</span>`; }
@@ -471,7 +477,10 @@ async function loadPods(){
       if (confirm('Stop this pod? The rental ends and the container is removed.')) act('down', { pod_id: b.dataset.down }, 'stopping');
     });
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="7" class="bad">${e.message}</td></tr>`;
+    const keyIssue = /401|api key|unauthor/i.test(e.message);
+    tb.innerHTML = keyIssue
+      ? `<tr><td colspan="7" class="mut">That key didn't work upstream — grab a fresh one at <b>lium.io → Settings → API Keys</b>, then hit <b>use key</b>.</td></tr>`
+      : `<tr><td colspan="7" class="bad">${e.message}</td></tr>`;
   }
 }
 $('p_refresh').onclick = loadPods;

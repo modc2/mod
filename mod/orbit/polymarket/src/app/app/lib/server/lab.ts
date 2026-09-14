@@ -35,6 +35,7 @@ import { WORKER_TAPE_BUDGET } from "../momentumTape";
 import { paramReference } from "../stratPatch";
 import type { IndexTrader, SavedIndex } from "../types";
 import { AGENT_MODEL, CLAUDE_BIN, claudeEnv, digJson, runClaude } from "./agentCli";
+import { type BoardRow, boardLine, boardSnapshot, onBoard } from "./board";
 import { feedSession, refreshRoster } from "./feedFetcher";
 import { writeAtomic } from "./feedStore";
 import { stateDir } from "./ownerToken";
@@ -167,25 +168,67 @@ export async function candidateBacktest(
 //
 // The vibe-coding half of the lab: the owner describes a strat in their own
 // words and a single no-tool model turn translates it into the exact JSON the
-// bench replays. Nothing is saved and nothing is tested here — the draft lands
-// back in the console's editor, where TEST (the bench above) and SAVE stay
-// human presses. Tool-less on purpose: translation is cheap and fast; research
+// bench replays. Tool-less on purpose: translation is cheap and fast; research
 // belongs to the full lab run.
+//
+// The one thing a tool-less model cannot do is look a wallet up — so it is
+// handed THE BOARD (the live leaderboard, the same rows the console ranks)
+// and told to pick from it. That is what makes "copy the three best traders"
+// a testable candidate instead of an empty watchlist: the board is both the
+// model's only source of addresses and the whitelist its answer is filtered
+// against, so it can pick wrong but it cannot pick imaginary.
 
 export interface DraftResult {
   /** One or two sentences: how the words were read, and any judgment calls. */
   note: string;
   /** The candidate, in exactly the shape pm_lab_backtest / the bench accepts. */
   params: Record<string, unknown>;
+  /** Addresses the model answered that were not on the board — dropped, and
+      reported rather than swallowed. */
+  dropped?: string[];
 }
 
 const DRAFT_TIMEOUT_MS = 90_000;
+/** Enough of the board for the model to have real choices, small enough that
+    the rows stay a list and not a haystack. */
+const DRAFT_BOARD_ROWS = 40;
+
+/** Every 0x… address the owner typed themselves. Those are always allowed:
+    the board is a floor on what the MODEL may invent, never a fence around
+    who the OWNER is allowed to copy. */
+function addressesIn(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of text.matchAll(/0x[0-9a-fA-F]{40}/g)) out.add(m[0].toLowerCase());
+  return out;
+}
 
 export async function draftCandidate(ask: string): Promise<DraftResult> {
+  // A cold or unreachable board is not fatal: the drafter falls back to the
+  // old contract (only addresses the owner typed), which still works for
+  // "copy 0xabc… but only under 30c". It just cannot pick names itself.
+  let board: BoardRow[] = [];
+  let boardError = "";
+  try {
+    board = await boardSnapshot({ rows: DRAFT_BOARD_ROWS });
+  } catch (e) {
+    boardError = e instanceof Error ? e.message : String(e);
+  }
+
   const prompt = [
-    `You translate a plain-language strategy description into the parameter JSON of a Polymarket copy-trading console. Output params only — you have no tools, so NEVER invent trader addresses: only 0x… addresses quoted verbatim in the description may appear in "traders". A description that names no wallets gets an empty traders list (the owner adds them, or the filter block picks them).`,
+    `You translate a plain-language strategy description into the parameter JSON of a Polymarket copy-trading console.`,
     ``,
     `HOW A STRATEGY WORKS HERE: a "copy index" watches a list of trader wallets and mirrors their entries, sized proportionally to the owner's capital. Parameters gate WHICH of their fills get copied and how positions exit. An optional \`momentum\` block instead ORIGINATES trades off a market's own price tape (no watchlist needed).`,
+    ``,
+    ...(board.length > 0
+      ? [
+        `THE BOARD — the live 7-day leaderboard, ranked by consistency, everyone here traded in the last 6h. These are the ONLY addresses you may put in "traders" (plus any the description quotes verbatim); any other address is dropped:`,
+        ...board.slice(0, DRAFT_BOARD_ROWS).map(boardLine),
+        ``,
+        `PICKING TRADERS IS YOUR JOB. When the description describes traders instead of naming them ("the best three", "consistent winners", "someone trading crypto"), CHOOSE them off the board and put their addresses in "traders" — an empty watchlist cannot be backtested, so it is the one answer that helps nobody. Say in your note which you picked and why. 3-6 traders is the useful range unless the description asks otherwise. winRate "?" means not enough decided positions to know — treat it as unknown, not as bad.`,
+      ]
+      : [
+        `NO BOARD IS AVAILABLE this run (${boardError || "leaderboard unreadable"}), so you have no way to look a trader up: only 0x… addresses quoted verbatim in the description may appear in "traders". If it names none, say so plainly in the note.`,
+      ]),
     ``,
     `PARAMS SHAPE — name (string), traders (0x… addresses, max ${MAX_TRADERS}), capital (USD, default 1000), plus any of (nested JSON, same paths):`,
     paramReference(),
@@ -196,24 +239,93 @@ export async function draftCandidate(ask: string): Promise<DraftResult> {
     `RULES: set only the parameters the description implies — defaults exist for everything else, and an unasked-for knob is noise the owner has to audit. Give the candidate a short name in their words.`,
     ``,
     `Reply with ONE JSON object and nothing else — no prose outside it, no markdown fence:`,
-    `{"note": "<one or two sentences: how you read the ask + any judgment call>", "params": { the candidate }}`,
+    `{"note": "<one or two sentences: how you read the ask + which traders you picked and why>", "params": { the candidate }}`,
   ].join("\n");
 
-  const run = await runClaude(prompt, AGENT_MODEL, {
-    timeoutMs: DRAFT_TIMEOUT_MS,
-    extraArgs: ["--restricted", "--tools", ""],
-  });
-  if (run.ok === false) throw new Error(run.error);
+  const draftTurn = async (p: string) => {
+    const run = await runClaude(p, AGENT_MODEL, {
+      timeoutMs: DRAFT_TIMEOUT_MS,
+      extraArgs: ["--restricted", "--tools", ""],
+    });
+    if (run.ok === false) throw new Error(run.error);
+    return run.text;
+  };
 
-  const parsed = digJson(run.text, (o) => {
-    if (!o.params || typeof o.params !== "object" || Array.isArray(o.params)) return null;
-    return {
-      note: typeof o.note === "string" ? o.note.slice(0, 500) : "",
-      params: o.params as Record<string, unknown>,
-    };
+  // Two shapes count as an answer: the contract's {note, params}, and a bare
+  // params object — a model that skips the wrapper still did the work, and
+  // failing the owner over an envelope key would be pedantry.
+  const accept = (o: Record<string, unknown>) => {
+    const inner = o.params;
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+      return {
+        note: typeof o.note === "string" ? o.note.slice(0, 500) : "",
+        params: inner as Record<string, unknown>,
+      };
+    }
+    if (Array.isArray(o.traders) || typeof o.capital === "number") {
+      const { note, ...rest } = o as { note?: unknown } & Record<string, unknown>;
+      return { note: typeof note === "string" ? note.slice(0, 500) : "", params: rest };
+    }
+    return null;
+  };
+
+  let text = await draftTurn(prompt);
+  let parsed = digJson(text, accept);
+  if (!parsed) {
+    // One repair turn. The failure is almost always an envelope, not a
+    // misunderstanding — re-asking the whole question would just re-roll the
+    // dice, so hand the answer back and ask for the JSON alone.
+    text = await draftTurn([
+      `You were asked to answer with ONE JSON object of the form {"note": "...", "params": { … }} and answered this instead:`,
+      text.slice(0, 6000),
+      ``,
+      `Reply with that same candidate as ONE raw JSON object — no prose before or after it, no markdown fence.`,
+    ].join("\n"));
+    parsed = digJson(text, accept);
+  }
+  if (!parsed) {
+    const head = text.replace(/\s+/g, " ").trim().slice(0, 180);
+    throw new Error(`the drafter answered, but not with a params object — try rephrasing. It said: ${head || "(nothing)"}`);
+  }
+
+  // The whitelist, enforced: what the model was shown, plus what the owner
+  // typed. Anything else it answered is reported, not quietly kept.
+  const allowed = addressesIn(ask);
+  const known = onBoard(board);
+  const dropped: string[] = [];
+  const list = Array.isArray(parsed.params.traders) ? parsed.params.traders : [];
+  const kept = list.filter((t) => {
+    const addr = String(typeof t === "string" ? t : (t as { address?: unknown })?.address ?? "").toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(addr)) return false;
+    if (allowed.has(addr) || known(addr)) return true;
+    dropped.push(addr);
+    return false;
   });
-  if (!parsed) throw new Error("the drafter answered, but not with a params object — try rephrasing");
-  return parsed;
+  parsed.params.traders = kept;
+  return { ...parsed, ...(dropped.length > 0 ? { dropped } : {}) };
+}
+
+// ── VIBE: one press, words to a benched candidate ───────────────
+//
+// Draft and bench are two useful halves for an agent stepping through them,
+// and one step for a person: nobody describes a strat in order to hold a JSON
+// object. This runs both, so the console can offer a single button whose
+// answer is the only thing that settles the question — the numbers.
+
+export interface VibeResult extends DraftResult {
+  bench?: CandidateResult;
+  /** Set when the params drafted fine but could not be replayed (empty
+      watchlist, bench busy). The draft still comes back — it is editable. */
+  benchError?: string;
+}
+
+export async function vibeCandidate(ask: string, windows: unknown = [1, 3, 7]): Promise<VibeResult> {
+  const draft = await draftCandidate(ask);
+  try {
+    return { ...draft, bench: await candidateBacktest(draft.params, windows) };
+  } catch (e) {
+    return { ...draft, benchError: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 // ── The agent run ───────────────────────────────────────────────

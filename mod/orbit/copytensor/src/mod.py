@@ -762,22 +762,34 @@ class Copytensor(m.Mod):
         return self._get("/agent")
 
     def ask(self, question: str, session_id: Optional[str] = None,
-            stream: bool = False) -> Dict[str, Any]:
-        """Ask the strat agent for a basket of traders to mirror.
+            stream: bool = False, approve: str = "ask") -> Dict[str, Any]:
+        """Talk to the desk agent — research, a basket, or work on the book.
 
-        Returns {answer, strat, tools, session_id}. Pass `session_id` back to
-        keep talking about the same basket; `stream=True` prints each tool
-        call as it happens instead of waiting in the dark.
+        Returns {answer, strat, tools, approvals, session_id}. Pass
+        `session_id` back to keep talking about the same basket;
+        `stream=True` prints each tool call as it happens instead of waiting
+        in the dark.
 
-        The proposal is not live and not saved — `strat` is a basket you feed
-        to `create_copy` (or the console's strat maker) yourself.
+        Every WRITE the agent wants to make (start a copy, re-size one, sync
+        the book to the chain) stops for you first:
+
+            approve="ask"   prompt on this terminal — the default, and what
+                            you want interactively
+            approve="never" decline everything; research still works
+            approve="all"   say yes to whatever it asks. Only for a script
+                            you have already read the plan of.
+
+        A proposal (`strat`) is not live and not saved — it is a basket you
+        feed to `create_copy` or the console's strat maker yourself.
         """
         out: Dict[str, Any] = {"answer": "", "strat": None, "tools": [],
-                               "session_id": session_id}
+                               "approvals": [], "session_id": session_id}
         r = requests.post(
             f"{self.api_url}/agent/ask",
             json={"question": question, "session_id": session_id},
-            stream=True, timeout=(10, 420),
+            # No read timeout: the run is allowed to sit on an approval for
+            # as long as the human in front of it takes.
+            stream=True, timeout=(10, None),
         )
         r.raise_for_status()
         for line in r.iter_lines(decode_unicode=True):
@@ -796,6 +808,9 @@ class Copytensor(m.Mod):
                 print(ev["text"])
             elif kind == "strat":
                 out["strat"] = ev["strat"]
+            elif kind == "approval":
+                out["approvals"].append(ev["approval"])
+                self._answer_approval(ev["approval"], approve)
             elif kind in ("start", "done"):
                 out["session_id"] = ev.get("session_id") or out["session_id"]
                 if kind == "done":
@@ -803,6 +818,48 @@ class Copytensor(m.Mod):
             elif kind == "error":
                 out["error"] = ev.get("error")
         return out
+
+    def _answer_approval(self, approval: Dict[str, Any], mode: str) -> None:
+        """Decide a parked write. The agent is blocked until this lands."""
+        note = ""
+        if mode == "all":
+            ok = True
+        elif mode in ("never", "none", "no"):
+            ok, note = False, "this caller approves nothing"
+        else:
+            print(f"\n  ⚠ APPROVE? {approval['summary']}")
+            print(f"    {approval['tool']} {approval.get('args') or ''}")
+            try:
+                # Not a TTY (a cron, a pipe) means nobody is here to say yes,
+                # and a write nobody watched is exactly what the gate is for.
+                ans = input("    [y/N] ").strip().lower() if sys.stdin.isatty() else "n"
+            except (EOFError, KeyboardInterrupt):
+                ans = "n"
+            ok = ans in ("y", "yes")
+            if not ok:
+                note = "declined at the terminal"
+        requests.post(f"{self.api_url}/agent/approvals/{approval['id']}",
+                      json={"approve": ok, "note": note}, timeout=30)
+        print(f"    → {'APPROVED' if ok else 'DECLINED'}")
+
+    def approvals(self, run_id: Optional[str] = None) -> Any:
+        """Writes an agent is waiting on you for, right now.
+
+        An MCP client (Claude Code, the fleet) parks its writes here too, so
+        this is also how you see what something else asked for while you
+        were not looking.
+        """
+        return self._get("/agent/approvals", **({"run_id": run_id} if run_id else {}))
+
+    def approve(self, approval_id: str, note: str = "") -> Any:
+        """Let one parked write through."""
+        return self._post(f"/agent/approvals/{approval_id}",
+                          {"approve": True, "note": note})
+
+    def decline(self, approval_id: str, note: str = "") -> Any:
+        """Refuse one. `note` is handed to the agent as the reason."""
+        return self._post(f"/agent/approvals/{approval_id}",
+                          {"approve": False, "note": note})
 
     # wallet
     def set_wallet(self, mnemonic: Optional[str] = None,

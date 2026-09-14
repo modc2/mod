@@ -28,6 +28,7 @@ import {
   XMarkIcon,
   PlusIcon,
   BanknotesIcon,
+  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
 import { useThemeColors } from './theme'
 import ThemePicker from './ThemePicker'
@@ -212,6 +213,9 @@ interface PotInfo {
 
 interface Stats {
   pot: PotInfo | null
+  owner?: string           // contract owner() — the only address setPoints accepts
+  treasury?: string        // configured treasury address, '' when none exists
+  chainId?: string
   maxLockSeconds?: number
   secondsPerBlock?: number
   priceUsdMicro?: number   // micro-USD per whole token (1_000_000 = $1.00)
@@ -351,6 +355,7 @@ interface FactoryKit {
     priceUsdMicro: number
     secondsPerBlock?: number
     reserveTokens?: Record<string, ReserveTokenDef>
+    reserveTokenLists?: Record<string, ReserveTokenDef[]>
     points: { lockSeconds: number; multiplier: number }[]
     inflation: {
       initialRewardPerEpoch: string
@@ -406,6 +411,10 @@ const DEFAULT_SECONDS_PER_BLOCK = 2               // Base
 // always seconds. The choice sticks across visits.
 type LockUnit = 'seconds' | 'blocks'
 const LOCK_UNIT_KEY = 'bloctime_lock_unit'
+
+// Set once a wallet has been connected here, so a reload can re-attach via
+// eth_accounts (silent) instead of eth_requestAccounts (pops the wallet).
+const WALLET_KEY = 'bloctime_wallet_connected'
 
 // 252,288,000 reads as noise; "8y" reads as a decision. Every place that
 // prints a lock length as a duration goes through here.
@@ -858,6 +867,293 @@ function MultiplierChart({ points, atSeconds, atMultiplier, unit, spb }: {
         </g>
       )}
     </svg>
+  )
+}
+
+// ── Treasury connection ─────────────────────────────────────────────────
+// Whether the instance on screen is actually wired to a treasury — a live
+// probe (code at the address, token() == this NTV), not a config echo.
+// Official mode asks the API, which probes over its own RPC; market
+// instances are probed straight over theirs.
+
+interface TreasuryProbe {
+  configured: boolean
+  connected: boolean
+  address: string
+  symbol?: string
+  heldUsd?: number
+  note?: string
+}
+
+function TreasuryStatus({ treasury, nativeToken, rpc, official }: {
+  treasury: string; nativeToken: string; rpc?: string; official: boolean
+}) {
+  const [probe, setProbe] = useState<TreasuryProbe | null>(null)
+
+  useEffect(() => {
+    let dead = false
+    const run = async () => {
+      if (!treasury) {
+        if (!dead) setProbe({ configured: false, connected: false, address: '' })
+        return
+      }
+      try {
+        if (official) {
+          const r = await api('treasury', {}, 'GET')
+          if (dead) return
+          setProbe({
+            configured: !!r.configured, connected: !!r.connected,
+            address: r.address || treasury, symbol: r.reserve?.symbol,
+            heldUsd: r.reserveHeldUsd, note: r.note,
+          })
+        } else {
+          const provider = new ethers.JsonRpcProvider(rpc)
+          const t = new ethers.Contract(treasury, TREASURY_MIN_ABI, provider)
+          const [token, reserve, decimals, held] = await t.info()
+          const matches = String(token).toLowerCase() === nativeToken.toLowerCase()
+          let symbol = ''
+          try { symbol = await new ethers.Contract(reserve, ERC20_MIN_ABI, provider).symbol() } catch { /* symbol is a nicety */ }
+          if (dead) return
+          setProbe({
+            configured: true, connected: matches, address: treasury, symbol,
+            heldUsd: Number(held) / 10 ** Number(decimals),
+            note: matches ? undefined : "answers, but its token() is not this instance's NTV",
+          })
+        }
+      } catch {
+        if (!dead) setProbe({ configured: true, connected: false, address: treasury, note: 'not answering over RPC' })
+      }
+    }
+    setProbe(null)
+    run()
+    return () => { dead = true }
+  }, [treasury, nativeToken, rpc, official])
+
+  const dot = (cls: string, pulse = false) =>
+    <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${cls} ${pulse ? 'animate-pulse' : ''}`} />
+
+  let tone = 'border-hair'
+  let body: React.ReactNode
+  if (!probe) {
+    body = <>{dot('bg-gold', true)}<span className="text-mute">Checking treasury connection…</span></>
+  } else if (!probe.configured) {
+    body = <>
+      {dot('bg-line2')}
+      <span className="text-mute font-bold">No treasury</span>
+      <span className="text-faint">— this instance has no dollar door; nothing mints NTV 1:1 per $</span>
+    </>
+  } else if (probe.connected) {
+    tone = 'border-up/30'
+    body = <>
+      {dot('bg-up')}
+      <span className="text-up font-bold">Treasury connected</span>
+      <span className="font-mono text-ink2">{fmtAddr(probe.address)}</span>
+      <span className="text-faint">
+        mints NTV 1:1 per $
+        {probe.symbol ? ` · holds ${(probe.heldUsd ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${probe.symbol}` : ''}
+      </span>
+    </>
+  } else {
+    tone = 'border-down/30'
+    body = <>
+      {dot('bg-down')}
+      <span className="text-down font-bold">Treasury not connected</span>
+      <span className="font-mono text-ink2">{fmtAddr(probe.address)}</span>
+      {probe.note && <span className="text-faint">— {probe.note}</span>}
+    </>
+  }
+
+  return (
+    <div className={`flex items-center gap-2 flex-wrap border ${tone} rounded-lg px-3 py-2 bg-panel text-[11px]`}>
+      <span className="lbl-dim">Treasury</span>
+      {body}
+    </div>
+  )
+}
+
+// ── Curve editor ────────────────────────────────────────────────────────
+// The lock-length → multiplier curve, editable in place. Everyone sees the
+// live curve; only the contract owner can APPLY — setPoints is onlyOwner,
+// so the button explains whose signature it needs instead of letting the
+// transaction revert. Locks are edited in raw seconds (the contract's own
+// unit) with a duration hint per row; multipliers in x (1.5 = 15000 bps).
+
+interface DraftPoint { lock: string; mult: string }
+
+const draftFromChain = (pts: MultiplierPoint[]): DraftPoint[] =>
+  (pts.length ? pts : [{ lockSeconds: 0, multiplier: 10000, multiplierX: 1 }])
+    .map(p => ({ lock: String(p.lockSeconds), mult: String(p.multiplierX) }))
+
+function CurveCard({ points, maxLock, unit, spb, ownerAddr, account, official, apiTokenPresent, onApply }: {
+  points: MultiplierPoint[]
+  maxLock: number
+  unit: LockUnit
+  spb: number
+  ownerAddr: string
+  account: string
+  official: boolean
+  apiTokenPresent: boolean
+  onApply: (pts: { lockSeconds: number; multiplier: number }[]) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<DraftPoint[]>(() => draftFromChain(points))
+  const [dirty, setDirty] = useState(false)
+  const [applying, setApplying] = useState(false)
+
+  // The 15s poll re-seeds the editor only while it's untouched — a refetch
+  // must never overwrite points someone is in the middle of shaping.
+  useEffect(() => { if (!dirty) setDraft(draftFromChain(points)) }, [points, dirty])
+
+  const parsed = useMemo(() => draft.map(d => ({
+    lockSeconds: Math.max(0, Math.floor(Number(d.lock) || 0)),
+    multiplier: Math.round((Number(d.mult) || 0) * 10000),
+  })), [draft])
+
+  // Mirror of the contract's requires — say it before the gas does.
+  const error = useMemo(() => {
+    if (parsed.length === 0) return 'The curve needs at least one point'
+    for (let i = 0; i < parsed.length; i++) {
+      if (parsed[i].multiplier < 10000) return `Point ${i + 1}: multiplier must be at least 1x`
+      if (maxLock > 0 && parsed[i].lockSeconds > maxLock) return `Point ${i + 1}: lock exceeds the ${fmtLockSpan(maxLock)} cap`
+      if (i > 0 && parsed[i].lockSeconds <= parsed[i - 1].lockSeconds) return `Point ${i + 1}: lock must be longer than point ${i}'s`
+      if (i > 0 && parsed[i].multiplier < parsed[i - 1].multiplier) return `Point ${i + 1}: multiplier can't drop`
+    }
+    return ''
+  }, [parsed, maxLock])
+
+  const preview: MultiplierPoint[] = useMemo(() =>
+    error ? [] : parsed.map(p => ({ ...p, multiplierX: p.multiplier / 10000 })), [parsed, error])
+
+  const isOwner = !!account && !!ownerAddr && account.toLowerCase() === ownerAddr.toLowerCase()
+  const canApply = isOwner || (official && apiTokenPresent)
+
+  const edit = (i: number, key: keyof DraftPoint, value: string) => {
+    setDirty(true)
+    setDraft(d => d.map((row, j) => j === i ? { ...row, [key]: value } : row))
+  }
+
+  const addPoint = () => {
+    setDirty(true)
+    setDraft(d => {
+      const last = d[d.length - 1]
+      const lastLock = Number(last?.lock) || 0
+      const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
+      const nextLock = Math.min(cap, lastLock > 0 ? lastLock * 2 : SECONDS_PER_YEAR)
+      const nextMult = (Number(last?.mult) || 1) + 0.5
+      return [...d, { lock: String(nextLock), mult: String(nextMult) }]
+    })
+  }
+
+  const removePoint = (i: number) => {
+    setDirty(true)
+    setDraft(d => d.filter((_, j) => j !== i))
+  }
+
+  const reset = () => { setDraft(draftFromChain(points)); setDirty(false) }
+
+  const apply = async () => {
+    setApplying(true)
+    try {
+      await onApply(parsed)
+      setDirty(false)
+    } catch (err: any) {
+      toast.error(err?.reason || err?.shortMessage || err?.message || 'Curve update failed')
+    }
+    setApplying(false)
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <ChartBarIcon className="w-4 h-4 text-accent" />
+        <span className="lbl">Multiplier Curve</span>
+        {ownerAddr && (
+          <span className="lbl-dim ml-auto">
+            owner <span className={`font-mono ${isOwner ? 'text-up' : 'text-ink2'}`}>{fmtAddr(ownerAddr)}</span>
+            {isOwner && ' — you'}
+          </span>
+        )}
+      </div>
+
+      <div className="grid lg:grid-cols-[minmax(0,340px)_1fr] gap-4 p-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-[10px] text-faint">
+            <span className="flex-1">Lock (seconds)</span>
+            <span className="w-20">Mult (x)</span>
+            <span className="w-16" />
+            <span className="w-5" />
+          </div>
+
+          {draft.map((d, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="number" min="0" value={d.lock}
+                onChange={e => edit(i, 'lock', e.target.value)}
+                className="input flex-1"
+              />
+              <input
+                type="number" min="1" step="0.1" value={d.mult}
+                onChange={e => edit(i, 'mult', e.target.value)}
+                className="input w-20"
+              />
+              <span className="w-16 text-[10px] text-faint tabular-nums text-right">
+                {fmtLockSpan(parsed[i]?.lockSeconds || 0)}
+              </span>
+              <button
+                onClick={() => removePoint(i)}
+                disabled={draft.length <= 1}
+                className="w-5 text-mute hover:text-down disabled:opacity-30"
+                title="Remove point"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+
+          <div className="flex items-center gap-2 pt-1">
+            <button onClick={addPoint} className="btn btn-sm">
+              <PlusIcon className="w-3.5 h-3.5" /> Add point
+            </button>
+            <button onClick={reset} disabled={!dirty} className="btn btn-sm">Reset</button>
+            <button
+              onClick={apply}
+              disabled={!dirty || !!error || applying || !canApply}
+              className="btn btn-accent btn-sm ml-auto"
+            >
+              {applying
+                ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Applying…</>
+                : <><CheckCircleIcon className="w-3.5 h-3.5" /> Apply on-chain</>}
+            </button>
+          </div>
+
+          {dirty && error && <p className="text-[10px] text-down">{error}</p>}
+          {!canApply && (
+            <p className="text-[10px] text-faint leading-relaxed">
+              Only the contract owner can apply a curve — connect{' '}
+              {ownerAddr ? <span className="font-mono">{fmtAddr(ownerAddr)}</span> : 'the owner wallet'}
+              {official ? ', or paste the server API token' : ''}.
+              Anyone can preview.
+            </p>
+          )}
+          <p className="text-[10px] text-faint leading-relaxed">
+            The contract interpolates between points: BLOC = USD staked × seconds × multiplier.
+            First point at 0s sets the floor; later points reward longer locks.
+          </p>
+        </div>
+
+        <div className="rounded-md border border-hair bg-panel2 p-3 flex flex-col justify-center">
+          {hasRealCurve(preview) ? (
+            <>
+              <p className="lbl-dim mb-1">{dirty ? 'Preview — not applied yet' : 'Live curve'}</p>
+              <MultiplierChart points={preview} atSeconds={0} atMultiplier={1} unit={unit} spb={spb} />
+            </>
+          ) : (
+            <p className="lbl-dim text-center leading-relaxed">
+              {error && dirty ? 'Fix the curve to preview it' : <>Flat 1x — pure USD × seconds.<br />Add points above 1x to reward longer locks.</>}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1585,7 +1881,14 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   const [priceUsd, setPriceUsd] = useState('1.00')                   // dollars per token
   const [rpc, setRpc] = useState(known?.rpc || '')
   const [reserveToken, setReserveToken] = useState('')
-  const [reserveHint, setReserveHint] = useState<ReserveTokenDef | null>(null)
+  const [reserveMap, setReserveMap] = useState<Record<string, ReserveTokenDef[]>>({})
+  // The manage controls only draw for the operator who pasted the API token;
+  // the server enforces the bearer token on every write regardless.
+  const [isOwner] = useState(() => typeof window !== 'undefined' && !!localStorage.getItem('bloctime_api_token'))
+  const [manage, setManage] = useState(false)
+  const [addSym, setAddSym] = useState('')
+  const [addAddr, setAddAddr] = useState('')
+  const [addDec, setAddDec] = useState('6')
   const [busy, setBusy] = useState(false)
   const [forkCmd, setForkCmd] = useState('m bloctime/fork name=<yourname>')
   const [steps, setSteps] = useState<{ label: string; state: StepState }[]>([])
@@ -1604,15 +1907,38 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   // an RPC when the wallet sits on a chain we don't know a public one for.
   useEffect(() => { setRpc(netFor(chainId)?.rpc || '') }, [chainId])
 
-  // The treasury's dollar: prefill the chain's canonical USDC when we know
-  // it; any other chain takes a pasted stable address.
+  // The treasury's dollar comes off the owner-curated allowlist — the form
+  // only offers what the site owner has listed for the current chain.
   useEffect(() => {
-    getFactory().then(kit => {
-      const known = kit.defaults.reserveTokens?.[chainId] || null
-      setReserveHint(known)
-      setReserveToken(known?.address || '')
-    }).catch(() => {})
+    api('reserve-tokens', {}, 'GET').then(setReserveMap).catch(() => {})
+  }, [])
+  const reserveList = reserveMap[chainId] || []
+  useEffect(() => {
+    const list = reserveMap[chainId] || []
+    if (!list.some(t => t.address.toLowerCase() === reserveToken.toLowerCase())) {
+      setReserveToken(list[0]?.address || '')
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chainId, reserveMap])
+
+  const addReserve = useCallback(async () => {
+    if (!ethers.isAddress(addAddr.trim())) { toast.error('Paste the token contract address'); return }
+    try {
+      const map = await api('reserve-tokens/add', {
+        chainId, symbol: addSym.trim(), address: addAddr.trim(), decimals: parseInt(addDec) || 6,
+      })
+      setReserveMap(map)
+      setAddSym(''); setAddAddr('')
+      toast.success('Reserve token listed')
+    } catch (err: any) { toast.error(err?.message || 'Add failed') }
+  }, [chainId, addSym, addAddr, addDec])
+
+  const removeReserve = useCallback(async (address: string) => {
+    try {
+      const map = await api('reserve-tokens/remove', { chainId, address })
+      setReserveMap(map)
+      toast.success('Removed from the list')
+    } catch (err: any) { toast.error(err?.message || 'Remove failed') }
   }, [chainId])
 
   const setStep = (i: number, state: StepState) =>
@@ -1621,7 +1947,12 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   const handleDeploy = useCallback(async () => {
     if (!name.trim()) { toast.error('Name your instance'); return }
     if (!rpc.trim()) { toast.error('Set a public RPC URL for this network'); return }
-    if (!ethers.isAddress(reserveToken.trim())) { toast.error('Set the reserve token (the dollar the treasury takes in)'); return }
+    if (!ethers.isAddress(reserveToken.trim())) {
+      toast.error(reserveList.length
+        ? 'Pick a reserve token (the dollar the treasury takes in)'
+        : 'No reserve token is listed for this network — the site owner curates the list')
+      return
+    }
     const w = window as any
     if (!w.ethereum) { toast.error('Install MetaMask'); return }
     setBusy(true)
@@ -1701,7 +2032,7 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Deploy failed')
     }
     setBusy(false)
-  }, [name, description, supply, maxLock, priceUsd, rpc, reserveToken, chainId, getFactory, onDeployed])
+  }, [name, description, supply, maxLock, priceUsd, rpc, reserveToken, reserveList, chainId, getFactory, onDeployed])
 
   const input = "w-full text-sm px-4 py-2.5 rounded-lg border border-line bg-field text-ink focus:outline-none focus:border-line2 font-mono transition-colors placeholder:text-faint"
 
@@ -1738,12 +2069,51 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
             <p className="text-[10px] text-faint mt-1">Default 8 years — as owner you can change it any time via <span className="font-mono">setParams</span></p>
           </div>
           <div className="md:col-span-2">
-            <p className="lbl-dim mb-1">
-              Reserve token — the dollar the treasury takes in
-              {reserveHint && <span className="text-accent normal-case tracking-normal"> — {reserveHint.symbol} on this chain</span>}
+            <p className="lbl-dim mb-1 flex items-center">
+              <span>Reserve token — the dollar the treasury takes in</span>
+              {isOwner && (
+                <button onClick={() => setManage(m => !m)} className="ml-auto text-accent normal-case tracking-normal hover:underline">
+                  {manage ? 'done' : 'manage list'}
+                </button>
+              )}
             </p>
-            <input type="text" value={reserveToken} onChange={e => setReserveToken(e.target.value)} className={input} placeholder="0x… (a USD stable, e.g. USDC)" />
-            <p className="text-[10px] text-faint mt-1">The treasury mints 1 token per $1 deposited and redeems 1:1 — it becomes the token&apos;s only minter</p>
+            {reserveList.length > 0 ? (
+              <select value={reserveToken} onChange={e => setReserveToken(e.target.value)} className={input}>
+                {reserveList.map(t => (
+                  <option key={t.address} value={t.address}>{t.symbol} — {t.address}</option>
+                ))}
+              </select>
+            ) : (
+              <div className={`${input} text-faint cursor-default`}>
+                No reserve token listed for this network yet
+              </div>
+            )}
+            <p className="text-[10px] text-faint mt-1">
+              The treasury mints 1 token per $1 deposited and redeems 1:1 — it becomes the token&apos;s only minter.
+              Only tokens listed by the site owner can be picked.
+            </p>
+            {isOwner && manage && (
+              <div className="mt-2 border border-hair rounded-lg p-3 space-y-2">
+                <p className="lbl-dim">Owner — reserve tokens on {netLabel(chainId)}</p>
+                {reserveList.map(t => (
+                  <div key={t.address} className="flex items-center gap-2 text-[11px] font-mono text-ink2">
+                    <span className="text-ink">{t.symbol}</span>
+                    <span className="text-mute truncate">{t.address}</span>
+                    <span className="text-faint">{t.decimals}d</span>
+                    <button onClick={() => removeReserve(t.address)} className="ml-auto text-down hover:opacity-70" title="Remove from the list">
+                      <XMarkIcon className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <input type="text" placeholder="SYMBOL" value={addSym} onChange={e => setAddSym(e.target.value)} className={`${input} w-28`} />
+                  <input type="text" placeholder="0x… token contract" value={addAddr} onChange={e => setAddAddr(e.target.value)} className={input} />
+                  <input type="number" title="Decimals" value={addDec} onChange={e => setAddDec(e.target.value)} className={`${input} w-20`} />
+                  <button onClick={addReserve} className="btn btn-accent px-4">Add</button>
+                </div>
+                <p className="text-[10px] text-faint">Additions need the API token — the server rejects anyone else</p>
+              </div>
+            )}
           </div>
           <div>
             <p className="lbl-dim mb-1">Token price (USD, e.g. 1.00)</p>
@@ -2291,6 +2661,179 @@ function NetworkPicker({ chainId, onSelect }: {
   )
 }
 
+// ── User sidebar ────────────────────────────────────────────────────────
+// The connected account as a panel you can keep open: identity, gas,
+// balances, live positions — and the way out. The header wallet chip
+// toggles it, and disconnect lives here rather than in the header so the
+// one destructive wallet action is never a single stray click.
+
+function SideRow({ label, value, tone = 'text-ink2' }: {
+  label: string; value: React.ReactNode; tone?: string
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 px-4 py-2 border-b border-hair">
+      <span className="lbl-dim shrink-0">{label}</span>
+      <span className={`text-xs font-mono tabular-nums text-right ${tone}`}>{value}</span>
+    </div>
+  )
+}
+
+function UserSidebar({ open, onClose, account, chainId, gasBal, overview, stats, potShare, instances, activeId, instLoading, onUse, onBrowse, onDisconnect }: {
+  open: boolean
+  onClose: () => void
+  account: string
+  chainId: string
+  gasBal: string | null
+  overview: Overview | null
+  stats: Stats | null
+  potShare: string
+  instances: Instance[]
+  activeId: string
+  instLoading: boolean
+  onUse: (inst: Instance) => void
+  onBrowse: () => void
+  onDisconnect: () => void
+}) {
+  const net = netFor(chainId)
+  const explorer = stats?.explorer && account
+    ? `${stats.explorer.replace(/\/address\/.*$/, '')}/address/${account}`
+    : ''
+
+  return (
+    <>
+      {/* Backdrop only below lg — on desktop the drawer coexists with the page. */}
+      {open && (
+        <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={onClose} aria-hidden />
+      )}
+      <aside
+        aria-label="Connected wallet"
+        aria-hidden={!open}
+        className={`fixed top-0 right-0 bottom-0 z-50 w-[300px] max-w-[85vw] flex flex-col
+          border-l border-line bg-base/95 backdrop-blur-xl shadow-2xl
+          transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
+      >
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-hair">
+          <span className="chip-dot bg-up" />
+          <span className="lbl">My Wallet</span>
+          <button onClick={onClose} className="btn btn-icon ml-auto" title="Close">
+            <XMarkIcon className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* The full address, not the ellipsis the header wears. */}
+        <div className="px-4 py-3 border-b border-hair space-y-2">
+          <p className="text-[11px] font-mono text-ink2 break-all leading-relaxed">{account || '--'}</p>
+          <div className="flex items-center gap-1.5">
+            <button
+              className="btn btn-sm flex items-center gap-1"
+              onClick={() => { navigator.clipboard.writeText(account); toast.success('Address copied') }}
+            >
+              <DocumentDuplicateIcon className="w-3.5 h-3.5" /> Copy
+            </button>
+            {explorer && (
+              <a href={explorer} target="_blank" rel="noreferrer" className="btn btn-sm flex items-center gap-1">
+                <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Explorer
+              </a>
+            )}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Which BlocTime deployment this wallet view is pointed at.
+              Every instance on the market is listed and togglable in place —
+              all the balance rows below are per-instance, so the selector
+              sits above them. */}
+          <div className="border-b border-hair">
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
+              <span className="lbl-dim">Instance ({instances.length})</span>
+              {instLoading && <ArrowPathIcon className="w-3 h-3 animate-spin text-faint" />}
+              <button onClick={onBrowse} className="ml-auto text-[9px] uppercase tracking-wider text-mute hover:text-accent transition-colors">
+                All deployments →
+              </button>
+            </div>
+            <div className="px-4 pb-3 space-y-1.5 max-h-48 overflow-y-auto">
+              {instances.map(inst => {
+                const active = inst.id === activeId
+                return (
+                  <button
+                    key={inst.id}
+                    onClick={() => { if (!active) onUse(inst) }}
+                    disabled={active}
+                    // The active instance stays full-strength — it's the
+                    // current state, not an unavailable action.
+                    className={`w-full flex items-center gap-2 border rounded-lg px-2.5 py-2 text-left transition-colors
+                      ${active ? 'border-accent/40 bg-accent/10 cursor-default' : 'border-hair bg-panel hover:border-line'}`}
+                  >
+                    <ChainLogo chainId={inst.chainId} className="w-3.5 h-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-bold text-ink truncate">
+                        {inst.name}
+                        {inst.official && <span className="ml-1.5 text-[8px] uppercase tracking-wider text-gold font-normal">official</span>}
+                      </span>
+                      <span className="block text-[9px] font-mono text-faint truncate">
+                        {netLabel(inst.chainId)} · {fmtAddr(inst.bloctime)}
+                      </span>
+                    </span>
+                    {active
+                      ? <CheckCircleIcon className="w-3.5 h-3.5 text-accent shrink-0" />
+                      : <span className="text-[9px] uppercase tracking-wider text-mute shrink-0">use</span>}
+                  </button>
+                )
+              })}
+              {instances.length === 0 && (
+                <p className="text-[10px] text-faint py-1">
+                  {instLoading ? 'Loading deployments...' : 'No deployments found'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <SideRow label="Network" value={
+            <span className="inline-flex items-center gap-1.5">
+              <ChainLogo chainId={chainId} className="w-3.5 h-3.5" />{netLabel(chainId)}
+            </span>
+          } />
+          <SideRow label="Gas" tone={gasBal === '0' ? 'text-down' : 'text-up'}
+                   value={gasBal !== null ? `${fmtEth(gasBal)} ${net?.symbol || 'ETH'}` : '--'} />
+          <SideRow label="BLOC" tone="text-accent" value={overview ? fmtEth(overview.totalBlocTime) : '--'} />
+          <SideRow label="Staked" tone="text-gold" value={overview ? fmtEth(overview.totalStaked) : '--'} />
+          <SideRow label="Pending Rewards" tone="text-up" value={overview ? fmtEth(overview.pendingRewards) : '--'} />
+          <SideRow label="Voting Power" tone="text-iris" value={overview ? fmtEth(overview.votingPower) : '--'} />
+          <SideRow label="Next Pot Share" tone="text-gold" value={overview ? `${fmtEth(potShare)} BLOC` : '--'} />
+          <SideRow label="Delegate" value={overview?.delegate ? fmtAddr(overview.delegate) : 'none'} />
+
+          {/* Every position at a glance — enough to see what's locked and
+              what's ripe without leaving whatever tab you're on. */}
+          {overview && overview.positions.length > 0 && (
+            <div className="px-4 py-3 space-y-1.5">
+              <span className="lbl-dim">Positions ({overview.positions.length})</span>
+              {overview.positions.map(p => (
+                <div key={p.stakeId}
+                     className="flex items-center justify-between gap-2 text-[11px] font-mono border border-hair rounded-lg px-2.5 py-1.5 bg-panel">
+                  <span className="text-faint">#{p.stakeId}</span>
+                  <span className="text-ink2">{fmtEth(p.amount)}</span>
+                  <span className={p.secondsRemaining > 0 ? 'text-gold' : 'text-up'}>
+                    {p.secondsRemaining > 0 ? fmtLockSpan(p.secondsRemaining) : 'unlocked'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-hair">
+          <button
+            onClick={onDisconnect}
+            className="w-full px-4 py-2 rounded-lg border border-down/40 bg-down/10 text-down text-[10px] font-bold uppercase tracking-wider hover:bg-down/20 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <ArrowRightOnRectangleIcon className="w-3.5 h-3.5" /> Disconnect
+          </button>
+        </div>
+      </aside>
+    </>
+  )
+}
+
 function BlocTimePageInner() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -2298,6 +2841,7 @@ function BlocTimePageInner() {
   const [loading, setLoading] = useState(false)
   const [connected, setConnected] = useState(false)
   const [account, setAccount] = useState('')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [gasBal, setGasBal] = useState<string | null>(null)
   const [chainId, setChainId] = useState(DEFAULT_CHAIN)
   const [tab, setTab] = useState<Tab>('stake')
@@ -2391,6 +2935,11 @@ function BlocTimePageInner() {
   // Contracts playground
   const [contractsMeta, setContractsMeta] = useState<ContractsMeta | null>(null)
 
+  // Server API token (pasted once by the operator) — lets the curve editor
+  // fall back to the server signer on the official instance.
+  const [hasApiToken] = useState(() =>
+    typeof window !== 'undefined' && !!localStorage.getItem('bloctime_api_token'))
+
   // Marketplace / instances
   const [instances, setInstances] = useState<Instance[]>([])
   const [marketLoading, setMarketLoading] = useState(false)
@@ -2466,12 +3015,53 @@ function BlocTimePageInner() {
       if (accounts.length > 0) {
         setAccount(accounts[0])
         setConnected(true)
+        setSidebarOpen(true)
+        try { localStorage.setItem(WALLET_KEY, '1') } catch { /* quota */ }
         toast.success(`Connected: ${accounts[0].slice(0, 8)}...`)
       }
     } catch (err: any) {
       toast.error(err?.message || 'Connection failed')
     }
   }, [])
+
+  // Disconnect is app-side state plus a permission revoke where the wallet
+  // supports one (MetaMask does); either way this console forgets the account.
+  const disconnectWallet = useCallback(() => {
+    setConnected(false); setAccount(''); setOverview(null); setGasBal(null)
+    setSidebarOpen(false)
+    try { localStorage.removeItem(WALLET_KEY) } catch { /* quota */ }
+    const w = window as any
+    w.ethereum?.request?.({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] })
+      .catch(() => { /* wallet without revoke — state is cleared regardless */ })
+    toast.success('Wallet disconnected')
+  }, [])
+
+  // Re-attach silently on load if this browser connected before —
+  // eth_accounts never pops the wallet, it only answers when permission
+  // is already granted, and the WALLET_KEY flag means it once was.
+  useEffect(() => {
+    const w = window as any
+    if (!w.ethereum) return
+    try { if (localStorage.getItem(WALLET_KEY) !== '1') return } catch { return }
+    let stale = false
+    w.ethereum.request({ method: 'eth_accounts' }).then((accs: string[]) => {
+      if (!stale && accs?.length) { setAccount(accs[0]); setConnected(true) }
+    }).catch(() => {})
+    return () => { stale = true }
+  }, [])
+
+  // Follow the wallet: switching accounts re-points the console, and a
+  // wallet-side revoke arrives as an empty list — that IS a disconnect.
+  useEffect(() => {
+    const w = window as any
+    if (!w.ethereum) return
+    const onAccounts = (accs: string[]) => {
+      if (accs && accs.length > 0) { setAccount(accs[0]); setConnected(true) }
+      else if (connected) disconnectWallet()
+    }
+    w.ethereum.on?.('accountsChanged', onAccounts)
+    return () => w.ethereum.removeListener?.('accountsChanged', onAccounts)
+  }, [connected, disconnectWallet])
 
   // Native (gas) balance for the connected account on the header's chain —
   // the number that says whether the next write can even pay for itself.
@@ -2560,9 +3150,11 @@ function BlocTimePageInner() {
     return () => clearInterval(iv)
   }, [tab])
 
+  // The wallet drawer carries the instance selector, so opening it needs
+  // the registry just as much as the MARKET tab does.
   useEffect(() => {
-    if (tab === 'market') loadMarket()
-  }, [tab, loadMarket])
+    if (tab === 'market' || sidebarOpen) loadMarket()
+  }, [tab, sidebarOpen, loadMarket])
 
   // ── Instance switching ─────────────────────────────────────────────
 
@@ -2630,6 +3222,35 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Unstake failed')
     }
   }, [fetchAll, instanceMode, withInstance])
+
+  // ── Curve Actions ──────────────────────────────────────────────────
+
+  // setPoints is onlyOwner. Instance mode writes through the wallet as
+  // usual; official mode also prefers the wallet when it IS the owner
+  // (the pm2 API carries no PRIVATE_KEY), falling back to the server-signer
+  // endpoint for operators who pasted the API token.
+  const handleSetPoints = useCallback(async (pts: { lockSeconds: number; multiplier: number }[]) => {
+    const structs = pts.map(p => ({ lockSeconds: BigInt(p.lockSeconds), multiplier: BigInt(p.multiplier) }))
+    if (instanceMode && activeInst) {
+      await withInstance(async c => { await (await c.setPoints(structs)).wait() })
+    } else {
+      const w = window as any
+      const ownerAddr = stats?.owner || ''
+      if (w.ethereum && account && ownerAddr && account.toLowerCase() === ownerAddr.toLowerCase()) {
+        const cid = stats?.chainId || DEFAULT_CHAIN
+        await ensureChain({ chainId: cid, rpc: netFor(cid)?.rpc || '' })
+        const kit = await getFactory()
+        const provider = new ethers.BrowserProvider(w.ethereum)
+        const signer = await provider.getSigner()
+        const c = new ethers.Contract(stats!.address, kit.contracts.bloctime.abi as any, signer)
+        await (await c.setPoints(structs)).wait()
+      } else {
+        await api('set_points', { points: pts.map(p => ({ lock_seconds: p.lockSeconds, multiplier: p.multiplier })) })
+      }
+    }
+    toast.success('Curve updated')
+    fetchAll()
+  }, [instanceMode, activeInst, withInstance, stats, account, getFactory, fetchAll])
 
   // ── Delegation Actions ─────────────────────────────────────────────
 
@@ -2815,8 +3436,9 @@ function BlocTimePageInner() {
             {connected ? (
               <button
                 className="chip hover:border-line"
-                title="Copy address"
-                onClick={() => { navigator.clipboard.writeText(account); toast.success('Address copied') }}
+                title="Wallet"
+                aria-expanded={sidebarOpen}
+                onClick={() => setSidebarOpen(o => !o)}
               >
                 <span className="chip-dot bg-up" />
                 {gasBal !== null && (
@@ -2841,6 +3463,23 @@ function BlocTimePageInner() {
           </div>
         </div>
       </div>
+
+      <UserSidebar
+        open={connected && sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        account={account}
+        chainId={chainId}
+        gasBal={gasBal}
+        overview={overview}
+        stats={stats}
+        potShare={potShare}
+        instances={instances}
+        activeId={activeInst ? activeInst.id : 'official'}
+        instLoading={marketLoading}
+        onUse={handleUse}
+        onBrowse={() => { setTab('market'); setSidebarOpen(false) }}
+        onDisconnect={disconnectWallet}
+      />
 
       <div className="relative z-10 px-3 md:px-5 py-3 max-w-5xl mx-auto space-y-3">
 
@@ -2885,6 +3524,17 @@ function BlocTimePageInner() {
         {/* ── Stake Tab ────────────────────────────────────────────────── */}
         {tab === 'stake' && (
           <div key="stake" className="space-y-4 animate-fade-up">
+            {/* Is this instance actually wired to a treasury? A live probe,
+                answered in one line — connected, misconnected, or none. */}
+            {stats && (
+              <TreasuryStatus
+                treasury={(instanceMode ? activeInst?.treasury : stats.treasury) || ''}
+                nativeToken={(instanceMode ? activeInst?.nativeToken : stats.nativeToken) || ''}
+                rpc={instanceMode ? activeInst?.rpc : undefined}
+                official={!instanceMode}
+              />
+            )}
+
             {/* The instance's dollar door, when it has one — deposit mints
                 the NTV the stake form below wants. */}
             {instanceMode && activeInst?.treasury && (
@@ -3053,6 +3703,22 @@ function BlocTimePageInner() {
                 )}
               </div>
             </div>
+
+            {/* Shape the curve the chart above moves along — view for
+                everyone, apply for the owner. */}
+            {stats && (
+              <CurveCard
+                points={points}
+                maxLock={maxLock}
+                unit={lockUnit}
+                spb={secondsPerBlock}
+                ownerAddr={(instanceMode ? activeInst?.owner : stats.owner) || ''}
+                account={account}
+                official={!instanceMode}
+                apiTokenPresent={hasApiToken}
+                onApply={handleSetPoints}
+              />
+            )}
 
             {/* With no wallet there are no positions to show, so say what the
                 thing does instead of leaving the page half empty. */}

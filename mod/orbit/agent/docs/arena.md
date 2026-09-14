@@ -69,12 +69,37 @@ carry:
 cannot be answered from the prompt, only by looking at the directory and
 changing it. One of them passes only if the agent wrote *nothing*.
 
+### Reading a task from the board
+
+A board that ranks agents on tasks nobody can read is a board nobody can argue
+with, so every task in the pool opens where it is named. The rail's TASKS pane
+lists each one under its suite with the first line of what it actually asks
+for, its check count and the agent currently leading it; clicking it opens the
+task itself — the prompt every agent is handed, the fixture it is handed it in
+(file by file), each check written out in words (`count.txt matches /^\s*7\s*$/`
+rather than a scorer spec), and the standing on that one task. The TASKS board
+does the same from the other side: an opened row carries the task's first line
+and a **read the task** link into the same sheet.
+
+`GET /arena/tasks` always carried the whole spec — prompt, `scorers`, `setup` —
+so nothing new is stored to make this true. The board was simply showing a
+title and a count of something it already had in full.
+
 ### Tasks written in the console
 
 A suite is a python file in the tree, which is not something a signed-in
 visitor can write. The AGENTS tab's **TASK** mode is the other door: the same
 shape, authored in the browser, stored in `tasks.json` beside the ratings and
 played under the suite name `custom` (key `custom#<slug>`).
+
+That form is also mounted over the board itself. **+ TASK** in the arena's
+header, **+ NEW TASK** on the rail's task pane and the empty pool's own button
+all open the same composer as an overlay — the board behind it reloads when it
+closes — and **EDIT** on a task you wrote opens it there already filled in. The
+arena is where you find out the pool is thin; making it the place the pool is
+written is one less screen to go and find. **+ AGENT** beside it is the same
+argument for the other half: the board is where you find out the field is
+small, so it sends you straight to the new-agent form in the hub.
 
 Either fill the form in by hand, or describe what you want measured and let
 the **task-builder** agent write the spec — prompt, fixture and checks — for

@@ -1,0 +1,93 @@
+{
+    "name": "aipg",
+    "version": "0.1.0",
+    "description": "A mod handle on AI Power Grid \u2014 the community-powered grid where people run the workers and open-weight models for text, image, video and audio are served behind an OpenAI-shaped API, paid in USD-denominated credits. The legacy AI-Horde-style /api/v2 is retired; everything here speaks the current /v1. Two measured facts shape the module: /v1/models is the TEXT surface only (6 ids against 12 in the roster), so the image, video and audio models are invisible to any plain OpenAI client pointed at the grid; and a configured price is not availability \u2014 the price book says so itself. So the roster comes from /v1/status/models, and models() joins it to the price book and the live worker list, case-insensitively because the grid writes 'FLUX.2 Klein 4B FP8' in one place and 'flux.2 klein 4b fp8' in the other. One row then answers both questions a caller has: can I use this, and what will it cost. Reads need no key. Generation and credits need one, and it is written to ~/.mod/aipg/key.json at 0600 \u2014 never into this repo. Stdlib only: urllib, no service, no port, because the fn surface is already served at /aipg/api.",
+    "icon": "\u26a1",
+    "color": "#38bdf8",
+    "anchor": "mod.py",
+    "protocol": "aipg/1.0",
+    "route": false,
+    "urls": {
+        "api": "http://localhost:50147",
+        "site": "https://aipowergrid.io",
+        "docs": "https://aipowergrid.io/docs/developers",
+        "console": "https://console.aipowergrid.io",
+        "explorer": "https://explorer.aipowergrid.io",
+        "chat": "https://aipowergrid.io/chat",
+        "art": "https://aipg.art"
+    },
+    "wraps": {
+        "project": "AI Power Grid",
+        "kind": "hosted API \u2014 nothing is vendored or installed",
+        "auth": "API key from console.aipowergrid.io, sent as Authorization: Bearer (apikey: also accepted)",
+        "retired": "/api/v2 (AI Horde shaped) answers 410-style {\"status\":\"gone\"} \u2014 use /v1"
+    },
+    "deps": [],
+    "state": "~/.mod/aipg \u2014 key.json (0600) and out/ for generated media. Nothing private is written into this repo.",
+    "upstream_endpoints": {
+        "public": {
+            "GET /v1/status/models": "the real roster \u2014 name, type (text|image|video|audio), worker count, context, perf",
+            "GET /v1/workers": "{count, workers:[{id, name, models, job_types, online}]}",
+            "GET /v1/models": "OpenAI-shaped id list \u2014 TEXT ONLY, a subset of the roster",
+            "GET /v1/pricing": "price book, USD, ledger unit micro_usd; rates do not imply availability"
+        },
+        "keyed": {
+            "POST /v1/chat/completions": "OpenAI chat, streams",
+            "POST /v1/responses": "OpenAI Responses shape",
+            "POST /v1/messages": "Anthropic shape, streams",
+            "POST /v1/images/generations": "image",
+            "POST /v1/videos/generations": "video (LTX)",
+            "POST /v1/audio/generations": "audio (ACE-Step)",
+            "GET /v1/account/credits": "remaining spend"
+        }
+    },
+    "fns": [
+        "forward",
+        "info",
+        "fns",
+        "readme",
+        "skill",
+        "set_key",
+        "forget_key",
+        "key",
+        "key_status",
+        "roster",
+        "openai_models",
+        "workers",
+        "pricing",
+        "models",
+        "grid",
+        "estimate",
+        "credits",
+        "chat",
+        "ask",
+        "image",
+        "video",
+        "audio",
+        "test"
+    ],
+    "public_fns": [
+        "forward",
+        "info",
+        "fns",
+        "readme",
+        "skill",
+        "key_status",
+        "roster",
+        "openai_models",
+        "workers",
+        "pricing",
+        "models",
+        "grid",
+        "estimate",
+        "test"
+    ],
+    "env": {
+        "AIPG_API_KEY": "key to use, wins over the stored one",
+        "AIPG_API": "API base (default https://api.aipowergrid.io/v1)",
+        "AIPG_DIR": "state directory (default ~/.mod/aipg)",
+        "AIPG_TIMEOUT": "seconds per request (default 180 \u2014 video is slow)"
+    },
+    "port": 50147,
+    "schema": "QmSTg56vH7vyJP43kbtoMaE9GsmAJ9xU4dVXzdF4foisZz"
+}

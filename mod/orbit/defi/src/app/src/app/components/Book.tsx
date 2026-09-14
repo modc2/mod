@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import * as api from "../lib/api";
+import { runEvmPlan, runSolanaSwap, type StepUpdate, type WalletPlan } from "../lib/wallet";
 import { pct } from "./Modules";
 
 type Props = { say: (text: string, bad?: boolean) => void; onOpenModules: () => void };
@@ -20,6 +21,7 @@ export default function Book({ say, onOpenModules }: Props) {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState("");
   const [values, setValues] = useState<Record<string, any>>({});
+  const [steps, setSteps] = useState<StepUpdate[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -46,13 +48,67 @@ export default function Book({ say, onOpenModules }: Props) {
     }
   };
 
+  /// A swap_receipt position held by the user's own wallet: read the receipt
+  /// balance where the wallet lives, quote the route (a public read), then
+  /// approve + swap on the router — all signed in the browser.
+  const swapExit = async (w: any, onStep: (u: StepUpdate) => void) => {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) throw new Error("no browser wallet found");
+    const { BrowserProvider, Contract, formatUnits } = await import("ethers");
+    const provider = new BrowserProvider(ethereum);
+    await provider.send("eth_requestAccounts", []);
+    const owner = await (await provider.getSigner()).getAddress();
+    let amt = amount.trim().toLowerCase() === "all" || !amount.trim() ? "" : amount.trim();
+    if (!amt) {
+      const bal = await new Contract(w.sell, ["function balanceOf(address) view returns (uint256)"], provider).balanceOf(owner);
+      if (bal === 0n) throw new Error(`your wallet holds no ${w.sell_symbol ?? "receipt"} — nothing to exit`);
+      amt = formatUnits(bal, w.sell_decimals ?? 18);
+    }
+    const q = await api.dexQuote({ chain: w.chain, sell: w.sell, buy: w.buy, amount: amt, slippageBps: 50 });
+    const plan: WalletPlan = {
+      available: true, kind: "evm", chain_id: w.chain_id,
+      steps: [
+        { action: "approve", token: q.sell.address, spender: w.router, amount_wei: q.sell.base_units, symbol: q.sell.symbol },
+        { action: "swap", router: w.router, wrapped: w.wrapped, token_in: q.sell.address, token_out: q.buy.address,
+          fees: q.fee_tiers, amount_in_wei: q.sell.base_units, min_out_wei: q.min_received_base_units },
+      ],
+    };
+    return runEvmPlan(plan, onStep);
+  };
+
   const exit = async (p: any) => {
     setBusy(`exit:${p.id}`);
+    setSteps([]);
+    const onStep = (u: StepUpdate) =>
+      setSteps((s) => {
+        const next = [...s];
+        const i = next.findIndex((x) => x.label === u.label || u.label.startsWith(x.label));
+        if (i >= 0) next[i] = u;
+        else next.push(u);
+        return next;
+      });
     try {
       const body: any = { amount: amount.trim() || "all", confirm };
       if (account.trim()) body.account = account.trim();
       if (auth.trim()) body.auth = auth.trim();
       const out = await api.exitPosition(p.id, body);
+      // A browser-signed position comes back as a plan, not an execution — the
+      // wallet that owns the receipt signs the way out, then the book settles.
+      if (out?.browser && out?.wallet) {
+        const w = out.wallet;
+        if (!w.available) throw new Error(w.reason ?? "no browser wallet path for this exit");
+        let res: { txs: string[] };
+        if (w.kind === "evm-swap") res = await swapExit(w, onStep);
+        else if (w.kind === "solana") {
+          if (!amount.trim() || amount.trim().toLowerCase() === "all")
+            throw new Error("say how much of the receipt to sell — 'all' is not resolvable in the browser on Solana");
+          res = await runSolanaSwap({ ...w, amount: amount.trim() }, onStep);
+        } else res = await runEvmPlan(w, onStep);
+        const settled = await api.settlePosition(p.id, { txs: res.txs, amount: amount.trim() || "all" });
+        say(settled?.closed ? `out of ${p.project} — your wallet signed it, row closed` : `partial exit of ${p.project} recorded`);
+        await load();
+        return;
+      }
       say(out?.exited ? `out of ${p.project}` : out?.needs_confirm ? "tick confirm to send it" : out?.swap?.reason ?? "not sent", !out?.exited && !out?.needs_confirm);
       await load();
     } catch (e: any) {
@@ -127,6 +183,7 @@ export default function Book({ say, onOpenModules }: Props) {
                     </div>
                     <div className="mod-sub">
                       {p.symbol} · {p.kind} · {p.adapter} · {p.account || p.owner}
+                      {p.signer === "browser" ? " · ◈ browser wallet" : ""}
                     </div>
                   </div>
                   <div className="pos-nums">
@@ -173,21 +230,42 @@ export default function Book({ say, onOpenModules }: Props) {
                         <div className="label">Take money out</div>
                         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
                           <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="all, or an amount" />
-                          <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder={p.account ? `account (${p.account})` : "account"} />
+                          {p.signer !== "browser" && (
+                            <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder={p.account ? `account (${p.account})` : "account"} />
+                          )}
                         </div>
-                        <input value={auth} onChange={(e) => setAuth(e.target.value)} type="password" placeholder="bearer for the chain module (optional)" style={{ marginTop: 6 }} />
+                        {p.signer !== "browser" && (
+                          <input value={auth} onChange={(e) => setAuth(e.target.value)} type="password" placeholder="bearer for the chain module (optional)" style={{ marginTop: 6 }} />
+                        )}
                         <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "center" }}>
-                          <label className="tick">
-                            <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} /> real money
-                          </label>
+                          {p.signer !== "browser" && (
+                            <label className="tick">
+                              <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} /> real money
+                            </label>
+                          )}
                           <div style={{ flex: 1 }} />
                           <button className="ghost danger" onClick={() => forget(p.id)} style={{ fontSize: 11 }}>forget row</button>
                           <button className="primary" onClick={() => exit(p)} disabled={busy !== ""}>
-                            {busy === `exit:${p.id}` ? "sending…" : confirm ? "EXIT" : "exit (dry until confirmed)"}
+                            {busy === `exit:${p.id}`
+                              ? p.signer === "browser" ? "signing…" : "sending…"
+                              : p.signer === "browser" ? "SIGN EXIT" : confirm ? "EXIT" : "exit (dry until confirmed)"}
                           </button>
                         </div>
+                        {busy === `exit:${p.id}` && steps.length > 0 && (
+                          <div className="mono-small" style={{ marginTop: 8, lineHeight: 1.7 }}>
+                            {steps.map((s, i) => (
+                              <div key={i} style={{ color: s.status === "failed" ? "var(--warn)" : undefined }}>
+                                {s.status === "done" ? "✓" : s.status === "failed" ? "✕" : "…"} {s.label}
+                                {s.tx ? ` · ${s.tx.slice(0, 10)}…` : ""}
+                                {s.error ? ` — ${s.error}` : ""}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }}>
-                          {p.adapter === "swap_receipt" ? "amount is in the receipt token" : p.adapter === "tao_subnet" ? "amount is TAO-equivalent of alpha" : "amount is in the asset; 'all' redeems every share"}
+                          {p.signer === "browser"
+                            ? "your own wallet signs the way out — the wallet's confirmation screen is the confirm"
+                            : p.adapter === "swap_receipt" ? "amount is in the receipt token" : p.adapter === "tao_subnet" ? "amount is TAO-equivalent of alpha" : "amount is in the asset; 'all' redeems every share"}
                         </div>
                       </div>
                     )}

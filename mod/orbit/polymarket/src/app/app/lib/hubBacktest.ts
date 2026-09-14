@@ -32,11 +32,12 @@ import {
   HUB_BACKTEST_DAYS, HUB_WINDOWS, TTL_MS, templateBacktestKey, signature,
   backtestOne, backtestTemplate, forwardVerdict,
   type ForwardCheck, type ForwardVerdict, type HoldoutCheck, type HubBacktest, type TraderFeed,
+  type WinRecord,
 } from "./hubReplay";
 import { fetchWorkerBacktests, publishHubManifest, type WorkerStatus } from "./hubCache";
 
 export { HUB_BACKTEST_DAYS, HUB_WINDOWS, templateBacktestKey, forwardVerdict };
-export type { HubBacktest, ForwardCheck, ForwardVerdict, HoldoutCheck };
+export type { HubBacktest, ForwardCheck, ForwardVerdict, HoldoutCheck, WinRecord };
 
 const SNAPSHOT_KEY = "poly_hub_backtest_v1";
 

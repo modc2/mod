@@ -5,6 +5,7 @@ import type {
   ServerStrat,
   StratWrite,
   AccountWatch,
+  AgentApproval,
   AgentEvent,
   AgentStatus,
   CopyConfig,
@@ -212,6 +213,24 @@ export async function askAgent(
     }
   }
 }
+
+// ── approvals: the agent asks, you answer ──
+//
+// Nothing the agent writes happens without one of these. The card arrives
+// on the /agent/ask stream; this is the other half of the handshake.
+
+export const fetchPendingApprovals = (runId?: string) =>
+  j<{ pending: AgentApproval[]; ttl_sec: number }>(
+    `/agent/approvals${runId ? `?run_id=${encodeURIComponent(runId)}` : ""}`,
+  );
+
+/** `note` is not decoration — it is handed to the model as the reason, so
+    "too much TAO" comes back as a smaller basket rather than a retry. */
+export const decideApproval = (id: string, approve: boolean, note = "") =>
+  j<AgentApproval>(`/agent/approvals/${id}`, {
+    method: "POST",
+    body: JSON.stringify({ approve, note }),
+  });
 
 // ── wallet ──
 export const setWallet = (body: { mnemonic?: string; seed_hex?: string }) =>

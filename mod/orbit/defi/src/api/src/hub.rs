@@ -31,7 +31,10 @@ pub struct Entry {
     pub since: u32,
     pub website: String,
     /// Where the live numbers come from: unset = DefiLlama's yields index,
-    /// "bittensor" = the bt module's subnet list. The join, not the vetting.
+    /// "bittensor" = the bt module's subnet list, "hyperliquid" = the
+    /// hyperliquid module's vault board, "polymarket" = the polymarket
+    /// module's trader board (owner-gated — the card carries no live join).
+    /// The join, not the vetting.
     #[serde(default)]
     pub source: Option<String>,
     #[serde(default)]
@@ -75,6 +78,11 @@ impl Hub {
     /// so the caller only knocks on Bittensor when an entry will use it.
     pub fn wants_subnets(&self) -> bool {
         self.entries.iter().any(|e| e.source.as_deref() == Some("bittensor"))
+    }
+
+    /// Same idea for the hyperliquid module's vault board.
+    pub fn wants_hl_vaults(&self) -> bool {
+        self.entries.iter().any(|e| e.source.as_deref() == Some("hyperliquid"))
     }
 
     pub fn load(path: &Path) -> Self {
@@ -122,6 +130,7 @@ impl Hub {
         min_tvl: f64,
         subnets: &[Value],
         tao_usd: Option<f64>,
+        hl_vaults: &[Value],
     ) -> Value {
         // The list view never carries trusted stake — that is a detail-card
         // read, priced accordingly (one slow validator fetch per listed subnet).
@@ -129,7 +138,7 @@ impl Hub {
         let mut rows: Vec<Value> = self
             .entries
             .iter()
-            .map(|entry| self.protocol_row(entry, pools, registry, want_chain, min_tvl, false, subnets, tao_usd, &no_trust))
+            .map(|entry| self.protocol_row(entry, pools, registry, want_chain, min_tvl, false, subnets, tao_usd, hl_vaults, &no_trust))
             .collect();
         rows.sort_by(|a, b| {
             let rank = |v: &Value| tier_rank(v.get("tier").and_then(|t| t.as_str()).unwrap_or(""));
@@ -176,7 +185,7 @@ impl Hub {
             "min_tvl": min_tvl,
             "as_of": fetched,
             "age_seconds": crate::auth::now().saturating_sub(fetched),
-            "source": "curation: hub.json on this node · numbers: DefiLlama's yields index, and bt_subnets for Bittensor",
+            "source": "curation: hub.json on this node · numbers: DefiLlama's yields index, bt_subnets for Bittensor, hl_list_vaults for Hyperliquid; Polymarket is owner-gated and joins on the desk, not here",
         })
     }
 
@@ -192,6 +201,7 @@ impl Hub {
         min_tvl: f64,
         subnets: &[Value],
         tao_usd: Option<f64>,
+        hl_vaults: &[Value],
         trust: &HashMap<u64, Value>,
     ) -> Result<Value, String> {
         let entry = self
@@ -199,7 +209,7 @@ impl Hub {
             .iter()
             .find(|e| e.id.eq_ignore_ascii_case(id))
             .ok_or_else(|| format!("no '{id}' in the hub — ids come from /hub"))?;
-        let mut row = self.protocol_row(entry, pools, registry, None, min_tvl, true, subnets, tao_usd, trust);
+        let mut row = self.protocol_row(entry, pools, registry, None, min_tvl, true, subnets, tao_usd, hl_vaults, trust);
         if let Some(obj) = row.as_object_mut() {
             obj.insert("as_of".into(), json!(fetched));
             obj.insert("age_seconds".into(), json!(crate::auth::now().saturating_sub(fetched)));
@@ -218,10 +228,17 @@ impl Hub {
         full: bool,
         subnets: &[Value],
         tao_usd: Option<f64>,
+        hl_vaults: &[Value],
         trust: &HashMap<u64, Value>,
     ) -> Value {
         if entry.source.as_deref() == Some("bittensor") {
             return tao_row(entry, subnets, tao_usd, want_chain, full, trust);
+        }
+        if entry.source.as_deref() == Some("hyperliquid") {
+            return hl_row(entry, hl_vaults, want_chain, full);
+        }
+        if entry.source.as_deref() == Some("polymarket") {
+            return pm_row(entry, want_chain);
         }
         let mut by_chain: std::collections::BTreeMap<&str, Vec<&Pool>> = Default::default();
         for pool in pools.iter().filter(|p| Self::keep(entry, p, min_tvl)) {
@@ -457,6 +474,137 @@ fn tao_row(
     })
 }
 
+/// Hyperliquid, joined against the hyperliquid module's live vault board.
+/// Same row shape as every other protocol, honest about how it differs: USDC
+/// goes in, but the quoted number is the leader's trailing PnL annualized —
+/// a track record wearing an APR's clothes, never counted as stable TVL.
+fn hl_row(entry: &Entry, vaults: &[Value], want_chain: Option<&str>, full: bool) -> Value {
+    let tvl_of = |v: &Value| v.get("tvl").and_then(|x| x.as_f64()).unwrap_or(0.0);
+    let apr_of = |v: &Value| v.get("apr").and_then(|x| x.as_f64()).unwrap_or(0.0);
+    let scored = |v: &Value| apr_of(v).max(0.0) * (tvl_of(v) / 10_000_000.0).min(1.0).sqrt();
+    let mut list: Vec<&Value> = vaults.iter().collect();
+    list.sort_by(|a, b| scored(b).partial_cmp(&scored(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let total: f64 = list.iter().map(|v| tvl_of(v)).sum();
+
+    let vault_row = |v: &Value| -> Value {
+        let address = v.get("address").and_then(|x| x.as_str()).unwrap_or("");
+        json!({
+            "module_id": format!("hl:vault:{address}"),
+            "pool": address,
+            "symbol": v.get("name").and_then(|x| x.as_str()).unwrap_or("vault"),
+            "apy": round2(apr_of(v)),
+            "apy_scored": round2(scored(v)),
+            "note": "trailing APR — realized PnL annualized, not a promised rate",
+            "apr_7d": v.get("apr_7d").and_then(|x| x.as_f64()).map(round2),
+            "leader": v.get("leader"),
+            "age_days": v.get("age_days"),
+            "tvl_usd": round2(tvl_of(v)),
+            "enterable": true,
+        })
+    };
+
+    let wanted = want_chain.map(|w| w.eq_ignore_ascii_case("hyperliquid")).unwrap_or(true);
+    let chains: Vec<Value> = if wanted && !list.is_empty() {
+        let best = list.first().map(|v| vault_row(v));
+        let mut row = json!({
+            "chain": "Hyperliquid",
+            "desk": "hyperliquid",
+            "module": "hyperliquid",
+            "enterable": true,
+            "pools": list.len(),
+            "pool_word": "vault",
+            "tvl_usd": round2(total),
+            "best": best,
+        });
+        if full {
+            let listed: Vec<Value> = list.iter().take(12).map(|v| vault_row(v)).collect();
+            row.as_object_mut().unwrap().insert("usd_pools".into(), json!(listed));
+        }
+        vec![row]
+    } else {
+        Vec::new()
+    };
+
+    let best = chains.first().and_then(|c| c.get("best").filter(|b| !b.is_null())).map(|b| {
+        let mut best = b.clone();
+        if let Some(obj) = best.as_object_mut() {
+            obj.insert("chain".into(), json!("Hyperliquid"));
+            obj.insert("desk".into(), json!("hyperliquid"));
+        }
+        best
+    });
+
+    json!({
+        "id": entry.id,
+        "name": entry.name,
+        "category": entry.category,
+        "tier": entry.tier,
+        "since": entry.since,
+        "website": entry.website,
+        "blurb": entry.blurb,
+        "usd_in": entry.usd_in,
+        "legit": entry.legit,
+        "risks": entry.risks,
+        "paired": entry.paired,
+        "llama_projects": entry.llama_projects,
+        "source": "hyperliquid",
+        "enterable_from_desk": !chains.is_empty(),
+        // USDC at risk in a perps book is not stable yield — the dollar total
+        // stays a dollar total, the vault TVL rides on the row.
+        "stable_tvl_usd": 0.0,
+        "tvl_usd": round2(total),
+        "chain_count": chains.len(),
+        "best": best,
+        "chains": chains,
+    })
+}
+
+/// Polymarket one-to-one copy-trading. The deployment is owner-gated, so the
+/// hub card carries no live numbers at all — the trader board joins on the
+/// desk (/modules?chain=polymarket) once the caller's token opens it. A card
+/// that guessed at gated numbers would be the stale story this file bans.
+fn pm_row(entry: &Entry, want_chain: Option<&str>) -> Value {
+    let wanted = want_chain.map(|w| w.eq_ignore_ascii_case("polymarket")).unwrap_or(true);
+    let chains: Vec<Value> = if wanted {
+        vec![json!({
+            "chain": "Polymarket",
+            "desk": "polymarket",
+            "module": "polymarket",
+            "enterable": true,
+            "gated": true,
+            "pools": Value::Null,
+            "pool_word": "trader",
+            "tvl_usd": Value::Null,
+            "best": Value::Null,
+            "note": "owner-gated — the live trader board lists at /modules?chain=polymarket with the polymarket access token; a module is one trader mirrored one-to-one",
+        })]
+    } else {
+        Vec::new()
+    };
+    json!({
+        "id": entry.id,
+        "name": entry.name,
+        "category": entry.category,
+        "tier": entry.tier,
+        "since": entry.since,
+        "website": entry.website,
+        "blurb": entry.blurb,
+        "usd_in": entry.usd_in,
+        "legit": entry.legit,
+        "risks": entry.risks,
+        "paired": entry.paired,
+        "llama_projects": entry.llama_projects,
+        "source": "polymarket",
+        "gated": true,
+        "enterable_from_desk": !chains.is_empty(),
+        "stable_tvl_usd": 0.0,
+        "tvl_usd": Value::Null,
+        "chain_count": chains.len(),
+        "best": Value::Null,
+        "chains": chains,
+    })
+}
+
 /// The netuids the full Bittensor card lists — root first (it is "best", so
 /// its trust line should land inside any fetch budget), then the deepest
 /// pools, exactly the rows tao_row shows. This is what trusted stake gets
@@ -549,7 +697,7 @@ mod tests {
             // Someone else's pool.
             pool("degen-farm", "Base", "USDC", 900.0, 2e6, true),
         ];
-        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0, &[], None);
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0, &[], None, &[]);
         let row = &out["hub"][0];
         assert_eq!(row["chain_count"], json!(3));
         assert_eq!(row["stable_tvl_usd"], json!(8e8));
@@ -570,7 +718,7 @@ mod tests {
             pool("hot-new", "Ethereum", "USDC", 30.0, 9e9, true),
             pool("old-bank", "Ethereum", "USDC", 4.0, 1e8, true),
         ];
-        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &[], None);
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &[], None, &[]);
         assert_eq!(out["hub"][0]["id"], json!("old-bank"));
         assert_eq!(out["hub"][1]["id"], json!("hot-new"));
     }
@@ -587,17 +735,17 @@ mod tests {
             }]
         }))
         .unwrap();
-        let with = h.assemble(&pools, &registry, 0, None, 0.0, &[], None);
+        let with = h.assemble(&pools, &registry, 0, None, 0.0, &[], None, &[]);
         assert_eq!(with["hub"][0]["enterable_from_desk"], json!(true));
         assert_eq!(with["hub"][0]["chains"][0]["best"]["enterable"], json!(true));
-        let without = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &[], None);
+        let without = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &[], None, &[]);
         assert_eq!(without["hub"][0]["enterable_from_desk"], json!(false));
     }
 
     #[test]
     fn a_drained_protocol_stays_visible_with_empty_chains() {
         let h = hub(vec![entry("ghost", "core", &["ghost"])]);
-        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &[], None);
+        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &[], None, &[]);
         assert_eq!(out["hub"][0]["chain_count"], json!(0));
         assert_eq!(out["hub"][0]["best"], Value::Null);
     }
@@ -616,7 +764,7 @@ mod tests {
     fn bittensor_joins_the_bt_modules_subnets_not_llama() {
         let h = hub(vec![tao_entry()]);
         let subnets = vec![subnet(0, "root", 5_000_000.0), subnet(64, "chutes", 100_000.0)];
-        let out = h.assemble(&[], &Registry::default(), 0, None, 1_000_000.0, &subnets, Some(260.0));
+        let out = h.assemble(&[], &Registry::default(), 0, None, 1_000_000.0, &subnets, Some(260.0), &[]);
         let row = &out["hub"][0];
         assert_eq!(row["chain_count"], json!(1));
         assert_eq!(row["chains"][0]["chain"], json!("Bittensor"));
@@ -637,7 +785,7 @@ mod tests {
         let h = hub(vec![entry("aave-v3", "core", &["aave-v3"]), tao_entry()]);
         let pools = vec![pool("aave-v3", "Ethereum", "USDC", 4.0, 5e8, true)];
         let subnets = vec![subnet(0, "root", 5_000_000.0)];
-        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &subnets, Some(260.0));
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &subnets, Some(260.0), &[]);
         // The hub's dollar total is stablecoin USD only — TAO is not a dollar.
         assert_eq!(out["stable_tvl_usd"], json!(5e8));
     }
@@ -646,7 +794,7 @@ mod tests {
     fn no_tao_price_means_null_dollars_not_a_guess() {
         let h = hub(vec![tao_entry()]);
         let subnets = vec![subnet(0, "root", 5_000_000.0)];
-        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &subnets, None);
+        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &subnets, None, &[]);
         let row = &out["hub"][0];
         assert_eq!(row["tvl_usd"], Value::Null);
         assert_eq!(row["chains"][0]["tvl_usd"], Value::Null);
@@ -656,7 +804,7 @@ mod tests {
     #[test]
     fn a_dark_bt_module_leaves_bittensor_visible_with_empty_chains() {
         let h = hub(vec![tao_entry()]);
-        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &[], Some(260.0));
+        let out = h.assemble(&[], &Registry::default(), 0, None, 0.0, &[], Some(260.0), &[]);
         let row = &out["hub"][0];
         assert_eq!(row["chain_count"], json!(0));
         assert_eq!(row["best"], Value::Null);
@@ -667,9 +815,9 @@ mod tests {
     fn a_chain_filter_hides_bittensor_like_anywhere_else() {
         let h = hub(vec![tao_entry()]);
         let subnets = vec![subnet(0, "root", 5_000_000.0)];
-        let eth = h.assemble(&[], &Registry::default(), 0, Some("ethereum"), 0.0, &subnets, Some(260.0));
+        let eth = h.assemble(&[], &Registry::default(), 0, Some("ethereum"), 0.0, &subnets, Some(260.0), &[]);
         assert_eq!(eth["hub"][0]["chain_count"], json!(0));
-        let tao = h.assemble(&[], &Registry::default(), 0, Some("tao"), 0.0, &subnets, Some(260.0));
+        let tao = h.assemble(&[], &Registry::default(), 0, Some("tao"), 0.0, &subnets, Some(260.0), &[]);
         assert_eq!(tao["hub"][0]["chain_count"], json!(1));
     }
 
@@ -688,7 +836,7 @@ mod tests {
             ),
         );
         let out = h
-            .protocol("bittensor", &[], &Registry::default(), 0, 0.0, &subnets, Some(260.0), &trust)
+            .protocol("bittensor", &[], &Registry::default(), 0, 0.0, &subnets, Some(260.0), &[], &trust)
             .unwrap();
         let t = &out["best"]["trusted_stake"];
         assert!((t["trusted_share"].as_f64().unwrap() - 0.8).abs() < 1e-9);
@@ -719,7 +867,7 @@ mod tests {
             // A hotter headline on a thin pool must not become "best".
             pool("aave-v3", "Base", "USDC", 10.0, 1_200_000.0, true),
         ];
-        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0, &[], None);
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 1_000_000.0, &[], None, &[]);
         assert_eq!(out["hub"][0]["best"]["chain"], json!("Ethereum"));
     }
 }

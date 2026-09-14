@@ -57,10 +57,15 @@ export default function RootLayout({
               {/* The whole console insets when the account/strat sidebar is
                   docked open (--strat-dock, set by StratSidebar) — header
                   included, so the header cluster that owns it (top-RIGHT)
-                  never slides under it. */}
+                  never slides under it. Same on the LEFT for the agent
+                  column (--agent-dock, set by HelpAgent), so the logo that
+                  toggles it never slides underneath itself. */}
               <div
                 className="crt-screen dock-inset min-h-screen"
-                style={{ paddingRight: "var(--strat-dock, 0px)" }}
+                style={{
+                  paddingRight: "var(--strat-dock, 0px)",
+                  paddingLeft: "var(--agent-dock, 0px)",
+                }}
               >
                 {/* Owner-only gate: the API 401s everything until the sudo
                     address signs the terms-acceptance challenge, so the

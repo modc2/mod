@@ -413,6 +413,14 @@ export type AgentStatus = {
   max_turns: number;
   timeout_sec: number;
   tools: string[];
+  /** The reads it can take freely. */
+  read_tools?: string[];
+  /** The writes it must ask you about first, every time. */
+  write_tools?: string[];
+  approval_required?: boolean;
+  /** Auth works, but something about it will bite — e.g. a stale CLI login. */
+  auth_note?: string | null;
+  approval_ttl_sec?: number;
   api: string;
 };
 
@@ -446,12 +454,46 @@ export type StratProposal = {
 };
 
 /** Server-sent events from POST /agent/ask. */
+/** A write the agent wants to make, parked until you answer it.
+ *
+ * It has NOT run. The agent's tool call is blocked inside the MCP
+ * dispatcher until POST /agent/approvals/{id} lands, and a decline comes
+ * back to the model as the tool result — so "no, halve it" is a turn of the
+ * conversation rather than an error.
+ */
+export type AgentApproval = {
+  id: string;
+  run_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  /** One plain line: "Start copying 5Gsb…pZX9 with 40 τ behind it". */
+  summary: string;
+  risk: "low" | "medium" | "high";
+  state: "pending" | "approved" | "declined";
+  note: string;
+  created: number;
+  ttl: number;
+  /** Seconds left before it declines itself. */
+  expires_in: number;
+};
+
 export type AgentEvent =
   | { type: "start"; model: string; session_id: string; tools: number }
   | { type: "text"; text: string }
   | { type: "tool"; name: string; args: Record<string, unknown> }
   | { type: "tool_done"; name: string; error: boolean }
   | { type: "strat"; strat: StratProposal }
+  | { type: "approval"; approval: AgentApproval }
+  | {
+      type: "approval_done";
+      id: string;
+      tool: string;
+      state: "approved" | "declined";
+      note: string;
+    }
+  // Emitted while the run is parked on you — the stream would otherwise sit
+  // silent for as long as you take, and proxies drop a silent stream.
+  | { type: "ping"; waiting_on: string }
   | {
       type: "done";
       answer: string;

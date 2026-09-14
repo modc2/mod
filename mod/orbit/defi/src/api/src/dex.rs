@@ -39,6 +39,9 @@ pub struct Chain {
     pub kind: Kind,
     pub venue: &'static str,
     pub testnet: bool,
+    /// EVM chain id (what wallet_switchEthereumChain takes); 0 where the
+    /// concept does not exist (Solana, Bittensor).
+    pub chain_id: u64,
     pub native: &'static str,
     /// EVM only: Uniswap V3 SwapRouter02, QuoterV2, and the wrapped native token.
     pub router: &'static str,
@@ -55,6 +58,7 @@ pub const CHAINS: &[Chain] = &[
         kind: Kind::Evm,
         venue: "Uniswap V3",
         testnet: false,
+        chain_id: 1,
         native: "ETH",
         router: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
         quoter: "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
@@ -68,6 +72,7 @@ pub const CHAINS: &[Chain] = &[
         kind: Kind::Evm,
         venue: "Uniswap V3",
         testnet: false,
+        chain_id: 8453,
         native: "ETH",
         router: "0x2626664c2603336E57B271c5C0b26F421741e481",
         quoter: "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",
@@ -81,6 +86,7 @@ pub const CHAINS: &[Chain] = &[
         kind: Kind::Evm,
         venue: "Uniswap V3",
         testnet: true,
+        chain_id: 11155111,
         native: "ETH",
         router: "0x3bFA4769FB09eefC5a80d6E87c3B9C650f7Ae48E",
         quoter: "0xEd1f6473345F45b75F8179591dd5bA1888cf2FB3",
@@ -94,6 +100,7 @@ pub const CHAINS: &[Chain] = &[
         kind: Kind::Evm,
         venue: "Uniswap V3",
         testnet: true,
+        chain_id: 84532,
         native: "ETH",
         router: "0x94cC0AaC535CCDB3C01d6787D6413C739ae12bc4",
         quoter: "0xC5290058841028F1614F3A6F0F5816cAd0df5E27",
@@ -107,6 +114,7 @@ pub const CHAINS: &[Chain] = &[
         kind: Kind::Solana,
         venue: "Jupiter (every Solana DEX)",
         testnet: false,
+        chain_id: 0,
         native: "SOL",
         router: "",
         quoter: "",
@@ -120,6 +128,7 @@ pub const CHAINS: &[Chain] = &[
         kind: Kind::Tao,
         venue: "dTAO subnet pools (on-chain AMM)",
         testnet: false,
+        chain_id: 0,
         native: "TAO",
         router: "",
         quoter: "",
@@ -172,6 +181,12 @@ pub struct Dex {
     pub eth: String,
     pub solana: String,
     pub bt: String,
+    /// The hyperliquid module — perps vaults, read and entered over its MCP.
+    pub hyperliquid: String,
+    /// The polymarket module — copy-trading. Plain REST (it has no MCP), and
+    /// the whole deployment is owner-gated: the caller's own access token is
+    /// what opens it, forwarded unchanged like every other peer credential.
+    pub polymarket: String,
     /// The scale-to-zero proxy. A module-to-module call on a direct port never
     /// wakes a slept dependency, so a refused connection gets one knock here
     /// before it is reported as down.
@@ -188,6 +203,8 @@ impl Dex {
             eth: env("DEFI_ETH_URL", "http://localhost:50730"),
             solana: env("DEFI_SOLANA_URL", "http://localhost:50710"),
             bt: env("DEFI_BT_URL", "http://localhost:50280"),
+            hyperliquid: env("DEFI_HYPERLIQUID_URL", "http://localhost:8919"),
+            polymarket: env("DEFI_POLYMARKET_URL", "http://localhost:50091"),
             activator: env("DEFI_ACTIVATOR_URL", "http://localhost:9000"),
         }
     }
@@ -196,8 +213,66 @@ impl Dex {
         match module {
             "eth" => &self.eth,
             "solana" => &self.solana,
+            "hyperliquid" => &self.hyperliquid,
+            "polymarket" => &self.polymarket,
             _ => &self.bt,
         }
+    }
+
+    /// One REST call on a peer that speaks plain HTTP rather than MCP (the
+    /// polymarket API). Same wake-once-and-retry rule as `peer`, same
+    /// credential rule: the caller's token, or nothing.
+    pub async fn rest(
+        &self,
+        module: &str,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        token: Option<&str>,
+    ) -> Result<Value, String> {
+        match self.rest_once(module, method, path, body, token).await {
+            Ok(v) => Ok(v),
+            Err(first) if first.starts_with("HTTP ") => Err(format!("{module}{path}: {first}")),
+            Err(first) => {
+                self.wake(module).await;
+                self.rest_once(module, method, path, body, token).await.map_err(|second| {
+                    format!("{module} is not answering ({first}; after waking it: {second}) — start it with `m {module}/serve`")
+                })
+            }
+        }
+    }
+
+    async fn rest_once(
+        &self,
+        module: &str,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+        token: Option<&str>,
+    ) -> Result<Value, String> {
+        let url = format!("{}{}", self.base(module), path);
+        let mut req = if method.eq_ignore_ascii_case("POST") { self.http.post(&url) } else { self.http.get(&url) };
+        if let Some(b) = body {
+            req = req.json(b);
+        }
+        if let Some(t) = token {
+            req = req.header("authorization", format!("Bearer {t}"));
+        }
+        let response = req.send().await.map_err(|e| e.to_string())?;
+        let status = response.status().as_u16();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        let parsed = serde_json::from_str::<Value>(&text);
+        if status >= 400 {
+            let detail = parsed
+                .as_ref()
+                .ok()
+                .and_then(|v| v.get("error").or_else(|| v.get("detail")))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| snippet(&text));
+            return Err(format!("HTTP {status}: {detail}"));
+        }
+        parsed.map_err(|_| format!("HTTP {status}: {}", snippet(&text)))
     }
 
     /// One MCP tool call on a peer module, with the caller's token attached.

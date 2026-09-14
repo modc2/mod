@@ -167,7 +167,9 @@ src/mcp.py                     pm_copy_* — the same routes, for agents
 src/api/src/live_engine.rs     what actually mirrors a fill (6.5k lines)
 src/app/app/lib/server/lab.ts  STRAT LAB: candidate bench + the headless agent runner
 src/app/app/api/lab/route.ts   /api/lab — start/watch/stop runs, ?candidate=1 = bench,
-                               ?draft=1 {ask} = plain words → candidate params (VIBE editor)
+                               ?draft=1 {ask} = plain words → candidate params,
+                               ?vibe=1 {ask} = draft THEN bench in one call (the VIBE box)
+src/app/app/components/StratVibe.tsx  VIBE: one box, one ✧ BUILD & TEST press
 src/app/app/components/StratLab.tsx  sidebar LAB block: run feed, verdict, ADOPT
 ```
 
@@ -186,6 +188,27 @@ place no orders and write no strats — ADOPT in the sidebar is the only path
 from verdict to strat, and the adopted strat starts paused. Auth: the spawn
 pins `/usr/local/bin/claude` (npx's PATH shadows a stale copy) and reads a
 long-lived OAuth token from `~/.mod/polymarket/claude_oauth_token`.
+
+## VIBE — describe a strat, get a backtest
+
+The short path, for a person rather than an agent: the **BUILD** section of the
+STRATS tab is one textarea and one **✧ BUILD & TEST** press
+(`components/StratVibe.tsx` → `POST /api/lab?vibe=1`). That one call runs
+`draftCandidate` (a no-tool model turn that turns the words into params, and
+PICKS real traders off the live board — the board is the whitelist, invented
+addresses are dropped and reported) and then `candidateBacktest` over windows
+[1,3,7], and answers `{note, params, bench}`. The box shows the 7-day headline
+in a sentence, the three windows, and **SAVE AS STRAT** — which writes exactly
+the params that were benched, always paused. Nothing trades, nothing is saved,
+until that press.
+
+Two behaviors worth knowing: a first press on traders this deployment never
+cached returns a FLOOR (`bench.warming` non-empty, usually 0 trades) and the
+box re-tests itself every ~75s until the tape is fetched; and a small trade
+count is explained from the bench's own funnel ("N of their M entries were too
+small to copy at $500" = SUB_SCALE, i.e. raise capital). The drafter gets one
+repair turn if it answers with anything but JSON, and its raw answer is quoted
+in the error if it still won't.
 
 ## The identity template
 

@@ -21,6 +21,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+import runs
+
 BASE = os.environ.get('GROKBOT_UPSTREAM', 'https://api.x.ai/v1')
 STATE = os.path.expanduser(os.environ.get('GROKBOT_DIR', '~/.mod/grokbot'))
 USERS = os.path.join(STATE, 'users')
@@ -341,12 +343,30 @@ class Client:
         body.update({k: v for k, v in opts.items() if v is not None})
         return body
 
+    def _run(self, kind, body, bot=None):
+        """Open a LIVE row in the run ledger for this account, if there is one."""
+        last_user = next((m.get('content') for m in reversed(body['messages'])
+                          if m.get('role') == 'user'), None) \
+            if body.get('messages') else body.get('prompt')
+        return runs.start(self.address, kind, model=body.get('model'), bot=bot,
+                          prompt=last_user, search='search_parameters' in body)
+
     def chat(self, **kwargs):
         """One completion. Spends the resolved key's xAI credits."""
         body = self.payload(**kwargs)
-        out = http('POST', '/chat/completions', self._key(), body=body,
-                   timeout=CHAT_TIMEOUT)
+        run = self._run('chat', body, bot=kwargs.get('bot'))
+        t0 = time.time()
+        try:
+            out = http('POST', '/chat/completions', self._key(), body=body,
+                       timeout=CHAT_TIMEOUT)
+        except Exception as e:
+            runs.finish(self.address, run, runs.ERROR,
+                        ms=(time.time() - t0) * 1000, error=e)
+            raise
         choice = ((out.get('choices') or [{}])[0].get('message') or {})
+        usage = out.get('usage') or {}
+        runs.finish(self.address, run, runs.DONE, ms=(time.time() - t0) * 1000,
+                    tokens=usage.get('total_tokens'))
         return {'text': choice.get('content'),
                 'model': out.get('model', body['model']),
                 'id': out.get('id'),
@@ -358,21 +378,53 @@ class Client:
     def stream(self, **kwargs):
         """SSE passthrough — yields raw `data: …` frames as xAI sends them."""
         body = self.payload(stream=True, **kwargs)
+        run = self._run('stream', body, bot=kwargs.get('bot'))
+        t0 = time.time()
+        try:
+            key = self._key()
+        except Exception as e:
+            runs.finish(self.address, run, runs.ERROR, error=e)
+            raise
         req, url = _request('POST', BASE.rstrip('/') + '/chat/completions',
-                            self._key(), body=body, stream=True)
+                            key, body=body, stream=True)
         try:
             with urllib.request.urlopen(req, timeout=CHAT_TIMEOUT) as r:
                 for line in r:
                     yield line
         except urllib.error.HTTPError as e:
-            _raise('POST', url, e)
+            try:
+                _raise('POST', url, e)
+            except Exception as wrapped:
+                runs.finish(self.address, run, runs.ERROR,
+                            ms=(time.time() - t0) * 1000, error=wrapped)
+                raise
+        except GeneratorExit:
+            # The browser stopped reading — the tokens still arrived.
+            runs.finish(self.address, run, runs.DONE,
+                        ms=(time.time() - t0) * 1000)
+            raise
         except Exception as e:
+            runs.finish(self.address, run, runs.ERROR,
+                        ms=(time.time() - t0) * 1000, error=e)
             raise GrokError(f'stream → {type(e).__name__}: {e}')
+        else:
+            runs.finish(self.address, run, runs.DONE,
+                        ms=(time.time() - t0) * 1000)
 
     def images(self, prompt, model='grok-2-image', n=1, **opts):
-        return http('POST', '/images/generations', self._key(),
-                    body={'model': model, 'prompt': prompt, 'n': int(n), **opts},
-                    timeout=CHAT_TIMEOUT)
+        run = runs.start(self.address, 'image', model=model, prompt=prompt)
+        t0 = time.time()
+        try:
+            out = http('POST', '/images/generations', self._key(),
+                       body={'model': model, 'prompt': prompt, 'n': int(n),
+                             **opts},
+                       timeout=CHAT_TIMEOUT)
+        except Exception as e:
+            runs.finish(self.address, run, runs.ERROR,
+                        ms=(time.time() - t0) * 1000, error=e)
+            raise
+        runs.finish(self.address, run, runs.DONE, ms=(time.time() - t0) * 1000)
+        return out
 
     def raw(self, path, method='GET', body=None, params=None):
         """Escape hatch: any xAI route, with the resolved key attached."""

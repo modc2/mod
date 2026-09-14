@@ -316,6 +316,54 @@
         "no APY is promised anywhere — the return is emission on a floating price, and dTAO itself only launched in Feb 2025",
         "a subnet's alpha can go to ~zero if its team or demand disappears, and thin pools move a lot on a single trade"
       ]
+    },
+    {
+      "id": "hyperliquid-vaults",
+      "name": "Hyperliquid Vaults",
+      "category": "Perps vaults",
+      "tier": "established",
+      "since": 2023,
+      "website": "https://app.hyperliquid.xyz/vaults",
+      "source": "hyperliquid",
+      "usd_in": [
+        "USDC"
+      ],
+      "blurb": "Put USDC behind a vault leader who trades Hyperliquid perps with it; your equity is a share of the vault's account value, marked live. Withdraw after the vault's lock-up (a day for user vaults, four for HLP).",
+      "legit": [
+        "Hyperliquid clears more perps volume than any other onchain venue, live since 2023",
+        "vault equity is marked on the exchange's own book — no oracle between you and your balance",
+        "leaders must keep at least 5% of their own vault, so they eat their own losses first"
+      ],
+      "risks": [
+        "the quoted APR is trailing realized PnL annualized — a track record, not a rate; it can be extreme and it can be negative",
+        "leaders trade with leverage; a vault can lose most or all of its equity",
+        "Hyperliquid is its own L1 — bridge, sequencer and exchange risk sit under every vault",
+        "withdrawals wait out the lock-up; there is no exit during the wait"
+      ]
+    },
+    {
+      "id": "polymarket-copy",
+      "name": "Polymarket Copy-Trading",
+      "category": "Copy trading",
+      "tier": "frontier",
+      "since": 2020,
+      "website": "https://polymarket.com",
+      "source": "polymarket",
+      "usd_in": [
+        "USDC"
+      ],
+      "blurb": "Pick a Polymarket trader and mirror them one-to-one: a live session copies each of their trades at the same fraction of your capital as it was of theirs (bankroll fidelity). Sessions start in DRY RUN and place nothing until you arm autoExecute.",
+      "legit": [
+        "Polymarket is the deepest prediction market — billions in cumulative volume, USDC-settled onchain",
+        "the trader board is ranked on 30 days of real fills — PnL, win rate, resolve rate, Sharpe — not self-reported returns",
+        "the mirror runs on this fleet's own polymarket module: your keys, your session, stoppable any time and never gated on exit"
+      ],
+      "risks": [
+        "past PnL is not a rate — you copy the trader's NEXT trades, including their losses",
+        "copies fill after the leader at worse prices; late fills bleed edge on fast markets",
+        "positions held to resolution can expire worthless; stopping the session does not close what it already bought",
+        "this deployment is owner-only — the board and the engine open only with its access token"
+      ]
     }
   ]
 }

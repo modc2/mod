@@ -148,9 +148,17 @@ type Props = {
   onSignIn?: () => void
   // jump to the board — where a saved task is actually played
   onOpenArena?: () => void
+  /** open straight onto this hand-written task instead of a blank form. The
+      arena opens the composer from a task on the board, and landing on an
+      empty form after clicking EDIT is the kind of thing that loses work. */
+  initialSlug?: string | null
+  /** a task was written, edited or deleted — whoever mounted this form is
+      probably showing the pool and wants to reload it */
+  onSaved?: () => void
 }
 
-export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenArena }: Props) {
+export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenArena,
+                                      initialSlug, onSaved }: Props) {
   const canSave = !!token || !!isHost
 
   const [mine, setMine] = useState<CustomTask[]>([])
@@ -200,6 +208,19 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
       .catch(() => { setOaUp(false); setOaRows([]) })
   }, [])
   useEffect(() => { if (schema === 'openarena') loadOa() }, [schema, loadOa])
+
+  // opened once, when the store answers: the caller names a slug, and the form
+  // is that task rather than a blank one. `opened` keeps a later refresh of the
+  // list from throwing away edits made since.
+  const [opened, setOpened] = useState(false)
+  useEffect(() => {
+    if (opened || !initialSlug || !mine.length) return
+    const found = mine.find(t => t.slug === initialSlug)
+    if (!found) return
+    open(found)
+    setOpened(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSlug, mine, opened])
 
   const patch = (p: Partial<CustomTask>) => { setTask(t => ({ ...t, ...p })); setDirty(true) }
   const patchOa = (p: Partial<OaTask>) => { setOa(t => ({ ...t, ...p })); setDirty(true) }
@@ -348,7 +369,7 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
       setCopiedFrom(null)
       setDirty(false)
       setDraftNote(null)
-      loadOa(); load()
+      loadOa(); load(); onSaved?.()
       flash(true, `saved "${r.task?.title}" to openarena — it's in the pool as openarena#${slug}`)
       return slug ? `openarena#${slug}` : null
     } catch (e: any) {
@@ -386,7 +407,7 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
       setLoaded(slug)
       setDirty(false)
       setDraftNote(null)
-      load()
+      load(); onSaved?.()
       flash(true, `saved "${r.task?.title}" — it's in the pool as ${r.task?.key}`)
       return r.task?.key || null
     } catch (e: any) {
@@ -405,7 +426,7 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
         .then(x => x.json())
       if (r.error) { flash(false, r.error); return }
       if (loaded === slug) reset()
-      load()
+      load(); onSaved?.()
       flash(true, `deleted "${title}"`)
     } catch (e: any) { flash(false, e?.message || 'delete failed') }
   }

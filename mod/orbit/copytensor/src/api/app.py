@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from ..agent import agent as strat_agent
+from ..agent import approvals as agent_approvals
 from ..agent import mcp_server
 from ..chain.bt_source import BtSource, BtUnavailable, make_client
 from ..chain.client import SubtensorClient, TraderCandidate, is_valid_ss58
@@ -36,6 +37,8 @@ from ..engine.safety import SafetyManager
 from .models import (
     AccountResponse,
     AllocationResponse,
+    ApprovalCreate,
+    ApprovalDecision,
     AskRequest,
     BacktestRequest,
     ConfigSetRequest,
@@ -266,6 +269,11 @@ async def lifespan(app: FastAPI):
 
     _config = _load_config()
     network = _config.get("network", "finney")
+
+    # How long a write the agent asked for waits for a human before it
+    # declines itself. Env wins so a single run can be given more rope.
+    if not os.environ.get("COPYTENSOR_APPROVAL_TTL"):
+        agent_approvals.TTL_SEC = float(_config.get("agent_approval_ttl_sec", 600))
 
     # Reads (subnets, positions, history) are served by the bt module's
     # local index; it falls back to our own RPC pool whenever bt is down.
@@ -1718,11 +1726,15 @@ def agent_status():
 
 @app.post("/agent/ask")
 def agent_ask(req: AskRequest):
-    """Talk to the strat agent. Streams the run as SSE.
+    """Talk to the desk agent. Streams the run as SSE.
 
-    Events: start | text | tool | tool_done | strat | done | error. `strat`
-    carries a validated basket — the console renders it as a card. Nothing
-    the agent does can stake; activating is still a human click.
+    Events: start | text | tool | tool_done | strat | approval |
+    approval_done | ping | done | error.
+
+    `strat` carries a validated basket the console renders as a card.
+    `approval` is a WRITE the agent wants to make — it is parked and has not
+    run; answer it with POST /agent/approvals/{id}. Nothing that touches the
+    copy book, the watchlist or the chain happens without that answer.
     """
     question = (req.question or "").strip()
     if not question:
@@ -1735,6 +1747,57 @@ def agent_ask(req: AskRequest):
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"cache-control": "no-cache",
                                       "x-accel-buffering": "no"})
+
+
+# ── approvals: the human in the loop ─────────────────────────────
+#
+# Every write an agent asks for lands here first. The console lists them,
+# answers them, and the agent's tool call — blocked inside the MCP
+# dispatcher all the while — returns with whatever you decided.
+
+@app.post("/agent/approvals")
+def approval_create(req: ApprovalCreate):
+    """Park a write. Called by the MCP dispatcher, not by a browser."""
+    a = agent_approvals.create(req.run_id, req.tool, req.args, req.summary,
+                               req.risk)
+    return a.public()
+
+
+@app.get("/agent/approvals")
+def approval_list(run_id: Optional[str] = None):
+    """Everything still waiting on a human — this conversation's, or all of
+    them (an MCP client on another machine parks its writes here too)."""
+    return {"pending": [a.public() for a in agent_approvals.pending(run_id)],
+            "ttl_sec": agent_approvals.TTL_SEC}
+
+
+@app.get("/agent/approvals/{approval_id}")
+def approval_get(approval_id: str):
+    a = agent_approvals.get(approval_id)
+    if a is None:
+        raise HTTPException(404, "no such approval")
+    return a.public()
+
+
+@app.get("/agent/approvals/{approval_id}/wait")
+def approval_wait(approval_id: str, timeout: float = 25.0):
+    """Long-poll one request. Returns as soon as it is decided, or when the
+    timeout lapses with it still pending — the caller polls again. Sync on
+    purpose: FastAPI runs it in the threadpool, so blocking here is free."""
+    a = agent_approvals.wait(approval_id, min(max(timeout, 1.0), 60.0))
+    if a is None:
+        raise HTTPException(404, "no such approval")
+    return a.public()
+
+
+@app.post("/agent/approvals/{approval_id}")
+def approval_decide(approval_id: str, req: ApprovalDecision):
+    """Approve or decline. Declining is not an error: the reason you give is
+    handed to the agent as the tool result, so it can answer to it."""
+    a = agent_approvals.get(approval_id)
+    if a is None:
+        raise HTTPException(404, "no such approval")
+    return agent_approvals.decide(approval_id, req.approve, req.note).public()
 
 
 # ── MCP over HTTP ────────────────────────────────────────────────

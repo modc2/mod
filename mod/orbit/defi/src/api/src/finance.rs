@@ -16,9 +16,12 @@
 //!     module that owns the chain (eth, solana, bt). A module with no adapter is
 //!     still listed with its terms; it just cannot be entered from here yet.
 //!
-//! Four sources feed the registry: DefiLlama's index for Ethereum, Base and
+//! Six sources feed the registry: DefiLlama's index for Ethereum, Base and
 //! Solana; the bt module's subnet list for Bittensor (dTAO pools — a stake is
-//! the deposit); the composer's own deployed vaults; and the BlocTime treasury.
+//! the deposit); the hyperliquid module's vault board (USDC in, the leader's
+//! trailing PnL as the quoted-not-promised rate); the polymarket module's
+//! trader board (a module is one trader mirrored one-to-one by a live copy
+//! session); the composer's own deployed vaults; and the BlocTime treasury.
 //! Adding a chain is adding a source. Adding a way in is one row in
 //! `adapters.json`, and every address in that file was read back on chain
 //! before it was written down.
@@ -263,6 +266,10 @@ pub struct Position {
     #[serde(default)]
     pub apy_base_at_entry: f64,
     pub entered_at: u64,
+    /// Who signed the entry: "module" (the chain module's key) or "browser"
+    /// (the user's own wallet — this desk only planned and recorded).
+    #[serde(default)]
+    pub signer: String,
     /// "open" · "closed"
     pub status: String,
     #[serde(default)]
@@ -288,6 +295,7 @@ pub struct Finance {
     http: reqwest::Client,
     categories: RwLock<Option<Cached<HashMap<String, String>>>>,
     subnets: RwLock<Option<Cached<Vec<Value>>>>,
+    hl_vaults: RwLock<Option<Cached<Vec<Value>>>>,
     trust: RwLock<HashMap<u64, Cached<Value>>>,
     pub registry_error: Option<String>,
 }
@@ -312,6 +320,7 @@ impl Finance {
                 .expect("http client"),
             categories: RwLock::new(None),
             subnets: RwLock::new(None),
+            hl_vaults: RwLock::new(None),
             trust: RwLock::new(HashMap::new()),
             registry_error,
         }
@@ -381,6 +390,49 @@ impl Finance {
         let value = Arc::new(list);
         *self.subnets.write().await = Some(Cached { fetched: now, value: value.clone() });
         Ok(value)
+    }
+
+    /// Hyperliquid's open vaults, from the module that owns that venue. Held
+    /// five minutes, same as the subnet list. Public on the hyperliquid module
+    /// — no credential leaves here, because none is needed to look.
+    pub async fn hl_vaults(&self, dex: &Dex) -> Result<Arc<Vec<Value>>, String> {
+        let now = crate::auth::now();
+        {
+            let cache = self.hl_vaults.read().await;
+            if let Some(c) = cache.as_ref() {
+                if now.saturating_sub(c.fetched) < 300 {
+                    return Ok(c.value.clone());
+                }
+            }
+        }
+        let out = dex.peer("hyperliquid", "hl_list_vaults", json!({ "pool": 200, "min_tvl": 25_000.0 }), None).await?;
+        let list: Vec<Value> = out
+            .get("vaults")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .or_else(|| out.as_array().cloned())
+            .unwrap_or_default();
+        let value = Arc::new(list);
+        *self.hl_vaults.write().await = Some(Cached { fetched: now, value: value.clone() });
+        Ok(value)
+    }
+
+    /// The Polymarket trader board — the wallets a copy module can mirror.
+    /// The polymarket deployment is owner-only, so this read only opens with
+    /// the CALLER's access token; there is no cache because the peer keeps
+    /// its own, and a cached board would leak one caller's view to the next.
+    pub async fn pm_traders(&self, dex: &Dex, token: Option<&str>) -> Result<Vec<Value>, String> {
+        let out = dex.rest("polymarket", "GET", "/active-traders?days=30&pool=200", None, token).await?;
+        let mut list: Vec<Value> = out
+            .get("traders")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        // The board arrives ranked by the peer's own score; keep the ordering,
+        // but cap what one registry pull carries — 60 traders is a page, 200
+        // with pnl curves and market titles is a payload.
+        list.truncate(60);
+        Ok(list)
     }
 
     /// Trusted stake for one subnet: how much of its validator stake the chain
@@ -649,6 +701,151 @@ impl Finance {
         }))
     }
 
+    /// One Hyperliquid vault as a finance module. The APR is the leader's
+    /// trailing realized PnL annualized — Hyperliquid's own number, quoted
+    /// with that label because it is not a rate anyone promised, and the 7d
+    /// and 24h figures ride along so the headline can be checked against how
+    /// it actually behaved.
+    fn module_from_hl_vault(&self, vault: &Value) -> Option<Value> {
+        let address = vault.get("address")?.as_str()?.to_string();
+        let name = vault.get("name").and_then(|v| v.as_str()).unwrap_or("vault").to_string();
+        let leader = vault.get("leader").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let apr = vault.get("apr").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let apr_7d = vault.get("apr_7d").and_then(|v| v.as_f64());
+        let apr_24h = vault.get("apr_24h").and_then(|v| v.as_f64());
+        let tvl = vault.get("tvl").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let age_days = vault.get("age_days").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        let mut conditions = vec![
+            json!({ "level": "risk", "text": "the rate is trailing realized PnL annualized — it can be extreme in both directions, and a leader trading with leverage can lose the vault everything" }),
+            json!({ "level": "hard", "text": "withdrawals wait out the vault's lock-up (a day for user vaults, four for HLP) — deposits are not demand money" }),
+            json!({ "level": "note", "text": "Hyperliquid is real money — entering needs confirm=true, and the hyperliquid module's agent key signs only for the wallet its bearer belongs to" }),
+        ];
+        if age_days < 90.0 {
+            conditions.push(json!({ "level": "risk", "text": format!("{:.0} days of history — the track record is shorter than one bad month", age_days) }));
+        }
+        if let Some(week) = apr_7d {
+            if apr > 0.0 && week < 0.0 {
+                conditions.push(json!({ "level": "note", "text": format!("the headline is positive but the last 7 days annualize to {:.0}% — the rate is not behaving like the headline", week) }));
+            }
+        }
+        Some(json!({
+            "id": format!("hl:vault:{address}"),
+            "source": "hyperliquid",
+            "chain": "hyperliquid",
+            "chain_label": "Hyperliquid",
+            "project": name,
+            "name": format!("{name} · vault"),
+            "symbol": "USDC",
+            "kind": "Perps vault",
+            "returns": {
+                "apy": round2(apr),
+                "apy_base": Value::Null,
+                "apy_reward": Value::Null,
+                "apr_7d": apr_7d.map(round2),
+                "apr_24h": apr_24h.map(round2),
+                "emissions_share": 0.0,
+                "basis": "hl_list_vaults — trailing realized PnL annualized; not a promised rate",
+            },
+            "liquidity": {
+                "tvl_usd": round2(tvl),
+                "depth": depth_word(tvl),
+                "entry": "instant",
+                "exit": "cooldown",
+                "exit_note": "withdraw after the vault's lock-up; blocked while it is active",
+                "exit_delay_days": 1,
+                "lock_days": 0,
+                "instant_exit": false,
+            },
+            "conditions": conditions,
+            "stablecoin": false,
+            "leader": leader,
+            "age_days": round2(age_days),
+            "adapter": {
+                "kind": "hl_vault",
+                "module": "hyperliquid",
+                "address": address,
+                "asset": { "symbol": "USDC", "decimals": 6 },
+                "receipt": { "symbol": "vault equity", "address": address },
+                "enter": "hl_vault_transfer — deposit USDC into the vault (agent-signed by the hyperliquid module)",
+                "exit": "hl_vault_transfer — withdraw once the lock-up has passed",
+                "executed_by": "hyperliquid module (per-wallet agent key)",
+            },
+            "addable": true,
+            "gated": false,
+            "score": round2(apr.max(0.0) * (tvl / DEPTH_FULL).min(1.0).max(0.0).sqrt()),
+        }))
+    }
+
+    /// One Polymarket trader as a finance module: a one-to-one copy. Entering
+    /// starts a single-trader, weight-1.0 live session on the polymarket
+    /// module — every trade the leader makes is mirrored at bankroll fidelity,
+    /// the same fraction of your allocated capital as it was of theirs. The
+    /// window stats are what the trader DID; nothing here calls them a rate.
+    fn module_from_pm_trader(&self, trader: &Value) -> Option<Value> {
+        let address = trader.get("address")?.as_str()?.to_lowercase();
+        let short_addr = format!("{}…{}", &address[..6.min(address.len())], &address[address.len().saturating_sub(4)..]);
+        let pnl = trader.get("pnl").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let volume = trader.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let stat = |key: &str| trader.get(key).and_then(|v| v.as_f64()).filter(|x| *x >= 0.0);
+        Some(json!({
+            "id": format!("pm:copy:{address}"),
+            "source": "polymarket",
+            "chain": "polymarket",
+            "chain_label": "Polymarket",
+            "project": short_addr,
+            "name": format!("copy {short_addr} · one-to-one"),
+            "symbol": "USDC",
+            "kind": "Copy trading",
+            "returns": {
+                "apy": Value::Null,
+                "apy_base": Value::Null,
+                "apy_reward": Value::Null,
+                "emissions_share": 0.0,
+                "window_30d": {
+                    "pnl_usd": round2(pnl),
+                    "volume_usd": round2(volume),
+                    "win_rate_pct": stat("winRate").map(round2),
+                    "resolve_rate_pct": stat("resolveRate").map(round2),
+                    "sharpe": trader.get("sharpe").and_then(|v| v.as_f64()).map(round2),
+                    "positions": trader.get("positions").and_then(|v| v.as_u64()),
+                    "trades_24h": trader.get("trades24h").and_then(|v| v.as_u64()),
+                },
+                "basis": "the trader's last 30 days on Polymarket — a track record, not a rate; you copy their NEXT trades",
+            },
+            "liquidity": {
+                "tvl_usd": Value::Null,
+                "depth": "n/a",
+                "entry": "instant",
+                "exit": "session_stop",
+                "exit_note": "stop the mirror any time (never gated); open copied positions are sold or redeemed separately on the polymarket console",
+                "exit_delay_days": 0,
+                "lock_days": 0,
+                "instant_exit": true,
+            },
+            "conditions": [
+                { "level": "risk", "text": "past PnL is not a rate — the mirror copies what the trader does next, including their losses" },
+                { "level": "hard", "text": "the polymarket deployment is owner-only — every call here needs its access token (auth= or your bearer)" },
+                { "level": "note", "text": "one-to-one mirror: single trader, weight 1.0, bankroll fidelity — each trade is the same fraction of your capital as it was of theirs" },
+                { "level": "note", "text": "a session starts in DRY RUN — nothing reaches the CLOB until you enter with autoExecute=true and confirm=true" },
+            ],
+            "stablecoin": false,
+            "adapter": {
+                "kind": "pm_copy",
+                "module": "polymarket",
+                "leader": address,
+                "asset": { "symbol": "USDC" },
+                "receipt": { "symbol": "copy session" },
+                "enter": "POST /live/start on the polymarket module — a single-trader weight-1.0 session (DRY RUN until autoExecute=true)",
+                "exit": "POST /live/stop — stops the mirror; liquidate open positions from the polymarket console",
+                "executed_by": "polymarket module (server-side signer, the caller's own session)",
+            },
+            "addable": true,
+            "gated": false,
+            "score": round2(pnl.max(0.0) / 1000.0),
+        }))
+    }
+
     fn modules_from_composer(&self, store: &crate::storage::Store, catalog: &crate::catalog::Catalog) -> Vec<Value> {
         let mut out = Vec::new();
         for protocol in store.list() {
@@ -816,6 +1013,7 @@ impl Finance {
         store: &crate::storage::Store,
         catalog: &crate::catalog::Catalog,
         treasury: &crate::treasury::Treasury,
+        token: Option<&str>,
     ) -> Result<Value, String> {
         let want_chain = filter.chain.as_deref();
         let mut sources = serde_json::Map::new();
@@ -878,6 +1076,53 @@ impl Finance {
                 }
                 Err(e) => {
                     sources.insert("bittensor".into(), json!({ "subnets": 0, "error": e }));
+                }
+            }
+        }
+
+        // Hyperliquid vaults — through the hyperliquid module. A public read;
+        // only fetched when the chain filter could want it.
+        let wants_hl = want_chain.map(|c| c == "hyperliquid").unwrap_or(true);
+        if wants_hl {
+            match self.hl_vaults(dex).await {
+                Ok(list) => {
+                    let mut n = 0;
+                    for vault in list.iter() {
+                        let tvl = vault.get("tvl").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        if tvl < filter.min_tvl {
+                            continue;
+                        }
+                        if let Some(m) = self.module_from_hl_vault(vault) {
+                            all.push(m);
+                            n += 1;
+                        }
+                    }
+                    sources.insert("hyperliquid".into(), json!({ "vaults": n, "via": "hl_list_vaults", "note": "APR is trailing realized PnL annualized — Hyperliquid's number, not a promised rate" }));
+                }
+                Err(e) => {
+                    sources.insert("hyperliquid".into(), json!({ "vaults": 0, "error": e }));
+                }
+            }
+        }
+
+        // Polymarket one-to-one copy-trading — through the polymarket module.
+        // That deployment is owner-only: the board joins live when the caller's
+        // token opens it, and says so honestly when it does not.
+        let wants_pm = want_chain.map(|c| c == "polymarket").unwrap_or(true);
+        if wants_pm && filter.min_tvl <= 10_000_000.0 {
+            match self.pm_traders(dex, token).await {
+                Ok(list) => {
+                    let mut n = 0;
+                    for trader in list.iter() {
+                        if let Some(m) = self.module_from_pm_trader(trader) {
+                            all.push(m);
+                            n += 1;
+                        }
+                    }
+                    sources.insert("polymarket".into(), json!({ "traders": n, "via": "GET /active-traders (30d window)", "note": "a module is one trader mirrored one-to-one — single leader, weight 1.0, bankroll fidelity" }));
+                }
+                Err(e) => {
+                    sources.insert("polymarket".into(), json!({ "traders": 0, "gated": true, "error": e, "note": "owner-only deployment — pass its access token as auth= (or your bearer) to list the board" }));
                 }
             }
         }
@@ -955,7 +1200,9 @@ impl Finance {
                 { "id": "ethereum", "label": "Ethereum", "module": "eth", "venue": "Uniswap V3 + protocol contracts" },
                 { "id": "base", "label": "Base", "module": "eth", "venue": "Uniswap V3 + protocol contracts" },
                 { "id": "solana", "label": "Solana", "module": "solana", "venue": "Jupiter" },
-                { "id": "tao", "label": "Bittensor", "module": "bt", "venue": "dTAO subnet pools", "preview": true }
+                { "id": "tao", "label": "Bittensor", "module": "bt", "venue": "dTAO subnet pools", "preview": true },
+                { "id": "hyperliquid", "label": "Hyperliquid", "module": "hyperliquid", "venue": "perps vaults", "preview": true },
+                { "id": "polymarket", "label": "Polymarket", "module": "polymarket", "venue": "one-to-one copy-trading", "preview": true, "gated": true }
             ],
             "rule": "a module is anything money can go into that gives a return. Each one carries its own returns, liquidity and conditions, and an adapter says how this desk enters it — through the module that owns the chain, never with a key of its own.",
         }))
@@ -970,10 +1217,11 @@ impl Finance {
         store: &crate::storage::Store,
         catalog: &crate::catalog::Catalog,
         treasury: &crate::treasury::Treasury,
+        token: Option<&str>,
     ) -> Result<Value, String> {
         // `modules` truncates to its limit; count off the full set.
         let filter = Filter { min_tvl: 100_000.0, limit: 100_000, sort: "score".into(), ..Default::default() };
-        let all = self.modules(&filter, yields, dex, store, catalog, treasury).await?;
+        let all = self.modules(&filter, yields, dex, store, catalog, treasury, token).await?;
         let list = all.get("modules").and_then(|m| m.as_array()).cloned().unwrap_or_default();
         let mut chains: HashMap<String, (usize, usize)> = HashMap::new();
         let mut kinds: HashMap<String, (usize, usize)> = HashMap::new();
@@ -999,7 +1247,7 @@ impl Finance {
             .map(|(k, (n, a))| json!({ "kind": k, "modules": n, "addable": a }))
             .collect();
         kinds.sort_by(|a, b| b["modules"].as_u64().cmp(&a["modules"].as_u64()));
-        let chain_rows: Vec<Value> = ["ethereum", "base", "solana", "tao"]
+        let chain_rows: Vec<Value> = ["ethereum", "base", "solana", "tao", "hyperliquid", "polymarket"]
             .iter()
             .map(|c| json!({
                 "id": c,
@@ -1026,6 +1274,7 @@ impl Finance {
         catalog: &crate::catalog::Catalog,
         treasury: &crate::treasury::Treasury,
         history: bool,
+        token: Option<&str>,
     ) -> Result<Value, String> {
         if let Some(pool_id) = id.strip_prefix("llama:") {
             let (pools, _) = yields.all().await?;
@@ -1058,6 +1307,33 @@ impl Finance {
             }
             return Ok(m);
         }
+        if let Some(addr) = id.strip_prefix("hl:vault:") {
+            let list = self.hl_vaults(dex).await?;
+            let vault = list
+                .iter()
+                .find(|v| v.get("address").and_then(|a| a.as_str()).map(|a| a.eq_ignore_ascii_case(addr)).unwrap_or(false))
+                .ok_or_else(|| format!("no vault {addr} on the current board — /modules?chain=hyperliquid lists it"))?;
+            let mut m = self.module_from_hl_vault(vault).ok_or("bad vault row")?;
+            // The full card: profile (leader, lockup, follower count) and — for
+            // `history` — the PnL series, read live from the hyperliquid module.
+            if let Ok(details) = dex.peer("hyperliquid", "hl_vault_details", json!({ "address": addr }), None).await {
+                m["vault"] = details;
+            }
+            if history {
+                if let Ok(perf) = dex.peer("hyperliquid", "hl_vault_perf", json!({ "address": addr }), None).await {
+                    m["chart"] = perf;
+                }
+            }
+            return Ok(m);
+        }
+        if let Some(addr) = id.strip_prefix("pm:copy:") {
+            let traders = self.pm_traders(dex, token).await?;
+            return traders
+                .iter()
+                .find(|t| t.get("address").and_then(|a| a.as_str()).map(|a| a.eq_ignore_ascii_case(addr)).unwrap_or(false))
+                .and_then(|t| self.module_from_pm_trader(t))
+                .ok_or_else(|| format!("no trader {addr} on the current 30-day board — /modules?chain=polymarket lists it"));
+        }
         if id.starts_with("own:") {
             return self
                 .modules_from_composer(store, catalog)
@@ -1068,7 +1344,7 @@ impl Finance {
         if id == "treasury" {
             return Ok(self.treasury_module(treasury));
         }
-        Err(format!("no module '{id}' — ids look like llama:<pool>, tao:sn<netuid>, own:<protocol>:<node>, or treasury"))
+        Err(format!("no module '{id}' — ids look like llama:<pool>, tao:sn<netuid>, hl:vault:<address>, pm:copy:<trader>, own:<protocol>:<node>, or treasury"))
     }
 
     // ── quoting an entry ──────────────────────────────────────────────────
@@ -1116,10 +1392,44 @@ impl Finance {
                     }
                     Err(e) => (json!({ "error": e }), None),
                 };
+                // The same entry, as something the user's own browser wallet can
+                // sign: approve the router, then the swap the quote just priced.
+                // Bittensor has no browser wallet — the bt module's coldkey is
+                // the only signer, and saying otherwise would be a lie.
+                let wallet = match dex::chain(chain) {
+                    Some(spec) if spec.kind == dex::Kind::Evm && kind == "swap_receipt" => {
+                        let sell_native = entry.pointer("/sell/native").and_then(|v| v.as_bool()).unwrap_or(false);
+                        if sell_native {
+                            json!({ "available": false, "reason": "the entry sells native ETH, which the router path here takes wrapped — use the server path, or wrap first" })
+                        } else {
+                            json!({
+                                "available": true, "kind": "evm", "chain_id": spec.chain_id, "network": spec.network,
+                                "signs": "your browser wallet — no key ever reaches this desk",
+                                "steps": [
+                                    { "action": "approve", "token": entry.pointer("/sell/address"), "spender": spec.router,
+                                      "amount_wei": entry.pointer("/sell/base_units"), "symbol": entry.pointer("/sell/symbol") },
+                                    { "action": "swap", "router": spec.router, "wrapped": spec.wrapped,
+                                      "token_in": entry.pointer("/sell/address"), "token_out": entry.pointer("/buy/address"),
+                                      "fees": entry.get("fee_tiers"), "amount_in_wei": entry.pointer("/sell/base_units"),
+                                      "min_out_wei": entry.get("min_received_base_units"),
+                                      "what": "exactInputSingle / exactInput on SwapRouter02" }
+                                ]
+                            })
+                        }
+                    }
+                    Some(spec) if spec.kind == dex::Kind::Solana => json!({
+                        "available": true, "kind": "solana", "venue": "Jupiter",
+                        "signs": "an injected Solana wallet (Phantom, Solflare)",
+                        "input_mint": asset.get("address"), "output_mint": receipt.get("address"),
+                        "input_decimals": asset.get("decimals"), "amount": amount, "slippage_bps": 50,
+                    }),
+                    _ => json!({ "available": false, "reason": "no browser wallet signs Bittensor — the bt module's coldkey stakes, with its own guards" }),
+                };
                 Ok(json!({
                     "module": summary,
                     "amount": amount, "asset": asset_symbol,
                     "adapter": kind,
+                    "wallet": wallet,
                     "plan": [
                         { "step": 1, "what": format!("{} — buy {} with {} {}", adapter.get("enter").and_then(|v| v.as_str()).unwrap_or("swap"), receipt.get("symbol").and_then(|v| v.as_str()).unwrap_or("receipt"), amount, asset_symbol), "by": adapter.get("module") }
                     ],
@@ -1148,9 +1458,11 @@ impl Finance {
                     .ok()
                     .and_then(|v| dex::first_uint(v.get("result")));
                 let receipt_decimals = receipt.get("decimals").and_then(|v| v.as_u64()).unwrap_or(18) as u32;
+                let wallet = evm_wallet_plan(chain, &asset, address, &units, "deposit", json!([units.to_string(), "$you"]), abi.clone());
                 Ok(json!({
                     "module": summary,
                     "amount": amount, "asset": asset_symbol, "adapter": kind,
+                    "wallet": wallet,
                     "plan": [
                         { "step": 1, "what": format!("eth_approve {} {} → {}", amount, asset_symbol, address), "by": "eth" },
                         { "step": 2, "what": format!("eth_write deposit({}, you) on {}", units, address), "by": "eth" }
@@ -1168,9 +1480,17 @@ impl Finance {
                 let decimals = asset.get("decimals").and_then(|v| v.as_u64()).unwrap_or(18) as u32;
                 let units = dex::to_base_units(&amount, decimals)?;
                 let call = if kind == "aave_v3" { format!("supply({}, {}, you, 0)", asset.get("address").and_then(|v| v.as_str()).unwrap_or("asset"), units) } else { format!("supply({}, {})", asset.get("address").and_then(|v| v.as_str()).unwrap_or("asset"), units) };
+                let asset_addr = asset.get("address").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let (args, abi) = if kind == "aave_v3" {
+                    (json!([asset_addr, units.to_string(), "$you", 0]), aave_abi())
+                } else {
+                    (json!([asset_addr, units.to_string()]), comet_abi())
+                };
+                let wallet = evm_wallet_plan(chain, &asset, address, &units, "supply", args, abi);
                 Ok(json!({
                     "module": summary,
                     "amount": amount, "asset": asset_symbol, "adapter": kind,
+                    "wallet": wallet,
                     "plan": [
                         { "step": 1, "what": format!("eth_approve {} {} → {}", amount, asset_symbol, address), "by": "eth" },
                         { "step": 2, "what": format!("eth_write {call} on {address}"), "by": "eth" }
@@ -1183,8 +1503,47 @@ impl Finance {
                     "reads_only": true,
                 }))
             }
+            "hl_vault" => {
+                let address = adapter.get("address").and_then(|v| v.as_str()).unwrap_or("");
+                // The lock-up and follower state, read live — the one liquidity
+                // fact that decides whether "exit today" is even a question.
+                let details = dex.peer("hyperliquid", "hl_vault_details", json!({ "address": address }), None).await.ok();
+                Ok(json!({
+                    "module": summary,
+                    "amount": amount, "asset": "USDC", "adapter": kind,
+                    "plan": [
+                        { "step": 1, "what": format!("hl_vault_transfer — deposit {amount} USDC into {address}"), "by": "hyperliquid" }
+                    ],
+                    "entry": { "expected": amount, "receipt": "vault equity (your share of the vault's account value)", "impact_pct": 0.0, "quoted_by": "1:1 by construction — the vault marks equity at account value" },
+                    "exit_today": { "how": "hl_vault_transfer withdraw — refused while the lock-up is active", "vault": details, "note": module.pointer("/liquidity/exit_note") },
+                    "round_trip_cost_pct": 0.0,
+                    "round_trip_note": "no entry or exit fee — the cost of the round trip is whatever the leader's PnL does while you are in, plus the lock-up you wait out",
+                    "liquidity": module.get("liquidity"),
+                    "conditions": module.get("conditions"),
+                    "reads_only": true,
+                }))
+            }
+            "pm_copy" => {
+                let leader = adapter.get("leader").and_then(|v| v.as_str()).unwrap_or("");
+                Ok(json!({
+                    "module": summary,
+                    "amount": amount, "asset": "USDC", "adapter": kind,
+                    "plan": [
+                        { "step": 1, "what": format!("POST /live/start — a one-trader session: leader {leader}, weight 1.0, bankroll fidelity, capital {amount} USDC. DRY RUN by default"), "by": "polymarket" },
+                        { "step": 2, "what": "re-enter with confirm=true AND autoExecute=true — only then do mirrored orders reach the CLOB", "by": "polymarket" }
+                    ],
+                    "entry": { "expected": amount, "receipt": "a live copy session — capital is a ceiling the engine sizes against, not a transfer", "quoted_by": "nothing moves at entry; USDC leaves as mirrored trades fill" },
+                    "exit_today": { "how": "POST /live/stop (never gated) — stops the mirror; open copied positions are sold or redeemed separately", "note": module.pointer("/liquidity/exit_note") },
+                    "round_trip_cost_pct": Value::Null,
+                    "round_trip_note": "unknowable up front — the round trip costs what the copied trades cost (spread, slippage, and the leader's next results)",
+                    "liquidity": module.get("liquidity"),
+                    "conditions": module.get("conditions"),
+                    "reads_only": true,
+                }))
+            }
             "treasury_lock" => Ok(json!({
                 "module": summary, "amount": amount, "adapter": kind,
+                "wallet": { "available": false, "reason": "the lock is signed by the eth module against the bound treasury — or deploy your own treasury block from the composer, which your browser wallet signs" },
                 "plan": [
                     { "step": 1, "what": "POST /treasury/allocations — record the choice (a plan)", "by": "defi" },
                     { "step": 2, "what": "POST /treasury/lock — approve + lock(amount, termWeeks, returnPrincipal)", "by": "eth" }
@@ -1305,6 +1664,47 @@ impl Finance {
                 let sent = dex.peer("eth", "eth_write", call, token).await?;
                 json!({ "traded": true, "executed_by": format!("eth_write {function}() on {address}"), "approval": approval, "result": sent, "owner": owner })
             }
+            "hl_vault" => {
+                let account = account.clone().ok_or("'account' is required — your Hyperliquid wallet address (the eoa the hyperliquid module's bearer belongs to)")?;
+                let address = adapter.get("address").and_then(|v| v.as_str()).ok_or("adapter has no vault address")?;
+                let usd: f64 = amount.parse().map_err(|_| format!("'{amount}' is not a USD amount"))?;
+                let out = dex
+                    .peer("hyperliquid", "hl_vault_transfer", json!({ "eoa": account, "vault": address, "is_deposit": true, "amount_usd": usd }), token)
+                    .await?;
+                json!({ "traded": true, "executed_by": format!("hl_vault_transfer deposit → {address}"), "result": out })
+            }
+            "pm_copy" => {
+                let account = account.clone().ok_or("'account' is required — the EOA your polymarket session belongs to")?;
+                let leader = adapter.get("leader").and_then(|v| v.as_str()).ok_or("adapter has no leader address")?;
+                let capital: f64 = amount.parse().map_err(|_| format!("'{amount}' is not a USD amount"))?;
+                // DRY RUN unless the caller says otherwise, explicitly — the
+                // polymarket engine's own rule, kept: confirm=true starts the
+                // session, autoExecute=true is what arms real orders.
+                let auto = body.get("autoExecute").and_then(|v| v.as_bool()).unwrap_or(false);
+                let strategy_id = body
+                    .get("strategyId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("defi-copy-{}", short(leader)));
+                let config = json!({
+                    "eoa": account,
+                    "address": body.get("proxy").or_else(|| body.get("address")).and_then(|v| v.as_str()).unwrap_or(&account),
+                    "strategyId": strategy_id,
+                    "traders": [{ "address": leader, "weight": 1.0 }],
+                    "capital": capital,
+                    "intervalMs": body.get("intervalMs").and_then(|v| v.as_u64()).unwrap_or(60_000),
+                    "sizing": "bankroll",
+                    "autoExecute": auto,
+                });
+                let out = dex.rest("polymarket", "POST", "/live/start", Some(&config), token).await?;
+                json!({
+                    "traded": true,
+                    "executed_by": "polymarket live engine — one-to-one mirror session",
+                    "mode": if auto { "LIVE — mirrored orders will be placed" } else { "DRY RUN — mirrors are planned and logged, never placed; re-enter with autoExecute=true to go live" },
+                    "session": { "strategyId": strategy_id, "leader": leader, "sizing": "bankroll (one-to-one fidelity)", "capital": capital },
+                    "result": out,
+                })
+            }
             other => return Err(format!("adapter kind '{other}' cannot be entered from here")),
         };
 
@@ -1331,6 +1731,7 @@ impl Finance {
             apy_at_entry: module.pointer("/returns/apy").and_then(|v| v.as_f64()).unwrap_or(0.0),
             apy_base_at_entry: module.pointer("/returns/apy_base").and_then(|v| v.as_f64()).unwrap_or(0.0),
             entered_at: now,
+            signer: "module".into(),
             status: "open".into(),
             txs,
             entry: result.clone(),
@@ -1353,6 +1754,11 @@ impl Finance {
         if position.status == "closed" {
             return Err("that position is already closed".into());
         }
+        // A browser-signed position is held by the user's own wallet — no chain
+        // module can move it. Hand back the plan for the same wallet to sign.
+        if position.signer == "browser" {
+            return self.wallet_exit(&position, body);
+        }
         let confirm = body.get("confirm").and_then(|v| v.as_bool()).unwrap_or(false);
         let all = body.get("amount").and_then(|v| v.as_str()).map(|s| s.trim().eq_ignore_ascii_case("all")).unwrap_or(true);
         let amount = if all { None } else { Some(amount_arg(body)?) };
@@ -1361,7 +1767,10 @@ impl Finance {
             .or_else(|| Some(position.account.clone()).filter(|a| !a.is_empty()));
         let testnet = dex::chain(&position.chain).map(|c| c.testnet)
             .unwrap_or(position.network.contains("sepolia") || position.network == "local" || position.network == "31337");
-        if !testnet && !confirm {
+        // Stopping a copy session moves nothing — it only stops NEW mirrors —
+        // so it is never confirm-gated: an exit that makes you argue first is
+        // a risk control pointed the wrong way.
+        if !testnet && !confirm && position.adapter != "pm_copy" {
             return Ok(json!({ "exited": false, "needs_confirm": true, "reason": "real money — call again with confirm=true" }));
         }
         let receipt = position.receipt.clone().unwrap_or(Value::Null);
@@ -1436,6 +1845,51 @@ impl Finance {
                 let sent = dex.peer("eth", "eth_write", call, token).await?;
                 json!({ "traded": true, "executed_by": format!("eth_write {function}() on {address}"), "result": sent })
             }
+            "hl_vault" => {
+                let account = account.clone().ok_or("'account' is required — the Hyperliquid eoa that deposited")?;
+                let vault = receipt
+                    .get("address")
+                    .and_then(|v| v.as_str())
+                    .ok_or("this position has no vault address on record")?;
+                // 'all' asks the vault what is actually withdrawable rather
+                // than replaying the deposit figure — equity has moved since.
+                let usd: f64 = match &amount {
+                    Some(a) => a.parse().map_err(|_| format!("'{a}' is not a USD amount"))?,
+                    None => dex
+                        .peer("hyperliquid", "hl_vault_details", json!({ "address": vault, "user": account }), token)
+                        .await
+                        .ok()
+                        .and_then(|d| {
+                            ["/follower/max_withdrawable", "/max_withdrawable", "/follower/equity", "/equity"]
+                                .iter()
+                                .find_map(|p| d.pointer(p).and_then(|v| v.as_f64()))
+                        })
+                        .or_else(|| position.amount.parse().ok())
+                        .ok_or("could not read what is withdrawable — pass an explicit amount")?,
+                };
+                let out = dex
+                    .peer("hyperliquid", "hl_vault_transfer", json!({ "eoa": account, "vault": vault, "is_deposit": false, "amount_usd": usd }), token)
+                    .await?;
+                json!({ "traded": true, "executed_by": format!("hl_vault_transfer withdraw ← {vault}"), "amount_usd": usd, "result": out })
+            }
+            "pm_copy" => {
+                let eoa = account.clone().ok_or("'account' is required — the EOA the session runs under")?;
+                let strategy_id = body
+                    .get("strategyId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| position.entry.pointer("/session/strategyId").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .ok_or("no strategyId on record — pass it explicitly")?;
+                let out = dex
+                    .rest("polymarket", "POST", "/live/stop", Some(&json!({ "eoa": eoa, "strategyId": strategy_id })), token)
+                    .await?;
+                json!({
+                    "traded": true,
+                    "executed_by": "polymarket live engine — session stopped",
+                    "result": out,
+                    "note": "the mirror is stopped; whatever it already bought is still held. Sell or redeem those positions on the polymarket console (liquidate / redeem).",
+                })
+            }
             other => return Err(format!("positions entered through '{other}' cannot be exited from here")),
         };
 
@@ -1446,6 +1900,153 @@ impl Finance {
         }
         self.save(&position)?;
         Ok(json!({ "exited": true, "position": self.view(&position, None), "execution": position.exits.last() }))
+    }
+
+    /// Record an entry the user's own browser wallet already signed. This desk
+    /// sent nothing — the row exists so the book can hold browser positions
+    /// beside module ones, with the txs as the evidence.
+    pub fn record_entry(&self, module: &Value, body: &Value, who: Option<&str>) -> Result<Value, String> {
+        let amount = amount_arg(body)?;
+        let adapter = module.get("adapter").filter(|a| !a.is_null()).ok_or("this module has no adapter — there is nothing a wallet could have signed for it")?;
+        let account = body.get("address").or_else(|| body.get("account")).and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+            .ok_or("'address' is required — the wallet address that signed")?;
+        let txs: Vec<String> = body.get("txs").and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|t| t.as_str()).map(|s| s.to_string()).collect())
+            .unwrap_or_default();
+        if txs.is_empty() {
+            return Err("'txs' is required and must not be empty — a position is recorded only when something was actually sent".into());
+        }
+        let kind = adapter.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let chain = module.get("chain").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let asset = adapter.get("asset").cloned().unwrap_or(Value::Null);
+        let receipt = adapter.get("receipt").cloned().unwrap_or(Value::Null);
+        let network = adapter.get("network").and_then(|v| v.as_str()).map(|s| s.to_string())
+            .or_else(|| dex::chain(&chain).map(|c| c.network.to_string()))
+            .unwrap_or_else(|| chain.clone());
+        let now = crate::auth::now();
+        let position = Position {
+            id: format!("p-{now}-{}", short(module.get("id").and_then(|v| v.as_str()).unwrap_or("m"))),
+            owner: who.map(|w| w.to_string()).unwrap_or_else(|| account.clone()),
+            module: module.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            chain,
+            network,
+            project: module.get("project").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            symbol: module.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            kind: module.get("kind").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            adapter: kind,
+            amount: amount.clone(),
+            asset: asset.get("symbol").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            asset_address: asset.get("address").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            receipt: if receipt.is_null() { None } else { Some(receipt) },
+            account,
+            apy_at_entry: module.pointer("/returns/apy").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            apy_base_at_entry: module.pointer("/returns/apy_base").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            entered_at: now,
+            signer: "browser".into(),
+            status: "open".into(),
+            txs: txs.clone(),
+            entry: json!({
+                "executed_by": "browser wallet",
+                "txs": txs,
+                "contract": adapter.get("address"),
+            }),
+            exits: Vec::new(),
+            note: body.get("note").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        };
+        self.save(&position)?;
+        Ok(json!({ "recorded": true, "entered": true, "position": self.view(&position, None) }))
+    }
+
+    /// The way out of a browser-signed position: not an execution, a plan the
+    /// same wallet signs. "$you" is the connected address, "$shares" its full
+    /// receipt balance, read by the wallet's own provider.
+    fn wallet_exit(&self, position: &Position, body: &Value) -> Result<Value, String> {
+        let receipt = position.receipt.clone().unwrap_or(Value::Null);
+        let all = body.get("amount").and_then(|v| v.as_str()).map(|s| s.trim().eq_ignore_ascii_case("all")).unwrap_or(true);
+        let amount = if all { None } else { Some(amount_arg(body)?) };
+        let spec = dex::chain(&position.chain);
+        let chain_id = spec.map(|c| c.chain_id).unwrap_or(0);
+        let contract = receipt.get("address").and_then(|v| v.as_str()).map(|s| s.to_string())
+            .or_else(|| position.entry.get("contract").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        let pool = position.entry.get("contract").and_then(|v| v.as_str()).map(|s| s.to_string()).or_else(|| contract.clone());
+        let decimals = if position.asset.eq_ignore_ascii_case("USDC") || position.asset.eq_ignore_ascii_case("USDT") || position.asset.eq_ignore_ascii_case("USDbC") { 6 } else if position.asset.eq_ignore_ascii_case("WBTC") || position.asset.eq_ignore_ascii_case("cbBTC") { 8 } else { 18 };
+        let units = amount.as_ref().map(|a| dex::to_base_units(a, decimals)).transpose()?;
+
+        let wallet = match position.adapter.as_str() {
+            "erc4626" => {
+                let to = contract.ok_or("this position has no vault address on record")?;
+                let (function, args) = match &units {
+                    Some(u) => ("withdraw", json!([u.to_string(), "$you", "$you"])),
+                    None => ("redeem", json!(["$shares", "$you", "$you"])),
+                };
+                json!({ "available": true, "kind": "evm", "chain_id": chain_id, "network": position.network,
+                        "steps": [{ "action": "call", "to": to, "function": function, "args": args, "abi": erc4626_abi() }] })
+            }
+            "mod_vault" => {
+                if units.is_some() {
+                    return Err("a partial mod_vault exit needs convertToShares — exit 'all', or use the server path".into());
+                }
+                let to = contract.ok_or("this position has no vault address on record")?;
+                json!({ "available": true, "kind": "evm", "chain_id": chain_id, "network": position.network,
+                        "steps": [{ "action": "call", "to": to, "function": "withdraw", "args": json!(["$shares", "$you"]), "abi": mod_vault_abi() }] })
+            }
+            "aave_v3" | "compound_v3" => {
+                let to = pool.ok_or("this position has no pool address on record")?;
+                let asset_address = position.asset_address.clone().ok_or("this position has no asset address on record")?;
+                let want = units.map(|u| u.to_string()).unwrap_or_else(|| MAX_UINT.into());
+                let (args, abi) = if position.adapter == "aave_v3" {
+                    (json!([asset_address, want, "$you"]), aave_abi())
+                } else {
+                    (json!([asset_address, want]), comet_abi())
+                };
+                json!({ "available": true, "kind": "evm", "chain_id": chain_id, "network": position.network,
+                        "steps": [{ "action": "call", "to": to, "function": "withdraw", "args": args, "abi": abi }] })
+            }
+            "swap_receipt" => match spec.map(|c| c.kind) {
+                Some(dex::Kind::Evm) => json!({
+                    "available": true, "kind": "evm-swap", "chain_id": chain_id, "network": position.network,
+                    "chain": position.chain, "router": spec.map(|c| c.router), "wrapped": spec.map(|c| c.wrapped),
+                    "sell": receipt.get("address"), "sell_symbol": receipt.get("symbol"), "sell_decimals": receipt.get("decimals"),
+                    "buy": position.asset_address, "amount": amount,
+                    "note": "read your receipt balance, POST /dex/quote for the route, then approve + swap on the router",
+                }),
+                Some(dex::Kind::Solana) => json!({
+                    "available": true, "kind": "solana", "venue": "Jupiter",
+                    "input_mint": receipt.get("address"), "output_mint": position.asset_address,
+                    "input_decimals": receipt.get("decimals"), "amount": amount, "slippage_bps": 50,
+                }),
+                _ => return Err("this position's chain has no browser wallet path".into()),
+            },
+            other => return Err(format!("browser positions entered through '{other}' cannot be exited from here")),
+        };
+        Ok(json!({
+            "exited": false, "browser": true, "wallet": wallet,
+            "settle": format!("POST /positions/{}/settle {{txs, amount|'all'}} — record what your wallet actually sent", position.id),
+        }))
+    }
+
+    /// Close the loop on a browser exit: the wallet sent it, the book writes it.
+    pub fn settle(&self, id: &str, body: &Value, who: &str, module_owner: &str) -> Result<Value, String> {
+        let mut position = self.get(id).ok_or_else(|| format!("no position '{id}'"))?;
+        let caller = who.to_lowercase();
+        if position.owner.to_lowercase() != caller && module_owner.to_lowercase() != caller && position.owner != "local" {
+            return Err("only the position's owner (or the module owner) can settle it".into());
+        }
+        let txs: Vec<String> = body.get("txs").and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|t| t.as_str()).map(|s| s.to_string()).collect())
+            .unwrap_or_default();
+        if txs.is_empty() {
+            return Err("'txs' is required — a settle with nothing sent is a forget, and that is DELETE /positions/{id}".into());
+        }
+        let all = body.get("amount").and_then(|v| v.as_str()).map(|s| s.trim().eq_ignore_ascii_case("all")).unwrap_or(true);
+        let now = crate::auth::now();
+        position.exits.push(json!({ "at": now, "amount": body.get("amount").cloned().unwrap_or_else(|| json!("all")), "txs": txs, "by": "browser wallet" }));
+        if all {
+            position.status = "closed".into();
+        }
+        self.save(&position)?;
+        Ok(json!({ "settled": true, "closed": all, "position": self.view(&position, None) }))
     }
 
     async fn read_uint(&self, dex: &Dex, address: &str, function: &str, args: Value, network: &str, abi: Value, token: Option<&str>) -> Result<u128, String> {
@@ -1479,6 +2080,20 @@ impl Finance {
                         let bal = dex.peer("eth", "eth_balance", json!({ "address": owner, "token": address, "network": position.network }), token).await?;
                         json!({ "receipt": bal, "symbol": receipt.get("symbol"), "basis": "eth_balance of the receipt token — sell it to see the asset value (quote)" })
                     }
+                }
+            }
+            "hl_vault" => {
+                let vault = receipt.get("address").and_then(|v| v.as_str()).unwrap_or("");
+                match dex.peer("hyperliquid", "hl_vault_details", json!({ "address": vault, "user": position.account }), token).await {
+                    Ok(d) => json!({ "vault": vault, "follower": d.get("follower").cloned().unwrap_or(d), "basis": "hl_vault_details with user= — your equity and max withdrawable, marked at account value" }),
+                    Err(e) => json!({ "error": e, "note": "the hyperliquid module is not answering — your equity is still in the vault" }),
+                }
+            }
+            "pm_copy" => {
+                let sid = position.entry.pointer("/session/strategyId").and_then(|v| v.as_str()).unwrap_or("");
+                match dex.rest("polymarket", "GET", &format!("/live/status?eoa={}&strategyId={}", position.account, sid), None, token).await {
+                    Ok(s) => json!({ "session": s, "basis": "GET /live/status — running flag, config and the session's own ledger" }),
+                    Err(e) => json!({ "error": e, "note": "owner-gated read — pass the polymarket access token, or check the polymarket console" }),
                 }
             }
             "aave_v3" => json!({ "note": "aToken balance — read it with eth_balance on the reserve's aToken, or on app.aave.com; not derived here" }),
@@ -1577,6 +2192,28 @@ impl Finance {
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
+
+/// The enter, as raw steps the user's own browser wallet can sign: an ERC-20
+/// approval, then the deposit/supply call with "$you" standing in for the
+/// connected address. Null on a chain no browser wallet speaks.
+fn evm_wallet_plan(chain: &str, asset: &Value, to: &str, units: &u128, function: &str, args: Value, abi: Value) -> Value {
+    let Some(spec) = dex::chain(chain).filter(|c| c.kind == dex::Kind::Evm) else {
+        return json!({ "available": false, "reason": format!("no browser wallet path on {chain}") });
+    };
+    let asset_addr = asset.get("address").and_then(|v| v.as_str()).unwrap_or("");
+    if asset_addr.is_empty() {
+        return json!({ "available": false, "reason": "the adapter's asset has no contract address on record" });
+    }
+    json!({
+        "available": true, "kind": "evm", "chain_id": spec.chain_id, "network": spec.network,
+        "signs": "your browser wallet — no key ever reaches this desk",
+        "steps": [
+            { "action": "approve", "token": asset_addr, "spender": to,
+              "amount_wei": units.to_string(), "symbol": asset.get("symbol") },
+            { "action": "call", "to": to, "function": function, "args": args, "abi": abi }
+        ]
+    })
+}
 
 fn adapter_view(a: &Adapter, spec: Option<&'static dex::Chain>, terms: &Terms) -> Value {
     let module = spec.map(|c| c.module).unwrap_or("eth");

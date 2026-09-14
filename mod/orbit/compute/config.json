@@ -74,7 +74,7 @@
         "exec": "POST /exec {id, cmd}",
         "stop": "POST /stop {id}",
         "balance": "GET /balance?provider=",
-        "connect": "POST /connect {provider, kyc, reveal, web_agent} — owner-only; generates a self-custody wallet for each permissionless market (Akash/Nosana/Aleph) and returns the address to fund, plus a private-signup plan for the key-custody markets",
+        "connect": "POST /connect {provider, kyc, reveal, web_agent} \u2014 owner-only; generates a self-custody wallet for each permissionless market (Akash/Nosana/Aleph) and returns the address to fund, plus a private-signup plan for the key-custody markets",
         "keys": "GET /keys | POST /keys {provider, key, persist}",
         "raw": "POST /raw {provider, path, method, body}",
         "tools": "GET /tools",
@@ -156,7 +156,7 @@
         "COMPUTE_MOD_TIMEOUT": "seconds a sibling module gets in the mod lane (default 12)",
         "COMPUTE_TEST_LIVE": "0 to skip the tests that touch live catalogs"
     },
-    "schema": "QmaC2vFKUtzfjXe6GrhMev4aciaEjHXEropi2vfC4iG6wA",
+    "schema": "QmYEnXsm3BxiHYiqSVL692brCN4imHRVXc4DGvt2yk5bBL",
     "mod_lane": {
         "what": "the markets that also run as their own modules on this box, read through those modules and compared with the direct-to-upstream lane",
         "mods": {

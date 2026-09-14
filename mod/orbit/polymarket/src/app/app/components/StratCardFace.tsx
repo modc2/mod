@@ -18,7 +18,9 @@
 // by both, and there is no second rendering of "roughly the same thing".
 
 import { describeTraderFilter } from "../lib/strats/strat";
-import type { ForwardCheck, ForwardVerdict, HoldoutCheck, HubBacktest } from "../lib/hubBacktest";
+import type {
+  ForwardCheck, ForwardVerdict, HoldoutCheck, HubBacktest, WinRecord,
+} from "../lib/hubBacktest";
 import type { SavedIndex } from "../lib/types";
 
 export function timeAgo(ts?: number): string {
@@ -223,6 +225,11 @@ export function BacktestBlock({
       ) : (
         <div className="mt-1 text-[12px] font-mono text-pixel-gray">{emptyLabel}</div>
       )}
+      {/* HOW the number was made: hit rate, and whether the wins were spread
+          through the window or all in one stretch of it. Two cards with the
+          same +$X are different strats when one won 9 of 10 and the other won
+          1 of 10 — and only the first is worth sampling trades from. */}
+      {bt?.wins && bt.wins.decided > 0 && <WinLine w={bt.wins} days={days} />}
       {/* WALK-FORWARD: the previous window, and whether this one confirmed it.
           Rendered for every card that has one — including the ones whose own
           window is empty, because "profitable yesterday, silent today" is
@@ -288,6 +295,64 @@ const FORWARD_FACE: Record<ForwardVerdict, { icon: string; label: string; tone: 
 
 export function signedUsd(v: number): string {
   return `${v >= 0 ? "+" : "−"}$${Math.abs(v).toFixed(2)}`;
+}
+
+/// ── THE WIN RECORD LINE ──
+/// "◈ WIN 63% · 12/19 · STEADY 4/5" — the hit rate over the window's closed
+/// trades, and how many of the window's active stretches it actually won in.
+///
+/// The second half is the one that matters for sampling: a 60% win rate earned
+/// 6-of-10 in one afternoon and nothing since is not a 60% strat you can copy
+/// tomorrow. STEADY counts the slices of the window that came out AHEAD in
+/// dollars, so "4/5" means it made money in four of the five stretches where
+/// it traded at all. Under 5 decided trades (or fewer than 3 active stretches)
+/// it says UNRATED rather than inventing a shape from three data points.
+function WinLine({ w, days }: { w: WinRecord; days: number }) {
+  const unit = days === 1 ? "24h" : `${days}d`;
+  const pct = Math.round(w.winRate * 100);
+  const rated = w.consistency >= 0;
+  const winTone = w.winRate >= 0.5 ? "text-green-400" : "text-red-400";
+  const steadyTone = !rated
+    ? "text-pixel-gray"
+    : w.consistency >= 0.75
+      ? "text-green-400"
+      : w.consistency >= 0.5
+        ? "text-amber-400"
+        : "text-red-400";
+  return (
+    <div
+      className="mt-1.5 flex items-center gap-1.5 text-[10px] font-mono min-w-0"
+      title={
+        `WIN RECORD — how the ${unit} P&L above was actually made.\n\n` +
+        `${w.wins} of ${w.decided} DECIDED legs came back for more than they cost — ` +
+        "sold legs scored on realized P&L net of the fee that closed them, plus the legs " +
+        "the replay still held when their market RESOLVED, scored on the $1/$0 payout. " +
+        "Resolutions belong in the count because leaders sell winners and let losers " +
+        "expire: leave them out and an expiring book reads as a perfect record. " +
+        "Positions still open at the end, and legs valued at a last observed price " +
+        "rather than a resolution, are not counted — neither has an outcome yet.\n\n" +
+        (rated
+          ? `STEADY ${w.winningBuckets}/${w.activeBuckets}: the window is cut into six equal ` +
+            `stretches, ${w.activeBuckets} of them decided a trade, and the strat came out AHEAD ` +
+            `in ${w.winningBuckets} of those. 1.00 = it made money in every stretch it traded in; ` +
+            "a high win rate with a low STEADY means the hits were small and the misses were not, " +
+            "or the money all came in one burst — neither pattern repeats next week."
+          : `UNRATED: ${w.decided} decided leg(s) across ${w.activeBuckets} stretch(es) — ` +
+            "under 5 trades, or inside fewer than 3 stretches, there is no shape to judge. " +
+            "The hub's STEADY filter hides these rather than guessing.")
+      }
+    >
+      <span className={`shrink-0 font-semibold tracking-[0.12em] ${winTone}`}>
+        ◈ WIN {pct}%
+      </span>
+      <span className="text-pixel-gray truncate">
+        {w.wins}/{w.decided} ·{" "}
+        <span className={steadyTone}>
+          {rated ? `STEADY ${w.winningBuckets}/${w.activeBuckets}` : "UNRATED"}
+        </span>
+      </span>
+    </div>
+  );
 }
 
 /// "✓ HELD · prior day +$4.10 → +$2.30" — the previous window's result, the

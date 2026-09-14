@@ -34,6 +34,13 @@ class ArenaError(Exception):
     pass
 
 
+def round_id():
+    """A round's name, decided before it runs so a caller can poll it while it
+    is still going. The arena writes the record as it works, so an id handed
+    out now is a live progress read a second later, not a promise."""
+    return 'r-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:4]
+
+
 def _prompt_messages(attack):
     """An attack is either a single prompt or a list of turns."""
     turns = attack.get('turns')
@@ -59,6 +66,10 @@ def _one_match(attack, defense, model, judge_kind, timeout):
     rec['blocked_at'] = run['blocked_at']
     rec['model_calls'] = run['model_calls']
     rec['ms'] = run['ms']
+    # The stage trace is the whole point of a single fight, and in a round it
+    # is what makes "blocked at input" auditable rather than asserted. It is a
+    # handful of small dicts next to a 1200-char response, so it is kept.
+    rec['stages'] = run['stages']
 
     if run['blocked']:
         # A defense stage refused before or after the model. That is a refusal
@@ -108,11 +119,10 @@ def run_round(attacks, defenses, model=None, judge_kind='model', parallel=6,
     defenses = [defmod.normalise(d) for d in defenses]
     control_set = corpus.CONTROL_SET if controls else []
 
-    round_id = store.check_id(name) if name else \
-        'r-' + time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:4]
+    rid = store.check_id(name) if name else round_id()
     total = len(attacks) * len(defenses) + len(control_set) * len(defenses)
     record = {
-        'id': round_id, 'kind': 'round', 'status': 'running',
+        'id': rid, 'kind': 'round', 'status': 'running',
         'model': model, 'judge': judge_kind, 'started': int(time.time()),
         'attacks': [a.get('id') for a in attacks],
         'defenses': [d.get('id') for d in defenses],

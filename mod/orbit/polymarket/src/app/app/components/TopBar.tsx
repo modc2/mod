@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { getAccessToken } from "../lib/access";
 import { loadIndexes } from "../lib/indexStore";
+import HelpAgent, { OPEN_AGENT_EVENT } from "./HelpAgent";
 import NavMenu from "./NavMenu";
 import UserSidebar from "./UserSidebar";
 import WalletChip from "./WalletChip";
@@ -26,6 +27,15 @@ const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
 // box, disambiguated by what the text is.
 
 const SCOUT_API = "/polymarket/api/trader-agent";
+
+// ── The console agent's open state ──
+// It lives here rather than inside HelpAgent because the LOGO opens it and
+// the logo is NavMenu's, two components apart. Closed by default — the agent
+// is a thing you reach for, not a column that eats the left edge on arrival.
+// TopBar remounts on every navigation, so the choice is remembered and
+// restored BEFORE paint, or a docked column would blink on each route change.
+const AGENT_KEY = "poly_agent_sidebar";
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 interface ScoutTrader {
   address: string;
@@ -73,6 +83,31 @@ export default function TopBar({
   // page (and it's cleared from context below before the push anyway).
   const filterQs = useFilterParams({ excludeSearch: true });
   const isAddrSearch = ADDR_RE.test(search.trim());
+
+  // ── The agent column (left edge, toggled by the logo) ──────────
+  const [agentOpen, setAgentOpen] = useState(false);
+
+  useIsoLayoutEffect(() => {
+    try {
+      setAgentOpen(localStorage.getItem(AGENT_KEY) === "1");
+    } catch {}
+  }, []);
+
+  /** Written here rather than in an effect: an effect would fire on mount
+      with the pre-restore value and clobber what was saved. */
+  const setAgent = useCallback((next: boolean) => {
+    setAgentOpen(next);
+    try {
+      localStorage.setItem(AGENT_KEY, next ? "1" : "0");
+    } catch {}
+  }, []);
+
+  // Anything can ask for the agent by name (OPEN_AGENT_EVENT).
+  useEffect(() => {
+    const onOpen = () => setAgent(true);
+    window.addEventListener(OPEN_AGENT_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_AGENT_EVENT, onOpen);
+  }, [setAgent]);
 
   // ── The scout ──────────────────────────────────────────────────
   const [scouting, setScouting] = useState(false);
@@ -295,7 +330,7 @@ export default function TopBar({
             laid out inline; nothing here is a dropdown, the header is a row
             you read, not a menu. ── */}
         <div className="flex items-center gap-1 min-w-0">
-          <NavMenu />
+          <NavMenu agentOpen={agentOpen} onToggleAgent={() => setAgent(!agentOpen)} />
         </div>
         {/* ── Theme picker + the user column's handle + wallet chip —
             top-right corner. There is no strat readout beside them: the
@@ -312,6 +347,9 @@ export default function TopBar({
           <div className="hidden min-[480px]:block">
             <ThemePicker />
           </div>
+          {/* The console agent's icon used to sit HERE, a fourth glyph in a
+              four-glyph corner. It's the left-hand column now, opened by the
+              logo — don't put a second handle back in this cluster. */}
           <UserSidebar />
           <WalletChip />
         </div>
@@ -320,6 +358,10 @@ export default function TopBar({
           address + Enter, and the trader-scout agent: describe one + Enter)
           lives on its own full-width row below the header bar. */}
       {showSearch && <div className="px-4 pb-2">{searchBox}</div>}
+      {/* The agent column itself — portaled to <body> from inside, because
+          this header's backdrop-blur is a containing block for fixed
+          children and would clip it to a 48px strip. */}
+      <HelpAgent open={agentOpen} onClose={() => setAgent(false)} />
     </header>
   );
 }

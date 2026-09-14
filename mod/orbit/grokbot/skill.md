@@ -4,9 +4,13 @@ Grok (xAI) behind one mod, with a per-address account: sign in with a wallet
 from the console, keep your own xAI key and your own named bots, chat with live
 search over X and the web.
 
-API `:50890` (`/api/grokbot`) · console `/grokbot` · MCP `POST /mcp` (10 tools)
+API `:50890` (`/api/grokbot`) · console `/grokbot` · MCP `POST /mcp` (11 tools)
 
 BYOK: every call spends the **caller's** xAI credits. No house key.
+
+Sign-in is REQUIRED: every tool and route that touches Grok needs a
+mod-protocol token — the console is a wall of CONNECT WALLET until one exists.
+A `key` decides whose credits; it never substitutes for the token.
 
 ## When to reach for it
 
@@ -29,15 +33,18 @@ directly — that is `x`.
    `bot=<name>` to run a saved persona.
 4. `grok_bots` / `grok_bot_save` — only after step 1 shows an address. Bots are
    per account and there is no anonymous shelf to put one on.
+5. `grok_runs` — the board: every chat/stream/image this account ran, as
+   live/done/error with duration and tokens. When a user says "it failed",
+   the error text is already here.
 
 ## Two headers, two different things
 
     Authorization: Bearer <mod-protocol token>   who you are
     x-xai-key: xai-…                             whose credits get spent
 
-Signing in is what gives you somewhere to *keep* a key. Sending the key per
-request works and stores nothing. In MCP those are the `token` and `key`
-arguments on every tool.
+The token is mandatory for anything that touches Grok; the key per request
+stores nothing and only picks whose credits. In MCP those are the `token` and
+`key` arguments on every tool.
 
 ## Gotchas
 
