@@ -116,15 +116,22 @@ soft focus, and no histogram will ever find it. So there is one verb, and only
 one, that asks something that can see.
 
 ```
-m wingman/venice                            # is the read path live, is there a key
-m wingman/venice_key <your-venice-key>      # BYOK, filed with the venice module
+m wingman/venice                            # which provider, is there a key
+m wingman/venice_key <key>                  # file a Venice or OpenRouter key (0600)
 m wingman/read <set>                        # ← this sends
+m wingman/venice provider=openrouter        # or venice | gateway | auto
 m wingman/venice enabled=0                  # off; WINGMAN_VENICE=off also wins
 ```
 
-`read` shows each photo to a vision model on [orbit/venice](../venice) and asks
-for the five things a measurement cannot reach, then asks one more question
-about the set as a whole:
+`read` shows each photo to a vision model and asks for the five things a
+measurement cannot reach, then asks one more question about the set as a
+whole. Three providers speak the same OpenAI-shaped completion: the **Venice
+API** (api.venice.ai, your Venice key), **OpenRouter** (any `sk-or-…` key),
+and the legacy protocol **gateway** on [orbit/venice](../venice). The default
+`auto` uses whichever direct provider has a key on file — venice first — and
+falls back to the gateway only with no key at all. Keys live in
+`~/.mod/wingman/keys.json`, mode 0600, and are never rendered back out;
+`VENICE_API_KEY`/`OPENROUTER_API_KEY` in the environment win over the file.
 
 | per photo | across the set |
 |---|---|
@@ -140,13 +147,15 @@ The terms it runs on, which are the point:
   There is a test that breaks the transport and asserts they still work.
 * **The original never moves.** What leaves is re-encoded from decoded pixels
   at 768 px as a JPEG: no EXIF, so no GPS, no ICC, no thumbnail, no maker note.
-* **There is a receipt**, written *before* the request, so a send that venice
+* **There is a receipt**, written *before* the request, so a send the provider
   refuses is still counted. `sets/<id>/sent.json`, and the header of the
-  console says how many photos have ever left.
+  console says how many photos have ever left. A missing key refuses *before*
+  anything is encoded — no receipt for a send that never happened.
 * **The score does not move.** Findings arrive as `read_flags`, each with
   `source: read` and no `cost`. `score` stays exactly `100 − Σ issue.cost`.
-* Identity is a wallet-signed mod-protocol token; venice spends **your** Venice
-  key, filed under this box's address and held encrypted by venice, not here.
+* Direct providers spend **your** key, filed on this box at 0600. The gateway
+  path instead signs a wallet mod-protocol token and spends a key filed with
+  the venice module.
 
 Everything it returns is a model's opinion and is labelled as one — `said_by`
 is on every read. Treat "expression: neutral" as a second opinion worth

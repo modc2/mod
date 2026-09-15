@@ -912,23 +912,6 @@ export default function Page() {
       )}
       {success && !busy && <div className="success-box">✓ {success}</div>}
 
-      {!token && (
-        <div className="gate-card">
-          <div className="gate-glow" />
-          <h2>Gated storage</h2>
-          <p className="muted">
-            Access is restricted to the <strong>mod owner</strong> and on-chain <strong>BlocTime</strong> holders.
-            Sign in with your wallet to check your access — holding BlocTime grants entry automatically, no
-            whitelisting needed.
-          </p>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            No wallet extension? <strong>{hasLocal ? "Sign in with local key" : "Continue without a wallet"}</strong>{" "}
-            {hasLocal ? "uses the keypair already in this browser" : "mints a keypair right here in your browser"} — it
-            signs the same way a wallet does, so you can browse the market and hold an address immediately. Back the key
-            up from the key button once you&apos;re in; clearing site data destroys it.
-          </p>
-        </div>
-      )}
 
       {token && !canStore && (
         <div className="error-box">

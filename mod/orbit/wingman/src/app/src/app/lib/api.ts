@@ -127,9 +127,13 @@ export async function getHealth() {
 export async function getSets(): Promise<WingmanSet[]> {
   const data = await req<{ sets?: WingmanSet[] } | WingmanSet[]>('GET', '/sets')
   // Engine may return {sets: [...]} or the array directly
-  if (Array.isArray(data)) return data
-  const d = data as { sets?: WingmanSet[] }
-  return d.sets ?? []
+  const sets = Array.isArray(data) ? data : (data as { sets?: WingmanSet[] }).sets ?? []
+  // The list endpoint reports photos as a count, not an array
+  return sets.map(s =>
+    typeof (s.photos as unknown) === 'number'
+      ? { ...s, photo_count: s.photos as unknown as number, photos: [] }
+      : s,
+  )
 }
 
 export async function newSet(name?: string): Promise<WingmanSet> {

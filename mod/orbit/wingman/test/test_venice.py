@@ -1,11 +1,13 @@
-"""The venice read path, against a stub gateway.
+"""The read path, against a stub provider.
 
-Nothing here touches the real venice module or the network beyond loopback:
-a `http.server` on an ephemeral port answers `/health`, `/me`, `/models`,
-`/key` and `/chat` the way orbit/venice does, and wingman is pointed at it.
-What is under test is the part wingman owns — what leaves the box, that the
-receipt is written before the answer comes back, that the model's answers land
-in `read_flags` and never in `score`, and that every other verb stays offline.
+Nothing here touches a real provider or the network beyond loopback: a
+`http.server` on an ephemeral port answers `/models` and `/chat/completions`
+the way the Venice API and OpenRouter do (one OpenAI-shaped surface), and
+wingman is pointed at it with a throwaway key. What is under test is the part
+wingman owns — what leaves the box, that the receipt is written before the
+answer comes back, that the model's answers land in `read_flags` and never in
+`score`, that every other verb stays offline, and that `auto` resolves to
+whichever provider holds a key.
 """
 
 import base64
@@ -26,7 +28,9 @@ sys.path.append(HERE)
 
 TMP = tempfile.mkdtemp(prefix='wingman-venice-test-')
 os.environ['WINGMAN_DIR'] = TMP
-os.environ.pop('WINGMAN_VENICE', None)
+for _k in ('WINGMAN_VENICE', 'WINGMAN_VENICE_PROVIDER', 'WINGMAN_VENICE_URL',
+           'WINGMAN_VENICE_MODEL', 'VENICE_API_KEY', 'OPENROUTER_API_KEY'):
+    os.environ.pop(_k, None)
 _real = os.path.expanduser('~/.mod/wingman/models/version-RFB-320.onnx')
 if os.path.exists(_real):
     os.makedirs(os.path.join(TMP, 'models'), exist_ok=True)
@@ -41,7 +45,8 @@ import mcp                                                  # noqa: E402
 V = E.venice_module()
 assert V is E.venice_module()
 
-SEEN = {'chat': [], 'auth': [], 'key': None}
+TEST_KEY = 'vk-test-not-real'
+SEEN = {'chat': [], 'auth': [], 'paths': []}
 ANSWER = {'json': {
     'expression': 'neutral', 'eyes': 'sunglasses', 'eye_contact': 'none',
     'shot': 'mirror-selfie', 'subject': 'one-clear-subject', 'people_visible': 1,
@@ -64,13 +69,8 @@ class Stub(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def do_GET(self):
-        if self.path == '/health':
-            return self._send(200, {'ok': True, 'service': 'venice-stub'})
-        if self.path == '/me':
-            SEEN['auth'].append(self.headers.get('authorization'))
-            return self._send(200, {'address': '0xstub', 'has_key': bool(SEEN['key']),
-                                    'paid_available': False})
         if self.path == '/models':
+            SEEN['auth'].append(self.headers.get('authorization'))
             return self._send(200, {'data': [
                 {'id': 'seeing-model', 'type': 'text', 'model_spec': {
                     'name': 'Seeing', 'capabilities': {'supportsVision': True}}},
@@ -82,10 +82,8 @@ class Stub(BaseHTTPRequestHandler):
         n = int(self.headers.get('content-length') or 0)
         body = json.loads(self.rfile.read(n) or b'{}')
         SEEN['auth'].append(self.headers.get('authorization'))
-        if self.path == '/key':
-            SEEN['key'] = body.get('key')
-            return self._send(200, {'ok': True})
-        if self.path == '/chat':
+        SEEN['paths'].append(self.path)
+        if self.path == '/chat/completions':
             SEEN['chat'].append(body)
             if ANSWER['status'] != 200:
                 return self._send(ANSWER['status'], {'error': 'stub refusal'})
@@ -96,19 +94,14 @@ class Stub(BaseHTTPRequestHandler):
             return self._send(200, {'choices': [{'message': {'content': text}}]})
         return self._send(404, {'error': 'no'})
 
-    def do_DELETE(self):
-        if self.path == '/key':
-            SEEN['key'] = None
-            return self._send(200, {'ok': True})
-        return self._send(404, {'error': 'no'})
-
 
 @pytest.fixture(scope='module', autouse=True)
 def stub():
     srv = HTTPServer(('127.0.0.1', 0), Stub)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    V.configure(url=f'http://127.0.0.1:{srv.server_address[1]}', model='seeing-model',
-                enabled=True)
+    V.set_key(TEST_KEY, provider='venice')
+    V.configure(provider='venice', url=f'http://127.0.0.1:{srv.server_address[1]}',
+                model='seeing-model', enabled=True)
     V._TOKEN.update(token=None, at=0, address=None)
     yield srv
     srv.shutdown()
@@ -164,11 +157,8 @@ def test_read_sends_the_copy_and_parses_fenced_json(photos):
 
 def test_every_send_is_authenticated(photos):
     assert SEEN['auth'], 'no request carried a header at all'
-    assert all(a and a.startswith('Bearer ') for a in SEEN['auth'])
-    tok = json.loads(base64.urlsafe_b64decode(
-        SEEN['auth'][-1][7:] + '=' * (-len(SEEN['auth'][-1][7:]) % 4)))
-    assert set(tok) >= {'data', 'time', 'key', 'signature'}
-    assert tok['key'].startswith('0x') and len(tok['key']) == 42
+    assert all(a == 'Bearer ' + TEST_KEY for a in SEEN['auth']), \
+        'a send went out without the filed key'
 
 
 def test_receipt_records_the_send(photos):
@@ -254,17 +244,70 @@ def test_cached_reads_need_no_gateway(photos, monkeypatch):
 
 def test_status_and_models(photos):
     s = V.status()
-    assert s['reachable'] is True and s['address'] == '0xstub'
+    assert s['provider'] == 'venice' and s['reachable'] is True
+    assert s['has_key'] is True and s['can_read'] is True
     assert s['sends']['count'] >= 1
     ids = [m['id'] for m in V.models()['models']]
     assert ids == ['seeing-model'], 'a model that cannot see was offered for a read'
 
 
-def test_key_round_trip():
-    V.set_key('sk-test-not-real')
-    assert SEEN['key'] == 'sk-test-not-real'
-    V.forget_key()
-    assert SEEN['key'] is None
+def test_keys_are_local_private_and_route_by_shape():
+    # sk-or-… files under openrouter without being told; the file is 0600
+    r = V.set_key('sk-or-not-real')
+    assert r['provider'] == 'openrouter'
+    assert oct(os.stat(V.KEYS_PATH).st_mode & 0o777) == '0o600'
+    assert V.key_for('openrouter') == 'sk-or-not-real'
+    r = V.forget_key('openrouter')
+    assert r['forgot'] == ['openrouter'] and V.key_for('openrouter') is None
+    # the venice test key from the fixture is untouched
+    assert V.key_for('venice') == TEST_KEY
+
+
+def test_auto_resolves_to_whoever_holds_a_key():
+    assert V.configure(provider='auto')['resolves_to'] == 'venice'
+    try:
+        V.set_key('sk-or-not-real')
+        assert V.resolved()['provider'] == 'venice', 'venice key should win'
+        V.forget_key('venice')
+        assert V.resolved()['provider'] == 'openrouter'
+        V.forget_key()
+        assert V.resolved()['provider'] == 'gateway', \
+            'no key at all should fall back to the protocol gateway'
+        assert V.resolved()['chat'] == '/chat'
+    finally:
+        V.set_key(TEST_KEY, provider='venice')
+        V.configure(provider='venice')
+
+
+def test_no_key_refuses_before_anything_is_encoded_or_logged(photos):
+    V.configure(provider='openrouter')          # no openrouter key on file
+    before = V.sends(photos['id'])['count']
+    try:
+        with pytest.raises(E.WingmanError) as e:
+            V.read(photos['id'], photo=photos['photos'][0]['id'], force=True)
+        assert e.value.status == 402
+        assert V.sends(photos['id'])['count'] == before, \
+            'a receipt was written for a send that never left'
+    finally:
+        V.configure(provider='venice')
+
+
+def test_venice_asks_for_no_house_prompt_and_openrouter_does_not(photos):
+    SEEN['chat'].clear()
+    V.read(photos['id'], photo=photos['photos'][0]['id'], summary=False, force=True)
+    assert SEEN['paths'][-1] == '/chat/completions'
+    assert SEEN['chat'][-1]['venice_parameters'] == {
+        'include_venice_system_prompt': False}
+    V.set_key('sk-or-not-real')
+    V.configure(provider='openrouter')
+    try:
+        V.read(photos['id'], photo=photos['photos'][0]['id'], summary=False, force=True)
+        assert SEEN['paths'][-1] == '/chat/completions'
+        assert 'venice_parameters' not in SEEN['chat'][-1]
+        assert SEEN['auth'][-1] == 'Bearer sk-or-not-real'
+    finally:
+        V.forget_key('openrouter')
+        V.configure(provider='venice')
 
 
 def test_mcp_tools_are_registered():

@@ -7,7 +7,8 @@ MCP endpoint and an A record — and they are only consistent if one thing
 computes all four from the same source. That thing is here.
 
 `resolve()` accepts whatever the caller happens to be holding: a module name
-(`eth`), a hostname (`eth.modc2.com`), a gateway path (`modc2.com/api/eth`) or
+(`eth`), a hostname (`eth.modc2.com`), a gateway path (`modc2.com/api/eth` or
+`eth.modc2.com/api`) or
 a whole URL. It answers with the module, the host it is served on, every
 address for it, whether the upstream ports are actually listening, and the DNS
 records that make the hostname resolve — each labelled with where it came from.
@@ -48,7 +49,13 @@ def _split(query):
         host, path = q, ''
     parts = [p for p in path.split('/') if p]
     if parts and parts[0] == 'api':
-        parts = parts[1:]
+        remaining = parts[1:]
+        # new subdomain form: {mod}.{host}/api or {mod}.{host}/api/mcp —
+        # the module is in the subdomain; /api[/mcp] is just a path prefix
+        if not remaining or (len(remaining) == 1 and remaining[0] == 'mcp'):
+            parts = []
+        else:
+            parts = remaining
     module = parts[0].lower() if parts else None
     if not module and host and '.' not in host:
         return None, host.lower(), 'module'          # bare name: "eth"
@@ -227,11 +234,12 @@ def plan(host, target=None):
                     f'modules, so {host}/{{mod}} reaches them over TLS',
              'who': 'the OWNER of that box — this is the one step you cannot '
                     'do yourself, because it edits the live router',
-             'gets': f'{host}/eth and {host}/api/eth serve the same modules'},
+             'gets': f'{host}/{{mod}} serves the app; {{mod}}.{host}/api serves the API'},
         ],
         'then': {
             'app': f'https://{host}/{{mod}}',
-            'api': f'https://{host}/api/{{mod}}',
+            'api': f'https://{{mod}}.{host}/api',
+            'mcp': f'https://{{mod}}.{host}/api/mcp',
             'subdomain': f'https://{{mod}}.{host}',
             'modules': modules[:12],
             'module_count': len(modules),
@@ -264,11 +272,11 @@ def overview():
         'attribution': attrib.deployment(host),
         'naming': {
             'app': f'https://{host}/{{mod}}',
-            'api': f'https://{host}/api/{{mod}}',
-            'mcp': f'https://{host}/api/{{mod}}/mcp',
+            'api': f'https://{{mod}}.{host}/api',
+            'mcp': f'https://{{mod}}.{host}/api/mcp',
             'subdomain': f'https://{{mod}}.{host}',
-            'rule': 'the path form is what the router serves; the subdomain '
-                    'form is what this zone resolves. Both point at one box.',
+            'rule': 'the app lives at the path form; the api and mcp live '
+                    'under the module subdomain. Both point at one box.',
         },
         'listener': server.state(),
     }

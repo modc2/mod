@@ -311,13 +311,37 @@ function PieChart({ liq, pos }: { liq: number; pos: number }) {
   const total = liq + pos;
   if (total <= 0) {
     return (
-      <div className="flex items-center justify-center h-40 text-pixel-muted text-xs">
+      <div className="flex items-center justify-center h-10 text-pixel-muted text-xs">
         No funds yet
       </div>
     );
   }
   const liqPct = (liq / total) * 100;
   const posPct = 100 - liqPct;
+
+  // When fully in cash there's nothing to show — skip the ring and just
+  // print the two-line stat. A 100% green donut conveys nothing and takes
+  // up a third of the viewport.
+  if (pos <= 0) {
+    return (
+      <div className="flex items-center gap-6 py-1">
+        <div className="space-y-1.5 text-sm">
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#10b981" }} />
+            <span className="text-pixel-muted">Cash</span>
+            <span className="font-mono">{fmtUsd(liq)}</span>
+            <span className="text-pixel-muted text-xs">(100%)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: "#f59e0b" }} />
+            <span className="text-pixel-muted">Positions</span>
+            <span className="font-mono">$0.00</span>
+            <span className="text-pixel-muted text-xs">(0%)</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // For a 2-slice pie we just need a single arc. SVG circle + dasharray
   // is way simpler than computing path arc d-strings for one slice.
@@ -327,8 +351,8 @@ function PieChart({ liq, pos }: { liq: number; pos: number }) {
   const posArc = c - liqArc;
 
   return (
-    <div className="flex items-center gap-6">
-      <svg viewBox="0 0 200 200" className="w-44 h-44 -rotate-90">
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 200 200" className="w-24 h-24 shrink-0 -rotate-90">
         <circle cx="100" cy="100" r={r} fill="none" stroke="#f59e0b" strokeWidth="36" />
         <circle cx="100" cy="100" r={r} fill="none"
           stroke="#10b981" strokeWidth="36"

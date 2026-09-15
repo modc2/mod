@@ -147,9 +147,11 @@ def _t_read(a):
 
 def _t_venice(a):
     V = E.venice_module()
-    if any(a.get(k) is not None for k in ('url', 'model', 'enabled')):
+    if a.get('key'):
+        return V.set_key(a['key'], provider=a.get('provider'))
+    if any(a.get(k) is not None for k in ('url', 'model', 'enabled', 'provider')):
         return V.configure(url=a.get('url'), model=a.get('model'),
-                           enabled=a.get('enabled'))
+                           enabled=a.get('enabled'), provider=a.get('provider'))
     if a.get('models'):
         return V.models()
     return V.status()
@@ -262,8 +264,9 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {'set': _SET}, 'required': ['set']},
         'handler': _t_delete},
     'wingman_read': {
-        'description': 'The half a measurement cannot reach: ask a vision model on '
-                       'orbit/venice what each photo actually shows — expression, '
+        'description': 'The half a measurement cannot reach: ask a vision model '
+                       '(venice API, openrouter, or orbit/venice — wingman_venice '
+                       'says which) what each photo actually shows — expression, '
                        'whether the eyes are open and on the camera, mirror selfie or '
                        'not, whether a stranger can tell which person is you, setting, '
                        'outfit, what is cluttering the frame — plus, across the set, '
@@ -282,14 +285,19 @@ TOOLS = {
             'force': _bool('re-read even if cached')}, 'required': ['set']},
         'handler': _t_read},
     'wingman_venice': {
-        'description': 'The state of the read path: is orbit/venice reachable, which '
-                       'address it sees this box as, whether there is a key to spend, '
-                       'which model reads a photo, and how many photos have been sent. '
-                       'Pass url=/model=/enabled= to change it — enabled=0 switches '
-                       'sending off entirely. models=true lists the vision models.',
+        'description': 'The state of the read path: which provider a read would use '
+                       '(the venice API, openrouter, or the protocol gateway — auto '
+                       'picks whichever has a key on file), whether there is a key to '
+                       'spend, which model reads a photo, and how many photos have '
+                       'been sent. Pass provider=/url=/model=/enabled= to change it — '
+                       'enabled=0 switches sending off entirely. key= files an API '
+                       'key on this box (sk-or-… is openrouter, anything else '
+                       'venice). models=true lists the vision models.',
         'inputSchema': {'type': 'object', 'properties': {
-            'url': _str('the venice gateway (default http://localhost:9000/api/venice)'),
+            'provider': _str('auto | venice | openrouter | gateway'),
+            'url': _str('override the provider\'s endpoint'),
             'model': _str('the model a read uses'),
+            'key': _str('file an API key for the venice API or openrouter'),
             'enabled': _bool('false switches every read off'),
             'models': _bool('list vision-capable models instead')}},
         'handler': _t_venice},

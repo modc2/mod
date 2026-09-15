@@ -72,10 +72,12 @@ def info():
                           'expression, eyes, shot type, setting, outfit, what the '
                           'set repeats. THE ONE ROUTE THAT SENDS A PHOTO OUT',
             'GET /read': 'set= — reads already on disk, and the send log; no network',
-            'GET /venice': 'is the read path live, and does it have a key to spend',
-            'POST /venice': '{url?, model?, enabled?} — configure or switch it off',
+            'GET /venice': 'which provider a read would use, and is there a key',
+            'POST /venice': '{provider?, url?, model?, enabled?, key?} — configure, '
+                            'file a key, or switch it off',
             'GET /venice/models': 'the vision-capable models a read can use',
-            'POST /venice/key': '{key} — file your own Venice key (BYOK)',
+            'POST /venice/key': '{key, provider?} — file a Venice or sk-or-… '
+                                'OpenRouter key on this box (0600)',
             'DELETE /venice/key': 'forget it',
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
@@ -204,8 +206,10 @@ def route(method, path, query, body, trusted=False):
             if not trusted:
                 raise WingmanError('changing the venice settings needs loopback or '
                                    'x-wingman-token', status=403)
+            if arg('key'):
+                return V.set_key(arg('key'), provider=arg('provider'))
             return V.configure(url=arg('url'), model=arg('model'),
-                               enabled=arg('enabled'))
+                               enabled=arg('enabled'), provider=arg('provider'))
         return V.status()
     if path == '/venice/models':
         V = E.venice_module()
@@ -216,8 +220,8 @@ def route(method, path, query, body, trusted=False):
             raise WingmanError('the venice key is set from this box only — loopback '
                                'or x-wingman-token', status=403)
         if method == 'DELETE':
-            return V.forget_key()
-        return V.set_key(arg('key'))
+            return V.forget_key(arg('provider'))
+        return V.set_key(arg('key'), provider=arg('provider'))
     raise WingmanError(f'no route {path} — GET / lists them', 404)
 
 

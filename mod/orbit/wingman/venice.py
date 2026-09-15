@@ -10,10 +10,17 @@ something that can look at a picture.
 
 This is that, and it is the one place in wingman where a photo leaves the box.
 
-    orbit/venice (:50880, or :9000/api/venice through the activator) is a
-    mod-protocol gateway to Venice's model catalogue. We authenticate with a
-    wallet-signed protocol token, POST an OpenAI-shaped chat completion with
-    the image inline, and get back JSON.
+Three providers, all speaking the same OpenAI-shaped chat completion with the
+image inline as a data URL:
+
+    venice     — Venice's own API (api.venice.ai), your Venice key
+    openrouter — OpenRouter (openrouter.ai), any `sk-or-…` key, 400+ models
+    gateway    — orbit/venice through the activator, wallet-signed protocol
+                 token (the legacy path; needs a working protocol signer AND
+                 a key filed with the venice module)
+
+The default is `auto`: whichever direct provider has a key on file wins
+(venice first), and only with no key at all does the gateway get tried.
 
 The rules that make this safe to ship next to a module whose README says
 "nothing leaves this box":
@@ -50,14 +57,27 @@ if HERE not in sys.path:
 import engine as E                                          # noqa: E402
 from engine import WingmanError                             # noqa: E402
 
-# The gateway. The activator path is the default: it wakes venice if the
-# module has been slept, which the direct port does not.
-DEFAULT_URL = 'http://localhost:9000/api/venice'
-FALLBACK_URL = 'http://localhost:50880'
-# Vision-capable, cheap, and reliable at returning JSON. Override per call.
-DEFAULT_MODEL = 'qwen3-vl-235b-a22b'
+# Every provider is an OpenAI-shaped completions endpoint; they differ only in
+# where they are, how they are paid, and what a vision model is called there.
+# The gateway URL goes through the activator on purpose: it wakes orbit/venice
+# if the module has been slept, which the direct port would not.
+PROVIDERS = {
+    'venice': {
+        'url': 'https://api.venice.ai/api/v1', 'chat': '/chat/completions',
+        'model': 'qwen3-vl-235b-a22b', 'auth': 'key', 'env': 'VENICE_API_KEY',
+    },
+    'openrouter': {
+        'url': 'https://openrouter.ai/api/v1', 'chat': '/chat/completions',
+        'model': 'qwen/qwen3.7-flash', 'auth': 'key', 'env': 'OPENROUTER_API_KEY',
+    },
+    'gateway': {
+        'url': 'http://localhost:9000/api/venice', 'chat': '/chat',
+        'model': 'qwen3-vl-235b-a22b', 'auth': 'protocol', 'env': None,
+    },
+}
 
 CONFIG_PATH = os.path.join(E.STATE_DIR, 'venice.json')
+KEYS_PATH = os.path.join(E.STATE_DIR, 'keys.json')
 READ_VERSION = 1
 SEND_PX = int(os.environ.get('WINGMAN_VENICE_PX') or 768)
 SEND_QUALITY = int(os.environ.get('WINGMAN_VENICE_QUALITY') or 82)
@@ -131,8 +151,10 @@ setting, same outfit, same expression, same shot type; empty list if varied],
 # ── config ───────────────────────────────────────────────────────────────
 
 def config():
-    """Where venice is, which model reads a photo, and whether reads are
-    allowed at all. Env wins over the file; the file wins over the default."""
+    """Which provider, where it is, which model reads a photo, and whether
+    reads are allowed at all. Env wins over the file; the file wins over the
+    provider's default. `url` and `model` stay None here when nothing has
+    overridden them — `resolved()` fills in the provider's own defaults."""
     cfg = E._read_json(CONFIG_PATH, {}) or {}
     env = (os.environ.get('WINGMAN_VENICE') or '').strip().lower()
     enabled = cfg.get('enabled', True)
@@ -140,18 +162,28 @@ def config():
         enabled = False
     elif env in ('on', '1', 'true', 'yes'):
         enabled = True
+    provider = (os.environ.get('WINGMAN_VENICE_PROVIDER') or cfg.get('provider')
+                or 'auto').strip().lower()
+    if provider != 'auto' and provider not in PROVIDERS:
+        provider = 'auto'
     return {
-        'url': (os.environ.get('WINGMAN_VENICE_URL') or cfg.get('url')
-                or DEFAULT_URL).rstrip('/'),
-        'model': os.environ.get('WINGMAN_VENICE_MODEL') or cfg.get('model') or DEFAULT_MODEL,
+        'provider': provider,
+        'url': (os.environ.get('WINGMAN_VENICE_URL') or cfg.get('url') or '').rstrip('/') or None,
+        'model': os.environ.get('WINGMAN_VENICE_MODEL') or cfg.get('model') or None,
         'enabled': bool(enabled),
         'locked_by_env': env in ('off', '0', 'false', 'no'),
     }
 
 
-def configure(url=None, model=None, enabled=None):
-    """Persist the gateway URL, the reading model, or the off switch."""
+def configure(url=None, model=None, enabled=None, provider=None):
+    """Persist the provider, its URL, the reading model, or the off switch."""
     cfg = E._read_json(CONFIG_PATH, {}) or {}
+    if provider is not None:
+        p = str(provider).strip().lower()
+        if p not in ('auto',) + tuple(PROVIDERS):
+            raise WingmanError('provider must be auto, venice, openrouter or '
+                               f'gateway — not {p!r}')
+        cfg['provider'] = p
     if url is not None:
         cfg['url'] = str(url).rstrip('/')
     if model is not None:
@@ -161,7 +193,44 @@ def configure(url=None, model=None, enabled=None):
             str(enabled).lower() not in ('0', 'false', 'no', 'off', '')
     E._ensure()
     E._write_json(CONFIG_PATH, cfg)
-    return config()
+    return dict(config(), resolves_to=resolved()['provider'])
+
+
+# ── keys ─────────────────────────────────────────────────────────────────
+
+def _keys():
+    return E._read_json(KEYS_PATH, {}) or {}
+
+
+def _save_keys(keys):
+    """The one file with a secret in it — written 0600, never a world-readable
+    tmp file in between."""
+    E._ensure()
+    fd = os.open(KEYS_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(keys, f, indent=1)
+
+
+def key_for(provider):
+    """The key a provider would spend: its env var wins, then the local file."""
+    env = (PROVIDERS.get(provider) or {}).get('env')
+    return (os.environ.get(env) if env else None) or _keys().get(provider)
+
+
+def resolved():
+    """The provider a read would actually use, url/model/auth filled in.
+    `auto` picks the first direct provider holding a key (venice, then
+    openrouter) and falls back to the protocol gateway with no key at all."""
+    cfg = config()
+    p = cfg['provider']
+    if p == 'auto':
+        p = next((name for name in ('venice', 'openrouter') if key_for(name)),
+                 'gateway')
+    spec = PROVIDERS[p]
+    return dict(cfg, provider=p,
+                url=cfg['url'] or spec['url'],
+                model=cfg['model'] or spec['model'],
+                chat=spec['chat'], auth_mode=spec['auth'])
 
 
 # ── protocol auth ────────────────────────────────────────────────────────
@@ -194,20 +263,34 @@ def _protocol_mod():
 
 
 def token(max_age=45):
-    """A wallet-signed protocol token venice can recover an address from.
-    Cached briefly — signing is ~10 ms, but a set of 20 photos is 20 calls."""
+    """A wallet-signed protocol token the gateway can recover an address from.
+    Cached briefly — signing is ~10 ms, but a set of 20 photos is 20 calls.
+    Only the gateway provider needs this; a broken signer must surface as a
+    clean error, not a traceback, because the direct providers are the fix."""
     now = time.time()
     if _TOKEN['token'] and now - _TOKEN['at'] < max_age:
         return _TOKEN['token']
-    auth = _protocol_mod().mod('auth')()
-    t = auth.generate({'module': 'wingman', 'purpose': 'photo-read'})
+    try:
+        auth = _protocol_mod().mod('auth')()
+        t = auth.generate({'module': 'wingman', 'purpose': 'photo-read'})
+    except WingmanError:
+        raise
+    except Exception as e:
+        raise WingmanError(
+            'the protocol signer is broken on this box '
+            f'({type(e).__name__}: {e}) so the gateway path cannot '
+            'authenticate. Use a direct provider instead: file a Venice or '
+            'OpenRouter key with `m wingman/venice_key <key>`.', status=503)
     tok = t['token'] if isinstance(t, dict) else t
     _TOKEN.update(token=tok, at=now)
     return tok
 
 
 def address():
-    """The address venice sees us as — the one a BYOK key is filed under."""
+    """The address the gateway sees us as — the one a BYOK key is filed
+    under there. Meaningless for the direct providers."""
+    if resolved()['auth_mode'] != 'protocol':
+        return None
     if _TOKEN['address']:
         return _TOKEN['address']
     try:
@@ -220,92 +303,155 @@ def address():
 # ── transport ────────────────────────────────────────────────────────────
 
 def _call(path, body=None, method=None, url=None, timeout=None, auth=True):
-    cfg = config()
-    base = (url or cfg['url']).rstrip('/')
+    r = resolved()
+    who = r['provider']
+    base = (url or r['url']).rstrip('/')
     method = method or ('POST' if body is not None else 'GET')
     data = json.dumps(body).encode() if body is not None else None
-    headers = {'content-type': 'application/json', 'user-agent': 'wingman/0.2'}
+    headers = {'content-type': 'application/json', 'user-agent': 'wingman/0.3'}
     if auth:
-        headers['authorization'] = 'Bearer ' + token()
+        if r['auth_mode'] == 'key':
+            k = key_for(who)
+            if not k:
+                raise WingmanError(
+                    f'no {who} API key on file. `m wingman/venice_key <key>` files '
+                    'one on this box (an sk-or-… key goes to openrouter, anything '
+                    'else to venice).', status=402)
+            headers['authorization'] = 'Bearer ' + k
+            if who == 'openrouter':
+                headers['x-title'] = 'wingman'
+        else:
+            headers['authorization'] = 'Bearer ' + token()
     req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout or TIMEOUT) as r:
-            raw = r.read().decode('utf-8', 'replace')
+        with urllib.request.urlopen(req, timeout=timeout or TIMEOUT) as r_:
+            raw = r_.read().decode('utf-8', 'replace')
         return json.loads(raw) if raw.strip() else {}
     except urllib.error.HTTPError as e:
         detail = (e.read() or b'').decode('utf-8', 'replace')[:600]
         try:
-            msg = json.loads(detail).get('error') or detail
+            err = json.loads(detail).get('error') or detail
+            msg = err.get('message') if isinstance(err, dict) else err
         except Exception:
             msg = detail
         if e.code == 402:
-            raise WingmanError(
-                'venice has no key to spend for this caller. Either put your own '
-                'Venice key on file — `m wingman/venice_key <key>` — or configure '
-                'the paid path on the venice module. venice said: ' + msg,
-                status=402, address=address())
+            hint = {
+                'openrouter': 'the OpenRouter account is out of credits',
+                'venice': 'the Venice account cannot pay for this call',
+                'gateway': 'the gateway has no key to spend for this caller — file '
+                           'your own with `m wingman/venice_key <key>`',
+            }[who]
+            raise WingmanError(f'{who} refused to spend (402): {hint}. It said: {msg}',
+                               status=402)
         if e.code in (401, 403):
-            raise WingmanError(f'venice rejected the protocol token ({e.code}): {msg}',
+            cred = 'API key' if r['auth_mode'] == 'key' else 'protocol token'
+            raise WingmanError(f'{who} rejected the {cred} ({e.code}): {msg}',
                                status=e.code)
-        raise WingmanError(f'venice {e.code} on {path}: {msg}', status=502)
+        raise WingmanError(f'{who} {e.code} on {path}: {msg}', status=502)
     except urllib.error.URLError as e:
         raise WingmanError(
-            f'venice is not reachable at {base} ({e.reason}). Start orbit/venice, or '
-            'point wingman elsewhere with `m wingman/venice url=<...>`.', status=503)
+            f'{who} is not reachable at {base} ({e.reason}). Pick another provider '
+            'with `m wingman/venice provider=<venice|openrouter|gateway>` or point '
+            'this one elsewhere with url=.', status=503)
+    except OSError as e:                 # a mid-response socket timeout, mostly
+        raise WingmanError(f'{who} at {base} went quiet mid-request '
+                           f'({type(e).__name__}: {e})', status=503)
 
 
 def status():
-    """Is the read path live, and what would it cost — one call, no photo."""
-    cfg = config()
-    out = dict(cfg, reachable=False, address=None, has_key=None,
-               paid_available=None, error=None)
-    try:
-        out['health'] = _call('/health', method='GET', auth=False, timeout=10)
-        out['reachable'] = bool(out['health'].get('ok'))
-    except WingmanError as e:
-        out['error'] = e.args[0]
-        return out
-    try:
-        me = _call('/me', method='GET', timeout=20)
-        _TOKEN['address'] = me.get('address')
-        out.update(address=me.get('address'), has_key=me.get('has_key'),
-                   paid_available=me.get('paid_available'),
-                   price=me.get('price'), currency=me.get('currency'))
-    except WingmanError as e:
-        out['error'] = e.args[0]
-    out['can_read'] = bool(out['reachable'] and cfg['enabled'] and
-                           (out.get('has_key') or out.get('paid_available')))
+    """Is the read path live, and on whose account — one call, no photo."""
+    r = resolved()
+    out = {'provider': r['provider'], 'configured': config()['provider'],
+           'url': r['url'], 'model': r['model'], 'enabled': r['enabled'],
+           'locked_by_env': r['locked_by_env'], 'reachable': False,
+           'has_key': None, 'error': None}
+    if r['auth_mode'] == 'key':
+        out['has_key'] = bool(key_for(r['provider']))
+        try:
+            m = _call('/models', method='GET', auth=out['has_key'], timeout=15)
+            out['reachable'] = True
+            out['models_seen'] = len((m or {}).get('data') or (m or {}).get('models') or [])
+        except WingmanError as e:
+            # 401/402/403 is the provider answering — the wire is fine, the
+            # account is the problem. Only silence means unreachable.
+            out['reachable'] = e.status in (401, 402, 403)
+            out['error'] = e.args[0]
+        out['can_read'] = bool(out['reachable'] and r['enabled'] and out['has_key'])
+    else:
+        out['address'] = None
+        try:
+            out['health'] = _call('/health', method='GET', auth=False, timeout=10)
+            out['reachable'] = bool(out['health'].get('ok'))
+        except WingmanError as e:
+            out['error'] = e.args[0]
+            out.update(can_read=False, sends=sends())
+            return out
+        try:
+            me = _call('/me', method='GET', timeout=20)
+            _TOKEN['address'] = me.get('address')
+            out.update(address=me.get('address'), has_key=me.get('has_key'),
+                       paid_available=me.get('paid_available'),
+                       price=me.get('price'), currency=me.get('currency'))
+        except WingmanError as e:
+            out['error'] = e.args[0]
+        out['can_read'] = bool(out['reachable'] and r['enabled'] and
+                               (out.get('has_key') or out.get('paid_available')))
     out['sends'] = sends()
     return out
 
 
 def models(vision_only=True):
-    """The catalogue, filtered to what can actually look at a photo."""
-    data = (_call('/models', method='GET', auth=False, timeout=30) or {}).get('data') or []
+    """The provider's catalogue, filtered to what can actually look at a
+    photo. Venice and the gateway describe vision in `model_spec.capabilities`;
+    OpenRouter puts it in `architecture.input_modalities`."""
+    r = resolved()
+    data = _call('/models', method='GET',
+                 auth=(r['auth_mode'] == 'key' and bool(key_for(r['provider']))),
+                 timeout=30) or {}
     rows = []
-    for m in data:
+    for m in data.get('data') or data.get('models') or []:
         spec = m.get('model_spec') or {}
         caps = spec.get('capabilities') or {}
-        if vision_only and not caps.get('supportsVision'):
+        arch = m.get('architecture') or {}
+        vision = bool(caps.get('supportsVision')) or \
+            'image' in (arch.get('input_modalities') or m.get('input') or [])
+        if vision_only and not vision:
             continue
-        rows.append({'id': m.get('id'), 'name': spec.get('name'),
-                     'vision': bool(caps.get('supportsVision')),
-                     'json_schema': bool(caps.get('supportsResponseSchema'))})
-    return {'models': rows, 'count': len(rows), 'default': config()['model']}
+        rows.append({'id': m.get('id'), 'name': spec.get('name') or m.get('name'),
+                     'vision': vision,
+                     'json_schema': bool(caps.get('supportsResponseSchema')) or
+                     'response_format' in (m.get('supported_parameters') or [])})
+    return {'provider': r['provider'], 'models': rows, 'count': len(rows),
+            'default': r['model']}
 
 
-def set_key(key):
-    """File a Venice key under this box's address. It is stored by venice,
-    encrypted at rest, not by wingman."""
-    if not key or not str(key).strip():
-        raise WingmanError('pass the Venice API key')
-    _call('/key', {'key': str(key).strip()})
-    return {'ok': True, 'address': address(), 'has_key': True}
+def set_key(key, provider=None):
+    """File an API key on this box — `keys.json`, mode 0600, never rendered
+    back out. An `sk-or-…` key is OpenRouter's shape; anything else is filed
+    as a Venice key unless `provider` says otherwise. Filing a key is also
+    what flips `auto` onto that provider."""
+    key = str(key or '').strip()
+    if not key:
+        raise WingmanError('pass the API key')
+    p = (str(provider).strip().lower() if provider else
+         ('openrouter' if key.startswith('sk-or') else 'venice'))
+    if p not in ('venice', 'openrouter'):
+        raise WingmanError(f'keys are filed for venice or openrouter, not {p!r} — '
+                           'the gateway holds its own keys')
+    keys = _keys()
+    keys[p] = key
+    _save_keys(keys)
+    return {'ok': True, 'provider': p, 'has_key': True,
+            'resolves_to': resolved()['provider']}
 
 
-def forget_key():
-    _call('/key', method='DELETE')
-    return {'ok': True, 'address': address(), 'has_key': False}
+def forget_key(provider=None):
+    """Drop one provider's key, or every key when no provider is named."""
+    keys = _keys()
+    targets = [str(provider).strip().lower()] if provider else list(keys)
+    forgot = [p for p in targets if keys.pop(p, None) is not None]
+    _save_keys(keys)
+    return {'ok': True, 'forgot': forgot, 'resolves_to': resolved()['provider']}
 
 
 # ── what actually goes out ───────────────────────────────────────────────
@@ -366,13 +512,19 @@ def sends(set_ref=None):
 # ── the read ─────────────────────────────────────────────────────────────
 
 def _chat(model, messages, max_tokens=700):
+    cfg = resolved()
     body = {'model': model, 'messages': messages, 'max_tokens': max_tokens,
             'temperature': 0.2}
-    r = _call('/chat', body)
+    if cfg['provider'] == 'venice':
+        # Venice injects its own system prompt unless told not to; this is a
+        # JSON-only task and that prompt works against it.
+        body['venice_parameters'] = {'include_venice_system_prompt': False}
+    r = _call(cfg['chat'], body)
     try:
         return r['choices'][0]['message']['content']
     except (KeyError, IndexError, TypeError):
-        raise WingmanError(f'venice returned no message: {json.dumps(r)[:300]}', status=502)
+        raise WingmanError(f'{cfg["provider"]} returned no message: '
+                           f'{json.dumps(r)[:300]}', status=502)
 
 
 def _json_from(text):
@@ -463,13 +615,20 @@ def read_photo(meta, p, model=None, force=False):
     if have and have.get('v') == READ_VERSION and not force:
         return have
 
-    cfg = config()
+    cfg = resolved()
     if not cfg['enabled']:
         raise WingmanError(
             'reads are off. This is the only part of wingman that sends a photo '
             'anywhere; turn it on deliberately with `m wingman/venice enabled=1`'
             + (' (WINGMAN_VENICE=off in the environment overrides the config file)'
                if cfg['locked_by_env'] else ''), status=403)
+    if cfg['auth_mode'] == 'key' and not key_for(cfg['provider']):
+        # Refuse before a pixel is encoded — a receipt would claim a send
+        # that never left the box.
+        raise WingmanError(
+            f'no {cfg["provider"]} API key on file. `m wingman/venice_key <key>` '
+            'files one on this box (an sk-or-… key goes to openrouter, anything '
+            'else to venice).', status=402)
     model = model or cfg['model']
 
     raw, sent = payload(meta, p)
@@ -514,7 +673,7 @@ def read_photo(meta, p, model=None, force=False):
 def summarise(meta, reads, model=None):
     """One more call, on the notes rather than the photos, for the thing no
     single photo can show: what the set repeats and what it is missing."""
-    model = model or config()['model']
+    model = model or resolved()['model']
     notes = [{k: r[k] for k in ('name', 'expression', 'eyes', 'eye_contact', 'shot',
                                 'subject', 'setting', 'outfit', 'activity', 'reads_as')}
              for r in reads]
@@ -554,7 +713,7 @@ def read(set_ref, photo=None, model=None, force=False, summary=True, limit=None)
                 raise
             errors.append({'photo': p['id'], 'name': p.get('name'), 'error': e.args[0]})
 
-    out = {'set': meta['id'], 'name': meta['name'], 'model': model or config()['model'],
+    out = {'set': meta['id'], 'name': meta['name'], 'model': model or resolved()['model'],
            'photos': reads, 'errors': errors,
            'flags': [dict(f, photo=r['photo'], name=r['name'])
                      for r in reads for f in r['flags']],

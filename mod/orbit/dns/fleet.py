@@ -122,8 +122,8 @@ def urls(name, host=None, scheme='https'):
     host = host or settings.host()
     return {
         'app': f'{scheme}://{host}/{name}',
-        'api': f'{scheme}://{host}/api/{name}',
-        'mcp': f'{scheme}://{host}/api/{name}/mcp',
+        'api': f'{scheme}://{name}.{host}/api',
+        'mcp': f'{scheme}://{name}.{host}/api/mcp',
         'subdomain': f'{scheme}://{name}.{host}',
     }
 

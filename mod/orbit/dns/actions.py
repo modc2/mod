@@ -345,7 +345,8 @@ def router_sync(token=None, apply=True):
                detail='caddy host + reload')
     return {'host': host, 'caddy': out,
             'now': {'app': f'https://{host}/{{mod}}',
-                    'api': f'https://{host}/api/{{mod}}'}}
+                    'api': f'https://{{mod}}.{host}/api',
+                    'mcp': f'https://{{mod}}.{host}/api/mcp'}}
 
 
 def ops_prune(token=None, keep=200):

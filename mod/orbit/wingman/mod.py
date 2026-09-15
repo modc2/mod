@@ -170,21 +170,29 @@ class Mod:
         return engine.venice_module().read(set, photo=photo, model=model, force=force,
                            summary=summary, limit=limit)
 
-    def venice(self, url=None, model=None, enabled=None, models=False):
-        """The read path: reachable, which address, is there a key, which model,
-        how many photos have gone. Pass url=/model=/enabled= to change it."""
+    def venice(self, url=None, model=None, enabled=None, models=False,
+               provider=None, key=None):
+        """The read path: which provider (venice API, openrouter, or the
+        protocol gateway), is there a key, which model, how many photos have
+        gone. Pass provider=/url=/model=/enabled= to change it, key= to file
+        an API key, models=true for the vision catalogue."""
         import engine
         V = engine.venice_module()
-        if any(v is not None for v in (url, model, enabled)):
-            return V.configure(url=url, model=model, enabled=enabled)
+        if key:
+            return V.set_key(key, provider=provider)
+        if any(v is not None for v in (url, model, enabled, provider)):
+            return V.configure(url=url, model=model, enabled=enabled,
+                               provider=provider)
         return V.models() if models else V.status()
 
-    def venice_key(self, key=None, forget=False):
-        """File your own Venice key (BYOK) under this box's address, or forget it.
-        The key is stored by the venice module, encrypted at rest — not here."""
+    def venice_key(self, key=None, forget=False, provider=None):
+        """File your own API key on this box (0600), or forget it. An sk-or-…
+        key is filed for openrouter, anything else for the venice API; filing
+        a key is what flips the auto provider onto it."""
         import engine
         V = engine.venice_module()
-        return V.forget_key() if forget or not key else V.set_key(key)
+        return V.forget_key(provider) if forget or not key else \
+            V.set_key(key, provider=provider)
 
     # ── surfaces ─────────────────────────────────────────────────
 

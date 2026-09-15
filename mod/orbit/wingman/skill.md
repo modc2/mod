@@ -4,7 +4,7 @@ Turn a set of photos into Tinder/Hinge/Bumble-ready portraits: measure each
 one, pick the best N in order, crop face-aware to the app's card ratio, polish
 gently, strip all metadata, zip in slot order. Fourteen MCP tools, a REST API and
 a console on one port (`:50830`). Nothing retouched. Everything runs on the box
-except `wingman_read`, which sends a stripped copy of each photo to orbit/venice
+except `wingman_read`, which sends a stripped copy of each photo to a vision model
 for the things a measurement cannot reach.
 
 API `:50830` (`/api/wingman`) · console `/wingman` · MCP `POST /mcp`
@@ -43,7 +43,8 @@ sending the photo.
 ## `wingman_read` — ask before you call it
 
 The only tool here that sends anything anywhere. It shows a 768 px,
-metadata-free copy of each photo to a vision model on orbit/venice and returns
+metadata-free copy of each photo to a vision model (the Venice API,
+OpenRouter, or the orbit/venice gateway — whichever has a key) and returns
 expression, whether the eyes are open and on the camera, selfie vs mirror
 selfie, whether a stranger can tell which person is you, setting, outfit,
 what is cluttering the frame — and across the set, what repeats plus Hinge
@@ -51,8 +52,9 @@ prompt openings drawn from what the photos actually show.
 
 - **Tell the person it sends, and get a yes.** The original never moves and no
   EXIF/GPS goes with it, but a photo of their face reaches a model.
-- `wingman_venice` first: `can_read` is false when there is no Venice key on
-  file, and the fix is `m wingman/venice_key <key>` on the box.
+- `wingman_venice` first: `can_read` is false when there is no key on file,
+  and the fix is `m wingman/venice_key <key>` on the box — an `sk-or-…` key
+  files for OpenRouter, anything else for the Venice API.
 - Answers come back as `read`/`read_flags` with `source: read` and no `cost`.
   They never change `score`. Relay them as a model's opinion, not a number.
 - After a read, `wingman_audit` carries `read` per photo and `wingman_lineup`

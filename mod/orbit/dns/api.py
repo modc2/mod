@@ -50,8 +50,8 @@ def info():
         'owner': identity.owner(),
         'naming': {
             'app': f'https://{settings.host()}/{{mod}}',
-            'api': f'https://{settings.host()}/api/{{mod}}',
-            'mcp': f'https://{settings.host()}/api/{{mod}}/mcp',
+            'api': f'https://{{mod}}.{settings.host()}/api',
+            'mcp': f'https://{{mod}}.{settings.host()}/api/mcp',
             'name': f'{{mod}}.{settings.host()}',
         },
         'listener': {'port': s['dns_port'], 'bind': s['bind'],
