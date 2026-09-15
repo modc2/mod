@@ -1,4 +1,5 @@
-const API = process.env.NEXT_PUBLIC_API_URL || '/_api'
+// basePath auto-prefixes the /_api rewrite, so the browser must ask for /wingman/_api
+const API = process.env.NEXT_PUBLIC_API_URL || '/wingman/_api'
 
 // ── types ─────────────────────────────────────────────────────────────────
 
