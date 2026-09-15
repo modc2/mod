@@ -165,7 +165,7 @@ class Mod:
 
     def config(self):
         try:
-            with open(os.path.join(HERE, 'config.json')) as f:
+            with open(os.path.join(os.path.dirname(HERE), 'config.json')) as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -423,7 +423,7 @@ class Mod:
     def readme(self):
         """The project README."""
         for name in ('README.md', 'skill.md'):
-            p = os.path.join(HERE, name)
+            p = os.path.join(os.path.dirname(HERE), name)
             if os.path.exists(p):
                 with open(p) as f:
                     return f.read()

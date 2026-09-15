@@ -405,7 +405,6 @@ def route(method, path, query, body):
 
 
 def serve(port=PORT):
-    console = os.path.join(HERE, 'console.html')
     base = BASE if BASE.startswith('/') else '/' + BASE
     # The console calls `<its own path>/_api`, so it works whether the module is
     # mounted at /infer behind the gateway or served bare at :50820/.
@@ -466,11 +465,9 @@ def serve(port=PORT):
                 return self._send(202 if resp is None else 200, resp or b'',
                                   'application/json' if resp else 'text/plain')
             if p in ('/console', '/index.html') and self.command == 'GET':
-                try:
-                    with open(console, 'rb') as f:
-                        return self._send(200, f.read(), 'text/html; charset=utf-8')
-                except FileNotFoundError:
-                    return self._send(200, json.dumps(info(), indent=2).encode())
+                # The console is the Next.js app in src/app; the gateway routes
+                # {host}/infer to it. This port only answers with the API map.
+                return self._send(200, json.dumps(info(), indent=2).encode())
             if p.startswith('/blob/') and self.command in ('GET', 'HEAD'):
                 try:
                     data = E.blob(p.split('/', 2)[2])

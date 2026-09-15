@@ -1,7 +1,7 @@
 {
     "anchor": "src/mod.py",
     "app_port": 50980,
-    "description": "Fully local audio-to-text in the visitor's own browser tab. Speech is transcribed (and optionally translated) by models running on WebGPU/WASM in the page — no audio ever reaches the server. Engines: Whisper (transformers.js, light default), LiquidAI LFM2.5-Audio-1.5B-ONNX (onnxruntime-web, from the liquidai catalog) and LFM2.5-350M as an in-tab translation post-pass. The API is thin: the liquidai catalog filtered to what a tab can run, plus an MCP server (stdio and streamable HTTP at POST /mcp).",
+    "description": "Fully local audio-to-text in the visitor's own browser tab. Speech is transcribed (and optionally translated) by models running on WebGPU/WASM in the page \u2014 no audio ever reaches the server. Engines: Whisper (transformers.js, light default), LiquidAI LFM2.5-Audio-1.5B-ONNX (onnxruntime-web, from the liquidai catalog) and LFM2.5-350M as an in-tab translation post-pass. The API is thin: the liquidai catalog filtered to what a tab can run, plus an MCP server (stdio and streamable HTTP at POST /mcp).",
     "endpoints": {
         "/health": {
             "docs": "Uptime, liquidai reachability, engine roster",
@@ -16,11 +16,11 @@
             "method": "GET"
         },
         "/transcribe": {
-            "docs": "Server-side convenience path only — forwards to liquidai /transcribe. The browser path never calls this.",
+            "docs": "Server-side convenience path only \u2014 forwards to liquidai /transcribe. The browser path never calls this.",
             "method": "POST"
         },
         "/mcp": {
-            "docs": "MCP streamable HTTP — claude mcp add --transport http voice http://localhost:50980/mcp",
+            "docs": "MCP streamable HTTP \u2014 claude mcp add --transport http voice http://localhost:50980/mcp",
             "method": "POST"
         },
         "/": {
@@ -50,5 +50,6 @@
         "gateway_api": "http://localhost:3001/api/voice",
         "gateway_app": "http://localhost:3001/voice"
     },
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "schema": "QmbmnzmYC1fc8QBXXYhtdhxzxrNeNagqvXj2rRtmX3ZJWY"
 }

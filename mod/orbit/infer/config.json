@@ -6,14 +6,14 @@
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
     "port": 50820,
-    "app_port": 50820,
+    "app_port": 3820,
     "gateway_port": 50820,
     "mcp_port": 50820,
     "base_path": "/infer",
     "route": true,
     "urls": {
         "api": "http://localhost:50820",
-        "app": "http://localhost:50820/infer",
+        "app": "http://localhost:3820/infer",
         "mcp": "http://localhost:50820/mcp",
         "onnxruntime_web": "https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/"
     },
@@ -43,7 +43,7 @@
         "info": "GET /",
         "health": "GET /health",
         "mcp": "POST /mcp",
-        "app": "GET /infer",
+        "app": "GET /infer — Next.js console on app_port 3820; this path on the API port answers with the route map",
         "models": "GET /models | POST /models {data|path|url, name?} | DELETE /models/:id",
         "blob": "GET /blob/:id \u2014 the raw .onnx bytes, what the browser fetches",
         "inspect": "GET /inspect?model=",
@@ -80,7 +80,7 @@
         "settle_start": "POST /settle/start \u2014 run the sweep on a timer",
         "settle_stop": "POST /settle/stop"
     },
-    "backend": "python: http.server + onnx + onnxruntime (torch only for export)",
+    "backend": "python: http.server + onnx + onnxruntime (torch only for export), in src/; console: Next.js 14 in src/app, basePath /infer, /_api proxied to the python port",
     "requires": {
         "onnx": "graph reading and rewriting",
         "onnxruntime": "execution, graph optimization, quantization, fp16",

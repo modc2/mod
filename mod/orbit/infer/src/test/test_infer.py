@@ -224,7 +224,9 @@ def test_portable_flags_an_opset_the_browser_cannot_run(E, mlp):
 def test_every_declared_fn_and_tool_exists(E):
     import mcp
     import mod
-    cfg = json.load(open(os.path.join(os.path.dirname(HERE), 'config.json')))
+    # config.json lives at the module root, two levels up from src/test/.
+    cfg = json.load(open(os.path.join(os.path.dirname(os.path.dirname(HERE)),
+                                      'config.json')))
     for name in cfg['fns']:
         assert hasattr(mod.Mod, name), f'config.json promises fn {name}'
     assert sorted(cfg['tools']) == sorted(mcp.TOOLS), 'config and mcp disagree'

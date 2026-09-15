@@ -186,6 +186,13 @@ def catalog(q="", registry="all", limit=20):
     return _req(f"/catalog?q={_q(q)}&registry={_q(registry)}&limit={int(limit)}")
 
 
+def code_cache():
+    """Manifest of the hourly code cache (cron_cache.py): every MCP server
+    whose source is snapshotted on disk under ~/.mod/mcp/cache/code/."""
+    with open(os.path.join(HUB_DIR, "cache", "code", "index.json")) as f:
+        return json.load(f)
+
+
 def intake(text):
     """Parse a URL, CID, client config, `claude mcp add` line or QR payload
     into candidate servers. Nothing is registered."""

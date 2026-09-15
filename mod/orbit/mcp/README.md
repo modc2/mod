@@ -99,6 +99,26 @@ API key buys tool calls, not edits.
 `mcpServers` config blob, a `claude mcp add` one-liner, the text a QR decoded to
 — and returns candidate servers.
 
+## Hourly search + code cache
+
+`cron_cache.py` runs from crontab once an hour (`23 * * * *`, log at
+`/tmp/mcp-cron-cache.log`) and does two things:
+
+- **search** — `/catalog?registry=all` with the empty query plus one rotating
+  topic keyword per hour (24 topics/day; add your own in `~/.mod/mcp/cron.json`
+  → `{"queries": [...]}`). Snapshots land in `~/.mod/mcp/cache/search/`
+  (`latest.json` + one file per hour, last 72 kept).
+- **code** — caches the source of every server the hub can name.
+  Fleet/sweep servers are local mods: their tree is rsynced (sources only,
+  `node_modules`/`target`/`.git`/… excluded, files >512KB skipped) into
+  `~/.mod/mcp/cache/code/local/<id>/`. User servers and search rows with a
+  GitHub repo get a shallow HEAD tarball extracted into
+  `cache/code/github/<owner>__<repo>/`, refreshed daily, at most 10 new repos
+  per run (`MCP_CODE_MAX_FETCHES` / `MCP_CODE_REFRESH_SECS`). Dead repos are
+  memoized so they don't eat the budget every hour.
+
+`cache/code/index.json` is the manifest — `mod.py`'s `code_cache()` reads it.
+
 ## Layout
 
 - `mcp-rs/` — Rust API (axum). REST registry + JSON-RPC 2.0 gateway + `--stdio`.
