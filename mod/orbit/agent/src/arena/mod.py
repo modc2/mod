@@ -929,6 +929,7 @@ class Arena:
         r["seconds_sum"] = round(r.get("seconds_sum", 0.0) + match["seconds"], 2)
         r["cost_sum"] = round(r.get("cost_sum", 0.0) + match.get("cost", 0.0), 6)
         r["tokens_sum"] = int(r.get("tokens_sum", 0)) + int(match.get("tokens", 0))
+        r["passed_sum"] = int(r.get("passed_sum", 0)) + (1 if match.get("passed") else 0)
         r["last"] = match["ts"]
         per = r["per_task"].setdefault(match["task"], {"n": 0, "best": 0.0, "last": 0.0})
         per["n"] += 1
@@ -1343,6 +1344,7 @@ class Arena:
                 "draws": r.get("draws", 0),
                 "win_rate": round((r.get("wins", 0) + 0.5 * r.get("draws", 0)) / games, 3) if games else 0.0,
                 "avg_score": round(r.get("score_sum", 0.0) / n, 4),
+                "pass_rate": round(r.get("passed_sum", 0) / n, 3),
                 "avg_seconds": round(r.get("seconds_sum", 0.0) / n, 2),
                 "cost": round(r.get("cost_sum", 0.0), 6),
                 # on free models cost stays 0 — tokens are what a rank cost

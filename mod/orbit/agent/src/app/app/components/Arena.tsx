@@ -25,7 +25,7 @@ import TaskBuilder from './TaskBuilder'
 type Row = {
   rank: number; agent: string; icon: string; active: boolean
   elo: number; matches: number; wins: number; losses: number; draws: number
-  win_rate: number; avg_score: number; avg_seconds: number; cost: number
+  win_rate: number; avg_score: number; pass_rate: number; avg_seconds: number; cost: number
   tokens: number; avg_tokens: number
   tasks: number; voids: number; last: number
 }
@@ -630,8 +630,8 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
           <ScoreBar value={r.avg_score} />
           <div className="flex items-center gap-2 text-[9px] text-gray-600 tabular-nums">
             <span className="text-gray-400">{pct(r.avg_score)}</span>
-            <span>{r.wins}–{r.losses}–{r.draws}</span>
-            <span>{r.matches} matches</span>
+            <span title="matches where every check passed">{pct(r.pass_rate)} pass</span>
+            <span>{r.avg_seconds.toFixed(1)}s</span>
             <span className="ml-auto">{ago(r.last)}</span>
           </div>
         </button>
@@ -706,7 +706,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
         <table className="board text-[11px]">
           <thead>
             <tr>
-              {['#', 'agent', 'elo', 'score', 'w–l–d', 'matches', 'avg s', 'spent', 'last'].map(h => (
+              {['#', 'agent', 'elo', 'score', 'pass', 'matches', 'avg s', 'spent', 'last'].map(h => (
                 <th key={h} className={h === 'agent' ? 'text-left' : 'text-right'}>{h}</th>
               ))}
             </tr>
@@ -732,9 +732,8 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
                 </td>
                 <td className="text-right tabular-nums text-emerald-300 text-[12px]">{r.elo.toFixed(0)}</td>
                 <td className="text-right w-28"><Score value={r.avg_score} /></td>
-                <td className="text-right tabular-nums text-gray-500">
-                  {r.wins}–{r.losses}–{r.draws}
-                </td>
+                <td className="text-right tabular-nums text-gray-500"
+                  title="matches where every check passed">{pct(r.pass_rate)}</td>
                 <td className="text-right tabular-nums text-gray-500"
                   title={r.voids ? `${r.voids} match(es) the provider voided — not rated` : undefined}>
                   {r.matches}
@@ -786,7 +785,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
           <table className="board text-[11px]">
             <thead>
               <tr>
-                {['#', 'model', 'elo', 'score', 'pass', 'w–l–d', 'matches', 'avg s', 's/step', 'tok/s', 'spent'].map(h => (
+                {['#', 'model', 'elo', 'score', 'pass', 'matches', 'avg s', 's/step', 'tok/s', 'spent'].map(h => (
                   <th key={h} className={h === 'model' ? 'text-left' : 'text-right'}>{h}</th>
                 ))}
               </tr>
@@ -816,9 +815,6 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
                   <td className="text-right w-28"><Score value={r.avg_score} /></td>
                   <td className="text-right tabular-nums text-gray-500"
                     title="matches where every check passed">{pct(r.pass_rate)}</td>
-                  <td className="text-right tabular-nums text-gray-500">
-                    {r.wins}–{r.losses}–{r.draws}
-                  </td>
                   <td className="text-right tabular-nums text-gray-500"
                     title={r.voids ? `${r.voids} voided — provider failed, not rated` : undefined}>
                     {r.matches}{r.voids > 0 && <span className="text-amber-400/70 text-[9px] ml-1">+{r.voids}</span>}
