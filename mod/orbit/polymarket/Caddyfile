@@ -8,9 +8,9 @@
         uri strip_prefix /api/polymarket
         reverse_proxy localhost:50091
     }
-    @polymarket_app path /polymarket/QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz /polymarket/QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz/*
+    @polymarket_app path /polymarket/QmPxwzYHE5V1WeXSX31uhYZeT79R6zzTtS2pREBGdZhmrL /polymarket/QmPxwzYHE5V1WeXSX31uhYZeT79R6zzTtS2pREBGdZhmrL/*
     handle @polymarket_app {
-        uri replace /polymarket/QmZ1DErg6Agaf4i1FpUU8MtPkWyyJ4TFDHDznm5PuRTaQz /polymarket 1
+        uri replace /polymarket/QmPxwzYHE5V1WeXSX31uhYZeT79R6zzTtS2pREBGdZhmrL /polymarket 1
         reverse_proxy localhost:3091
     }
     handle /* {

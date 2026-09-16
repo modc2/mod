@@ -1398,3 +1398,93 @@ g:hover > .builder-wire {
 @media (prefers-reduced-motion: reduce) {
   .hero-logo, .dot, .pill-locked, .shimmer-text, .vault-ring::before { animation: none; }
 }
+
+/* ── site header ────────────────────────────────────────────────────
+   A faint accent glow bleeds up from the bottom edge so the header
+   reads as the lit "top" of the page rather than just a bar. Soft skin
+   gets the blur; pixel skin keeps it as a hard inset line. */
+
+.site-header {
+  position: relative;
+}
+
+:root[data-skin="soft"] .site-header::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgb(var(--glow) / 0.35) 40%, rgb(var(--glow) / 0.35) 60%, transparent 100%);
+  pointer-events: none;
+}
+
+/* ── header nav tabs (underline style) ──────────────────────────────
+   Clean underline indicator rather than a pill background. Active tab
+   gets a 2px accent line flush to the header's bottom edge, so the tab
+   bar reads as part of the header rather than an island inside it. */
+
+.nav-tab {
+  position: relative;
+  border-radius: 0;
+  background: transparent;
+}
+
+.nav-tab::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;   /* flush with the header's border-b */
+  left: 10%;
+  right: 10%;
+  height: 2px;
+  background: rgb(var(--a-400));
+  opacity: 0;
+  transition: opacity 0.15s ease, left 0.15s ease, right 0.15s ease;
+}
+
+.nav-tab--on::after {
+  opacity: 1;
+  left: 12%;
+  right: 12%;
+}
+
+:root[data-skin="pixel"] .nav-tab::after {
+  transition: none;
+  height: 2px;
+  left: 0; right: 0;
+  bottom: 0;
+}
+
+:root[data-skin="pixel"] .nav-tab--on::after {
+  left: 0; right: 0;
+}
+
+/* ── address avatar ─────────────────────────────────────────────────
+   The gradient circle that carries the address identity. In the pixel
+   skin the border-radius is 0 (like everything), so we bevel it like
+   the brand mark instead. */
+
+.addr-avatar {
+  transition: filter 0.15s ease;
+}
+.user-chip:hover .addr-avatar {
+  filter: brightness(1.1);
+}
+
+:root[data-skin="pixel"] .addr-avatar {
+  border: 2px solid rgb(var(--s-0));
+  box-shadow:
+    inset 1px 1px 0 rgb(255 255 255 / 0.25),
+    inset -1px -1px 0 rgb(0 0 0 / 0.25),
+    1px 1px 0 rgb(0 0 0 / 0.45);
+}
+
+/* pixel user chip — hard bevel like the brand mark */
+:root[data-skin="pixel"] .user-chip {
+  border: 1px solid rgb(var(--ink) / 0.2);
+  box-shadow: 1px 1px 0 rgb(0 0 0 / 0.4);
+}
+
+/* owner dot is square in pixel skin (inherits border-radius:0) */
+.owner-dot {
+  box-shadow: 0 0 4px rgb(var(--a-400) / 0.6);
+}

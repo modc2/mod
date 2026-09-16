@@ -270,6 +270,16 @@ const tokenFresh = (token: string | null | undefined): boolean => {
 
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`
 
+// derive two stable hsl colors from an ethereum address for per-identity avatars
+function addrColors(addr: string): { from: string; to: string } {
+  const b1 = parseInt(addr.slice(2, 4), 16) || 0
+  const b2 = parseInt(addr.slice(4, 6), 16) || 0
+  return {
+    from: `hsl(${(b1 * 360 / 255) | 0}, 65%, 58%)`,
+    to:   `hsl(${(b2 * 360 / 255) | 0}, 55%, 44%)`,
+  }
+}
+
 // a run registered in the server-side task registry (GET /tasks)
 type ServerTask = {
   id: string; query: string; agent_type: string; provider?: string; model?: string | null
@@ -417,6 +427,8 @@ export default function Home() {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [provider, setProvider] = useState<string>('openrouter')
   const [model, setModel] = useState<string>('')
+  // per-model cost in USD/1M tokens for the active provider — null until fetched
+  const [modelCosts, setModelCosts] = useState<Record<string, { input: number; output: number }> | null>(null)
 
   // the `browser` provider: the model runs in this tab, so the console owns
   // one worker and answers the run's generation requests from it
@@ -475,6 +487,14 @@ export default function Home() {
 
   const providerModels = providers.find(p => p.key === provider)?.models || []
 
+  const fetchModelCosts = useCallback((p: string) => {
+    setModelCosts(null)
+    fetch(`${API_URL}/models/costs?provider=${encodeURIComponent(p)}`, { signal: AbortSignal.timeout(8000) })
+      .then(r => r.json())
+      .then(d => setModelCosts(d.costs || {}))
+      .catch(() => setModelCosts({}))
+  }, [])
+
   const onProviderChange = (p: string) => {
     setProvider(p)
     localStorage.setItem('agent_provider', p)
@@ -487,6 +507,7 @@ export default function Home() {
     const def = providers.find(x => x.key === p)?.default_model || ''
     setModel(def)
     localStorage.setItem('agent_model', def)
+    fetchModelCosts(p)
   }
 
   // workspace layout: chats + agents in the side rail, the market on the other
@@ -1406,6 +1427,7 @@ export default function Home() {
         const validSaved = savedM && (pd?.models || []).includes(savedM) ? savedM : null
         setModel(validSaved || pd?.default_model || '')
         if (!validSaved && savedM) localStorage.removeItem('agent_model')
+        fetchModelCosts(p)
       })
       .catch(() => {})
     // owner / user info
@@ -2120,16 +2142,29 @@ export default function Home() {
         accent="emerald" className="min-w-0 flex-1 max-w-[220px]" title={model || 'Model'}
         value={model}
         onChange={(v) => { setModel(v); localStorage.setItem('agent_model', v) }}
-        options={
-          providerModels.length === 0 && !model
-            ? [{ value: '', label: 'default' }]
-            : (model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels).map(mn => ({
-                value: mn,
-                // the repo id carries the whole story; the vendor prefix is
-                // the same for every row, so it only costs width
-                label: mn.includes('/') ? mn.split('/').slice(1).join('/') : mn,
-                ...(mn === activeProvider?.default_model ? { badge: 'default' } : {}),
-              }))
+        options={(() => {
+          const ids = providerModels.length === 0 && !model
+            ? ['']
+            : (model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels)
+          // compute the max input cost across this provider's models for normalising the meter
+          const maxInput = modelCosts
+            ? Math.max(...ids.map(mn => modelCosts[mn]?.input ?? 0), 0.000001)
+            : 0
+          return ids.map(mn => {
+            const c = modelCosts?.[mn]
+            const inputCost = c?.input ?? null
+            const fmtCost = inputCost == null ? null
+              : inputCost === 0 ? 'free'
+              : inputCost < 0.01 ? `$${(inputCost * 1000).toFixed(3)}/1B`
+              : `$${inputCost.toFixed(3)}/1M`
+            return {
+              value: mn || '',
+              label: mn ? (mn.includes('/') ? mn.split('/').slice(1).join('/') : mn) : 'default',
+              ...(mn === activeProvider?.default_model ? { badge: 'default' } : {}),
+              ...(inputCost != null && maxInput > 0 ? { meter: inputCost / maxInput, cost: fmtCost ?? undefined } : {}),
+            }
+          })
+        })()
         } />
       {browserPill}
     </div>
@@ -2637,20 +2672,29 @@ export default function Home() {
 
   const userChip = (
     <div className="relative">
-      {auth ? (
-        <button
-          onClick={() => setShowUserMenu(v => !v)}
-          className={`flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-full border transition ${
-            showUserMenu ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/10 bg-white/[0.03] hover:border-white/20'
-          }`}
-          title={auth.address}
-        >
-          <span className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-mono border bg-emerald-500/20 border-emerald-500/35 text-emerald-200">
-            {auth.address.slice(2, 4).toUpperCase()}
-          </span>
-          <span className="text-xs text-gray-300 font-mono">{shortAddr(auth.address)}</span>
-        </button>
-      ) : (
+      {auth ? (() => {
+        const { from, to } = addrColors(auth.address)
+        return (
+          <button
+            onClick={() => setShowUserMenu(v => !v)}
+            className={`user-chip flex items-center gap-2 pl-0.5 pr-2.5 py-0.5 rounded-full border transition ${
+              showUserMenu ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-white/[0.12] bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.05]'
+            }`}
+            title={auth.address}
+          >
+            <span
+              className="addr-avatar w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-mono text-white font-bold shrink-0"
+              style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
+            >
+              {auth.address.slice(2, 4).toUpperCase()}
+            </span>
+            <span className="text-[11px] text-gray-300 font-mono tracking-tight">{shortAddr(auth.address)}</span>
+            {auth.isOwner && (
+              <span className="owner-dot w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" title="owner" />
+            )}
+          </button>
+        )
+      })() : (
         <button
           onClick={() => setShowUserMenu(v => !v)}
           disabled={authBusy}
@@ -2883,7 +2927,7 @@ export default function Home() {
       <button
         ref={pickerBtnRef}
         onClick={() => { placePicker(); setShowPicker(v => !v); setPersonaErr(null); if (!showPicker) fetchLibrary() }}
-        className={`flex items-center gap-1.5 bg-white/5 border rounded-md px-2 py-1.5 text-sm outline-none cursor-pointer transition-colors min-w-0 max-w-[200px] ${
+        className={`flex items-center gap-1.5 bg-white/5 border rounded-md px-2 py-1.5 text-xs outline-none cursor-pointer transition-colors min-w-0 max-w-[200px] ${
           showPicker ? 'border-emerald-500/40 text-gray-200' : 'border-white/10 text-gray-300 hover:border-white/20'
         }`}
         title={activePersona
@@ -4439,7 +4483,7 @@ export default function Home() {
           full, so below lg it drops to its own row (order-last + basis-full)
           rather than being squeezed or scrolled off behind the sign-in
           cluster — the bar grows a line instead of hiding a tab. */}
-      <header className="border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 shrink-0 bg-surface-0">
+      <header className="site-header border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 shrink-0 bg-surface-0">
         <div className="flex items-center gap-2.5 shrink-0" title="Agent — mod framework">
           <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
             <span className="select-none">{'>'}_</span>
@@ -4449,7 +4493,7 @@ export default function Home() {
           <span className="title-gradient uppercase select-none hidden sm:block">agent</span>
         </div>
 
-        <nav className="tab-strip order-last basis-full lg:order-none lg:basis-auto gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
+        <nav className="tab-strip order-last basis-full lg:order-none lg:basis-auto gap-px">
           {(['chat', 'hub', 'arena'] as const).map(v => (
             <button key={v}
               onClick={() => {
@@ -4458,8 +4502,8 @@ export default function Home() {
                 if (v === 'hub') { setBuilderMode('browse'); openHub(hubPane) }
                 else setView(v)
               }}
-              className={`tab-btn flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium uppercase tracking-wider transition ${
-                view === v ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
+              className={`nav-tab tab-btn relative flex items-center gap-1.5 px-3 py-2 font-medium uppercase tracking-wider transition-colors ${
+                view === v ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
               }`}
               title={v === 'hub'
                 ? runningCount > 0
@@ -4468,8 +4512,6 @@ export default function Home() {
                 : v === 'chat' ? 'The console — talk to an agent'
                 : 'Every agent on the same tasks, one ranked board'}>
               {v}
-              {/* the hub is where a background run lives now, so its dot is the
-                  only thing the top bar still has to say about one */}
               {v === 'hub' && runningCount > 0 && (
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               )}

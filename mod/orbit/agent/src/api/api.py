@@ -942,6 +942,38 @@ def list_providers():
     # the whole point of shipping the LFM runtimes (Mod.default_provider)
     return {"providers": providers, "default": mod.default_provider()}
 
+@app.get("/models/costs")
+def model_costs(provider: Optional[str] = None):
+    """Per-model cost in USD per 1M tokens (input + output) for a provider.
+
+    Returns a dict keyed by model id.  Each value has `input` and `output`
+    (USD per 1M tokens); either may be null for models the catalog does not
+    price.  Free / local providers return an empty dict — they have no
+    per-token cost to display.
+    """
+    from src.billing import _rates_from
+    mod = get_mod()
+    p = provider or mod._provider
+    short = next((k for k, v in mod.PROVIDERS.items() if v == p), p)
+    if short in mod.LOCAL_PROVIDERS:
+        return {"costs": {}, "provider": short}
+    try:
+        client = mod._client(short)
+        catalog = client.model2info() if hasattr(client, 'model2info') else {}
+    except Exception:
+        return {"costs": {}, "provider": short}
+    costs = {}
+    for model_id, info in catalog.items():
+        rates = _rates_from(info)
+        if rates is not None:
+            inp_per_tok, out_per_tok = rates
+            costs[model_id] = {
+                "input": round(inp_per_tok * 1e6, 6),
+                "output": round(out_per_tok * 1e6, 6),
+            }
+    return {"costs": costs, "provider": short}
+
+
 @app.get("/params")
 def run_params(key: Optional[str] = None):
     """Self-describing UI schema for a run's parameters. Sibling consoles

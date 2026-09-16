@@ -5,7 +5,7 @@ import { fetchBoard, fetchScanProgress, BoardMeta, ScanProgress, TopTrader, fmtP
 import Link from "next/link";
 import { DataBar, Field, Freshness, Identicon, Kpi, Medal, Meter, PageHead, SparkBars, SplitBar, Switch } from "./BoardBits";
 import TraderCell, { ROW_ATTR, isCoreCoin } from "./TraderCell";
-import TraderCard from "./TraderCard";
+import TraderCard, { CardStat } from "./TraderCard";
 import { useCurves } from "../lib/curves";
 import {
   JS_FN_TEMPLATE, PY_FN_TEMPLATE, SCORE_PRESETS, SCORE_VAR_HINTS, FORMULA_VARS,
@@ -18,11 +18,10 @@ import { useCompiledScore } from "../lib/useScore";
 type SortKey = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe" | "score";
 type Rank = "roi" | "pnl" | "volume";
 
-// How the board is drawn. Cards are the default: a card has room for the PnL
-// curve next to the number it explains, which is the question anyone picking
-// a wallet to copy is actually asking. The table is still here because
-// nothing beats it for scanning five thousand rows against a score floor.
-type View = "cards" | "table";
+// Two views: GRAPH shows each wallet's PnL curve inline (one glance = shape +
+// direction); TABLE packs the full universe into scannable rows for floor/score
+// hunting. Both drive the same sort state so switching never loses your order.
+type View = "graph" | "table";
 const VIEW_KEY = "hl.board.view";
 const SORT_LABELS: { k: SortKey; label: string }[] = [
   { k: "roi", label: "roi" },
@@ -56,7 +55,7 @@ const RANKS: { k: Rank; label: string; hint: string }[] = [
 // How many rows a "page" of the board is, per view. A card is roughly twenty
 // table rows of pixels and costs one Hyperliquid call for its curve, so it
 // pages in screenfuls; the table costs nothing per row and pages in slabs.
-const PAGE: Record<View, number> = { cards: 36, table: 250 };
+const PAGE: Record<View, number> = { graph: 36, table: 250 };
 const FILTERS_KEY = "hl.board.filtersOpen";
 const FLOOR_KEYS = ["roi", "equity", "volume", "sharpe", "win", "trades"] as const;
 
@@ -114,8 +113,8 @@ export default function TopTraders() {
   const [filtersOpen, setFiltersOpen] = useState(true);
   const [coinDraft, setCoinDraft] = useState("");
   const [floors, setFloors] = useState<Floors>(NO_FLOORS);
-  const [view, setView] = useState<View>("cards");
-  const [visible, setVisible] = useState(PAGE.cards);
+  const [view, setView] = useState<View>("graph");
+  const [visible, setVisible] = useState(PAGE.graph);
   const coinKey = useMemo(() => Array.from(coinFilter).sort().join(","), [coinFilter]);
 
   // ── the custom score ──
@@ -152,7 +151,8 @@ export default function TopTraders() {
   useEffect(() => { localStorage.setItem(FILTERS_KEY, filtersOpen ? "1" : "0"); }, [filtersOpen]);
   useEffect(() => {
     const saved = localStorage.getItem(VIEW_KEY);
-    if (saved === "table" || saved === "cards") { setView(saved); setVisible(PAGE[saved]); }
+    const v: View | null = saved === "table" ? "table" : (saved === "graph" || saved === "cards") ? "graph" : null;
+    if (v) { setView(v); setVisible(PAGE[v]); }
   }, []);
   const switchView = (v: View) => {
     setView(v);
@@ -392,7 +392,7 @@ export default function TopTraders() {
   // none at all in table view, where the curve is a hover. `lib/curves` caches
   // by wallet+window, so re-sorting a drawn grid re-renders without fetching.
   const shownAddrs = useMemo(() => shown.map((t) => t.address), [shown]);
-  const curves = useCurves(shownAddrs, days, view === "cards");
+  const curves = useCurves(shownAddrs, days, view === "graph");
 
   // Why a row has no win rate / sharpe / coins — the board's own rule, said in
   // the place the missing number is, rather than left as a bare dash.
@@ -531,12 +531,6 @@ export default function TopTraders() {
             </button>
           )}
           <div className="ml-auto flex items-center gap-2 pb-0.5">
-            <div className="seg" title="Cards show each wallet's pnl curve; the table packs more rows on screen">
-              <button onClick={() => switchView("cards")}
-                className={`seg-btn ${view === "cards" ? "seg-btn-active" : ""}`}>cards</button>
-              <button onClick={() => switchView("table")}
-                className={`seg-btn ${view === "table" ? "seg-btn-active" : ""}`}>table</button>
-            </div>
             <Switch on={autoRefresh} onChange={setAutoRefresh} label="auto" />
             <button
               className={`btn ${seedOpen || seed.trim() ? "!border-accent/40 !text-accent" : ""}`}
@@ -547,6 +541,34 @@ export default function TopTraders() {
             <button className="btn-primary min-w-[6.5rem]" onClick={load} disabled={loading || scanning}>
               {loading || scanning ? (pct != null ? `syncing ${pct}%` : "syncing…") : "scan"}
             </button>
+            {/* View tabs — icon + label, bordered active state matching the app's tab language */}
+            <div className="flex items-center gap-0.5 rounded-lg border border-white/[0.08] bg-white/[0.015] p-0.5"
+              title="Graph shows each wallet's PnL curve; Table packs more rows on screen">
+              <button onClick={() => switchView("graph")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider transition-all duration-150
+                  ${view === "graph"
+                    ? "text-accent bg-accent/10 shadow-[inset_0_0_0_1px_rgb(var(--c-accent)/0.30)]"
+                    : "text-muted hover:text-ink"}`}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <polyline points="1,13 5,7 9,10 15,3" />
+                  <circle cx="15" cy="3" r="1.5" fill="currentColor" stroke="none" />
+                </svg>
+                graph
+              </button>
+              <button onClick={() => switchView("table")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium uppercase tracking-wider transition-all duration-150
+                  ${view === "table"
+                    ? "text-accent bg-accent/10 shadow-[inset_0_0_0_1px_rgb(var(--c-accent)/0.30)]"
+                    : "text-muted hover:text-ink"}`}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="1" y="1" width="14" height="14" rx="2" />
+                  <line x1="1" y1="6" x2="15" y2="6" />
+                  <line x1="1" y1="10" x2="15" y2="10" />
+                  <line x1="6" y1="1" x2="6" y2="15" />
+                </svg>
+                table
+              </button>
+            </div>
           </div>
         </div>
         {filtersOpen && seedOpen && (
@@ -781,153 +803,203 @@ export default function TopTraders() {
         </div>
       )}
 
-      {/* Table — horizontal scroll on narrow screens instead of crushed columns */}
-      <div className="panel overflow-x-auto">
-       <div className="min-w-[760px]">
-        <div className={`${grid} py-2.5 table-head`}>
-          <div className="eyebrow !tracking-wider">trader</div>
-          {scoreActive && <div>{sortHeader("score", "ƒ score", "right", "your custom score — the formula in the ƒ score box")}</div>}
-          <div>{sortHeader("roi", "roi")}</div>
-          <div>{sortHeader("account_value", "equity")}</div>
-          <div>{sortHeader("volume", "volume")}</div>
-          <div>{sortHeader("win_rate", "win%", "right", "ranked by the rate each row can defend at its sample size, not the headline percent")}</div>
-          <div>{sortHeader("sharpe", "sharpe", "right", "measured rows first")}</div>
-          <div className="eyebrow !tracking-wider text-right">last</div>
-          <div />
-        </div>
-        {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
-        {(loading || scanning) && sorted.length === 0 &&
-          [...Array(6)].map((_, i) => (
-            <div key={i} className={`${grid} py-3 items-center table-row`}>
-              <div className="skeleton h-4 w-44" />
-              {[...Array(scoreActive ? 8 : 7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+      {/* Board — GRAPH shows PnL curve cards; TABLE packs dense rows */}
+      {view === "graph" ? (
+        <>
+          {err && <div className="panel px-4 py-3 text-xs text-loss">{err}</div>}
+          {!err && !loading && !scanning && sorted.length === 0 && (
+            <div className="panel px-4 py-10 text-center text-xs text-muted">
+              {scoreFilters && scoreHidden > 0 && filtered.length === 0
+                ? `your ƒ score function filtered out all ${fmtN(preScore.length)} wallets — loosen its conditions, or gate on \`measured\` so unmeasured rows aren't hidden by fill-stat checks.`
+                : coinFilter.size > 0
+                ? `no active wallet in the top ${meta?.depth ?? "—"} of the leaderboard traded ${coinList.join(" / ")} in the last ${days}d — try another coin or a longer window.`
+                : floorsActive
+                  ? `none of the ${fmtN(traders.length)} active wallets clear these floors — loosen a score, or raise "measure · top" so more rows are measured.`
+                  : "no traders match the filters yet — try a longer window."}
             </div>
-          ))}
-        {!err && !loading && !scanning && sorted.length === 0 && (
-          <div className="px-4 py-10 text-center text-xs text-muted">
-            {scoreFilters && scoreHidden > 0 && filtered.length === 0
-              ? `your ƒ score function filtered out all ${fmtN(preScore.length)} wallets — loosen its conditions, or gate on \`measured\` so unmeasured rows aren't hidden by fill-stat checks.`
-              : coinFilter.size > 0
-              ? `no active wallet in the top ${meta?.depth ?? "—"} of the leaderboard traded ${coinList.join(" / ")} in the last ${days}d — try another coin or a longer window.`
-              : floorsActive
-                ? `none of the ${fmtN(traders.length)} active wallets clear these floors — loosen a score, or raise "measure · top" so more rows are measured.`
-                : "no traders match the filters yet — try a longer window."}
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {(loading || scanning) && sorted.length === 0 &&
+              [...Array(6)].map((_, i) => (
+                <div key={i} className="panel p-4 space-y-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="skeleton h-5 w-5 rounded-md" />
+                    <div className="skeleton h-4 w-28" />
+                  </div>
+                  <div className="skeleton h-8 w-24" />
+                  <div className="skeleton h-[58px] w-full" />
+                  <div className="grid grid-cols-3 gap-1">
+                    {[...Array(6)].map((_, j) => <div key={j} className="skeleton h-8 rounded-md" />)}
+                  </div>
+                </div>
+              ))}
+            {shown.map((t, i) => (
+              <TraderCard
+                key={t.address}
+                t={t} rank={i + 1} days={days}
+                curve={curves[t.address.toLowerCase()]}
+                picked={picked.has(t.address)}
+                onPick={() => togglePick(t.address)}
+                statKey={(sortKey === "score" ? "roi" : sortKey) as CardStat}
+                enrichNote={enrichNote}
+              />
+            ))}
           </div>
-        )}
-        {shown.map((t, i) => {
-          const rank = i + 1;
-          const pos = (t.roi ?? 0) >= 0;
-          const isPicked = picked.has(t.address);
-          return (
-          <div key={t.address}
-            className={`group ${grid} py-2.5 items-center table-row hover:bg-accent/[0.04] ${isPicked ? "bg-accent/[0.05]" : ""}`}>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <Medal rank={rank} />
-              <input type="checkbox" className="accent-accent" checked={isPicked}
-                onChange={() => togglePick(t.address)} />
-              <Link href={`/trader/${t.address}?days=${days}`} title="view trader"
-                className="flex items-center gap-2 font-mono text-[13px] text-ink/90 hover:text-accent transition-colors shrink-0">
-                <Identicon address={t.address} />
-                {shortAddr(t.address)}
-              </Link>
-              {(() => {
-                // Badges show core perp coins only — builder-dex ("xyz:…") and
-                // spot ("@…") fills stay out. One row, never wraps into the ROI
-                // column; overflow collapses into a "+n" count.
-                const core = t.coins.filter(isCoreCoin);
-                const extra = core.length - 2;
+          {sorted.length > 0 && (
+            <div className="flex items-center gap-3 py-2 text-[11px] text-muted">
+              <span>showing {fmtN(shown.length)} of {fmtN(sorted.length)}</span>
+              {shown.length < sorted.length && (
+                <>
+                  <button className="btn" onClick={() => setVisible((v) => v + PAGE[view])}>
+                    +{fmtN(Math.min(PAGE[view], sorted.length - shown.length))} more
+                  </button>
+                  <button className="btn" onClick={() => setVisible(sorted.length)}>show all</button>
+                </>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        /* Table — horizontal scroll on narrow screens instead of crushed columns */
+        <div className="panel overflow-x-auto">
+         <div className="min-w-[760px]">
+          <div className={`${grid} py-2.5 table-head`}>
+            <div className="eyebrow !tracking-wider">trader</div>
+            {scoreActive && <div>{sortHeader("score", "ƒ score", "right", "your custom score — the formula in the ƒ score box")}</div>}
+            <div>{sortHeader("roi", "roi")}</div>
+            <div>{sortHeader("account_value", "equity")}</div>
+            <div>{sortHeader("volume", "volume")}</div>
+            <div>{sortHeader("win_rate", "win%", "right", "ranked by the rate each row can defend at its sample size, not the headline percent")}</div>
+            <div>{sortHeader("sharpe", "sharpe", "right", "measured rows first")}</div>
+            <div className="eyebrow !tracking-wider text-right">last</div>
+            <div />
+          </div>
+          {err && <div className="px-4 py-3 text-xs text-loss">{err}</div>}
+          {(loading || scanning) && sorted.length === 0 &&
+            [...Array(6)].map((_, i) => (
+              <div key={i} className={`${grid} py-3 items-center table-row`}>
+                <div className="skeleton h-4 w-44" />
+                {[...Array(scoreActive ? 8 : 7)].map((_, j) => <div key={j} className="skeleton h-4 w-12 justify-self-end" />)}
+              </div>
+            ))}
+          {!err && !loading && !scanning && sorted.length === 0 && (
+            <div className="px-4 py-10 text-center text-xs text-muted">
+              {scoreFilters && scoreHidden > 0 && filtered.length === 0
+                ? `your ƒ score function filtered out all ${fmtN(preScore.length)} wallets — loosen its conditions, or gate on \`measured\` so unmeasured rows aren't hidden by fill-stat checks.`
+                : coinFilter.size > 0
+                ? `no active wallet in the top ${meta?.depth ?? "—"} of the leaderboard traded ${coinList.join(" / ")} in the last ${days}d — try another coin or a longer window.`
+                : floorsActive
+                  ? `none of the ${fmtN(traders.length)} active wallets clear these floors — loosen a score, or raise "measure · top" so more rows are measured.`
+                  : "no traders match the filters yet — try a longer window."}
+            </div>
+          )}
+          {shown.map((t, i) => {
+            const rowRank = i + 1;
+            const pos = (t.roi ?? 0) >= 0;
+            const isPicked = picked.has(t.address);
+            return (
+            <div key={t.address}
+              className={`group ${grid} py-2.5 items-center table-row hover:bg-accent/[0.04] ${isPicked ? "bg-accent/[0.05]" : ""}`}>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Medal rank={rowRank} />
+                <input type="checkbox" className="accent-accent" checked={isPicked}
+                  onChange={() => togglePick(t.address)} />
+                <Link href={`/trader/${t.address}?days=${days}`} title="view trader"
+                  className="flex items-center gap-2 font-mono text-[13px] text-ink/90 hover:text-accent transition-colors shrink-0">
+                  <Identicon address={t.address} />
+                  {shortAddr(t.address)}
+                </Link>
+                {(() => {
+                  const core = t.coins.filter(isCoreCoin);
+                  const extra = core.length - 2;
+                  return (
+                    <div className="flex flex-wrap gap-1 min-w-0 max-h-[20px] overflow-hidden"
+                      title={core.join(", ") || t.coins.join(", ")}>
+                      {core.slice(0, 2).map((c) => (
+                        <span key={c} className="pill whitespace-nowrap">{c}</span>
+                      ))}
+                      {extra > 0 && <span className="pill whitespace-nowrap">+{extra}</span>}
+                      {core.length === 0 && t.coins.length > 0 && (
+                        <span className="pill whitespace-nowrap opacity-60">dex</span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+              {scoreActive && (() => {
+                const v = scoreFor(t);
+                const unknown = v != null && Number.isFinite(v) && scoreIsUnknown(formula, scoreInputs(t, days));
                 return (
-                  <div className="flex flex-wrap gap-1 min-w-0 max-h-[20px] overflow-hidden"
-                    title={core.join(", ") || t.coins.join(", ")}>
-                    {core.slice(0, 2).map((c) => (
-                      <span key={c} className="pill whitespace-nowrap">{c}</span>
-                    ))}
-                    {extra > 0 && <span className="pill whitespace-nowrap">+{extra}</span>}
-                    {core.length === 0 && t.coins.length > 0 && (
-                      <span className="pill whitespace-nowrap opacity-60">dex</span>
-                    )}
+                  <div className={`num text-right ${sortKey === "score" ? "text-accent" : "text-ink/90"}`}
+                    title={unknown
+                      ? "this preset's inputs aren't known for this wallet yet — not a bad score, a missing one"
+                      : `your score for this wallet${scoreLoading ? " — python still compiling" : ""}`}>
+                    {v == null || unknown ? "—" : formatScore(v)}
                   </div>
                 );
               })()}
-            </div>
-            {scoreActive && (() => {
-              const v = scoreFor(t);
-              const unknown = v != null && Number.isFinite(v) && scoreIsUnknown(formula, scoreInputs(t, days));
-              return (
-                <div className={`num text-right ${sortKey === "score" ? "text-accent" : "text-ink/90"}`}
-                  title={unknown
-                    ? "this preset's inputs aren't known for this wallet yet — not a bad score, a missing one"
-                    : `your score for this wallet${scoreLoading ? " — python still compiling" : ""}`}>
-                  {v == null || unknown ? "—" : formatScore(v)}
+              <div className="text-right"
+                title={t.account_value > 0 ? `on ${fmtUsd(t.account_value)} equity` : undefined}>
+                <div className={`num font-semibold ${pos ? "text-win" : "text-loss"}`}>
+                  {t.roi == null ? "—" : `${t.roi >= 0 ? "+" : ""}${fmtPct(t.roi, 1)}`}
                 </div>
-              );
-            })()}
-            <div className="text-right"
-              title={t.account_value > 0 ? `on ${fmtUsd(t.account_value)} equity` : undefined}>
-              <div className={`num font-semibold ${pos ? "text-win" : "text-loss"}`}>
-                {t.roi == null ? "—" : `${t.roi >= 0 ? "+" : ""}${fmtPct(t.roi, 1)}`}
+                <div className={`num text-[10px] leading-tight ${t.pnl >= 0 ? "text-win/60" : "text-loss/60"}`}>
+                  {fmtPnl(t.pnl)}
+                </div>
+                {stats && <DataBar value={t.roi ?? 0} max={stats.maxAbsRoi} />}
               </div>
-              <div className={`num text-[10px] leading-tight ${t.pnl >= 0 ? "text-win/60" : "text-loss/60"}`}>
-                {fmtPnl(t.pnl)}
+              <div className="num text-right text-ink/80">{t.account_value > 0 ? fmtUsd(t.account_value) : "—"}</div>
+              <div className="num text-right text-ink/90">{t.volume > 0 ? fmtUsd(t.volume) : "—"}</div>
+              <div
+                className="text-right"
+                title={
+                  !hasStats(t)
+                    ? `not measured — only the top ${enrich} by ${rowRank} get fill stats`
+                    : `${t.wins} win / ${t.losses} loss over ${t.closes} closes, net of fees` +
+                      ` (${t.trades} fills total; opens can neither win nor lose).` +
+                      ` Defensible rate at this sample size: ${fmtPct(winScore(t), 0)}.`
+                }
+              >
+                <div className={`num ${t.confidence === "low" ? "text-warn" : "text-ink/90"}`}>
+                  {t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}
+                </div>
+                <div className="num text-[10px] leading-tight text-dim">
+                  {t.win_rate < 0 ? "" : t.closes > 0 ? `${t.closes} closes` : `${t.trades} fills`}
+                </div>
               </div>
-              {/* ROI as a bar against the board's largest move — the column reads at a glance. */}
-              {stats && <DataBar value={t.roi ?? 0} max={stats.maxAbsRoi} />}
-            </div>
-            <div className="num text-right text-ink/80">{t.account_value > 0 ? fmtUsd(t.account_value) : "—"}</div>
-            <div className="num text-right text-ink/90">{t.volume > 0 ? fmtUsd(t.volume) : "—"}</div>
-            <div
-              className="text-right"
-              title={
-                !hasStats(t)
-                  ? `not measured — only the top ${enrich} by ${rank} get fill stats`
-                  : `${t.wins} win / ${t.losses} loss over ${t.closes} closes, net of fees` +
-                    ` (${t.trades} fills total; opens can neither win nor lose).` +
-                    ` Defensible rate at this sample size: ${fmtPct(winScore(t), 0)}.`
-              }
-            >
-              <div className={`num ${t.confidence === "low" ? "text-warn" : "text-ink/90"}`}>
-                {t.win_rate < 0 ? "—" : fmtPct(t.win_rate, 0)}
+              <div
+                className="num text-right text-ink/90"
+                title={
+                  !hasStats(t) ? undefined
+                    : sharpeMeasured(t) ? `annualised, over ${t.sharpe_days} days`
+                    : `only ${t.sharpe_days} days of history — too few for a Sharpe ratio`
+                }
+              >
+                {!hasStats(t) || !sharpeMeasured(t) ? "—" : t.sharpe.toFixed(2)}
               </div>
-              {/* The denominator, not the fill count. "70% · 130 tx" invites the
-                  reader to assume 130 decided trades when it may have been 9.
-                  Never substitute `trades` when `closes` is missing — that is
-                  the same substitution this whole change exists to undo. */}
-              <div className="num text-[10px] leading-tight text-dim">
-                {t.win_rate < 0 ? "" : t.closes > 0 ? `${t.closes} closes` : `${t.trades} fills`}
+              <div className="text-right text-[11px] text-muted">{t.last_active > 0 ? ago(t.last_active) : "≤24h"}</div>
+              <div className="flex justify-end">
+                <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost">copy</Link>
               </div>
             </div>
-            <div
-              className="num text-right text-ink/90"
-              title={
-                !hasStats(t) ? undefined
-                  : sharpeMeasured(t) ? `annualised, over ${t.sharpe_days} days`
-                  : `only ${t.sharpe_days} days of history — too few for a Sharpe ratio`
-              }
-            >
-              {!hasStats(t) || !sharpeMeasured(t) ? "—" : t.sharpe.toFixed(2)}
+            );
+          })}
+          {sorted.length > 0 && (
+            <div className="flex items-center gap-3 px-4 py-3 text-[11px] text-muted">
+              <span>showing {fmtN(shown.length)} of {fmtN(sorted.length)}</span>
+              {shown.length < sorted.length && (
+                <>
+                  <button className="btn" onClick={() => setVisible((v) => v + PAGE[view])}>
+                    +{fmtN(Math.min(PAGE[view], sorted.length - shown.length))} more
+                  </button>
+                  <button className="btn" onClick={() => setVisible(sorted.length)}>show all</button>
+                </>
+              )}
             </div>
-            <div className="text-right text-[11px] text-muted">{t.last_active > 0 ? ago(t.last_active) : "≤24h"}</div>
-            <div className="flex justify-end">
-              <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost">copy</Link>
-            </div>
-          </div>
-          );
-        })}
-        {sorted.length > 0 && (
-          <div className="flex items-center gap-3 px-4 py-3 text-[11px] text-muted">
-            <span>showing {fmtN(shown.length)} of {fmtN(sorted.length)}</span>
-            {shown.length < sorted.length && (
-              <>
-                <button className="btn" onClick={() => setVisible((v) => v + PAGE[view])}>
-                  +{fmtN(Math.min(PAGE[view], sorted.length - shown.length))} more
-                </button>
-                <button className="btn" onClick={() => setVisible(sorted.length)}>show all</button>
-              </>
-            )}
-          </div>
-        )}
-       </div>
-      </div>
+          )}
+         </div>
+        </div>
+      )}
     </section>
   );
 }

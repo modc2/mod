@@ -31,20 +31,29 @@ import { usePathname } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
 import { TOGGLE_AGENT_EVENT, AGENT_STATE_EVENT } from "./AgentShell";
 
+const AGENT_KEY = "poly_agent_sidebar";
+const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 const MAIN_TABS: { label: string; href: string }[] = [
   { label: "TRADERS", href: "/traders" },
   { label: "STRATS", href: "/strats" },
 ];
 
-interface NavMenuProps {
-  /** Agent column state — owned by TopBar, since the logo toggles it. */
-  agentOpen?: boolean;
-  onToggleAgent?: () => void;
-}
-
-export default function NavMenu({ agentOpen = false, onToggleAgent }: NavMenuProps) {
+export default function NavMenu() {
   const embedded = useEmbedded();
   const pathname = usePathname() || "/";
+
+  // Sync ring-lit indicator with AgentShell's state.
+  const [agentOpen, setAgentOpen] = useState(false);
+  useIsoLayoutEffect(() => {
+    try { setAgentOpen(localStorage.getItem(AGENT_KEY) === "1"); } catch {}
+  }, []);
+  useEffect(() => {
+    const onState = (e: Event) =>
+      setAgentOpen((e as CustomEvent<{ open: boolean }>).detail.open);
+    window.addEventListener(AGENT_STATE_EVENT, onState);
+    return () => window.removeEventListener(AGENT_STATE_EVENT, onState);
+  }, []);
 
   // Split-screen iframe panes stay lightweight — no global nav.
   if (embedded) return null;
@@ -54,7 +63,7 @@ export default function NavMenu({ agentOpen = false, onToggleAgent }: NavMenuPro
       {/* The mark IS the agent toggle — see the note at the top. */}
       <button
         type="button"
-        onClick={onToggleAgent}
+        onClick={() => window.dispatchEvent(new Event(TOGGLE_AGENT_EVENT))}
         aria-expanded={agentOpen}
         aria-label="Console agent"
         title={`${agentOpen ? "Hide" : "Ask"} the console agent — where things are and how this console works`}

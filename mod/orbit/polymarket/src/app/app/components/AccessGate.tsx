@@ -19,6 +19,7 @@
 // written against so a future version drops them instead of misquoting.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { TOGGLE_AGENT_EVENT } from "./AgentShell";
 import {
   ACCESS_REVOKED_EVENT,
   checkAccess,
@@ -194,15 +195,31 @@ export default function AccessGate({ children }: { children: React.ReactNode }) 
               </span>
             </div>
           </div>
-          <div className="shrink-0 text-right">
-            <div
-              className="text-[10px] font-mono tracking-[0.12em] text-pixel-gray-light rounded-full px-2.5 py-1"
-              style={{ border: "1px solid var(--border-strong)", background: "var(--btn-bg)" }}
-            >
-              TERMS v{info?.termsVersion ?? parsed?.version ?? "2.0"}
+          <div className="shrink-0 flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-2">
+              <div
+                className="text-[10px] font-mono tracking-[0.12em] text-pixel-gray-light rounded-full px-2.5 py-1"
+                style={{ border: "1px solid var(--border-strong)", background: "var(--btn-bg)" }}
+              >
+                TERMS v{info?.termsVersion ?? parsed?.version ?? "2.0"}
+              </div>
+              {/* Agent toggle — opens the help sidebar so users can ask
+                  questions about the console before they've signed in. */}
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event(TOGGLE_AGENT_EVENT))}
+                title="Ask the console agent — what this is, how to sign in, how it works"
+                className="grid place-items-center w-[22px] h-[22px] rounded-[6px] bg-green-400 shrink-0 transition-transform hover:scale-110 active:scale-95"
+                style={{
+                  boxShadow:
+                    "0 0 12px rgba(74,222,128,0.55), inset 0 1px 0 rgba(255,255,255,0.4)",
+                }}
+              >
+                <span className="bg-pixel-black w-[7px] h-[7px] rounded-[2px]" />
+              </button>
             </div>
             {parsed?.effective && (
-              <div className="text-[9px] font-mono tracking-[0.1em] text-pixel-gray mt-1.5">
+              <div className="text-[9px] font-mono tracking-[0.1em] text-pixel-gray">
                 EFF. {parsed.effective}
               </div>
             )}
