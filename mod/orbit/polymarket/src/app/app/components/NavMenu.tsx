@@ -25,9 +25,11 @@
 // every width (it was ≥480px-only as a badge) because it's the only handle
 // the agent has.
 
+import { useEffect, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEmbedded } from "../lib/embedded";
+import { TOGGLE_AGENT_EVENT, AGENT_STATE_EVENT } from "./AgentShell";
 
 const MAIN_TABS: { label: string; href: string }[] = [
   { label: "TRADERS", href: "/traders" },

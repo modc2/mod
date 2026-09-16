@@ -4,6 +4,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { CopyEngineProvider } from "./context/CopyEngineContext";
 import { FiltersProvider } from "./context/FiltersContext";
 import { ThemeProvider, ThemeBoot } from "./context/ThemeContext";
+import AgentShell from "./components/AgentShell";
 import BuildBadge from "./components/BuildBadge";
 import LiveAutoResume from "./components/LiveAutoResume";
 import AccessGate from "./components/AccessGate";
@@ -67,6 +68,11 @@ export default function RootLayout({
                   paddingLeft: "var(--agent-dock, 0px)",
                 }}
               >
+                {/* Agent sidebar — lives OUTSIDE AccessGate so it renders
+                    on every page including the gate itself. State is owned
+                    here; NavMenu and AccessGate both dispatch
+                    TOGGLE_AGENT_EVENT to open/close it. */}
+                <AgentShell />
                 {/* Owner-only gate: the API 401s everything until the sudo
                     address signs the terms-acceptance challenge, so the
                     whole console (panels, auto-resume) waits behind

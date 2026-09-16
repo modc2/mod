@@ -4020,9 +4020,6 @@ export default function Home() {
               {tab === 'memory' && memSel.length > 0 && (
                 <span className="tab-badge ml-1 text-sky-400/80 normal-case">{memSel.length}</span>
               )}
-              {tab === 'deltas' && currentTask && getDeltas(currentTask).length > 0 && (
-                <span className="tab-badge ml-1 text-amber-400/80 normal-case">{getDeltas(currentTask).length}</span>
-              )}
               {activeTab === tab && (
                 <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />
               )}
