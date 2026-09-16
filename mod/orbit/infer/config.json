@@ -43,7 +43,7 @@
         "info": "GET /",
         "health": "GET /health",
         "mcp": "POST /mcp",
-        "app": "GET /infer — Next.js console on app_port 3820; this path on the API port answers with the route map",
+        "app": "GET /infer \u2014 Next.js console on app_port 3820; this path on the API port answers with the route map",
         "models": "GET /models | POST /models {data|path|url, name?} | DELETE /models/:id",
         "blob": "GET /blob/:id \u2014 the raw .onnx bytes, what the browser fetches",
         "inspect": "GET /inspect?model=",
@@ -183,7 +183,7 @@
         "reads": "open",
         "writes": "open on loopback for models and the catalog; settlement is gated by its own arming and confirm flags rather than by a token, because the thing being protected is funds leaving a wallet this module does not hold"
     },
-    "schema": "QmVPGdrtLXzmbMtQcGyXWxmi2XckCLwDSbtSwPeejGCY7h",
+    "schema": "QmPces4d7dmEYfd3hi4oCV493MriszHfvL1iPCNisY78bf",
     "halves": {
         "router": "every crypto-settled, no-KYC inference router as one multimodal catalog, routed by price and paid in the background",
         "proofs": "post what a model said at temperature 0, hash it, sign it, publish it, and let anyone re-run the question",

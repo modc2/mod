@@ -115,14 +115,14 @@
         "WINGMAN_MAX_PHOTOS": "photos per set (default 80)",
         "WINGMAN_VENICE": "off refuses every read regardless of config",
         "WINGMAN_VENICE_PROVIDER": "auto | venice | openrouter | gateway (default auto: first direct provider with a key, else gateway)",
-        "VENICE_API_KEY": "Venice API key — wins over the filed key",
-        "OPENROUTER_API_KEY": "OpenRouter key — wins over the filed key"
+        "VENICE_API_KEY": "Venice API key \u2014 wins over the filed key",
+        "OPENROUTER_API_KEY": "OpenRouter key \u2014 wins over the filed key"
     },
     "auth": {
         "reads": "a set is addressed by a 16-hex unguessable id; GET /sets (the list) answers only loopback callers or x-wingman-token from ~/.mod/wingman/token",
         "writes": "open on the same terms \u2014 this module holds personal photos, not keys or money; bind to 127.0.0.1 or put it behind the gateway's auth if it must be public"
     },
-    "schema": "QmfG3q4hqgBjqHfojDLk7Xb69bbkU4dNbrStGUtxWquMCi",
+    "schema": "QmRQU5RZZNGZZphJQ5Sh6cL75LeQPyzy2etXMF4vzjPPtg",
     "privacy": {
         "default": "audit, lineup, render and export never open a socket; renders carry no exif, icc, xmp or thumbnail",
         "read": "the one verb that sends. What leaves is re-encoded from decoded pixels at 768 px as JPEG \u2014 the original file never moves and no EXIF, GPS or ICC goes with it",
