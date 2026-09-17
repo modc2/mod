@@ -286,12 +286,6 @@ export default function Header() {
           <ThemePicker />
           {address ? (
             <>
-              {kind === "metamask" && !canWrite && (
-                <button className="btn-primary hidden sm:inline-flex" onClick={onSignIn}
-                  title="Sign a message to authenticate with the API">
-                  sign in
-                </button>
-              )}
               <AccountMenu
                 onWatchAnother={() => { setDraft(""); setEditing(true); }}
                 onSignIn={onSignIn}
