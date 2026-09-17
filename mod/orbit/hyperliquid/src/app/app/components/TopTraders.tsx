@@ -108,9 +108,11 @@ export default function TopTraders() {
   const [seedOpen, setSeedOpen] = useState(false);
   const [coinsExpanded, setCoinsExpanded] = useState(false);
   // The filter bar rides along at the top of the board while the table
-  // scrolls, so it can also be folded down to a one-line summary of what is
-  // currently being asked of the board.
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  // scrolls. Window / measure / order always show — they are what the board
+  // is. The deep controls (floors, ƒ score, coins) are folded away by
+  // default and summarised as chips, so the panel opens two rows tall
+  // instead of six.
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [coinDraft, setCoinDraft] = useState("");
   const [floors, setFloors] = useState<Floors>(NO_FLOORS);
   const [view, setView] = useState<View>("graph");
@@ -147,7 +149,7 @@ export default function TopTraders() {
   // Folded or open is a preference, not a per-visit decision. So is cards vs
   // table: someone who reads this board as a spreadsheet should not have to
   // say so again on every visit.
-  useEffect(() => { if (localStorage.getItem(FILTERS_KEY) === "0") setFiltersOpen(false); }, []);
+  useEffect(() => { if (localStorage.getItem(FILTERS_KEY) === "1") setFiltersOpen(true); }, []);
   useEffect(() => { localStorage.setItem(FILTERS_KEY, filtersOpen ? "1" : "0"); }, [filtersOpen]);
   useEffect(() => {
     const saved = localStorage.getItem(VIEW_KEY);
@@ -434,19 +436,7 @@ export default function TopTraders() {
           measure depth, then score floors, then coins. */}
       <div className="panel bg-bg/90 sticky top-16 z-20 p-3 space-y-3">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-          <button
-            className={`btn !px-2.5 self-center ${filtersOpen ? "" : "!text-ink"}`}
-            title={filtersOpen ? "Fold the filters away" : "Open the filters"}
-            aria-expanded={filtersOpen}
-            onClick={() => setFiltersOpen((v) => !v)}>
-            <span className={`inline-block w-0 h-0 border-y-[4px] border-y-transparent
-              border-l-[5px] border-l-current transition-transform duration-150
-              ${filtersOpen ? "rotate-90" : ""}`} />
-            filters
-          </button>
-          {filtersOpen ? (
-            <>
-              <Field label="window" title="How many days of trading the board scores — HL's official windows, or any 1–90">
+          <Field label="window" title="How many days of trading the board scores — HL's official windows, or any 1–90">
                 <div className="seg">
                   {DAY_OPTIONS.map((d) => (
                     <button key={d} onClick={() => { setDays(d); setDayDraft(""); }}
