@@ -6,7 +6,7 @@
 // table it sits above.
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 /** Deterministic two-hue gradient disc for an address — cheap identity so a
  *  row is recognisable at a glance without reading hex. */
@@ -91,16 +91,33 @@ export function Kpi({ label, value, sub, tone, children }: {
   );
 }
 
-/** Page heading: gradient title, one-line description, and a status slot on
- *  the right (freshness, live dot). */
+/** Page heading: gradient title on one line, with a status slot on the right
+ *  (freshness, live dot). The description is folded behind the "?" next to
+ *  the title — a board you use every day should not spend a third of the
+ *  screen re-explaining itself. Opening it is remembered per page. */
 export function PageHead({ title, blurb, right }: { title: ReactNode; blurb?: ReactNode; right?: ReactNode }) {
+  const key = `hl.head.${typeof title === "string" ? title : "page"}`;
+  const [open, setOpen] = useState(false);
+  useEffect(() => { if (localStorage.getItem(key) === "1") setOpen(true); }, [key]);
+  const toggle = () => setOpen((o) => { localStorage.setItem(key, o ? "0" : "1"); return !o; });
   return (
-    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-      <div className="min-w-0">
-        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">{title}</h1>
-        {blurb && <p className="mt-1 text-xs text-muted max-w-[64ch]">{blurb}</p>}
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="text-gradient text-[20px] font-bold tracking-tight leading-tight">{title}</h1>
+          {blurb && (
+            <button
+              onClick={toggle}
+              aria-expanded={open}
+              title={open ? "Hide the description" : "What is this board?"}
+              className={`h-4 w-4 shrink-0 rounded-full border text-[10px] leading-none transition-colors
+                ${open ? "border-accent/60 text-accent" : "border-white/15 text-muted hover:text-fg hover:border-white/30"}`}
+            >?</button>
+          )}
+        </div>
+        {right && <div className="flex items-center gap-2 text-[11px] text-muted whitespace-nowrap">{right}</div>}
       </div>
-      {right && <div className="flex items-center gap-2 text-[11px] text-muted whitespace-nowrap">{right}</div>}
+      {blurb && open && <p className="text-xs text-muted max-w-[64ch]">{blurb}</p>}
     </div>
   );
 }

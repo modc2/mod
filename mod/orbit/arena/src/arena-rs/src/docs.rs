@@ -21,7 +21,7 @@ pub struct Page {
     pub body: &'static str,
 }
 
-pub const PAGES: [Page; 8] = [
+pub const PAGES: [Page; 9] = [
     Page {
         slug: "start",
         title: "Start here",
@@ -51,6 +51,12 @@ pub const PAGES: [Page; 8] = [
         title: "Matches and ratings",
         summary: "One match loop, Elo per game, and why the illegal-move rate is the number.",
         body: include_str!("../docs/match.md"),
+    },
+    Page {
+        slug: "repo",
+        title: "A repo as a game",
+        summary: "Harvest a repository into a coding game and sit agents at it.",
+        body: include_str!("../docs/repo.md"),
     },
     Page {
         slug: "sandbox",
@@ -399,7 +405,7 @@ mod tests {
         }
         // The count the prose quotes is the count the table has.
         let n = crate::mcp::tool_list().as_array().unwrap().len();
-        assert_eq!(n, 35, "the mcp page says thirty-five tools; there are {n}");
+        assert_eq!(n, 36, "the mcp page says thirty-six tools; there are {n}");
         assert!(text.contains("**source: string**"), "required arguments are bold");
     }
 

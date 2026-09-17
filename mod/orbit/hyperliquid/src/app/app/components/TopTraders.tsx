@@ -56,7 +56,9 @@ const RANKS: { k: Rank; label: string; hint: string }[] = [
 // table rows of pixels and costs one Hyperliquid call for its curve, so it
 // pages in screenfuls; the table costs nothing per row and pages in slabs.
 const PAGE: Record<View, number> = { graph: 36, table: 250 };
-const FILTERS_KEY = "hl.board.filtersOpen";
+// v2: the fold default was reset once — the board opens folded unless you
+// open it again yourself.
+const FILTERS_KEY = "hl.board.filtersOpen.v2";
 const FLOOR_KEYS = ["roi", "equity", "volume", "sharpe", "win", "trades"] as const;
 
 // Score floors — applied on the client over the full list, so they're instant.
@@ -127,7 +129,15 @@ export default function TopTraders() {
   const [formula, setFormula] = useState("");
   const [ratios, setRatios] = useState<SavedRatio[]>([]);
   useEffect(() => { setFormula(loadSavedFormula()); setRatios(loadSavedRatios()); }, []);
-  useEffect(() => { saveFormula(formula); }, [formula]);
+  // Skip the very first run: on mount `formula` is still "" while the effect
+  // above is what fills it, so saving here would write the empty string over
+  // the stored formula before it is ever read back (a score survived the
+  // click and died on reload).
+  const formulaSaved = useRef(false);
+  useEffect(() => {
+    if (!formulaSaved.current) { formulaSaved.current = true; return; }
+    saveFormula(formula);
+  }, [formula]);
   const scoreActive = formula.trim().length > 0;
   const { compiled: scoreCompiled, lang: scoreLang, loading: scoreLoading, scoreFor } =
     useCompiledScore(formula, days);
@@ -387,6 +397,10 @@ export default function TopTraders() {
   const shown = sorted.slice(0, visible);
   const fmtN = (n: number) => n.toLocaleString("en-US");
   const coinList = Array.from(coinFilter);
+  // How much the folded half of the bar is doing: one count for the button,
+  // so a folded filter can never silently shape the board.
+  const deepCount = floorSummary.length + (scoreActive ? 1 : 0) + (coinList.length > 0 ? 1 : 0);
+  const deepActive = deepCount > 0;
   // A live score adds a ƒ column right after the trader.
   const grid = scoreActive ? GRID_SCORED : GRID;
 
@@ -431,101 +445,115 @@ export default function TopTraders() {
         }
       />
 
-      {/* Filters — rides at the top of the board on scroll, and folds down to a
-          one-line summary when the table is what you're reading. Window /
-          measure depth, then score floors, then coins. */}
+      {/* Filters — rides at the top of the board on scroll. Window, measure
+          depth and order are always here; floors, ƒ score and coins fold
+          behind the FILTERS button and summarise as chips when folded. */}
       <div className="panel bg-bg/90 sticky top-16 z-20 p-3 space-y-3">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <Field label="window" title="How many days of trading the board scores — HL's official windows, or any 1–90">
-                <div className="seg">
-                  {DAY_OPTIONS.map((d) => (
-                    <button key={d} onClick={() => { setDays(d); setDayDraft(""); }}
-                      className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
-                  ))}
-                  <input
-                    className={`seg-btn w-12 bg-transparent outline-none text-center font-mono
-                      ${!DAY_OPTIONS.includes(days) ? "seg-btn-active" : ""}`}
-                    placeholder="n d" inputMode="numeric"
-                    title={`Any window, 1–${MAX_DAYS} days — enter to apply. Ranking uses HL's nearest official window; measured fill stats are exact.`}
-                    value={dayDraft}
-                    onChange={(e) => setDayDraft(e.target.value.replace(/[^0-9]/g, ""))}
-                    onKeyDown={(e) => {
-                      if (e.key !== "Enter") return;
-                      const n = parseInt(dayDraft, 10);
-                      if (Number.isFinite(n)) setDays(Math.min(MAX_DAYS, Math.max(1, n)));
-                    }}
-                    onBlur={() => {
-                      const n = parseInt(dayDraft, 10);
-                      if (Number.isFinite(n)) setDays(Math.min(MAX_DAYS, Math.max(1, n)));
-                    }} />
-                </div>
-              </Field>
-              <Field label="measure" title="which top wallets get fill stats — win%, sharpe, trades, coins">
-                <div className="seg">
-                  <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">top</span>
-                  {ENRICH_OPTIONS.map((n) => (
-                    <button key={n} onClick={() => setEnrich(n)}
-                      className={`seg-btn ${enrich === n ? "seg-btn-active" : ""}`}>{n}</button>
-                  ))}
-                  <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">by</span>
-                  {RANKS.map((r) => (
-                    <button key={r.k} onClick={() => setRank(r.k)} title={r.hint}
-                      className={`seg-btn ${rank === r.k ? "seg-btn-active" : ""}`}>{r.label}</button>
-                  ))}
-                </div>
-              </Field>
-              {/* Cards have no column headers to click, so the sort lives in
-                  the toolbar. It drives the same state the table's headers do,
-                  so switching views never loses the order you chose. */}
-              <Field label="order" title="how the board is sorted — the stat every card lights">
-                <div className="seg">
-                  <select className="seg-btn !text-ink bg-transparent outline-none cursor-pointer"
-                    value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
-                    {scoreActive && <option value="score" className="bg-bg text-ink">ƒ score</option>}
-                    {SORT_LABELS.map((s) => (
-                      <option key={s.k} value={s.k} className="bg-bg text-ink">{s.label}</option>
-                    ))}
-                  </select>
-                  <button className="seg-btn seg-btn-active"
-                    title={sortDir === "desc" ? "best first — click for worst first" : "worst first — click for best first"}
-                    onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}>
-                    {sortDir === "desc" ? "best first" : "worst first"}
-                  </button>
-                </div>
-              </Field>
-            </>
-          ) : (
-            // Folded: everything the board is being asked for, as pills. Click
-            // any of them to get the controls back.
-            <button className="flex flex-wrap items-center gap-1.5 self-center text-left"
-              title="Open the filters" onClick={() => setFiltersOpen(true)}>
-              <span className="pill !text-ink !border-white/20">{days}d</span>
-              <span className="pill">top {enrich} · {rank}</span>
-              {floorSummary.map((f) => (
-                <span key={f} className="pill !border-accent/40 !text-accent !bg-accent/10">{f}</span>
+            <div className="seg">
+              {DAY_OPTIONS.map((d) => (
+                <button key={d} onClick={() => { setDays(d); setDayDraft(""); }}
+                  className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
               ))}
-              {scoreActive && (
-                <span className="pill !border-accent/40 !text-accent !bg-accent/10" title={formula}>
-                  ƒ {matchScorePreset(formula)?.label ?? matchSavedRatio(formula, ratios)?.name
-                    ?? (scoreLang === "expr" ? "custom" : `${scoreLang} score`)}
-                </span>
-              )}
-              {coinList.length > 0 && (
-                <span className="pill !border-accent/40 !text-accent !bg-accent/10">
-                  {coinList.slice(0, 4).join(" / ")}{coinList.length > 4 ? ` +${coinList.length - 4}` : ""}
-                </span>
-              )}
-              {!floorsActive && coinList.length === 0 && (
-                <span className="text-[10px] uppercase tracking-wider text-dim">no score floors</span>
-              )}
+              <input
+                className={`seg-btn w-12 bg-transparent outline-none text-center font-mono
+                  ${!DAY_OPTIONS.includes(days) ? "seg-btn-active" : ""}`}
+                placeholder="n d" inputMode="numeric"
+                title={`Any window, 1–${MAX_DAYS} days — enter to apply. Ranking uses HL's nearest official window; measured fill stats are exact.`}
+                value={dayDraft}
+                onChange={(e) => setDayDraft(e.target.value.replace(/[^0-9]/g, ""))}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const n = parseInt(dayDraft, 10);
+                  if (Number.isFinite(n)) setDays(Math.min(MAX_DAYS, Math.max(1, n)));
+                }}
+                onBlur={() => {
+                  const n = parseInt(dayDraft, 10);
+                  if (Number.isFinite(n)) setDays(Math.min(MAX_DAYS, Math.max(1, n)));
+                }} />
+            </div>
+          </Field>
+          <Field label="measure" title="which top wallets get fill stats — win%, sharpe, trades, coins">
+            <div className="seg">
+              <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">top</span>
+              {ENRICH_OPTIONS.map((n) => (
+                <button key={n} onClick={() => setEnrich(n)}
+                  className={`seg-btn ${enrich === n ? "seg-btn-active" : ""}`}>{n}</button>
+              ))}
+              <span className="px-1.5 text-[9px] uppercase tracking-wider text-dim">by</span>
+              {RANKS.map((r) => (
+                <button key={r.k} onClick={() => setRank(r.k)} title={r.hint}
+                  className={`seg-btn ${rank === r.k ? "seg-btn-active" : ""}`}>{r.label}</button>
+              ))}
+            </div>
+          </Field>
+          {/* Cards have no column headers to click, so the sort lives in
+              the toolbar. It drives the same state the table's headers do,
+              so switching views never loses the order you chose. */}
+          <Field label="order" title="how the board is sorted — the stat every card lights">
+            <div className="seg">
+              <select className="seg-btn !text-ink bg-transparent outline-none cursor-pointer"
+                value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
+                {scoreActive && <option value="score" className="bg-bg text-ink">ƒ score</option>}
+                {SORT_LABELS.map((s) => (
+                  <option key={s.k} value={s.k} className="bg-bg text-ink">{s.label}</option>
+                ))}
+              </select>
+              <button className="seg-btn seg-btn-active"
+                title={sortDir === "desc" ? "best first — click for worst first" : "worst first — click for best first"}
+                onClick={() => setSortDir(sortDir === "desc" ? "asc" : "desc")}>
+                {sortDir === "desc" ? "best first" : "worst first"}
+              </button>
+            </div>
+          </Field>
+        </div>
+
+        {/* Second line: the deep controls — floors, ƒ score, coins — live
+            behind one fold, and the board's actions sit opposite them. Folded
+            (the default) the deep filters print as chips, so what the board is
+            being asked for is still readable at a glance. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              className={`btn !px-2.5 ${filtersOpen || deepActive ? "!border-accent/40 !text-accent" : ""}`}
+              title={filtersOpen ? "Fold the deep filters away" : "Floors, ƒ score and coin requirements"}
+              aria-expanded={filtersOpen}
+              onClick={() => setFiltersOpen((v) => !v)}>
+              <span className={`inline-block w-0 h-0 border-y-[4px] border-y-transparent
+                border-l-[5px] border-l-current transition-transform duration-150
+                ${filtersOpen ? "rotate-90" : ""}`} />
+              filters{!filtersOpen && deepActive ? ` · ${deepCount}` : ""}
             </button>
-          )}
-          <div className="ml-auto flex items-center gap-2 pb-0.5">
+            {!filtersOpen && (
+              <button className="flex flex-wrap items-center gap-1.5 text-left"
+                title="Open the filters" onClick={() => setFiltersOpen(true)}>
+                {floorSummary.map((f) => (
+                  <span key={f} className="pill !border-accent/40 !text-accent !bg-accent/10">{f}</span>
+                ))}
+                {scoreActive && (
+                  <span className="pill !border-accent/40 !text-accent !bg-accent/10" title={formula}>
+                    ƒ {matchScorePreset(formula)?.label ?? matchSavedRatio(formula, ratios)?.name
+                      ?? (scoreLang === "expr" ? "custom" : `${scoreLang} score`)}
+                  </span>
+                )}
+                {coinList.length > 0 && (
+                  <span className="pill !border-accent/40 !text-accent !bg-accent/10">
+                    {coinList.slice(0, 4).join(" / ")}{coinList.length > 4 ? ` +${coinList.length - 4}` : ""}
+                  </span>
+                )}
+                {!deepActive && (
+                  <span className="text-[10px] uppercase tracking-wider text-dim">no score floors</span>
+                )}
+              </button>
+            )}
+          </div>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <Switch on={autoRefresh} onChange={setAutoRefresh} label="auto" />
             <button
               className={`btn ${seedOpen || seed.trim() ? "!border-accent/40 !text-accent" : ""}`}
               title="Seed the scan with specific wallets"
-              onClick={() => { setFiltersOpen(true); setSeedOpen((v) => !v); }}>
+              onClick={() => setSeedOpen((v) => !v)}>
               seeds{seed.trim() ? " ●" : ""}
             </button>
             <button className="btn-primary min-w-[6.5rem]" onClick={load} disabled={loading || scanning}>
@@ -561,7 +589,7 @@ export default function TopTraders() {
             </div>
           </div>
         </div>
-        {filtersOpen && seedOpen && (
+        {seedOpen && (
           <input className="input w-full font-mono" autoFocus
             placeholder="seed wallets — 0xabc…, 0xdef… (comma-separated)"
             value={seed} onChange={(e) => setSeed(e.target.value)}

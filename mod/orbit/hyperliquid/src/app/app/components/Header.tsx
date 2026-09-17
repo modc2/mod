@@ -7,6 +7,7 @@ import { shortAddr } from "../lib/api";
 import { useWallet } from "../lib/wallet";
 import { useSession } from "../lib/auth";
 import ThemePicker from "./ThemePicker";
+import { useDock } from "../lib/dock";
 
 // The console is five nouns: three places to find something to back, one book
 // of what you've backed, and the desk agent. Everything else — the money
@@ -133,6 +134,8 @@ function AccountMenu({ onWatchAnother, onSignIn, onConnect, error }: {
   // The chip used to go green on a week-old token the server had already
   // stopped accepting, which is how "Signed in" and a 401 coexisted.
   const { canWrite, isWatching } = useSession();
+  // The account chip is also the shortest way into the desk's wallet tab.
+  const { show: showDesk } = useDock();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -202,6 +205,10 @@ function AccountMenu({ onWatchAnother, onSignIn, onConnect, error }: {
               </button>
             )}
             <button className={`${item} text-muted hover:text-ink hover:bg-white/[0.05]`}
+              onClick={() => { setOpen(false); showDesk("wallet"); }}>
+              Balance &amp; positions
+            </button>
+            <button className={`${item} text-muted hover:text-ink hover:bg-white/[0.05]`}
               onClick={() => { setOpen(false); onWatchAnother(); }}>
               Watch another address
             </button>
@@ -213,6 +220,30 @@ function AccountMenu({ onWatchAnother, onSignIn, onConnect, error }: {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Desk handle ───────────────────────────────────────────────────────────
+// One handle for the right-hand column: the agent, the strats you manage and
+// your wallet. It lights up while the desk is open so the header always says
+// where that column came from.
+function DeskToggle() {
+  const { open, toggle } = useDock();
+  return (
+    <button
+      onClick={() => toggle()}
+      aria-expanded={open}
+      aria-label="Desk — agent, my strats, my wallet"
+      title="Desk — agent, my strats, my wallet"
+      className={`btn !px-2.5 gap-1.5 ${open ? "!text-accent !border-accent/40 bg-accent/10" : ""}`}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2" strokeLinejoin="round" aria-hidden="true">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M15 4v16" />
+      </svg>
+      <span className="hidden sm:inline">desk</span>
+    </button>
   );
 }
 
@@ -283,6 +314,7 @@ export default function Header() {
             viewport the wallet controls would squeeze it down to a few
             characters, and none of them are needed mid-edit. */}
         <div className={`ml-auto items-center gap-2 shrink-0 ${editing ? "hidden" : "flex"}`}>
+          <DeskToggle />
           <ThemePicker />
           {address ? (
             <>

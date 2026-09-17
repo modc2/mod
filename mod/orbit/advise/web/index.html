@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>advise — recommend a change, the owner decides</title>
+<style>
+  :root {
+    --bg: #0c0e14; --panel: #12151e; --line: #232838; --ink: #e6e9f2;
+    --dim: #8d94ab; --accent: #7c9cff; --ok: #4ec9a0; --no: #ff7b72;
+    --warn: #e2b341;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  a { color: var(--accent); }
+  header {
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    padding: 14px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+    position: sticky; top: 0; z-index: 5;
+  }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .14em; }
+  h1 span { color: var(--dim); letter-spacing: 0; font-weight: 400; margin-left: 10px; }
+  .tabs { display: flex; gap: 6px; margin-left: auto; }
+  button {
+    background: transparent; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 12px; cursor: pointer; font: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #0b0d13; border-color: var(--accent); }
+  button.go { border-color: var(--accent); color: var(--accent); }
+  button.yes { border-color: var(--ok); color: var(--ok); }
+  button.no { border-color: var(--no); color: var(--no); }
+  main { padding: 18px; max-width: 1100px; margin: 0 auto; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 16px; margin-bottom: 14px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  label { display: block; color: var(--dim); font-size: 12px; margin: 10px 0 4px; letter-spacing: .06em; }
+  input, select, textarea {
+    width: 100%; background: #0a0c12; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 8px 10px; font: inherit;
+  }
+  textarea { min-height: 72px; resize: vertical; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .card h3 { margin: 0 0 6px; font-size: 14px; }
+  .meta { color: var(--dim); font-size: 12px; }
+  .tag {
+    display: inline-block; border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 7px; margin-right: 6px; font-size: 11px; color: var(--dim);
+  }
+  .tag.critical, .tag.high { color: var(--no); border-color: var(--no); }
+  .tag.pending { color: var(--warn); border-color: var(--warn); }
+  .tag.approved { color: var(--ok); border-color: var(--ok); }
+  .tag.rejected { color: var(--no); border-color: var(--no); }
+  pre {
+    background: #0a0c12; border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px; overflow: auto; max-height: 420px; font-size: 12px;
+  }
+  .note { color: var(--dim); font-size: 12px; margin: 6px 0 0; }
+  .err { color: var(--no); }
+  .ok { color: var(--ok); }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ADVISE <span>recommend a change to a module you do not own — the owner decides</span></h1>
+  <div class="tabs">
+    <button id="tab-scan" class="on" onclick="show('scan')">SCAN</button>
+    <button id="tab-queue" onclick="show('queue')">QUEUE</button>
+    <button id="tab-inbox" onclick="show('inbox')">INBOX</button>
+    <button id="who" onclick="connect()">CONNECT WALLET</button>
+  </div>
+</header>
+
+<main>
+  <!-- SCAN ------------------------------------------------------ -->
+  <section id="view-scan">
+    <div class="panel">
+      <div class="row">
+        <div style="flex:1 1 320px">
+          <label for="module">MODULE TO READ</label>
+          <input id="module" list="modlist" placeholder="boxd" onchange="loadBrief()">
+          <datalist id="modlist"></datalist>
+        </div>
+        <div style="flex:1 1 200px">
+          <label for="focus">FOCUS (optional grep)</label>
+          <input id="focus" placeholder="fetch" onkeydown="if(event.key==='Enter')loadBrief()">
+        </div>
+        <div style="align-self:end"><button class="go" onclick="loadBrief()">READ IT</button></div>
+      </div>
+      <p class="note" id="brief-note">Pick a module. You get its config, README, tree, TODOs and
+        the recommendations already filed — then write one of your own below.</p>
+      <pre id="brief" class="hidden"></pre>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 4px">RECOMMEND A CHANGE</h3>
+      <p class="note">This runs nothing. It is filed as pending and waits for
+        <span id="owner-of" class="ok">the module owner</span> to approve or reject it.</p>
+      <label for="title">TITLE — one line, what should change</label>
+      <input id="title" maxlength="200" placeholder="cache the poster wall between runs">
+      <div class="grid">
+        <div>
+          <label for="kind">KIND</label>
+          <select id="kind">
+            <option>bug</option><option>security</option><option>performance</option>
+            <option>ux</option><option>docs</option><option>test</option>
+            <option>cleanup</option><option selected>feature</option>
+          </select>
+        </div>
+        <div>
+          <label for="severity">SEVERITY</label>
+          <select id="severity">
+            <option>low</option><option selected>medium</option>
+            <option>high</option><option>critical</option>
+          </select>
+        </div>
+      </div>
+      <label for="summary">SUMMARY — what the owner reads first</label>
+      <textarea id="summary"></textarea>
+      <label for="rationale">WHY — the evidence from the code you just read</label>
+      <textarea id="rationale"></textarea>
+      <label for="change">PROPOSED CHANGE — concrete enough to hand to an agent</label>
+      <textarea id="change"></textarea>
+      <label for="anchors">WHERE — one per line, path:line note</label>
+      <textarea id="anchors" placeholder="letterboxd.py:88 the retry loop"></textarea>
+      <label for="patch">PATCH (optional unified diff — proposed, never applied)</label>
+      <textarea id="patch"></textarea>
+      <div class="row" style="margin-top:12px">
+        <button class="go" onclick="fileRec()">FILE IT</button>
+        <span id="file-msg" class="note"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUEUE ----------------------------------------------------- -->
+  <section id="view-queue" class="hidden">
+    <div class="panel">
+      <div class="row">
+        <select id="q-status" style="width:auto" onchange="loadQueue()">
+          <option value="">every status</option>
+          <option value="pending" selected>pending</option>
+          <option value="approved">approved</option>
+          <option value="rejected">rejected</option>
+          <option value="withdrawn">withdrawn</option>
+        </select>
+        <input id="q-module" style="width:220px" placeholder="filter by module"
+               onkeydown="if(event.key==='Enter')loadQueue()">
+        <button onclick="loadQueue()">REFRESH</button>
+      </div>
+    </div>
+    <div id="queue"></div>
+  </section>
+
+  <!-- INBOX ----------------------------------------------------- -->
+  <section id="view-inbox" class="hidden">
+    <div class="panel">
+      <p class="note" id="inbox-note">Connect the wallet that owns the modules —
+        approving is a signed action, and it is the only thing that moves a
+        recommendation forward.</p>
+      <button onclick="loadInbox()">REFRESH</button>
+    </div>
+    <div id="inbox"></div>
+  </section>
+</main>
+
+<script>
+const API = location.pathname.startsWith('/advise') ? '/advise/api' : '/api/advise';
+let TOKEN = sessionStorage.getItem('advise.token') || '';
+let ADDRESS = sessionStorage.getItem('advise.address') || '';
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g,
+    c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+async function call(fn, args = {}, method = 'GET') {
+  const opts = { method, headers: {} };
+  if (TOKEN) opts.headers['x-mod-token'] = TOKEN;
+  let url = `${API}/${fn}`;
+  if (method === 'GET') {
+    const q = new URLSearchParams(Object.entries(args).filter(([, v]) => v !== '' && v != null));
+    if ([...q].length) url += '?' + q;
+  } else {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(args);
+  }
+  const r = await fetch(url, opts);
+  const out = await r.json().catch(() => ({ error: 'bad response' }));
+  if (!r.ok || out.error) throw new Error(out.error || `HTTP ${r.status}`);
+  return out;
+}
+
+function show(view) {
+  for (const v of ['scan', 'queue', 'inbox']) {
+    document.getElementById('view-' + v).classList.toggle('hidden', v !== view);
+    document.getElementById('tab-' + v).classList.toggle('on', v === view);
+  }
+  if (view === 'queue') loadQueue();
+  if (view === 'inbox') loadInbox();
+}
+
+// ── identity: one personal_sign, no gas, no challenge ────────────
+async function connect() {
+  if (!window.ethereum) { alert('No browser wallet found. Reads work without one.'); return; }
+  try {
+    const [addr] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+    // data is a STRING, not an object: build's core-token reader rebuilds the
+    // signed message with data as a string, so one signature works on both.
+    const data = 'advise';
+    const time = (Date.now() / 1000).toString();
+    const signature = await window.ethereum.request({
+      method: 'personal_sign', params: [JSON.stringify({ data, time }), addr] });
+    TOKEN = btoa(JSON.stringify({ data, time, key: addr.toLowerCase(), signature }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    ADDRESS = addr.toLowerCase();
+    sessionStorage.setItem('advise.token', TOKEN);
+    sessionStorage.setItem('advise.address', ADDRESS);
+    paintWho();
+  } catch (e) { alert('Sign-in cancelled: ' + e.message); }
+}
+
+function paintWho() {
+  const b = document.getElementById('who');
+  b.textContent = ADDRESS ? ADDRESS.slice(0, 6) + '…' + ADDRESS.slice(-4) : 'CONNECT WALLET';
+  b.classList.toggle('on', !!ADDRESS);
+}
+
+// ── scan ─────────────────────────────────────────────────────────
+async function loadModules() {
+  try {
+    const out = await call('modules', { limit: 500 });
+    document.getElementById('modlist').innerHTML =
+      out.modules.map(m => `<option value="${esc(m.module)}">${esc(m.description.slice(0, 60))}</option>`).join('');
+  } catch (e) { /* the list is a convenience, not the page */ }
+}
+
+async function loadBrief() {
+  const module = document.getElementById('module').value.trim();
+  const note = document.getElementById('brief-note');
+  const pre = document.getElementById('brief');
+  if (!module) return;
+  note.textContent = 'reading ' + module + '…';
+  try {
+    const b = await call('brief', { module, focus: document.getElementById('focus').value.trim() });
+    document.getElementById('owner-of').textContent = b.owner || 'the deployment owner';
+    note.innerHTML = `<span class="ok">${esc(module)}</span> — ${b.stats.files} files, `
+      + Object.keys(b.stats.languages).join(', ')
+      + `, ${b.stats.todos.length} TODO/FIXME, ${b.open_recommendations.length} recommendation(s) already open.`;
+    pre.classList.remove('hidden');
+    pre.textContent = JSON.stringify(b, null, 2);
+  } catch (e) {
+    note.innerHTML = `<span class="err">${esc(e.message)}</span>`;
+    pre.classList.add('hidden');
+  }
+}
+
+function parseAnchors() {
+  return document.getElementById('anchors').value.split('\n')
+    .map(l => l.trim()).filter(Boolean).map(line => {
+      const m = line.match(/^([^\s:]+)(?::(\d+))?\s*(.*)$/);
+      return m ? { path: m[1], line: m[2] ? Number(m[2]) : undefined, note: m[3] || undefined } : null;
+    }).filter(Boolean);
+}
+
+async function fileRec() {
+  const msg = document.getElementById('file-msg');
+  const body = {
+    module: document.getElementById('module').value.trim(),
+    title: document.getElementById('title').value.trim(),
+    kind: document.getElementById('kind').value,
+    severity: document.getElementById('severity').value,
+    summary: document.getElementById('summary').value.trim(),
+    rationale: document.getElementById('rationale').value.trim(),
+    change: document.getElementById('change').value.trim(),
+    patch: document.getElementById('patch').value,
+    anchors: parseAnchors(),
+  };
+  if (!body.module || !body.title) { msg.innerHTML = '<span class="err">module and title are required</span>'; return; }
+  msg.textContent = 'filing…';
+  try {
+    const out = await call('recommend', body, 'POST');
+    msg.innerHTML = `<span class="ok">filed ${esc(out.filed)}</span> — waiting on ${esc(out.awaiting || 'the owner')}`;
+    document.getElementById('title').value = '';
+    document.getElementById('summary').value = '';
+    document.getElementById('rationale').value = '';
+    document.getElementById('change').value = '';
+    document.getElementById('anchors').value = '';
+    document.getElementById('patch').value = '';
+  } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+
+// ── queue + inbox ────────────────────────────────────────────────
+function card(r, owner) {
+  const who = esc(r.author) + (r.author_signed ? '' : ' (no account)')
+    + (r.agent ? ' via ' + esc(r.agent) : '');
+  const acts = owner && r.status === 'pending'
+    ? `<div class="row" style="margin-top:8px">
+         <button class="yes" onclick="decide('${r.id}','approve')">APPROVE</button>
+         <button class="no" onclick="decide('${r.id}','reject')">REJECT</button>
+         <span class="note" id="msg-${r.id}"></span>
+       </div>` : '';
+  const relay = r.relayed ? '<span class="tag approved">in build\'s idea queue</span>' : '';
+  return `<div class="card">
+    <h3>${esc(r.title)}</h3>
+    <div class="meta">
+      <span class="tag ${esc(r.status)}">${esc(r.status)}</span>
+      <span class="tag ${esc(r.severity)}">${esc(r.kind)} · ${esc(r.severity)}</span>
+      <span class="tag">${esc(r.module)}</span>
+      <span class="tag">${r.anchors} anchor(s)${r.has_patch ? ' · patch' : ''}</span>
+      ${relay}
+    </div>
+    <p class="note">${esc(r.summary)}</p>
+    <p class="meta">${who} · ${new Date(r.created_at * 1000).toLocaleString()} ·
+      <a href="${API}/rec?id=${r.id}" target="_blank">${esc(r.id)}</a></p>
+    ${acts}</div>`;
+}
+
+async function loadQueue() {
+  const el = document.getElementById('queue');
+  el.textContent = 'loading…';
+  try {
+    const out = await call('recs', {
+      status: document.getElementById('q-status').value,
+      module: document.getElementById('q-module').value.trim(), limit: 100 });
+    el.innerHTML = out.count
+      ? out.recommendations.map(r => card(r, false)).join('')
+      : '<div class="panel note">Nothing filed yet.</div>';
+  } catch (e) { el.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; }
+}
+
+async function loadInbox() {
+  const el = document.getElementById('inbox');
+  if (!TOKEN) { el.innerHTML = '<div class="panel note">Connect a wallet to see what is waiting on you.</div>'; return; }
+  el.textContent = 'loading…';
+  try {
+    const out = await call('inbox', { status: 'pending' });
+    document.getElementById('inbox-note').innerHTML =
+      `${out.count} waiting on <span class="ok">${esc(out.owner)}</span>. Approving relays it into build's idea queue — you play it there.`;
+    el.innerHTML = out.count
+      ? out.recommendations.map(r => card(r, true)).join('')
+      : '<div class="panel note">Nothing is waiting on you.</div>';
+  } catch (e) { el.innerHTML = `<div class="panel err">${esc(e.message)}</div>`; }
+}
+
+async function decide(id, action) {
+  const msg = document.getElementById('msg-' + id);
+  const note = prompt(action === 'approve'
+    ? 'Anything to keep in mind when this is played? (optional)'
+    : 'Why are you turning it down? (optional)') ?? '';
+  msg.textContent = action + 'ing…';
+  try {
+    const out = await call(action, { id, note }, 'POST');
+    msg.innerHTML = `<span class="ok">${esc(out.status)}</span>`
+      + (out.relay && out.relay.suggestion_id
+        ? ` — suggestion ${esc(out.relay.suggestion_id)} in build` : '');
+    setTimeout(loadInbox, 900);
+  } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+
+paintWho();
+loadModules();
+const preset = new URLSearchParams(location.search).get('module');
+if (preset) { document.getElementById('module').value = preset; loadBrief(); }
+</script>
+</body>
+</html>

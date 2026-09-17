@@ -218,11 +218,34 @@
     box-shadow: 0 6px 0 var(--shadow), 0 20px 60px rgba(0,0,0,.28); padding: 16px;
   }
   .wpop .wlocal { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  .wpop .wlocal button {
+  .wpop .wext { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .wpop .wlocal button, .wpop .wext button {
     font-family: var(--mono); font-size: 12px; padding: 6px 12px; border-radius: 999px;
     border: 2px solid var(--line); background: transparent; color: var(--ink); cursor: pointer;
   }
-  .wpop .wlocal button:hover { border-color: var(--accent); }
+  .wpop .wlocal button:hover, .wpop .wext button:hover { border-color: var(--accent); }
+  .wpop .wext button.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+  .wpop .wext button.off { color: var(--ink3); }
+  .wpop .wext button .dot {
+    width: 6px; height: 6px; border-radius: 999px; display: inline-block;
+    margin-right: 7px; vertical-align: 1px; background: var(--good);
+  }
+  .wpop .wext button.off .dot { background: color-mix(in srgb, var(--ink) 24%, transparent); }
+  .wpop .wacct { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .wpop .wacct[hidden], .wpop .wmsg[hidden] { display: none; }
+  .wpop .wacct button {
+    font-family: var(--mono); font-size: 12px; text-align: left; padding: 8px 11px;
+    border-radius: 10px; border: 2px solid var(--line); background: transparent;
+    color: var(--ink); cursor: pointer; line-height: 1.35;
+  }
+  .wpop .wacct button:hover { border-color: var(--accent); }
+  .wpop .wacct button .a { display: block; color: var(--ink3); font-size: 11px; }
+  .wpop .wmsg { margin-top: 10px; font-size: 11.5px; color: var(--ink3); line-height: 1.5; }
+  .wpop .wmsg a { color: var(--accent); }
+  .wpop .wsep {
+    margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line);
+    font-size: 11.5px; color: var(--ink3); text-transform: none; letter-spacing: .01em;
+  }
 
   /* ---------- rail (the sidebar) ---------- */
   .rail {
@@ -644,13 +667,17 @@
     <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">🌙</button>
   </div>
   <div class="wpop" id="wpop" hidden>
-    <label style="margin-top:0">Watch any ss58 address</label>
+    <label style="margin-top:0">Connect a browser wallet</label>
+    <div class="wext" id="wpop-ext"></div>
+    <div class="wmsg" id="wpop-msg" hidden></div>
+    <div class="wacct" id="wpop-acct" hidden></div>
+    <div class="wlocal" id="wpop-local"></div>
+    <div class="wsep">or watch any ss58 address</div>
     <input id="wpop-addr" placeholder="5Grw…" spellcheck="false" onkeydown="if(event.key==='Enter')watchFromInput()">
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="pill primary" onclick="watchFromInput()">Watch</button>
       <button class="iconbtn" onclick="closeWpop()">Cancel</button>
     </div>
-    <div class="wlocal" id="wpop-local"></div>
   </div>
 </nav>
 
@@ -1667,7 +1694,74 @@ async function trackFromAccount(addr) {
    otherwise any address you paste. Value is the account total (free + staked),
    cached so the bar paints before the chain answers. */
 const WKEY = 'bt.wallet', WBAR_KEY = 'bt.wbar';
-let WALLET = null;   // {addr, name, local, tao}
+let WALLET = null;   // {addr, name, local, ext, tao}
+
+/* Browser extensions we speak to, via the standard window.injectedWeb3 bridge.
+   Both hand back generic-substrate (ss58 prefix 42) addresses, which is exactly
+   what Bittensor uses — so an account is usable here the moment it is picked. */
+const EXTS = [
+  {id: 'subwallet-js', name: 'SubWallet', url: 'https://www.subwallet.app/download.html'},
+  {id: 'talisman',     name: 'Talisman',  url: 'https://talisman.xyz/download'},
+];
+const DAPP = 'bt · Bittensor explorer';
+let EXT_ACCTS = [];   // accounts offered by the last extension we enabled
+function pickExtAccount(i) {
+  const a = EXT_ACCTS[i];
+  if (a) connectWallet(a.addr, a.name, false, a.ext);
+}
+
+function extOf(id) { return (window.injectedWeb3 || {})[id]; }
+/* extensions inject shortly after load — give them a beat before calling them missing */
+async function waitForExts(ms = 1200) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (EXTS.some(e => extOf(e.id))) return true;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return EXTS.some(e => extOf(e.id));
+}
+function wmsg(html) {
+  const el = document.getElementById('wpop-msg');
+  el.hidden = !html; el.innerHTML = html || '';
+}
+function renderExts() {
+  const box = document.getElementById('wpop-ext');
+  box.innerHTML = EXTS.map(e => {
+    const on = !!extOf(e.id);
+    return `<button class="${on ? 'on' : 'off'}" onclick="extConnect('${e.id}')" title="${on ? 'Connect ' + e.name : e.name + ' not detected — install it'}"><span class="dot"></span>${esc(e.name)}${on ? '' : ' ↗'}</button>`;
+  }).join('');
+}
+async function extConnect(id) {
+  const meta = EXTS.find(e => e.id === id);
+  const ext = extOf(id);
+  if (!ext) { window.open(meta.url, '_blank', 'noopener'); return; }
+  wmsg(`Approve <b>${esc(meta.name)}</b> in the extension…`);
+  document.getElementById('wpop-acct').hidden = true;
+  try {
+    const inj = await ext.enable(DAPP);
+    let accs = [];
+    if (inj.accounts && inj.accounts.get) accs = await inj.accounts.get();
+    else accs = await new Promise((res, rej) => {
+      const un = inj.accounts.subscribe(a => { res(a); try { un && un(); } catch (e) {} });
+      setTimeout(() => rej(new Error('no answer from the extension')), 8000);
+    });
+    accs = (accs || []).filter(a => a && a.address && !a.address.startsWith('0x'));
+    if (!accs.length) {
+      wmsg(`No substrate accounts shared. Open ${esc(meta.name)} and allow this site to see an account.`);
+      return;
+    }
+    if (accs.length === 1) { connectWallet(accs[0].address, accs[0].name || meta.name, false, meta.name); return; }
+    wmsg(`${esc(meta.name)} · pick an account`);
+    EXT_ACCTS = accs.map(a => ({addr: a.address, name: a.name || meta.name, ext: meta.name}));
+    const box = document.getElementById('wpop-acct');
+    box.hidden = false;
+    box.innerHTML = EXT_ACCTS.map((a, i) =>
+      `<button onclick="pickExtAccount(${i})">${esc(a.name)}<span class="a">${esc(short(a.addr))}</span></button>`
+    ).join('');
+  } catch (e) {
+    wmsg(`${esc(meta.name)}: ${esc(e.message || 'connection rejected')}`);
+  }
+}
 
 function saveWallet() {
   try { WALLET ? localStorage.setItem(WKEY, JSON.stringify(WALLET)) : localStorage.removeItem(WKEY); } catch (e) {}
@@ -1682,15 +1776,17 @@ function renderWbar() {
     val.textContent = 'τ —'; val.className = 'wchip val zero';
     return;
   }
-  badge.textContent = WALLET.local ? '👑' : '👁';
-  badge.title = WALLET.local ? `Local wallet · ${WALLET.name}` : 'Watch-only';
-  addr.innerHTML = `${WALLET.local ? `<span class="sub">${esc(WALLET.name)}</span>` : ''}${esc(short(WALLET.addr))} <span class="cp">⧉</span>`;
+  badge.textContent = WALLET.local ? '👑' : WALLET.ext ? '◈' : '👁';
+  badge.title = WALLET.local ? `Local wallet · ${WALLET.name}`
+    : WALLET.ext ? `${WALLET.ext} · ${WALLET.name || 'connected'}` : 'Watch-only';
+  const tag = WALLET.local ? WALLET.name : WALLET.ext ? (WALLET.name || WALLET.ext) : '';
+  addr.innerHTML = `${tag ? `<span class="sub">${esc(tag)}</span>` : ''}${esc(short(WALLET.addr))} <span class="cp">⧉</span>`;
   addr.title = WALLET.addr + ' — click to copy';
   val.textContent = WALLET.tao == null ? 'τ —' : `τ ${fmt(WALLET.tao, 3)}`;
   val.className = 'wchip val' + (WALLET.tao ? '' : ' zero');
 }
-function connectWallet(addr, name, local) {
-  WALLET = {addr, name: name || null, local: !!local, tao: null};
+function connectWallet(addr, name, local, ext) {
+  WALLET = {addr, name: name || null, local: !!local, ext: ext || null, tao: null};
   saveWallet(); renderWbar(); closeWpop(); refreshWallet();
 }
 async function refreshWallet() {
@@ -1724,7 +1820,10 @@ async function toggleWpop() {
   if (!pop.hidden) return closeWpop();
   pop.hidden = false;
   document.getElementById('wpop-addr').value = WALLET ? WALLET.addr : '';
-  document.getElementById('wpop-addr').focus();
+  document.getElementById('wpop-acct').hidden = true;
+  wmsg('');
+  renderExts();
+  waitForExts().then(() => { if (!pop.hidden) renderExts(); });
   const box = document.getElementById('wpop-local');
   box.innerHTML = '';
   try {
@@ -1733,7 +1832,11 @@ async function toggleWpop() {
       `<button onclick="connectWallet('${esc(w.coldkey)}', '${esc(w.name)}', true)">👑 ${esc(w.name)}</button>`).join('');
   } catch (e) {}
 }
-function closeWpop() { document.getElementById('wpop').hidden = true; }
+function closeWpop() {
+  document.getElementById('wpop').hidden = true;
+  document.getElementById('wpop-acct').hidden = true;
+  wmsg('');
+}
 function watchFromInput() {
   const a = document.getElementById('wpop-addr').value.trim();
   if (a) connectWallet(a, null, false);

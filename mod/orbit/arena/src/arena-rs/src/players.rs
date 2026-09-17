@@ -105,10 +105,29 @@ pub struct Answer {
     pub prompt: String,
 }
 
+/// The shape of answer this seat is being asked for — `""` for an ordinary
+/// one-line move, `"code"` for a whole function.
+///
+/// It is read off the player's config, where the match loop writes the game's
+/// own `answer` before each move: the game says what a move is, so a coding
+/// game asks for code without every player having to be told separately. A
+/// player card may also pin it for itself.
+pub fn answer_of(p: &Player) -> &str {
+    match cfg(p, "answer").unwrap_or("").to_ascii_lowercase().as_str() {
+        "code" | "source" | "program" | "function" => "code",
+        _ => "",
+    }
+}
+
 /// The user-turn prompt this player gets for a view: its own `brief` (if it
 /// set one) wrapped around the position by `brief()`.
 pub fn prompt_of(p: &Player, view: &str, seat: usize) -> String {
-    brief(view, seat, cfg(p, "brief").unwrap_or(""))
+    brief_as(view, seat, cfg(p, "brief").unwrap_or(""), answer_of(p))
+}
+
+/// The move read out of this player's reply, in the shape it was asked for.
+fn move_of(p: &Player, raw: &str) -> String {
+    extract_as(raw, answer_of(p))
 }
 
 /// The standing instruction a server-driven player carries into every move:
@@ -132,6 +151,7 @@ pub fn prompt_card(p: &Player) -> Option<Value> {
             "system": system_of(p),
             "brief": cfg(p, "brief").unwrap_or(""),
             "template": prompt_of(p, "{view}", 0).replace("You are seat 0.", "You are seat {seat}."),
+            "answer": answer_of(p),
         })),
         _ => None,
     }
@@ -141,17 +161,34 @@ pub fn prompt_card(p: &Player) -> Option<Value> {
 /// this says what an answer has to look like, because a model that writes a
 /// paragraph has not moved.
 pub fn brief(view: &str, seat: usize, extra: &str) -> String {
+    brief_as(view, seat, extra, "")
+}
+
+/// The brief for a given answer shape. A coding game asks for a whole function
+/// in a fence, which is the exact opposite of what the one-line brief demands —
+/// telling a player "no code fence" and then grading its code is how an arena
+/// measures its own instructions instead of the player.
+pub fn brief_as(view: &str, seat: usize, extra: &str, answer: &str) -> String {
     let mut s = String::new();
     if !extra.is_empty() {
         s.push_str(extra);
         s.push_str("\n\n");
     }
     s.push_str(&format!("You are seat {seat}.\n\n{view}\n\n"));
-    s.push_str(
-        "Reply with your move and nothing else. No explanation, no punctuation \
-         around it, no code fence. If you want to think first, put the move on \
-         the last line by itself.",
-    );
+    if answer == "code" {
+        s.push_str(
+            "Reply with the complete code and nothing else, inside one ```python \
+             fenced block. Write the whole definition, not a diff and not a \
+             fragment. Any reasoning goes before the block; the block is read as \
+             your answer.",
+        );
+    } else {
+        s.push_str(
+            "Reply with your move and nothing else. No explanation, no punctuation \
+             around it, no code fence. If you want to think first, put the move on \
+             the last line by itself.",
+        );
+    }
     s
 }
 
@@ -162,6 +199,41 @@ pub fn brief(view: &str, seat: usize, extra: &str) -> String {
 /// fenced block, then the last non-empty line. Never more than one line —
 /// splicing prose into a move would fail a player for something it did not do.
 pub fn extract_move(text: &str) -> String {
+    extract_as(text, "")
+}
+
+/// Read a move of a given shape out of a reply. `code` takes the whole last
+/// fenced block — every line of it — because a function's last line is not a
+/// function. With no fence at all, the whole reply is the answer: a model that
+/// forgot the fence still wrote the code.
+pub fn extract_as(text: &str, answer: &str) -> String {
+    if answer == "code" {
+        let t = text.trim();
+        if t.is_empty() {
+            return String::new();
+        }
+        if let Some(block) = last_fence(t) {
+            return strip_lang(&block).trim_end().to_string();
+        }
+        return t.to_string();
+    }
+    extract_one(text)
+}
+
+/// The language tag a fence sometimes carries on its own first line after the
+/// opener has already been eaten (```\npython\ndef f(): …).
+fn strip_lang(block: &str) -> String {
+    let mut lines = block.lines();
+    if let Some(first) = lines.clone().next() {
+        let f = first.trim();
+        if matches!(f, "python" | "py" | "python3" | "rust" | "js" | "javascript") {
+            return lines.by_ref().skip(1).collect::<Vec<_>>().join("\n");
+        }
+    }
+    block.to_string()
+}
+
+fn extract_one(text: &str) -> String {
     let t = text.trim();
     if t.is_empty() {
         return String::new();
@@ -280,7 +352,7 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
             .into()),
     };
     let name = name.as_str();
-    let prompt = brief(view, seat, cfg(p, "brief").unwrap_or(""));
+    let prompt = prompt_of(p, view, seat);
 
     let mut messages = vec![];
     if let Some(sys) = cfg(p, "system") {
@@ -333,7 +405,7 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
         return Err(format!("{name} returned an empty reply"));
     }
     Ok(Answer {
-        mv: extract_move(&raw),
+        mv: move_of(p, &raw),
         raw,
         note: String::new(),
         meta: json!({
@@ -352,7 +424,7 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
 async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
     let base = cfg(p, "base").unwrap_or(AGENT_MOD_BASE).trim_end_matches('/').to_string();
     let mut body = json!({
-        "query": brief(view, seat, cfg(p, "brief").unwrap_or("")),
+        "query": prompt_of(p, view, seat),
         "steps": p.config.get("steps").and_then(|v| v.as_u64()).unwrap_or(2),
         "temperature": 0.0,
     });
@@ -402,7 +474,7 @@ async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String
         return Err("the agent returned nothing to read a move out of".into());
     }
     Ok(Answer {
-        mv: extract_move(&raw),
+        mv: move_of(p, &raw),
         raw,
         note: String::new(),
         meta: json!({ "driver": "agent_mod", "base": base, "agent": cfg(p, "agent").unwrap_or(""),
@@ -518,7 +590,7 @@ async fn mcp_player(p: &Player, view: &str, seat: usize) -> Result<Answer, Strin
         return Err(format!("{}/{tool} returned nothing to read a move out of", server.name));
     }
     Ok(Answer {
-        mv: extract_move(&raw),
+        mv: move_of(p, &raw),
         raw,
         note: String::new(),
         meta: json!({ "driver": "mcp", "server": server.name, "url": server.url,
@@ -652,7 +724,7 @@ async fn http(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
     let mut req = client().post(url).json(&json!({
         "view": view,
         "seat": seat,
-        "prompt": brief(view, seat, cfg(p, "brief").unwrap_or("")),
+        "prompt": prompt_of(p, view, seat),
     }));
     if let Some(h) = p.config.get("headers").and_then(|v| v.as_object()) {
         for (k, v) in h {
@@ -676,9 +748,9 @@ async fn http(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
                 .or_else(|| v.get("action"))
                 .and_then(|m| m.as_str())
                 .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| extract_move(&text))
+                .unwrap_or_else(|| move_of(p, &text))
         }
-        Err(_) => extract_move(&text),
+        Err(_) => move_of(p, &text),
     };
     if mv.is_empty() {
         return Err(format!("{url} returned no move"));
@@ -695,6 +767,52 @@ async fn http(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_code_answer_is_the_whole_fence() {
+        let reply = "Sure — here is the function:\n\n```python\ndef add(a, b):\n    total = a + b\n    return total\n```\n\nHope that helps.";
+        assert_eq!(
+            extract_as(reply, "code"),
+            "def add(a, b):\n    total = a + b\n    return total"
+        );
+    }
+
+    #[test]
+    fn a_code_answer_without_a_fence_is_the_whole_reply() {
+        let reply = "def f(n):\n    return n * 2";
+        assert_eq!(extract_as(reply, "code"), reply);
+    }
+
+    #[test]
+    fn the_one_line_reader_would_have_taken_only_the_return() {
+        // Which is why a coding game says so: the last line of a function is
+        // not a function, and grading one would fail a player for answering.
+        let reply = "```\ndef f(n):\n    return n * 2\n```";
+        assert_eq!(extract_as(reply, ""), "return n * 2");
+        assert!(extract_as(reply, "code").starts_with("def f(n):"));
+    }
+
+    #[test]
+    fn a_coding_brief_asks_for_a_fence_and_the_other_one_forbids_it() {
+        let code = brief_as("the view", 0, "", "code");
+        assert!(code.contains("fenced block"));
+        assert!(!code.contains("no code fence"));
+        assert!(brief_as("the view", 0, "", "").contains("no code fence"));
+    }
+
+    #[test]
+    fn the_answer_shape_is_read_off_the_player() {
+        let of = |config: Value| -> String {
+            let p: Player = serde_json::from_value(json!({
+                "id": "p1", "name": "probe", "kind": "model", "config": config
+            }))
+            .expect("a player card");
+            answer_of(&p).to_string()
+        };
+        assert_eq!(of(json!({})), "");
+        assert_eq!(of(json!({ "answer": "CODE" })), "code");
+        assert_eq!(of(json!({ "answer": "haiku" })), "");
+    }
 
     #[test]
     fn takes_a_bare_move() {

@@ -227,13 +227,23 @@ pub fn looks_like_rust(bytes: &[u8]) -> bool {
     let mut has_brace = false;
     for line in text.lines() {
         let t = line.trim_start().trim_start_matches("pub ").trim_start();
-        if t.starts_with("fn ")
-            || t.starts_with("impl ")
-            || t.starts_with("struct ")
-            || t.starts_with("enum ")
-            || t.starts_with("trait ")
-        {
-            has_item = true;
+        // An item, not a variable that happens to be called `fn`: Python is
+        // full of `fn = something`, and reading that file as Rust tells its
+        // author their Python has no `impl` block, which is no help at all.
+        for (kw, tail) in [("fn ", "("), ("impl ", "{"), ("struct ", "{"),
+                           ("enum ", "{"), ("trait ", "{")] {
+            if let Some(rest) = t.strip_prefix(kw) {
+                let rest = rest.trim_start();
+                let head: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '<' || *c == '>'
+                                || *c == ':' || *c == ' ' || *c == '\'' || *c == '&')
+                    .collect();
+                let after = rest[head.len()..].trim_start();
+                if !head.trim().is_empty() && after.starts_with(tail) {
+                    has_item = true;
+                }
+            }
         }
         if line.contains('{') {
             has_brace = true;

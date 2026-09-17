@@ -44,6 +44,12 @@ pub struct StratRow {
     pub age_days: i64,
     /// Basket's linked vault, when it has one.
     pub vault_address: Option<String>,
+    /// ms epoch of the most recent fill we have actually seen for this row —
+    /// the trader's own last fill, or the freshest leg of a basket. `None`
+    /// when this wallet isn't in the fills index yet: the board's liveness
+    /// gate still guarantees a trader row traded inside 24h, but we won't
+    /// invent a minute we never observed.
+    pub last_trade_ms: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,6 +63,66 @@ pub struct StratsBoard {
 
 fn annualize(roi: Option<f64>, periods_per_year: f64) -> Option<f64> {
     roi.map(|r| r * periods_per_year * 100.0)
+}
+
+/// Windows the prewarm loop keeps in the fills index. A wallet's last fill is
+/// the same instant whichever window scanned it, so take the freshest scan
+/// that knows about it rather than insisting on one window.
+const INDEXED_WINDOWS: [u32; 3] = [1, 7, 30];
+
+/// Wallets one warm pass will scan. The board shows a few dozen rows; scanning
+/// more than that per pass would spend HL calls on wallets nobody is looking at.
+const WARM_CAP: usize = 40;
+/// Window a warm pass scores. Wide enough to date a wallet that paused for a
+/// few days, and it shares the trader board's own 7d index slot.
+const WARM_WINDOW_DAYS: u32 = 7;
+/// One warm pass at a time, however many people are looking at the board.
+static WARMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Scan fills for board rows whose last trade we could not name, in the
+/// background, so the NEXT build of this board can print the minute instead of
+/// falling back to "traded within 24h".
+///
+/// Deliberately not awaited: dating a row is decoration on a board that
+/// already has its numbers, and `TraderIndex::enrich` walks Hyperliquid at
+/// concurrency 2 precisely because /info punishes anything faster. The
+/// response goes out now; the timestamps land on the next load.
+fn warm_last_trades(s: &crate::AppState, addrs: Vec<String>) {
+    use std::sync::atomic::Ordering;
+    if addrs.is_empty() { return; }
+    if WARMING.swap(true, Ordering::AcqRel) { return; }
+    let index = s.index.clone();
+    let hl = s.hl.clone();
+    let syncs = s.syncs.clone();
+    tokio::spawn(async move {
+        let t0 = std::time::Instant::now();
+        // Scan a week, not a day: a row can be on this board (or be a vault)
+        // without having traded in the last 24h, and a 1d scan would come back
+        // empty for exactly the wallets we could not date. The entry lands in
+        // the same 7d slot the trader board keeps warm, so the work is shared.
+        let n = index.enrich(&hl, WARM_WINDOW_DAYS, &addrs, None, 0).await;
+        index.save();
+        syncs.push(crate::sync::SyncEvent {
+            ts_ms: chrono::Utc::now().timestamp_millis(),
+            kind: "strats".into(),
+            key: "last-trade".into(),
+            ok: true,
+            rows: n,
+            duration_ms: t0.elapsed().as_millis() as u64,
+            note: format!("dated {n}/{} undated board rows", addrs.len()),
+        });
+        WARMING.store(false, Ordering::Release);
+    });
+}
+
+/// The most recent fill the fills index has ever seen for `addr`, across every
+/// indexed window. `None` = never scanned (or scanned and it had no fills).
+fn last_trade(index: &crate::traders::TraderIndex, addr: &str) -> Option<i64> {
+    INDEXED_WINDOWS.iter()
+        .filter_map(|d| index.get(*d, addr))
+        .map(|e| e.stats.last_active)
+        .filter(|t| *t > 0)
+        .max()
 }
 
 /// Weight-sum a basket's leg ROIs for one window. `None` when not a single
@@ -112,6 +178,9 @@ pub async fn board(
             legs_priced: priced,
             age_days: ((now_ms - idx.created_ms).max(0)) / 86_400_000,
             vault_address: idx.vault_address.clone(),
+            // A basket is as live as its liveliest leg.
+            last_trade_ms: idx.legs.iter()
+                .filter_map(|l| last_trade(&s.index, &l.address)).max(),
         });
     }
 
@@ -137,6 +206,7 @@ pub async fn board(
             legs: 0,
             legs_priced: 0,
             age_days: v.age_days,
+            last_trade_ms: last_trade(&s.index, &v.address),
             vault_address: Some(v.address),
         });
     }
@@ -167,8 +237,56 @@ pub async fn board(
             legs_priced: 0,
             age_days: 0,
             vault_address: None,
+            last_trade_ms: last_trade(&s.index, addr),
         });
     }
 
+    // Rows we could not date, dated in the background for the next load.
+    let undated: Vec<String> = rows.iter()
+        .filter(|r| r.last_trade_ms.is_none() && r.kind != "basket")
+        .map(|r| r.id.clone())
+        .take(WARM_CAP)
+        .collect();
+    warm_last_trades(s, undated);
+
     StratsBoard { rows, baskets, vaults, traders, updated_ms: now_ms }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traders::{IndexEntry, TraderIndex};
+
+    fn entry(last_active: i64) -> IndexEntry {
+        IndexEntry {
+            scanned_at: 1_700_000_000_000,
+            stats: crate::stats::PerfStats { last_active, ..Default::default() },
+        }
+    }
+
+    #[test]
+    fn last_trade_takes_the_freshest_window_that_knows_the_wallet() {
+        let dir = std::env::temp_dir().join(format!("hl-lt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ix = TraderIndex::load(dir.to_str().unwrap());
+        let a = "0xAbC0000000000000000000000000000000000001";
+
+        // Never scanned: no timestamp, and the caller must not invent one.
+        assert_eq!(last_trade(&ix, a), None);
+
+        // The 30d scan saw an older fill than the 1d scan; the wallet's last
+        // trade is the later instant, whichever window reported it.
+        ix.put(30, a, entry(1_000));
+        ix.put(1, a, entry(9_000));
+        assert_eq!(last_trade(&ix, a), Some(9_000));
+
+        // A scanned window with no fills in it reports 0 — that is "nothing in
+        // this window", not "traded at the epoch".
+        let b = "0xAbC0000000000000000000000000000000000002";
+        ix.put(1, b, entry(0));
+        assert_eq!(last_trade(&ix, b), None);
+
+        // Lookups are case-insensitive, like every other address key here.
+        assert_eq!(last_trade(&ix, &a.to_lowercase()), Some(9_000));
+    }
 }

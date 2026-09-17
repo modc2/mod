@@ -289,6 +289,46 @@ stored until you say so, and storing is the same upload as anything typed by
 hand — the registry reads what the agent wrote. `ARENA_BUILD_URL=off` turns
 the agent off; a fork and a template still work without it.
 
+### From a repo of choice
+
+```console
+$ m arena/codegame repo=TheAlgorithms/Python
+$ m arena/codegame repo=https://github.com/psf/requests rounds=5
+$ m arena/codegame repo=/root/mod/mod/orbit/hyperliquid name=hl-recon
+$ m arena/codeplay game=python-recon agents=builder,dev
+```
+
+A coding game is not written, it is **harvested**. Name a repository — a path
+on this box, a git URL or a GitHub `owner/name` — and the arena reads its
+Python, keeps the functions it can grade, runs each one to record what it
+answers, and stores a game whose rounds are that repo's functions with their
+bodies taken out. Every seat gets the signature, the docstring, what was in
+scope and three worked calls; it answers with a whole function; the arena runs
+that against all the vectors, most of which it never saw.
+
+Nobody writes those tests — they are what the repo already does. That is also
+the filter: the reference implementation is run in the same cage a submission
+will be, so a function the sandbox will not run never becomes a task.
+
+Two things had to exist for this to work, and both are general:
+
+- **A game can ask for code.** A game that sets `answer = 'code'` changes what
+  its seats are asked for — the brief wants one fenced block, and the whole
+  block is read back as the move instead of its last line.
+- **A game can run what a player wrote.** `exec` is denied to a class on
+  purpose, so the host offers `judge(code, name, calls)` instead: the
+  submission is compiled into a child namespace with the same cage — guarded
+  imports, the same denied builtins, a deadline per call, a cap per match —
+  and the game gets one result per call. It holds "run this and tell me what
+  came back", never `exec`.
+
+The same harvest is `POST /codegame`, the MCP tool `harvest_repo`, and
+**harvest a repo** in the console's `+ add` panel — one implementation, four
+doors. `m arena/codeplay` sits agents of the fleet's `agent` module at one of
+these games over the agent protocol: each is entered as an `agent_mod` player, and
+they all answer the same functions at the same time, so no seat sees another's
+code. The full page is `m arena/doc slug=repo`.
+
 ### As wasm
 
 A game is also a wasm module that exports five functions. The whole calling
@@ -514,7 +554,7 @@ src/
     src/http.rs                REST adapters, blobs, the runtime, the console
     src/console.html           the console: games, players, servers, host, docs — one file
     src/docs.rs                the documentation, as data: REST, tools and resources
-    docs/*.md                  the eight pages themselves
+    docs/*.md                  the nine pages themselves
   runtime/                   the execution layer — browser and node both
     host.mjs                   the wasm host: WASI shim, arena shim, auto-stub
     host.py                    the class host: the sandbox a class runs in
@@ -523,6 +563,8 @@ src/
     match.mjs                  the match loop and the player drivers
     worker.mjs                 the browser sandbox
     run.mjs                    the CLI
+  codeeval/                  a repo of choice, read into a coding game
+    harvest.py                 find gradeable functions, run them, write the game
   examples/                  the pack: one .rs per wasm module, plus build.sh
     classes/                   the class half — five files, nothing compiled
   tests/                     pytest, end to end through every surface

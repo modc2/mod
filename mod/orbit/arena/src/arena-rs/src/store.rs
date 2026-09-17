@@ -248,6 +248,12 @@ impl Player {
                 }
             }
         }
+        // The move clock this seat asked for. A card carries no config, and
+        // the runner reads the clock off the card — so a seat that set one and
+        // was never given it timed out at the default anyway.
+        if let Some(ms) = self.config.get("timeout_ms").and_then(|v| v.as_u64()) {
+            v["timeout_ms"] = json!(ms);
+        }
         // What a server-driven player is told each move, so the players tab
         // can say it without a click. The full template is on get_player.
         if let Some(pc) = crate::players::prompt_card(self) {

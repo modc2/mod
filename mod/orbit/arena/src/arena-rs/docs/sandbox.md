@@ -76,6 +76,35 @@ access is not sandboxed *from the world*, only from this machine. It is **off
 by default** for that reason, a match that used it is marked, and every call is
 counted onto the seat that made it.
 
+## Running a player's code
+
+A coding game has to run what a seat wrote, and `exec`, `eval` and `compile`
+are not in a class's builtins — they are how a restricted namespace gets talked
+around. So the capability is handed over as one narrow call rather than a
+general one:
+
+```python
+out = judge(code, "my_fn", [{"args": [1, 2]}, {"args": [3, 4], "seed": 7}],
+            context="import math", timeout=3)
+
+out["ok"]                      # did the submission load
+out["error"]                   # why not, if not
+out["results"][0]["value"]     # what the first call returned
+out["results"][1]["error"]     # …or how it failed, which is not an exception here
+```
+
+The host compiles the submission — with the host's `compile`, never the
+class's — into a **child namespace with the same cage**: the same guarded
+imports, the same denied builtins, no `open`, a seeded `random`, a deadline per
+call and a cap of `MAX_JUDGE_CALLS` calls per match. No `mcp`, either: a
+submission cannot call out even in a match where the game can. It never raises,
+because a player writing code that crashes is a normal outcome and not an
+error in the game.
+
+What this is not: a stronger sandbox than the one the class is already in. It
+is the same one, one level down. The reason it exists is that the game should
+not have to hold `exec` to grade an answer.
+
 ## Where this stops
 
 - **The sandbox is the engine's.** A wasm module gets no filesystem and no

@@ -444,6 +444,31 @@
         before anything is stored, and what it defines is what it becomes</p>
     </div>
 
+    <!-- ── a repo of choice ──
+         A coding game is not written, it is harvested: name a repository and
+         the arena reads its Python, keeps what it can grade, runs each function
+         to record what it answers, and stores a game whose rounds are those
+         functions with their bodies removed. It is the same upload as any
+         other afterwards — nothing here has a private door into the registry. -->
+    <div id="repo" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px">
+      <div class="row" style="margin-bottom:8px">
+        <h2 class="grow" style="margin:0;font-size:14px">harvest a repo</h2>
+        <span class="dim small">its own functions become the rounds</span>
+      </div>
+      <div class="row">
+        <input id="r-repo" style="flex:1;min-width:220px" spellcheck="false"
+          placeholder="TheAlgorithms/Python — or a git URL, or a path on this box">
+        <input id="r-name" placeholder="name (blank = <repo>-recon)" style="width:210px">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="dim small">functions <input id="r-tasks" type="number" min="3" max="120" value="30" style="width:72px"></label>
+        <label class="dim small">rounds <input id="r-rounds" type="number" min="1" max="12" value="3" style="width:64px"></label>
+        <span class="grow"></span>
+        <button class="act" id="r-go">harvest</button>
+      </div>
+      <p class="dim small" id="r-out" style="margin:8px 0 0">nobody writes the tests — they are what the repo already does</p>
+    </div>
+
     <!-- ── vibe ──
          Writing one with the build agent. A session is a file on this box that
          orbit/build's agent edits a sentence at a time, from the template or
@@ -1987,6 +2012,37 @@ function showVibe(card) {
     toast(`round ${rounds.length} done — it reads as a ${r.role}`);
   }
 }
+
+// A harvest clones and then *runs* a repository's functions, which is minutes
+// of work for a large one. There is no job to poll here — the call waits, so
+// the button says what it is doing and the CLI is offered for the big ones.
+$("r-go").onclick = async () => {
+  const repo = $("r-repo").value.trim();
+  if (!repo) return toast("name a repo — owner/name, a git URL, or a path", true);
+  const out = $("r-out");
+  $("r-go").disabled = true;
+  $("r-go").textContent = "harvesting…";
+  out.className = "dim small";
+  out.textContent = `reading ${repo} — cloning and running its functions takes a few minutes`;
+  try {
+    const m = await post("/codegame", {
+      repo,
+      name: $("r-name").value.trim() || undefined,
+      tasks: Number($("r-tasks").value) || 30,
+      rounds: Number($("r-rounds").value) || 3,
+    });
+    const h = m.harvest || {};
+    out.textContent = `${m.name}: ${h.tasks || "?"} functions from ${(h.files || []).length || "?"} files`;
+    await landed(m);
+  } catch (e) {
+    out.className = "bad small";
+    out.textContent = e.message;
+    toast(e.message, true);
+  } finally {
+    $("r-go").disabled = false;
+    $("r-go").textContent = "harvest";
+  }
+};
 
 $("v-go").onclick = async () => {
   const prompt = $("v-prompt").value.trim();

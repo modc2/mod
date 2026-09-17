@@ -172,8 +172,13 @@ pub fn put_module(args: &Value) -> Result<Value, String> {
     }
     // Read before storing: a blob that cannot be described is not a module,
     // and the registry promises every entry can be introspected. Which reader
-    // runs is decided by the bytes — wasm's four magic bytes, or source.
-    let described = describe(&raw)?;
+    // runs is decided by the bytes — wasm's four magic bytes, or source —
+    // unless the caller already said, in which case the caller said.
+    let described = match args.get("lang").and_then(|v| v.as_str()).unwrap_or("") {
+        "rust" | "rs" => rsklass::describe(&raw),
+        "python" | "py" | "class" => klass::describe(&raw),
+        _ => describe(&raw),
+    }?;
     let id = blobs::put(&raw)?;
 
     let asked = args
@@ -336,8 +341,11 @@ pub fn put_class(args: &Value) -> Result<Value, String> {
     obj.remove("source");
     obj.remove("text");
     obj.remove("class");
-    obj.remove("lang");
     obj.insert("text".into(), json!(source));
+    // Keep the language the reader settled on. Dropping it here left
+    // `put_module` to sniff the bytes a second time and, for a Python file
+    // with a line starting `fn `, come back with the Rust reader's complaint.
+    obj.insert("lang".into(), json!(described["lang"].as_str().unwrap_or("")));
     // Unnamed, a class is called what the class is called — the author already
     // named it once and should not have to do it twice.
     if !obj.contains_key("name") {
@@ -863,13 +871,22 @@ pub fn remove_player(key: &str) -> Result<Value, String> {
 
 /// One move from a player the execution layer cannot drive itself. This is the
 /// only outbound call the server makes on a match's behalf.
-pub async fn play(key: &str, view: &str, seat: usize) -> Result<Value, String> {
-    let p = store::read(|s| s.player(key).cloned()).ok_or_else(|| format!("no player `{key}`"))?;
+pub async fn play(key: &str, view: &str, seat: usize, answer: &str) -> Result<Value, String> {
+    let mut p = store::read(|s| s.player(key).cloned()).ok_or_else(|| format!("no player `{key}`"))?;
+    // The game decides what a move is, and the match loop forwards that here
+    // as `answer` — a coding game asks for a whole function, everything else
+    // for one line. A player card that pinned its own shape keeps it.
+    if !answer.trim().is_empty() && p.config.get("answer").is_none() {
+        if let Some(map) = p.config.as_object_mut() {
+            map.insert("answer".into(), json!(answer.trim()));
+        }
+    }
     let t0 = std::time::Instant::now();
     let a = players::play(&p, view, seat).await?;
     Ok(json!({
         "player": p.name, "seat": seat, "move": a.mv, "raw": a.raw, "note": a.note,
-        "prompt": a.prompt, "ms": t0.elapsed().as_millis() as u64, "meta": a.meta,
+        "prompt": a.prompt, "answer": players::answer_of(&p),
+        "ms": t0.elapsed().as_millis() as u64, "meta": a.meta,
     }))
 }
 

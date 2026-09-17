@@ -57,6 +57,10 @@ async function pyhost() {
 const dec = new TextDecoder("utf-8", { fatal: false });
 
 export const DEFAULT_MOVE_TIMEOUT_MS = 60_000;
+/** A seat asked for a whole function needs longer than one asked for a square.
+ *  A coding game that had to configure every seat to be playable would be a
+ *  coding game nobody could just sit down at. */
+export const CODE_MOVE_TIMEOUT_MS = 300_000;
 export const WASM_MOVE_TIMEOUT_MS = 5_000;
 
 /** The server, seen from wherever this is running. */
@@ -144,7 +148,7 @@ export async function openGame(api, id, { seed = 1, seats = 0, mcp = null } = {}
 }
 
 /** Everything a seat needs to answer: one `move(view, seat)` and a label. */
-export async function driverFor(player, { api, seed, onEvent, mcp = null } = {}) {
+export async function driverFor(player, { api, seed, onEvent, mcp = null, answer = "" } = {}) {
   const kind = (player.kind || "").toLowerCase();
 
   if (kind === "wasm" || kind === "class") {
@@ -207,9 +211,15 @@ export async function driverFor(player, { api, seed, onEvent, mcp = null } = {})
   // model | agent_mod | mcp | http — the server drives these; we only ask.
   return {
     label: kind || "remote",
-    timeout: player.config?.timeout_ms ?? DEFAULT_MOVE_TIMEOUT_MS,
+    // A player card carries what it asked for at the top level; `config` is
+    // only there when a caller built the record itself.
+    timeout: player.timeout_ms ?? player.config?.timeout_ms
+      ?? (answer === "code" ? CODE_MOVE_TIMEOUT_MS : DEFAULT_MOVE_TIMEOUT_MS),
     async move(view, seat) {
-      const r = await api.play({ player: player.id, view, seat });
+      // `answer` is the game's own word for what a move is — a coding game
+      // wants a whole function, so the server asks for one and reads the whole
+      // fence back out instead of its last line.
+      const r = await api.play({ player: player.id, view, seat, answer });
       return { move: r.move ?? "", raw: r.raw ?? "", note: r.note ?? "", prompt: r.prompt ?? "" };
     },
   };
@@ -287,7 +297,10 @@ export async function runMatch({
       throw new Error(`${info.name || short(game)} seats at most ${info.max_players} players, got ${seats}`);
     }
 
-    for (const p of players) drivers.push(await driverFor(p, { api, seed, onEvent, mcp: door }));
+    const answer = String(info.answer ?? info.move_format ?? "");
+    for (const p of players) {
+      drivers.push(await driverFor(p, { api, seed, onEvent, mcp: door, answer }));
+    }
     await g.init(seed);
     const limit = maxTurns || info.max_turns || 200;
     const turns = [];

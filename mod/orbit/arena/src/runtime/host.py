@@ -36,6 +36,11 @@ mid-move; what it costs is that such a player's move is no longer a function of
 its view alone. Both facts are worth saying out loud, so both are recorded: the
 call goes through one place and every one of them is logged.
 
+There is one more capability, and it exists for coding games: `judge(code,
+name, calls)`. `exec` is denied to a class, so a game that has to *run* what a
+player submitted asks the host to do it — into a child namespace with the same
+cage and no way back out. See `judge()` below.
+
 Anything the class prints lands in the match transcript, the way `arena.log`
 does for a wasm module.
 """
@@ -141,6 +146,141 @@ DENIED_BUILTINS = {
 }
 
 
+# ── the judge door ──────────────────────────────────────────────────────────
+# A coding game has to run what a player wrote, and `exec` is denied above for
+# a good reason: it is how a restricted namespace gets talked around. So the
+# capability is handed over as one narrow call instead of a general one. The
+# host compiles the candidate — with *this* file's `compile`, never the class's
+# — into a fresh child namespace that has the same cage as the class itself
+# (guarded imports, the same denied builtins) and no `mcp`, then calls one
+# function in it. The game never holds `exec`; it holds "run this and tell me
+# what came back", which is the only thing it wanted `exec` for.
+
+MAX_JUDGE_CALLS = 4000        # candidate calls per match, across every judge()
+JUDGE_SECONDS = 5             # wall clock per candidate call
+_JUDGE = {"calls": 0}
+
+
+def _child_namespace(seed=None):
+    import builtins
+    import random as _random
+
+    safe = {k: v for k, v in vars(builtins).items() if k not in DENIED_BUILTINS}
+    safe["__import__"] = _guarded_import
+    ns = {"__builtins__": safe, "__name__": "arena_candidate", "__doc__": None}
+    if seed is not None:
+        _random.seed(seed)
+    ns["random"] = _random
+    return ns
+
+
+class _Deadline:
+    """SIGALRM around one candidate call, where the platform has one."""
+
+    def __init__(self, seconds):
+        self.seconds = max(0, int(seconds or 0))
+        self.old = None
+
+    def __enter__(self):
+        if not self.seconds:
+            return self
+        try:
+            import signal
+        except ImportError:
+            return self
+
+        def _fire(signum, frame):
+            raise TimeoutError(f"candidate ran longer than {self.seconds}s")
+
+        try:
+            self.old = signal.signal(signal.SIGALRM, _fire)
+            signal.alarm(self.seconds)
+        except (ValueError, OSError, AttributeError):
+            self.old = None
+        return self
+
+    def __exit__(self, *exc):
+        if self.old is None:
+            return False
+        import signal
+        try:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, self.old)
+        except (ValueError, OSError):
+            pass
+        return False
+
+
+def judge(code, name="", calls=None, context="", seed=None, timeout=JUDGE_SECONDS):
+    """Run a player's code and call one function out of it.
+
+    code     the submission, as source
+    name     the function to call; "" just loads the code
+    calls    [{"args": [...], "kwargs": {...}, "seed": n}], one per vector
+    context  source to run *before* the submission (imports, fixtures)
+    seed     default seed, re-applied to `random` before every call
+    timeout  seconds allowed per call
+
+    Never raises. Returns
+
+        {"ok": bool, "error": str, "names": [...],
+         "results": [{"ok": bool, "value": ..., "error": str}, ...]}
+
+    where `ok` is about loading the code, and each result is about one call.
+    """
+    calls = list(calls or [])
+    out = {"ok": False, "error": "", "names": [], "results": []}
+    if not isinstance(code, str) or not code.strip():
+        out["error"] = "empty submission"
+        return out
+
+    ns = _child_namespace(seed)
+    for part, label in ((context, "context"), (code, "submission")):
+        if not part:
+            continue
+        try:
+            with _Deadline(timeout):
+                exec(compile(str(part), f"<{label}>", "exec"), ns)  # noqa: S102
+        except BaseException as e:                                  # noqa: BLE001
+            out["error"] = f"{label}: {type(e).__name__}: {e}"
+            return out
+
+    out["ok"] = True
+    out["names"] = sorted(k for k in ns if not k.startswith("__"))
+    if not name:
+        return out
+
+    fn = ns.get(name)
+    if not callable(fn):
+        out["ok"] = False
+        out["error"] = f"`{name}` is not defined in the submission"
+        return out
+
+    import random as _random
+
+    for call in calls:
+        if _JUDGE["calls"] >= MAX_JUDGE_CALLS:
+            out["results"].append({"ok": False, "value": None,
+                                   "error": f"this match has spent its {MAX_JUDGE_CALLS} judge calls"})
+            continue
+        _JUDGE["calls"] += 1
+        if not isinstance(call, dict):
+            call = {"args": list(call) if isinstance(call, (list, tuple)) else [call]}
+        args = call.get("args") or []
+        kwargs = call.get("kwargs") or {}
+        use = call.get("seed", seed)
+        if use is not None:
+            _random.seed(use)
+        try:
+            with _Deadline(call.get("timeout", timeout)):
+                value = fn(*list(args), **dict(kwargs))
+            out["results"].append({"ok": True, "value": value, "error": ""})
+        except BaseException as e:                                  # noqa: BLE001
+            out["results"].append({"ok": False, "value": None,
+                                   "error": f"{type(e).__name__}: {e}"})
+    return out
+
+
 def _namespace(seed):
     import builtins
     import random
@@ -158,6 +298,8 @@ def _namespace(seed):
         # The one call that leaves this process. Also bound onto the instance
         # in `_construct`, so `self.mcp(...)` and a bare `mcp(...)` both work.
         "mcp": _mcp,
+        # Run a player's code without holding `exec`. See judge() above.
+        "judge": judge,
     }
 
 
@@ -233,6 +375,11 @@ def _construct(cls, seed):
             obj.mcp = _mcp
         except AttributeError:
             pass
+    if not hasattr(type(obj), "judge"):
+        try:
+            obj.judge = judge
+        except AttributeError:
+            pass
     return obj
 
 
@@ -254,6 +401,9 @@ def _info(obj):
         "min_players": int(getattr(obj, "min_players", lo) or 1),
         "max_players": int(getattr(obj, "max_players", hi) or 1),
         "max_turns": int(getattr(obj, "max_turns", 200) or 200),
+        # What a move looks like. "" is one line; "code" is a whole function,
+        # which is what a coding game asks its players for.
+        "answer": str(getattr(obj, "answer", "") or ""),
     }
 
 

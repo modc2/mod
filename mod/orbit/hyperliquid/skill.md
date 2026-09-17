@@ -160,7 +160,14 @@ authority of its own. A unit test asserts every tool's `fn` is declared in
 ## Ask — the agent that drives that MCP server
 
 `src/agent.py` runs a Claude agent whose *only* toolbox is the MCP server
-above, so it answers from live tool calls instead of memory. UI: `/ask`.
+above, so it answers from live tool calls instead of memory. UI: `/ask`, and
+the same console rides along on every page in the **desk** popout (the DESK
+handle in the header) — one right-hand column with three tabs: AGENT (the
+shared `components/AskConsole.tsx`), STRATS (the baskets this wallet owns,
+with weighted PnL) and WALLET (balance, open positions, what you're backing).
+It docks a `--dock-w` column beside the page at ≥1280px (`data-dock` on
+`<html>`, globals.css) and slides over it as a drawer below that; state lives
+in `lib/dock.tsx` (`openDock(tab)` opens it from anywhere).
 
 ```python
 hl.ask('who are the top 5 traders by 7-day ROI, and what do they hold?')

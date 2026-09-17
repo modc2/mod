@@ -61,8 +61,43 @@ file is the whole act of making a game.
   contract, at run time, with the template it hands out
 - Read the docs: `m arena/docs` (the contents), `m arena/doc slug=mcp` (one
   page as markdown), `m arena/docs q="illegal move"` (which section says it) —
-  eight pages: start, upload, game, player, match, sandbox, mcp, api. The
+  nine pages: start, upload, game, player, match, repo, sandbox, mcp, api. The
   console's **docs** tab and the `docs_*` MCP tools are the same text.
+
+## A repo of choice, as a coding game
+
+```bash
+m arena/codegame repo=TheAlgorithms/Python          # clone, harvest, store
+m arena/codegame repo=/root/mod/mod/orbit/hyperliquid name=hl-recon
+m arena/codeplay game=python-recon agents=builder,dev
+```
+
+`codegame` reads a repository (path, git URL, or `owner/name`; clones cached in
+`~/.mod/arena/repos/`) and writes a game class whose rounds are that repo's own
+functions with their bodies removed, graded against vectors recorded by running
+the originals. It is an ordinary stored game afterwards — same registry, same
+leaderboard. `codeplay` enters each named agent of the fleet's `agent` module
+as an `agent_mod` player and seats them all at the same table at once. The
+same harvest is `POST /codegame {repo, name?, tasks?, rounds?}`, the MCP tool
+`harvest_repo`, and **harvest a repo** in the console's `+ add` panel — one
+implementation, four doors, and the call waits (minutes for a big repo, so the
+console says so on the button).
+
+Two pieces of the arena make it possible, and both are for any game:
+
+- `answer = 'code'` on a game class — the brief then asks for one fenced block
+  and the **whole block** is the move, not its last line. The match loop
+  carries the game's `answer` to every server-driven seat.
+- `judge(code, name, calls, context=…, seed=…, timeout=…)` in the class
+  sandbox — run a submission without holding `exec`. Child namespace, same
+  cage, one result per call, `MAX_JUDGE_CALLS` per match.
+
+Harvest rules worth knowing: methods, zero-argument functions, private names,
+anything under three lines and anything that prints or touches `os`/`sys` are
+skipped; argument shapes are guessed from names and annotations and retried
+across kinds, so what survives is whatever the real function answered; a vector
+longer than 1200 chars or a function whose vectors all give one answer is
+dropped. The whole page is `m arena/doc slug=repo`.
 
 ## Endpoints
 
@@ -76,12 +111,13 @@ out to), **host** (whose box this is) and **docs**. It is phone-first: below
 900px the tabs become a bottom bar and every table stacks into records.
 `m arena/serve` builds if needed and starts it under pm2 (`arena-api`).
 
-MCP: `POST /mcp`, or `arena-api --stdio` for MCP clients. 31 tools —
+MCP: `POST /mcp`, or `arena-api --stdio` for MCP clients. 36 tools —
 `arena_info`, `game_abi`, `docs_pages`, `docs_page`, `docs_search`,
 `list_modules`, `get_module`, `put_module`, `put_class`, `inspect_module`,
 `delete_module`, `list_players`, `get_player`, `enter_player`,
 `remove_player`, `run_match`, `play_move`, `record_match`, `list_matches`,
-`get_match`, `leaderboard`, `plant_examples`, `module_servers`, `module_tool`,
+`get_match`, `leaderboard`, `harvest_repo`, `plant_examples`, `module_servers`,
+`module_tool`,
 `mcp_servers`, `mcp_call`, `arena_host`, `fleet_modules`, `rust_toolchain`,
 `store_status`, `store_sync` —
 and the documentation is served as MCP resources too, `arena://docs/<slug>`.
@@ -176,6 +212,12 @@ are redacted on every endpoint that serves them.
 
 - **Execution is not on the server.** `run_match` spawns the node runner; no
   node on PATH means matches play in the browser only.
+- **A long match needs to say so.** `timeout_ms` on `run_match` is the budget
+  for the whole match (`m arena/play timeout=…`, seconds); without one the
+  runner is abandoned at five minutes, which is plenty for models naming a
+  square and not nearly enough for agents writing functions. A seat that is
+  slow needs `config.timeout_ms` too — the per-move clock is 60s by default,
+  and `m arena/codeplay` sets it to 300s for the agents it enters.
 - **A class cannot play in a browser tab** — a tab cannot start python. The
   console notices and routes those matches through the runner; the CLI and MCP
   paths never had the problem.

@@ -47,6 +47,17 @@ fn runner_path() -> std::path::PathBuf {
     std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../runtime/run.mjs"))
 }
 
+/// The harvester — `codeeval/harvest.py`, next to the runtime. It is Python
+/// because what it reads is Python: it runs the repo's own functions in the
+/// same sandbox a submission will face, which is the class host, which is
+/// `host.py`.
+fn harvester_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("ARENA_HARVESTER") {
+        return std::path::PathBuf::from(p);
+    }
+    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../codeeval/harvest.py"))
+}
+
 pub fn tool_list() -> Value {
     json!([
         {
@@ -214,6 +225,23 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "harvest_repo",
+            "description": "Turn a repo of choice into a coding game and store it. Name a repository — a path on this box, a git URL, or a GitHub owner/name — and its Python is read for functions pure enough to grade; each one is run in the class sandbox to record what it answers, and what comes back is an ordinary stored game whose rounds are that repo's own functions with their bodies removed. Nobody writes the tests: they are what the repo already does, and most of them are held back from the view. The game asks its seats for code (`answer: code`), so a model or an agent is asked for one fenced block and the whole block is read back as the move. Cloning and harvesting a large repository takes minutes — this call waits.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "repo": { "type": "string", "description": "A path on this box, a git URL, or owner/name" },
+                    "name": { "type": "string", "description": "What to call the game. Defaults to <repo>-recon." },
+                    "tasks": { "type": "integer", "default": 40, "description": "How many functions to keep in the bank" },
+                    "rounds": { "type": "integer", "default": 3, "description": "Functions per match" },
+                    "seed": { "type": "integer", "default": 42, "description": "Which functions, and which inputs — the harvest replays from it" },
+                    "refresh": { "type": "boolean", "default": false, "description": "Re-pull a repo already cloned here" },
+                    "store": { "type": "boolean", "default": true, "description": "Store the game. False returns the class source without keeping it." }
+                },
+                "required": ["repo"]
+            }
+        },
+        {
             "name": "run_match",
             "description": "Play a match: seat the given players at the given game and run it to the end. The wasm executes in the node runner (the same execution layer the browser console uses), every move is recorded, and the result is rated. Two or more seats makes it rated; one seat is practice.",
             "inputSchema": {
@@ -228,7 +256,7 @@ pub fn tool_list() -> Value {
                         "items": { "type": "string" },
                         "description": "MCP servers the classes in this match may call out to, by name. Left out, they have no way out at all — which is the default, and the only setting under which a move is a function of its view alone. See mcp_servers."
                     },
-                    "timeout_ms": { "type": "integer", "default": 300000 }
+                    "timeout_ms": { "type": "integer", "default": 300000, "description": "How long the whole match may take, in milliseconds (capped at an hour). A match of agents writing code needs more than the default five minutes." }
                 },
                 "required": ["game", "players"]
             }
@@ -241,7 +269,8 @@ pub fn tool_list() -> Value {
                 "properties": {
                     "player": { "type": "string" },
                     "view": { "type": "string", "description": "What this seat can see" },
-                    "seat": { "type": "integer", "default": 0 }
+                    "seat": { "type": "integer", "default": 0 },
+                    "answer": { "type": "string", "enum": ["", "code"], "description": "The shape of answer the game wants — `code` for a whole function in a fence, the default for a one-line move" }
                 },
                 "required": ["player", "view"]
             }
@@ -540,6 +569,19 @@ fn class_abi(role: &str) -> Value {
             "name": "what to call the game",
             "players": "seats — an int, or [min, max]",
             "max_turns": "the turn cap (default 200)",
+            "answer": "what a move looks like. Leave it out for one line; set \"code\" and \
+                       every seat is asked for one fenced block and the whole block is \
+                       read back as the move, which is what a coding game needs.",
+        },
+        "judge": {
+            "judge(code, name, calls, context=\"\", seed=None, timeout=5)": "run a player's \
+                 submission and call one function out of it. `exec` is denied to a class — it \
+                 is how a restricted namespace gets talked around — so the host compiles the \
+                 code into a child namespace with the same cage and hands back \
+                 {ok, error, results:[{ok, value, error}]}, one result per call. This is how a \
+                 game that asks for code grades it.",
+            "harvested": "m arena/codegame repo=… writes a whole game of this shape out of a \
+                          repository's own functions — see the `repo` documentation page.",
         },
         "template": crate::klass::GAME_TEMPLATE,
         "illegal_moves": "whatever `step` marks False is counted against that player for good. \
@@ -720,6 +762,14 @@ pub fn game_abi(role: &str, lang: &str) -> Value {
 /// anything happen — and because the runner is the same file the browser
 /// console imports, what happens is the same computation either way.
 pub async fn runner(args: &[String]) -> Result<Value, String> {
+    runner_within(args, None).await
+}
+
+/// The same, with a wall clock the caller chose. A match of models naming a
+/// square fits in the default five minutes; a match of agents writing code
+/// does not, and a run abandoned by the clock loses every move already paid
+/// for. So the budget travels with the request, clamped to the hour.
+pub async fn runner_within(args: &[String], budget_ms: Option<u64>) -> Result<Value, String> {
     let runner = runner_path();
     if !runner.exists() {
         return Err(format!("no runner at {} — set ARENA_RUNNER", runner.display()));
@@ -728,9 +778,8 @@ pub async fn runner(args: &[String]) -> Result<Value, String> {
     cmd.arg(&runner).args(args).args(["--base", &base()]);
 
     let timeout = std::time::Duration::from_millis(
-        std::env::var("ARENA_RUNNER_TIMEOUT_MS")
-            .ok()
-            .and_then(|v| v.parse().ok())
+        budget_ms
+            .or_else(|| std::env::var("ARENA_RUNNER_TIMEOUT_MS").ok().and_then(|v| v.parse().ok()))
             .unwrap_or(300_000u64)
             .clamp(1_000, 3_600_000),
     );
@@ -783,7 +832,110 @@ async fn run_match(args: &Value) -> Result<Value, String> {
         argv.push("--mcp".into());
         argv.push(allow.join(","));
     }
-    runner(&argv).await
+    // How long the whole match may take. It was read and dropped before, so a
+    // long match died at the default five minutes however it was called.
+    let budget = args
+        .get("timeout_ms")
+        .and_then(|v| v.as_u64())
+        .filter(|ms| *ms >= 1_000);
+    if let Some(ms) = budget {
+        argv.push("--timeout".into());
+        argv.push(ms.to_string());
+    }
+    // The runner is given a little longer than the match, so a match that runs
+    // out of time reports that rather than being abandoned from outside.
+    runner_within(&argv, budget.map(|ms| ms + 30_000)).await
+}
+
+/// A repo of choice, read into a game. Spawns the harvester, then stores what
+/// it wrote exactly like any other upload — the registry reads the source and
+/// decides what it is, the same as if a person had written it.
+async fn harvest_repo(args: &Value) -> Result<Value, String> {
+    let repo = s(args, "repo");
+    if repo.trim().is_empty() {
+        return Err("harvest_repo needs `repo` — a path on this box, a git URL, or owner/name".into());
+    }
+    let script = harvester_path();
+    if !script.exists() {
+        return Err(format!("no harvester at {} — set ARENA_HARVESTER", script.display()));
+    }
+    let out_dir = std::env::temp_dir().join(format!("arena-harvest-{}", std::process::id()));
+    std::fs::create_dir_all(&out_dir).map_err(|e| format!("could not write a scratch dir: {e}"))?;
+    let out_file = out_dir.join("game.py");
+
+    let mut cmd = tokio::process::Command::new("python3");
+    cmd.arg(&script)
+        .args(["--repo", repo.trim()])
+        .args(["--game", &out_file.to_string_lossy()])
+        .args(["--n", &u(args, "tasks", 40).to_string()])
+        .args(["--rounds", &u(args, "rounds", 3).to_string()])
+        .args(["--seed", &u(args, "seed", 42).to_string()])
+        .arg("--json");
+    let name = s(args, "name");
+    if !name.trim().is_empty() {
+        cmd.args(["--name", name.trim()]);
+    }
+    if args.get("refresh").and_then(|v| v.as_bool()).unwrap_or(false) {
+        cmd.arg("--refresh");
+    }
+
+    // Cloning and running a large repository is minutes of work, not seconds.
+    let budget = std::time::Duration::from_millis(
+        std::env::var("ARENA_HARVEST_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(1_800_000)
+            .clamp(10_000, 3_600_000),
+    );
+    let done = tokio::time::timeout(budget, cmd.output())
+        .await
+        .map_err(|_| format!("the harvest ran past {budget:?} — a big repository is better \
+                              harvested from the command line, `m arena/codegame repo=…`"))?
+        .map_err(|e| format!("could not start python3: {e} — the harvester needs python3 on PATH"))?;
+    let note = String::from_utf8_lossy(&done.stderr).trim().to_string();
+    if !done.status.success() {
+        let said = if note.is_empty() { String::from_utf8_lossy(&done.stdout).to_string() } else { note };
+        let tail: String = said.lines().rev().take(6).collect::<Vec<_>>()
+            .into_iter().rev().collect::<Vec<_>>().join("\n");
+        return Err(format!("the harvest failed: {}", tail.trim()));
+    }
+    let source = std::fs::read_to_string(&out_file)
+        .map_err(|e| format!("the harvester wrote nothing readable: {e}"))?;
+    let _ = std::fs::remove_file(&out_file);
+    // The harvester names the game after the repo it read; take that rather
+    // than letting the registry fall back to the class's own name, which is
+    // the same word with the hyphen taken out.
+    let card: Value = serde_json::from_str(String::from_utf8_lossy(&done.stdout).trim())
+        .unwrap_or_else(|_| json!({}));
+    let name = if name.trim().is_empty() {
+        card.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string()
+    } else {
+        name.trim().to_string()
+    };
+
+    if !args.get("store").and_then(|v| v.as_bool()).unwrap_or(true) {
+        return Ok(json!({ "source": source, "stored": false, "name": name,
+                          "harvest": card, "note": note }));
+    }
+    let mut upload = json!({ "source": source, "lang": "python", "tags": ["code", "repo"] });
+    if !name.is_empty() {
+        upload["name"] = json!(name);
+    }
+    if let Some(repo) = card.get("repo") {
+        upload["description"] = json!(format!(
+            "Reconstruct {} functions from {} ({}), graded against what they really return.",
+            card.get("tasks").and_then(|v| v.as_u64()).unwrap_or(0),
+            repo.get("name").and_then(|v| v.as_str()).unwrap_or("a repo"),
+            repo.get("url").and_then(|v| v.as_str())
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| repo.get("path").and_then(|v| v.as_str()).unwrap_or("")),
+        ));
+    }
+    let mut stored = arena::put_class(&upload)?;
+    if let Some(obj) = stored.as_object_mut() {
+        obj.insert("harvest".into(), card);
+    }
+    Ok(stored)
 }
 
 /// The one place an arena capability is implemented.
@@ -836,8 +988,10 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             if key.is_empty() || view.trim().is_empty() {
                 return Err("play_move requires `player` and `view`".into());
             }
-            arena::play(&key, view, u(args, "seat", 0) as usize).await
+            arena::play(&key, view, u(args, "seat", 0) as usize,
+                        args.get("answer").and_then(|v| v.as_str()).unwrap_or("")).await
         }
+        "harvest_repo" => harvest_repo(args).await,
         "record_match" => arena::record_match(args),
         "list_matches" => Ok(arena::list_matches(args)),
         "get_match" => {

@@ -549,20 +549,28 @@ def _t_arena(a: dict, key):
         return _fwd('arena_model', key, model=a.get('model') or '')
     if op == 'task_board':
         return _fwd('arena_task_board', key)
-    # the same log with the model held still and the agent moved: what the
-    # design itself was worth at a price point
-    if op == 'tiers':
-        return _fwd('arena_tiers', key)
-    if op == 'tier':
-        return _fwd('arena_tier', key, model=a.get('model') or '')
-    if op in ('matrix', 'retention'):
-        return _fwd('arena_tier_matrix', key, ref=a.get('model'))
     if op == 'openarena':
         return _fwd('openarena', key)
+    # skills: named task bundles with composite leaderboards
+    if op == 'skills':
+        return _fwd('arena_skills', key)
+    if op == 'skill':
+        return _fwd('arena_skill', key, id=a.get('id') or a.get('skill') or '')
+    if op == 'skill_create':
+        return _fwd('arena_skill_create', key,
+                    name=a.get('name') or '', description=a.get('description') or '',
+                    tasks=a.get('tasks') or [], owner=a.get('owner') or '')
+    if op == 'skill_update':
+        return _fwd('arena_skill_update', key,
+                    id=a.get('id') or a.get('skill') or '',
+                    name=a.get('name'), description=a.get('description'),
+                    tasks=a.get('tasks'))
+    if op == 'skill_rm':
+        return _fwd('arena_skill_rm', key, id=a.get('id') or a.get('skill') or '')
     return {'error': f'unknown op {op!r}',
             'options': ['board', 'status', 'tasks', 'matches', 'agent', 'models',
-                        'model', 'task_board', 'tiers', 'tier', 'matrix',
-                        'openarena']}
+                        'model', 'task_board', 'openarena',
+                        'skills', 'skill', 'skill_create', 'skill_update', 'skill_rm']}
 
 
 def _t_arena_run(a: dict, key):
@@ -570,13 +578,6 @@ def _t_arena_run(a: dict, key):
                 model=a.get('model'), steps=a.get('steps'),
                 free=a.get('free', True), reason='mcp')
 
-
-def _t_arena_tier(a: dict, key):
-    return _fwd('arena_tier_run', key, model=a.get('model') or '',
-                provider=a.get('provider'), agents=a.get('agents'),
-                tasks=[a['task']] if a.get('task') else a.get('tasks'),
-                steps=a.get('steps'), free=bool(a.get('free', False)),
-                rate=bool(a.get('rate', False)), reason='mcp')
 
 
 # ── the fleet's audit surface ────────────────────────────────────────
@@ -992,22 +993,32 @@ TOOLS: Dict[str, dict] = {
         'description': 'The board: every agent playing the same tasks in the same '
                        'seeded scratch directory under the same step budget, scored '
                        'by deterministic checks (0.7 correctness, 0.2 reliability, '
-                       '0.1 unspent budget) and rated pairwise with Elo. Read it five '
-                       'ways: by agent (board / agent), by model (models / model), by '
-                       'tier (tiers / tier / matrix — one model with the whole field '
-                       'on it, so the spread between best and worst design is what '
-                       'the prompt was worth there), by task (tasks / task_board), or '
-                       'as the match log (matches).',
+                       '0.1 unspent budget) and rated pairwise with Elo. Read it by '
+                       'agent (board / agent), by model (models / model), by task '
+                       '(tasks / task_board), as the match log (matches), or by '
+                       'skill (skills / skill / skill_create / skill_update / skill_rm).',
         'inputSchema': {'type': 'object', 'properties': {
             'op': _str('which read', enum=['board', 'status', 'tasks', 'matches',
-                                           'agent', 'models', 'model', 'tiers',
-                                           'tier', 'matrix', 'task_board',
-                                           'openarena']),
+                                           'agent', 'models', 'model', 'task_board',
+                                           'openarena',
+                                           'skills', 'skill',
+                                           'skill_create', 'skill_update', 'skill_rm']),
             'agent': _str('agent name, for agent / matches'),
-            'model': _str('model id, for model / tier — or the reference model '
-                          'for matrix'),
+            'model': _str('model id, for model'),
             'task': _str('task key, for matches'),
             'limit': _num('how many matches (default 25)'),
+            'id': _str('skill id, for skill / skill_update / skill_rm'),
+            'name': _str('skill name, for skill_create / skill_update'),
+            'description': _str('skill description, for skill_create / skill_update'),
+            'tasks': {'type': 'array',
+                      'items': {'type': 'object',
+                                'properties': {
+                                    'key': {'type': 'string'},
+                                    'weight': {'type': 'number'},
+                                }},
+                      'description': 'task list for skill_create / skill_update — '
+                                     'each entry is {key, weight} (weight defaults to 1.0)'},
+            'owner': _str('owner address, for skill_create'),
         }},
         'handler': _t_arena,
     },
@@ -1027,29 +1038,6 @@ TOOLS: Dict[str, dict] = {
             'key': _KEY,
         }},
         'handler': _t_arena_run,
-    },
-    'agent_arena_tier': {
-        'auth': True,
-        'description': 'Play the whole field on ONE named model — the gauntlet '
-                       'inverted. A gauntlet moves the model to rank models; this '
-                       'moves the agent to rank designs, and pointing it at a small '
-                       'model is the point: a frontier model solves the task however '
-                       'the agent was written, so it is the cheap tier that shows '
-                       'which prompt, toolbox and step budget were doing real work. '
-                       "Admin — a named model is not FREE MODE, so it spends the "
-                       "host's key. Kept off the agents' main board by default.",
-        'inputSchema': {'type': 'object', 'properties': {
-            'model': _str('the model every agent plays on (required)'),
-            'provider': _str('the catalog that id came from'),
-            'agents': {'type': 'array', 'items': {'type': 'string'},
-                       'description': 'the field, or omit for every agent'},
-            'task': _str('one task, or omit for the rotation'),
-            'steps': _num('step budget for each match'),
-            'rate': _bool('fold these scores into the agents\' main record '
-                          '(default false)'),
-            'key': _KEY,
-        }, 'required': ['model']},
-        'handler': _t_arena_tier,
     },
     'agent_modules': {
         'description': 'The fleet as an audit surface: every module on the host with '

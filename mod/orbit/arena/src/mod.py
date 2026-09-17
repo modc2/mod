@@ -67,6 +67,7 @@ CLI (via `m`):
 import json
 import os
 import subprocess
+import sys
 
 import requests
 
@@ -545,9 +546,162 @@ class Mod:
         """Withdraw a player. Past matches keep their record."""
         return self._read(requests.delete(f'{self.server_url}/players/{player}', timeout=30))
 
-    def probe(self, player: str, view: str = 'Legal moves: rock, paper, scissors', seat: int = 0):
-        """Ask one player for one move — how to check it answers before seating it."""
-        return self._post('/play', {'player': player, 'view': view, 'seat': int(seat)})
+    def probe(self, player: str, view: str = 'Legal moves: rock, paper, scissors',
+              seat: int = 0, answer: str = ''):
+        """Ask one player for one move — how to check it answers before seating it.
+
+        `answer=code` asks it the way a coding game would: the brief wants one
+        fenced block and the whole block comes back as the move.
+        """
+        body = {'player': player, 'view': view, 'seat': int(seat)}
+        if answer:
+            body['answer'] = answer
+        return self._post('/play', body)
+
+    # ── a repo of choice, as a game ──────────────────────────────
+
+    def codegame(self, repo: str = '', name: str = '', n: int = 40,
+                 rounds: int = 3, seed: int = 42, refresh: bool = False,
+                 upload: bool = True, path: str = '', description: str = ''):
+        """Turn a repo into a coding game and store it.
+
+        Names a repository — a path on this box, a git URL, or `owner/name` —
+        walks its Python, and keeps every function pure enough to grade. Each
+        kept function is run in the arena's own sandbox to record what it
+        answers; the game hands players the signature, the docstring and three
+        worked calls, and scores a round by how much of the held-out behaviour
+        a submission reproduces.
+
+            m arena/codegame repo=TheAlgorithms/Python
+            m arena/codegame repo=https://github.com/psf/requests rounds=5
+            m arena/codegame repo=/root/mod/mod/orbit/hyperliquid name=hl-recon
+
+        Nobody writes the tests: they are what the repo already does. The
+        answer key is stripped before the game is stored, so the bodies are
+        not in the file the players can read.
+        """
+        if not repo:
+            return {'error': 'codegame needs `repo` — a path, a git URL, or owner/name'}
+        try:
+            from .codeeval import harvest as H
+        except ImportError:                      # run as a script, not a package
+            sys.path.insert(0, self.dir)
+            from codeeval import harvest as H    # type: ignore
+        try:
+            built = H.build(repo, n=int(n), rounds=int(rounds), seed=int(seed),
+                            name=name, refresh=bool(refresh))
+        except Exception as e:
+            return {'error': f'{type(e).__name__}: {e}'}
+
+        out = {
+            'name': built['name'],
+            'repo': built['repo'],
+            'tasks': len(built['tasks']),
+            'files': len(built['files']),
+            'stochastic': built['stochastic'],
+            'rounds': int(rounds),
+            'functions': [f"{t['file']}:{t['name']}" for t in built['tasks'][:20]],
+        }
+        if path:
+            path = os.path.expanduser(path)
+            with open(path, 'w') as f:
+                f.write(built['source'])
+            out['path'] = path
+        if not upload:
+            out['source'] = built['source']
+            return out
+
+        repo_meta = built['repo']
+        stored = self.upload(
+            source=built['source'], name=built['name'], lang='python',
+            description=description or (
+                f"Reconstruct {len(built['tasks'])} functions from "
+                f"{repo_meta['name']} ({repo_meta.get('url') or repo_meta['path']}), "
+                f"graded against what they really return."),
+            tags=['code', 'repo', repo_meta['slug']])
+        if isinstance(stored, dict) and not stored.get('error'):
+            out.update({'id': stored.get('id'), 'module': stored.get('name'),
+                        'role': stored.get('role'), 'mod': stored.get('mod')})
+        else:
+            out['error'] = (stored or {}).get('error', 'upload failed')
+        return out
+
+    def codeplay(self, game: str, agents: str = '', matches: int = 1,
+                 seed: int = None, steps: int = 3, base: str = '',
+                 timeout: int = 1800, model: str = '', move_timeout: int = 300):
+        """Sit agents of the agent protocol at a coding game and play it.
+
+        `agents` are agents of this fleet's `agent` module, by name. Each is
+        entered as an `agent_mod` player — this call owns that seat's config,
+        so tune one by hand with `m arena/enter` and play it with
+        `m arena/play` — and then all of them sit at the same table and answer
+        the same functions at the same time.
+
+            m arena/codeplay game=python-recon agents=builder,dev
+            m arena/codeplay game=hl-recon agents=builder matches=3
+
+        Left without `agents`, it plays whoever is already entered as an
+        agent. The game asks for code, so the arena asks each agent for a
+        whole function and reads the whole fence back, not its last line.
+        Agents are slow: `move_timeout` (seconds, per move) and `timeout`
+        (seconds, the whole match) are both generous by default.
+        """
+        names = [a.strip() for a in str(agents or '').split(',') if a.strip()]
+        entered = self.players() or []
+        if isinstance(entered, dict):
+            entered = entered.get('players', [])
+
+        if not names:
+            names = [p['name'] for p in entered
+                     if p.get('kind') in ('agent_mod', 'agent')]
+            if not names:
+                return {'error': 'no agent is entered — name them: '
+                                 'm arena/codeplay game=… agents=builder,dev'}
+
+        # Every named agent is (re-)entered with the config this call works
+        # out. A player card is served redacted, so merging into what comes
+        # back would quietly drop whatever was redacted — better to say plainly
+        # that this door owns the seat, and to tune one by hand with
+        # `m arena/enter` + `m arena/play` instead.
+        seated, problems = [], []
+        for agent in names:
+            config = {
+                'agent': agent,
+                'steps': int(steps),
+                # An agent writing a function is slower than a model naming a
+                # square: the default move clock is a minute, and a round lost
+                # to the clock is not a round the agent failed.
+                'timeout_ms': int(move_timeout) * 1000,
+                'prompt': 'You are writing one Python function. Read the signature, '
+                          'the docstring and the worked calls, then write the whole '
+                          'function.',
+            }
+            if base:
+                config['base'] = base
+            if model:
+                config['model'] = model
+            got = self.enter(name=agent, kind='agent_mod', config=config,
+                             note=f'agent `{agent}` of the agent module')
+            if isinstance(got, dict) and got.get('error'):
+                problems.append({'agent': agent, 'error': got['error']})
+                continue
+            seated.append(agent)
+
+        if not seated:
+            return {'error': 'nobody could be seated', 'problems': problems}
+
+        played = []
+        for i in range(max(1, int(matches))):
+            use = (int(seed) + i) if seed is not None else None
+            got = self.play(game=game, players=seated, seed=use, timeout=timeout)
+            if isinstance(got, dict):
+                played.append({k: got.get(k) for k in
+                               ('id', 'game_name', 'summary', 'seats', 'error')
+                               if got.get(k) is not None})
+            else:
+                played.append({'result': got})
+        return {'game': game, 'agents': seated, 'matches': played,
+                'problems': problems or None}
 
     # ── play ─────────────────────────────────────────────────────
 

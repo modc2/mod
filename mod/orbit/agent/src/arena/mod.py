@@ -74,7 +74,7 @@ try:
     from src.arena import openarena as oa
     from src.arena import drills as dr
     from src.arena import models as mb
-    from src.arena import tiers as tb
+    from src.arena import skills as sk
 except ImportError:  # running the arena standalone
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -84,7 +84,7 @@ except ImportError:  # running the arena standalone
     from src.arena import openarena as oa
     from src.arena import drills as dr
     from src.arena import models as mb
-    from src.arena import tiers as tb
+    from src.arena import skills as sk
 
 
 # scoring weights — correctness dominates, but a run that errors out or burns
@@ -228,6 +228,7 @@ class Arena:
         self._state = self._load_state()
         self._running: Optional[Dict[str, Any]] = None   # the match in flight
         self.scheduler: Optional["Scheduler"] = None
+        self.skills = sk.Skills(self.root)
 
     # ── config ─────────────────────────────────────────────────────
 
@@ -1500,6 +1501,88 @@ class Arena:
             "running": self._running,
         }
 
+    # ── skills ─────────────────────────────────────────────────────
+    #
+    # A skill bundles related tasks under a name so agents can be ranked by
+    # how well they handle the whole bundle, not just one task. The creator
+    # sets the task list and can tune per-task weights (default 1.0). Tasks
+    # not yet played by an agent are excluded from that agent's score —
+    # partial coverage is honest, not penalised.
+
+    def _agents_meta(self) -> Dict[str, Any]:
+        """Icon + model + system prompt per agent, for surfacing the best
+        prompt/memory configuration in the skill leaderboard."""
+        out: Dict[str, Any] = {}
+        for name in self.subjects():
+            try:
+                info = self.agents.get(name) or {}
+                out[name] = {
+                    "icon": info.get("icon", ">_"),
+                    "model": info.get("model", ""),
+                    "system": info.get("system", "") or info.get("prompt", ""),
+                }
+            except Exception:
+                out[name] = {"icon": ">_", "model": "", "system": ""}
+        return out
+
+    def list_skills(self) -> List[Dict[str, Any]]:
+        """Every skill, with a brief summary (best agent + best model)."""
+        skills = self.skills.list()
+        ratings = self._state.get("ratings", {})
+        agents_meta = self._agents_meta()
+        all_matches = self.all_matches()
+        out = []
+        for skill in skills:
+            lb = sk.skill_leaderboard(skill, ratings, agents_meta)
+            mb_rows = sk.skill_model_leaderboard(skill, all_matches)
+            out.append(sk.skill_summary(skill, lb, mb_rows))
+        return out
+
+    def get_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
+        return self.skills.get(skill_id)
+
+    def create_skill(self, name: str, description: str = "",
+                     tasks: List[Any] = None, owner: str = "") -> Dict[str, Any]:
+        return self.skills.create(name, description=description,
+                                  tasks=tasks or [], owner=owner)
+
+    def update_skill(self, skill_id: str, name: str = None,
+                     description: str = None, tasks: List[Any] = None,
+                     owner: str = None) -> Dict[str, Any]:
+        skill = self.skills.update(skill_id, name=name, description=description,
+                                   tasks=tasks, owner=owner)
+        if not skill:
+            return {"error": f"skill not found: {skill_id}"}
+        return skill
+
+    def remove_skill(self, skill_id: str) -> Dict[str, Any]:
+        removed = self.skills.remove(skill_id)
+        return {"removed": removed, "id": skill_id}
+
+    def skill_leaderboard(self, skill_id: str) -> Dict[str, Any]:
+        """Composite leaderboard for one skill: agents by weighted avg score,
+        plus the best model and best prompt/memory configuration."""
+        skill = self.skills.get(skill_id)
+        if not skill:
+            return {"error": f"skill not found: {skill_id}"}
+        ratings = self._state.get("ratings", {})
+        agents_meta = self._agents_meta()
+        all_matches = self.all_matches()
+        lb = sk.skill_leaderboard(skill, ratings, agents_meta)
+        mb_rows = sk.skill_model_leaderboard(skill, all_matches)
+        titles = {t["key"]: t["title"] for t in self.tasks()}
+        return {
+            "skill": skill,
+            "leaderboard": lb,
+            "best_model": mb_rows[0] if mb_rows else None,
+            "model_board": mb_rows,
+            "tasks": [
+                {"key": t["key"], "weight": t.get("weight", 1.0),
+                 "title": titles.get(t["key"], t["key"])}
+                for t in skill.get("tasks", [])
+            ],
+        }
+
     def card(self, agent: str) -> Dict[str, Any]:
         """One agent's record: rating, per-task scores, recent matches."""
         r = self._rating(agent)
@@ -1621,11 +1704,12 @@ class Arena:
         forward('task_board')                      -> per task, model by model
         forward('gauntlet', models=[], agent=)     -> play them against each other
 
-        The same matches, read by tier — the model held still, the agent moved:
-        forward('tiers')                           -> every tier, spread first
-        forward('tier', model=)                    -> the agents inside one
-        forward('tier_matrix', ref=)               -> agents x models, retention
-        forward('tier_run', model=, agents=)       -> play the field on one model
+        Skills — named bundles of tasks with a composite leaderboard:
+        forward('skills')                          -> all skills
+        forward('skill', id=)                      -> one skill + its leaderboard
+        forward('skill_create', name=, tasks=, description=, owner=)
+        forward('skill_update', id=, name=, tasks=, description=)
+        forward('skill_rm', id=)                   -> delete a skill
 
         forward('qualify', agent=)                 -> score a newcomer
         forward('config', enabled=, free=, ...)    -> update the knobs
@@ -1677,21 +1761,34 @@ class Arena:
             return self.model_card(kwargs.get("model", ""))
         if action in ("task_board", "tasks_board"):
             return {"tasks": self.task_board()}
-        if action in ("tiers", "tier_board"):
-            return self.tiers_status()
-        if action == "tier":
-            return self.tier_card(kwargs.get("model", ""))
-        if action in ("tier_matrix", "matrix"):
-            return self.tier_matrix(kwargs.get("ref"))
-        if action in ("tier_run", "run_tier"):
-            return self.run_tier(kwargs.get("model", ""),
-                                 provider=kwargs.get("provider"),
-                                 agents=kwargs.get("agents"),
-                                 tasks=kwargs.get("tasks"),
-                                 steps=kwargs.get("steps"),
-                                 free=bool(kwargs.get("free", False)),
-                                 reason=kwargs.get("reason"),
-                                 rate=bool(kwargs.get("rate", False)))
+        # ── skills ───────────────────────────────────────────────────
+        if action == "skills":
+            return {"skills": self.list_skills()}
+        if action == "skill":
+            skill_id = kwargs.get("id") or kwargs.get("skill") or ""
+            if not skill_id:
+                return {"error": "skill id required"}
+            return self.skill_leaderboard(skill_id)
+        if action in ("skill_create", "create_skill"):
+            try:
+                skill = self.create_skill(
+                    name=kwargs.get("name", ""),
+                    description=kwargs.get("description", ""),
+                    tasks=kwargs.get("tasks") or [],
+                    owner=kwargs.get("owner", ""))
+            except ValueError as e:
+                return {"error": str(e)}
+            return skill
+        if action in ("skill_update", "update_skill"):
+            return self.update_skill(
+                skill_id=kwargs.get("id") or kwargs.get("skill") or "",
+                name=kwargs.get("name"),
+                description=kwargs.get("description"),
+                tasks=kwargs.get("tasks"),
+                owner=kwargs.get("owner"))
+        if action in ("skill_rm", "remove_skill", "delete_skill"):
+            return self.remove_skill(kwargs.get("id") or kwargs.get("skill") or "")
+        # ─────────────────────────────────────────────────────────────
         if action == "gauntlet":
             return self.run_gauntlet(kwargs.get("models") or [],
                                      agent=kwargs.get("agent"),

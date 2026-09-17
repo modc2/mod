@@ -85,14 +85,12 @@ Endpoints:
     GET  /arena/model?model= - one model's record (per-task, who it beat)
     GET  /arena/board/tasks  - per task: the agents that lead it, the models
                                that played it, and the pool tasks not yet played
-    GET  /arena/tiers  - the same matches read by tier: one model, every
-                         agent, and the spread between the best and worst
-                         design on it — how much the prompt was worth there
-    GET  /arena/tier?model= - one tier in full: the agents ranked inside it
-    GET  /arena/tier/matrix?ref= - agents x models: what each design keeps
-                         when the model gets cheaper
+    GET  /arena/skills - all skills: named task bundles with composite boards
+    GET  /arena/skills/{id} - one skill's leaderboard (best agent, model, prompt)
+    POST /arena/skills - signed in: create a skill (name=, tasks=, description=)
+    PUT  /arena/skills/{id} - signed in: update tasks or weights
+    DELETE /arena/skills/{id} - signed in: remove a skill
     POST /arena/gauntlet - admin: one agent, one task set, N models
-    POST /arena/tier   - admin: the inverse — every agent on ONE named model
     POST /arena/run    - admin: play a match (agent=, task=) or a whole round
     POST /arena/config - admin: the board's knobs + scheduler on/off
     POST /arena/tasks/draft - signed in: a description -> a task spec, written
@@ -511,25 +509,6 @@ class OpenArenaEnterRequest(BaseModel):
     free: Optional[bool] = None
     key: Optional[str] = None
 
-
-class ArenaTierRequest(BaseModel):
-    """Every agent on ONE named model — the gauntlet inverted.
-
-    A gauntlet moves the model to rank models; this moves the agent to rank
-    designs, and pointing it at a cheap model is the point: a frontier model
-    scores the task whatever the prompt says, so it is the small one that shows
-    which framework is carrying its own weight.
-    """
-    model: str
-    provider: Optional[str] = None
-    agents: Optional[List[str]] = None     # None = the whole field
-    tasks: Optional[List[str]] = None      # None = this season's rotation
-    steps: Optional[int] = None
-    free: bool = False                     # FREE MODE would ignore `model`
-    # off the agents' main record by default: a cheap-tier score folded into a
-    # board built on another model reads as a regression that never happened
-    rate: bool = False
-    key: Optional[str] = None
 
 
 class ArenaGauntletRequest(BaseModel):
@@ -2416,47 +2395,52 @@ def arena_task_board():
     """Every played task, hardest first, with the models ranked underneath."""
     return get_mod().forward('arena_task_board')
 
-@app.get("/arena/tiers")
-def arena_tiers():
-    """The tier board: every model two or more agents have met on, widest
-    design-spread first, plus the retention matrix and the model catalog."""
-    return get_mod().forward('arena_tiers')
+@app.get("/arena/skills")
+def arena_skills():
+    """All skills: named task bundles with composite leaderboards."""
+    return get_mod().forward('arena_skills')
 
-@app.get("/arena/tier")
-def arena_tier(model: str):
-    """One tier: the agents ranked inside a single model, task by task. A
-    query param for the same reason /arena/model is one — ids carry slashes."""
-    return get_mod().forward('arena_tier', model=model)
+@app.get("/arena/skills/{skill_id}")
+def arena_skill(skill_id: str):
+    """One skill's composite leaderboard: agents by weighted avg score,
+    best model, and best agent design (prompt + toolbox + model)."""
+    return get_mod().forward('arena_skill', id=skill_id)
 
-@app.get("/arena/tier/matrix")
-def arena_tier_matrix(ref: Optional[str] = None):
-    """Agents down the side, models across the top, retention in the cells:
-    the share of its reference-model score each design keeps, over the tasks
-    both actually played."""
-    return get_mod().forward('arena_tier_matrix', ref=ref)
+@app.post("/arena/skills")
+def arena_skill_create(req: dict):
+    """Create a skill — a named bundle of tasks with optional weights.
 
-@app.post("/arena/tier")
-def arena_tier_run(req: ArenaTierRequest):
-    """Play the whole field on one named model.
-
-    Host only and the same money as a gauntlet: a named model is not FREE MODE,
-    so this spends the host's provider key — usually a small fraction of one,
-    which is the reason to run it.
+    Signed in: the skill is filed under the caller's address.
+    tasks is a list of {key, weight} objects (weight defaults to 1.0).
     """
-    if not signed_in(req.key):
-        return {"error": "sign in — a tier round spends steps on the host's key",
-                "code": 401}
+    key = req.get("key")
+    if not signed_in(key):
+        return {"error": "sign in to create a skill", "code": 401}
     try:
-        return get_mod().forward('arena_tier_run', key=req.key, model=req.model,
-                                 provider=req.provider, agents=req.agents,
-                                 tasks=req.tasks, steps=req.steps, free=req.free,
-                                 rate=req.rate)
-    except PermissionError as e:
-        return {"error": str(e), "code": 403}
-    except KeyError as e:
-        return {"error": f"unknown task: {e}"}
+        return get_mod().forward('arena_skill_create', key=key,
+                                 name=req.get("name", ""),
+                                 description=req.get("description", ""),
+                                 tasks=req.get("tasks") or [])
     except ValueError as e:
         return {"error": str(e)}
+
+@app.put("/arena/skills/{skill_id}")
+def arena_skill_update(skill_id: str, req: dict):
+    """Update a skill's name, description or task weights."""
+    key = req.get("key")
+    if not signed_in(key):
+        return {"error": "sign in to update a skill", "code": 401}
+    return get_mod().forward('arena_skill_update', key=key,
+                             id=skill_id, name=req.get("name"),
+                             description=req.get("description"),
+                             tasks=req.get("tasks"))
+
+@app.delete("/arena/skills/{skill_id}")
+def arena_skill_rm(skill_id: str, key: Optional[str] = None):
+    """Remove a skill."""
+    if not signed_in(key):
+        return {"error": "sign in to remove a skill", "code": 401}
+    return get_mod().forward('arena_skill_rm', key=key, id=skill_id)
 
 @app.post("/arena/gauntlet")
 def arena_gauntlet(req: ArenaGauntletRequest):

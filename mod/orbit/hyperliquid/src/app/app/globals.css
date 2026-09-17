@@ -241,6 +241,16 @@ html[data-theme="arctic"] {
   --c-win: 15 132 96;
 }
 
+/* ── The desk dock ────────────────────────────────────────────────────────
+   One width for everything that has to agree with the right-hand column:
+   the panel itself, the page inset and the ticker tape. At <1280px the desk
+   is an overlay drawer, so nothing is reserved and the page keeps full width. */
+:root { --dock-w: 380px; }
+
+@media (min-width: 1280px) {
+  html[data-dock="open"] body { padding-right: var(--dock-w); }
+}
+
 html, body {
   background: rgb(var(--c-bg));
   color: rgb(var(--c-ink));

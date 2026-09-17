@@ -459,6 +459,10 @@ export type StratRow = {
   legs_priced: number; // legs the leaderboard could price (baskets only)
   age_days: number;
   vault_address: string | null;
+  /** ms epoch of the last fill we have actually seen (basket: freshest leg).
+   *  null = this wallet isn't in the fills index yet — say "within 24h" (the
+   *  board's own liveness gate), never a made-up minute. */
+  last_trade_ms: number | null;
 };
 export const stratsBoard = (vaults = 24, traders = 24) =>
   j<{ rows: StratRow[]; baskets: number; vaults: number; traders: number; updated_ms: number }>(

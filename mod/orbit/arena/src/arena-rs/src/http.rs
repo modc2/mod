@@ -50,6 +50,7 @@ fn info() -> Value {
     v["endpoints"] = json!({
         "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
         "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
+        "codegame": "POST /codegame {repo, name?, tasks?, rounds?} — a repo of choice, harvested into a coding game",
         "classes": "GET /classes — the Python classes | POST /classes {source} — upload one as text",
         "blob": "GET /blob/:id — the module bytes, immutable (the id is their hash)",
         "inspect": "POST /inspect {bytes|text}",
@@ -133,6 +134,13 @@ async fn put_module(Json(body): Json<Value>) -> Response {
 /// they are looking at in an editor.
 async fn put_class(Json(body): Json<Value>) -> Response {
     via_tool("put_class", body).await
+}
+
+/// A repo of choice, harvested into a game. Minutes, not milliseconds — the
+/// console says so on the button, and a big repository is better done from
+/// the command line with `m arena/codegame`.
+async fn codegame(Json(body): Json<Value>) -> Response {
+    via_tool("harvest_repo", body).await
 }
 
 async fn get_module(Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -476,6 +484,7 @@ fn api_routes() -> Router {
         )
         .route("/modules", get(list_modules).post(put_module))
         .route("/classes", get(list_classes).post(put_class))
+        .route("/codegame", post(codegame))
         .route("/modules/:id", get(get_module).delete(delete_module))
         .route("/blob/:id", get(blob))
         .route("/wasm/:id", get(wasm))

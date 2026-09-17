@@ -13,31 +13,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchTraderCurves, fmtPnl, shortAddr, type IndexLeg, type TraderCurve } from "../lib/api";
+import { combineCurves, legWeights, type Pt } from "../lib/curveMath";
 
 const H = 200;
 const PAD = { t: 12, r: 12, b: 20, l: 52 };
 const BATCH = 30;
-
-type Pt = { t: number; v: number };
-
-/** Step-interpolate a cumulative curve: value at `t` is the last sample ≤ t,
- *  0 before the first (curves are window-rebased). */
-function stepAt(points: [number, number][], t: number, cursor: { i: number }): number {
-  while (cursor.i < points.length && points[cursor.i][0] <= t) cursor.i++;
-  return cursor.i === 0 ? 0 : points[cursor.i - 1][1];
-}
-
-function combine(curves: TraderCurve[], weights: Map<string, number>): Pt[] {
-  const usable = curves.filter((c) => c.available && c.points.length > 0);
-  if (usable.length === 0) return [];
-  const grid = Array.from(new Set(usable.flatMap((c) => c.points.map((p) => p[0])))).sort((a, b) => a - b);
-  const cursors = usable.map(() => ({ i: 0 }));
-  return grid.map((t) => ({
-    t,
-    v: usable.reduce((s, c, i) =>
-      s + (weights.get(c.address.toLowerCase()) ?? 0) * stepAt(c.points, t, cursors[i]), 0),
-  }));
-}
 
 export default function StratCurve({ legs, days }: { legs: IndexLeg[]; days: number }) {
   const [curves, setCurves] = useState<TraderCurve[] | null>(null);
@@ -69,12 +49,9 @@ export default function StratCurve({ legs, days }: { legs: IndexLeg[]; days: num
     return () => { dead = true; };
   }, [legs, days]);
 
-  const weights = useMemo(() => {
-    const total = legs.reduce((s, l) => s + l.weight, 0) || 1;
-    return new Map(legs.map((l) => [l.address.toLowerCase(), l.weight / total]));
-  }, [legs]);
+  const weights = useMemo(() => legWeights(legs), [legs]);
 
-  const pts = useMemo(() => (curves ? combine(curves, weights) : []), [curves, weights]);
+  const pts = useMemo(() => (curves ? combineCurves(curves, weights) : []), [curves, weights]);
   const missing = useMemo(
     () => (curves ?? []).filter((c) => !c.available || c.points.length === 0).map((c) => c.address),
     [curves]);

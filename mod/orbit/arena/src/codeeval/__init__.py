@@ -1,10 +1,11 @@
-"""codeeval — coding reconstruction benchmark tools for the arena.
+"""codeeval — a repo of choice, turned into a coding game the arena can play.
 
-Usage:
-    from arena.src.codeeval.harvest import harvest, generate_game_source
+    from codeeval.harvest import build
+    built = build('TheAlgorithms/Python', n=40, rounds=3)
+    built['source']        # the game class, ready to upload
 
-    tasks = harvest(Path('/path/to/orbit'))
-    src = generate_game_source(tasks)
-    with open('coderecon.py', 'w') as f:
-        f.write(src)
+or, from the fleet, in one call that also stores it:
+
+    m arena/codegame repo=TheAlgorithms/Python
+    m arena/codeplay game=python-recon agents=builder,dev
 """

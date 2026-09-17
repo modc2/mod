@@ -7,7 +7,9 @@ import {
   Index, StratRow, ago, shortAddr, fmtPnl, fmtUsd, fmtApr,
 } from "../lib/api";
 import { useWallet } from "../lib/wallet";
-import { Freshness, Identicon, Kpi, PageHead, Switch } from "../components/BoardBits";
+import { Field, Freshness, Identicon, Kpi, PageHead, Switch } from "../components/BoardBits";
+import StratSpark, { type SparkLeg } from "../components/StratSpark";
+import { useCurves } from "../lib/curves";
 
 // Per-basket weighted PnL, loaded lazily after the list renders.
 type Perf = { weighted_pnl: number; days: number } | "loading" | "err";
@@ -22,6 +24,41 @@ const KINDS: { key: Kind; label: string }[] = [
 
 const aprTone = (n: number | null | undefined) =>
   n == null ? "text-dim" : n >= 0 ? "text-win" : "text-loss";
+
+// The chart window. HL prices portfolio history in day / week / month / all,
+// so 1 / 7 / 30 are the windows that land exactly; anything else is drawn from
+// the nearest period that contains it (curve.rs::period_for_days), which the
+// blurb says out loud rather than pretending a 14d line is 14 days of samples.
+const DAY_OPTIONS = [1, 7, 30];
+const MAX_DAYS = 90;
+const DAYS_KEY = "hl.strats.days";
+const nearestPeriod = (d: number) => (d <= 1 ? "day" : d <= 7 ? "week" : d <= 30 ? "month" : "all-time");
+
+/** When this row last put a trade on, as precisely as we actually know it.
+ *  No timestamp is not "never": the board only lists wallets that traded
+ *  inside 24h, so that gate is what we say instead of inventing a minute. */
+function lastTraded(r: StratRow): { text: string; title: string } {
+  if (r.last_trade_ms) {
+    return {
+      text: `traded ${ago(r.last_trade_ms)}`,
+      title: `last fill seen ${new Date(r.last_trade_ms).toLocaleString()}`,
+    };
+  }
+  if (r.kind === "trader") {
+    return {
+      text: "traded within 24h",
+      title: "This wallet is on the board because it traded in the last 24h — we have not scanned its fills for the exact minute yet.",
+    };
+  }
+  return { text: "last trade unknown", title: "No fills scanned for this account yet." };
+}
+
+/** Which wallets a card's line is made of: one for a trader or a vault, the
+ *  weighted legs for a basket. */
+function sparkLegs(r: StratRow, idx: Index | undefined): SparkLeg[] {
+  if (r.kind === "basket") return idx ? idx.legs.map((l) => ({ address: l.address, weight: l.weight })) : [];
+  return [{ address: r.id, weight: 1 }];
+}
 
 /** Where a row opens: every strat is a real page somewhere in the app. */
 const hrefFor = (r: StratRow) =>
@@ -39,6 +76,21 @@ export default function StratsPage() {
   const [search, setSearch] = useState("");
   const [mine, setMine] = useState(false);
   const [kind, setKind] = useState<Kind>("all");
+  // The chart window, chosen at the top of the board and remembered.
+  const [days, setDays] = useState(7);
+  const [dayDraft, setDayDraft] = useState("");
+  useEffect(() => {
+    const saved = parseInt(localStorage.getItem(DAYS_KEY) || "", 10);
+    if (Number.isFinite(saved) && saved >= 1 && saved <= MAX_DAYS) {
+      setDays(saved);
+      if (!DAY_OPTIONS.includes(saved)) setDayDraft(String(saved));
+    }
+  }, []);
+  const applyDays = (n: number) => {
+    const d = Math.min(MAX_DAYS, Math.max(1, n));
+    setDays(d);
+    try { localStorage.setItem(DAYS_KEY, String(d)); } catch {}
+  };
 
   const load = async () => {
     setLoading(true);
@@ -93,6 +145,22 @@ export default function StratsPage() {
     return out;
   }, [rows, indexes, search, mine, kind, address]);
 
+  // Every wallet the visible cards draw, deduped: a trader or a vault row is
+  // one wallet, a basket brings its legs. The shared curve cache pages these
+  // and holds them, so re-filtering or re-sorting a drawn board costs nothing.
+  const curveAddrs = useMemo(() => {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const r of filtered) {
+      for (const l of sparkLegs(r, r.kind === "basket" ? indexes[r.id] : undefined)) {
+        const a = l.address.toLowerCase();
+        if (!seen.has(a)) { seen.add(a); out.push(a); }
+      }
+    }
+    return out;
+  }, [filtered, indexes]);
+  const curves = useCurves(curveAddrs, days);
+
   const stats = useMemo(() => {
     const measured = rows.filter((r) => r.apr_7d != null);
     const best = measured.reduce<StratRow | null>(
@@ -110,7 +178,9 @@ export default function StratsPage() {
         title="STRATS"
         blurb={<>Everything you can put money behind — composed baskets, Hyperliquid vaults, and
           copyable traders — on one board. APR is trailing: what a deposit made 24h or 7d ago
-          would have annualized to. Open any card to invest or fork.</>}
+          would have annualized to, and every card draws its own PnL over the last {days} days
+          {!DAY_OPTIONS.includes(days) && <> (sampled from Hyperliquid&apos;s {nearestPeriod(days)} history, the
+            nearest period that contains a {days}d window)</>}. Open any card to invest or fork.</>}
         right={<>
           <Freshness loading={loading} label={updatedMs ? `updated ${ago(updatedMs)}` : `${rows.length} strats`} />
           <Link href="/strats/new" className="btn-primary ml-2">+ new strat</Link>
@@ -134,8 +204,32 @@ export default function StratsPage() {
       </div>
 
       {/* Filter bar */}
-      <div className="panel p-3 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1">
+      <div className="panel p-3 flex flex-wrap items-end gap-3">
+        <Field label="chart window" title="How many days of PnL every card draws — 1 / 7 / 30 land on Hyperliquid's own periods, or type any window up to 90 days">
+          <div className="seg">
+            {DAY_OPTIONS.map((d) => (
+              <button key={d} onClick={() => { applyDays(d); setDayDraft(""); }}
+                className={`seg-btn ${days === d ? "seg-btn-active" : ""}`}>{d}d</button>
+            ))}
+            <input
+              className={`seg-btn w-12 bg-transparent outline-none text-center font-mono
+                ${!DAY_OPTIONS.includes(days) ? "seg-btn-active" : ""}`}
+              placeholder="n d" inputMode="numeric"
+              title={`Any window, 1–${MAX_DAYS} days — enter to apply.`}
+              value={dayDraft}
+              onChange={(e) => setDayDraft(e.target.value.replace(/[^0-9]/g, ""))}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                const n = parseInt(dayDraft, 10);
+                if (Number.isFinite(n)) applyDays(n);
+              }}
+              onBlur={() => {
+                const n = parseInt(dayDraft, 10);
+                if (Number.isFinite(n)) applyDays(n);
+              }} />
+          </div>
+        </Field>
+        <div className="flex items-center gap-1 pb-1">
           {KINDS.map((k) => (
             <button key={k.key} onClick={() => setKind(k.key)}
               className={`pill transition-colors ${kind === k.key
@@ -146,8 +240,10 @@ export default function StratsPage() {
         </div>
         <input className="input flex-1 min-w-[20ch]" placeholder="FILTER BY NAME, OWNER, OR ADDRESS…"
           value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Switch on={mine} onChange={setMine} label="mine only" />
-        <span className="text-[10px] text-muted uppercase tracking-wider">{filtered.length} shown</span>
+        <div className="flex items-center gap-3 pb-1">
+          <Switch on={mine} onChange={setMine} label="mine only" />
+          <span className="text-[10px] text-muted uppercase tracking-wider">{filtered.length} shown</span>
+        </div>
       </div>
 
       {/* Grid */}
@@ -167,6 +263,8 @@ export default function StratsPage() {
             const pnl = p && p !== "loading" && p !== "err" ? p.weighted_pnl : null;
             const isOwner = idx && address && idx.owner.toLowerCase() === address.toLowerCase();
             const partial = r.kind === "basket" && r.legs_priced < r.legs;
+            const traded = lastTraded(r);
+            const legsForSpark = sparkLegs(r, idx);
             return (
               <Link key={`${r.kind}:${r.id}`} href={hrefFor(r)}
                 className="group relative flex flex-col rounded-lg border border-white/[0.07] bg-gradient-to-b from-white/[0.025] to-transparent p-4 transition-all hover:border-accent/40 hover:shadow-glow">
@@ -235,14 +333,19 @@ export default function StratsPage() {
                         ))}
                       </div>
                     </div>
+                    <div className="text-[11px] text-muted mt-2" title={traded.title}>
+                      <span className="text-dim">last leg trade · </span>{traded.text.replace("traded ", "")}
+                    </div>
                   </>
                 ) : (
-                  <div className="text-[11px] text-muted mt-2">
-                    {r.kind === "vault"
-                      ? <>{fmtUsd(r.capital)} <span className="text-dim">tvl</span></>
-                      : <>{fmtUsd(r.capital)} <span className="text-dim">equity · traded last 24h</span></>}
+                  <div className="text-[11px] text-muted mt-2" title={traded.title}>
+                    {fmtUsd(r.capital)}{" "}
+                    <span className="text-dim">{r.kind === "vault" ? "tvl" : "equity"} · {traded.text}</span>
                   </div>
                 )}
+
+                {/* the shape behind the number: this row's PnL over the chosen window */}
+                <StratSpark legs={legsForSpark} days={days} curves={curves} />
 
                 <div className="mt-auto pt-3 flex items-center gap-2">
                   <span className="btn-ghost !py-1 text-[11px]">
