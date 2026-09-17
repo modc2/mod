@@ -10,6 +10,7 @@ import { notFound } from 'next/navigation'
 import { Shell } from '../../../components/chrome'
 import { SECTIONS, paperSection } from '../../../lib/whitepaper'
 import { PaperRail } from '../chrome'
+import { PaperFigure } from '../figures'
 
 export function generateStaticParams() {
   return SECTIONS.map(s => ({ slug: s.slug }))
@@ -51,6 +52,9 @@ export default function PaperSectionPage({ params }: { params: { slug: string } 
             <p key={i} className="text-white/75 text-lg md:text-xl leading-relaxed">{p}</p>
           ))}
         </div>
+
+        {/* the section drawn, for anyone who'd rather look than read */}
+        <PaperFigure slug={section.slug} />
 
         {section.pull && (
           <p className="font-serif-ed italic text-2xl md:text-4xl text-surf-grad mt-14 leading-snug border-l-2 border-coral/40 pl-6">
