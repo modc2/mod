@@ -85,7 +85,7 @@ export default function StratSpark({
         <span>
           {shape ? (
             <span className={`num font-semibold ${shape.last >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(shape.last)}</span>
-          ) : <span className="text-dim">—</span>}
+          ) : <span className="text-dim">{pending ? "loading" : "—"}</span>}
           <span className="ml-1.5">past {days}d</span>
         </span>
         {shape && (

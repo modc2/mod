@@ -50,6 +50,10 @@ pub struct StratRow {
     /// gate still guarantees a trader row traded inside 24h, but we won't
     /// invent a minute we never observed.
     pub last_trade_ms: Option<i64>,
+    /// When that fill scan ran. A last trade is only as current as the look
+    /// that found it, so the UI can say "as of" instead of implying we are
+    /// watching the wallet live.
+    pub last_trade_scanned_ms: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -116,13 +120,14 @@ fn warm_last_trades(s: &crate::AppState, addrs: Vec<String>) {
 }
 
 /// The most recent fill the fills index has ever seen for `addr`, across every
-/// indexed window. `None` = never scanned (or scanned and it had no fills).
-fn last_trade(index: &crate::traders::TraderIndex, addr: &str) -> Option<i64> {
+/// indexed window, and when the scan that saw it ran. `None` = never scanned
+/// (or scanned and it had no fills in that window).
+fn last_trade(index: &crate::traders::TraderIndex, addr: &str) -> Option<(i64, i64)> {
     INDEXED_WINDOWS.iter()
         .filter_map(|d| index.get(*d, addr))
-        .map(|e| e.stats.last_active)
-        .filter(|t| *t > 0)
-        .max()
+        .filter(|e| e.stats.last_active > 0)
+        .map(|e| (e.stats.last_active, e.scanned_at))
+        .max_by_key(|(fill, _)| *fill)
 }
 
 /// Weight-sum a basket's leg ROIs for one window. `None` when not a single
@@ -161,6 +166,9 @@ pub async fn board(
     let indexes = s.store.list_indexes();
     let baskets = indexes.len();
     for idx in indexes {
+        let basket_last = idx.legs.iter()
+            .filter_map(|l| last_trade(&s.index, &l.address))
+            .max_by_key(|(fill, _)| *fill);
         let priced = idx.legs.iter()
             .filter(|l| lb.contains_key(&l.address.to_lowercase())).count();
         let capital: f64 = idx.legs.iter()
@@ -179,8 +187,8 @@ pub async fn board(
             age_days: ((now_ms - idx.created_ms).max(0)) / 86_400_000,
             vault_address: idx.vault_address.clone(),
             // A basket is as live as its liveliest leg.
-            last_trade_ms: idx.legs.iter()
-                .filter_map(|l| last_trade(&s.index, &l.address)).max(),
+            last_trade_ms: basket_last.map(|(fill, _)| fill),
+            last_trade_scanned_ms: basket_last.map(|(_, seen)| seen),
         });
     }
 
@@ -195,6 +203,7 @@ pub async fn board(
     vlist.truncate(vault_pool);
     let vaults = vlist.len();
     for v in vlist {
+        let v_last = last_trade(&s.index, &v.address);
         rows.push(StratRow {
             kind: "vault",
             id: v.address.clone(),
@@ -206,7 +215,8 @@ pub async fn board(
             legs: 0,
             legs_priced: 0,
             age_days: v.age_days,
-            last_trade_ms: last_trade(&s.index, &v.address),
+            last_trade_ms: v_last.map(|(fill, _)| fill),
+            last_trade_scanned_ms: v_last.map(|(_, seen)| seen),
             vault_address: Some(v.address),
         });
     }
@@ -225,6 +235,7 @@ pub async fn board(
     tlist.truncate(trader_pool);
     let traders = tlist.len();
     for (addr, w) in tlist {
+        let t_last = last_trade(&s.index, addr);
         rows.push(StratRow {
             kind: "trader",
             id: addr.clone(),
@@ -237,7 +248,8 @@ pub async fn board(
             legs_priced: 0,
             age_days: 0,
             vault_address: None,
-            last_trade_ms: last_trade(&s.index, addr),
+            last_trade_ms: t_last.map(|(fill, _)| fill),
+            last_trade_scanned_ms: t_last.map(|(_, seen)| seen),
         });
     }
 
@@ -275,10 +287,11 @@ mod tests {
         assert_eq!(last_trade(&ix, a), None);
 
         // The 30d scan saw an older fill than the 1d scan; the wallet's last
-        // trade is the later instant, whichever window reported it.
+        // trade is the later instant, whichever window reported it — and it
+        // comes back with the scan that saw it.
         ix.put(30, a, entry(1_000));
         ix.put(1, a, entry(9_000));
-        assert_eq!(last_trade(&ix, a), Some(9_000));
+        assert_eq!(last_trade(&ix, a), Some((9_000, 1_700_000_000_000)));
 
         // A scanned window with no fills in it reports 0 — that is "nothing in
         // this window", not "traded at the epoch".
@@ -287,6 +300,6 @@ mod tests {
         assert_eq!(last_trade(&ix, b), None);
 
         // Lookups are case-insensitive, like every other address key here.
-        assert_eq!(last_trade(&ix, &a.to_lowercase()), Some(9_000));
+        assert_eq!(last_trade(&ix, &a.to_lowercase()), Some((9_000, 1_700_000_000_000)));
     }
 }

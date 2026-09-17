@@ -463,6 +463,9 @@ export type StratRow = {
    *  null = this wallet isn't in the fills index yet — say "within 24h" (the
    *  board's own liveness gate), never a made-up minute. */
   last_trade_ms: number | null;
+  /** When that fill scan ran — a last trade is only as current as the look
+   *  that found it. */
+  last_trade_scanned_ms: number | null;
 };
 export const stratsBoard = (vaults = 24, traders = 24) =>
   j<{ rows: StratRow[]; baskets: number; vaults: number; traders: number; updated_ms: number }>(

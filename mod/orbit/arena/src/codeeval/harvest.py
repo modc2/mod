@@ -45,14 +45,18 @@ MAX_CONTEXT_LINES = 40  # max lines of context to include per task
 MAX_VALUE_CHARS = 1200  # a vector whose answer is a wall of text is not a test
 MAX_TASK_CHARS = 24000  # …and a task that big does not belong in a view either
 
-# Imports that disqualify a module from harvesting
-UNSAFE_IMPORTS = {
-    'requests', 'urllib', 'http', 'socket', 'subprocess', 'multiprocessing',
+# Names that, used *inside a function*, mean it is not a pure computation and
+# cannot be graded by what it returns. The module's own imports are not the
+# test: a file that imports `requests` at the top is still allowed to hold a
+# pure helper, and the helper is what we are after. Nothing is imported from
+# the file either way — the harvest runs the function alone, with only safe
+# stdlib in scope, so a function that reaches for any of this simply produces
+# no vectors and is dropped for that.
+UNSAFE_NAMES = {
+    'requests', 'urllib', 'httpx', 'socket', 'subprocess', 'multiprocessing',
     'threading', 'asyncio', 'aiohttp', 'flask', 'fastapi', 'django',
-    'sqlalchemy', 'psycopg2', 'pymongo', 'redis',
-    'boto3', 'google', 'azure',
-    'torch', 'tensorflow', 'keras',
-    'cv2', 'PIL', 'matplotlib', 'numpy', 'pandas', 'scipy',
+    'sqlalchemy', 'psycopg2', 'pymongo', 'redis', 'boto3', 'azure',
+    'torch', 'tensorflow', 'keras', 'cv2', 'np', 'numpy', 'pd', 'pandas', 'scipy',
 }
 
 # Names in a function body that signal impurity
@@ -73,19 +77,6 @@ STOCHASTIC_ATTRS = {'random', 'rand', 'choice', 'shuffle', 'sample', 'randint', 
 
 
 # ── AST analysis ──────────────────────────────────────────────────────────────
-
-def _collect_imports(tree: ast.Module) -> set:
-    """Top-level import names in a module."""
-    names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.name.split('.')[0])
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                names.add(node.module.split('.')[0])
-    return names
-
 
 def _body_uses(fn: ast.FunctionDef, attr_set: set) -> bool:
     """Does the function body reference any of these attribute/name patterns?"""
@@ -448,10 +439,6 @@ def _harvest_file(py_file: Path, repo_dir: Path, rng: random.Random,
     except (SyntaxError, ValueError, OSError):
         return []
 
-    module_imports = _collect_imports(tree)
-    if module_imports & UNSAFE_IMPORTS:
-        return []
-
     try:
         rel_path = str(py_file.relative_to(repo_dir))
     except ValueError:
@@ -471,7 +458,7 @@ def _harvest_file(py_file: Path, repo_dir: Path, rng: random.Random,
             continue
         if fn.end_lineno - fn.lineno < 3:
             continue
-        if _is_impure(fn):
+        if _is_impure(fn) or _body_uses(fn, UNSAFE_NAMES):
             continue
 
         stochastic = _is_stochastic(fn)

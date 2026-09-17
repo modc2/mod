@@ -254,3 +254,122 @@ def test_the_game_file_is_python_a_reader_can_read(built):
     classes = [n.name for n in tree.body if isinstance(n, ast.ClassDef)]
     assert len(classes) == 1
     assert built['name'].split('-')[0] in classes[0].lower()
+
+
+# ── end to end: the arena asks for code and grades what comes back ───────────
+#
+# Everything above runs the game in the sandbox directly. This runs it the way
+# a match does — through the server, the node runner and a seat the server has
+# to go and ask — because the part worth proving is that the *arena* asks for
+# code and reads a whole function back, not just that the class can grade one.
+
+import http.server
+import shutil
+import socket
+import subprocess
+import tempfile
+import threading
+import time
+
+import requests
+
+BINARY = os.path.join(SRC, 'arena-rs', 'target', 'release', 'arena-api')
+
+
+def _free_port():
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture(scope='module')
+def arena():
+    if not os.path.exists(BINARY):
+        pytest.skip(f'no backend at {BINARY} — run `m arena/build`')
+    if not shutil.which('node'):
+        pytest.skip('no node on PATH — matches run in the runner')
+    state = tempfile.mkdtemp(prefix='arena-coderepo-')
+    port = _free_port()
+    proc = subprocess.Popen(
+        [BINARY],
+        env={**os.environ, 'PORT': str(port), 'ARENA_STATE': state,
+             'ARENA_STORE_URL': 'off'},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    base = f'http://127.0.0.1:{port}'
+    for _ in range(100):
+        try:
+            if requests.get(f'{base}/info', timeout=1).ok:
+                break
+        except Exception:
+            time.sleep(0.1)
+    else:
+        proc.kill()
+        pytest.fail('the server never came up')
+    yield base
+    proc.terminate()
+    proc.wait(timeout=10)
+    shutil.rmtree(state, ignore_errors=True)
+
+
+@pytest.fixture(scope='module')
+def seat(built):
+    """A seat that answers with the real function, fenced, after some chat.
+
+    It is an `http` player, which is the same road a model or an agent takes:
+    the server builds the brief, posts the view, and reads a move out of the
+    reply. What it proves is the road, not the player.
+    """
+    answers = {t['name']: t['original'] for t in built['tasks']}
+    asked = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers['content-length'])))
+            asked.append(body)
+            view = body.get('view') or ''
+            name = view.split('Reconstruct `')[1].split('`')[0] if 'Reconstruct `' in view else ''
+            reply = (f"Let me think about `{name}` for a moment.\n\n"
+                     f"```python\n{answers.get(name, 'pass')}\n```\n\nThat should do it.")
+            out = json.dumps({'move': reply}).encode()
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.send_header('content-length', str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_message(self, *a):
+            pass
+
+    port = _free_port()
+    server = http.server.HTTPServer(('127.0.0.1', port), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f'http://127.0.0.1:{port}/', asked
+    server.shutdown()
+
+
+def test_a_seat_is_asked_for_code_and_its_whole_function_is_the_move(arena, built, seat):
+    url, asked = seat
+    stored = requests.post(f'{arena}/classes',
+                           json={'source': built['source'], 'name': 'repo-under-test',
+                                 'lang': 'python'}, timeout=60).json()
+    assert stored.get('role') == 'game', stored
+    entered = requests.post(f'{arena}/players',
+                            json={'name': 'fenced', 'kind': 'http',
+                                  'config': {'url': url}}, timeout=30).json()
+    assert entered.get('id'), entered
+
+    played = requests.post(f'{arena}/run',
+                           json={'game': 'repo-under-test', 'players': ['fenced'],
+                                 'seed': 4, 'timeout_ms': 240_000},
+                           timeout=300).json()
+    assert 'error' not in played, played
+
+    # The brief it was handed asked for a fence, not for one line.
+    assert asked, 'the seat was never asked anything'
+    brief = asked[0]['view']
+    assert 'fenced block' in brief and 'no code fence' not in brief
+
+    # And the whole function came back as the move, so it scored.
+    hand = played['seats'][0]
+    assert hand['score'] == 1.0, played['summary']
+    assert hand['illegal'] == 0, played

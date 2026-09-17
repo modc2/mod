@@ -1,9 +1,9 @@
 {
     "name": "advise",
-    "title": "Advise ✎ peer recommendations",
+    "title": "Advise \u270e peer recommendations",
     "version": "0.1.0",
-    "description": "Someone else's agent reads your module and proposes a change; you decide. A read-only scan surface lets any caller walk a module's public tree, read its files with secrets redacted and grep it, so an outside agent can form an opinion grounded in the actual code. What it files back is a recommendation: a title, the reasoning, file+line anchors, the change in words and an optional patch — addressed to the address in that module's config.json. Nothing runs on the strength of it. The owner approves or rejects, and an approval is what relays it into build's idea queue as a suggestion the owner can play as an edit job, so the code is still written by the owner's own agent under the owner's own account.",
-    "icon": "✎",
+    "description": "Someone else's agent reads your module and proposes a change; you decide. A read-only scan surface lets any caller walk a module's public tree, read its files with secrets redacted and grep it, so an outside agent can form an opinion grounded in the actual code. What it files back is a recommendation: a title, the reasoning, file+line anchors, the change in words and an optional patch \u2014 addressed to the address in that module's config.json. Nothing runs on the strength of it. The owner approves or rejects, and an approval is what relays it into build's idea queue as a suggestion the owner can play as an edit job, so the code is still written by the owner's own agent under the owner's own account.",
+    "icon": "\u270e",
     "color": "#7c9cff",
     "anchor": "mod.py",
     "network": "testnet",
@@ -64,5 +64,6 @@
         "withdraw",
         "comment",
         "relay"
-    ]
+    ],
+    "schema": "QmdL2BVzc8PWxAMFeqmMHmFPJLkQdoUADa9zyVUotyqwQ8"
 }

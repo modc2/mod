@@ -109,6 +109,14 @@ parameter names and annotations, so most guesses are wrong and are simply
 dropped — what survives is a set of calls the real function answered. A repo
 whose Python is all methods and all IO will harvest nothing, and says so.
 
+The bigger limit is not a filter at all: a function is only kept if it *runs*
+with nothing but the safe stdlib and its file's constants in scope. Library
+code — a repository of algorithms, a parser, a formatter — harvests well. An
+application whose functions call into the rest of their own module mostly does
+not, and the count comes back small. That is the honest answer rather than a
+bug: a round nobody could answer without the rest of the repository would not
+be measuring anything about the player.
+
 Two more filters worth knowing: a vector whose answer is longer than ~1200
 characters is dropped (nobody can read it, and the game file would be
 enormous), and a function whose vectors all give the same answer is dropped

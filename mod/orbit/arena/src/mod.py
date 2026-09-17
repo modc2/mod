@@ -672,9 +672,13 @@ class Mod:
                 # square: the default move clock is a minute, and a round lost
                 # to the clock is not a round the agent failed.
                 'timeout_ms': int(move_timeout) * 1000,
-                'prompt': 'You are writing one Python function. Read the signature, '
-                          'the docstring and the worked calls, then write the whole '
-                          'function.',
+                # Small agents wander off into their tools when a brief leaves
+                # room for it. This says the job, and that there is no other job.
+                'prompt': 'You are sitting a coding exam. Do not use tools, do not '
+                          'read or edit any file, and do not explain yourself. Read '
+                          'the signature, the docstring and the worked calls in the '
+                          'question, then reply with the complete function in one '
+                          '```python fenced block and nothing else.',
             }
             if base:
                 config['base'] = base

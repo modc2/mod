@@ -35,22 +35,33 @@ const DAYS_KEY = "hl.strats.days";
 const nearestPeriod = (d: number) => (d <= 1 ? "day" : d <= 7 ? "week" : d <= 30 ? "month" : "all-time");
 
 /** When this row last put a trade on, as precisely as we actually know it.
- *  No timestamp is not "never": the board only lists wallets that traded
- *  inside 24h, so that gate is what we say instead of inventing a minute. */
-function lastTraded(r: StratRow): { text: string; title: string } {
+ *
+ *  Three honest states, never a fourth invented one:
+ *   - a scanned fill  → the minute, plus when we looked, in the tooltip;
+ *   - no scan yet     → the board's own liveness gate ("within 24h") for a
+ *                       trader row, and plain "unknown" for a vault;
+ *   - a scanned fill older than a day on a row the leaderboard calls active →
+ *     still the scanned fill, flagged, because the fills are the evidence and
+ *     the leaderboard's day volume is the claim. */
+function lastTraded(r: StratRow): { text: string; title: string; stale: boolean } {
   if (r.last_trade_ms) {
+    const seen = r.last_trade_scanned_ms ? ` · fills scanned ${ago(r.last_trade_scanned_ms)}` : "";
+    const quiet = r.kind === "trader" && Date.now() - r.last_trade_ms > 86_400_000;
     return {
       text: `traded ${ago(r.last_trade_ms)}`,
-      title: `last fill seen ${new Date(r.last_trade_ms).toLocaleString()}`,
+      title: `last fill we have seen: ${new Date(r.last_trade_ms).toLocaleString()}${seen}`
+        + (quiet ? " — Hyperliquid's leaderboard still counts day volume for this wallet, but no fill has landed in our scan since." : ""),
+      stale: quiet,
     };
   }
   if (r.kind === "trader") {
     return {
       text: "traded within 24h",
-      title: "This wallet is on the board because it traded in the last 24h — we have not scanned its fills for the exact minute yet.",
+      title: "On the board because Hyperliquid reports day volume for this wallet — its fills have not been scanned for the exact minute yet.",
+      stale: false,
     };
   }
-  return { text: "last trade unknown", title: "No fills scanned for this account yet." };
+  return { text: "last trade unknown", title: "No fills scanned for this account yet.", stale: false };
 }
 
 /** Which wallets a card's line is made of: one for a trader or a vault, the
@@ -340,7 +351,9 @@ export default function StratsPage() {
                 ) : (
                   <div className="text-[11px] text-muted mt-2" title={traded.title}>
                     {fmtUsd(r.capital)}{" "}
-                    <span className="text-dim">{r.kind === "vault" ? "tvl" : "equity"} · {traded.text}</span>
+                    <span className="text-dim">{r.kind === "vault" ? "tvl" : "equity"} · </span>
+                    <span className={traded.stale ? "text-loss/80" : "text-dim"}>{traded.text}</span>
+                    {traded.stale && <span className="text-dim" title={traded.title}> ⚠</span>}
                   </div>
                 )}
 

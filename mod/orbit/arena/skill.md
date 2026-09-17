@@ -97,7 +97,10 @@ anything under three lines and anything that prints or touches `os`/`sys` are
 skipped; argument shapes are guessed from names and annotations and retried
 across kinds, so what survives is whatever the real function answered; a vector
 longer than 1200 chars or a function whose vectors all give one answer is
-dropped. The whole page is `m arena/doc slug=repo`.
+dropped. And a function is only kept if it runs with nothing but safe stdlib
+and its file's constants in scope — library code (algorithms, parsers,
+formatters) harvests well, an application whose functions call into their own
+module mostly does not. The whole page is `m arena/doc slug=repo`.
 
 ## Endpoints
 

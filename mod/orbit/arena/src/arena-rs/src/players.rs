@@ -323,6 +323,43 @@ pub async fn play(p: &Player, view: &str, seat: usize) -> Result<Answer, String>
     }
 }
 
+/// Does this text hold code rather than an account of some?
+fn looks_like_code(text: &str) -> bool {
+    text.contains("```")
+        || text.lines().any(|l| {
+            let t = l.trim_start();
+            t.starts_with("def ") || t.starts_with("class ") || t.starts_with("fn ")
+        })
+}
+
+/// The code in a reply, wherever the agent put it.
+///
+/// The agent module answers a coding brief in whichever step it felt like:
+/// the code comes back as a `response` step's `result`, an `edit` step's
+/// `new_string`, a `write` step's `content`. Rather than guess the shape it
+/// will use this time, walk the whole reply and take the longest string that
+/// is code — an agent that wrote the function has it in there somewhere, and
+/// failing it for where it put it would be measuring the wrong thing.
+fn code_in(value: &Value) -> Option<String> {
+    let mut best: Option<String> = None;
+    let mut stack = vec![value];
+    while let Some(v) = stack.pop() {
+        match v {
+            Value::String(s) => {
+                if looks_like_code(s)
+                    && best.as_ref().map(|b| s.len() > b.len()).unwrap_or(true)
+                {
+                    best = Some(s.clone());
+                }
+            }
+            Value::Array(a) => stack.extend(a.iter()),
+            Value::Object(o) => stack.extend(o.values()),
+            _ => {}
+        }
+    }
+    best
+}
+
 /// A Liquid AI model, served by the liquidai module on this box.
 ///
 /// Every model seat is an LFM: there is no fallback to a paid gateway, no key
@@ -453,6 +490,15 @@ async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String
     // The reply is the summary if there is one, else the last thing any step
     // said — an agent that answered by calling a tool still answered.
     let mut raw = out.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    // …except when the move is code. An agent asked for a function writes it
+    // in a step — a `response`, an `edit`, a `write` — and then summarises it
+    // in prose, and the prose is not the answer. So look for the code first,
+    // anywhere in the reply, and keep the summary only if there is none.
+    if answer_of(p) == "code" && !looks_like_code(&raw) {
+        if let Some(code) = code_in(&out) {
+            raw = code;
+        }
+    }
     if raw.trim().is_empty() {
         if let Some(steps) = out.get("result").and_then(|v| v.as_array()) {
             for step in steps.iter().rev() {
@@ -767,6 +813,28 @@ async fn http(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_code_is_taken_out_of_whichever_step_the_agent_wrote_it_in() {
+        // The shape the agent module actually answers a coding brief in: prose
+        // in `summary`, the function itself inside a step.
+        let reply = json!({
+            "summary": "I implemented the function as described and checked the examples.",
+            "result": [
+                { "tool": "read", "result": "def unrelated(): pass" },
+                { "tool": "edit", "params": { "new_string":
+                    "def running_total(nums):\n    out, total = [], 0\n    for n in nums:\n        total += n\n        out.append(total)\n    return out" } }
+            ]
+        });
+        let code = code_in(&reply).expect("there is code in there");
+        assert!(code.starts_with("def running_total"));
+        assert_eq!(extract_as(&code, "code"), code);
+    }
+
+    #[test]
+    fn a_reply_with_no_code_in_it_has_none_to_find() {
+        assert_eq!(code_in(&json!({ "summary": "I could not work it out." })), None);
+    }
 
     #[test]
     fn a_code_answer_is_the_whole_fence() {
