@@ -12,11 +12,23 @@ import {
   exportSet,
   imgUrl,
   downloadUrl,
+  postAuth,
+  setAuthToken,
+  setWalletToken,
   WingmanSet,
   Photo,
   PhotoAudit,
   LineupSlot,
 } from './lib/api'
+
+// Extend window with the Ethereum provider injected by MetaMask / any EIP-1193 wallet.
+declare global {
+  interface Window {
+    ethereum?: {
+      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+    }
+  }
+}
 
 // ── sub-components ────────────────────────────────────────────────────────
 
@@ -81,6 +93,8 @@ export default function WingmanPage() {
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [newName, setNewName] = useState('')
+  const [walletAddr, setWalletAddr] = useState<string>('')
+  const [connecting, setConnecting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── load sets on mount ────────────────────────────────────────────────
@@ -90,14 +104,77 @@ export default function WingmanPage() {
       const data = await getSets()
       setSets(data)
     } catch (e: unknown) {
-      // If 403 (not loopback) we just show an empty list; user can enter set ID
-      if (!(e instanceof Error && e.message.includes('403'))) {
-        setError(String(e))
+      // Suppress the 403 / loopback-only error — user can connect wallet or paste a set id.
+      const msg = e instanceof Error ? e.message : String(e)
+      if (!msg.includes('403') && !msg.includes('loopback') && !msg.includes('x-wingman-token')) {
+        setError(msg)
       }
     }
   }, [])
 
-  useEffect(() => { loadSets() }, [loadSets])
+  // Restore tokens from localStorage then load sets.
+  useEffect(() => {
+    const savedToken = localStorage.getItem('wingman.token')
+    const savedWalletToken = localStorage.getItem('wingman.wallet_token')
+    const savedAddr = localStorage.getItem('wingman.wallet_addr')
+    if (savedToken) setAuthToken(savedToken)
+    if (savedWalletToken) setWalletToken(savedWalletToken)
+    if (savedAddr) setWalletAddr(savedAddr)
+    loadSets()
+  }, [loadSets])
+
+  // ── wallet connect ─────────────────────────────────────────────────────
+
+  const connectWallet = useCallback(async () => {
+    if (!window.ethereum) {
+      setError('No Ethereum wallet detected. Install MetaMask or another EIP-1193 wallet.')
+      return
+    }
+    setConnecting(true)
+    setError(null)
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }) as string[]
+      const address = accounts[0].toLowerCase()
+
+      // Mint a mod-protocol token: personal_sign over JSON.stringify({data, time}).
+      const data = { mod: 'wingman' }
+      const timeStr = (Date.now() / 1000).toString()
+      const msgStr = JSON.stringify({ data, time: timeStr })
+      const signature = await window.ethereum.request({
+        method: 'personal_sign',
+        params: [msgStr, address],
+      }) as string
+
+      const payload = { data, time: timeStr, key: address, signature }
+      const walletTok = btoa(JSON.stringify(payload))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
+
+      // Exchange for the static wingman token (server verifies the EIP-191 signature).
+      const { wingman_token, address: verifiedAddr } = await postAuth(walletTok)
+      setAuthToken(wingman_token)
+      setWalletToken(walletTok)
+      const displayAddr = verifiedAddr || address
+      setWalletAddr(displayAddr)
+      localStorage.setItem('wingman.token', wingman_token)
+      localStorage.setItem('wingman.wallet_token', walletTok)
+      localStorage.setItem('wingman.wallet_addr', displayAddr)
+      await loadSets()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setConnecting(false)
+    }
+  }, [loadSets])
+
+  const disconnectWallet = useCallback(() => {
+    setAuthToken(null)
+    setWalletToken(null)
+    setWalletAddr('')
+    localStorage.removeItem('wingman.token')
+    localStorage.removeItem('wingman.wallet_token')
+    localStorage.removeItem('wingman.wallet_addr')
+    setSets([])
+  }, [])
 
   // ── set selection ─────────────────────────────────────────────────────
 
@@ -839,6 +916,45 @@ export default function WingmanPage() {
               Loading...
             </span>
           )}
+          {/* Wallet connect — right side of top bar */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {walletAddr ? (
+              <>
+                <span style={{
+                  fontSize: 11,
+                  color: 'var(--accent)',
+                  background: '#a78bfa18',
+                  border: '1px solid #a78bfa44',
+                  borderRadius: 4,
+                  padding: '3px 8px',
+                  fontFamily: 'monospace',
+                }}>
+                  {walletAddr.slice(0, 6)}…{walletAddr.slice(-4)}
+                </span>
+                <button
+                  style={{ ...S.btnGhost, fontSize: 11, padding: '3px 8px' }}
+                  onClick={disconnectWallet}
+                  title="Disconnect wallet"
+                >
+                  disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                style={{
+                  ...S.btnPrimary,
+                  fontSize: 12,
+                  padding: '5px 12px',
+                  opacity: connecting ? 0.6 : 1,
+                }}
+                onClick={connectWallet}
+                disabled={connecting}
+                title="Sign in with Ethereum wallet to list sets and use the venice gateway"
+              >
+                {connecting ? 'connecting…' : 'connect wallet'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Content */}

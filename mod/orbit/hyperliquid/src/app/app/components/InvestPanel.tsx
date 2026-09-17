@@ -43,6 +43,7 @@ export default function InvestPanel({
   legs,
   onDone,
   compact = false,
+  stay = false,
 }: {
   kind: Kind;
   /** Trader wallet, vault address, or strat id. */
@@ -52,6 +53,8 @@ export default function InvestPanel({
   legs?: { address: string; weight: number }[];
   onDone?: () => void;
   compact?: boolean;
+  /** Stay put after investing (drawers) instead of navigating to the position. */
+  stay?: boolean;
 }) {
   const router = useRouter();
   const wallet = useWallet();
@@ -146,13 +149,17 @@ export default function InvestPanel({
       });
       setAmount("");
       onDone?.();
-      const id = res.position?.id;
-      if (id) router.push(`/invest/${id}`);
-      else router.push(`/invest`);
+      if (stay) {
+        setMsg(`Invested ${fmtUsd(amt)} — it's in your book now.`);
+      } else {
+        const id = res.position?.id;
+        if (id) router.push(`/invest/${id}`);
+        else router.push(`/invest`);
+      }
     } catch (e: any) {
       setErr(String(e?.message ?? e).replace(/^\/invest \d+ /, ""));
     } finally { setBusy(false); }
-  }, [me, amt, kind, target, name, mode, risk, onDone, router]);
+  }, [me, amt, kind, target, name, mode, risk, onDone, stay, router]);
 
   // ── vault-specific facts, straight from Hyperliquid ──
   const depositsOpen = kind !== "vault" || (vault?.allowDeposits !== false && !vault?.isClosed);

@@ -122,6 +122,21 @@ async fn main() -> anyhow::Result<()> {
         copy_book,
     };
 
+    // Background cleanup: remove proxy disk cache files older than 25h. Runs
+    // once at startup then every 6h so the /tmp tree never grows unbounded
+    // across long-running deployments (was observed at 5.3GB / 110K+ files).
+    // 25h gives a one-hour buffer over the longest freshness TTL (24h) so a
+    // file that just tipped stale is always cleaned up within the next pass.
+    let cleanup_cache = proxy_cache.clone();
+    tokio::spawn(async move {
+        const CLEANUP_AGE: std::time::Duration = std::time::Duration::from_secs(25 * 3600);
+        const CLEANUP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+        loop {
+            cleanup_cache.cleanup_old_disk(CLEANUP_AGE);
+            tokio::time::sleep(CLEANUP_INTERVAL).await;
+        }
+    });
+
     // Background warmup: traders pipeline. 5-MINUTE cadence by default — the
     // freshest schedule the sweep can absorb, and deliberately aggressive: a
     // full 1D/7D/14D/30D pass over ~6k traders takes 8–10 min, so in practice

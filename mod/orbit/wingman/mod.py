@@ -161,14 +161,16 @@ class Mod:
 
     # ── the read: the one verb that sends ────────────────────────
 
-    def read(self, set, photo=None, model=None, force=False, summary=True, limit=None):
+    def read(self, set, photo=None, model=None, force=False, summary=True, limit=None,
+             agent_token=None):
         """What the measurements cannot see — expression, eyes, shot type, setting,
         outfit, what the set repeats — from a vision model on orbit/venice.
         This sends a 768 px, metadata-free copy of each photo out of this box and
-        logs every send in the set's sent.json. Nothing else here sends anything."""
+        logs every send in the set's sent.json. Nothing else here sends anything.
+        agent_token: a browser-minted mod-protocol token for the gateway provider."""
         import engine
         return engine.venice_module().read(set, photo=photo, model=model, force=force,
-                           summary=summary, limit=limit)
+                           summary=summary, limit=limit, agent_token=agent_token)
 
     def venice(self, url=None, model=None, enabled=None, models=False,
                provider=None, key=None):
@@ -193,6 +195,35 @@ class Mod:
         V = engine.venice_module()
         return V.forget_key(provider) if forget or not key else \
             V.set_key(key, provider=provider)
+
+    def verify_token(self, token):
+        """Verify a mod-protocol wallet token (EIP-191 personal_sign).
+        Returns {ok, address} on success; {ok: False, error} on bad signature."""
+        import base64
+        import json as _json
+        try:
+            pad = token + '=' * (-len(token) % 4)
+            payload = _json.loads(base64.urlsafe_b64decode(pad))
+            data = payload['data']
+            time_str = payload['time']
+            key = payload['key'].lower()
+            sig = payload['signature']
+        except Exception as e:
+            return {'ok': False, 'error': f'malformed token: {e}'}
+        try:
+            from eth_account import Account
+            from eth_account.messages import encode_defunct
+        except ImportError:
+            return {'ok': False, 'error': 'eth_account not installed on this box'}
+        msg_str = _json.dumps({'data': data, 'time': time_str}, separators=(',', ':'))
+        msg = encode_defunct(text=msg_str)
+        try:
+            recovered = Account.recover_message(msg, signature=sig).lower()
+        except Exception as e:
+            return {'ok': False, 'error': f'signature recovery failed: {e}'}
+        if recovered != key:
+            return {'ok': False, 'error': 'invalid signature'}
+        return {'ok': True, 'address': recovered}
 
     # ── surfaces ─────────────────────────────────────────────────
 

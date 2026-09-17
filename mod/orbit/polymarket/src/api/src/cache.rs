@@ -195,6 +195,28 @@ impl ProxyCache {
 
     // ── Disk persistence ──
 
+    /// Remove disk cache files older than `max_age`. Called from a background
+    /// task at startup and periodically so the /tmp cache dir doesn't grow
+    /// without bound across long-running deployments (110K+ files / 5GB+ seen).
+    pub fn cleanup_old_disk(&self, max_age: Duration) {
+        let dir = &self.disk_dir;
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let mut removed = 0usize;
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            let age = meta.modified().ok()
+                .and_then(|m| m.elapsed().ok())
+                .unwrap_or(Duration::ZERO);
+            if age > max_age {
+                std::fs::remove_file(entry.path()).ok();
+                removed += 1;
+            }
+        }
+        if removed > 0 {
+            tracing::debug!(removed, "proxy disk cache: cleaned up old files");
+        }
+    }
+
     fn disk_path(&self, key: &str) -> PathBuf {
         let safe: String = key.chars()
             .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == '.' { c } else { '_' })
@@ -438,9 +460,15 @@ impl PipelineCache {
     }
 
     fn save_to_disk(&self, key: &str, payload: &AggPayload) {
+        // Atomic write: write to a sibling .tmp file then rename into place so
+        // a crash between the two writes (payload + sidecar) never leaves a
+        // fresh payload paired with a stale/missing sidecar.
         let path = self.disk_path(key);
+        let tmp_path = path.with_extension("json.tmp");
         if let Ok(json) = serde_json::to_string(payload) {
-            std::fs::write(path, json).ok();
+            if std::fs::write(&tmp_path, json).is_ok() {
+                std::fs::rename(&tmp_path, &path).ok();
+            }
         }
         let metrics: HashMap<&str, &Vec<MarketMetric>> = payload
             .traders
@@ -451,7 +479,10 @@ impl PipelineCache {
         if metrics.is_empty() {
             std::fs::remove_file(mpath).ok();
         } else if let Ok(json) = serde_json::to_string(&metrics) {
-            std::fs::write(mpath, json).ok();
+            let mtmp = mpath.with_extension("json.tmp");
+            if std::fs::write(&mtmp, json).is_ok() {
+                std::fs::rename(&mtmp, &mpath).ok();
+            }
         }
     }
 

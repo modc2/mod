@@ -7,36 +7,82 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 8 8%27%3E%3Crect width=%278%27 height=%278%27 fill=%27%230a0b0f%27/%3E%3Cpath d=%27M1 1h2l4 6h-2z%27 fill=%27%23e8eaf2%27/%3E%3Cpath d=%27M5 1h2l-4 6h-2z%27 fill=%27%236ee7ff%27/%3E%3C/svg%3E">
 <style>
   :root{
-    --bg:#0a0b0f; --panel:#12141c; --raised:#171a25; --line:#252a38;
+    --bg:#05060a; --panel:#0e1018; --raised:#151824; --line:#232838;
     --ink:#e8eaf2; --dim:#9aa2b8; --faint:#666e85;
-    --hot:#6ee7ff; --good:#5dff9b; --warn:#ffce4d; --bad:#ff6b6b;
+    --hot:#6ee7ff; --hot2:#3aa8ff; --good:#5dff9b; --warn:#ffce4d; --bad:#ff6b6b;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--mono)}
   a{color:var(--hot)}
+
+  /* ── deep-space backdrop: two drifting star layers + a cyan aurora ── */
+  body::before, body::after{content:'';position:fixed;inset:-50%;z-index:0;
+    pointer-events:none;background-repeat:repeat}
+  body::before{
+    background-image:
+      radial-gradient(1px 1px at 12% 22%, rgba(232,234,242,.9), transparent 60%),
+      radial-gradient(1px 1px at 68% 8%,  rgba(232,234,242,.55), transparent 60%),
+      radial-gradient(1.5px 1.5px at 42% 62%, rgba(110,231,255,.8), transparent 60%),
+      radial-gradient(1px 1px at 86% 44%, rgba(232,234,242,.6), transparent 60%),
+      radial-gradient(1px 1px at 28% 84%, rgba(232,234,242,.45), transparent 60%),
+      radial-gradient(2px 2px at 57% 31%, rgba(110,231,255,.5), transparent 60%);
+    background-size:520px 520px;
+    animation:drift 240s linear infinite}
+  body::after{
+    background-image:
+      radial-gradient(1px 1px at 7% 55%,  rgba(232,234,242,.5), transparent 60%),
+      radial-gradient(1px 1px at 81% 77%, rgba(232,234,242,.65), transparent 60%),
+      radial-gradient(1.5px 1.5px at 34% 12%, rgba(58,168,255,.7), transparent 60%),
+      radial-gradient(1px 1px at 63% 92%, rgba(232,234,242,.4), transparent 60%),
+      radial-gradient(600px 400px at 75% -10%, rgba(58,168,255,.09), transparent 70%),
+      radial-gradient(700px 500px at 15% 110%, rgba(110,231,255,.07), transparent 70%);
+    background-size:760px 760px, 760px 760px, 760px 760px, 760px 760px,
+                    100% 100%, 100% 100%;
+    animation:drift 360s linear infinite reverse}
+  @keyframes drift{to{transform:translate(260px,180px)}}
+  header,main,#signgate,#toast{position:relative;z-index:1}
+
   header{display:flex;align-items:center;gap:14px;padding:14px 18px;
-         border-bottom:1px solid var(--line);background:var(--panel);
+         border-bottom:1px solid var(--line);
+         background:rgba(14,16,24,.82);backdrop-filter:blur(8px);
          position:sticky;top:0;z-index:5;flex-wrap:wrap}
+  header::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
+    background:linear-gradient(90deg,transparent,var(--hot),transparent);
+    opacity:.5}
+  .mark{width:20px;height:20px;flex:none;filter:drop-shadow(0 0 6px rgba(110,231,255,.6))}
   h1{font-size:15px;margin:0;letter-spacing:.14em}
-  h1 span{color:var(--hot)}
+  h1 span{color:var(--hot);text-shadow:0 0 12px rgba(110,231,255,.55)}
   .sub{color:var(--faint);font-size:12px;flex:1;min-width:0;overflow:hidden;
        text-overflow:ellipsis;white-space:nowrap}
   button{font:inherit;background:var(--raised);color:var(--ink);cursor:pointer;
-         border:1px solid var(--line);padding:7px 12px}
-  button:hover:not(:disabled){border-color:var(--hot);color:var(--hot)}
+         border:1px solid var(--line);padding:7px 12px;
+         transition:border-color .15s,color .15s,box-shadow .15s}
+  button:hover:not(:disabled){border-color:var(--hot);color:var(--hot);
+         box-shadow:0 0 14px rgba(110,231,255,.18)}
   button:disabled{opacity:.45;cursor:not-allowed}
-  button.go{background:var(--hot);color:#04121b;border-color:var(--hot);font-weight:700}
+  button.go{background:linear-gradient(180deg,var(--hot),var(--hot2));
+         color:#03101a;border-color:var(--hot);font-weight:700;
+         box-shadow:0 0 18px rgba(110,231,255,.28)}
+  button.go:hover:not(:disabled){color:#03101a;
+         box-shadow:0 0 28px rgba(110,231,255,.5)}
   button.small{padding:4px 8px;font-size:12px}
-  input,textarea,select{font:inherit;background:#0d0f16;color:var(--ink);
-        border:1px solid var(--line);padding:8px;width:100%}
-  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--hot)}
+  input,textarea,select{font:inherit;background:#0a0c13;color:var(--ink);
+        border:1px solid var(--line);padding:8px;width:100%;
+        transition:border-color .15s,box-shadow .15s}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--hot);
+        box-shadow:0 0 0 1px rgba(110,231,255,.25),0 0 16px rgba(110,231,255,.12)}
   textarea{resize:vertical}
   main{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:16px;
        align-items:start}
   @media (max-width:880px){main{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--line);padding:14px;
-        margin-bottom:16px}
+  .card{background:rgba(14,16,24,.88);border:1px solid var(--line);padding:14px;
+        margin-bottom:16px;position:relative;backdrop-filter:blur(4px);
+        transition:border-color .2s,box-shadow .2s}
+  .card::before{content:'';position:absolute;top:-1px;left:12px;right:60%;
+        height:1px;background:linear-gradient(90deg,var(--hot),transparent);
+        opacity:.55}
+  .card:hover{border-color:#2e3547;box-shadow:0 4px 30px rgba(0,0,0,.35)}
   .card h2{font-size:12px;letter-spacing:.16em;color:var(--dim);margin:0 0 10px;
            text-transform:uppercase}
   .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
@@ -49,11 +95,11 @@
   .dot.off{background:var(--faint)} .dot.owner{background:var(--warn)}
   .bot{display:flex;justify-content:space-between;gap:8px;align-items:center;
        border:1px solid var(--line);padding:8px;margin-bottom:6px;background:var(--raised)}
-  .bot.on{border-color:var(--hot)}
+  .bot.on{border-color:var(--hot);box-shadow:0 0 14px rgba(110,231,255,.15)}
   .bot b{font-weight:600} .bot .why{color:var(--faint);font-size:12px}
   .bot > span:last-child{display:flex;gap:4px;white-space:nowrap}
   #thread{min-height:46vh;max-height:62vh;overflow:auto;border:1px solid var(--line);
-          padding:12px;background:#0d0f16}
+          padding:12px;background:#0a0c13}
   .msg{margin-bottom:14px;white-space:pre-wrap;word-break:break-word}
   .msg .who{color:var(--faint);font-size:11px;letter-spacing:.12em;display:block;
             margin-bottom:3px;text-transform:uppercase}
@@ -68,15 +114,50 @@
 
   /* the sign-in gate — nothing works until a wallet has signed */
   #signgate{position:fixed;inset:0;z-index:8;display:none;align-items:center;
-            justify-content:center;background:rgba(10,11,15,.88);
-            backdrop-filter:blur(4px)}
+            justify-content:center;background:rgba(5,6,10,.82);
+            backdrop-filter:blur(5px)}
   #signgate.on{display:flex}
-  .gatecard{background:var(--panel);border:1px solid var(--line);padding:34px 38px;
-            max-width:460px;text-align:center}
-  .gatecard h1{margin:0 0 14px;font-size:18px;letter-spacing:.18em}
-  .gatecard p{color:var(--dim);font-size:13px;margin:0 0 18px}
-  .gatecard .go{padding:12px 28px;font-size:14px;letter-spacing:.12em}
-  .gatecard .alt{margin-top:16px;color:var(--faint);font-size:12px}
+  .gatewrap{position:relative;padding:1px;max-width:520px;margin:16px;
+            overflow:hidden;border-radius:2px}
+  .gatewrap::before{content:'';position:absolute;inset:-150%;
+            background:conic-gradient(from 0deg,
+              transparent 0deg, transparent 250deg,
+              rgba(110,231,255,.15) 290deg, var(--hot) 320deg,
+              #fff 330deg, var(--hot) 340deg,
+              rgba(110,231,255,.15) 20deg, transparent 60deg);
+            animation:orbit 6s linear infinite}
+  @keyframes orbit{to{transform:rotate(360deg)}}
+  .gatecard{position:relative;background:linear-gradient(180deg,#0d0f17,#090b12);
+            padding:44px 44px 38px;text-align:center}
+  .gatecard::before{content:'';position:absolute;inset:0;pointer-events:none;
+            background:radial-gradient(420px 200px at 50% -40px,
+              rgba(110,231,255,.14), transparent 70%)}
+  .gatemark{width:56px;height:56px;margin:0 auto 18px;display:block;
+            filter:drop-shadow(0 0 18px rgba(110,231,255,.7));
+            animation:markpulse 3.2s ease-in-out infinite}
+  @keyframes markpulse{50%{filter:drop-shadow(0 0 30px rgba(110,231,255,.95))}}
+  .gatecard h1{margin:0 0 6px;font-size:30px;letter-spacing:.26em;
+            padding-left:.26em; /* recenter tracked caps */
+            background:linear-gradient(180deg,#fff 20%,var(--ink) 55%,#8ea0c0);
+            -webkit-background-clip:text;background-clip:text;color:transparent}
+  .gatecard h1 span{background:linear-gradient(180deg,#c9f6ff,var(--hot) 55%,var(--hot2));
+            -webkit-background-clip:text;background-clip:text;color:transparent;
+            text-shadow:none}
+  .gatetag{color:var(--hot);font-size:11px;letter-spacing:.42em;padding-left:.42em;
+            text-transform:uppercase;margin:0 0 20px;opacity:.85;
+            text-shadow:0 0 14px rgba(110,231,255,.5)}
+  .gatecard p{color:var(--dim);font-size:13px;margin:0 0 24px;line-height:1.7}
+  .gatecard .go{padding:14px 34px;font-size:14px;letter-spacing:.22em;
+            padding-left:calc(34px + .22em);position:relative;
+            animation:beacon 2.6s ease-in-out infinite}
+  @keyframes beacon{50%{box-shadow:0 0 34px rgba(110,231,255,.6)}}
+  .gatecard .go:hover:not(:disabled){transform:translateY(-1px)}
+  .gatecard .alt{margin-top:20px;color:var(--faint);font-size:12px}
+  .gatefeet{display:flex;justify-content:center;gap:18px;margin-top:22px;
+            padding-top:16px;border-top:1px solid var(--line);
+            color:var(--faint);font-size:10px;letter-spacing:.16em;
+            text-transform:uppercase;flex-wrap:wrap}
+  .gatefeet b{color:var(--dim);font-weight:600}
 
   /* the runs board — ALL · LIVE · DONE · ERROR */
   .pills{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px}
@@ -86,7 +167,8 @@
         display:inline-flex;gap:9px;align-items:center}
   .pill b{font-weight:600;color:var(--faint)}
   .pill:hover{border-color:var(--hot);color:var(--hot)}
-  .pill.on{background:var(--raised);border-color:var(--dim);color:var(--ink)}
+  .pill.on{background:var(--raised);border-color:var(--hot);color:var(--ink);
+        box-shadow:0 0 12px rgba(110,231,255,.14)}
   .pill.on b{color:var(--dim)}
   .pill .ldot{width:7px;height:7px;border-radius:50%;background:var(--hot);
               animation:pulse 1.2s ease-in-out infinite}
@@ -104,6 +186,10 @@
 </head>
 <body>
 <header>
+  <svg class="mark" viewBox="0 0 8 8" aria-hidden="true">
+    <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
+    <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/>
+  </svg>
   <h1>GROK<span>BOT</span></h1>
   <span class="sub" id="tagline">Grok, with your key and your bots</span>
   <span id="idbox"></span>
@@ -184,14 +270,26 @@
 </main>
 
 <div id="signgate">
+  <div class="gatewrap">
   <div class="gatecard">
-    <h1>GROK<span style="color:var(--hot)">BOT</span></h1>
-    <p>Sign-in required. This console runs on your wallet credentials —
-       the signature mints the mod-protocol token that owns your xAI key,
-       your bots and your run ledger. Nothing here works without it.</p>
+    <svg class="gatemark" viewBox="0 0 8 8" aria-hidden="true">
+      <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
+      <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/>
+    </svg>
+    <h1>GROK<span>BOT</span></h1>
+    <div class="gatetag">your key · your bots · your ledger</div>
+    <p>One signature opens the door. Your wallet mints the mod-protocol
+       token that owns your xAI key, your named bots and your run ledger —
+       no accounts, no passwords, nothing here works without it.</p>
     <button class="go" id="gatesignin">CONNECT WALLET</button>
     <div class="alt">no wallet in this browser? paste a token minted with
       <code>m.mod("auth")().token({})</code> — the button will ask</div>
+    <div class="gatefeet">
+      <span><b>Grok</b> live search on X</span>
+      <span><b>0600</b> keys off-chain</span>
+      <span><b>REST · MCP · CLI</b> one ledger</span>
+    </div>
+  </div>
   </div>
 </div>
 

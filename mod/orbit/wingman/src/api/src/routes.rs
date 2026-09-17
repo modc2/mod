@@ -445,12 +445,13 @@ pub async fn get_read(
 
 // POST /read
 pub async fn post_read(
+    headers: HeaderMap,
     State(s): State<AppState>,
     Query(q): Query<HashMap<String, String>>,
     body: Option<Json<Value>>,
 ) -> Response {
     let b = body.map(|j| j.0).unwrap_or(json!({}));
-    let merged = merge_query_body(q, b);
+    let mut merged = merge_query_body(q, b);
     if merged.get("set").is_none() {
         return (
             StatusCode::BAD_REQUEST,
@@ -458,7 +459,57 @@ pub async fn post_read(
         )
             .into_response();
     }
+    // Thread the browser wallet token so venice.py can use it for the gateway provider.
+    if let Some(tok) = headers.get("x-mod-token").and_then(|v| v.to_str().ok()) {
+        if let Value::Object(ref mut m) = merged {
+            m.insert("agent_token".to_string(), Value::String(tok.to_string()));
+        }
+    }
     bridge_json(s.bridge.call_async("read", merged).await)
+}
+
+// POST /auth — verify a browser-minted EIP-191 wallet token, return the wingman token
+pub async fn post_auth(
+    State(s): State<AppState>,
+    body: Option<Json<Value>>,
+) -> Response {
+    let token_str = body
+        .as_ref()
+        .and_then(|b| b.get("token"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if token_str.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "pass {token: \"<wallet-signed mod-protocol token>\"}"})),
+        )
+            .into_response();
+    }
+    let result = s
+        .bridge
+        .call_async("verify_token", json!({ "token": token_str }))
+        .await;
+    match result {
+        Ok(v) => {
+            if v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false) {
+                let wingman_token = s.bridge.read_token().unwrap_or_default();
+                Json(json!({
+                    "ok": true,
+                    "address": v.get("address"),
+                    "wingman_token": wingman_token,
+                }))
+                .into_response()
+            } else {
+                (StatusCode::UNAUTHORIZED, Json(v)).into_response()
+            }
+        }
+        Err(e) => (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": e})),
+        )
+            .into_response(),
+    }
 }
 
 // GET /venice

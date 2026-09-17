@@ -230,8 +230,10 @@ hl.schedule_cancel(eoa, time_ms=int(time.time()*1000) + 3600_000)  # dead-man sw
 
 Hyperliquid's own bridge only credits USDC on Arbitrum, but LI.FI exposes
 Hyperliquid Core as a routing destination — so **one** signed transaction on
-Ethereum, Arbitrum, Base, OP Mainnet, Polygon, BNB Chain or Avalanche lands
+any of twelve EVM chains (Ethereum, Arbitrum, Base, OP Mainnet, Polygon,
+BNB Chain, Avalanche, Linea, Scroll, zkSync Era, Gnosis, Unichain) lands
 as USDC in the perps account. No Arbitrum layover, no second wallet prompt.
+Full guide with the chain table and security model: `docs/DEPOSITS.md`.
 
 `/deposit/balances` scans every chain in a single Multicall3 call each and
 returns a flat `sources[]` of spendable (chain, token) pairs — USDC, USDT,

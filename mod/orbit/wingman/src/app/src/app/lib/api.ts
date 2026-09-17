@@ -1,6 +1,16 @@
 // basePath auto-prefixes the /_api rewrite, so the browser must ask for /wingman/_api
 const API = process.env.NEXT_PUBLIC_API_URL || '/wingman/_api'
 
+// Module-level auth state — set by page.tsx after restoring from localStorage.
+// Not initialised here to avoid SSR/localStorage access at module load time.
+let _authToken: string | null = null
+let _walletToken: string | null = null
+
+export function setAuthToken(t: string | null) { _authToken = t }
+export function setWalletToken(t: string | null) { _walletToken = t }
+export function getAuthToken() { return _authToken }
+export function getWalletToken() { return _walletToken }
+
 // ── types ─────────────────────────────────────────────────────────────────
 
 export interface Photo {
@@ -91,15 +101,16 @@ async function req<T>(
   isFormData = false,
 ): Promise<T> {
   const url = `${API}${path}`
-  const opts: RequestInit = { method }
+  const headers: Record<string, string> = {}
+  if (_authToken) headers['x-wingman-token'] = _authToken
 
+  if (body !== undefined && !isFormData) {
+    headers['content-type'] = 'application/json'
+  }
+
+  const opts: RequestInit = { method, headers }
   if (body !== undefined) {
-    if (isFormData) {
-      opts.body = body as FormData
-    } else {
-      opts.headers = { 'content-type': 'application/json' }
-      opts.body = JSON.stringify(body)
-    }
+    opts.body = isFormData ? (body as FormData) : JSON.stringify(body)
   }
 
   const res = await fetch(url, opts)
@@ -149,13 +160,21 @@ export async function deleteSet(id: string) {
   return req<{ ok: boolean }>('DELETE', `/sets/${id}`)
 }
 
+export async function postAuth(
+  walletToken: string,
+): Promise<{ ok: boolean; address: string; wingman_token: string }> {
+  return req('POST', '/auth', { token: walletToken })
+}
+
 export async function uploadPhotos(setId: string, files: File[]): Promise<unknown> {
   const form = new FormData()
   for (const f of files) {
     form.append('files[]', f, f.name)
   }
   const url = `${API}/photos?set=${encodeURIComponent(setId)}`
-  const res = await fetch(url, { method: 'POST', body: form })
+  const headers: Record<string, string> = {}
+  if (_authToken) headers['x-wingman-token'] = _authToken
+  const res = await fetch(url, { method: 'POST', body: form, headers })
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
     try { const j = await res.json(); msg = j.error || msg } catch {}
@@ -245,6 +264,22 @@ export async function getRead(setId: string) {
   return req<Record<string, unknown>>('GET', `/read?set=${encodeURIComponent(setId)}`)
 }
 
+// postRead sends the wallet token as x-mod-token so venice.py can use it for
+// the gateway provider (the agent protocol path to orbit/venice at :9000).
 export async function postRead(setId: string, opts: Record<string, unknown> = {}) {
-  return req<Record<string, unknown>>('POST', '/read', { set: setId, ...opts })
+  const url = `${API}/read`
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (_authToken) headers['x-wingman-token'] = _authToken
+  if (_walletToken) headers['x-mod-token'] = _walletToken
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ set: setId, ...opts }),
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try { const j = await res.json(); msg = j.error || msg } catch {}
+    throw new Error(msg)
+  }
+  return res.json() as unknown as Record<string, unknown>
 }

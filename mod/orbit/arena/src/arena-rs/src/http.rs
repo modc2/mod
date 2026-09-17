@@ -533,6 +533,10 @@ pub async fn serve(port: u16) {
     if seated > 0 {
         println!("arena: {seated} Liquid AI agent(s) seated");
     }
+    let fleet_seated = arena::plant_fleet_agents().await;
+    if fleet_seated > 0 {
+        println!("arena: {fleet_seated} fleet agent(s) seated");
+    }
     // From here on an upload pushes itself to the store; what was planted
     // before now, and anything older without a cid, goes in one pass.
     storelink::backfill_later();

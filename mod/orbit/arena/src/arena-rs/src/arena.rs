@@ -15,6 +15,7 @@ use crate::store::{self, round3, Match, Player, Rating, Seat, Turn, WasmModule};
 use std::collections::HashMap;
 use crate::wasm;
 use serde_json::{json, Value};
+use std::time::Duration;
 
 /// Where the example pack lives: the compiled wasm, and the classes. Baked as
 /// paths, not as bytes, so the pack can be rebuilt or added to without
@@ -529,6 +530,54 @@ pub fn plant_agents() -> usize {
             "kind": "model",
             "note": note,
             "config": { "model": model },
+        }))
+        .is_ok();
+        entered += usize::from(ok);
+    }
+    entered
+}
+
+/// Every agent in this fleet's agent module that has `arena: true` gets a
+/// seat at startup. The agent module is the authority on which agents exist;
+/// we just mirror its roster into the players registry so they show up on
+/// the board, ready to compete.
+pub async fn plant_fleet_agents() -> usize {
+    const AGENT_BASE: &str = "http://127.0.0.1:50117";
+    let resp = match reqwest::Client::new()
+        .get(format!("{AGENT_BASE}/agents"))
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(_) => return 0,
+    };
+    let body: Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return 0,
+    };
+    let schemas = match body.get("schemas").and_then(|v| v.as_object()) {
+        Some(s) => s.clone(),
+        None => return 0,
+    };
+    let mut entered = 0;
+    for (id, schema) in &schemas {
+        if !schema.get("arena").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        // Use the agent's id as the player name — stable and collision-free.
+        // Re-entering updates in place (keeps rating), so a schema change
+        // that renames a description refreshes on next restart.
+        let note = schema
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let ok = enter_player(&json!({
+            "name": id,
+            "kind": "agent_mod",
+            "note": note,
+            "config": { "agent": id },
         }))
         .is_ok();
         entered += usize::from(ok);

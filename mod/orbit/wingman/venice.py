@@ -302,7 +302,8 @@ def address():
 
 # ── transport ────────────────────────────────────────────────────────────
 
-def _call(path, body=None, method=None, url=None, timeout=None, auth=True):
+def _call(path, body=None, method=None, url=None, timeout=None, auth=True,
+          agent_token=None):
     r = resolved()
     who = r['provider']
     base = (url or r['url']).rstrip('/')
@@ -321,7 +322,9 @@ def _call(path, body=None, method=None, url=None, timeout=None, auth=True):
             if who == 'openrouter':
                 headers['x-title'] = 'wingman'
         else:
-            headers['authorization'] = 'Bearer ' + token()
+            # gateway provider: use a browser-minted wallet token when provided,
+            # falling back to the (now-broken) server-side signer.
+            headers['authorization'] = 'Bearer ' + (agent_token or token())
     req = urllib.request.Request(base + path, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout or TIMEOUT) as r_:
@@ -511,7 +514,7 @@ def sends(set_ref=None):
 
 # ── the read ─────────────────────────────────────────────────────────────
 
-def _chat(model, messages, max_tokens=700):
+def _chat(model, messages, max_tokens=700, agent_token=None):
     cfg = resolved()
     body = {'model': model, 'messages': messages, 'max_tokens': max_tokens,
             'temperature': 0.2}
@@ -519,7 +522,7 @@ def _chat(model, messages, max_tokens=700):
         # Venice injects its own system prompt unless told not to; this is a
         # JSON-only task and that prompt works against it.
         body['venice_parameters'] = {'include_venice_system_prompt': False}
-    r = _call(cfg['chat'], body)
+    r = _call(cfg['chat'], body, agent_token=agent_token)
     try:
         return r['choices'][0]['message']['content']
     except (KeyError, IndexError, TypeError):
@@ -609,7 +612,7 @@ def cached(set_ref):
         return {}
 
 
-def read_photo(meta, p, model=None, force=False):
+def read_photo(meta, p, model=None, force=False, agent_token=None):
     cache = E._read_json(_read_path(meta['id']), {}) or {}
     have = cache.get(p['id'])
     if have and have.get('v') == READ_VERSION and not force:
@@ -629,6 +632,12 @@ def read_photo(meta, p, model=None, force=False):
             f'no {cfg["provider"]} API key on file. `m wingman/venice_key <key>` '
             'files one on this box (an sk-or-… key goes to openrouter, anything '
             'else to venice).', status=402)
+    if cfg['auth_mode'] == 'protocol' and not agent_token:
+        # Gateway provider requires a wallet token; server-side signer is broken.
+        raise WingmanError(
+            'the gateway provider needs a wallet token — connect your Ethereum '
+            'wallet in the app, or file a Venice / OpenRouter key to use a direct '
+            'provider instead: `m wingman/venice_key <key>`', status=401)
     model = model or cfg['model']
 
     raw, sent = payload(meta, p)
@@ -638,7 +647,7 @@ def read_photo(meta, p, model=None, force=False):
         text = _chat(model, [{'role': 'user', 'content': [
             {'type': 'text', 'text': READ_PROMPT},
             {'type': 'image_url', 'image_url': {'url': url}},
-        ]}])
+        ]}], agent_token=agent_token)
         j = _json_from(text)
     except WingmanError as e:
         _receipt_done(meta, idx, f'failed: {e.status}')
@@ -670,7 +679,7 @@ def read_photo(meta, p, model=None, force=False):
     return r
 
 
-def summarise(meta, reads, model=None):
+def summarise(meta, reads, model=None, agent_token=None):
     """One more call, on the notes rather than the photos, for the thing no
     single photo can show: what the set repeats and what it is missing."""
     model = model or resolved()['model']
@@ -678,7 +687,8 @@ def summarise(meta, reads, model=None):
                                 'subject', 'setting', 'outfit', 'activity', 'reads_as')}
              for r in reads]
     text = _chat(model, [{'role': 'user', 'content': SUMMARY_PROMPT + '\n\n' +
-                          json.dumps(notes, indent=1)}], max_tokens=800)
+                          json.dumps(notes, indent=1)}], max_tokens=800,
+                 agent_token=agent_token)
     j = _json_from(text)
     return {
         'reads_as': str(j.get('reads_as') or '')[:300],
@@ -691,9 +701,11 @@ def summarise(meta, reads, model=None):
     }
 
 
-def read(set_ref, photo=None, model=None, force=False, summary=True, limit=None):
+def read(set_ref, photo=None, model=None, force=False, summary=True, limit=None,
+         agent_token=None):
     """Look at a set — the verb that sends. One call per photo, plus one on
-    the notes. Returns the reads, the flags, and what the set repeats."""
+    the notes. Returns the reads, the flags, and what the set repeats.
+    agent_token: a browser-minted mod-protocol token for the gateway provider."""
     meta = E.get_set(set_ref)
     photos = [E._photo(meta, photo)] if photo else meta['photos']
     if limit:
@@ -704,12 +716,13 @@ def read(set_ref, photo=None, model=None, force=False, summary=True, limit=None)
     reads, errors = [], []
     for p in photos:
         try:
-            reads.append(read_photo(meta, p, model=model, force=force))
+            reads.append(read_photo(meta, p, model=model, force=force,
+                                    agent_token=agent_token))
         except WingmanError as e:
             # A gateway-level refusal is not this photo's fault and will hit
             # every other one too; and when the caller named a single photo,
             # an error buried in a list is an error they will not see.
-            if photo or e.status in (402, 403, 503):
+            if photo or e.status in (401, 402, 403, 503):
                 raise
             errors.append({'photo': p['id'], 'name': p.get('name'), 'error': e.args[0]})
 
@@ -724,7 +737,8 @@ def read(set_ref, photo=None, model=None, force=False, summary=True, limit=None)
         path = os.path.join(E._set_dir(meta['id']), 'read-summary.json')
         have = E._read_json(path, None)
         if force or not have or have.get('n') != len(reads):
-            have = dict(summarise(meta, reads, model=model), n=len(reads))
+            have = dict(summarise(meta, reads, model=model, agent_token=agent_token),
+                        n=len(reads))
             E._write_json(path, have)
         out['summary'] = have
     return out

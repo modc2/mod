@@ -95,6 +95,8 @@ async fn main() {
         .route("/download/:set/:preset", get(routes::get_download))
         // MCP
         .route("/mcp", post(routes::post_mcp))
+        // Auth — verify browser wallet token, return wingman token
+        .route("/auth", post(routes::post_auth))
         // Read / Venice
         .route("/read", get(routes::get_read).post(routes::post_read))
         .route("/venice", get(routes::get_venice).post(routes::post_venice))

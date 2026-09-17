@@ -31,6 +31,10 @@ const stepIndex = (s: DepositStep["step"]): number =>
 const fmtEta = (sec: number) => (sec < 90 ? "under a minute" : `~${Math.round(sec / 60)} min`);
 const fmtBal = (n: number) => (n >= 1000 ? n.toFixed(2) : n >= 1 ? n.toFixed(4) : n.toPrecision(4));
 
+// The panel folds. Collapsed it is a one-line header and costs nothing —
+// the 12-chain balance scan only runs while it is open.
+const OPEN_KEY = "hl.wallet.depositOpen";
+
 export default function DepositPanel({
   wallet, cfg, eoa, canSign, onDone,
 }: {
@@ -55,6 +59,12 @@ export default function DepositPanel({
   const [step, setStep] = useState<DepositStep | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const [open, setOpen] = useState(true);
+  const [howOpen, setHowOpen] = useState(false);
+  useEffect(() => { if (localStorage.getItem(OPEN_KEY) === "0") setOpen(false); }, []);
+  const toggleOpen = () =>
+    setOpen((o) => { localStorage.setItem(OPEN_KEY, o ? "0" : "1"); return !o; });
+
   useEffect(() => { depositChains().then(setMeta).catch(() => {}); }, []);
 
   const scan = useCallback(async () => {
@@ -70,7 +80,8 @@ export default function DepositPanel({
     } catch { setSources([]); }
     finally { setScanning(false); }
   }, [eoa, meta]);
-  useEffect(() => { scan(); }, [scan]);
+  // Scan on open (and re-scan on re-open — balances move); never while folded.
+  useEffect(() => { if (open) scan(); }, [scan, open]);
 
   // Dust below $1 can't clear the $5 minimum, so it only adds noise. A
   // token we couldn't price (usd === null) is still shown — hiding real
@@ -156,16 +167,28 @@ export default function DepositPanel({
   const chainCount = meta?.chains.length ?? 7;
   const tooSmall = quote ? quote.toUsdcMin < minUsd : false;
 
-  return (
-    <div className="panel p-5 space-y-4">
-      <div>
-        <h2 className="text-base text-ink">Deposit</h2>
-        <p className="text-[11px] text-muted mt-0.5">
-          From {chainCount} chains and whatever token you already hold — one transaction,
-          straight into <span className="text-ink">your</span> Hyperliquid account.
-        </p>
-      </div>
+  // Never fold away a transaction in flight.
+  const showBody = open || busy;
 
+  return (
+    <div className={`panel p-5 ${showBody ? "space-y-4" : "self-start"}`}>
+      <button type="button" onClick={toggleOpen} aria-expanded={showBody}
+        className="w-full flex items-start justify-between gap-3 text-left">
+        <div>
+          <h2 className="text-base text-ink">Deposit</h2>
+          <p className="text-[11px] text-muted mt-0.5">
+            From {chainCount} chains and whatever token you already hold — one transaction,
+            straight into <span className="text-ink">your</span> Hyperliquid account.
+          </p>
+        </div>
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor"
+          strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+          className={`mt-1.5 shrink-0 text-muted transition-transform duration-150 ${showBody ? "rotate-180" : ""}`}>
+          <polyline points="3,6 8,11 13,6" />
+        </svg>
+      </button>
+
+      {showBody && (<>
       {/* 1 · where the money is */}
       <div className="space-y-1.5">
         <div className="label flex items-center justify-between">
@@ -300,6 +323,39 @@ export default function DepositPanel({
       )}
 
       {err && <div className="text-[11px] text-loss break-words">{err}</div>}
+
+      {/* in-place docs — the plain-language version of docs/DEPOSITS.md */}
+      <div>
+        <button type="button" className="text-[10px] text-muted hover:text-ink underline decoration-dotted"
+          onClick={() => setHowOpen((v) => !v)}>
+          {howOpen ? "hide how it works" : "how it works"}
+        </button>
+        {howOpen && (
+          <ul className="mt-2 space-y-1.5 text-[11px] text-muted list-disc pl-4">
+            <li>
+              Your balances (ETH, USDC, USDT) are read from all {chainCount} chains with
+              read-only calls — nothing is signed to scan, and dust under $1 is hidden.
+            </li>
+            <li>
+              Pick a balance and an amount: LI.FI finds a route straight into your
+              Hyperliquid account — <span className="text-ink">one signature</span>, no
+              stop on Arbitrum, no second prompt. Arbitrum USDC skips routing entirely
+              and goes to Hyperliquid&apos;s own bridge for free.
+            </li>
+            <li>
+              The preview shows exactly what arrives before MetaMask opens; the same
+              quote is what gets sent. Fees are typically $0.10–$1.70 and delivery runs
+              seconds to ~18 minutes depending on the chain. Minimum ${minUsd}.
+            </li>
+            <li>
+              Your keys never leave MetaMask — the server only prices routes and watches
+              for the credit. Withdrawing back out works the same way from the Withdraw
+              panel, to any of these chains.
+            </li>
+          </ul>
+        )}
+      </div>
+      </>)}
     </div>
   );
 }

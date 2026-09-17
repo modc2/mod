@@ -52,6 +52,7 @@ under `~/.hyperliquid/signer-store/`.
   (`vault_intent` returns the `createVault` payload for you to sign).
 - **Deposits** — fund the HL perps account from twelve EVM chains in one
   transaction, routed by LI.FI; balances are scanned via Multicall3.
+  Full guide: [`DEPOSITS.md`](DEPOSITS.md).
 - **MCP** — the same fn surface is exposed as MCP tools (`POST /mcp`,
   schema at `GET /mcp/schema`); tool calls loop back through the REST
   surface so auth applies identically.
