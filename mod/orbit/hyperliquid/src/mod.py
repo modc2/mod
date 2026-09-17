@@ -598,9 +598,11 @@ class Hyperliquid(m.Mod):
     # indexes / strats
     def strats_board(self, vaults: Optional[int] = None, traders: Optional[int] = None,
                      min_tvl: Optional[float] = None) -> Any:
-        """The unified strats board: baskets + vaults + copyable traders, each
-        with trailing 24h/7d APR (what a deposit made then would have
-        annualized to)."""
+        """The strats board: two strat types for now — copyable traders and HL
+        vaults — sorted by recommendation. Rows carry trailing 24h/7d APR plus
+        raw 1d/7d/30d window returns as ratios (+102% = 1.02, -20% = -0.2) and
+        `rec_score` = roi_1d * roi_7d * roi_30d (None unless all three windows
+        are measurable)."""
         q = {k: v for k, v in {"vaults": vaults, "traders": traders,
                                "min_tvl": min_tvl}.items() if v is not None}
         return self._get("/strats/board", **q)

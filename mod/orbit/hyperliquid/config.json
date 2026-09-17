@@ -1,6 +1,6 @@
 {
     "name": "hyperliquid",
-    "version": "0.6.1",
+    "version": "0.7.0",
     "description": "Hyperliquid full-stack \u2014 one-transaction cross-chain deposits from twelve EVM chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server, ask-the-desk agent",
     "anchor": "src/mod.py",
     "fns": [
@@ -131,6 +131,6 @@
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
         "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },
-    "schema": "QmaeoDyjrjwhDBzcb6E5s9dXu3bSNj743cdoPyEyuCwt6K",
+    "schema": "QmWHBjXHfEmcAUY9UdCifb6eaMSodMXnHp4J6AJUa7QL2F",
     "gateway_port": 3919
 }

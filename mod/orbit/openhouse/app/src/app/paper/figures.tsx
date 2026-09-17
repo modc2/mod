@@ -135,13 +135,13 @@ function FigTake() {
     <Fig n="03" caption="The platform cut, per dollar of rent. Everyone else's number is policy; ours is a constant in the contract.">
       <div className="space-y-3">
         {BENCHMARKS.map(b => (
-          <div key={b.name} className="grid grid-cols-[110px_1fr_52px] md:grid-cols-[150px_1fr_60px] items-center gap-3">
+          <div key={b.name} className="grid grid-cols-[104px_1fr_64px] md:grid-cols-[150px_1fr_76px] items-center gap-3">
             <span className={`text-[11px] font-bold uppercase tracking-widest truncate ${b.ours ? 'text-coral' : 'text-white/55'}`}>{b.name}</span>
             <div className="h-5 rounded-md bg-white/[0.05]" title={`${b.name}: ${b.note}`}>
               <div className={`h-full rounded-md ${b.ours ? '' : 'bg-white/25'}`}
                 style={{ width: `${(b.take / max) * 100}%`, ...(b.ours ? { background: EQUITY } : {}) }} />
             </div>
-            <span className={`text-sm font-display font-extrabold tabular-nums text-right ${b.ours ? 'text-coral' : 'text-white/70'}`}>
+            <span className={`text-sm font-display font-extrabold tabular-nums text-right whitespace-nowrap ${b.ours ? 'text-coral' : 'text-white/70'}`}>
               {label[b.name] ?? `${b.take}%`}
             </span>
           </div>
@@ -334,23 +334,27 @@ function FigBank() {
   const cannot = ['Burn your shares — no function', 'Seize your stake — no function', 'Dilute you in a rescue — loans mint nothing', 'Refuse a paid-off discharge — anyone can trigger it']
   return (
     <Fig n="09" caption="Total control is what buys total liability. The bank holds every lever that protects its loan — and the powers that would take your stake were never written into the contract at all.">
+      {/* headers and glyphs stay in ink — on GAMEBOY's four greens a sky-tinted
+          border or heading vanishes into the field; the ✓/× shapes carry it */}
       <div className="grid md:grid-cols-2 gap-3">
-        <div className="rounded-xl border border-sky/30 bg-sky/[0.05] p-5">
-          <div className="text-sky text-[11px] font-bold uppercase tracking-widest mb-3">The bank can</div>
+        <div className="rounded-xl border border-white/12 bg-white/[0.03] p-5">
+          <div className="h-1.5 rounded-full mb-4 ring-1 ring-inset ring-white/15" style={{ background: 'var(--sky)' }} />
+          <div className="text-white text-[11px] font-bold uppercase tracking-widest mb-3">The bank can</div>
           <ul className="space-y-2">
             {can.map(x => (
               <li key={x} className="flex gap-2.5 text-sm text-white/75">
-                <span className="text-sky font-bold shrink-0">✓</span>{x}
+                <span className="text-white/60 font-bold shrink-0">✓</span>{x}
               </li>
             ))}
           </ul>
         </div>
-        <div className="rounded-xl border border-pink/30 bg-pink/[0.05] p-5">
-          <div className="text-pink text-[11px] font-bold uppercase tracking-widest mb-3">The bank cannot</div>
+        <div className="rounded-xl border border-white/12 bg-white/[0.03] p-5">
+          <div className="h-1.5 rounded-full mb-4 ring-1 ring-inset ring-white/15" style={{ background: FEE }} />
+          <div className="text-white text-[11px] font-bold uppercase tracking-widest mb-3">The bank cannot</div>
           <ul className="space-y-2">
             {cannot.map(x => (
               <li key={x} className="flex gap-2.5 text-sm text-white/75">
-                <span className="text-pink font-bold shrink-0">×</span>{x}
+                <span className="text-white/60 font-bold shrink-0">×</span>{x}
               </li>
             ))}
           </ul>
@@ -367,15 +371,18 @@ function FigCity() {
     <Fig n="10" caption="The civic seat in one line: anyone can see, the city can stop, nobody can take. And a city that wants the whole program just takes the bank seat and sets the fee to zero.">
       <div className="grid md:grid-cols-3 gap-3">
         <div className="rounded-xl border border-white/12 bg-white/[0.03] p-5">
-          <div className="text-white/70 text-[11px] font-bold uppercase tracking-widest mb-2">Anyone can see</div>
+          <div className="h-1.5 rounded-full mb-4 ring-1 ring-inset ring-white/15" style={{ background: 'rgb(var(--ink-rgb) / 0.3)' }} />
+          <div className="text-white text-[11px] font-bold uppercase tracking-widest mb-2">Anyone can see</div>
           <p className="text-sm text-white/65 leading-relaxed">Every term, every split of every payment — public, per payment, forever.</p>
         </div>
-        <div className="rounded-xl border border-sky/30 bg-sky/[0.05] p-5">
-          <div className="text-sky text-[11px] font-bold uppercase tracking-widest mb-2">The city can stop</div>
+        <div className="rounded-xl border border-white/12 bg-white/[0.03] p-5">
+          <div className="h-1.5 rounded-full mb-4 ring-1 ring-inset ring-white/15" style={{ background: 'var(--sky)' }} />
+          <div className="text-white text-[11px] font-bold uppercase tracking-widest mb-2">The city can stop</div>
           <p className="text-sm text-white/65 leading-relaxed">Re-verify every split on its own servers, pause payments, hold a foreclosure for 30 days in the open — powers written as functions.</p>
         </div>
-        <div className="rounded-xl border border-pink/30 bg-pink/[0.05] p-5">
-          <div className="text-pink text-[11px] font-bold uppercase tracking-widest mb-2">Nobody can take</div>
+        <div className="rounded-xl border border-white/12 bg-white/[0.03] p-5">
+          <div className="h-1.5 rounded-full mb-4 ring-1 ring-inset ring-white/15" style={{ background: FEE }} />
+          <div className="text-white text-[11px] font-bold uppercase tracking-widest mb-2">Nobody can take</div>
           <p className="text-sm text-white/65 leading-relaxed">The authority can&apos;t touch a balance, mint a share, or move a cent. A civic pause protects people from the deal — never the deal from its people.</p>
         </div>
       </div>

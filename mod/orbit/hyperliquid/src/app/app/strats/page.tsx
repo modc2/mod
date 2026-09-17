@@ -3,27 +3,50 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  listIndexes, stratsBoard, deleteIndex, indexPerf,
-  Index, StratRow, ago, shortAddr, fmtPnl, fmtUsd, fmtApr,
+  stratsBoard, StratRow, ago, shortAddr, fmtUsd, fmtApr,
 } from "../lib/api";
-import { useWallet } from "../lib/wallet";
-import { Field, Freshness, Identicon, Kpi, PageHead, Switch } from "../components/BoardBits";
+import { Field, Freshness, Identicon, Kpi, PageHead } from "../components/BoardBits";
 import StratSpark, { type SparkLeg } from "../components/StratSpark";
 import { useCurves } from "../lib/curves";
 
-// Per-basket weighted PnL, loaded lazily after the list renders.
-type Perf = { weighted_pnl: number; days: number } | "loading" | "err";
-
-type Kind = "all" | "basket" | "vault" | "trader";
+// Two strat types for now — copy a trader, or an HL vault. More come later.
+type Kind = "all" | "trader" | "vault";
 const KINDS: { key: Kind; label: string }[] = [
   { key: "all", label: "ALL" },
-  { key: "basket", label: "BASKETS" },
+  { key: "trader", label: "COPY TRADERS" },
   { key: "vault", label: "VAULTS" },
-  { key: "trader", label: "TRADERS" },
 ];
+const kindLabel = (k: StratRow["kind"]) => (k === "trader" ? "copy trader" : "vault");
 
-const aprTone = (n: number | null | undefined) =>
+const tone = (n: number | null | undefined) =>
   n == null ? "text-dim" : n >= 0 ? "text-win" : "text-loss";
+
+/** A raw window return as a ratio (1.02 = +102%), printed as the percent
+ *  people read — fmtApr already knows "—" for null and k-notation. */
+const fmtRoi = (r: number | null | undefined) => fmtApr(r == null ? null : r * 100);
+
+/** The rec score is a product of ratios, so it lives on a wild scale —
+ *  0.0004 and 40 are both real values. Sig-figs, not fixed decimals. */
+const fmtScore = (s: number | null | undefined): string => {
+  if (s == null) return "—";
+  const a = Math.abs(s);
+  const sign = s < 0 ? "-" : "";
+  if (a >= 100) return sign + a.toFixed(0);
+  if (a >= 1) return sign + a.toFixed(2);
+  if (a >= 0.0001) return sign + a.toFixed(4);
+  return sign + a.toExponential(1);
+};
+
+/** Recommendation order: score desc, unscored rows fall back to 7d APR
+ *  footing, capital breaks ties. Mirrors the server's own sort so filtering
+ *  client-side can't reshuffle the board. */
+const byRec = (a: StratRow, b: StratRow) => {
+  const as = a.rec_score ?? -Infinity, bs = b.rec_score ?? -Infinity;
+  if (as !== bs) return bs - as;
+  const a7 = a.apr_7d ?? -Infinity, b7 = b.apr_7d ?? -Infinity;
+  if (a7 !== b7) return b7 - a7;
+  return b.capital - a.capital;
+};
 
 // The chart window. HL prices portfolio history in day / week / month / all,
 // so 1 / 7 / 30 are the windows that land exactly; anything else is drawn from
@@ -64,28 +87,34 @@ function lastTraded(r: StratRow): { text: string; title: string; stale: boolean 
   return { text: "last trade unknown", title: "No fills scanned for this account yet.", stale: false };
 }
 
-/** Which wallets a card's line is made of: one for a trader or a vault, the
- *  weighted legs for a basket. */
-function sparkLegs(r: StratRow, idx: Index | undefined): SparkLeg[] {
-  if (r.kind === "basket") return idx ? idx.legs.map((l) => ({ address: l.address, weight: l.weight })) : [];
-  return [{ address: r.id, weight: 1 }];
-}
+/** Every strat is one wallet now — a trader's own book or the vault account. */
+const sparkLegs = (r: StratRow): SparkLeg[] => [{ address: r.id, weight: 1 }];
 
 /** Where a row opens: every strat is a real page somewhere in the app. */
 const hrefFor = (r: StratRow) =>
-  r.kind === "basket" ? `/strats/${r.id}`
-  : r.kind === "vault" ? `/vaults/${r.id}`
-  : `/trader/${r.id}`;
+  r.kind === "vault" ? `/vaults/${r.id}` : `/trader/${r.id}`;
+
+/** The three window returns whose product is the score, always in the same
+ *  order the formula multiplies them. */
+function RoiTrio({ r, compact = false }: { r: StratRow; compact?: boolean }) {
+  const cells: [string, number | null][] = [["1d", r.roi_1d], ["7d", r.roi_7d], ["30d", r.roi_30d]];
+  return (
+    <span className={`inline-flex items-baseline ${compact ? "gap-2" : "gap-3"}`}>
+      {cells.map(([w, v]) => (
+        <span key={w} className="whitespace-nowrap">
+          <span className="text-[10px] uppercase tracking-wider text-dim mr-1">{w}</span>
+          <span className={`num ${compact ? "text-[11px]" : "text-xs"} ${tone(v)}`}>{fmtRoi(v)}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export default function StratsPage() {
-  const { address } = useWallet();
   const [rows, setRows] = useState<StratRow[]>([]);
-  const [indexes, setIndexes] = useState<Record<string, Index>>({});
-  const [perf, setPerf] = useState<Record<string, Perf>>({});
   const [updatedMs, setUpdatedMs] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [mine, setMine] = useState(false);
   const [kind, setKind] = useState<Kind>("all");
   // The chart window, chosen at the top of the board and remembered.
   const [days, setDays] = useState(7);
@@ -106,113 +135,114 @@ export default function StratsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      // The board is one call; the basket objects ride along for legs,
-      // descriptions and ownership (delete), and the per-basket weighted-PnL
-      // fan-out stays as before — cheap, server-cached, non-blocking.
-      const [board, list] = await Promise.all([stratsBoard(), listIndexes()]);
+      const board = await stratsBoard();
       setRows(board.rows);
       setUpdatedMs(board.updated_ms);
-      const byId = Object.fromEntries(list.indexes.map((i) => [i.id, i]));
-      setIndexes(byId);
-      setPerf(Object.fromEntries(list.indexes.map((i) => [i.id, "loading" as Perf])));
-      list.indexes.forEach((i) => {
-        indexPerf(i.id, i.days_window || 7)
-          .then((p) => setPerf((m) => ({ ...m, [i.id]: { weighted_pnl: p.weighted_pnl ?? 0, days: p.days ?? i.days_window } })))
-          .catch(() => setPerf((m) => ({ ...m, [i.id]: "err" })));
-      });
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
-
-  const onDelete = async (e: React.MouseEvent, id: string) => {
-    e.preventDefault(); e.stopPropagation();
-    if (!confirm("delete strat?")) return;
-    await deleteIndex(id); load();
-  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const out = rows.filter((r) => {
       if (kind !== "all" && r.kind !== kind) return false;
-      if (mine) {
-        // "mine" means baskets I composed — vaults and traders are nobody's.
-        if (r.kind !== "basket" || !address || r.by.toLowerCase() !== address.toLowerCase()) return false;
-      }
       if (!q) return true;
-      const idx = r.kind === "basket" ? indexes[r.id] : undefined;
       return r.name.toLowerCase().includes(q)
         || r.by.toLowerCase().includes(q)
-        || r.id.toLowerCase().includes(q)
-        || (idx ? idx.description.toLowerCase().includes(q)
-             || idx.legs.some((l) => l.address.toLowerCase().includes(q)) : false);
+        || r.id.toLowerCase().includes(q);
     });
-    // The board's default order IS the metric: trailing 7d APR, unmeasured
-    // rows last. Within equal footing, more capital first.
-    out.sort((a, b) => {
-      const av = a.apr_7d ?? -Infinity, bv = b.apr_7d ?? -Infinity;
-      if (av !== bv) return bv - av;
-      return b.capital - a.capital;
-    });
+    out.sort(byRec);
     return out;
-  }, [rows, indexes, search, mine, kind, address]);
+  }, [rows, search, kind]);
 
-  // Every wallet the visible cards draw, deduped: a trader or a vault row is
-  // one wallet, a basket brings its legs. The shared curve cache pages these
-  // and holds them, so re-filtering or re-sorting a drawn board costs nothing.
+  // The recommendation shelf: the best fully-scored strats across BOTH types,
+  // untouched by the search box so it always answers "what looks good now".
+  const recommended = useMemo(
+    () => rows.filter((r) => r.rec_score != null).sort(byRec).slice(0, 5),
+    [rows],
+  );
+
+  // Every wallet the visible cards draw, deduped. The shared curve cache
+  // pages these and holds them, so re-filtering a drawn board costs nothing.
   const curveAddrs = useMemo(() => {
-    const out: string[] = [];
     const seen = new Set<string>();
-    for (const r of filtered) {
-      for (const l of sparkLegs(r, r.kind === "basket" ? indexes[r.id] : undefined)) {
-        const a = l.address.toLowerCase();
-        if (!seen.has(a)) { seen.add(a); out.push(a); }
-      }
-    }
-    return out;
-  }, [filtered, indexes]);
+    for (const r of filtered) seen.add(r.id.toLowerCase());
+    return [...seen];
+  }, [filtered]);
   const curves = useCurves(curveAddrs, days);
 
   const stats = useMemo(() => {
-    const measured = rows.filter((r) => r.apr_7d != null);
-    const best = measured.reduce<StratRow | null>(
-      (b, r) => (b === null || (r.apr_7d as number) > (b.apr_7d as number) ? r : b), null);
-    const green = measured.filter((r) => (r.apr_7d as number) >= 0).length;
-    const counts = { basket: 0, vault: 0, trader: 0 } as Record<string, number>;
+    const scored = rows.filter((r) => r.rec_score != null);
+    const top = scored.slice().sort(byRec)[0] ?? null;
+    const green = scored.filter((r) => (r.rec_score as number) > 0).length;
+    const counts = { vault: 0, trader: 0 } as Record<string, number>;
     rows.forEach((r) => { counts[r.kind] = (counts[r.kind] || 0) + 1; });
-    const traders = new Set(Object.values(indexes).flatMap((i) => i.legs.map((l) => l.address.toLowerCase())));
-    return { best, green, measured: measured.length, counts, traders: traders.size };
-  }, [rows, indexes]);
+    return { top, green, scored: scored.length, counts };
+  }, [rows]);
 
   return (
     <div className="space-y-5">
       <PageHead
         title="STRATS"
-        blurb={<>Everything you can put money behind — composed baskets, Hyperliquid vaults, and
-          copyable traders — on one board. APR is trailing: what a deposit made 24h or 7d ago
-          would have annualized to, and every card draws its own PnL over the last {days} days
+        blurb={<>Two strat types for now — <b>copy a trader</b> or an <b>HL vault</b> — more coming.
+          Recommendations rank by the product of the trailing 1d, 7d and 30d returns as ratios
+          (+102% is 1.02, −20% is −0.2): a strat has to be green across every horizon to score.
+          APR is trailing — what a deposit made 24h or 7d ago would have annualized to — and every
+          card draws its own PnL over the last {days} days
           {!DAY_OPTIONS.includes(days) && <> (sampled from Hyperliquid&apos;s {nearestPeriod(days)} history, the
-            nearest period that contains a {days}d window)</>}. Open any card to invest or fork.</>}
-        right={<>
-          <Freshness loading={loading} label={updatedMs ? `updated ${ago(updatedMs)}` : `${rows.length} strats`} />
-          <Link href="/strats/new" className="btn-primary ml-2">+ new strat</Link>
-        </>}
+            nearest period that contains a {days}d window)</>}. Open any card to invest.</>}
+        right={<Freshness loading={loading} label={updatedMs ? `updated ${ago(updatedMs)}` : `${rows.length} strats`} />}
       />
 
       {/* Board stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi label="strats on the board" value={rows.length}
-          sub={`${stats.counts.basket} baskets · ${stats.counts.vault} vaults · ${stats.counts.trader} traders`} />
-        <Kpi label="best 7d apr"
-          value={stats.best ? fmtApr(stats.best.apr_7d) : "—"}
-          tone={stats.best ? ((stats.best.apr_7d as number) >= 0 ? "win" : "loss") : undefined}
-          sub={stats.best ? <>{stats.best.kind} · {stats.best.name || shortAddr(stats.best.id)}</>
+          sub={`${stats.counts.trader} copy traders · ${stats.counts.vault} vaults`} />
+        <Kpi label="top rec score"
+          value={stats.top ? fmtScore(stats.top.rec_score) : "—"}
+          tone={stats.top ? ((stats.top.rec_score as number) >= 0 ? "win" : "loss") : undefined}
+          sub={stats.top ? <>{kindLabel(stats.top.kind)} · {stats.top.name || shortAddr(stats.top.id)}</>
             : rows.length ? "scoring…" : "nothing to score yet"} />
         <Kpi label="in the green"
-          value={stats.measured ? `${stats.green}/${stats.measured}` : "—"}
-          sub="positive trailing 7d apr, measured rows" />
-        <Kpi label="traders copied" value={stats.traders}
-          sub="unique wallets across all baskets" />
+          value={stats.scored ? `${stats.green}/${stats.scored}` : "—"}
+          sub="positive 1d × 7d × 30d, scored strats" />
+        <Kpi label="scored" value={rows.length ? `${stats.scored}/${rows.length}` : "—"}
+          sub="strats with all three windows measured" />
       </div>
+
+      {/* Recommended: the score made legible — the factors sit next to the product */}
+      {recommended.length > 0 && (
+        <div className="panel p-3">
+          <div className="flex items-baseline justify-between gap-2 px-1 pb-2">
+            <span className="eyebrow">recommended</span>
+            <span className="text-[10px] uppercase tracking-wider text-dim">
+              score = 1d × 7d × 30d roi, as ratios
+            </span>
+          </div>
+          <div className="divide-y divide-white/[0.05]">
+            {recommended.map((r, i) => (
+              <Link key={`${r.kind}:${r.id}`} href={hrefFor(r)}
+                className="group flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-2 transition-colors hover:bg-white/[0.03] rounded">
+                <span className={`num w-6 text-center text-xs ${i === 0 ? "text-accent font-semibold" : "text-muted"}`}>
+                  #{i + 1}
+                </span>
+                <Identicon address={r.by} size={16} />
+                <span className="text-ink text-sm font-medium truncate max-w-[18ch]">
+                  {r.name || shortAddr(r.id)}
+                </span>
+                <span className={`pill shrink-0 ${r.kind === "vault" ? "border-accent2/40 text-accent2" : "text-muted"}`}>
+                  {kindLabel(r.kind)}
+                </span>
+                <span className="ml-auto"><RoiTrio r={r} compact /></span>
+                <span className="w-20 text-right" title="rec score: the three window returns multiplied as ratios">
+                  <span className={`num text-sm font-semibold ${tone(r.rec_score)}`}>{fmtScore(r.rec_score)}</span>
+                </span>
+                <span className="btn-ghost !py-0.5 text-[10px] shrink-0">open →</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="panel p-3 flex flex-wrap items-end gap-3">
@@ -249,33 +279,22 @@ export default function StratsPage() {
             </button>
           ))}
         </div>
-        <input className="input flex-1 min-w-[20ch]" placeholder="FILTER BY NAME, OWNER, OR ADDRESS…"
+        <input className="input flex-1 min-w-[20ch]" placeholder="FILTER BY NAME, LEADER, OR ADDRESS…"
           value={search} onChange={(e) => setSearch(e.target.value)} />
-        <div className="flex items-center gap-3 pb-1">
-          <Switch on={mine} onChange={setMine} label="mine only" />
-          <span className="text-[10px] text-muted uppercase tracking-wider">{filtered.length} shown</span>
-        </div>
+        <span className="text-[10px] text-muted uppercase tracking-wider pb-1">{filtered.length} shown</span>
       </div>
 
-      {/* Grid */}
+      {/* Grid — already in recommendation order */}
       {loading && rows.length === 0 ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[...Array(6)].map((_, i) => <div key={i} className="panel h-44 skeleton" />)}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="panel p-8 text-center text-xs text-muted">
-          no strats {mine ? "of yours " : ""}here — <Link href="/strats/new" className="text-accent2">compose one →</Link>
-        </div>
+        <div className="panel p-8 text-center text-xs text-muted">no strats match this filter</div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((r) => {
-            const idx = r.kind === "basket" ? indexes[r.id] : undefined;
-            const p = idx ? perf[r.id] : undefined;
-            const pnl = p && p !== "loading" && p !== "err" ? p.weighted_pnl : null;
-            const isOwner = idx && address && idx.owner.toLowerCase() === address.toLowerCase();
-            const partial = r.kind === "basket" && r.legs_priced < r.legs;
             const traded = lastTraded(r);
-            const legsForSpark = sparkLegs(r, idx);
             return (
               <Link key={`${r.kind}:${r.id}`} href={hrefFor(r)}
                 className="group relative flex flex-col rounded-lg border border-white/[0.07] bg-gradient-to-b from-white/[0.025] to-transparent p-4 transition-all hover:border-accent/40 hover:shadow-glow">
@@ -287,87 +306,44 @@ export default function StratsPage() {
                     <div className="text-ink font-medium truncate">{r.name || shortAddr(r.id)}</div>
                     <div className="text-[10px] uppercase tracking-wider text-muted mt-0.5 flex items-center gap-1.5">
                       <Identicon address={r.by} size={13} />
-                      {r.kind === "basket" ? <>by {shortAddr(r.by)} · {idx ? ago(idx.created_ms) : `${r.age_days}d`}</>
-                        : r.kind === "vault" ? <>led by {shortAddr(r.by)} · {r.age_days}d old</>
+                      {r.kind === "vault" ? <>led by {shortAddr(r.by)} · {r.age_days}d old</>
                         : <>trades own book</>}
                     </div>
                   </div>
-                  {r.kind === "basket"
-                    ? (r.vault_address
-                        ? <span className="pill border-accent/40 text-accent shrink-0">vault</span>
-                        : <span className="pill text-muted shrink-0">{r.legs} legs</span>)
-                    : <span className={`pill shrink-0 ${r.kind === "vault" ? "border-accent2/40 text-accent2" : "text-muted"}`}>{r.kind}</span>}
+                  <span className={`pill shrink-0 ${r.kind === "vault" ? "border-accent2/40 text-accent2" : "text-muted"}`}>
+                    {kindLabel(r.kind)}
+                  </span>
                 </div>
 
-                {/* headline: trailing APR pair — the one metric every kind shares */}
+                {/* headline: the rec score, with the trailing 7d APR beside it */}
                 <div className="mt-4 flex items-end gap-4">
-                  <div>
-                    <span className={`num text-2xl font-semibold ${aprTone(r.apr_7d)}`}>{fmtApr(r.apr_7d)}</span>
-                    <span className="block text-[10px] uppercase tracking-wider text-muted mt-0.5">apr · if invested 7d ago</span>
+                  <div title="rec score: trailing 1d × 7d × 30d returns multiplied as ratios — null when any window is unmeasured">
+                    <span className={`num text-2xl font-semibold ${tone(r.rec_score)}`}>{fmtScore(r.rec_score)}</span>
+                    <span className="block text-[10px] uppercase tracking-wider text-muted mt-0.5">rec · 1d×7d×30d roi</span>
                   </div>
                   <div className="mb-0.5">
-                    <span className={`num text-base font-medium ${aprTone(r.apr_24h)}`}>{fmtApr(r.apr_24h)}</span>
-                    <span className="block text-[10px] uppercase tracking-wider text-muted mt-0.5">24h</span>
+                    <span className={`num text-base font-medium ${tone(r.apr_7d)}`}>{fmtApr(r.apr_7d)}</span>
+                    <span className="block text-[10px] uppercase tracking-wider text-muted mt-0.5">7d apr</span>
                   </div>
                 </div>
 
-                {/* kind-specific body */}
-                {idx ? (
-                  <>
-                    <div className="text-[11px] text-muted mt-2 flex items-center gap-2">
-                      {p === "loading" ? <span className="skeleton inline-block h-3 w-16" /> : pnl !== null && (
-                        <span className={pnl >= 0 ? "text-win" : "text-loss"}>
-                          {fmtPnl(pnl)} <span className="text-muted">weighted · {idx.days_window}d</span>
-                        </span>
-                      )}
-                      {partial && <span className="text-dim">apr on {r.legs_priced}/{r.legs} legs</span>}
-                    </div>
-                    {idx.description && (
-                      <div className="text-xs text-muted mt-2 line-clamp-2">{idx.description}</div>
-                    )}
-                    <div className="mt-3 space-y-1.5">
-                      <div className="flex items-center">
-                        {idx.legs.slice(0, 8).map((l, i) => (
-                          <span key={l.address} title={`${shortAddr(l.address)} · ${(l.weight * 100).toFixed(0)}%`}
-                            className="rounded-full ring-2 ring-bg" style={{ marginLeft: i ? -5 : 0 }}>
-                            <Identicon address={l.address} size={18} />
-                          </span>
-                        ))}
-                        {idx.legs.length > 8 && (
-                          <span className="ml-1.5 text-[10px] text-muted">+{idx.legs.length - 8}</span>
-                        )}
-                      </div>
-                      <div className="flex h-1 w-full overflow-hidden rounded-full bg-white/[0.06]" aria-hidden>
-                        {idx.legs.slice(0, 8).map((l, i) => (
-                          <span key={l.address} className="h-full bg-accent"
-                            style={{ width: `${Math.max(2, l.weight * 100)}%`, opacity: 1 - i * 0.1, marginLeft: i ? 1 : 0 }} />
-                        ))}
-                      </div>
-                    </div>
-                    <div className="text-[11px] text-muted mt-2" title={traded.title}>
-                      <span className="text-dim">last leg trade · </span>{traded.text.replace("traded ", "")}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-[11px] text-muted mt-2" title={traded.title}>
-                    {fmtUsd(r.capital)}{" "}
-                    <span className="text-dim">{r.kind === "vault" ? "tvl" : "equity"} · </span>
-                    <span className={traded.stale ? "text-loss/80" : "text-dim"}>{traded.text}</span>
-                    {traded.stale && <span className="text-dim" title={traded.title}> ⚠</span>}
-                  </div>
-                )}
+                {/* the score's three factors, in the order they multiply */}
+                <div className="mt-2"><RoiTrio r={r} /></div>
+
+                <div className="text-[11px] text-muted mt-2" title={traded.title}>
+                  {fmtUsd(r.capital)}{" "}
+                  <span className="text-dim">{r.kind === "vault" ? "tvl" : "equity"} · </span>
+                  <span className={traded.stale ? "text-loss/80" : "text-dim"}>{traded.text}</span>
+                  {traded.stale && <span className="text-dim" title={traded.title}> ⚠</span>}
+                </div>
 
                 {/* the shape behind the number: this row's PnL over the chosen window */}
-                <StratSpark legs={legsForSpark} days={days} curves={curves} />
+                <StratSpark legs={sparkLegs(r)} days={days} curves={curves} />
 
                 <div className="mt-auto pt-3 flex items-center gap-2">
                   <span className="btn-ghost !py-1 text-[11px]">
-                    {r.kind === "basket" ? "view & fork →" : r.kind === "vault" ? "open vault →" : "open trader →"}
+                    {r.kind === "vault" ? "open vault →" : "open trader →"}
                   </span>
-                  {isOwner && (
-                    <button onClick={(e) => onDelete(e, r.id)}
-                      className="ml-auto text-[11px] text-loss hover:underline">delete</button>
-                  )}
                 </div>
               </Link>
             );

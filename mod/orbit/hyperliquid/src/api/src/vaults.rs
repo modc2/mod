@@ -29,6 +29,15 @@ pub struct Vault {
     pub apr_24h: Option<f64>,
     #[serde(default)]
     pub apr_7d: Option<f64>,
+    /// Raw trailing-window returns as fractions (0.05 == +5%), NOT annualized —
+    /// the strats board multiplies these into its recommendation score. Same
+    /// dust-basis guard as the APRs.
+    #[serde(default)]
+    pub roi_1d: Option<f64>,
+    #[serde(default)]
+    pub roi_7d: Option<f64>,
+    #[serde(default)]
+    pub roi_30d: Option<f64>,
 }
 
 fn f(v: &Value, k: &str) -> f64 {
@@ -53,14 +62,19 @@ fn window_pnl(entry: &Value, name: &str) -> Option<f64> {
 /// a $600 starting book annualizes to five digits and tells you nothing.
 const MIN_APR_BASIS: f64 = 1_000.0;
 
-/// "If you had deposited at window start": window PnL over starting TVL,
-/// annualized to percent. Starting TVL is approximated as tvl_now − pnl
+/// "If you had deposited at window start": window PnL over starting TVL, as a
+/// fraction (0.05 == +5%). Starting TVL is approximated as tvl_now − pnl
 /// (per-window flows aren't in the CDN dump).
-fn window_apr(tvl_now: f64, pnl: Option<f64>, periods_per_year: f64) -> Option<f64> {
+fn window_roi(tvl_now: f64, pnl: Option<f64>) -> Option<f64> {
     let pnl = pnl?;
     let basis = tvl_now - pnl;
     if basis < MIN_APR_BASIS { return None; }
-    Some(pnl / basis * periods_per_year * 100.0)
+    Some(pnl / basis)
+}
+
+/// The same window return annualized to percent.
+fn window_apr(tvl_now: f64, pnl: Option<f64>, periods_per_year: f64) -> Option<f64> {
+    window_roi(tvl_now, pnl).map(|r| r * periods_per_year * 100.0)
 }
 
 /// Parse the stats-CDN vault dump, filter to investable vaults, rank by APR.
@@ -91,6 +105,9 @@ pub fn parse_vaults_ranked(v: &Value, min_tvl: f64, now_ms: i64) -> Vec<Vault> {
             age_days: ((now_ms - created).max(0)) / 86_400_000,
             apr_24h: window_apr(tvl, window_pnl(e, "day"), 365.0),
             apr_7d: window_apr(tvl, window_pnl(e, "week"), 365.0 / 7.0),
+            roi_1d: window_roi(tvl, window_pnl(e, "day")),
+            roi_7d: window_roi(tvl, window_pnl(e, "week")),
+            roi_30d: window_roi(tvl, window_pnl(e, "month")),
         });
     }
     out.sort_by(|a, b| b.apr.partial_cmp(&a.apr).unwrap_or(std::cmp::Ordering::Equal));
@@ -136,6 +153,11 @@ mod tests {
         let apr7 = v[0].apr_7d.unwrap();
         let want = 7000.0 / 94000.0 * (365.0 / 7.0) * 100.0;
         assert!((apr7 - want).abs() < 1e-6, "got {apr7} want {want}");
+        // raw window returns are the un-annualized fractions of the same math,
+        // and a missing month series is None, never 0
+        assert!((v[0].roi_1d.unwrap() - 0.01).abs() < 1e-9);
+        assert!((v[0].roi_7d.unwrap() - 7000.0 / 94000.0).abs() < 1e-9);
+        assert_eq!(v[0].roi_30d, None, "empty month series must not score");
     }
 
     #[test]

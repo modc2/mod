@@ -246,9 +246,11 @@ pub fn tools() -> &'static [Tool] {
 
         // ── indexes / strats ──
         tool("hl_strats_board", "strats_board", "GET", "/strats/board", true,
-            "The unified strats board: saved baskets, top vaults and copyable \
-             traders as one list, each row with its trailing 24h and 7d APR — \
-             what a deposit made at window start would have annualized to.",
+            "The strats board: two strat types for now — copyable traders and \
+             HL vaults — as one recommendation-sorted list. Each row carries \
+             trailing 24h/7d APR plus raw 1d/7d/30d window returns as ratios \
+             (+102% = 1.02) and rec_score = roi_1d x roi_7d x roi_30d (null \
+             unless all three windows are measurable).",
             vec![
                 ("vaults", p("integer", "vault rows to include, 0-500 (default 24)")),
                 ("traders", p("integer", "trader rows to include, 0-500 (default 24)")),

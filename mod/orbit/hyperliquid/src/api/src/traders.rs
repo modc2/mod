@@ -363,9 +363,10 @@ fn parse_lb_ranked(v: &Value, window: &str, rank: Rank, active: Active) -> Vec<(
     scored
 }
 
-/// One wallet's official day + week ROI off the leaderboard scrape — HL's own
-/// "return had you invested at window start", the number the strats board
-/// annualizes into a 24h/7d APR for traders and (weight-summed) for baskets.
+/// One wallet's official day + week + month ROI off the leaderboard scrape —
+/// HL's own "return had you invested at window start", the number the strats
+/// board annualizes into a 24h/7d APR and multiplies into a recommendation
+/// score for copyable traders.
 #[derive(Debug, Clone, Default)]
 pub struct LbWindows {
     /// Last-24h ROI as a fraction (0.05 == +5%). `None` when the CDN row
@@ -373,14 +374,16 @@ pub struct LbWindows {
     pub roi_day: Option<f64>,
     /// Last-7d ROI as a fraction.
     pub roi_week: Option<f64>,
+    /// Last-30d ROI as a fraction.
+    pub roi_month: Option<f64>,
     pub account_value: f64,
     pub day_vlm: f64,
 }
 
 /// Parse the raw leaderboard payload into an address → window-ROI map.
-/// Unlike [`parse_lb_ranked`] this keeps *both* the day and week windows per
-/// row, so one pass prices every leg of every basket and every copyable
-/// trader without a second scrape.
+/// Unlike [`parse_lb_ranked`] this keeps the day, week AND month windows per
+/// row, so one pass prices every copyable trader (and every basket leg)
+/// without a second scrape.
 pub fn parse_lb_windows(v: &Value) -> std::collections::HashMap<String, LbWindows> {
     let mut out = std::collections::HashMap::new();
     let Some(rows) = v.get("leaderboardRows").and_then(|x| x.as_array()) else { return out };
@@ -405,6 +408,7 @@ pub fn parse_lb_windows(v: &Value) -> std::collections::HashMap<String, LbWindow
                             .and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
                     }
                     "week" => w.roi_week = roi,
+                    "month" => w.roi_month = roi,
                     _ => {}
                 }
             }

@@ -1,54 +1,55 @@
-// The unified strats board — every investable thing on one surface.
+// The strats board — every strat you can put money behind, on one surface.
 //
-// A "strat" here is anything you can put money behind: a user-composed basket
-// (an Index), an HL vault, or a single copyable trader. All three answer the
-// same two questions — "what would a deposit made 24h ago have annualized
-// to?" and "what about 7d ago?" — so they can share one board and one metric.
+// A "strat" is one of exactly TWO types for now, matching the invest engine's
+// own Position kinds:
+//   trader — copy a single trader's book (kind "trader")
+//   vault  — deposit into an HL vault, the leader trades it (kind "vault")
+// More types will join later; user-composed baskets (Indexes) still exist as
+// their own API and pages but are off this board until they return as a type.
 //
 // Sources (all cached, so a board build is cheap):
-//   baskets  — store.list_indexes(), legs priced off the leaderboard scrape
 //   vaults   — stats-CDN vault dump (vaults.rs), per-window `pnls` series
 //   traders  — leaderboard scrape (traders.rs::parse_lb_windows), HL's own
-//              day/week ROI, which IS "return had you invested at window
-//              start"
+//              day/week/month ROI, which IS "return had you invested at
+//              window start"
 //
 // Everything reported here is trailing, not predictive; the UI names it so.
 
 use crate::traders::{parse_lb_windows, LbWindows, MIN_ACCOUNT_VALUE};
 use serde::Serialize;
-use std::collections::HashMap;
 
-/// One row of the board, whatever its kind.
+/// One row of the board, whatever its type.
 #[derive(Debug, Serialize)]
 pub struct StratRow {
-    /// "basket" | "vault" | "trader"
+    /// "trader" | "vault" — the two strat types.
     pub kind: &'static str,
-    /// Basket id (uuid) / vault address / trader address. With `kind`, enough
-    /// for the UI to open the row's own page.
+    /// Trader address / vault address. With `kind`, enough for the UI to open
+    /// the row's own page.
     pub id: String,
     pub name: String,
-    /// Basket owner / vault leader / the trader itself — the face on the card.
+    /// Vault leader / the trader itself — the face on the card.
     pub by: String,
     /// Trailing 24h return annualized, percent. `None` = not measurable
     /// (no window data, dust basis) — render "—", never 0.
     pub apr_24h: Option<f64>,
     /// Trailing 7d return annualized, percent.
     pub apr_7d: Option<f64>,
-    /// Money behind the row: vault TVL / trader equity / Σ leg equity.
+    /// Raw trailing-window returns as ratios (+5% == 0.05, +102% == 1.02,
+    /// −20% == −0.2), NOT annualized. `None` = window not measurable.
+    pub roi_1d: Option<f64>,
+    pub roi_7d: Option<f64>,
+    pub roi_30d: Option<f64>,
+    /// Recommendation score: roi_1d × roi_7d × roi_30d. Rewards strats that
+    /// are up across all three horizons at once; `None` unless every window
+    /// is measurable — a row missing a window is unscored, not zero.
+    pub rec_score: Option<f64>,
+    /// Money behind the row: vault TVL / trader equity.
     pub capital: f64,
-    /// Basket legs (0 for vaults and traders).
-    pub legs: usize,
-    /// Legs the leaderboard could actually price — when below `legs`, the
-    /// basket APRs rest on partial coverage and the UI should say so.
-    pub legs_priced: usize,
     pub age_days: i64,
-    /// Basket's linked vault, when it has one.
-    pub vault_address: Option<String>,
-    /// ms epoch of the most recent fill we have actually seen for this row —
-    /// the trader's own last fill, or the freshest leg of a basket. `None`
-    /// when this wallet isn't in the fills index yet: the board's liveness
-    /// gate still guarantees a trader row traded inside 24h, but we won't
-    /// invent a minute we never observed.
+    /// ms epoch of the most recent fill we have actually seen for this row.
+    /// `None` when this wallet isn't in the fills index yet: the board's
+    /// liveness gate still guarantees a trader row traded inside 24h, but we
+    /// won't invent a minute we never observed.
     pub last_trade_ms: Option<i64>,
     /// When that fill scan ran. A last trade is only as current as the look
     /// that found it, so the UI can say "as of" instead of implying we are
@@ -59,7 +60,6 @@ pub struct StratRow {
 #[derive(Debug, Serialize)]
 pub struct StratsBoard {
     pub rows: Vec<StratRow>,
-    pub baskets: usize,
     pub vaults: usize,
     pub traders: usize,
     pub updated_ms: i64,
@@ -67,6 +67,15 @@ pub struct StratsBoard {
 
 fn annualize(roi: Option<f64>, periods_per_year: f64) -> Option<f64> {
     roi.map(|r| r * periods_per_year * 100.0)
+}
+
+/// The recommendation score: the product of the three trailing window returns
+/// as ratios. All three must be present — multiplying a made-up 0 in would
+/// zero honest rows, and skipping a missing factor would inflate them.
+/// (Sign quirk accepted by design: two negative windows multiply positive;
+/// the UI shows the three factors next to the score so nothing hides.)
+fn rec_score(r1: Option<f64>, r7: Option<f64>, r30: Option<f64>) -> Option<f64> {
+    Some(r1? * r7? * r30?)
 }
 
 /// Windows the prewarm loop keeps in the fills index. A wallet's last fill is
@@ -130,26 +139,7 @@ fn last_trade(index: &crate::traders::TraderIndex, addr: &str) -> Option<(i64, i
         .max_by_key(|(fill, _)| *fill)
 }
 
-/// Weight-sum a basket's leg ROIs for one window. `None` when not a single
-/// leg is on the leaderboard — a basket of ghosts has no measurable window.
-fn basket_roi(
-    legs: &[crate::store::IndexLeg],
-    lb: &HashMap<String, LbWindows>,
-    pick: impl Fn(&LbWindows) -> Option<f64>,
-) -> Option<f64> {
-    let mut sum = 0.0;
-    let mut any = false;
-    for l in legs {
-        if let Some(r) = lb.get(&l.address.to_lowercase()).and_then(&pick) {
-            sum += r * l.weight;
-            any = true;
-        }
-    }
-    any.then_some(sum)
-}
-
-/// Build the board. `vault_pool` / `trader_pool` cap the discovered rows;
-/// every stored basket is always included.
+/// Build the board. `vault_pool` / `trader_pool` cap the discovered rows.
 pub async fn board(
     s: &crate::AppState,
     vault_pool: usize,
@@ -161,36 +151,6 @@ pub async fn board(
     let lb = parse_lb_windows(&lb_raw);
 
     let mut rows: Vec<StratRow> = Vec::new();
-
-    // ── baskets: every saved strat, legs priced off the same scrape ──
-    let indexes = s.store.list_indexes();
-    let baskets = indexes.len();
-    for idx in indexes {
-        let basket_last = idx.legs.iter()
-            .filter_map(|l| last_trade(&s.index, &l.address))
-            .max_by_key(|(fill, _)| *fill);
-        let priced = idx.legs.iter()
-            .filter(|l| lb.contains_key(&l.address.to_lowercase())).count();
-        let capital: f64 = idx.legs.iter()
-            .filter_map(|l| lb.get(&l.address.to_lowercase()))
-            .map(|w| w.account_value).sum();
-        rows.push(StratRow {
-            kind: "basket",
-            id: idx.id.clone(),
-            name: idx.name.clone(),
-            by: idx.owner.clone(),
-            apr_24h: annualize(basket_roi(&idx.legs, &lb, |w| w.roi_day), 365.0),
-            apr_7d: annualize(basket_roi(&idx.legs, &lb, |w| w.roi_week), 365.0 / 7.0),
-            capital,
-            legs: idx.legs.len(),
-            legs_priced: priced,
-            age_days: ((now_ms - idx.created_ms).max(0)) / 86_400_000,
-            vault_address: idx.vault_address.clone(),
-            // A basket is as live as its liveliest leg.
-            last_trade_ms: basket_last.map(|(fill, _)| fill),
-            last_trade_scanned_ms: basket_last.map(|(_, seen)| seen),
-        });
-    }
 
     // ── vaults: CDN universe, ranked by trailing 7d APR ──
     let mut vlist = crate::vaults::top_vaults(s.hl.clone(), min_tvl, usize::MAX)
@@ -211,13 +171,14 @@ pub async fn board(
             by: v.leader.clone(),
             apr_24h: v.apr_24h,
             apr_7d: v.apr_7d,
+            roi_1d: v.roi_1d,
+            roi_7d: v.roi_7d,
+            roi_30d: v.roi_30d,
+            rec_score: rec_score(v.roi_1d, v.roi_7d, v.roi_30d),
             capital: v.tvl,
-            legs: 0,
-            legs_priced: 0,
             age_days: v.age_days,
             last_trade_ms: v_last.map(|(fill, _)| fill),
             last_trade_scanned_ms: v_last.map(|(_, seen)| seen),
-            vault_address: Some(v.address),
         });
     }
 
@@ -243,25 +204,34 @@ pub async fn board(
             by: addr.clone(),
             apr_24h: annualize(w.roi_day, 365.0),
             apr_7d: annualize(w.roi_week, 365.0 / 7.0),
+            roi_1d: w.roi_day,
+            roi_7d: w.roi_week,
+            roi_30d: w.roi_month,
+            rec_score: rec_score(w.roi_day, w.roi_week, w.roi_month),
             capital: w.account_value,
-            legs: 0,
-            legs_priced: 0,
             age_days: 0,
-            vault_address: None,
             last_trade_ms: t_last.map(|(fill, _)| fill),
             last_trade_scanned_ms: t_last.map(|(_, seen)| seen),
         });
     }
 
+    // The board's order IS the recommendation: rec_score desc, unscored rows
+    // fall back to their 7d APR footing, more capital breaks ties.
+    rows.sort_by(|a, b| {
+        let ka = (a.rec_score.unwrap_or(f64::NEG_INFINITY), a.apr_7d.unwrap_or(f64::NEG_INFINITY), a.capital);
+        let kb = (b.rec_score.unwrap_or(f64::NEG_INFINITY), b.apr_7d.unwrap_or(f64::NEG_INFINITY), b.capital);
+        kb.partial_cmp(&ka).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
     // Rows we could not date, dated in the background for the next load.
     let undated: Vec<String> = rows.iter()
-        .filter(|r| r.last_trade_ms.is_none() && r.kind != "basket")
+        .filter(|r| r.last_trade_ms.is_none())
         .map(|r| r.id.clone())
         .take(WARM_CAP)
         .collect();
     warm_last_trades(s, undated);
 
-    StratsBoard { rows, baskets, vaults, traders, updated_ms: now_ms }
+    StratsBoard { rows, vaults, traders, updated_ms: now_ms }
 }
 
 #[cfg(test)]
@@ -274,6 +244,20 @@ mod tests {
             scanned_at: 1_700_000_000_000,
             stats: crate::stats::PerfStats { last_active, ..Default::default() },
         }
+    }
+
+    #[test]
+    fn rec_score_is_the_product_of_window_ratios_and_needs_all_three() {
+        // +102% · +50% · +10% — the ratios multiply, they do not add.
+        let s = rec_score(Some(1.02), Some(0.5), Some(0.1)).unwrap();
+        assert!((s - 0.051).abs() < 1e-12, "got {s}");
+        // one red window drags the score negative
+        let s = rec_score(Some(-0.2), Some(0.5), Some(0.1)).unwrap();
+        assert!((s + 0.01).abs() < 1e-12, "got {s}");
+        // any unmeasurable window → unscored, never a fabricated factor
+        assert_eq!(rec_score(None, Some(0.5), Some(0.1)), None);
+        assert_eq!(rec_score(Some(1.02), None, Some(0.1)), None);
+        assert_eq!(rec_score(Some(1.02), Some(0.5), None), None);
     }
 
     #[test]

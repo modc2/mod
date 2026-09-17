@@ -444,31 +444,35 @@ export const autoIndex = (b: { days?: number; top?: number; min_per_day?: number
   );
 
 // ── strats board ──
-// One row per investable thing: a saved basket, an HL vault, or a copyable
-// trader. `apr_24h`/`apr_7d` are trailing: what a deposit made at window
-// start would have annualized to. `null` = not measurable — render "—".
+// One row per strat. Two strat types for now: copy a trader, or an HL vault.
+// `apr_24h`/`apr_7d` are trailing: what a deposit made at window start would
+// have annualized to. `roi_1d/7d/30d` are the raw window returns as ratios
+// (+102% = 1.02, −20% = −0.2) and `rec_score` is their product — the board's
+// recommendation metric. `null` anywhere = not measurable — render "—".
 export type StratRow = {
-  kind: "basket" | "vault" | "trader";
-  id: string;          // basket id / vault address / trader address
+  kind: "vault" | "trader";
+  id: string;          // vault address / trader address
   name: string;
-  by: string;          // owner / leader / the trader itself
+  by: string;          // vault leader / the trader itself
   apr_24h: number | null;
   apr_7d: number | null;
-  capital: number;     // vault TVL / trader equity / Σ basket-leg equity
-  legs: number;
-  legs_priced: number; // legs the leaderboard could price (baskets only)
+  roi_1d: number | null;
+  roi_7d: number | null;
+  roi_30d: number | null;
+  /** roi_1d × roi_7d × roi_30d — null unless all three windows measured. */
+  rec_score: number | null;
+  capital: number;     // vault TVL / trader equity
   age_days: number;
-  vault_address: string | null;
-  /** ms epoch of the last fill we have actually seen (basket: freshest leg).
-   *  null = this wallet isn't in the fills index yet — say "within 24h" (the
-   *  board's own liveness gate), never a made-up minute. */
+  /** ms epoch of the last fill we have actually seen. null = this wallet
+   *  isn't in the fills index yet — say "within 24h" (the board's own
+   *  liveness gate), never a made-up minute. */
   last_trade_ms: number | null;
   /** When that fill scan ran — a last trade is only as current as the look
    *  that found it. */
   last_trade_scanned_ms: number | null;
 };
 export const stratsBoard = (vaults = 24, traders = 24) =>
-  j<{ rows: StratRow[]; baskets: number; vaults: number; traders: number; updated_ms: number }>(
+  j<{ rows: StratRow[]; vaults: number; traders: number; updated_ms: number }>(
     `/strats/board?vaults=${vaults}&traders=${traders}`
   );
 
