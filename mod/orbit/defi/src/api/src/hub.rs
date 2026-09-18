@@ -140,6 +140,17 @@ impl Hub {
             .iter()
             .map(|entry| self.protocol_row(entry, pools, registry, want_chain, min_tvl, false, subnets, tao_usd, hl_vaults, &no_trust))
             .collect();
+        // A chain filter is a question about ONE chain, and a protocol that
+        // does not run there is not an answer to it: drop it instead of
+        // shipping a card that can only say "no USD pools pass the floor".
+        // Unfiltered, an empty row still shows — that is a drained protocol,
+        // which IS news about the protocol.
+        let mut off_chain = 0usize;
+        if want_chain.is_some() {
+            let before = rows.len();
+            rows.retain(|r| r.get("chains").and_then(|c| c.as_array()).is_some_and(|c| !c.is_empty()));
+            off_chain = before - rows.len();
+        }
         rows.sort_by(|a, b| {
             let rank = |v: &Value| tier_rank(v.get("tier").and_then(|t| t.as_str()).unwrap_or(""));
             let tvl = |v: &Value| v.get("stable_tvl_usd").and_then(|t| t.as_f64()).unwrap_or(0.0);
