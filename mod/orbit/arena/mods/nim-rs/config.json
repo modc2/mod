@@ -1,0 +1,30 @@
+{
+    "name": "nim-rs",
+    "description": "Nim with twenty-one stones, take one to three, last one loses. A Rust class: no ABI, no pointers, compiled to wasm on upload.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "rust",
+    "lang": "rust",
+    "anchor": "mod.py",
+    "artifact": "7520453c76b729b2a422f4328d1c15e4b2f3e67b64be511467c82c820335c76e",
+    "bytes": 3617,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "rust"
+    ],
+    "defines": [
+        "new",
+        "view",
+        "turn",
+        "step",
+        "done",
+        "result"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/nim-rs/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

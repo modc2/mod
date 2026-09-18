@@ -27,17 +27,19 @@
 // being its own service. A second engine is how backtest and live drifted
 // apart the last time (see lib/strats/parity.fixture.json).
 
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 
-import { setServerAuthToken } from "../polymarket";
+import { API_BASE, serverAuthHeaders, setServerAuthToken } from "../polymarket";
 import { DEFAULT_STRATS, templateRoster } from "../defaultStrats";
+import { WORKER_TAPE_BUDGET } from "../momentumTape";
 import {
   HUB_BACKTEST_DAYS, backtestOne, backtestTemplate, templateBacktestKey,
   type HubBacktest, type TraderFeed,
 } from "../hubReplay";
 import type { SavedIndex } from "../types";
-import { coverage, pruneFeeds, type FeedCoverage } from "./feedStore";
+import { autoCopyWarmAddresses, runAutoCopyPass } from "./autoCopy";
+import { coverage, pruneFeeds, writeAtomic, type FeedCoverage } from "./feedStore";
 import { TRADES_TTL_MS, feedSession, refreshRoster } from "./feedFetcher";
 import { mintOwnerToken, stateDir } from "./ownerToken";
 import { resolutionCoverage, resolutionsFor } from "./resolutionStore";
@@ -66,6 +68,15 @@ const RESOLUTION_BUDGET_PER_PASS = Number(process.env.POLYMARKET_HUB_RESOLUTION_
     pass's CPU and spends no extra upstream requests — both windows read the
     same cached feed. `POLYMARKET_HUB_FORWARD=0` turns it off. */
 const FORWARD_CHECK = process.env.POLYMARKET_HUB_FORWARD !== "0";
+/** Replay each card's window a THIRD time with the trader stats frozen at the
+    window's start (see `HoldoutCheck` in hubReplay.ts) — the train/test split:
+    how much the last N days would have made with the roster filtered on the
+    [t−M, t−N] record only. CPU-only, same cached feed.
+    `POLYMARKET_HUB_HOLDOUT=0` turns it off. */
+const HOLDOUT_CHECK = process.env.POLYMARKET_HUB_HOLDOUT !== "0";
+/** The M above — how far back the frozen stats look (days). Capped by the
+    feed's own 30-day ceiling; `POLYMARKET_HUB_HOLDOUT_DAYS` overrides. */
+const HOLDOUT_LOOKBACK_DAYS = Number(process.env.POLYMARKET_HUB_HOLDOUT_DAYS) || 30;
 /** Template rosters come from the leaderboard, which barely moves within a
     few hours — and `templateRoster`'s own cache is localStorage, so without
     this every replay pass would re-query it for every template. */
@@ -80,6 +91,44 @@ export interface HubManifest {
   /** The strats to replay — published by the console. */
   strats: SavedIndex[];
   at: number;
+}
+
+/** The COPY DESK's leaders, as strats to replay.
+ *
+ * The manifest is *published by a browser* — it holds what someone's console
+ * had in localStorage the last time they opened it. The copy book isn't like
+ * that: it lives on the server (api/src/copy.rs), and an agent can add a
+ * leader to it over MCP with no browser involved at all. So the worker asks
+ * the API for it directly rather than waiting to be told.
+ *
+ * The strat it gets back is the identity template — literally the same object
+ * the live engine runs — so "how would copying this trader have gone" is
+ * replayed by the same code, over the same windows, as every other card.
+ *
+ * Failure is silent and empty: a desk with no leaders and an API that is
+ * momentarily down look the same from here, and neither is a reason to stop
+ * replaying the manifest's own strats. */
+async function copyDeskStrats(): Promise<SavedIndex[]> {
+  try {
+    const res = await fetch(`${API_BASE}/copy/strats`, {
+      headers: serverAuthHeaders(),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { strats?: SavedIndex[] };
+    return Array.isArray(body.strats) ? body.strats : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Everything this pass replays: the copy book's leaders FIRST (the desk this
+    deployment leads with), then the console's own published strats, minus any
+    id already covered. Ids collide only when the same allocation was also
+    published as a saved strat — one card, not two. */
+function mergeStrats(deskStrats: SavedIndex[], manifest: HubManifest): SavedIndex[] {
+  const seen = new Set(deskStrats.map((s) => s.id));
+  return [...deskStrats, ...manifest.strats.filter((s) => !seen.has(s.id))];
 }
 
 /** Windows a single pass will replay, at most. Each one costs a full replay of
@@ -177,8 +226,11 @@ export function readManifest(): HubManifest {
   return readJson<HubManifest>(manifestPath(), { days: HUB_BACKTEST_DAYS, strats: [], at: 0 });
 }
 
+// tmp + rename, via feedStore's writer: `/api/hub` reads these files from the
+// same process on another tick, and a plain writeFileSync let a reader catch
+// a truncated backtests.json mid-write and fall back to an empty cache.
 export function writeManifest(m: HubManifest): void {
-  writeFileSync(manifestPath(), JSON.stringify(m));
+  writeAtomic(manifestPath(), JSON.stringify(m));
 }
 
 export function readCache(): HubCacheFile {
@@ -189,7 +241,7 @@ export function readCache(): HubCacheFile {
 }
 
 function writeCache(c: HubCacheFile): void {
-  writeFileSync(cachePath(), JSON.stringify(c));
+  writeAtomic(cachePath(), JSON.stringify(c));
 }
 
 const EMPTY_FEED_STATUS: FeedStatus = {
@@ -202,7 +254,7 @@ export function readFeedStatus(): FeedStatus {
 }
 
 function writeFeedStatus(s: FeedStatus): void {
-  writeFileSync(feedStatusPath(), JSON.stringify(s));
+  writeAtomic(feedStatusPath(), JSON.stringify(s));
 }
 
 // ── Template rosters (disk-cached) ──────────────────────────────
@@ -238,15 +290,15 @@ async function resolveRosters(): Promise<Map<string, string[]>> {
       out.set(t.slug, []);
     }
   }
-  if (dirty) writeFileSync(rosterPath(), JSON.stringify(file));
+  if (dirty) writeAtomic(rosterPath(), JSON.stringify(file));
   return out;
 }
 
 /** Every address the store needs to keep warm: the union of the published
     strats' enabled traders and the recommended templates' rosters. */
-function rosterAddresses(manifest: HubManifest, rosters: Map<string, string[]>): string[] {
+function rosterAddresses(strats: SavedIndex[], rosters: Map<string, string[]>): string[] {
   const out = new Set<string>();
-  for (const idx of manifest.strats) {
+  for (const idx of strats) {
     for (const t of idx.traders) {
       if (t.enabled !== false) out.add(t.address.toLowerCase());
     }
@@ -269,12 +321,15 @@ function enabledWatchlist(idx: SavedIndex): string[] {
  * the strat half of the key is checked: a window this pass isn't running is
  * still a legitimate cached result for a strat we DO own, and the console
  * shows it (with its own age) when you flip windows. */
-function pruneResults(cache: HubCacheFile, manifest: HubManifest): number {
+function pruneResults(cache: HubCacheFile, manifest: HubManifest, strats: SavedIndex[]): number {
   // A manifest that was never published (or was wiped) is not evidence that
   // the user owns nothing — it's evidence we don't know yet. Don't prune on it.
-  if (!manifest.at || manifest.strats.length === 0) return 0;
+  // The copy book alone is enough evidence, though: it's server-side, so an
+  // empty manifest with a populated desk is a complete picture.
+  if (!manifest.at && strats.length === 0) return 0;
+  if (strats.length === 0) return 0;
   const own = new Set<string>([
-    ...manifest.strats.map((s) => s.id),
+    ...strats.map((s) => s.id),
     ...DEFAULT_STRATS.map((t) => templateBacktestKey(t.slug)),
   ]);
   let dropped = 0;
@@ -326,7 +381,15 @@ export async function runRefresh(): Promise<FeedStatus | null> {
   let roster: string[] = [];
   try {
     const rosters = await resolveRosters();
-    roster = rosterAddresses(manifest, rosters);
+    // The desk's leaders need their feeds kept warm just like a strat's
+    // watchlist — a copied trader with no cached history replays as a trader
+    // who did nothing.
+    roster = rosterAddresses(mergeStrats(await copyDeskStrats(), manifest), rosters);
+    // The AUTO COPY board's top-PnL roster needs warm feeds too — resolved
+    // HERE (the network loop) so the replay pass reads it off disk for free.
+    for (const a of await autoCopyWarmAddresses()) {
+      if (!roster.includes(a)) roster.push(a);
+    }
     stats = await refreshRoster(roster);
     // A trader nobody watches any more shouldn't keep a 30-day feed on disk.
     pruneFeeds(new Set(roster));
@@ -367,13 +430,16 @@ export async function runPass(): Promise<HubCacheFile> {
 
   running = true;
   const manifest = readManifest();
+  // The copy book is read once per pass, before anything is replayed: a leader
+  // added over MCP thirty seconds ago gets a card on this pass, not the next.
+  const strats = mergeStrats(await copyDeskStrats(), manifest);
   const windows = manifestWindows(manifest);
   cache.status = {
     at: cache.status.at, nextAt: Date.now() + INTERVAL_MS,
     days: windows[0], windows,
-    strats: manifest.strats.length, running: true,
+    strats: strats.length, running: true,
   };
-  pruneResults(cache, manifest);
+  pruneResults(cache, manifest, strats);
   writeCache(cache);
 
   // One feed map for the whole pass: strats overlap heavily on traders — and
@@ -430,18 +496,34 @@ export async function runPass(): Promise<HubCacheFile> {
     // change is about — "each strat, over the last day" is the invariant, and
     // it should hold at every instant of the pass, not only at the end.
     for (const days of windows) {
-      for (const idx of manifest.strats) {
-        const bt = await backtestOne(idx, days, feeds, session.load, resolve, { forward: FORWARD_CHECK });
+      for (const idx of strats) {
+        const bt = await backtestOne(idx, days, feeds, session.load, resolve, {
+          forward: FORWARD_CHECK,
+          holdout: HOLDOUT_CHECK,
+          holdoutLookbackDays: HOLDOUT_LOOKBACK_DAYS,
+          // Origination strats replay off a price tape, and the worker is the
+          // right place to pay for a deep one: nobody is waiting on it and the
+          // Rust proxy caches prices-history on disk for a day.
+          tapeBudget: WORKER_TAPE_BUDGET,
+        });
         if (bt) publish(idx.id, bt, enabledWatchlist(idx), days);
       }
       for (const t of DEFAULT_STRATS) {
         const roster = rosters.get(t.slug) ?? [];
         const bt = await backtestTemplate(t, days, feeds, {
           loader: session.load, roster, resolve, forward: FORWARD_CHECK,
+          holdout: HOLDOUT_CHECK,
+          holdoutLookbackDays: HOLDOUT_LOOKBACK_DAYS,
+          tapeBudget: WORKER_TAPE_BUDGET,
         });
         if (bt) publish(templateBacktestKey(t.slug), bt, roster, days);
       }
     }
+    // AUTO COPY — one identity replay per top-PnL trader, train + test
+    // windows (see server/autoCopy.ts). Runs last so the strats the user
+    // actually owns get their numbers first; shares this pass's feed map,
+    // loader and resolution budget, so it costs CPU and nothing upstream.
+    await runAutoCopyPass(feeds, session.load, resolve);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   } finally {
@@ -451,7 +533,7 @@ export async function runPass(): Promise<HubCacheFile> {
   const now = Date.now();
   cache.status = {
     at: now, nextAt: now + INTERVAL_MS, days: windows[0], windows,
-    strats: manifest.strats.length, running: false,
+    strats: strats.length, running: false,
     resolutions: { ...resolutionCoverage(), learned },
     ...(error ? { error } : {}),
   };

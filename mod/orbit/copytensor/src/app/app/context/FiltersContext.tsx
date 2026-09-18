@@ -12,7 +12,9 @@ export type SortKey =
 export type SortDir = "asc" | "desc";
 
 interface FiltersContextValue {
-  // Time window (days) for PnL calcs
+  // Time window (days) for PnL calcs. 0 = every day of history the index
+  // holds, which is the only honest answer once you ask for more days than
+  // bt has been running.
   days: number;
   setDays: (d: number) => void;
   // Free-text search (matches label or SS58 prefix)
@@ -26,6 +28,10 @@ interface FiltersContextValue {
   // Minimum subnets to qualify for leaderboard
   minSubnets: number;
   setMinSubnets: (n: number) => void;
+  // Minimum book size (τ). A 3τ wallet can post a huge percentage without
+  // it meaning anything you could copy at size.
+  minStake: number;
+  setMinStake: (n: number) => void;
   // Subnet filter for portfolio/positions views
   netuidFilter: number | null;
   setNetuidFilter: (n: number | null) => void;
@@ -43,6 +49,7 @@ interface StoredFilters {
   sortKey?: SortKey;
   sortDir?: SortDir;
   minSubnets?: number;
+  minStake?: number;
 }
 
 export function useFilters() {
@@ -60,6 +67,10 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
   const [sortKey, setSortKey] = useState<SortKey>("market_pct");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [minSubnets, setMinSubnetsState] = useState(0);
+  // Dust books top a percentage board and can't be copied at size — the
+  // front page hard-coded a 25τ floor for exactly this reason, so make it
+  // a control instead of a secret.
+  const [minStake, setMinStakeState] = useState(25);
   const [netuidFilter, setNetuidFilter] = useState<number | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -73,6 +84,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
       if (v.sortKey) setSortKey(v.sortKey);
       if (v.sortDir) setSortDir(v.sortDir);
       if (typeof v.minSubnets === "number") setMinSubnetsState(v.minSubnets);
+      if (typeof v.minStake === "number") setMinStakeState(v.minStake);
     } catch {}
   }, []);
 
@@ -91,6 +103,11 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
   const setMinSubnets = useCallback((n: number) => {
     setMinSubnetsState(n);
     persist({ minSubnets: n });
+  }, [persist]);
+
+  const setMinStake = useCallback((n: number) => {
+    setMinStakeState(n);
+    persist({ minStake: n });
   }, [persist]);
 
   const setSort = useCallback((k: SortKey, d: SortDir = "desc") => {
@@ -120,6 +137,7 @@ export function FiltersProvider({ children }: { children: ReactNode }) {
         search, setSearch,
         sortKey, sortDir, setSort, toggleSort,
         minSubnets, setMinSubnets,
+        minStake, setMinStake,
         netuidFilter, setNetuidFilter,
         reloadKey, reload,
       }}

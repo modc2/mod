@@ -1,97 +1,392 @@
 {
-  "name": "dns",
-  "version": "0.1.0",
-  "description": "Decentralized authoritative DNS server \u2014 P2P record sync via Kademlia DHT + GossipSub, no proprietary providers",
-  "port": 5380,
-  "app_port": 5382,
-  "dns_port": 15353,
-  "p2p_port": 5381,
-  "urls": {
-    "api": "http://localhost:5380",
-    "app": "http://localhost:5382"
-  },
-  "fns": [
-    "serve",
-    "serve_app",
-    "kill",
-    "kill_app",
-    "status",
-    "add",
-    "remove",
-    "get",
-    "records",
-    "zones",
-    "peers",
-    "stats",
-    "build"
-  ],
-  "endpoints": {
-    "health": {
-      "method": "GET",
-      "path": "/health",
-      "auth": false,
-      "docs": "Liveness check"
+    "name": "dns",
+    "version": "1.0.0",
+    "description": "The name layer of the mod protocol. Derives a zone from the module fleet \u2014 one name per routed module plus the apex, the wildcard and the nameservers \u2014 serves it authoritatively over UDP and TCP, and publishes what the protocol attributes each module to (the owner address it declares, its schema CID, and the key this box signs its module cards with) as _mod TXT records beside the address the name resolves to. Resolves a module name, a hostname, a gateway path or a whole URL into the app, API and MCP addresses behind it, checks what it holds against what a public resolver actually returns, and tells anyone who asks how to run the protocol on a host of their own. Reads are open, but the IP addresses in them are private: every HTTP and MCP response masks them (x.x.x.x) unless the caller is the deployment owner. Every change is attributed to a signed mod-protocol address, with the system zone reserved to the deployment owner and every other zone owned by whoever registered it. A REST API, a browser console, a CLI and 28 MCP tools run the same functions on one port.",
+    "icon": "\u25c8",
+    "anchor": "mod.py",
+    "protocol": "mcp/2025-06-18",
+    "port": 5380,
+    "app_port": 5380,
+    "gateway_port": 5380,
+    "mcp_port": 5380,
+    "dns_port": 15353,
+    "base_path": "/dns",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:5380",
+        "app": "http://localhost:5380/dns",
+        "same_origin_api": "http://localhost:5380/dns/_api",
+        "mcp": "http://localhost:5380/mcp",
+        "dns": "udp+tcp://0.0.0.0:15353",
+        "gateway_api": "https://modc2.com/api/dns",
+        "gateway_app": "https://modc2.com/dns",
+        "gateway_mcp": "https://modc2.com/api/dns/mcp"
     },
-    "zones": {
-      "method": "GET",
-      "path": "/zones",
-      "auth": false,
-      "docs": "List all DNS zones"
+    "backend": "api.py \u2014 python stdlib only (http.server + socketserver); the DNS wire format is implemented in-tree in wire.py",
+    "frontend": "console.html \u2014 served at /dns on the API port, so the console and the API are same-origin. An 8-bit console: Press Start 2P and VT323 self-hosted from /dns/fonts, a drawn pixel sprite instead of an icon font, hard-edged panels and a CRT overlay you can switch off. Seven tabs \u2014 RESOLVE, ATTRIBUTION, ZONE, FLEET, YOUR HOST, MCP, OPERATIONS \u2014 where MCP handshakes this module's own endpoint and calls its tools from the browser. Sign-in is the wallet: MetaMask personal_signs the mod-protocol token in the browser, no transaction and no gas. The layout is two columns: the console, and the guide beside it. The readings sit in the top line beside the brand rather than in a row of their own, the readings and the tabs each stay one scrolling line as the room for them shrinks, and ASK opens as a real column of the page \u2014 the console narrows to make room for it instead of being covered by it \u2014 which the header reflows against, because the page column is a CSS container. Under 1080px the guide is a bottom sheet instead.",
+    "auth": "mod-protocol",
+    "deps": [
+        "auth"
+    ],
+    "engine": {
+        "wire.py": "DNS on the wire \u2014 message parse/build, every record type this server writes, and a stub resolver for asking the public internet",
+        "fleet.py": "the module fleet as a name space: which modules declared route:true, their ports, and the fields the protocol attributes them by",
+        "attrib.py": "attribution \u2014 owner, schema CID and the box key, published as _mod TXT records and checkable against the protocol's signed module card",
+        "zone.py": "zones: the derived layer computed from the fleet, the stored layer somebody wrote, and who may write which",
+        "server.py": "the authoritative listener \u2014 UDP and TCP, wildcards, CNAME chasing, NODATA vs NXDOMAIN",
+        "resolver.py": "a mod name in, every address out; the diff against what a public resolver returns; the plan for running the protocol on your own host",
+        "identity.py": "who is calling \u2014 one mod-protocol token, three standings (owner, holder, anon)",
+        "privacy.py": "who gets to see an address \u2014 every JSON response leaves through one masking pass: IPs become x.x.x.x unless the caller is the deployment owner (settings.private_ips)",
+        "ops.py": "the operation catalog and the append-only change log",
+        "guide.py": "the guide \u2014 the beginner surface: a setup checklist scored against the live box, a glossary that says what each word points at here, and plain-word questions matched to hand-written answers grounded in a real lookup. No model",
+        "actions.py": "the operations themselves \u2014 the REST API, the MCP tools and the CLI all call these"
     },
-    "records": {
-      "method": "GET",
-      "path": "/zones/:zone/records",
-      "auth": false,
-      "docs": "List all records in a zone"
+    "attribution": {
+        "record": "_mod.{mod}.{host}",
+        "deployment": "_mod.{host}",
+        "format": "v=mod1 mod=<name> owner=<address> key=<box address> cid=<schema CID> ver=<version> orbit=<core|orbit> app=/<mod> api=/api/<mod>",
+        "owner": "what the module declares in its own config.json \u2014 a module that declares none publishes none",
+        "key": "the address this deployment signs its module cards with; m.info(<mod>) returns the signed card and m.verify_info checks it",
+        "read": "dig +short TXT _mod.eth.modc2.com  |  GET /attribution?name=eth&verify=1"
     },
-    "upsert": {
-      "method": "PUT",
-      "path": "/zones/:zone/records",
-      "auth": false,
-      "docs": "Add or update a DNS record",
-      "input": [
-        {
-          "name": "name",
-          "type": "string",
-          "required": true
+    "derives": {
+        "@": "SOA, NS and the A record for the box the zone points at",
+        "*": "the wildcard, so a new module needs no DNS change",
+        "{mod}": "one A record per routed module in the fleet",
+        "_mod.{mod}": "who that module is attributed to",
+        "_mod-challenge": "the TXT token that proves a zone is delegated here"
+    },
+    "fns": [
+        "info",
+        "resolve",
+        "attribution",
+        "lookup",
+        "check",
+        "plan",
+        "overview",
+        "modules",
+        "zones",
+        "records",
+        "register",
+        "add",
+        "remove",
+        "target",
+        "verify",
+        "host",
+        "settings",
+        "whoami",
+        "ask",
+        "guide",
+        "explain",
+        "operations",
+        "ops",
+        "queries",
+        "stats",
+        "tools",
+        "mcp_call",
+        "mcp_config",
+        "serve",
+        "kill",
+        "readme"
+    ],
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "path": "/health",
+            "auth": false,
+            "docs": "Liveness \u2014 host, zone count, listener state"
         },
-        {
-          "name": "rtype",
-          "type": "string",
-          "required": true
+        "overview": {
+            "method": "GET",
+            "path": "/overview",
+            "auth": false,
+            "docs": "The whole naming picture in one object"
         },
-        {
-          "name": "value",
-          "type": "string",
-          "required": true
+        "resolve": {
+            "method": "GET",
+            "path": "/resolve",
+            "auth": false,
+            "docs": "query= \u2014 a module name, hostname, gateway path or URL \u2192 every address for it"
         },
-        {
-          "name": "ttl",
-          "type": "int",
-          "required": false,
-          "default": 300
+        "attribution": {
+            "method": "GET",
+            "path": "/attribution",
+            "auth": false,
+            "docs": "name=, verify= \u2014 who a module is attributed to: owner, schema CID, and the signed module card"
+        },
+        "lookup": {
+            "method": "GET",
+            "path": "/lookup",
+            "auth": false,
+            "docs": "name=, type= \u2014 what this name server would answer"
+        },
+        "check": {
+            "method": "GET",
+            "path": "/check",
+            "auth": false,
+            "docs": "name=, type= \u2014 held here vs what a public resolver returns"
+        },
+        "plan": {
+            "method": "GET",
+            "path": "/plan",
+            "auth": false,
+            "docs": "host=, target= \u2014 how to run the protocol on a host you control"
+        },
+        "modules": {
+            "method": "GET",
+            "path": "/modules",
+            "auth": false,
+            "docs": "The routed fleet as a name space"
+        },
+        "zones": {
+            "method": "GET",
+            "path": "/zones",
+            "auth": false,
+            "docs": "Every zone served here and who owns each"
+        },
+        "zone_register": {
+            "method": "POST",
+            "path": "/zones",
+            "auth": true,
+            "docs": "Register a domain you control \u2014 you own every record in it",
+            "input": [
+                {
+                    "name": "zone",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "name": "target",
+                    "type": "string",
+                    "required": false
+                },
+                {
+                    "name": "modules",
+                    "type": "bool",
+                    "required": false,
+                    "default": true
+                },
+                {
+                    "name": "wildcard",
+                    "type": "bool",
+                    "required": false,
+                    "default": true
+                }
+            ]
+        },
+        "records": {
+            "method": "GET",
+            "path": "/zones/{zone}/records",
+            "auth": false,
+            "docs": "Merged records \u2014 stored, plus what the protocol derives"
+        },
+        "record_set": {
+            "method": "PUT",
+            "path": "/zones/{zone}/records",
+            "auth": true,
+            "docs": "Write one record into a zone you own",
+            "input": [
+                {
+                    "name": "name",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "name": "type",
+                    "type": "string",
+                    "required": false,
+                    "default": "A"
+                },
+                {
+                    "name": "value",
+                    "type": "string",
+                    "required": true
+                },
+                {
+                    "name": "ttl",
+                    "type": "int",
+                    "required": false,
+                    "default": 300
+                }
+            ]
+        },
+        "record_delete": {
+            "method": "DELETE",
+            "path": "/zones/{zone}/records",
+            "auth": true,
+            "docs": "name=, type=, value= \u2014 delete one stored record"
+        },
+        "zone_target": {
+            "method": "POST",
+            "path": "/zones/{zone}/target",
+            "auth": true,
+            "docs": "Point a zone's apex, wildcard and module names at one address"
+        },
+        "zone_verify": {
+            "method": "POST",
+            "path": "/zones/{zone}/verify",
+            "auth": false,
+            "docs": "Look for the challenge TXT in the public DNS"
+        },
+        "zone_delete": {
+            "method": "DELETE",
+            "path": "/zones/{zone}",
+            "auth": true,
+            "docs": "Drop a zone you own"
+        },
+        "operations": {
+            "method": "GET",
+            "path": "/operations",
+            "auth": false,
+            "docs": "The catalog \u2014 every operation and the standing it requires"
+        },
+        "ops": {
+            "method": "GET",
+            "path": "/ops",
+            "auth": false,
+            "docs": "The change log \u2014 every mutation and the address behind it"
+        },
+        "queries": {
+            "method": "GET",
+            "path": "/queries",
+            "auth": false,
+            "docs": "Recent resolutions the listener answered"
+        },
+        "stats": {
+            "method": "GET",
+            "path": "/stats",
+            "auth": false,
+            "docs": "Zones, records, listener, counters, settings"
+        },
+        "whoami": {
+            "method": "GET",
+            "path": "/whoami",
+            "auth": false,
+            "docs": "Your standing and what you can run"
+        },
+        "guide": {
+            "method": "GET",
+            "path": "/guide",
+            "auth": false,
+            "docs": "The beginner surface: an ordered checklist marked against this deployment, the glossary and worked prompts"
+        },
+        "guide_ask": {
+            "method": "GET|POST",
+            "path": "/guide/ask",
+            "auth": false,
+            "docs": "question= \u2014 plain words in, an answer grounded in what this box is doing; no model, and it says when it does not know"
+        },
+        "guide_term": {
+            "method": "GET",
+            "path": "/guide/term",
+            "auth": false,
+            "docs": "word= \u2014 one piece of DNS vocabulary, with what it means here"
+        },
+        "guide_glossary": {
+            "method": "GET",
+            "path": "/guide/glossary",
+            "auth": false,
+            "docs": "Every word the guide defines"
+        },
+        "host_set": {
+            "method": "POST",
+            "path": "/host",
+            "auth": true,
+            "docs": "OWNER \u2014 repoint the protocol host"
+        },
+        "settings": {
+            "method": "GET|POST",
+            "path": "/settings",
+            "auth": true,
+            "docs": "OWNER \u2014 system settings (POST)"
+        },
+        "serve": {
+            "method": "POST",
+            "path": "/serve",
+            "auth": true,
+            "docs": "OWNER \u2014 bind the authoritative listener"
+        },
+        "kill": {
+            "method": "POST",
+            "path": "/kill",
+            "auth": true,
+            "docs": "OWNER \u2014 release the listener"
+        },
+        "router_sync": {
+            "method": "POST",
+            "path": "/router_sync",
+            "auth": true,
+            "docs": "OWNER \u2014 hand the host to the caddy module so HTTP and DNS agree"
+        },
+        "mcp": {
+            "method": "POST",
+            "path": "/mcp",
+            "auth": false,
+            "docs": "MCP JSON-RPC 2.0 (Streamable HTTP) \u2014 28 tools, same handlers as the REST routes"
+        },
+        "console": {
+            "method": "GET",
+            "path": "/dns",
+            "auth": false,
+            "docs": "Browser console"
         }
-      ]
     },
-    "delete": {
-      "method": "DELETE",
-      "path": "/zones/:zone/records/:name/:type",
-      "auth": false,
-      "docs": "Delete a DNS record"
+    "mcp": {
+        "protocol": "2025-06-18 (also speaks 2025-03-26 and 2024-11-05)",
+        "transports": {
+            "http": "POST /mcp on the API port",
+            "stdio": "python3 mcp.py \u2014 runs as this box's own identity"
+        },
+        "auth": "the caller's mod-protocol token as Authorization: Bearer; every read tool needs none",
+        "tools": [
+            "dns_resolve",
+            "dns_lookup",
+            "dns_check",
+            "dns_plan",
+            "dns_overview",
+            "dns_zones",
+            "dns_records",
+            "dns_modules",
+            "dns_attribution",
+            "dns_operations",
+            "dns_ops",
+            "dns_queries",
+            "dns_stats",
+            "dns_whoami",
+            "dns_ask",
+            "dns_guide",
+            "dns_explain",
+            "dns_zone_register",
+            "dns_record_set",
+            "dns_record_delete",
+            "dns_zone_target",
+            "dns_zone_verify",
+            "dns_zone_delete",
+            "dns_host_set",
+            "dns_settings",
+            "dns_serve",
+            "dns_kill",
+            "dns_router_sync"
+        ]
     },
-    "peers": {
-      "method": "GET",
-      "path": "/peers",
-      "auth": false,
-      "docs": "List connected P2P peers"
+    "standings": {
+        "owner": "the deployment owner \u2014 the system zone (the protocol host itself), the settings, the listener and the router sync. Claimed by the first signed caller.",
+        "holder": "any signed caller \u2014 registers and fully owns their own host and every record in it, with no permission needed from the owner",
+        "anon": "reads everything: zones, records, the resolver, the change log — with IP addresses masked. Changes nothing."
     },
-    "stats": {
-      "method": "GET",
-      "path": "/stats",
-      "auth": false,
-      "docs": "Server stats (zones, records, peers, clock)"
-    }
-  },
-  "schema": "QmSgzkbfbMN1ukuV4tiTF5tpsdxmYDHZECV2ih26ivSKSh",
-  "gateway_port": 5382
+    "env": {
+        "PORT": "API, console and MCP port (default 5380)",
+        "DNS_PORT": "authoritative listener port (default 15353 \u2014 53 needs root)",
+        "DNS_BIND": "listener bind address (default 0.0.0.0)",
+        "DNS_DIR": "state dir: settings, zones, owner, change log (default ~/.mod/dns)",
+        "DNS_ROOTS": "colon-separated module roots to derive names from (default /root/mod/mod/orbit:/root/mod/mod/core)",
+        "DNS_OWNER": "fallback owner address when ~/.mod/dns/owner.json is absent",
+        "DNS_OPEN": "1 = collapse every caller into one local identity (local development only)",
+        "DNS_TOKEN_MAX_AGE": "seconds a mod-protocol token stays valid (default 7 days)",
+        "DNS_TOKEN": "token the stdio MCP transport signs its calls with",
+        "DNS_HTTP_LOG": "1 = log HTTP requests to stderr"
+    },
+    "state": "~/.mod/dns \u2014 settings.json, zones/, owner.json, ops.jsonl, challenge.seed",
+    "legacy": "mod-dns/ (Rust + libp2p) and app/ (Next.js) are the retired first prototype, kept for reference; nothing in the module calls them",
+    "schema": "QmcL9WbrusKfYqwsMU5LfNDKRudujX6WCJAN9uxS6brE4q"
 }

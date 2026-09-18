@@ -118,6 +118,50 @@ def test_rest_dispatches_through_the_tool_layer(server):
     assert rest == rpc['result']['structuredContent']
 
 
+# ----------------------------------------------------------------- rest surface
+
+def test_every_tool_has_a_rest_route(server):
+    """The point of the REST layer: no capability reachable only over MCP."""
+    tools = {t['name'] for t in requests.get(f'{server}/tools').json()['tools']}
+    routed = {e['tool'] for e in requests.get(f'{server}/health').json()['endpoints']}
+    assert tools - routed == set(), f'tools with no REST route: {tools - routed}'
+
+
+def test_documented_routes_all_exist(server):
+    """Every path in the route table answers — a 404 would mean the table and
+    the router disagree, which is exactly what a generated doc must never do."""
+    for e in requests.get(f'{server}/health').json()['endpoints']:
+        path = e['path'].replace('{id}', '20').replace('{handle}', 'jack')
+        r = requests.request(e['method'], f'{server}{path}',
+                             json={'text': 'must never reach X'}, timeout=20)
+        assert r.status_code != 404, f"{e['method']} {e['path']} is not routed"
+
+
+def test_openapi_describes_the_real_surface(server):
+    doc = requests.get(f'{server}/openapi.json').json()
+    assert doc['openapi'].startswith('3.1')
+    for e in requests.get(f'{server}/health').json()['endpoints']:
+        op = doc['paths'][e['path']][e['method'].lower()]
+        assert op['summary']
+    assert '/mcp' in doc['paths'] and '/auth/keys' in doc['paths']
+
+
+def test_list_routes_accept_limits(server, mod):
+    """max_results must reach the tool as a number, not the string '25'."""
+    r = requests.get(f'{server}/users/jack/followers?limit=25')
+    assert r.status_code == 401  # reached the auth layer, so the args parsed
+
+
+def test_the_app_is_served_to_browsers(server):
+    html = requests.get(server, headers={'Accept': 'text/html'})
+    assert html.headers['content-type'].startswith('text/html')
+    assert '<title>x' in html.text
+    for view in ('search', 'compose', 'auth', 'mentions'):
+        assert f"ROUTES.{view}" in html.text, f'app is missing the {view} view'
+    # curl still gets JSON from the same path.
+    assert requests.get(server).json()['name'] == 'x'
+
+
 # ----------------------------------------------------------------- auth
 
 def test_no_credentials_reported_honestly(mod):
@@ -141,6 +185,34 @@ def test_writes_demand_user_context(mod):
 
 def test_upstream_status_survives_the_rest_hop(server):
     assert requests.get(f'{server}/search?q=x').status_code == 401
+
+
+def test_credential_writes_are_loopback_only_and_validated(server):
+    """POST /auth/keys writes the keys that let this server act as the account,
+    so it must reject anything it does not understand. (The tests only ever
+    reach it over loopback, which is the whole point of the guard.)"""
+    r = requests.post(f'{server}/auth/keys', json={'oauth_token': 'nope'})
+    assert r.status_code == 400
+    assert 'unknown credential' in r.json()['error']
+
+
+def test_credential_round_trip_never_echoes_secrets(server):
+    """Writing a key flips the auth rails without the value coming back."""
+    r = requests.post(f'{server}/auth/keys', json={'bearer_token': 'TEST-ONLY'})
+    assert r.status_code == 200
+    body = r.json()
+    assert body['set'] == ['bearer_token']
+    assert 'TEST-ONLY' not in json.dumps(body)
+    assert body['auth'] == {'reads': True, 'writes': False}
+    assert requests.get(f'{server}/auth').json()['bearer'] is True
+
+    cred_file = '/tmp/x-test-home/.mod/x/credentials.json'
+    assert oct(os.stat(cred_file).st_mode)[-3:] == '600'
+
+    # An empty value clears it again, back to the credential-free fixture.
+    assert requests.post(f'{server}/auth/keys',
+                         json={'bearer_token': ''}).json()['cleared'] == ['bearer_token']
+    assert requests.get(f'{server}/auth').json()['reads'] is False
 
 
 def test_set_keys_rejects_unknown_fields(mod):

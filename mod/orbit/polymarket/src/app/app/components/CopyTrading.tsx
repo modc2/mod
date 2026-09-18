@@ -5,64 +5,36 @@ import { useRouter } from "next/navigation";
 import {
   fetchTopTradersStream, ActiveTradersProgress,
   fetchTradersPage,
-  formatVolume, formatPnl, TopTrader,
+  formatVolume, formatPnl, formatHistory, historyDays, TopTrader,
   CategorySlug, CATEGORIES,
   matchTraderSearch, matchTraderCategory,
+  DEFAULT_ACTIVE_HOURS,
 } from "../lib/polymarket";
 import { traderMatchesMarketQuery, marketQueryMatchCount } from "../lib/marketQuery";
+import { fetchCopyBook, COPY_BOOK_CHANGED_EVENT } from "../lib/copyBook";
+import { fetchPublicStrats } from "../lib/stratSync";
 import { shortAddress } from "@/lib/auth";
 import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { loadIndexes, getActiveIndexId } from "../lib/indexStore";
 import SyncScheduleChip from "./SyncScheduleChip";
+import ScanChip, { formatScanStamp } from "./ScanChip";
 import { fetchSyncSchedule } from "../lib/syncSchedule";
+import { boardKey, loadBoardSnapshot, saveBoardSnapshot } from "../lib/boardCache";
 
-type TraderSort = "score" | "volume" | "pnl" | "positions" | "last";
-const DEFAULT_FORMULA = "sharpe";
-// Pre-Sharpe default — persisted copies of it in sessionStorage are the old
-// implicit default (the save-effect writes on mount), not a user choice, so
-// treat them as unset and adopt the new default.
-const LEGACY_DEFAULT_FORMULA = "pnl / volume";
+import {
+  DEFAULT_FORMULA, FORMULA_EVENT, FORMULA_VARS, SCORE_VAR_HINTS, formatScore,
+  scoreInputs, scoreIsUnknown, loadSavedFormula, matchScorePreset, saveFormula,
+  scorePoolSortKey, JS_FN_TEMPLATE, PY_FN_TEMPLATE, curveConsistency,
+} from "../lib/scoreFormula";
+import { useCompiledScore } from "../lib/useScore";
+import { publishScores } from "../lib/scoreBus";
+import { fetchTraderBacktestScores, VERDICT_TEXT, type TraderBacktestScore } from "../lib/backtestScores";
+import { usePicks } from "../lib/pickStore";
+import ScoreAsk from "./ScoreAsk";
+import ScoreRatioChips from "./ScoreRatioChips";
+import Sparkline from "./Sparkline";
 
-function compileFormula(expr: string): {
-  fn: (t: { sharpe: number; pnl: number; volume: number; positions: number; winRate: number; markets: number }) => number;
-  error: null;
-} | { fn: null; error: string } {
-  try {
-    const raw = new Function(
-      "sharpe", "pnl", "volume", "positions", "winRate", "markets", "Math",
-      `"use strict"; return (${expr});`,
-    ) as (...args: unknown[]) => unknown;
-    const probe = raw(0, 0, 0, 0, 0, 0, Math);
-    if (typeof probe !== "number" && !Number.isNaN(probe)) {
-      return { fn: null, error: "formula must evaluate to a number" };
-    }
-    return {
-      fn: (t) => {
-        try {
-          const v = raw(t.sharpe, t.pnl, t.volume, t.positions, t.winRate, t.markets, Math) as number;
-          return Number.isFinite(v) ? v : Number.NEGATIVE_INFINITY;
-        } catch {
-          return Number.NEGATIVE_INFINITY;
-        }
-      },
-      error: null,
-    };
-  } catch (e) {
-    return { fn: null, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-// Scores are unit-less ratios now (Sharpe by default), so small magnitudes
-// render as plain signed decimals — a Sharpe of 1.52 must read "+1.52",
-// not "+152.00%".
-function formatScore(v: number): string {
-  if (!Number.isFinite(v)) return "---";
-  const abs = Math.abs(v);
-  const prefix = v >= 0 ? "+" : "-";
-  if (abs >= 1_000_000) return `${prefix}${(abs / 1_000_000).toFixed(2)}M`;
-  if (abs >= 1_000) return `${prefix}${(abs / 1_000).toFixed(2)}k`;
-  return `${prefix}${abs.toFixed(2)}`;
-}
+type TraderSort = "score" | "volume" | "pnl" | "positions" | "last" | "history";
 
 type SortDir = "asc" | "desc";
 const PAGE_SIZE = 50;
@@ -98,49 +70,6 @@ function SortArrow({ active, dir }: { active: boolean; dir: SortDir }) {
   );
 }
 
-/* ── Sparkline ── */
-function Sparkline({ data, width = 120, height = 28 }: { data: number[]; width?: number; height?: number }) {
-  if (!data || data.length < 2) {
-    return (
-      <svg width={width} height={height} className="opacity-20">
-        <line x1={0} y1={height / 2} x2={width} y2={height / 2} stroke="currentColor" strokeWidth={1} strokeDasharray="3,3" />
-      </svg>
-    );
-  }
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const pad = 3;
-  const pts = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (width - pad * 2) + pad;
-    const y = height - pad - ((v - min) / range) * (height - pad * 2);
-    return `${x},${y}`;
-  }).join(" ");
-  const final = data[data.length - 1];
-  // CSS vars so the light theme gets its darker green/red variants — SVG
-  // attributes don't resolve var(), hence the style={} usage below.
-  const color = final > 0 ? "var(--up)" : final < 0 ? "var(--down)" : "var(--flat)";
-  const zeroY = max <= 0 ? pad : min >= 0 ? height - pad : height - pad - ((0 - min) / range) * (height - pad * 2);
-
-  const areaPoints = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * (width - pad * 2) + pad;
-    const y = height - pad - ((v - min) / range) * (height - pad * 2);
-    return [x, y] as [number, number];
-  });
-  const areaPath = `M${areaPoints[0][0]},${areaPoints[0][1]} ${areaPoints.slice(1).map(p => `L${p[0]},${p[1]}`).join(" ")} L${areaPoints[areaPoints.length - 1][0]},${height - pad} L${areaPoints[0][0]},${height - pad} Z`;
-
-  return (
-    <svg width={width} height={height}>
-      {min < 0 && max > 0 && (
-        <line x1={0} y1={zeroY} x2={width} y2={zeroY} stroke="currentColor" strokeOpacity={0.25} strokeWidth={1} strokeDasharray="2,2" />
-      )}
-      <path d={areaPath} style={{ fill: color }} opacity={0.08} />
-      <polyline points={pts} fill="none" style={{ stroke: color }} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={areaPoints[areaPoints.length - 1][0]} cy={areaPoints[areaPoints.length - 1][1]} r={2} style={{ fill: color }} />
-    </svg>
-  );
-}
-
 /* ── Rank badge for top 3 ── */
 function RankBadge({ rank }: { rank: number }) {
   if (rank === 1) return <span className="text-[13px] text-yellow-400" title="#1">&#9733;</span>;
@@ -165,10 +94,10 @@ interface CopyTradingProps {
 }
 
 export default function CopyTrading({
-  days = 7,
+  days = 30,
   minTradesPerDay = 0,
   reloadKey = 0,
-  search = "",
+  search: searchInput = "",
   category = "",
   marketQuery = "",
   onSelect,
@@ -176,6 +105,15 @@ export default function CopyTrading({
   compact = false,
 }: CopyTradingProps = {}) {
   const router = useRouter();
+  // The TopBar box pushes context per KEYSTROKE — fetch on the settled word,
+  // not each letter. Without this, typing "bitcoin" fired seven paged reads
+  // and whichever response landed LAST owned the board (see loadSeqRef for
+  // the ordering guard; this just stops the storm that opened the window).
+  const [search, setSearchSettled] = useState(searchInput);
+  useEffect(() => {
+    const t = setTimeout(() => setSearchSettled(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [traders, setTraders] = useState<TopTrader[]>([]);
   // Full streamed dataset — used as a client-side fallback for search/category
   // filtering while the server cache is cold (during streaming, or after a
@@ -183,7 +121,13 @@ export default function CopyTrading({
   const [streamedAll, setStreamedAll] = useState<TopTrader[]>([]);
   const [totalTraders, setTotalTraders] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [traderSort, setTraderSort] = useState<TraderSort>("pnl");
+  // Default sort is SCORE, which is the ROI preset out of the box
+  // (DEFAULT_FORMULA) and pages server-side by the preset's own sort key.
+  // P&L ranked the whale who risked $2M to make 3% above the trader
+  // compounding a real edge on $5k — the wrong end of a leaderboard you
+  // copy PROPORTIONALLY from. ROI is that ordering inverted: return per
+  // dollar traded, which is what a copied dollar actually earns.
+  const [traderSort, setTraderSort] = useState<TraderSort>("score");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
   const [cacheWarm, setCacheWarm] = useState(false);
@@ -201,32 +145,67 @@ export default function CopyTrading({
   } = useFilters();
 
   const [showFilters, setShowFilters] = useState(false);
+  // The whole control surface — DAYS, KEYWORD, the SYNC/SCANS/AUTO cluster,
+  // FILTERS and the RANK BY rail — folds behind one CONTROLS toggle,
+  // collapsed by default: at board width the chrome stacked taller than the
+  // first trader card. The collapsed row keeps only the facts (window,
+  // current rank, roster count, active keyword/filters, freshness); every
+  // one of them expands the controls when clicked.
+  const [showControls, setShowControls] = useState(false);
   const [formula, setFormula] = useState<string>(DEFAULT_FORMULA);
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem("poly8bit_score_formula");
-      if (saved && saved.trim() && saved.trim() !== LEGACY_DEFAULT_FORMULA) setFormula(saved);
-    } catch {}
+  // The formula editor on the RANK BY rail — folded by default, because the
+  // score is normally a preset chip and the expression only matters when you
+  // are writing one.
+  const [showScore, setShowScore] = useState(false);
+  // The formula box, so a VARIABLES chip lands where the caret is. Appending
+  // blindly is worse than useless: "100 * pnl / volume" + "sharpe" is two
+  // expressions with no operator between them, which compiles to nothing and
+  // blanks the column the user was reading.
+  const formulaRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const insertVar = useCallback((v: string) => {
+    const el = formulaRef.current;
+    setFormula((f) => {
+      const at = el && el.selectionStart !== null ? el.selectionStart : f.length;
+      const end = el && el.selectionEnd !== null ? el.selectionEnd : at;
+      const before = f.slice(0, at);
+      const after = f.slice(end);
+      // Pad only where a token would otherwise fuse with its neighbour —
+      // "pnl / " + "volume" must not become "pnl / volume " and
+      // "…/ volume" + "sharpe" must not become "volumesharpe".
+      const lead = before !== "" && !/[\s(]$/.test(before) ? " " : "";
+      const tail = after !== "" && !/^[\s)]/.test(after) ? " " : "";
+      const ins = lead + v + tail;
+      const next = before + ins + after;
+      // Restore the caret after React re-renders with the new value —
+      // otherwise it jumps to the end and the next chip lands in the wrong
+      // place.
+      if (el) {
+        const caret = at + lead.length + v.length;
+        requestAnimationFrame(() => { el.focus(); el.setSelectionRange(caret, caret); });
+      }
+      return next;
+    });
   }, []);
+  useEffect(() => { setFormula(loadSavedFormula()); }, []);
+  useEffect(() => { saveFormula(formula); }, [formula]);
+  // USE in the sidebar's SCORE MARKET (STRATS tab) broadcasts the source —
+  // adopt it live, since both surfaces are on screen at once.
   useEffect(() => {
-    try { sessionStorage.setItem("poly8bit_score_formula", formula); } catch {}
-  }, [formula]);
+    const onFormula = (e: Event) => setFormula((e as CustomEvent<string>).detail);
+    window.addEventListener(FORMULA_EVENT, onFormula);
+    return () => window.removeEventListener(FORMULA_EVENT, onFormula);
+  }, []);
 
-  const compiled = useMemo(() => compileFormula(formula), [formula]);
-  const scoreFor = useCallback(
-    (t: TopTrader): number => {
-      if (!compiled.fn) return Number.NEGATIVE_INFINITY;
-      return compiled.fn({
-        sharpe: t.sharpe,
-        pnl: t.pnl,
-        volume: t.volume,
-        positions: t.positions,
-        winRate: t.winRate,
-        markets: t.marketTitles.length,
-      });
-    },
-    [compiled],
-  );
+  // Expression, JS function, or Python function — one hook compiles whatever
+  // the box holds (Python through in-browser Pyodide) and hands back a sync
+  // scoreFor. null = the user's FUNCTION filtered this trader out.
+  const { compiled, lang: scoreLang, loading: scoreLoading, scoreFor } = useCompiledScore(formula);
+  const scoreFilters = scoreLang !== "expr" && !!compiled.fn;
+  // When the SCORE column pages server-side, a preset formula pages by its
+  // `poolSort` — its own metric, or the closest server sort for one the
+  // server can't rank (P&L/BUY pools by ROI); a hand-written formula falls
+  // back to sharpe pool order and is re-ranked client-side when warm.
+  const serverScoreSort = scorePoolSortKey(formula);
 
   // Header keyword search — a draft of the shared `marketQuery` filter, pushed
   // to context after a short debounce so each keystroke doesn't refire the
@@ -252,7 +231,11 @@ export default function CopyTrading({
   }, [kwDraft]);
 
   const [progress, setProgress] = useState<ActiveTradersProgress | null>(null);
-  const [source, setSource] = useState<"memory" | "disk" | "fresh" | null>(null);
+  const [source, setSource] = useState<"memory" | "disk" | "fresh" | "scan" | null>(null);
+  // Time travel: the archived scan the board is reading (unix secs = scan
+  // id), null = live. Set by the SCANS chip; every paged read below routes
+  // through /scans/:id/traders while it is set.
+  const [scanId, setScanId] = useState<number | null>(null);
 
   const [refreshing, setRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -268,14 +251,27 @@ export default function CopyTrading({
   // MIN TRADES 24H — drops traders below this 24h activity floor. Defaults
   // to "1" so the leaderboard hides dormants by default (matches the spirit
   // of "don't pick inactive traders"). Lives outside FiltersContext because
-  // trades24h ships per-row and filtering is pure client-side.
+  // it's an activity floor, not a scoring window.
   const [minTrades24h, setMinTrades24h] = useState("1");
   // LAST TRADE ≤ HRS — drops traders whose most recent trade is older than
-  // this many hours. Defaults to "24" so the leaderboard only surfaces traders
-  // active in the last day out of the box. Like minTrades24h it's a pure
-  // client-side filter on the per-row `lastTradeTs` (unix seconds); blank/0
-  // disables it. Lives outside FiltersContext for the same reason.
-  const [maxLastTradeHrs, setMaxLastTradeHrs] = useState("24");
+  // this many hours. Defaults to DEFAULT_ACTIVE_HOURS: the board you land on
+  // is traders who are trading NOW, because that is the only kind you can
+  // actually copy. Blank/0 disables it. Both floors go to the server with the
+  // page request, so they narrow the WHOLE cached board (and its row count),
+  // not the 50 rows that already came back.
+  const [maxLastTradeHrs, setMaxLastTradeHrs] = useState(String(DEFAULT_ACTIVE_HOURS));
+  // Track-record floor, in days. Blank/0 = off: how much history a trader
+  // needs behind them is the user's call, not the board's.
+  const [minHistoryDays, setMinHistoryDays] = useState("");
+  // Consistency floor, 0–1 — keep only traders whose PnL curve climbed in at
+  // least this share of its moved segments (the SCORE bus's `consistency`).
+  // The knob for "only show me the smooth staircases". Blank/0 = off. While
+  // on, an unjudgeable curve (missing, or <3 moved segments) is CUT: the
+  // curve's shape is this filter's whole subject.
+  const [minConsistency, setMinConsistency] = useState("");
+  // How many traders the two floors above removed, straight from the server.
+  // An empty board means something different depending on it.
+  const [activityDropped, setActivityDropped] = useState(0);
   const [stratAddrs, setStratAddrs] = useState<Set<string>>(new Set());
   const [stratName, setStratName] = useState<string | null>(null);
   const inFlightRef = useRef(false);
@@ -295,13 +291,60 @@ export default function CopyTrading({
   const rateSamplesRef = useRef<Array<{ ts: number; done: number; phase: string }>>([]);
   const [rateInfo, setRateInfo] = useState<{ rate: number; etaSec: number; phase: string } | null>(null);
 
+  // Identity of a page-0 board read: same tuple → the server would answer
+  // with the same rows, so a stored copy of the last answer is a legitimate
+  // first paint for the view. Every filter loadPage sends is in the key —
+  // a snapshot must never leak across views that the server would filter
+  // differently.
+  const snapKeyFor = useCallback(
+    (sortKey: string, orderKey: string) =>
+      boardKey({
+        days,
+        minPerDay: minTradesPerDay,
+        sort: sortKey,
+        order: orderKey,
+        search,
+        category,
+        marketQuery,
+        minVolume: Number(minVolume) || 0,
+        minPnl: minPnl !== "" && Number.isFinite(Number(minPnl)) ? Number(minPnl) : "",
+        minTrades: Number(minTrades) || 0,
+        minBuyVolume: Number(minBuyVolume) || 0,
+        minSellVolume: Number(minSellVolume) || 0,
+        minTrades24h: Number(minTrades24h) || 0,
+        maxLastTradeHrs: Number(maxLastTradeHrs) || 0,
+        minHistoryDays: Number(minHistoryDays) || 0,
+        minConsistency: Number(minConsistency) || 0,
+      }),
+    [days, minTradesPerDay, search, category, marketQuery,
+     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
+     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency],
+  );
+  // The initial-load effect below keys on [days, minTradesPerDay, reloadKey]
+  // only — it reads the CURRENT view's key through this ref so the hydrate
+  // matches whatever sort/filters the render actually has (URL-seeded
+  // filters included) without widening the effect's dependency list.
+  const snapKeyRef = useRef("");
+  snapKeyRef.current = snapKeyFor(
+    traderSort === "score" ? serverScoreSort : traderSort,
+    sortDir,
+  );
+
+  // Monotonic id per loadPage call. Paged reads are not guaranteed to come
+  // back in the order they went out, and a slow response for the OLD filters
+  // landing after a fast one for the new filters used to repaint the board
+  // with stale rows (type a keyword → the pre-keyword page wins the race and
+  // the cards "don't refresh"). Only the newest call may touch state.
+  const loadSeqRef = useRef(0);
+
   // Server-side paginated fetch — used when cache is warm
   const loadPage = useCallback(
     async (opts: {
       pg?: number; sort?: string; order?: string; silent?: boolean; force?: boolean;
     } = {}) => {
+      const seq = ++loadSeqRef.current;
       const pg = opts.pg ?? pageRef.current;
-      const sortKey = opts.sort || (traderSort === "score" ? "sharpe" : traderSort);
+      const sortKey = opts.sort || (traderSort === "score" ? serverScoreSort : traderSort);
       const orderKey = opts.order || sortDir;
       if (!opts.silent) setRefreshing(true);
       try {
@@ -321,15 +364,30 @@ export default function CopyTrading({
           minTrades: Number(minTrades) || undefined,
           minBuyVolume: Number(minBuyVolume) || undefined,
           minSellVolume: Number(minSellVolume) || undefined,
+          // Activity floors run server-side against the same cached aggregate
+          // the page comes from — so `total` counts the traders you can
+          // actually see, and the board stays a cache read.
+          minTrades24h: Number(minTrades24h) || undefined,
+          maxLastTradeHrs: Number(maxLastTradeHrs) || undefined,
+          minHistoryDays: Number(minHistoryDays) || undefined,
+          minConsistency: Number(minConsistency) || undefined,
           force: opts.force,
+          // Time travel: read the archived scan instead of the live cache —
+          // same paged shape, same server-side filters, older data.
+          scanId: scanId ?? undefined,
         });
+        // A newer call went out while this one was in flight — its answer
+        // owns the board; this one is history. Report success so the caller
+        // doesn't fall back to streaming over a result nobody will show.
+        if (seq !== loadSeqRef.current) return true;
         if (result.cold) {
           // Cache is cold — fall back to streaming
           return false;
         }
         setTraders(result.traders);
         setTotalTraders(result.total);
-        setSource(result.source as "memory" | "disk" | "fresh");
+        setActivityDropped(result.activityDropped ?? 0);
+        setSource(result.source as "memory" | "disk" | "fresh" | "scan");
         setCacheWarm(true);
         setHasLoaded(true);
         setLoading(false);
@@ -337,15 +395,43 @@ export default function CopyTrading({
         if (typeof result.syncedAt === "number" && result.syncedAt > 0) {
           setSyncedAt(result.syncedAt * 1000);
         }
+        // Remember the landing page for this view so the next load paints it
+        // before any network. Page 0 only — deeper pages aren't a landing —
+        // and never while time-travelling: an archived scan must not become
+        // the next session's "live" first paint.
+        if (pg === 0 && scanId == null) {
+          saveBoardSnapshot(snapKeyFor(sortKey, orderKey), {
+            traders: result.traders,
+            total: result.total,
+            activityDropped: result.activityDropped ?? 0,
+            source: result.source as "memory" | "disk" | "fresh",
+            syncedAt:
+              typeof result.syncedAt === "number" && result.syncedAt > 0
+                ? result.syncedAt * 1000
+                : null,
+          });
+        }
         return true;
       } catch {
-        return false;
+        // A failing SCAN read (archive pruned, window skipped that cycle)
+        // must NOT fall into the streaming re-aggregation path — dropping
+        // back to live is the right recovery, and clearing scanId re-fires
+        // this loader against the live cache.
+        if (seq === loadSeqRef.current && scanId != null) {
+          setScanId(null);
+          return true;
+        }
+        // Superseded → true (the newer call handles its own failure path);
+        // a real failure of the CURRENT call → false, so streaming kicks in.
+        return seq !== loadSeqRef.current;
       } finally {
-        setRefreshing(false);
+        // A superseded call must not clear the spinner the newer one owns.
+        if (seq === loadSeqRef.current) setRefreshing(false);
       }
     },
-    [days, minTradesPerDay, traderSort, sortDir, search, category, marketQuery,
-     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume],
+    [days, minTradesPerDay, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
+     minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
+     minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, snapKeyFor, scanId],
   );
 
   // Streaming load — used for cold cache (pipeline needs to run) AND
@@ -369,6 +455,10 @@ export default function CopyTrading({
       setRateInfo(null);
       rateSamplesRef.current = [];
       setSource(null);
+      // The streamed path filters client-side, so the server's drop count no
+      // longer describes what's on screen — clear it rather than explain an
+      // empty board with a number from the last paged read.
+      setActivityDropped(0);
       try {
         const { traders: data, source: src, syncedAt: streamSyncedAt } = await fetchTopTradersStream(
           2000,
@@ -430,9 +520,13 @@ export default function CopyTrading({
       } catch (e) {
         // AbortError = a newer SYNC click replaced this one; leave the
         // previous traders visible (the new request will repopulate).
-        // Any other failure clears the table so the user knows.
+        // Any other failure clears the table so the user knows — unless
+        // rows are already showing (a hydrated localStorage snapshot, or a
+        // previous page): a stale board with an honest age chip beats a
+        // blank one, and blanking it erased the snapshot's whole point
+        // when the API is asleep or unreachable.
         const aborted = e instanceof Error && e.name === "AbortError";
-        if (!aborted) setTraders([]);
+        if (!aborted) setTraders((prev) => (prev.length > 0 ? prev : []));
       } finally {
         // Only reset inFlight if THIS controller is still the current
         // one — a re-click during this finally would have replaced it
@@ -477,16 +571,36 @@ export default function CopyTrading({
 
   // Initial load: try paged first, fall back to streaming
   // Fires when the pipeline parameters change (days window, min trades/day)
+  //
+  // Before any network, paint the last board this exact view showed
+  // (localStorage snapshot, stale-while-revalidate). The paged fetch below
+  // still runs and replaces it — the snapshot only buys the first paint, and
+  // when the API was slept and has to re-aggregate, it's the difference
+  // between reading yesterday's board and watching a progress bar. The
+  // snapshot's REAL server `syncedAt` drives the staleness chip, so old rows
+  // look old instead of freshly loaded.
   useEffect(() => {
-    setTraders([]);
-    setTotalTraders(0);
-    setSource(null);
     setProgress(null);
     setRateInfo(null);
     rateSamplesRef.current = [];
     setCacheWarm(false);
     setPage(0);
     pageRef.current = 0;
+    const snap = loadBoardSnapshot(snapKeyRef.current);
+    if (snap) {
+      setTraders(snap.traders);
+      setTotalTraders(snap.total);
+      setActivityDropped(snap.activityDropped);
+      setSource(snap.source);
+      setSyncedAt(snap.syncedAt);
+      setLastUpdated(snap.savedAt);
+      setLoading(false);
+      setHasLoaded(true);
+    } else {
+      setTraders([]);
+      setTotalTraders(0);
+      setSource(null);
+    }
     (async () => {
       const warm = await loadPageRef.current({ pg: 0 });
       if (!warm) await loadStreamRef.current();
@@ -506,15 +620,18 @@ export default function CopyTrading({
         await loadStreamRef.current();
       }
     })();
-  }, [cacheWarm, page, traderSort, sortDir, search, category, marketQuery,
-      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume]);
+  }, [cacheWarm, page, traderSort, serverScoreSort, sortDir, search, category, marketQuery,
+      minVolume, minPnl, minTrades, minBuyVolume, minSellVolume,
+      minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, scanId]);
 
   // Background staleness check. Re-fetches current page silently once data
   // crosses MAX_STALENESS_MS so the leaderboard never gets older than this
   // without the user feeling a load. STALENESS_TICK_MS is just the polling
   // cadence; the actual fetch only fires when lastUpdated is past the budget.
   useEffect(() => {
-    if (!cacheWarm) return;
+    // Archived scans never go stale — they're history. Only the live board
+    // needs the silent re-fetch.
+    if (!cacheWarm || scanId != null) return;
     const MAX_STALENESS_MS = 60_000;
     const STALENESS_TICK_MS = 10_000;
     const t = setInterval(() => {
@@ -524,18 +641,15 @@ export default function CopyTrading({
       }
     }, STALENESS_TICK_MS);
     return () => clearInterval(t);
-  }, [loadPage, cacheWarm, lastUpdated]);
+  }, [loadPage, cacheWarm, lastUpdated, scanId]);
 
-  // Background source-data refresh. The page-cache check above keeps the
-  // CLIENT view fresh, but the chip the user sees ("sync 18h 31m ago") is
-  // server `syncedAt` — when Polymarket data was actually pulled. Once that
-  // crosses the SERVER's sync cadence (sync.rs; hourly by default, owner-set)
-  // we kick off `loadStream({ force: true })` from the browser as a safety
-  // net — the schedule is the contract, so a tab left open must not re-pull
-  // on its own faster than the owner asked for. Floor of 10min keeps the old
-  // behavior for deployments that pause auto-sync entirely. Guarded by
-  // inFlightRef and a per-attempt cooldown so a long-running force-sync (the
-  // pipeline takes 2–5 minutes on a cold scan) doesn't queue up.
+  // Source-data freshness is the SERVER's job, never this tab's. The backend
+  // scheduler (sync.rs; hourly, owner-set) re-pulls Polymarket on its own and
+  // every read here is served from that cache — the browser never kicks off a
+  // pipeline run. We still poll the schedule (read-only) so the staleness
+  // chip can color itself against the owner's cadence, and the silent
+  // page-cache re-fetch above picks up new rows once a backend sync lands.
+  // The only force-pull left is the user explicitly clicking ↻ SYNC.
   const [serverIntervalMs, setServerIntervalMs] = useState<number | null>(null);
   const sourceStalenessMs = Math.max(10 * 60_000, serverIntervalMs ?? 0);
   useEffect(() => {
@@ -547,32 +661,6 @@ export default function CopyTrading({
     const t = setInterval(read, 5 * 60_000);
     return () => clearInterval(t);
   }, []);
-  const lastForceAtRef = useRef(0);
-  // Flagged true when the most recent loadStream was kicked off by the
-  // auto-refresh path (vs the user clicking ↻ SYNC or initial cold start).
-  // Drives the SYNCING IN PROGRESS banner so we only surface it for the
-  // background auto-trigger — the user pressing ↻ SYNC already sees the
-  // SYNCING badge animate, no banner needed for that case.
-  const [autoSyncActive, setAutoSyncActive] = useState(false);
-  useEffect(() => {
-    const MAX_SOURCE_STALENESS_MS = sourceStalenessMs;
-    const MIN_RETRY_MS = 2 * 60_000;
-    const TICK_MS = 30_000;
-    const t = setInterval(() => {
-      if (inFlightRef.current) return;
-      const stamp = syncedAt ?? lastUpdated;
-      if (!stamp) return;
-      const age = Date.now() - stamp;
-      if (age < MAX_SOURCE_STALENESS_MS) return;
-      if (Date.now() - lastForceAtRef.current < MIN_RETRY_MS) return;
-      lastForceAtRef.current = Date.now();
-      setAutoSyncActive(true);
-      void loadStreamRef.current({ force: true }).finally(() => {
-        setAutoSyncActive(false);
-      });
-    }, TICK_MS);
-    return () => clearInterval(t);
-  }, [syncedAt, lastUpdated, sourceStalenessMs]);
 
   // 5-second tick so the "Xs ago" label re-renders even when nothing else changes.
   useEffect(() => {
@@ -628,12 +716,14 @@ export default function CopyTrading({
   const clientView = useMemo(() => {
     // Use client-side filtering when cache is cold OR when stratFilter needs
     // the full dataset (server pagination can't filter by address list).
-    // Also force client-side when MIN TRADES 24H is active — server pagination
-    // doesn't know about trades24h, so the only way to honor it is to filter
-    // the in-memory streamed dataset.
-    const needs24hFilter = minTrades24h !== "" && Number(minTrades24h) > 0;
-    const needsRecencyFilter = maxLastTradeHrs !== "" && Number(maxLastTradeHrs) > 0;
-    if (cacheWarm && !stratFilter && !needs24hFilter && !needsRecencyFilter) return null;
+    // The activity floors used to ask for this path too, back when only the
+    // client knew about them — but on a warm cache there is no streamed
+    // dataset to filter, so the request fell through to a per-page filter and
+    // the two paths disagreed: board-wide after a cold sync, page-only
+    // otherwise. They're server parameters now, applied to the same cached
+    // aggregate the page comes from; this path only mirrors them while the
+    // stream is the only data there is.
+    if (cacheWarm && !stratFilter) return null;
     if (!stratFilter && streamedAll.length === 0) return null;
 
     // When STRAT is on, anchor the list to the strat's address set so traders
@@ -647,7 +737,10 @@ export default function CopyTrading({
         byAddr.get(addr) ?? {
           address: addr,
           volume: 0, buyVolume: 0, sellVolume: 0,
-          pnl: 0, winRate: 0, sharpe: 0, positions: 0,
+          // Placeholder for a strat address the leaderboard pool never
+          // reached: -1 = unknown, the same sentinel the API uses. A 0 here
+          // would read as "never wins".
+          pnl: 0, winRate: -1, resolveRate: -1, decidedPositions: 0, sharpe: 0, exitEntry: -1, positions: 0,
           marketTitles: [], recentTrades: 0,
         },
       );
@@ -678,10 +771,26 @@ export default function CopyTrading({
       if (maxLastTradeHrs !== "" && Number.isFinite(mlh) && mlh > 0) {
         if (!t.lastTradeTs || Date.now() / 1000 - t.lastTradeTs > mlh * 3600) return false;
       }
+      // Track-record floor — drop traders whose first-ever trade is more
+      // recent than N days. Unlike the recency floor above, a MISSING
+      // firstTradeTs is KEPT: it means "not resolved yet", not "brand new",
+      // and cutting on it would empty the board over a data gap.
+      const mhd = Number(minHistoryDays);
+      if (minHistoryDays !== "" && Number.isFinite(mhd) && mhd > 0) {
+        const age = historyDays(t);
+        if (age !== null && age < mhd) return false;
+      }
+      // Consistency floor — mirrors the server's curve-shape retain. Unknown
+      // (-1: no curve / too little movement) fails any positive floor.
+      const mc = Number(minConsistency);
+      if (minConsistency !== "" && Number.isFinite(mc) && mc > 0 && curveConsistency(t.pnlCurve) < mc) return false;
       const mbv = Number(minBuyVolume);
       if (minBuyVolume !== "" && Number.isFinite(mbv) && t.buyVolume < mbv) return false;
       const msv = Number(minSellVolume);
       if (minSellVolume !== "" && Number.isFinite(msv) && t.sellVolume < msv) return false;
+      // A FUNCTION score is also a filter: returning null/None from your JS
+      // or Python drops the trader from the board entirely.
+      if (scoreFilters && scoreFor(t) === null) return false;
       return true;
     });
     // Sort. When a category is selected, vibe-first (more in-category titles
@@ -699,16 +808,20 @@ export default function CopyTrading({
         const d = inCat(b.marketTitles) - inCat(a.marketTitles);
         if (d !== 0) return d;
       }
-      if (traderSort === "score") return dir * (scoreFor(a) - scoreFor(b));
+      if (traderSort === "score") return dir * (((scoreFor(a) ?? Number.NEGATIVE_INFINITY)) - ((scoreFor(b) ?? Number.NEGATIVE_INFINITY)));
       if (traderSort === "volume") return dir * (a.volume - b.volume);
       if (traderSort === "positions") return dir * (a.recentTrades - b.recentTrades);
       // Missing lastTradeTs → 0 so unknown-recency traders sink on desc.
       if (traderSort === "last") return dir * ((a.lastTradeTs ?? 0) - (b.lastTradeTs ?? 0));
+      // Longest record first on desc: an OLDER first trade is a LONGER
+      // record, so the sign flips relative to the timestamp. Unresolved ages
+      // sort as "brand new" and sink.
+      if (traderSort === "history") return dir * ((b.firstTradeTs ?? Number.MAX_SAFE_INTEGER) - (a.firstTradeTs ?? Number.MAX_SAFE_INTEGER));
       return dir * (a.pnl - b.pnl); // default: pnl
     });
     return list;
   }, [cacheWarm, streamedAll, search, category, marketQuery, minVolume, minPnl,
-      minTrades, minTrades24h, maxLastTradeHrs, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor,
+      minTrades, minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency, minBuyVolume, minSellVolume, sortDir, traderSort, scoreFor, scoreFilters,
       stratFilter, stratAddrs]);
 
   const sortedTraders = useMemo(() => {
@@ -717,21 +830,33 @@ export default function CopyTrading({
       return clientView.slice(start, start + PAGE_SIZE);
     }
     if (traderSort === "score" && cacheWarm) {
-      return [...traders].sort((a, b) => {
-        const cmp = scoreFor(a) - scoreFor(b);
+      // Function scores filter here too — this path serves the score sort
+      // before the full stream lands.
+      const pool = scoreFilters ? traders.filter((t) => scoreFor(t) !== null) : traders;
+      return [...pool].sort((a, b) => {
+        const cmp = (scoreFor(a) ?? Number.NEGATIVE_INFINITY) - (scoreFor(b) ?? Number.NEGATIVE_INFINITY);
         return sortDir === "desc" ? -cmp : cmp;
       });
     }
     return traders;
-  }, [clientView, page, traders, traderSort, sortDir, scoreFor, cacheWarm]);
+  }, [clientView, page, traders, traderSort, sortDir, scoreFor, scoreFilters, cacheWarm]);
 
   // When showing client-side filtered results, total reflects the filtered
   // size, not the streamed length.
   const visibleTotal = clientView ? clientView.length : totalTraders;
 
+  // How many traders the score FUNCTION alone hid (returned null/None) —
+  // printed in the editor, so a too-tight filter explains its own empty board.
+  const scoreHidden = useMemo(() => {
+    if (!scoreFilters) return 0;
+    const base = streamedAll.length > 0 ? streamedAll : traders;
+    return base.reduce((n, t) => n + (scoreFor(t) === null ? 1 : 0), 0);
+  }, [scoreFilters, streamedAll, traders, scoreFor]);
+
   // Reset page on filter/sort change
   useEffect(() => { setPage(0); }, [search, category, marketQuery, traderSort, sortDir,
-    minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter]);
+    minVolume, minPnl, minTrades, minBuyVolume, minSellVolume, stratFilter,
+    minTrades24h, maxLastTradeHrs, minHistoryDays, minConsistency]);
 
   const totalPages = Math.max(1, Math.ceil(visibleTotal / PAGE_SIZE));
   const safePage = Math.min(page, totalPages - 1);
@@ -773,24 +898,14 @@ export default function CopyTrading({
   }, [stratFilter]);
 
   const pageTraders = useMemo(() => {
-    // Apply MIN TRADES 24H here as a final filter so it works regardless of
-    // which load path (warm-paged or streamed) produced sortedTraders. The
-    // alternative — pushing it server-side — requires pipeline changes;
-    // client-side filter on a 50-row page is cheap enough to ship today.
-    const m24 = Number(minTrades24h);
-    const apply24h = minTrades24h !== "" && Number.isFinite(m24) && m24 > 0;
-    const mlh = Number(maxLastTradeHrs);
-    const applyRecency = maxLastTradeHrs !== "" && Number.isFinite(mlh) && mlh > 0;
-    let list = sortedTraders;
-    if (apply24h) {
-      list = list.filter((t) => (t.trades24h ?? 0) >= m24);
-    }
-    if (applyRecency) {
-      list = list.filter((t) => !!t.lastTradeTs && Date.now() / 1000 - t.lastTradeTs <= mlh * 3600);
-    }
+    // The activity floors are already applied — server-side for the warm-paged
+    // path, in `clientView` for the streamed one — so this only narrows to the
+    // strat's address set. Re-filtering the page here is what made a 50-row
+    // page render as five rows under a pager still counting the full board.
+    const list = sortedTraders;
     if (!stratFilter || stratAddrs.size === 0) return list;
     return list.filter(t => stratAddrs.has(t.address.toLowerCase()));
-  }, [sortedTraders, stratFilter, stratAddrs, minTrades24h, maxLastTradeHrs]);
+  }, [sortedTraders, stratFilter, stratAddrs]);
 
   // Pre-lowercase the selected set so the ✓ / + ADD toggle compares
   // case-insensitively — different code paths persist addresses in mixed cases.
@@ -799,12 +914,177 @@ export default function CopyTrading({
     [selectedAddresses],
   );
 
-  const columns: { key: TraderSort; label: string }[] = [
-    { key: "score", label: "SCORE" },
-    { key: "pnl", label: "P&L" },
-    { key: "volume", label: "VOL" },
-    { key: "positions", label: "TRADES" },
+  // ── MONEY ON EACH TRADER ──
+  // Every card answers two questions the leaderboard numbers can't: "how much
+  // have I put on this trader" and "how much has everyone else". YOU is the
+  // COPY DESK allocation (GET /copy/book — server state, the same rows the
+  // desk edits, so a $ typed there shows here on the next read). COMMUNITY is
+  // every strat published to the public gallery (GET /strats/public —
+  // plaintext by definition), each strat's capital split across its enabled
+  // traders by weight. A trader in neither map shows a quiet "—".
+  const [myPlaced, setMyPlaced] = useState<Map<string, { usd: number; enabled: boolean }>>(
+    new Map(),
+  );
+  const [communityPlaced, setCommunityPlaced] = useState<
+    Map<string, { usd: number; strats: number; backers: number }>
+  >(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    const loadBook = async () => {
+      try {
+        const book = await fetchCopyBook();
+        if (cancelled) return;
+        const m = new Map<string, { usd: number; enabled: boolean }>();
+        for (const row of book.allocations) {
+          m.set(row.address.toLowerCase(), { usd: row.allocationUsd, enabled: row.enabled });
+        }
+        setMyPlaced(m);
+      } catch {
+        /* keep the last map — a blank strip over a transient error reads as "removed" */
+      }
+    };
+    const loadCommunity = async () => {
+      try {
+        const entries = await fetchPublicStrats();
+        if (cancelled) return;
+        const acc = new Map<string, { usd: number; strats: number; backers: Set<string> }>();
+        for (const e of entries) {
+          const traders = (e.strat.traders ?? []).filter((t) => t.enabled !== false);
+          if (traders.length === 0) continue;
+          // SavedIndex.capital defaults to 1000 everywhere else in the app;
+          // weights are meant to sum to 1 but re-normalize defensively so a
+          // hand-edited strat can't mint more community dollars than it holds.
+          const capital = e.strat.capital ?? 1000;
+          const weightSum = traders.reduce((s, t) => s + Math.max(0, t.weight), 0);
+          for (const t of traders) {
+            const share =
+              weightSum > 0 ? Math.max(0, t.weight) / weightSum : 1 / traders.length;
+            const addr = t.address.toLowerCase();
+            const cur = acc.get(addr) ?? { usd: 0, strats: 0, backers: new Set<string>() };
+            cur.usd += capital * share;
+            cur.strats += 1;
+            if (e.owner) cur.backers.add(e.owner);
+            acc.set(addr, cur);
+          }
+        }
+        setCommunityPlaced(
+          new Map(
+            [...acc].map(([k, v]) => [
+              k,
+              { usd: v.usd, strats: v.strats, backers: v.backers.size },
+            ]),
+          ),
+        );
+      } catch {
+        /* same as the book: keep what we had */
+      }
+    };
+    void loadBook();
+    void loadCommunity();
+    // The desk announces its own writes; the gallery has no event, so both
+    // ride a slow poll as the catch-all.
+    const onBookChanged = () => void loadBook();
+    window.addEventListener(COPY_BOOK_CHANGED_EVENT, onBookChanged);
+    const t = setInterval(() => {
+      void loadBook();
+      void loadCommunity();
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      window.removeEventListener(COPY_BOOK_CHANGED_EVENT, onBookChanged);
+    };
+  }, [reloadKey]);
+
+  // The ranking column names what it actually holds: on any preset (win rate
+  // out of the box) that IS the metric, and "SCORE" hid the one number the
+  // board is sorted by. Any edit to the formula turns it back into a generic
+  // SCORE.
+  const scorePreset = matchScorePreset(formula);
+  const columns: { key: TraderSort; label: string; hint: string }[] = [
+    {
+      key: "score",
+      label: scorePreset ? scorePreset.label : "SCORE",
+      hint: scorePreset ? scorePreset.hint : `Custom score = ${formula}`,
+    },
+    { key: "pnl", label: "P&L", hint: "Realized profit over the window — a size story, not a skill one" },
+    { key: "volume", label: "VOL", hint: "USDC traded in the window" },
+    { key: "positions", label: "TRADES", hint: "Positions taken in the window" },
   ];
+
+  // ── The score bus ──
+  //
+  // The side panel's bench roster and selection tray print the SAME score
+  // this board ranks on — one pipeline, published after each rank pass.
+  //
+  // The warm-cache path pages server-side, so the component often holds only
+  // the visible PAGE — while the bench holds eight names from anywhere on
+  // the board. Those get fetched one-by-one against the warm cache
+  // (search=<address> resolves a single row with the same windowed stats),
+  // remembered per (address, window), and folded into the publish. A name
+  // that isn't in the pool at all just stays "—" in the panel.
+  const { picks } = usePicks();
+  const [benchRows, setBenchRows] = useState<Map<string, TopTrader>>(new Map());
+  const benchTriedRef = useRef(new Set<string>());
+  useEffect(() => { setBenchRows(new Map()); }, [days]);
+  useEffect(() => {
+    const known = new Set(
+      (streamedAll.length > 0 ? streamedAll : traders).map((t) => t.address.toLowerCase()),
+    );
+    // The bench comes in as `selectedAddresses` (the page keeps it synced to
+    // the active strat); `stratAddrs` only fills when the STRAT filter is on.
+    const wanted = new Set<string>([
+      ...selectedAddresses.map((a) => a.toLowerCase()),
+      ...stratAddrs,
+      ...picks.map((p) => p.address.toLowerCase()),
+    ]);
+    const missing = [...wanted]
+      .filter((a) => !known.has(a) && !benchTriedRef.current.has(`${a}|${days}`))
+      .slice(0, 24);
+    if (missing.length === 0) return;
+    let dead = false;
+    void (async () => {
+      const found: [string, TopTrader][] = [];
+      for (const a of missing) {
+        benchTriedRef.current.add(`${a}|${days}`);
+        try {
+          const r = await fetchTradersPage({
+            days, minPerDay: minTradesPerDay, pool: 2000, pageSize: 1, search: a,
+          });
+          const row = r.traders?.[0];
+          if (row && row.address.toLowerCase() === a) found.push([a, row]);
+        } catch { /* cold cache or not in the pool — the row stays "—" */ }
+        if (dead) return;
+      }
+      if (found.length > 0 && !dead) {
+        setBenchRows((prev) => {
+          const next = new Map(prev);
+          for (const [a, row] of found) next.set(a, row);
+          return next;
+        });
+      }
+    })();
+    return () => { dead = true; };
+  }, [selectedAddresses, stratAddrs, picks, days, minTradesPerDay, streamedAll, traders]);
+
+  const scoreLabel = columns[0].label;
+  useEffect(() => {
+    if (!compiled.fn) return; // nothing compiled yet — keep the last snapshot
+    const base = streamedAll.length > 0 ? streamedAll : traders;
+    const entries: [string, number | null][] = [];
+    const seen = new Set<string>();
+    const push = (t: TopTrader) => {
+      const a = t.address.toLowerCase();
+      if (seen.has(a)) return;
+      seen.add(a);
+      if (scoreIsUnknown(formula, scoreInputs(t))) return; // "—", not a number
+      const sc = scoreFor(t);
+      if (sc === null || Number.isFinite(sc)) entries.push([a, sc]);
+    };
+    base.forEach(push); // board rows win over the per-address fallbacks
+    benchRows.forEach(push);
+    publishScores(scoreLabel, days, entries);
+  }, [compiled.fn, streamedAll, traders, benchRows, scoreFor, formula, scoreLabel, days]);
 
   // Filter input helpers
   const onInt = (set: (v: string) => void, max: number) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -827,13 +1107,12 @@ export default function CopyTrading({
 
   // Count active advanced filters
   const activeFilterCount = [
-    minTrades, minBuyVolume, minSellVolume, minPnl,
+    minTrades, minBuyVolume, minSellVolume, minPnl, minConsistency,
   ].filter((v) => v !== "").length
     + (minVolume !== "100" && minVolume !== "" ? 1 : 0)
     + (minPerDay !== "0" && minPerDay !== "" ? 1 : 0)
     + (ctxCategory ? 1 : 0)
-    + (ctxMarketQuery ? 1 : 0)
-    + (formula !== DEFAULT_FORMULA ? 1 : 0);
+    + (ctxMarketQuery ? 1 : 0);
 
   // Stats summary (computed from current page — approximate when paginated)
   const pagePnl = traders.reduce((s, t) => s + t.pnl, 0);
@@ -842,32 +1121,156 @@ export default function CopyTrading({
   // Staleness signal lives on the header's color-coded "sync {age}" chip
   // (green <5min → amber <30min → red) plus the always-present ↻ SYNC button,
   // so we don't duplicate it with a separate STALE DATA stripe. The only
-  // full-width banner we keep is the transient AUTO-SYNCING notice, which
-  // explains why a fresh pull kicked off after the data went stale.
+  // full-width banner we keep is the transient SYNCING notice while a pull
+  // the user asked for (or the initial cold load) replaces stale data.
   const staleStamp = syncedAt ?? lastUpdated;
   const staleAgeMs = staleStamp ? nowTick - staleStamp : 0;
   const isStale = staleStamp != null && staleAgeMs >= sourceStalenessMs;
-  const showSyncingBanner = isStale && (autoSyncActive || loading || refreshing);
+  const showSyncingBanner = isStale && (loading || refreshing);
+
+  // Why the board is empty. Under the default 6h lens the answer is almost
+  // never "no good traders in this window" — it's "everyone good has been
+  // quiet", or, when the snapshot itself is older than the window, "this data
+  // predates the question", which no amount of relaxing the other filters
+  // fixes. Say which, and name the knob.
+  const recencyHrs = Number(maxLastTradeHrs);
+  const snapshotOlderThanWindow =
+    Number.isFinite(recencyHrs) && recencyHrs > 0 && staleAgeMs > recencyHrs * 3600_000;
+
+  // Freshness chip — the same fact (where the numbers came from and when)
+  // whether the header is collapsed or expanded, so it is built once here.
+  // An archived scan prints its AS OF timestamp instead of a live age; a
+  // freshness age on an archived board would just read "stale".
+  const freshnessChip = (() => {
+    if (scanId != null) {
+      if (!syncedAt) return null;
+      return (
+        <span
+          className="text-[11px] font-mono tracking-wider text-amber-400 shrink-0"
+          title={`Archived board — source data was pulled ${new Date(syncedAt).toLocaleString()}. Step with ‹ › or return to LIVE via the SCANS chip.`}
+        >
+          AS OF {formatScanStamp(Math.floor(syncedAt / 1000))}
+        </span>
+      );
+    }
+    // Prefer the server's syncedAt — it tells the user when the data was last
+    // actually pulled from Polymarket, not when the client hit the cache.
+    const stamp = syncedAt ?? lastUpdated;
+    if (stamp == null) return null;
+    const age = nowTick - stamp;
+    const color =
+      age < 5 * 60_000 ? "text-green-400" :
+      age < 30 * 60_000 ? "text-amber-400" :
+      "text-red-400";
+    const stampNote = syncedAt
+      ? `Source data last synced ${new Date(stamp).toLocaleTimeString()} (Polymarket data-api)`
+      : `Client cache fetched ${new Date(stamp).toLocaleTimeString()} — server didn't expose source sync time`;
+    const sourceNote =
+      source === "fresh"
+        ? "Pulled from Polymarket just now."
+        : source
+          ? "Served from the server's cache — press ↻ SYNC for a fresh pull."
+          : null;
+    return (
+      <span
+        className={`text-[11px] font-mono tracking-wider shrink-0 ${color}`}
+        title={sourceNote ? `${sourceNote} ${stampNote}` : stampNote}
+      >
+        {source === "fresh" ? "FRESH" : source ? "CACHED" : "sync"} {formatAgo(age)}
+      </span>
+    );
+  })();
+
+  // Which chip the board is ranked on right now — the collapsed header prints
+  // this one label instead of the whole RANK BY rail.
+  const rankLabel =
+    [
+      ...columns,
+      { key: "history" as TraderSort, label: "RECORD" },
+      { key: "last" as TraderSort, label: "LAST" },
+    ].find((c) => c.key === traderSort)?.label ?? "SCORE";
 
   return (
     <div className="space-y-3">
       {showSyncingBanner && (
         <div className="pixel-panel px-4 py-1.5 border border-green-400/60 bg-green-400/5 text-green-400 flex items-center gap-2 font-mono text-[12px]">
           <span className="w-1.5 h-1.5 bg-green-400 animate-pulse shrink-0" />
-          <span className="tracking-wider shrink-0">AUTO-SYNCING</span>
+          <span className="tracking-wider shrink-0">SYNCING</span>
           <span className="text-pixel-gray-light shrink-0">leaderboard was {formatAgo(staleAgeMs)} stale</span>
         </div>
       )}
       {/* ── Single-line header ── */}
       <div className="pixel-panel px-4 py-2.5">
-        <div className="flex items-center gap-3 flex-wrap">
+        {!showControls && (
+          <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap">
+            <span className="text-[15px] text-pixel-white tracking-wider shrink-0">TOP TRADERS</span>
+            <span
+              className="text-[12px] font-mono text-pixel-gray-light shrink-0"
+              title="Ranking window — expand CONTROLS to change it"
+            >
+              {days}D
+            </span>
+            <button
+              onClick={() => setShowControls(true)}
+              className="text-[12px] font-mono tracking-wider text-pixel-gray-light hover:text-pixel-white shrink-0"
+              title={`Board is ranked by ${rankLabel} — expand to re-rank or edit the score`}
+            >
+              RANK {rankLabel} {sortDir === "asc" ? "▲" : "▼"}
+            </button>
+            {visibleTotal > 0 && !loading && (
+              <span className="text-[12px] font-mono text-pixel-gray shrink-0">
+                {visibleTotal} traders
+              </span>
+            )}
+            {ctxMarketQuery && (
+              <button
+                onClick={() => setShowControls(true)}
+                className="text-[11px] font-mono tracking-wider text-green-400 border border-green-400/40 bg-green-400/5 px-1.5 py-0.5 shrink-0 max-w-[180px] truncate"
+                title={`Keyword filter active — every trader's P&L / volume below is recomputed from only markets matching "${ctxMarketQuery}". Expand to edit or clear.`}
+              >
+                {ctxMarketQuery}
+              </button>
+            )}
+            {activeFilterCount > 0 && (
+              <button
+                onClick={() => { setShowControls(true); setShowFilters(true); }}
+                className="text-[11px] font-mono tracking-wider text-green-400 border border-green-500/40 bg-green-500/10 px-1.5 py-0.5 shrink-0"
+                title={`${activeFilterCount} advanced filter${activeFilterCount === 1 ? "" : "s"} active — expand to edit`}
+              >
+                {activeFilterCount} FILTERS
+              </button>
+            )}
+            <span className="ml-auto flex items-center gap-2 shrink-0">
+              {freshnessChip}
+              {(refreshing || loading) && <span className="text-[12px] text-green-400 animate-pulse">&#9679;</span>}
+              <button
+                onClick={() => setShowControls(true)}
+                className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                title="Expand the board controls — days, keyword, sync, scans, auto-warm, filters, ranking"
+              >
+                &#9656; CONTROLS
+              </button>
+            </span>
+          </div>
+        )}
+        {showControls && (
+        <>
+        {/* Two wrapping clusters, not a grid. The old grid-cols-[minmax(0,1fr)_auto]
+            let the SYNC cluster's auto track take the whole panel at narrow
+            widths — the title column collapsed to 0 and its DAYS input
+            rendered UNDER the SYNC button. As flex, the left cluster keeps a
+            real minimum (the keyword field still stretches to eat the rest),
+            and when the SYNC cluster no longer fits beside it, it drops whole
+            onto its own right-aligned line and wraps internally from there. */}
+        <div className="flex items-center justify-between gap-x-3 gap-y-2 flex-wrap">
+          <div className="flex items-center gap-x-3 gap-y-2 flex-wrap min-w-0 flex-1 basis-[260px]">
           {/* Title + days + count */}
           <span className="text-[15px] text-pixel-white tracking-wider shrink-0">TOP TRADERS</span>
 
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="text-[13px] text-pixel-gray tracking-wider">DAYS</span>
             <input type="text" inputMode="numeric" value={daysAgo} onChange={onInt(setDaysAgo, 365)}
-              onKeyDown={onEnter} placeholder="7"
+              onKeyDown={onEnter} placeholder="30"
               className="pixel-input-sm w-10 text-center font-mono text-[13px]" />
           </div>
 
@@ -876,7 +1279,7 @@ export default function CopyTrading({
               it shouldn't hide behind a toggle). Matching traders keep only
               markets that hit the query, and P&L/VOL/TRADES are recomputed
               from just those markets server-side. */}
-          <div className="relative flex-1 min-w-[160px] max-w-[340px]">
+          <div className="relative flex-1 min-w-[110px] max-w-[420px]">
             <input
               type="text"
               value={kwDraft}
@@ -908,20 +1311,17 @@ export default function CopyTrading({
           )}
 
           {visibleTotal > 0 && !loading && (
-            <span className="text-[13px] text-pixel-gray font-mono shrink-0">
+            <span className="hidden md:inline text-[13px] text-pixel-gray font-mono shrink-0">
               {visibleTotal} traders
             </span>
           )}
 
-          {/* Right side: source + filters */}
-          <div className="ml-auto flex items-center gap-2 shrink-0">
-            {source && (
-              <span className={`text-[12px] font-mono tracking-wider px-1.5 py-0.5 border ${
-                source === "fresh" ? "border-yellow-500/40 text-yellow-400" : "border-pixel-border text-pixel-gray"
-              }`}>
-                {source === "memory" ? "MEM" : source === "disk" ? "DISK" : "LIVE"}
-              </span>
-            )}
+          </div>
+
+          {/* Right side: source + filters. flex-wrap because this cluster is
+              wider than a narrow viewport — without it the chips can't give
+              and the whole run rides over the DAYS input in the left column. */}
+          <div className="flex items-center justify-end gap-x-2 gap-y-1.5 flex-wrap min-w-0 ml-auto">
             {/* Manual SYNC button — bypasses the 60s cache by routing
                 through the streaming path so the user sees enrichment
                 progress (`enriching 1240/2000`) instead of an opaque
@@ -930,61 +1330,55 @@ export default function CopyTrading({
                 we just trigger it explicitly here. */}
             <button
               onClick={() => { void loadStream({ force: true }); }}
-              disabled={refreshing || loading}
+              disabled={refreshing || loading || scanId != null}
               className="pixel-btn text-[11px] px-2 py-0.5 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-40 disabled:cursor-not-allowed"
               title={
-                (refreshing || loading) && rateInfo
-                  ? `Enrich rate ${rateInfo.rate.toFixed(1)}/s · ETA ${formatEta(rateInfo.etaSec)} · phase ${rateInfo.phase}`
-                  : "Force a fresh pull from Polymarket — bypasses the cache and streams progress"
+                scanId != null
+                  ? "Viewing an archived scan — go back to LIVE (› or the SCANS chip) to sync"
+                  : (refreshing || loading) && rateInfo
+                    ? `Enrich rate ${rateInfo.rate.toFixed(1)}/s · ETA ${formatEta(rateInfo.etaSec)} · phase ${rateInfo.phase}`
+                    : "Force a fresh pull from Polymarket — bypasses the cache and streams progress"
               }
             >
+              {/* Rate/ETA stay in the tooltip only — the inline suffix made the
+                  button wide enough mid-sync to wrap the whole header row. */}
               {(refreshing || loading) && progress ? (
                 <>
                   {progress.phase === "enrich"
                     ? `SYNCING ${progress.done}/${progress.total}`
                     : `SYNCING ${progress.done}/${progress.total} (leaderboard)`}
-                  {rateInfo && rateInfo.phase === progress.phase && (
-                    <span className="text-pixel-gray-light ml-1">
-                      · {rateInfo.rate.toFixed(1)}/s · ETA {formatEta(rateInfo.etaSec)}
-                    </span>
-                  )}
                 </>
               ) : refreshing || loading
                 ? "SYNCING…"
                 : "↻ SYNC"}
             </button>
-            {(syncedAt ?? lastUpdated) && (() => {
-              // Prefer the server's syncedAt — it tells the user when the data
-              // was last actually pulled from Polymarket, not when the client
-              // hit the cache. Falls back to lastUpdated if the server didn't
-              // expose one (old binary).
-              const stamp = syncedAt ?? lastUpdated!;
-              const age = nowTick - stamp;
-              const color =
-                age < 5 * 60_000 ? "text-green-400" :
-                age < 30 * 60_000 ? "text-amber-400" :
-                "text-red-400";
-              const tooltip = syncedAt
-                ? `Source data last synced ${new Date(stamp).toLocaleTimeString()} (Polymarket data-api)`
-                : `Client cache fetched ${new Date(stamp).toLocaleTimeString()} — server didn't expose source sync time`;
-              return (
-                <span
-                  className={`text-[11px] font-mono tracking-wider ${color}`}
-                  title={tooltip}
-                >
-                  sync {formatAgo(age)}
-                </span>
-              );
-            })()}
+            {freshnessChip}
             {refreshing && <span className="text-[12px] text-green-400 animate-pulse">&#9679;</span>}
 
             {/* Server-side schedule behind that "sync {age}" number — the API
                 re-warms the leaderboards hourly by default whether or not this
                 console is open. The chip lets the owner change the cadence,
-                pause it, or force a background run. */}
-            <SyncScheduleChip />
+                pause it, force a background run — and pick WHICH boards get
+                pre-built. `currentView` is this board's server cache key
+                (days · minPerDay · pool, exactly what loadPage sends), so the
+                panel can say whether what you're looking at is cached and
+                offer to add it if not. Change the DAYS or MIN-PER-DAY filter
+                to a combination nobody warmed and the board can only load
+                cold; this is where you fix that. */}
+            {/* Scan history: ‹ › step the board through the server's archived
+                hourly scans; the panel is the coverage grid — which windows
+                each scan holds. Selecting a scan reroutes every paged read
+                through /scans/:id/traders until LIVE is chosen again. */}
+            <ScanChip
+              currentView={{ days, minPerDay: minTradesPerDay, pool: 2000 }}
+              scanId={scanId}
+              onSelect={setScanId}
+            />
+            <SyncScheduleChip
+              currentView={{ days, minPerDay: minTradesPerDay, pool: 2000 }}
+            />
 
-            <button
+            {stratFilter && <button
               onClick={toggleStratFilter}
               className={`pixel-btn text-[13px] px-2 py-0.5 shrink-0 flex items-center gap-1.5 transition-colors ${
                 stratFilter
@@ -999,7 +1393,7 @@ export default function CopyTrading({
                   {stratName}
                 </span>
               )}
-            </button>
+            </button>}
 
             <button
               onClick={() => setShowFilters((v) => !v)}
@@ -1017,6 +1411,14 @@ export default function CopyTrading({
                   {activeFilterCount}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={() => { setShowControls(false); setShowFilters(false); setShowScore(false); }}
+              className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+              title="Collapse the controls back to the summary row"
+            >
+              &#9652;
             </button>
           </div>
         </div>
@@ -1083,8 +1485,19 @@ export default function CopyTrading({
                 // hidden out of the box (user explicitly asked to not see them).
                 { label: "MIN TRADES 24H", value: minTrades24h, onChange: onDec(setMinTrades24h), ph: "1" },
                 // Recency floor — hide traders whose last trade is older than
-                // this many hours. Defaults to 24h; blank/0 disables.
-                { label: "LAST TRADE ≤ HRS", value: maxLastTradeHrs, onChange: onDec(setMaxLastTradeHrs), ph: "24" },
+                // this many hours. Defaults to DEFAULT_ACTIVE_HOURS; blank/0
+                // disables. Widen it to see the dormant-but-profitable names.
+                { label: "LAST TRADE ≤ HRS", value: maxLastTradeHrs, onChange: onDec(setMaxLastTradeHrs), ph: String(DEFAULT_ACTIVE_HOURS) },
+                // Track-record floor — how many days of history a trader must
+                // have BEHIND them. Blank/0 = off. This is the one that makes a
+                // 30D ranking mean 30 days: a wallet that opened last week can
+                // top a 30D board, and its 30D backtest is mostly flat line.
+                { label: "MIN HISTORY DAYS", value: minHistoryDays, onChange: onDec(setMinHistoryDays), ph: "off" },
+                // Consistency floor, 0–1 — the shape filter: minimum share of
+                // the PnL curve's moved segments that climbed. 0.9 keeps the
+                // smooth staircase curves; blank/0 = off. Same `consistency`
+                // the SCORE bus exposes, so the filter and the variable agree.
+                { label: "MIN CONSISTENCY", value: minConsistency, onChange: onDec(setMinConsistency), ph: "0–1" },
                 { label: "MIN BUY VOL", value: minBuyVolume, onChange: onDec(setMinBuyVolume), ph: "any" },
                 { label: "MIN SELL VOL", value: minSellVolume, onChange: onDec(setMinSellVolume), ph: "any" },
                 { label: "MIN P&L", value: minPnl, onChange: onDec(setMinPnl), ph: "any" },
@@ -1104,26 +1517,22 @@ export default function CopyTrading({
               ))}
             </div>
 
-            {/* Score formula */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <label className="text-[12px] text-pixel-gray tracking-wider shrink-0">SCORE =</label>
-              <input type="text" value={formula} onChange={(e) => setFormula(e.target.value)} onKeyDown={onEnter} spellCheck={false}
-                placeholder={DEFAULT_FORMULA} className="pixel-input-sm flex-1 min-w-[140px] font-mono" />
-              <button onClick={() => setFormula(DEFAULT_FORMULA)}
-                className="pixel-btn text-[12px] px-2 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0">RST</button>
-              {compiled.error
-                ? <span className="text-[12px] text-red-400 shrink-0 truncate max-w-[160px]">ERR: {compiled.error.slice(0, 30)}</span>
-                : <span className="text-[12px] text-green-500 shrink-0">&#10003;</span>}
-            </div>
+            {/* The SCORE formula is NOT here. It is a RANKING, not a filter —
+                it hides nobody, it decides the order — and buried in this
+                drawer nobody found out the board's first chip was an
+                expression they could rewrite. It lives on the RANK BY rail,
+                under the chip it names. */}
 
             {/* Reset all */}
             <div className="flex items-center justify-end">
-              <button onClick={() => { setDaysAgo(""); setCategory(""); setMarketQuery(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setFormula(DEFAULT_FORMULA); reload(); }}
+              <button onClick={() => { setDaysAgo(""); setCategory(""); setMarketQuery(""); setMinTrades(""); setMinTrades24h("1"); setMaxLastTradeHrs("24"); setMinPerDay("0"); setMinVolume("100"); setMinBuyVolume(""); setMinSellVolume(""); setMinPnl(""); setMinHistoryDays(""); setMinConsistency(""); setFormula(DEFAULT_FORMULA); reload(); }}
                 className="pixel-btn text-[12px] px-3 py-1 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-red-400 hover:text-red-400 transition-colors">
                 RESET ALL
               </button>
             </div>
           </div>
+        )}
+        </>
         )}
       </div>
 
@@ -1179,187 +1588,449 @@ export default function CopyTrading({
         </div>
       ) : traders.length > 0 ? (
         <>
-          <div className="pixel-panel overflow-hidden">
-            <div className="overflow-x-auto">
-            <table className="pixel-table" style={{ minWidth: "920px", tableLayout: "fixed" }}>
-              <colgroup>
-                <col style={{ width: "32px" }} />
-                <col style={{ width: "130px" }} />
-                <col style={{ width: "140px" }} />
-                <col style={{ width: "100px" }} />
-                <col style={{ width: "100px" }} />
-                <col style={{ width: "100px" }} />
-                <col style={{ width: "72px" }} />
-                <col style={{ width: "80px" }} />
-                <col style={{ width: "64px" }} />
-                <col style={{ width: "100px" }} />
-              </colgroup>
-              <thead className="sticky">
-                <tr>
-                  <th className="num text-center">#</th>
-                  <th>ADDRESS</th>
-                  <th className="text-center">P&L CURVE</th>
-                  {columns.map((col) => (
-                    <th key={col.key}
-                      className={`sortable num ${traderSort === col.key ? "sorted" : ""} text-right`}
-                      onClick={() => handleSort(col.key)}>
-                      {col.label}
-                      <SortArrow active={traderSort === col.key} dir={sortDir} />
-                    </th>
-                  ))}
-                  <th className="num text-right" title="Trades in last 24h — flags dormant traders">24H</th>
-                  <th
-                    className={`sortable num ${traderSort === "last" ? "sorted" : ""} text-right`}
-                    title="Time since this trader's most recent trade"
-                    onClick={() => handleSort("last")}>
-                    LAST
-                    <SortArrow active={traderSort === "last"} dir={sortDir} />
-                  </th>
-                  <th className="text-center"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {pageTraders.length === 0 && (
-                  <tr>
-                    <td colSpan={10} className="text-center py-8 text-[13px] text-pixel-gray">
-                      ALL ROWS HIDDEN BY ACTIVE FILTERS — try switching LIVE off or relaxing FILTERS
-                    </td>
-                  </tr>
-                )}
-                {pageTraders.map((trader, i) => {
-                  const rowNum = safePage * PAGE_SIZE + i + 1;
-                  const pnlColor = trader.pnl > 0 ? "text-green-400" : trader.pnl < 0 ? "text-red-400" : "text-pixel-gray-light";
-                  const sc = scoreFor(trader);
-                  const scValid = Number.isFinite(sc);
-                  const scCls = !scValid ? "text-pixel-gray" : sc > 0 ? "text-green-400" : sc < 0 ? "text-red-400" : "text-pixel-gray-light";
+          {/* SORT rail — the table headers used to carry these clicks; on a
+              card grid the ranking needs its own row. Same handleSort, same
+              keys, so server-side paging by sort is unchanged. Folded with
+              the rest of the chrome: the collapsed header prints the active
+              rank (RANK {label} ▼) and expands to here. */}
+          {showControls && (
+          <>
+          <div className="flex items-center gap-1.5 flex-wrap px-1">
+            <span className="text-[11px] text-pixel-gray tracking-wider shrink-0">RANK BY</span>
+            {([
+              ...columns,
+              {
+                key: "history" as TraderSort,
+                label: "RECORD",
+                hint: "How long this wallet has been trading — time since its first-ever trade. Shorter than the ranking window means part of that window predates the trader.",
+              },
+              {
+                key: "last" as TraderSort,
+                label: "LAST",
+                hint: "Time since this trader's most recent trade",
+              },
+            ]).map((col) => (
+              <button
+                key={col.key}
+                onClick={() => handleSort(col.key)}
+                title={col.hint}
+                className={`pixel-btn text-[11px] px-2 py-0.5 transition-colors ${
+                  traderSort === col.key
+                    ? "border-green-400 text-green-400 bg-green-400/10"
+                    : "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                }`}
+              >
+                {col.label}
+                <SortArrow active={traderSort === col.key} dir={sortDir} />
+              </button>
+            ))}
 
-                  return (
-                    <tr key={trader.address} className="cursor-pointer group" onClick={() => goToTrader(trader.address)}>
-                      <td className="text-center !px-0">
-                        <RankBadge rank={rowNum} />
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-pixel-white font-mono text-[14px] group-hover:text-green-400 transition-colors truncate">
-                            {shortAddress(trader.address)}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="!px-2">
-                        <div className="flex items-center justify-center">
-                          <Sparkline data={trader.pnlCurve || []} width={120} height={26} />
-                        </div>
-                      </td>
-                      <td className={`num text-right font-mono ${scCls}`} title={`score = ${formula}`}>
-                        {scValid ? formatScore(sc) : "---"}
-                      </td>
-                      <td className={`num text-right font-mono ${pnlColor}`}>
-                        {formatPnl(trader.pnl)}
-                      </td>
-                      <td className="num text-right text-pixel-white font-mono">
-                        {formatVolume(trader.volume)}
-                      </td>
-                      <td className="num text-right text-pixel-gray-light font-mono">
-                        {trader.recentTrades || trader.positions}
-                      </td>
-                      {/* 24H column — color-coded so active traders pop:
-                          0 = red (dormant), 1-2 = amber, 3+ = green. */}
-                      {(() => {
-                        const c24 = trader.trades24h ?? 0;
-                        const cls = c24 === 0
-                          ? "text-red-400"
-                          : c24 < 3
-                            ? "text-amber-400"
-                            : "text-green-400";
-                        const title = c24 === 0
-                          ? "No trades in last 24h — likely dormant"
-                          : `${c24} trade${c24 === 1 ? "" : "s"} in last 24h`;
-                        return (
-                          <td className={`num text-right font-mono ${cls}`} title={title}>
-                            {c24}
-                          </td>
-                        );
-                      })()}
-                      {/* LAST TRADE — relative timestamp of most recent
-                          in-window trade. Green if < 1h (firing now),
-                          amber if < 24h (recent), red if older (dormant).
-                          Falls back to "—" when the backend payload pre-
-                          dates the lastTradeTs field (older disk cache). */}
-                      {(() => {
-                        const ts = trader.lastTradeTs;
-                        if (!ts) return <td className="num text-right text-pixel-gray-light font-mono" title="No last-trade timestamp in payload — sync to refresh">—</td>;
-                        const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - ts);
-                        const cls = ageSec < 3600
-                          ? "text-green-400"
-                          : ageSec < 86_400
-                            ? "text-amber-400"
-                            : "text-red-400";
-                        const label = ageSec < 60
-                          ? `${ageSec}s`
-                          : ageSec < 3600
-                            ? `${Math.floor(ageSec / 60)}m`
-                            : ageSec < 86_400
-                              ? `${Math.floor(ageSec / 3600)}h`
-                              : `${Math.floor(ageSec / 86_400)}d`;
-                        return (
-                          <td
-                            className={`num text-right font-mono ${cls}`}
-                            title={`Last trade ${new Date(ts * 1000).toLocaleString()}`}
-                          >
-                            {label}
-                          </td>
-                        );
-                      })()}
-                      <td
-                        className="text-center !px-2 relative"
-                        onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(trader.address); }}
-                      >
-                        {onSelect ? (
-                          selectedLower.has(trader.address.toLowerCase()) ? (
-                            // IN STRAT: bright filled GREEN — selection
-                            // status reads at a glance. Hover swaps to RED
-                            // (with REMOVE label) so the destructive action
-                            // signals before the click.
-                            // Notes:
-                            //  - `group` on the button itself anchors the
-                            //    `group-hover:` label swap; without it the
-                            //    REMOVE text would never appear.
-                            //  - `!` prefix is required because `.pixel-btn`
-                            //    in globals.css sets border/color/background
-                            //    after `@tailwind utilities;` and would
-                            //    otherwise win the cascade and flatten every
-                            //    state to neutral grey.
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
-                              className="pixel-btn group text-[12px] px-2 py-0.5 !border-green-400 !text-green-300 !bg-green-500/25 font-semibold hover:!border-red-400 hover:!text-red-200 hover:!bg-red-500/40 transition-all whitespace-nowrap"
-                              title="In strat — click to remove"
-                            >
-                              <span className="group-hover:hidden">✓ IN STRAT</span>
-                              <span className="hidden group-hover:inline">✕ REMOVE</span>
-                            </button>
-                          ) : (
-                            // + ADD: dashed amber outline — visually distinct
-                            // from the filled IN STRAT state without competing
-                            // for attention. Hover brightens to solid.
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
-                              className="pixel-btn text-[12px] px-2 py-0.5 !border !border-dashed !border-amber-400/50 !text-amber-300/80 !bg-transparent hover:!border-solid hover:!border-amber-400 hover:!text-amber-200 hover:!bg-amber-500/15 transition-all whitespace-nowrap"
-                              title="Add to active strat"
-                            >
-                              + ADD
-                            </button>
-                          )
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            </div>
+            {/* ── YOUR OWN SCORE ──
+                The first chip on this rail is not a fixed column: it is an
+                expression over the trader's numbers, and "ROI" is just the
+                preset that happens to be loaded. That was true before and
+                completely invisible — the editor was inside the FILTERS
+                drawer, three clicks from the ranking it controls. So the
+                formula sits here, next to the chip it names, folded to one
+                line until you want to change it. */}
+            <button
+              onClick={() => setShowScore((v) => !v)}
+              title={`The score behind ${columns[0].label} = ${formula}. Click to write your own — any expression over the trader's numbers.`}
+              className={`pixel-btn text-[11px] px-2 py-0.5 ml-auto flex items-center gap-1.5 transition-colors ${
+                showScore
+                  ? "border-pixel-white text-pixel-white"
+                  : scorePreset
+                  ? "border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+                  : "border-green-500/60 text-green-400"
+              }`}
+            >
+              <span className="opacity-70">&fnof;</span>
+              SCORE
+              <span className="font-mono max-w-[150px] truncate opacity-80 normal-case">
+                {scoreLang === "expr" ? formula : `${scoreLang === "py" ? "python" : "js"} ƒ · ${formula.split("\n")[0]}`}
+              </span>
+            </button>
           </div>
+
+          {showScore && (
+            <div className="pixel-panel border-green-500/25 p-3 space-y-2.5">
+              {/* Header: what this panel is, and where the score stands right
+                  now — validity moved up here from inside the box, so the box
+                  is just the code and the status reads like a status. */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[12px] text-pixel-white tracking-wider shrink-0">
+                  <span className="text-green-400">&fnof;</span> SCORE
+                </span>
+                <span className="text-[11px] text-pixel-gray hidden md:inline">
+                  ranks the board &middot; a function can also hide rows
+                </span>
+                <span className="ml-auto" />
+                {scoreLoading ? (
+                  <span className="text-[11px] px-2 py-0.5 border border-amber-400/50 text-amber-400 animate-pulse" title="Loading the in-browser Python runtime and compiling your function">PY LOADING…</span>
+                ) : compiled.error ? (
+                  <span className="text-[11px] px-2 py-0.5 border border-red-400/60 text-red-400" title={compiled.error}>ERR</span>
+                ) : (
+                  <span className="text-[11px] px-2 py-0.5 border border-green-500/50 text-green-400" title="Compiles — the board is ranked on this right now">&#10003; LIVE</span>
+                )}
+                {scoreHidden > 0 && !compiled.error && (
+                  <span className="text-[11px] text-amber-400" title="Traders your function returned null / None for">
+                    hiding {scoreHidden.toLocaleString()}
+                  </span>
+                )}
+                <button
+                  onClick={() => setFormula(DEFAULT_FORMULA)}
+                  title="Back to the default score"
+                  className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white shrink-0"
+                >
+                  RESET
+                </button>
+              </div>
+
+              {/* Presets — named formulas, yours included — and the two ways
+                  to grow past an expression into a real function. */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]">PRESETS</span>
+                <ScoreRatioChips
+                  formula={formula}
+                  setFormula={setFormula}
+                  canSave={!compiled.error && !scoreLoading}
+                  btnClass="pixel-btn text-[11px] px-2 py-0.5 shrink-0"
+                  idleClass="border-pixel-border text-pixel-gray hover:text-pixel-white"
+                />
+                <span className="w-px h-4 bg-pixel-border mx-0.5 hidden sm:block" aria-hidden />
+                <button
+                  onClick={() => setFormula(JS_FN_TEMPLATE)}
+                  title="Write the score as a JS function — return a number to rank, null to HIDE the trader. Multi-line, if/else, Math — all of it."
+                  className={`pixel-btn text-[11px] px-2 py-0.5 shrink-0 ${scoreLang === "js" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
+                >
+                  JS &fnof;
+                </button>
+                <button
+                  onClick={() => setFormula(PY_FN_TEMPLATE)}
+                  title="Write the score as a PYTHON function — def score(pnl, volume): return a number to rank, None to HIDE the trader. Runs in your browser (Pyodide), nothing leaves this tab."
+                  className={`pixel-btn text-[11px] px-2 py-0.5 shrink-0 ${scoreLang === "py" ? "border-green-400 text-green-400" : "border-pixel-border text-pixel-gray hover:text-pixel-white"}`}
+                >
+                  PY &fnof;
+                </button>
+              </div>
+
+              {/* The editor, full width — the one thing on this panel you
+                  actually type into, so it gets the whole row. */}
+              {scoreLang === "expr" && !formula.includes("\n") ? (
+                <input
+                  ref={formulaRef as React.RefObject<HTMLInputElement | null>}
+                  type="text"
+                  value={formula}
+                  onChange={(e) => setFormula(e.target.value)}
+                  onKeyDown={onEnter}
+                  spellCheck={false}
+                  placeholder={DEFAULT_FORMULA}
+                  title="Any arithmetic over the variables below — + - * / ( ) and numbers. The board re-ranks as you type. Or press JS ƒ / PY ƒ to write a full function."
+                  className={`pixel-input-sm w-full font-mono ${compiled.error ? "border-red-400/60" : ""}`}
+                />
+              ) : (
+                <textarea
+                  ref={formulaRef as React.RefObject<HTMLTextAreaElement | null>}
+                  value={formula}
+                  onChange={(e) => setFormula(e.target.value)}
+                  spellCheck={false}
+                  rows={Math.min(12, Math.max(4, formula.split("\n").length + 1))}
+                  placeholder={PY_FN_TEMPLATE}
+                  title="Your score function. Return a number to rank the trader — return null / None to hide them from the board."
+                  className={`pixel-input-sm w-full font-mono leading-snug resize-y ${compiled.error ? "border-red-400/60" : ""}`}
+                />
+              )}
+
+              {compiled.error && (
+                <div className="font-mono text-[11px] text-red-400 whitespace-pre-wrap break-words">
+                  {scoreLang === "py" ? "python: " : ""}{compiled.error}
+                </div>
+              )}
+
+              {/* The variables, spelled out. A formula box with no vocabulary
+                  beside it is a guessing game — and clicking one writes it,
+                  so the row doubles as the way in. */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]">VARIABLES</span>
+                {FORMULA_VARS.map((v) => (
+                  <button
+                    key={v}
+                    onClick={() => insertVar(v)}
+                    title={`${SCORE_VAR_HINTS[v]} — click to drop it in at the cursor`}
+                    className="pixel-btn text-[11px] px-1.5 py-0.5 font-mono border-pixel-border text-pixel-gray hover:text-green-400 hover:border-green-400/60"
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+
+              {/* Or skip all of the above: say what you want ranked on top
+                  and let the agent write it. The answer drops into the same
+                  box and compiles through the same path — ERR if it's wrong,
+                  never a silent bad ranking. */}
+              <ScoreAsk formula={formula} setFormula={setFormula} days={days} />
+
+              {/* Or shop for one: the ▦ SCORE MARKET lives on the STRATS
+                  main tab (its one home — build/share artifacts live there).
+                  USE over there drops the source into this box live. */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]" title="A searchable shelf of score functions — curated consistency hunters plus anything published from this deploy.">
+                  &#9638; MARKET
+                </span>
+                <button
+                  className="pixel-btn text-[11px] px-2.5 py-1 border-pixel-border text-pixel-gray hover:text-pixel-green hover:border-pixel-green/60"
+                  onClick={() => router.push("/strats")}
+                  title='Browse score functions on the STRATS tab — USE drops the source into this box'
+                >
+                  BROWSE SCORE FUNCTIONS → STRATS
+                </button>
+              </div>
+
+              <div className="text-[11px] text-pixel-gray leading-snug border-t border-pixel-border/60 pt-2">
+                {scoreLang === "expr" ? (
+                  <>Ranked on this expression, biggest first. + SAVE keeps it as
+                  your own chip on every board. Press <span className="font-mono">JS &fnof;</span> or{" "}
+                  <span className="font-mono">PY &fnof;</span> to write a full function instead —
+                  one that can also FILTER.</>
+                ) : (
+                  <>Your {scoreLang === "py" ? "Python" : "JS"} function runs in your browser on every
+                  trader: <span className="text-pixel-gray-light">return a number</span> = their score
+                  (ranked biggest first) · <span className="text-pixel-gray-light">return {scoreLang === "py" ? "None" : "null"}</span> = the
+                  trader is hidden from the board.
+                  {scoreLang === "py" && " Name any of the variables as parameters — def score(pnl, volume): — or take one argument and read it as a dict."}</>
+                )}
+                {!scorePreset && serverScoreSort && (
+                  <>
+                    {" "}Scored in your browser, so it re-ranks the
+                    pool this page pulled under <span className="font-mono text-pixel-gray-light">{serverScoreSort}</span> — widen the
+                    filters if the trader you expect isn&apos;t in it.
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          </>
+          )}
+
+          {pageTraders.length === 0 ? (
+            <div className="pixel-panel p-8 text-center text-[13px] text-pixel-gray">
+              EVERY CARD IS HIDDEN BY THE CURRENT FILTERS
+              {activityDropped > 0 && (
+                <div className="mt-2 text-[12px] text-pixel-gray-light">
+                  {activityDropped.toLocaleString()} hidden because they didn&apos;t trade in the last {maxLastTradeHrs}h.{" "}
+                  <button
+                    onClick={() => { setMaxLastTradeHrs(""); setMinTrades24h(""); }}
+                    className="pixel-btn text-[11px] px-2 py-0.5 ml-1"
+                  >
+                    SHOW EVERYONE
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* One card per trader: who they are, the shape of their P&L, the
+               numbers behind it, whose money is on them, and the strat toggle. */
+            <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+              {pageTraders.map((trader, i) => {
+                const rowNum = safePage * PAGE_SIZE + i + 1;
+                const pnlColor = trader.pnl > 0 ? "text-green-400" : trader.pnl < 0 ? "text-red-400" : "text-pixel-gray-light";
+                // null = the user's score FUNCTION filtered this trader —
+                // only visible here in server-paged (cold) mode, where the
+                // client can't drop the row without breaking pagination.
+                const sc = scoreFor(trader) ?? Number.NaN;
+                // A preset score can be its metric's -1 "unknown" sentinel
+                // (nothing settled in the window) — that's no data, not a
+                // score of minus one.
+                const scUnknown = scoreIsUnknown(formula, scoreInputs(trader));
+                const scValid = Number.isFinite(sc) && !scUnknown;
+                const scCls = !scValid ? "text-pixel-gray" : sc > 0 ? "text-green-400" : sc < 0 ? "text-red-400" : "text-pixel-gray-light";
+
+                // 24H — color-coded so active traders pop:
+                // 0 = red (dormant), 1-2 = amber, 3+ = green.
+                const c24 = trader.trades24h ?? 0;
+                const c24Cls = c24 === 0 ? "text-red-400" : c24 < 3 ? "text-amber-400" : "text-green-400";
+                const c24Title = c24 === 0
+                  ? "No trades in last 24h — likely dormant"
+                  : `${c24} trade${c24 === 1 ? "" : "s"} in last 24h`;
+
+                // RECORD — days of track record. Amber when it is SHORTER
+                // than the window being ranked: the numbers on the card then
+                // cover days this account did not exist. "—" = not resolved
+                // yet, not new.
+                const age = historyDays(trader);
+                const recCls = age === null ? "text-pixel-gray" : age < days ? "text-amber-400" : "text-pixel-gray-light";
+                const recTitle = age === null
+                  ? "Track record not resolved yet — fills in on the next sync"
+                  : age < days
+                    ? `Only ${Math.floor(age)} days of history — SHORTER than the ${days}D window, so these numbers cover days before this account existed`
+                    : `Trading for ${Math.floor(age)} days`;
+
+                // LAST TRADE — green < 1h (firing now), amber < 24h, red
+                // older (dormant). "—" when the payload predates lastTradeTs.
+                const ts = trader.lastTradeTs;
+                const lastAgeSec = ts ? Math.max(0, Math.floor(Date.now() / 1000) - ts) : null;
+                const lastCls = lastAgeSec === null
+                  ? "text-pixel-gray-light"
+                  : lastAgeSec < 3600 ? "text-green-400" : lastAgeSec < 86_400 ? "text-amber-400" : "text-red-400";
+                const lastLabel = lastAgeSec === null
+                  ? "—"
+                  : lastAgeSec < 60 ? `${lastAgeSec}s`
+                    : lastAgeSec < 3600 ? `${Math.floor(lastAgeSec / 60)}m`
+                      : lastAgeSec < 86_400 ? `${Math.floor(lastAgeSec / 3600)}h`
+                        : `${Math.floor(lastAgeSec / 86_400)}d`;
+                const lastTitle = ts
+                  ? `Last trade ${new Date(ts * 1000).toLocaleString()}`
+                  : "No last-trade timestamp in payload — sync to refresh";
+
+                const addrLower = trader.address.toLowerCase();
+                const mine = myPlaced.get(addrLower);
+                const mineOn = !!mine && mine.usd > 0;
+                const comm = communityPlaced.get(addrLower);
+
+                return (
+                  <div
+                    key={trader.address}
+                    onClick={() => goToTrader(trader.address)}
+                    className="pixel-panel p-2.5 flex flex-col gap-2 cursor-pointer group hover:border-pixel-white/60 transition-colors"
+                  >
+                    {/* Who — rank, address, recency at a glance */}
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <RankBadge rank={rowNum} />
+                      <span className="text-pixel-white font-mono text-[13px] group-hover:text-green-400 transition-colors truncate" title={trader.address}>
+                        {shortAddress(trader.address)}
+                      </span>
+                      <span className={`ml-auto font-mono text-[10px] shrink-0 ${lastCls}`} title={lastTitle}>
+                        {lastLabel}
+                      </span>
+                    </div>
+
+                    {/* Headline windowed P&L + curve */}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className={`font-mono text-[16px] leading-none ${pnlColor}`} title="Realized + marked P&L over the window">
+                        {formatPnl(trader.pnl)}
+                      </span>
+                      <span className="font-mono text-[9px] tracking-wider text-pixel-gray">{days}D P&L</span>
+                    </div>
+                    {trader.pnlCurve && trader.pnlCurve.length > 1 ? (
+                      <div className="w-full" title="Cumulative realized P&L across the window">
+                        <Sparkline data={trader.pnlCurve} width={250} height={40} stretch />
+                      </div>
+                    ) : (
+                      <div className="h-[40px] flex items-center justify-center font-mono text-[9px] text-pixel-gray border border-dashed border-pixel-border/40">
+                        no P&L curve for this slice yet — the next sync draws it
+                      </div>
+                    )}
+
+                    {/* The numbers behind the ranking */}
+                    <div className="grid grid-cols-3 gap-x-2 gap-y-1">
+                      <div className="min-w-0" title={scUnknown ? "unknown — nothing settled in this window yet" : `score = ${formula}`}>
+                        <div className={`text-[9px] tracking-wider ${traderSort === "score" ? "text-green-400" : "text-pixel-gray"}`}>{columns[0].label}</div>
+                        <div className={`font-mono text-[12px] truncate ${scCls}`}>{scValid ? formatScore(sc) : "—"}</div>
+                      </div>
+                      <div className="min-w-0" title="USDC traded in the window">
+                        <div className={`text-[9px] tracking-wider ${traderSort === "volume" ? "text-green-400" : "text-pixel-gray"}`}>VOL</div>
+                        <div className="font-mono text-[12px] truncate text-pixel-white">{formatVolume(trader.volume)}</div>
+                      </div>
+                      <div className="min-w-0" title="Positions taken in the window">
+                        <div className={`text-[9px] tracking-wider ${traderSort === "positions" ? "text-green-400" : "text-pixel-gray"}`}>TRADES</div>
+                        <div className="font-mono text-[12px] truncate text-pixel-gray-light">{trader.recentTrades || trader.positions}</div>
+                      </div>
+                      <div className="min-w-0" title={c24Title}>
+                        <div className="text-[9px] tracking-wider text-pixel-gray">24H</div>
+                        <div className={`font-mono text-[12px] truncate ${c24Cls}`}>{c24}</div>
+                      </div>
+                      <div className="min-w-0" title={recTitle}>
+                        <div className={`text-[9px] tracking-wider ${traderSort === "history" ? "text-green-400" : "text-pixel-gray"}`}>RECORD</div>
+                        <div className={`font-mono text-[12px] truncate ${recCls}`}>{formatHistory(trader)}</div>
+                      </div>
+                      <div className="min-w-0" title={lastTitle}>
+                        <div className={`text-[9px] tracking-wider ${traderSort === "last" ? "text-green-400" : "text-pixel-gray"}`}>LAST</div>
+                        <div className={`font-mono text-[12px] truncate ${lastCls}`}>{lastLabel}</div>
+                      </div>
+                    </div>
+
+                    {/* Whose money is on them — your desk allocation next to
+                        the community gallery's, so "am I the only one?" is
+                        answered on the card itself. */}
+                    <div className="grid grid-cols-2 gap-1">
+                      <div
+                        className={`border px-1.5 py-1 ${mineOn ? "border-green-400/50 bg-green-400/5" : "border-pixel-border/60"}`}
+                        title={
+                          mineOn
+                            ? `Your COPY DESK allocation on this trader: $${mine.usd.toFixed(2)}${mine.enabled ? "" : " — currently paused"}`
+                            : "You have nothing on this trader — + ADD them to your strat, then size them on the desk"
+                        }
+                      >
+                        <div className="text-[9px] text-pixel-gray tracking-wider">YOU PLACED</div>
+                        <div className={`font-mono text-[13px] leading-tight ${mineOn ? "text-green-400" : "text-pixel-gray"}`}>
+                          {mineOn ? formatVolume(mine.usd) : "$0"}
+                          {mineOn && !mine.enabled && <span className="text-[9px] text-amber-400 ml-1">PAUSED</span>}
+                        </div>
+                      </div>
+                      <div
+                        className={`border px-1.5 py-1 ${comm ? "border-pixel-gray-light/40 bg-pixel-white/[0.03]" : "border-pixel-border/60"}`}
+                        title={
+                          comm
+                            ? `$${comm.usd.toFixed(0)} on this trader across ${comm.strats} published strat${comm.strats === 1 ? "" : "s"} from ${comm.backers} backer${comm.backers === 1 ? "" : "s"} in the community gallery (yours included if you published)`
+                            : "No published strat in the community gallery backs this trader yet"
+                        }
+                      >
+                        <div className="text-[9px] text-pixel-gray tracking-wider">COMMUNITY</div>
+                        <div className={`font-mono text-[13px] leading-tight ${comm ? "text-pixel-white" : "text-pixel-gray"}`}>
+                          {comm ? formatVolume(comm.usd) : "$0"}
+                          {comm && (
+                            <span className="text-[9px] text-pixel-gray-light ml-1">
+                              · {comm.backers} backer{comm.backers === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {onSelect && (
+                      selectedLower.has(addrLower) ? (
+                        // IN STRAT: bright filled GREEN — selection status
+                        // reads at a glance. Hover swaps to RED (with REMOVE
+                        // label) so the destructive action signals before the
+                        // click.
+                        // Notes:
+                        //  - `group/btn` anchors the label swap; the card
+                        //    already uses `group` for the address hover, so
+                        //    the button needs its own named group or hovering
+                        //    anywhere on the card would flip it to REMOVE.
+                        //  - `!` prefix is required because `.pixel-btn`
+                        //    in globals.css sets border/color/background
+                        //    after `@tailwind utilities;` and would
+                        //    otherwise win the cascade and flatten every
+                        //    state to neutral grey.
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
+                          className="pixel-btn group/btn mt-auto w-full text-[12px] px-2 py-1 !border-green-400 !text-green-300 !bg-green-500/25 font-semibold hover:!border-red-400 hover:!text-red-200 hover:!bg-red-500/40 transition-all whitespace-nowrap"
+                          title="In strat — click to remove"
+                        >
+                          <span className="group-hover/btn:hidden">✓ IN STRAT</span>
+                          <span className="hidden group-hover/btn:inline">✕ REMOVE</span>
+                        </button>
+                      ) : (
+                        // + ADD: dashed amber outline — visually distinct
+                        // from the filled IN STRAT state without competing
+                        // for attention. Hover brightens to solid.
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
+                          className="pixel-btn mt-auto w-full text-[12px] px-2 py-1 !border !border-dashed !border-amber-400/50 !text-amber-300/80 !bg-transparent hover:!border-solid hover:!border-amber-400 hover:!text-amber-200 hover:!bg-amber-500/15 transition-all whitespace-nowrap"
+                          title="Add to active strat"
+                        >
+                          + ADD
+                        </button>
+                      )
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
@@ -1397,8 +2068,43 @@ export default function CopyTrading({
           )}
         </>
       ) : hasLoaded && !loading ? (
-        <div className="pixel-panel p-8 text-center text-[14px] text-pixel-gray">
-          NO TRADERS MATCH CURRENT FILTERS
+        <div className="pixel-panel p-8 text-center space-y-3">
+          <div className="text-[14px] text-pixel-gray tracking-wider">NOTHING TO SHOW</div>
+          {activityDropped > 0 ? (
+            <>
+              <div className="text-[12px] text-pixel-gray-light max-w-[600px] mx-auto leading-relaxed">
+                {activityDropped.toLocaleString()} traders are on the board, but the board only shows
+                people who traded in the last {maxLastTradeHrs}h
+                {Number(minTrades24h) > 0 ? ` (at least ${minTrades24h} today)` : ""}
+                {snapshotOlderThanWindow
+                  ? ` — and the data was last refreshed ${formatAgo(staleAgeMs)} ago, so nobody qualifies yet.`
+                  : "."}
+              </div>
+              <div className="flex justify-center gap-2 flex-wrap">
+                {snapshotOlderThanWindow && (
+                  <button
+                    onClick={() => { void loadStream({ force: true }); }}
+                    disabled={refreshing || loading}
+                    className="pixel-btn text-[12px] px-3 py-1 border-green-400/60 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
+                    title="Pull a fresh leaderboard from Polymarket (takes a few minutes)"
+                  >
+                    ↻ REFRESH THE DATA
+                  </button>
+                )}
+                <button
+                  onClick={() => { setMaxLastTradeHrs(""); setMinTrades24h(""); }}
+                  className="pixel-btn text-[12px] px-3 py-1"
+                  title="Drop the recent-activity filter and show every trader on the board"
+                >
+                  SHOW EVERYONE
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="text-[12px] text-pixel-gray-light">
+              Try a broader keyword, or open FILTERS and loosen them.
+            </div>
+          )}
         </div>
       ) : null}
     </div>

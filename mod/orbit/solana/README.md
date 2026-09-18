@@ -1,14 +1,17 @@
 # solana
 
-Solana as one mod: twenty-two MCP tools, a REST API and a browser console, all
-running the same code on one port. Read the chain, move value on it, and deploy,
-load and call programs.
+Solana as one mod: twenty-six MCP tools, a REST API and a browser console, all
+running the same code on one port. Read the chain, rank every token on it by the
+liquidity actually behind it, move value, and deploy, load and call programs.
 
 ```
 m solana/account 9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM
 m solana/portfolio <wallet>
 m solana/tx <signature>
 m solana/quote SOL USDC 10
+m solana/tokens sort=liquidity limit=50
+m solana/liquidity BONK
+m solana/venues
 m solana/swap SOL USDC 0.5 confirm=1
 m solana/program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc
 m solana/deploy clone=memo network=devnet wallet=hot
@@ -16,7 +19,7 @@ m solana/invoke <program> data=text:hello accounts='["s:self"]' wallet=hot
 m solana/serve
 ```
 
-API `:50710` (`/api/solana`) · console `/solana` · MCP `POST /mcp` (22 tools)
+API `:50710` (`/api/solana`) · console `/solana` · MCP `POST /mcp` (26 tools)
 
 ## The problem it is shaped around
 
@@ -51,6 +54,12 @@ from there.
 
 **Value**
 - `sol_price` — by mint or by symbol.
+- `sol_tokens` — every routable token on Solana, ranked by liquidity. The
+  universe, filterable and sortable. See below.
+- `sol_liquidity` — one token's liquidity three ways, one of which is measured
+  rather than reported.
+- `sol_pools` — every pool holding a token, deduped across indexes and screened.
+- `sol_venues` — where the chain's depth actually sits, by DEX.
 - `sol_token` — a mint in full, including the two authorities that decide
   whether someone can still inflate the supply or freeze your account.
 - `sol_quote` — Jupiter's best route, with real price impact.
@@ -79,6 +88,80 @@ from there.
 - `sol_pda` — derive a program address from seeds.
 - `sol_authority` — hand over the right to upgrade, revoke it forever, or close
   a program and take the rent back.
+
+## Liquidity is three different numbers, and they disagree
+
+"How much liquidity does this token have" has no single answer, and any venue
+that prints one is hiding that. Three separate quantities get the same name:
+
+| | what it counts | who says so |
+|---|---|---|
+| **quotable** | what an aggregator believes it can route right now, one-sided | the router |
+| **pool reserves** | the USD in every pool the token trades in, *both sides* | the pool indexes |
+| **executable** | the largest sell that still clears under a 1% all-in cost | **measured here** |
+
+The first two are reports. The third is a measurement: `sol_liquidity` prices
+real sells of $1k, $10k, $100k and $1m through the live router, then bisects
+between the two rungs either side of the limit and quotes again until it has the
+number. Cost is `1 − received ÷ nominal`, so it includes the fees and the
+route's own spread, not just the impact figure the router prints.
+
+The gap is not a rounding error. At the time of writing:
+
+```
+BONK   quotable $736k · reserves $882k · executable $36.5k     a 20× gap
+JUP    quotable $3.19m ·                 executable $237k      a 13× gap
+```
+
+A $1m JUP sell returns about $18k. That is the whole reason this exists: the
+headline says the token is fine and the exit says otherwise, and only one of
+them is a measurement.
+
+Everything around that number is there to make it readable:
+
+- **Pools, deduped by address.** Two indexes describing the same pool is one
+  pool, not double the liquidity. Where they disagree about its reserves the
+  **smaller** reading is counted and both are kept on the row — overstating
+  depth costs someone money on a sell that will not fill; understating it costs
+  nothing but caution.
+- **Fake depth is screened out, not hidden.** A pool claiming more reserves than
+  the token has market cap, or a thousand times what its siblings hold, stays in
+  the list with the reason attached and is excluded from every total.
+- **Concentration.** An HHI over the pool shares, because one deep pool and nine
+  dust ones is not ten pools of liquidity — it is a market maker who can leave.
+- **Flags that finish the sentence.** Not `mint_authority: true` but *"supply
+  can still be inflated — the mint authority is live"*. Not `turnover: 400` but
+  *"volume is 400× the liquidity in 24h — usually bots, not demand"*.
+- **`redeemable`.** Jupiter reports staked-SOL wrappers as having liquidity
+  equal to their entire market cap. That is redemption, not a book, and
+  unflagged it puts twenty LSTs above SOL itself in any ranking.
+
+`sol_tokens` ranks the whole universe — about 3,200 mints holding some $7.8bn of
+quotable liquidity, of which the top ten are two thirds and a third of the list
+has no market at all. Sort by liquidity, volume, market cap, holders, turnover,
+24h move, age or how much of the cap the liquidity actually is; filter by tag,
+size, or whether the mint and freeze authorities are still live.
+
+### Adding a source
+
+Sources are plug-in and `Book` never names one. A source answers what it can —
+`universe`, `tokens`, `pools`, `top_pools` — and raises `Unsupported` for the
+rest; one being down degrades a column, never the answer. Adding a venue is a
+class and a line in `SOURCES`:
+
+```python
+class MyIndex(Source):
+    name, measures, per_minute = 'myindex', 'reserves', 60
+
+    def pools(self, mint, limit=50):
+        return [{'address': …, 'dex': …, 'pair': …, 'liquidity_usd': …}]
+```
+
+Each source declares its own per-minute budget and stands down when it is spent,
+rather than discovering the public cap by being blocked. Jupiter is the one
+everything routes through — prices, symbols and every quote — so calls to it are
+*paced* instead: a burst waits its turn, and only a wait longer than anyone
+would sit through becomes an error.
 
 ## Programs: deploy one, load one, call it
 

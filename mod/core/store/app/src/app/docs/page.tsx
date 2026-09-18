@@ -6,6 +6,7 @@
  * fetched) so the page works even when the API is down.
  */
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { SubHeader } from "@/components/SubHeader";
 
@@ -81,6 +82,12 @@ function MethodBadges({ m }: { m: string }) {
 }
 
 export default function DocsPage() {
+  // The MCP snippet wants an absolute URL, which only exists in the browser.
+  // Reading window during render made the prerendered HTML and the client
+  // disagree (React hydration error), so it lands after mount instead.
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
+
   return (
     <div className="docs-wrap">
       <SubHeader active="docs" />
@@ -110,7 +117,7 @@ export default function DocsPage() {
           <li><strong>Private by default</strong> — only you can read what you store, until you share, pool, publish, or list it.</li>
           <li><strong>Gated writes</strong> — storing needs the owner's whitelist or on-chain <strong>BlocTime</strong> holdings, a signed terms-of-service acceptance, and quota headroom.</li>
           <li><strong>CID-agnostic</strong> — data living elsewhere (Arweave, another IPFS pin, S3) can be registered by reference and becomes a first-class object.</li>
-          <li><strong>JSON link graph</strong> — CID strings embedded in stored content are auto-detected, so objects form a navigable graph. The <strong>🕸 Graph</strong> tab draws the whole thing; CIDs held elsewhere show up as external nodes.</li>
+          <li><strong>JSON link graph</strong> — CID strings embedded in stored content are auto-detected, so objects form a navigable graph. The <strong>Graph</strong> tab draws the whole thing; CIDs held elsewhere show up as external nodes.</li>
         </ul>
       </section>
 
@@ -118,7 +125,7 @@ export default function DocsPage() {
         <h2>Quickstart</h2>
         <ol>
           <li><strong>Sign in</strong> with MetaMask on the <Link href="/">main page</Link> — your wallet signature is the whole login; no password, no account creation.</li>
-          <li><strong>No wallet extension?</strong> <em>Continue without a wallet</em> mints a keypair inside your browser and signs with that instead — same addresses, same API. Back it up from the 🔑 button: clearing site data erases the key, and with it access to anything stored under that address.</li>
+          <li><strong>No wallet extension?</strong> <em>Continue without a wallet</em> mints a keypair inside your browser and signs with that instead — same addresses, same API. Back it up from the key button: clearing site data erases the key, and with it access to anything stored under that address.</li>
           <li><strong>Read &amp; sign the terms</strong> (once per version) when prompted.</li>
           <li><strong>Add data</strong> — pick File / Text / JSON / Image, choose a backend (or <code>both</code> to fan out), optionally tick <em>public</em> or drop it straight into a pool.</li>
           <li><strong>Open its page</strong> — every object row has an <em>open</em> link; the page shows content, metadata, market state, and the link graph.</li>
@@ -212,7 +219,7 @@ export default function DocsPage() {
         </p>
         <div className="docs-code">{`# Claude Code
 claude mcp add --transport http store \\
-  ${typeof window !== "undefined" ? window.location.origin : ""}${API_BASE}/mcp \\
+  ${origin}${API_BASE}/mcp \\
   --header "Authorization: Bearer <your mod token>"`}</div>
         <table className="docs-table">
           <thead>

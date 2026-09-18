@@ -1,25 +1,63 @@
 {
     "name": "chutes",
-    "version": "2.0.0",
-    "description": "Chutes.ai serverless GPU inference \u2014 Rust MCP server backend",
+    "version": "4.0.0",
+    "description": "chutes.ai serverless GPU inference behind one OpenAI-compatible Rust MCP server and an 8-bit arcade console. Streaming chat, image generation on diffusion chutes, a browsable catalog of every chute (price, live replicas, GPUs, owner, readme; filter by kind/tag/gpu/owner/live), a price router (USD/1M tokens), and a VS mode that races the same prompt across several chutes.",
+    "icon": "\u25b2",
+    "color": "#3ddc97",
     "port": 50300,
+    "gateway_port": 50300,
+    "app_port": 50300,
+    "route": true,
     "urls": {
         "api": "http://localhost:50300",
-        "app": "http://localhost:50300"
+        "app": "http://localhost:50300",
+        "mcp": "http://localhost:50300/mcp",
+        "public": "https://modc2.com/chutes"
     },
+    "upstream": "https://api.chutes.ai",
     "endpoints": {
         "mcp": "POST /mcp",
         "chat": "POST /chat",
+        "compare": "POST /compare",
+        "route": "POST /route",
         "images": "POST /images",
         "models": "GET /models",
+        "status": "GET /status",
         "forward": "POST /forward",
-        "tools": "GET /tools"
+        "tools": "GET /tools",
+        "console": "GET /",
+        "key": "GET /key \u00b7 POST /key {key} \u00b7 DELETE /key (owner-signed)",
+        "chute": "GET /chute/{id_or_name}"
     },
+    "tools": [
+        "chat",
+        "compare",
+        "route",
+        "models",
+        "status",
+        "generate_image",
+        "list_chutes",
+        "get_chute",
+        "warmup",
+        "utilization",
+        "deploy_chute",
+        "delete_chute"
+    ],
     "fns": [
         "forward",
         "chat",
-        "generate_image",
+        "compare",
+        "route",
         "models",
+        "status",
+        "generate_image",
+        "keys",
+        "key",
+        "set_api_key",
+        "set_server_key",
+        "whoami",
+        "token",
+        "clear_api_key",
         "list_chutes",
         "get_chute",
         "warmup",
@@ -34,6 +72,5 @@
         "test"
     ],
     "backend": "chutes-rs (Rust: axum MCP server, JSON-RPC 2.0 Streamable HTTP + stdio)",
-    "schema": "QmR6Ky5sfthcjJLjR581JyYt2PiDztZAnFcsjpPw2aN8QX",
-    "gateway_port": 50300
+    "schema": "QmXeJKTCAGGSFSNQAnfwMoPDerRZEVZhSDmN4A3HTvGS52"
 }

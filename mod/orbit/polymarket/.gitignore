@@ -1,0 +1,16 @@
+# Runtime logs — the API appends every engine cycle, order intent and the
+# operator's EOA here. It reached 222MB inside the module tree, which is both
+# a privacy leak in a snapshot and most of the tree's weight. start.sh rotates
+# it; nothing about it belongs in version control.
+src/api/api.log
+src/api/api.log.*
+mcp_err.txt
+
+# Build artifacts
+src/api/target/
+src/app/.next/
+src/app/node_modules/
+src/app/tsconfig.tsbuildinfo
+src/app/next-env.d.ts
+__pycache__/
+*.pyc

@@ -1,0 +1,70 @@
+{
+    "name": "logo",
+    "title": "Logo \u25c8 Brand Marks",
+    "version": "1.0.0",
+    "description": "The fleet's brand-mark service. Every module's logo \u2014 a glyph, a hosted image, or an uploaded file \u2014 lives here instead of inside the module that shows it, and only that module's OWNER can change it. Writes are gated on a mod-protocol token whose signature must recover the target module's configured owner, so a console can display and offer to edit a mark without ever holding the power to change one.",
+    "icon": "\u25c8",
+    "color": "#cc785c",
+    "anchor": "mod.py",
+    "protocol": "logo/1.0",
+    "port": 50760,
+    "app_port": 50761,
+    "base_path": "/logo",
+    "route": true,
+    "owner": "0xD779eB61CEd815570F74AB15a52eE8378a66996f",
+    "urls": {
+        "api": "http://localhost:50760",
+        "app": "http://localhost:50761/logo",
+        "same_origin_api": "http://localhost:50761/logo/_api",
+        "gateway_api": "https://modc2.com/api/logo",
+        "gateway_app": "https://modc2.com/logo"
+    },
+    "backend": "api/api.py (FastAPI \u2014 the API, :50760)",
+    "frontend": "app/server.py (stdlib \u2014 the console at /logo on :50761; proxies /logo/_api to the API)",
+    "auth": "mod-protocol",
+    "deps": [
+        "auth"
+    ],
+    "state_dir": "~/.mod/logo",
+    "authorization": {
+        "read": "public \u2014 a logo is what everyone sees; gating it on a session would only make the corner flicker",
+        "write": "the TARGET module's owner. The caller sends a mod-protocol token (`m.mod('auth').token`); its signature must recover the address in that module's own config.json `owner` field, or an address in ~/.mod/{module}/owners.json",
+        "why": "this module holds no credential standing in for anybody. A peer that proxies a save (see orbit/build) forwards the owner's signed token and cannot mint one, so proxying the UI never grants the power to change the mark"
+    },
+    "fns": [
+        "forward",
+        "get",
+        "set",
+        "glyph",
+        "url",
+        "upload",
+        "reset",
+        "marks",
+        "owner",
+        "whoami",
+        "status"
+    ],
+    "endpoints": {
+        "GET /health": "liveness + how many marks are set",
+        "GET /status": "auth mode, token max age, where state lives",
+        "GET /whoami": "the address behind a token, and which modules it may write",
+        "GET /marks": "every module that has a mark set",
+        "GET /logo/{module}": "public \u2014 the mark to draw",
+        "GET /logo/{module}/image": "public \u2014 the uploaded bytes, CSP-hardened, immutable per ?v=",
+        "GET /logo/{module}/owner": "who may write this module's mark, and where that came from",
+        "POST /logo/{module}": "owner-only \u2014 {glyph|url|dataUrl|reset}",
+        "DELETE /logo/{module}": "owner-only \u2014 back to the protocol cube"
+    },
+    "limits": {
+        "max_image_bytes": 524288,
+        "glyph_chars": 4,
+        "mime": [
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+            "image/gif",
+            "image/svg+xml"
+        ]
+    },
+    "schema": "QmcaTo2TMvWiQVeen64jJnQn7dm1BaSX5cDv3FTpc1uYXT"
+}

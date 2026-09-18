@@ -70,7 +70,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small\textcolor{gray}{MOD Protocol -- Merkle-Tree Module Registry}}
-\fancyhead[R]{\small\textcolor{gray}{v0.1 -- May 2026}}
+\fancyhead[R]{\small\textcolor{gray}{v0.2 -- August 2026}}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
@@ -89,17 +89,17 @@
 
 {\Huge\bfseries\textcolor{modblue}{Scaling Off-Chain\\Open-Source Management}\par}
 \vspace{0.6cm}
-{\Large\textcolor{gray}{Storing the tree, not the leaves:\\a Merkle-root registry for the MOD orbit ecosystem}\par}
+{\Large\textcolor{gray}{Storing the tree, not the leaves:\\a Merkle-root registry for the MOD orbit ecosystem,\\and the mod protocol it registers}\par}
 
 \vspace{2cm}
-{\large Version 0.1\par}
-{\large May 2026\par}
+{\large Version 0.2\par}
+{\large August 2026\par}
 
 \vspace{3cm}
 
 \begin{abstract}
 \noindent
-The MOD protocol today registers each orbit module as an independent on-chain row keyed by an IPFS CID. With 200+ modules and projected growth into the tens of thousands as autonomous agents publish their own, the linear per-module storage and gas cost becomes the binding constraint on ecosystem scale. We propose replacing the per-module hash table with a single 32-byte Merkle root anchored on-chain. The full tree---containing module metadata, code CIDs, owner addresses, prices, and version history---lives entirely off-chain in IPFS-backed mirrors. Authenticity is preserved by Merkle inclusion proofs; updates are batched into a single root-rotation transaction; reads are free. We show that this design reduces per-module on-chain storage from $\approx 5$ slots ($\approx 100{,}000$ gas amortised) to $O(1/N)$, reduces a publish operation from $\approx 80{,}000$ gas to a marginal cost approaching the cost of a single SSTORE shared across $N$ updates, and makes the registry compatible with permissionless off-chain indexers without trust assumptions. The trade-off is a one-block latency between local commit and global root rotation, which is acceptable for a developer-tools registry. Part~II then documents the rest of the protocol the registry serves: the \emph{module} as the unit of definition; a single reusable Nix environment and shared supervisor that run every module without per-module containers; a federated gateway with scale-to-zero execution; and one shared identity module with an owner/peer authorization model that keeps access control off-chain while the public tree carries only public facts.
+The MOD protocol today registers each orbit module as an independent on-chain row keyed by an IPFS CID. With 300+ modules already deployed and projected growth into the tens of thousands as autonomous agents publish their own, the linear per-module storage and gas cost becomes the binding constraint on ecosystem scale. We propose replacing the per-module hash table with a single 32-byte Merkle root anchored on-chain. The full tree---containing module metadata, code CIDs, owner addresses, prices, and version history---lives entirely off-chain in IPFS-backed mirrors. Authenticity is preserved by Merkle inclusion proofs; updates are batched into a single root-rotation transaction; reads are free. We show that this design reduces per-module on-chain storage from $\approx 5$ slots ($\approx 100{,}000$ gas amortised) to $O(1/N)$, reduces a publish operation from $\approx 80{,}000$ gas to a marginal cost approaching the cost of a single SSTORE shared across $N$ updates, and makes the registry compatible with permissionless off-chain indexers without trust assumptions. The trade-off is a one-block latency between local commit and global root rotation, which is acceptable for a developer-tools registry. Part~II then specifies the mod protocol itself---what the registry registers: the \emph{module} as a directory whose anchor class \emph{is} its API; the equivalence of the Python, CLI, and HTTP surfaces and the null call that makes every module self-describing; a single addressing rule under which a name resolves to an app, an API, and a DNS record by construction; a shared Nix environment and supervisor that run every module without per-module containers; a federated gateway with scale-to-zero execution; one shared identity module issuing time-bounded signature tokens, with an owner/peer authorization model that keeps access control off-chain while the public tree carries only public facts; and the introspection, \texttt{skill.md}, and MCP surfaces that make a module callable by an agent with no per-module integration. Part~II closes with the nine invariants that constitute the protocol.
 \end{abstract}
 
 \vfill
@@ -141,7 +141,7 @@ At 80{,}000--110{,}000 gas per registration on Base, and re-registration on ever
 Three trends make the per-row design untenable:
 
 \begin{enumerate}
-    \item \textbf{Agentic publishing.} The \texttt{agent} module already composes new modules autonomously; a 24-hour run can produce tens of new mods.
+    \item \textbf{Agentic publishing.} The \texttt{agent} module already composes new modules autonomously, and a module an agent writes is callable and registrable by exactly the same rules as a hand-written one (Part~II); a 24-hour run can produce tens of new mods.
     \item \textbf{Versioning.} Most production modules update weekly. The registry currently has no compression: each version is a fresh write.
     \item \textbf{Permissionless mirrors.} Indexers that want to expose the registry over HTTP must replay every \texttt{ModRegistered} event since genesis, which is a quadratic cost in time and state.
 \end{enumerate}
@@ -437,33 +437,138 @@ m.fn('whitepaper/tree_proof')(name='agent')     # Merkle proof for a leaf
 m.fn('whitepaper/tree_verify')(leaf, proof)     # client-side verify
 \end{lstlisting}
 
-\part{System Architecture}
+\part{The Mod Protocol}
 
-The preceding sections specify the \emph{registry} layer---how module records are
-committed and proven at scale. This part documents the rest of the MOD protocol:
-the unit it registers (the \emph{module}), the runtime that executes modules, the
-gateway that exposes them, and the auth system that governs who may act. Together
-these constitute the full protocol: a way to define, share, run, and reach any
-tool as a first-class, owner-controlled module.
+Part~I specifies the \emph{registry} layer---how module records are committed
+and proven at scale. This part specifies what is being registered. The mod
+protocol is a small set of conventions that turn any directory of code into a
+\emph{module}: loadable from Python, callable from the CLI, servable as an HTTP
+API, reachable by name through a gateway, legible to an agent, and---via
+Part~I---anchored on chain. Everything else in the system is built from these
+rules; at the time of writing the live fleet is 300+ orbit modules and a dozen
+\texttt{core} modules, all obeying them.
 
-\section{The Module Abstraction}
+\section{The Module}
 
-The protocol's unit is the \emph{module}: a directory under \texttt{mod/orbit/}
-(applications) or \texttt{mod/core/} (shared infrastructure), self-describing via
-\texttt{config.json}:
+\subsection{Anatomy}
+
+The protocol's unit is the \emph{module}: a directory inside an \emph{orbit}
+(\texttt{core} for shared infrastructure, \texttt{orbit} for applications,
+plus \texttt{mods} for registry-installed and \texttt{local} for scratch),
+containing an \emph{anchor file} and a \texttt{config.json}:
 
 \begin{lstlisting}[style=python]
-{ "name": "claude", "owner": "0x..", "port": 8820, "app_port": 8823,
-  "urls": { "api": "...", "app": "..." } }
+mod/orbit/<name>/
+  mod.py         # anchor: class Mod - plain Python methods are the functions
+  config.json    # name, description, owner, port, app_port, schema (CID)
+  skill.md       # agent-facing docs (optional)
+  README.md      # human docs (optional)
+  src/ app/ ...  # anything else: Rust service, Next.js app, data
 \end{lstlisting}
 
-A module may ship any combination of implementations behind one identity: a Python
-class (\texttt{mod.py}, invoked as \texttt{m <module>/<fn>}), a compiled service
-API (Rust), and a web app (Next.js). The protocol treats these uniformly---it
-cares about a module's \emph{name}, \emph{owner}, and \emph{endpoints}, not its
-language. Cross-cutting capabilities (auth, process management, environment,
-registry) are themselves modules under \texttt{core/} and are reused rather than
-re-implemented; this is what makes the system modular all the way down.
+There is no decorator, manifest of exports, or registration step: the public
+methods of the anchor class \emph{are} the module's functions, and the
+framework derives their signatures by introspection
+(\texttt{m.fns(mod)}, \texttt{m.schema(mod)}). An anchor named \texttt{mod.py},
+\texttt{agent.py}, or \texttt{<name>.py} is equally valid; a module's
+\emph{name} is derived from its path, so a directory is authoritative and two
+orbits may not claim the same name.
+
+\begin{lstlisting}[style=python]
+{ "name": "whitepaper", "description": "...",
+  "port": 50106, "app_port": 3106,
+  "urls": { "api": "http://localhost:50106", "app": "http://localhost:3106" },
+  "schema": "QmQQdHuUVasYCtHPrNBSNWmryzeDNVCpDavSu3rzpfuXEF" }
+\end{lstlisting}
+
+\texttt{config.json} is the module's public face and the exact object the
+registry of Part~I hashes into a leaf. Its \texttt{schema} field is an IPFS CID
+over the module's introspected function schema, which is what makes ``this
+module still does what it claimed'' a checkable statement rather than a promise.
+
+\subsection{Many implementations, one identity}
+
+A module may ship any combination of implementations behind a single name: a
+Python class, a compiled service API (Rust/axum is common), and a web app
+(Next.js). The protocol cares about a module's \emph{name}, \emph{owner}, and
+\emph{endpoints}, not its language. This module is itself an example: the same
+Merkle tree is implemented in Python (\texttt{mod.py}) and in Rust
+(\texttt{src/api}), both reading and writing the same state file, both applying
+the same canonical-JSON rules so that the roots they produce are identical.
+
+Cross-cutting capabilities---identity, process supervision, environment,
+storage, routing, registry---are themselves modules under \texttt{core/} and are
+reused rather than re-implemented. This is what makes the system modular all the
+way down: the protocol is written in its own units.
+
+\section{Calling a Module}
+
+\subsection{Three surfaces, one semantics}
+
+A function is invoked identically from three places:
+
+\begin{lstlisting}[style=python]
+m.fn('whitepaper/tree_proof')(name='agent')       # Python
+m whitepaper/tree_proof name=agent                # CLI
+POST /api/whitepaper/tree/proof  {"name":"agent"} # HTTP
+\end{lstlisting}
+
+Serving is not a rewrite: \texttt{m serve <name>} places the module behind the
+core server and every public function becomes a POST endpoint, with JSON
+arguments in the body and \texttt{\{"result": ...\}} in the response. Modules
+with native servers (Rust, Node, Next.js) expose the same public shape---an API
+on \texttt{port}, an app on \texttt{app\_port}---and are therefore
+indistinguishable to a caller.
+
+\subsection{The null call}
+
+A POST to a module's bare URL, with no function named, returns the module's
+\texttt{info}: its name, its functions, and its schema.
+
+\begin{lstlisting}[style=python]
+POST /mod/<name>      ->  { name, functions, schema, ... }
+\end{lstlisting}
+
+This single rule makes the ecosystem self-describing without a service
+directory: any endpoint that speaks the protocol can be asked what it can do,
+and the answer is derived from the code rather than maintained beside it. It is
+also the bridge to Part~I---the schema a module reports is the schema whose CID
+its registry leaf commits to.
+
+\section{Addressing: One Name, Three Forms}
+
+Every deployment routes modules by the same rule. A module named \texttt{X} is
+reachable as:
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Form} & \textbf{Target} & \textbf{Rule} \\
+\midrule
+\texttt{https://<host>/X} & app (\texttt{app\_port}) & prefix \emph{kept}; the app sets \texttt{basePath /X} \\
+\texttt{https://<host>/api/X} & API (\texttt{port}) & prefix \emph{stripped}: \texttt{/api/X/y} $\to$ \texttt{/y} \\
+\texttt{https://X.<host>} & app & name form, resolved by the DNS layer \\
+\bottomrule
+\end{tabularx}
+\caption{The URL rule. App at \texttt{/X}, API at \texttt{/api/X}, discovery by null call.}
+\end{table}
+
+Three interchangeable implementations enforce it: the production Caddy gateway,
+whose routes are \emph{generated} from each module's \texttt{config.json} rather
+than hand-written; \texttt{routy}, a standalone Rust gateway reserving
+\texttt{/\_api/*} for its own control plane so that no module name is shadowed;
+and a Next.js middleware applying the identical rewrite inside the core
+frontend. Because the rule is mechanical, a module's routing is a consequence of
+its config, not a deployment artifact---which is precisely the property that
+lets a registry leaf, rather than an operator, determine where a name resolves.
+
+The \texttt{dns} module closes the loop for the third form: it derives an
+authoritative zone from the module fleet and serves it over UDP and TCP, so
+\texttt{X.<host>}, \texttt{<host>/X}, and \texttt{<host>/api/X} agree by
+construction rather than by convention. Attribution records (\texttt{\_mod} TXT)
+carry the declared owner and CID of the module answering at a name, making the
+DNS layer a second, independent witness to the same facts the tree commits.
 
 \section{Runtime and Environment}
 
@@ -473,11 +578,11 @@ Historically each module shipped its own \texttt{Dockerfile}, re-deriving Node,
 Python, Rust, and a reverse proxy per image. The protocol replaces this with a
 single reusable environment, \texttt{core/nix} (``modenv''), pinned via a Nix
 flake. \texttt{packages.nix} is the single source of truth---language toolchains
-and the system tools the fleet needs, but \emph{not} application libraries (those
-stay with \texttt{pip}/\texttt{npm}/\texttt{cargo}), keeping the shared layer
-small. A module opts in by shipping a two-line flake that reuses
-\texttt{modenv.lib.mkShell}; otherwise it inherits the shared environment. This is
-to environments what a shared base supervisor is to processes: define once, use
+and the system tools the fleet needs, but \emph{not} application libraries
+(those stay with \texttt{pip}/\texttt{npm}/\texttt{cargo}), keeping the shared
+layer small. A module opts in by shipping a two-line flake that reuses
+\texttt{modenv.lib.mkShell}; otherwise it inherits the shared environment. This
+is to environments what a shared supervisor is to processes: define once, use
 everywhere.
 
 \subsection{Supervision: core/pm}
@@ -501,32 +606,58 @@ image becomes a pinned Nix image, and the supervisor is shared.
 
 \subsection{Federated front door}
 
-All traffic enters through a single gateway (\texttt{modc2.com}). Some modules are
-routed directly by host rules; the remainder are federated through a portal that
-maps \texttt{/\{mod\}} and \texttt{/api/\{mod\}} to each module's registered
+All traffic enters through a single gateway. Some modules are routed directly by
+host rules; the remainder are federated through a portal that maps
+\texttt{/\{mod\}} and \texttt{/api/\{mod\}} to each module's registered
 \texttt{app}/\texttt{api} endpoints, resolved from the registry's app namespace.
-A request thus reaches a module by \emph{name}, independent of where it runs.
+A request thus reaches a module by \emph{name}, independent of where it runs---
+the same indirection that lets the registry of Part~I move a name to a new host
+or a new owner without any client learning a new address.
 
 \subsection{Scale-to-zero}
 
 An \emph{activator} sits in front of the local fleet. It stops any module idle
 beyond a threshold with no active connections, and \emph{wakes} a stopped module
 on the next request---starting its supervised processes, waiting for the port,
-then proxying---so a slept module costs nothing yet remains reachable. Because the
-host owns the machine, manual control is authoritative over the automation:
-modules may be \emph{disabled} (kept down; the activator refuses to wake them) or
-\emph{pinned} (never slept), via host-local overrides. This gives the ecosystem
-the elasticity of serverless execution over a fleet of long-lived modules.
+then proxying---so a slept module costs nothing yet remains reachable. Because
+the host owns the machine, manual control is authoritative over the automation:
+modules may be \emph{disabled} (kept down; the activator refuses to wake them)
+or \emph{pinned} (never slept), via host-local overrides. This gives the
+ecosystem the elasticity of serverless execution over a fleet of long-lived
+modules, and it is why a 300-module fleet fits on one machine: the marginal cost
+of a registered-but-idle module is zero.
 
 \section{Identity and Authorization}
 
-\subsection{Shared identity}
+\subsection{Keys}
 
-Identity is one shared module, \texttt{core/server/auth} (\texttt{m.mod('auth')}),
-used uniformly across the orbit. It mints and verifies signed tokens and recovers
-the signing address from a signature, so ``who is calling'' is answered the same
-way everywhere---no module rolls its own scheme. The on-chain registry's
-ownership proofs and this off-chain session identity share the same key material.
+Identity is a keypair, not an account. \texttt{core/key} manages multi-chain
+keys---ECDSA (Ethereum), sr25519 and ed25519 (Substrate), Solana---stored
+encrypted under \texttt{\textasciitilde/.mod/key/}. The same key material that
+signs a registry update in Part~I signs an HTTP request in Part~II; there is no
+second identity system to reconcile.
+
+\subsection{The token}
+
+\texttt{core/server/auth} (\texttt{m.mod('auth')}) is the one identity layer
+modules share. A token is a signature over a timestamped envelope, base64url
+encoded:
+
+\begin{lstlisting}[style=python]
+token = b64url({ "data": <payload>,
+                 "time": "<unix seconds>",
+                 "key":  "<signer address>",
+                 "signature": sign(hash(data|time|key)) })
+\end{lstlisting}
+
+Verification recovers the signer from the signature, checks it against the
+declared \texttt{key}, and rejects the token if \texttt{time} is older than the
+configured maximum age---so a captured token is not a durable credential. The
+crypto type is inferred from the address format, and browser wallets are
+first-class: a \texttt{personal\_sign} over the same envelope mints a valid mod
+token, with legacy \texttt{v=27/28} recovery identifiers normalised on verify.
+No module rolls its own scheme; ``who is calling'' is answered the same way
+everywhere.
 
 \subsection{The owner/peer model}
 
@@ -535,21 +666,102 @@ Authorization is a two-tier model layered on that identity:
 \begin{itemize}
     \item \textbf{Owner.} The address in a module's \texttt{config.json}
     (optionally extended to on-chain holders). The owner has authority over the
-    module---and, for the host operator, over the module tree
-    (\texttt{mod/mod}). Owner-only powers (process control, deletion, managing the
-    sign-in list) never widen beyond this.
-    \item \textbf{Peer.} Every other authenticated identity. A peer is confined to
-    its own off-chain workspace, \texttt{\textasciitilde/.mod/peers/<addr>/}, and
-    its jobs are privilege-dropped---kernel-enforced containment that no prompt or
-    path can escape. A peer can build and run \emph{their} modules without ever
-    reaching the owner's tree.
+    module---and, for the host operator, over the module tree. Owner-only
+    powers (process control, deletion, managing the sign-in list) never widen
+    beyond this.
+    \item \textbf{Peer.} Every other authenticated identity. A peer is confined
+    to its own off-chain workspace,
+    \texttt{\textasciitilde/.mod/peers/<addr>/}, and its jobs are
+    privilege-dropped---kernel-enforced containment that no prompt or path can
+    escape. A peer can build and run \emph{their} modules without ever reaching
+    the owner's tree.
 \end{itemize}
 
 An optional off-chain whitelist gates \emph{sign-in} but confers no ownership; a
 whitelisted address is still a peer for editing. All such private authorization
 state lives off-chain (under \texttt{\textasciitilde/.mod/}), never in the
-committed, publicly mirrored registry---so the public tree of Part~I carries only
-public facts, while access control stays private to the host.
+committed, publicly mirrored \texttt{config.json}---so the public tree of Part~I
+carries only public facts, while access control stays private to the host. This
+separation is load-bearing for the registry: a world-readable manifest is safe
+precisely because nothing secret is ever a leaf.
+
+\section{State, Storage, and Content Addressing}
+
+Module state persists as JSON under \texttt{\textasciitilde/.mod/<module>/},
+optionally AES-encrypted, and is deliberately outside the module directory: the
+code is public and mirrorable, the state is not. \texttt{core/store} adds a
+content-addressed layer on top---objects are written and retrieved by CID, so a
+shared artifact (a schema, a manifest, a build) is named by its hash rather than
+by its location.
+
+This is the same addressing discipline the registry uses, applied one level
+down, and it is what makes the three layers compose:
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Layer} & \textbf{Names things by} \\
+\midrule
+Chain (Part~I) & one root---a commitment to the whole set \\
+Content store & CID---a commitment to one object \\
+Filesystem / DNS & name---a mutable pointer, checkable against both above \\
+\bottomrule
+\end{tabularx}
+\caption{Three naming layers. Mutability increases downward; each layer is
+verifiable against the one above it.}
+\end{table}
+
+\section{The Agent Interface}
+
+The protocol was designed on the assumption that most callers would eventually
+be programs, not people. Three properties make a module legible to an agent
+without any per-module integration work:
+
+\begin{enumerate}
+    \item \textbf{Introspection.} Function names and signatures are derived from
+    the code, so a tool list can be generated rather than maintained.
+    \item \textbf{\texttt{skill.md}.} An agent-facing document beside the
+    human-facing \texttt{README.md}, stating what the module is for and how to
+    drive it. Two audiences, two files, one module.
+    \item \textbf{MCP.} A module exposes its functions as Model Context Protocol
+    tools from one method---the same functions the CLI and HTTP surfaces
+    expose---so an agent connects to a module the same way a browser does.
+\end{enumerate}
+
+Agentic publishing is therefore not a special case bolted onto the registry: an
+agent that writes a directory with an anchor class and a \texttt{config.json}
+has produced a module that is immediately callable, routable, and registrable by
+the same rules as a hand-written one. This is the growth curve Part~I is sized
+for, and the reason per-row registration cost is the binding constraint rather
+than a nuisance.
+
+\section{Protocol Invariants}
+
+The whole protocol reduces to a handful of rules. Every module in the fleet
+satisfies all of them; a directory that satisfies all of them is a module.
+
+\begin{table}[H]
+\centering
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Invariant} & \textbf{Statement} \\
+\midrule
+Definition & A module is a directory with an anchor class and a \texttt{config.json}. \\
+Exposure & The public methods of the anchor class are the module's functions. \\
+Equivalence & Python, CLI, and HTTP call the same function with the same semantics. \\
+Discovery & A null call to a module returns its name, functions, and schema. \\
+Addressing & App at \texttt{/\{mod\}}, API at \texttt{/api/\{mod\}}, name at \texttt{\{mod\}.\{host\}}. \\
+Identity & One shared auth module; a token is a time-bounded signature. \\
+Authority & Owner from \texttt{config.json}; everyone else is a confined peer. \\
+Privacy & Public code and config are committed; state and ACLs stay under \texttt{\textasciitilde/.mod/}. \\
+Provenance & \texttt{config.json} is the registry leaf; its \texttt{schema} CID commits to the function surface. \\
+\bottomrule
+\end{tabularx}
+\caption{The mod protocol in nine rules.}
+\end{table}
+
+\part{Adoption}
 
 \section{Migration Path}
 
@@ -572,6 +784,8 @@ public facts, while access control stays private to the host.
 \section{Conclusion}
 
 Storing the tree instead of the leaves shifts the cost curve from $O(N)$ to $O(1)$ on chain, eliminates per-module gas as a publishing tax, and makes the registry trivially mirrorable. It preserves authenticity through Merkle proofs and ownership through signed updates, and degrades gracefully under censorship via forced inclusion. The resulting system is the registry layer the MOD orbit ecosystem needs to grow from hundreds of modules to millions, including those published autonomously by agents.
+
+That layer is only useful because of what it registers. The mod protocol of Part~II makes a module a directory, its anchor class its API, its \texttt{config.json} its public face, and its name a route---so a registry leaf is not a description of a module but the module's own self-description, mechanically derived and mechanically checkable. The chain commits to a root, the content store commits to each object, and the filesystem and DNS hold the mutable pointers that both can audit. A module written by an agent this afternoon obeys the same nine invariants as \texttt{core/auth}, is reachable at the same three URLs, and enters the same tree. Scaling the registry and specifying the protocol are therefore one problem: the cheaper a name is to commit, the more of the ecosystem can afford to be verifiable.
 
 \appendix
 

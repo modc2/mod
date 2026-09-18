@@ -1,0 +1,55 @@
+{
+    "name": "leanland",
+    "version": "0.1.0",
+    "description": "An LLM you read literature with, that leaves definitions behind. Papers go in lit/ as markdown notes; the results worth computing with go in lib/ as typed, cited definitions in a small Lean-flavoured language; everything else is lowered from them \u2014 a Python module, one Jupyter notebook per definition, a dependency-free Rust backend, a Next.js library-page-and-API, and real Lean 4 for a toolchain to check. The model reads and drafts, it never decides: an elaborated definition reaches the library only after the parser, the typechecker and the source's own numbers accept it, and the compiler's error text is what goes back to the model on a retry. A four-way parity harness runs every #example through the reference interpreter and every generated target that has a toolchain on the box, so 'the same formula in four places' is a checked claim. Special functions are library definitions rather than primitives, because binding erf to three different native implementations is three algorithms wearing one name.",
+    "anchor": "mod.py",
+    "icon": "\u2234",
+    "color": "#7bd88f",
+    "port": 50540,
+    "app_port": 50540,
+    "route": false,
+    "urls": {
+        "api": "http://127.0.0.1:50540/api",
+        "app": "http://127.0.0.1:50540"
+    },
+    "paths": {
+        "literature": "lit/*.md",
+        "library": "lib/*.lean",
+        "generated": "out/"
+    },
+    "targets": [
+        "python",
+        "notebook",
+        "rust",
+        "nextjs",
+        "lean"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "defs",
+        "show",
+        "add",
+        "rm",
+        "lower",
+        "verify",
+        "parity",
+        "build",
+        "drift",
+        "test",
+        "papers",
+        "paper",
+        "lit_add",
+        "arxiv",
+        "note",
+        "lit_rm",
+        "discuss",
+        "elaborate",
+        "read",
+        "serve",
+        "kill",
+        "status",
+        "logs"
+    ],
+    "schema": "QmWfBCeB7fkRMEyhxhfB7Zr1iZZEookW5UoWX5NZe7size"
+}

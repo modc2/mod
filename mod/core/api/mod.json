@@ -37,6 +37,7 @@
         "credit",
         "token",
         "root",
+        "root_hash",
         "registry",
         "rm_mod",
         "app_namespace",
@@ -51,5 +52,5 @@
         "edit_app",
         "remove_app"
     ],
-    "schema": "QmbUtNnP3XGc1w8NuKwe8DbZ3NDWVbLMifyAUtdjgF1ajv"
+    "schema": "Qmcx6DSBASWiVHtrm3TCtQBTGRdTJdT64QEh7GqdSsFPsh"
 }

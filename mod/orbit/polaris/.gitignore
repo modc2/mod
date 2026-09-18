@@ -1,5 +1,4 @@
 .env
 _serve.sh
-_app.sh
-app/node_modules/
-app/.next/
+__pycache__/
+*.pyc

@@ -21,6 +21,12 @@ box's owner of record, ~/.mod/git/owner.json or the host console's) is an owner
 here too — sign in on the ACCESS tab with that wallet and you can commit and
 push your own changes without granting yourself anything.
 
+A signature is only good for an hour, so signing in trades it for a SESSION
+(~/.mod/git/sessions.json, 0600, hash only): one wallet prompt buys 30 days of
+pushing without another one. The role is never baked into the session — every
+call re-reads the ACL, so a revoke ends the sessions with it, and `m git/sessions`
+/ `m git/sign_out` (or the ACCESS tab) end them by hand.
+
 Mod protocol: null call returns info; the app + JSON API share one port
 (50330) and tolerate the gateway prefix, so caddy routes /{git} (app) and
 /api/git (API) from config.json.
@@ -42,12 +48,18 @@ CLI:
     m git/github_repos                     # your GitHub repos (private too)
     m git/grant 0xADDR role=write          # manage access
     m git/token                            # mint a signed token for the app/API
+    m git/session days=30                  # …trade it for a session that lasts
+    m git/sessions                         # who is signed in, and until when
+    m git/sign_out                         # end them (id=… for just one)
     m git/serve                            # run the app on :50330
 """
+import hashlib
+import hmac
 import io
 import json
 import os
 import re
+import secrets
 import subprocess
 import time
 import contextlib
@@ -60,6 +72,7 @@ GITHUB = '~/.mod/git/github.json'       # github accounts per key (secret, 0600)
 OAUTH = '~/.mod/git/oauth.json'         # github oauth app creds (secret, 0600)
 PENDING = '~/.mod/git/oauth_pending.json'   # in-flight oauth handshakes (0600)
 ACCESS = '~/.mod/git/access.json'       # owner + per-address grants
+SESSIONS = '~/.mod/git/sessions.json'   # long-lived signed-in sessions (secret, 0600)
 OWNER = '~/.mod/git/owner.json'         # who owns this box, if it is pinned for git
 HOST_OWNER = '~/.mod/claude/owner.json'  # …else the host's owner of record
 CLONES = '~/.mod/git/repos'             # where tracked github repos get cloned
@@ -68,7 +81,11 @@ MAX_DIFF = 200_000                      # chars of diff returned per request
 AGENT_MOD = 'agent'                     # module that writes the commit messages
 AGENT_MODEL = 'anthropic/claude-sonnet-4.5'   # only if the agent has no default
 AGENT_DIFF = 60_000                     # chars of diff handed to the agent
-TOKEN_TTL = 3600                        # seconds a signed token stays valid
+TOKEN_TTL = 3600                        # seconds a *signed* token stays valid
+SESSION_PREFIX = 'gits.'                # what a session token starts with
+SESSION_DAYS = 30                       # how long a session lasts by default
+SESSION_MAX_DAYS = 365                  # …and the most you can ask for
+SESSION_TOUCH = 300                     # only restamp `used` this often
 OAUTH_SCOPE = 'repo read:org'           # what "connect with github" asks for
 
 
@@ -84,6 +101,7 @@ class Mod:
         self.oauth_path = m.abspath(OAUTH)
         self.pending_path = m.abspath(PENDING)
         self.access_path = m.abspath(ACCESS)
+        self.sessions_path = m.abspath(SESSIONS)
         self.owner_path = m.abspath(OWNER)
         self.host_owner_path = m.abspath(HOST_OWNER)
         self.clones = m.abspath(CLONES)
@@ -1089,12 +1107,105 @@ diff:
 
     def token(self, data: dict = None) -> str:
         """Mint a signed auth token for this box's key — paste it into the app
-        (ACCESS tab) or send it as `Authorization: Bearer <token>`. A wallet
+        (ACCESS tab) or send it as `Authorization: Bearer <token>`. It lasts an
+        hour; `session` turns it into one that lasts. A wallet
         signs its own instead: base64url of {data, time, key, signature} where
         signature is a personal_sign over the compact {"data":…,"time":…} (what
         the app's "sign in with wallet" does)."""
         with contextlib.redirect_stdout(io.StringIO()):
             return m.mod('auth')().token(data or {'mod': 'git'})
+
+    # --- staying signed in --------------------------------------------------
+    # A wallet signature is only good for an hour, which meant re-signing before
+    # every push. Trade it for a session instead: prove who you are once and this
+    # hands back an opaque token the app keeps. Only its hash is stored, and the
+    # ROLE is never frozen into it — every call re-reads the ACL, so revoking a
+    # grant (or handing the box to a new owner) kills the sessions with it.
+
+    def _sessions(self) -> dict:
+        secs = m.get(self.sessions_path, {}) or {}
+        return secs if isinstance(secs, dict) else {}
+
+    @staticmethod
+    def _hash(secret: str) -> str:
+        return hashlib.sha256(str(secret).encode()).hexdigest()
+
+    def _prune(self, secs: dict) -> dict:
+        now = time.time()
+        return {i: s for i, s in secs.items() if float(s.get('expires') or 0) > now}
+
+    def session(self, days: float = None, label: str = None, address: str = None) -> dict:
+        """Trade the signed token you just proved yourself with for a session
+        that keeps working for `days` (default 30) — so the app stops asking
+        your wallet to sign before every push. `m git/sessions` lists them,
+        `m git/sign_out` ends them. (Write-gated: you can only mint one for a
+        key that already has access.)"""
+        who = self._key(address)
+        role = self._role_of(who)
+        if role is None:
+            raise PermissionError(f'{who} has no access here — nothing to keep signed in')
+        days = max(0.01, min(float(days or SESSION_DAYS), SESSION_MAX_DAYS))
+        sid, secret = secrets.token_hex(8), secrets.token_urlsafe(32)
+        now = int(time.time())
+        secs = self._prune(self._sessions())
+        secs[sid] = {'address': who, 'hash': self._hash(secret), 'label': str(label or 'app'),
+                     'created': now, 'used': now, 'expires': int(now + days * 86400)}
+        self._put_secret(self.sessions_path, secs)
+        return {'token': f'{SESSION_PREFIX}{sid}.{secret}', 'id': sid, 'address': who,
+                'role': role, 'days': days, 'expires': secs[sid]['expires'],
+                'label': secs[sid]['label']}
+
+    def _session_address(self, tok: str):
+        """The address behind a session token — None if `tok` isn't one at all,
+        PermissionError if it is one and it's dead."""
+        if not tok or not str(tok).startswith(SESSION_PREFIX):
+            return None
+        rest = str(tok)[len(SESSION_PREFIX):]
+        sid, _, secret = rest.partition('.')
+        secs = self._sessions()
+        rec = secs.get(sid) if secret else None
+        if not rec or not hmac.compare_digest(str(rec.get('hash') or ''), self._hash(secret)):
+            raise PermissionError('this session is no longer valid — sign in again')
+        if float(rec.get('expires') or 0) <= time.time():
+            secs.pop(sid, None)
+            self._put_secret(self.sessions_path, secs)
+            raise PermissionError('session expired — sign in again')
+        if time.time() - float(rec.get('used') or 0) > SESSION_TOUCH:
+            rec['used'] = int(time.time())
+            self._put_secret(self.sessions_path, secs)
+        return rec.get('address')
+
+    def sessions(self, address: str = None) -> dict:
+        """Live sessions — every one, or just `address`'s (the caller's over the
+        API). Secrets never come back, only who/when/until."""
+        secs = self._prune(self._sessions())
+        rows = [{'id': i, 'address': v.get('address'), 'label': v.get('label'),
+                 'created': v.get('created'), 'used': v.get('used'),
+                 'expires': v.get('expires'), 'role': self._role_of(v.get('address'))}
+                for i, v in secs.items()
+                if not address or str(v.get('address') or '').lower() == str(address).lower()]
+        rows.sort(key=lambda r: r.get('created') or 0, reverse=True)
+        return {'address': address, 'sessions': rows, 'total': len(rows)}
+
+    def sign_out(self, id: str = None, address: str = None) -> dict:
+        """End a session: one by `id`, else all of `address`'s (the caller's
+        over the API), else every session on the box. The wallet signature
+        itself can't be revoked — it dies on its own within the hour."""
+        secs = self._prune(self._sessions())
+        who = str(address or '').lower()
+        if id:
+            rec = secs.get(str(id))
+            if (rec and who and str(rec.get('address') or '').lower() != who
+                    and self._role_of(address) not in ('admin', 'owner')):
+                raise PermissionError('that session belongs to another key')
+            keep = {i: v for i, v in secs.items() if i != str(id)}
+        elif who:
+            keep = {i: v for i, v in secs.items()
+                    if str(v.get('address') or '').lower() != who}
+        else:
+            keep = {}
+        self._put_secret(self.sessions_path, keep)
+        return {'ended': len(secs) - len(keep), 'left': len(keep), 'address': address or None}
 
     def _role_of(self, address: str):
         """Role for an address — the module's owner and the host's owner both
@@ -1121,22 +1232,27 @@ diff:
         if not tok:
             raise PermissionError('missing Authorization: Bearer <token> '
                                   '(mint one with `m git/token`)')
-        try:
-            with contextlib.redirect_stdout(io.StringIO()):
-                data = m.mod('auth')().verify(tok)
-        except PermissionError:
-            raise
-        except Exception as e:
-            raise PermissionError(f'invalid token: {type(e).__name__}')
-        address = data.get('key')
-        if abs(time.time() - float(data.get('time', 0))) > TOKEN_TTL:
-            raise PermissionError('token expired — mint a fresh one')
+        via = 'session'
+        address = self._session_address(tok)
+        if not address:
+            via = 'token'
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    data = m.mod('auth')().verify(tok)
+            except PermissionError:
+                raise
+            except Exception as e:
+                raise PermissionError(f'invalid token: {type(e).__name__}')
+            address = data.get('key')
+            if abs(time.time() - float(data.get('time', 0))) > TOKEN_TTL:
+                raise PermissionError('token expired — mint a fresh one, or keep this '
+                                      'browser signed in with `session`')
         role = self._role_of(address)
         rank = {'write': 1, 'admin': 2, 'owner': 3}
         if role is None or rank[role] < rank[need if need in rank else 'write']:
             raise PermissionError(f'{address} lacks {need} access — ask the owner to '
                                   f'`m git/grant {address}`')
-        return {'address': address, 'role': role}
+        return {'address': address, 'role': role, 'via': via}
 
     def _token_address(self, headers) -> str:
         """The address a Bearer token belongs to, ignoring the ACL — reads are
@@ -1144,6 +1260,12 @@ diff:
         raw = (headers.get('Authorization') or headers.get('authorization') or '')
         tok = raw.split('Bearer ')[-1].strip()
         if not tok:
+            return None
+        try:
+            addr = self._session_address(tok)
+            if addr:
+                return addr
+        except PermissionError:
             return None
         try:
             with contextlib.redirect_stdout(io.StringIO()):
@@ -1162,7 +1284,9 @@ diff:
             # even without a grant, report who the token belongs to
             raw = ((headers or {}).get('Authorization') or '')
             tok = raw.split('Bearer ')[-1].strip()
-            if tok:
+            # a dead session has nothing to look up — say so instead of letting
+            # the auth module fail to base64-decode it
+            if tok and not tok.startswith(SESSION_PREFIX):
                 try:
                     with contextlib.redirect_stdout(io.StringIO()):
                         data = m.mod('auth')().verify(tok)
@@ -1203,6 +1327,7 @@ diff:
             'owner': acl['owner'],
             'host_owner': self._host_owner(),
             'grants': len(acl['grants']),
+            'sessions': len(self._prune(self._sessions())),
             'port': APP_PORT,
             'url': f'http://localhost:{APP_PORT}',
         }
@@ -1311,7 +1436,8 @@ diff:
                   '/api/oauth/url': ('oauth_url', 'write'),
                   '/api/oauth/app': ('oauth_app', 'admin'),
                   '/api/fork': ('fork', 'write'), '/api/switch': ('switch', 'write'),
-                  '/api/grant': ('grant', 'admin'), '/api/revoke': ('revoke', 'admin')}
+                  '/api/grant': ('grant', 'admin'), '/api/revoke': ('revoke', 'admin'),
+                  '/api/session': ('session', 'write'), '/api/signout': ('sign_out', 'write')}
         ARGS = {'track': ('repo', 'name', 'branch', 'address', 'login'), 'untrack': ('name',),
                 'fork': ('repo', 'name', 'org', 'track', 'branch', 'address', 'login'),
                 'switch': ('login', 'address'),
@@ -1323,10 +1449,11 @@ diff:
                 'oauth': ('address', 'scope'), 'oauth_poll': ('session', 'wait'),
                 'oauth_url': ('redirect_uri', 'address', 'scope'),
                 'oauth_app': ('client_id', 'client_secret', 'scope'),
-                'grant': ('address', 'role'), 'revoke': ('address',)}
+                'grant': ('address', 'role'), 'revoke': ('address',),
+                'session': ('days', 'label', 'address'), 'sign_out': ('id', 'address')}
         # these act as a key: default to the caller's, admin to act as another
         AS_KEY = {'track', 'pull', 'push', 'connect', 'disconnect', 'oauth', 'oauth_url',
-                  'fork', 'switch'}
+                  'fork', 'switch', 'session', 'sign_out'}
 
         class H(BaseHTTPRequestHandler):
             def log_message(self, *a):
@@ -1432,6 +1559,13 @@ diff:
                         return self._send(200, git.access())
                     if path == '/api/whoami':
                         return self._send(200, git.whoami(dict(self.headers)))
+                    if path == '/api/sessions':
+                        # your own sessions only — the token says which are yours
+                        who = self._key(q)
+                        if not who:
+                            return self._send(200, {'address': None, 'sessions': [],
+                                                    'total': 0})
+                        return self._send(200, git.sessions(address=who))
                     return self._send(404, {'error': f'not found: {path}'})
                 except PermissionError as e:
                     return self._send(403, {'error': str(e)})
@@ -1652,12 +1786,13 @@ const $=s=>document.querySelector(s);
 const BASE=location.pathname.replace(/\/+$/,'').replace(/\/index\.html$/,'');
 const api=p=>BASE+p;
 const TABS=['changes','repos','search','github','access'];
-let VIEW='changes', REPO=null, REPOS={}, TOKEN='', ME=null, WALLET='';
+let VIEW='changes', REPO=null, REPOS={}, TOKEN='', ME=null, WALLET='', EXP=0;
 let SHA=null, SIDE_N=40, SIDE=true, CQ='';  // commit, how many to list, sidebar open, filter
 const narrow=()=>matchMedia('(max-width:820px)').matches;
 // the log is open by default on anything wide enough to hold it; on a phone it is a
 // drawer over the content, so there it starts closed unless you asked for it
 try{ TOKEN=localStorage.getItem('git.token')||''; WALLET=localStorage.getItem('git.wallet')||'';
+     EXP=Number(localStorage.getItem('git.exp')||0);
      SIDE=narrow()?localStorage.getItem('git.commits')==='1':localStorage.getItem('git.commits')!=='0'; }catch(e){}
 document.body.classList.toggle('noside',!SIDE);
 // the header wraps at narrow widths — measure it so the sidebar always hangs off its real bottom
@@ -1671,8 +1806,16 @@ function ago(d){if(!d)return'';const s=(Date.now()-new Date(d))/1e3;
 function hdrs(json){const h=json?{'Content-Type':'application/json'}:{};if(TOKEN)h['Authorization']='Bearer '+TOKEN;return h}
 async function GET(p){const r=await fetch(api(p),{headers:hdrs(false)});const j=await r.json();
   if(!r.ok)throw new Error(j.error||r.status);return j}
-async function POST(p,body){const r=await fetch(api(p),{method:'POST',headers:hdrs(true),body:JSON.stringify(body||{})});
-  const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+async function POST(p,body,noretry){
+  const r=await fetch(api(p),{method:'POST',headers:hdrs(true),body:JSON.stringify(body||{})});
+  const j=await r.json();
+  if(!r.ok){
+    // the session died (or was revoked) mid-use — re-sign once and finish the job
+    // instead of dropping the user back on the Access tab
+    if(!noretry&&r.status===403&&WALLET&&/expired|no longer valid|missing Authorization/i.test(j.error||'')
+       &&await reauth())return POST(p,body,true);
+    throw new Error(j.error||r.status);}
+  return j}
 
 function setView(v){VIEW=v;
   for(const t of TABS)$('#t-'+t).classList.toggle('on',t===v);
@@ -1922,9 +2065,10 @@ async function load(v){
     }
     if(v==='access'){
       const a=await GET('/api/access');
+      const ses=(ME&&ME.ok)?await GET('/api/sessions').catch(()=>null):null;
       const host=a.host_owner&&a.host_owner.toLowerCase()!==(a.owner||'').toLowerCase()?a.host_owner:null;
       el.innerHTML=`<div class="card"><h3>your key</h3>
-        <div class="sub" style="margin-bottom:8px">Reads are open. Writes need a signed token from the shared auth module — sign in with your wallet, or run <span class="mono">m git/token</span> on the server and paste it here.</div>
+        <div class="sub" style="margin-bottom:8px">Reads are open. Writes need a signed token from the shared auth module — sign in with your wallet, or run <span class="mono">m git/token</span> on the server and paste it here. One signature is enough: it becomes a 30-day session, so committing and pushing later never reopens your wallet.</div>
         <div class="row" style="margin-bottom:8px">
           <button class="btn primary" onclick="signInWallet()">⬡ sign in with wallet</button>
           ${WALLET?`<span class="sub">last signed as <span class="mono">${esc(short(WALLET))}</span></span>`:''}
@@ -1932,6 +2076,14 @@ async function load(v){
         <div class="row"><input id="tok" type="password" placeholder="signed token" style="flex:1;min-width:260px" value="${esc(TOKEN)}"/>
         <button class="btn" onclick="saveToken()">use token</button></div>
         <div class="sub" id="tokmsg" style="margin-top:6px">${sessionMsg()}</div></div>
+      ${ses&&ses.sessions.length?`<div class="card"><h3>signed-in sessions (${ses.total})</h3>
+        <div class="sub" style="margin-bottom:8px">Every browser you kept signed in as <span class="mono">${esc(short(ses.address))}</span>. Ending one sends it back to a wallet signature; revoking the key's access ends them all at once.</div>
+        <table><tr><th>where</th><th>last used</th><th>expires</th><th></th></tr>
+        ${ses.sessions.map(x=>`<tr><td>${esc(x.label||'app')}${isSession(TOKEN)&&TOKEN.split('.')[1]===x.id?' <span class="badge private">THIS ONE</span>':''}</td>
+          <td class="sub">${esc(ago((x.used||x.created)*1000))}</td>
+          <td class="sub">${esc(until(x.expires)||'now')}</td>
+          <td><button class="btn danger" onclick="doSignOut('${esc(x.id)}')">end</button></td></tr>`).join('')}</table>
+        <div class="row" style="margin-top:10px"><button class="btn" onclick="doSignOut()">end all my sessions</button></div></div>`:''}
       <div class="card"><h3>owner${host?'s':''}</h3><div class="row"><span class="mono">${esc(a.owner)}</span><span class="badge owner">OWNER</span></div>
         ${host?`<div class="row" style="margin-top:6px"><span class="mono">${esc(host)}</span><span class="badge owner">HOST OWNER</span></div>
         <div class="sub" style="margin-top:8px">Whoever owns this mod host is an owner here too — sign in with that wallet and you can commit and push without granting yourself anything.</div>`:''}
@@ -1960,11 +2112,17 @@ async function whoami(){ME=null;
     ?`<span class="ok">${esc(short(ME.address))} · ${esc(ME.role)}</span>`
     : `<span class="pill" onclick="setView('access')">${TOKEN?'session expired':'read-only'} · sign in</span>`)+gh;}
 
-function saveToken(){TOKEN=$('#tok').value.trim();WALLET='';
-  try{localStorage.setItem('git.token',TOKEN);localStorage.removeItem('git.wallet');}catch(e){}
-  whoami().then(()=>load('access'))}
-function clearToken(){TOKEN='';WALLET='';
-  try{localStorage.removeItem('git.token');localStorage.removeItem('git.wallet');}catch(e){}
+function saveToken(){TOKEN=$('#tok').value.trim();WALLET='';EXP=0;
+  try{localStorage.setItem('git.token',TOKEN);localStorage.removeItem('git.wallet');
+      localStorage.removeItem('git.exp');}catch(e){}
+  // a pasted `m git/token` is good for an hour too — trade it for a session as well
+  whoami().then(async()=>{if(ME&&ME.ok)await keepSignedIn('pasted token');
+    await whoami();load('access')})}
+function clearToken(){const dead=TOKEN;TOKEN='';WALLET='';EXP=0;
+  try{localStorage.removeItem('git.token');localStorage.removeItem('git.wallet');
+      localStorage.removeItem('git.exp');}catch(e){}
+  if(isSession(dead))fetch(api('/api/signout'),{method:'POST',   // kill it server-side too
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+dead},body:'{}'}).catch(()=>{});
   whoami().then(()=>load('access'))}
 
 // --- sign in with a wallet ---------------------------------------------------
@@ -1979,29 +2137,55 @@ function b64url(o){return btoa(unescape(encodeURIComponent(JSON.stringify(o))))
   .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 function tokenAge(t){try{const j=JSON.parse(decodeURIComponent(escape(
     atob(t.replace(/-/g,'+').replace(/_/g,'/')))));return Date.now()/1000-Number(j.time)}catch(e){return null}}
-function signInWallet(){const p=eth();
-  if(!p)return toast('no wallet found — install MetaMask, or paste a token from `m git/token`',true);
+const isSession=t=>!!t&&t.indexOf('gits.')===0;
+function until(ts){if(!ts)return'';const s=ts-Date.now()/1000;if(s<=0)return'';
+  if(s<3600)return Math.round(s/60)+'m';if(s<86400)return Math.round(s/3600)+'h';
+  return Math.round(s/86400)+'d'}
+// sign the {data,time} bytes the server verifies — nothing is stored by this alone
+async function walletToken(){const p=eth();
+  if(!p)throw new Error('no wallet found — install MetaMask, or paste a token from `m git/token`');
+  const accs=await p.request({method:'eth_requestAccounts'});
+  const addr=String((accs||[])[0]||'').toLowerCase();
+  if(!addr)throw new Error('no account selected');
+  const data={mod:'git'}, time=(Date.now()/1000).toString();
+  const signature=await p.request({method:'personal_sign',
+    params:[JSON.stringify({data,time}),addr]});   // must match the server's sig_data
+  WALLET=addr;try{localStorage.setItem('git.wallet',addr);}catch(e){}
+  return b64url({data,time,key:addr,signature});}
+function setToken(t,exp){TOKEN=t;EXP=exp||0;
+  try{localStorage.setItem('git.token',t);
+      exp?localStorage.setItem('git.exp',String(exp)):localStorage.removeItem('git.exp');}catch(e){}}
+// swap the hour-long signature for a session: the whole point is that pushing
+// later today, or next week, never opens the wallet again
+async function keepSignedIn(label){
+  try{const s=await POST('/api/session',{label:label||'app'},true);setToken(s.token,s.expires);return s}
+  catch(e){return null}}
+async function reauth(){if(!eth()||!WALLET)return false;
+  try{setToken(await walletToken(),0);return !!await keepSignedIn('app');}catch(e){return false}}
+function signInWallet(){
   act(async()=>{
-    const accs=await p.request({method:'eth_requestAccounts'});
-    const addr=String((accs||[])[0]||'').toLowerCase();
-    if(!addr)throw new Error('no account selected');
-    const data={mod:'git'}, time=(Date.now()/1000).toString();
-    const signature=await p.request({method:'personal_sign',
-      params:[JSON.stringify({data,time}),addr]});   // must match the server's sig_data
-    TOKEN=b64url({data,time,key:addr,signature});WALLET=addr;
-    try{localStorage.setItem('git.token',TOKEN);localStorage.setItem('git.wallet',addr);}catch(e){}
+    setToken(await walletToken(),0);
+    await whoami();
+    if(ME&&ME.ok)await keepSignedIn('app');
     await whoami();load('access');
-    toast(ME&&ME.ok?'signed in as '+short(addr)+' · '+ME.role
+    toast(ME&&ME.ok?'signed in as '+short(WALLET)+' · '+ME.role
+        +(isSession(TOKEN)?' — staying signed in'+(until(EXP)?' for '+until(EXP):''):'')
       :(ME&&ME.error)||'signed in, but this key has no access yet',!(ME&&ME.ok));})}
+function doSignOut(id){act(async()=>{await POST('/api/signout',{id:id});
+  if(id&&isSession(TOKEN)&&TOKEN.split('.')[1]===id)return clearToken();
+  await whoami();load('access')})}
 // the session line under the sign-in row: who you are, or why you aren't
 function sessionMsg(){
   if(!TOKEN)return 'not signed in';
-  if(ME&&ME.ok){const age=tokenAge(TOKEN);
+  if(ME&&ME.ok){const age=isSession(TOKEN)?null:tokenAge(TOKEN);
     return `<span class="ok">✓ ${esc(ME.address)} · ${esc(ME.role)}</span>`+
-      (age!=null?` <span class="sub">· expires in ${Math.max(0,60-Math.round(age/60))}m</span>`:'');}
-  const stale=(tokenAge(TOKEN)||0)>3600;
+      (isSession(TOKEN)
+        ? ` <span class="sub">· signed in${until(EXP)?' for another '+until(EXP):''} — commit and push
+            without signing again</span>`
+        : (age!=null?` <span class="sub">· raw signature, expires in ${Math.max(0,60-Math.round(age/60))}m
+            (sign in with your wallet to keep it)</span>`:''));}
   return `<span class="err">${esc((ME&&ME.error)||'not signed in')}</span>`+
-    (stale&&WALLET?' <span class="sub">— tokens last an hour, sign in with your wallet again</span>':'');}
+    (WALLET?' <span class="sub">— sign in again and this browser stays signed in for 30 days</span>':'');}
 let TT=null;
 function toast(msg,err){const t=$('#toast');t.className=err?'err':'';t.textContent=msg;
   t.style.display='block';clearTimeout(TT);TT=setTimeout(()=>t.style.display='none',err?9000:6000)}

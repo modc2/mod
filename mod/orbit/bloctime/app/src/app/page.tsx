@@ -26,6 +26,9 @@ import {
   ArrowsRightLeftIcon,
   CheckCircleIcon,
   XMarkIcon,
+  PlusIcon,
+  BanknotesIcon,
+  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline'
 import { useThemeColors } from './theme'
 import ThemePicker from './ThemePicker'
@@ -62,20 +65,126 @@ const NETWORKS: NetworkDef[] = [
 
 const DEFAULT_CHAIN = '84532'
 
+// User-added chains — the picker's "custom network" form appends here, so
+// a BlocTime can go to ANY EVM chain, not just the built-in eight. Kept in
+// localStorage; hydrated once on the client before first render needs it.
+const CUSTOM_NETS_KEY = 'bloctime_custom_nets'
+let CUSTOM_NETWORKS: NetworkDef[] = []
+
+function loadCustomNets(): NetworkDef[] {
+  if (typeof window === 'undefined') return []
+  try {
+    CUSTOM_NETWORKS = JSON.parse(localStorage.getItem(CUSTOM_NETS_KEY) || '[]')
+  } catch { CUSTOM_NETWORKS = [] }
+  return CUSTOM_NETWORKS
+}
+
+function saveCustomNet(net: NetworkDef) {
+  CUSTOM_NETWORKS = [...CUSTOM_NETWORKS.filter(n => n.chainId !== net.chainId), net]
+  try { localStorage.setItem(CUSTOM_NETS_KEY, JSON.stringify(CUSTOM_NETWORKS)) } catch {}
+}
+
 const netFor = (chainId: string): NetworkDef | null =>
-  NETWORKS.find(n => n.chainId === chainId) || null
+  NETWORKS.find(n => n.chainId === chainId) ||
+  CUSTOM_NETWORKS.find(n => n.chainId === chainId) || null
+
+// Hydrate saved custom nets before anything asks netFor about them.
+if (typeof window !== 'undefined') loadCustomNets()
 
 const netLabel = (chainId: string) => netFor(chainId)?.label || (chainId ? `Chain ${chainId}` : 'Unknown')
+
+// ── Chain logos ─────────────────────────────────────────────────────────
+// Every mark is inline SVG in the chain's own brand colour. Nothing is
+// fetched: this console is opened on boxes with no route to a CDN, and a
+// broken <img> reads as a broken network, which is the one thing the
+// picker must never say by accident. Testnets wear the mainnet mark —
+// same chain, and the label already carries the "Sepolia".
+
+const CHAIN_MARK: Record<string, string> = {
+  '1': 'ethereum', '11155111': 'ethereum',
+  '8453': 'base', '84532': 'base',
+  '10': 'optimism',
+  '42161': 'arbitrum',
+  '137': 'polygon',
+  '1337': 'local',
+}
+
+function ChainLogo({ chainId, className = 'w-4 h-4' }: { chainId: string; className?: string }) {
+  const mark = CHAIN_MARK[chainId]
+  const common = { className, viewBox: '0 0 24 24', 'aria-hidden': true as const }
+
+  if (mark === 'base') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#0052FF" />
+      {/* The Base mark: a disc with a slot cut clean through its left side. */}
+      <path fill="#fff" d="M0 10.15h15.9v3.7H0z" />
+    </svg>
+  )
+
+  if (mark === 'ethereum') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#627EEA" />
+      <path fill="#fff" fillOpacity=".6" d="M12 3.5v6.3l5.2 2.3L12 3.5Z" />
+      <path fill="#fff" d="M12 3.5 6.8 12.1 12 9.8V3.5Z" />
+      <path fill="#fff" fillOpacity=".6" d="M12 16.4v4.1l5.2-7.3L12 16.4Z" />
+      <path fill="#fff" d="M12 20.5v-4.1l-5.2-3.2L12 20.5Z" />
+      <path fill="#fff" fillOpacity=".2" d="m12 15.4 5.2-3.3L12 9.8v5.6Z" />
+      <path fill="#fff" fillOpacity=".6" d="M6.8 12.1 12 15.4V9.8l-5.2 2.3Z" />
+    </svg>
+  )
+
+  if (mark === 'optimism') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#FF0420" />
+      <path fill="#fff" d="M8.2 15.6c-1 0-1.9-.24-2.5-.72-.63-.49-.94-1.19-.94-2.1 0-.19.02-.42.06-.7.12-.63.28-1.4.5-2.29.6-2.44 2.16-3.66 4.68-3.66.68 0 1.3.11 1.84.35.54.22.97.56 1.28 1.02.31.45.47 1 .47 1.62 0 .18-.02.4-.06.68-.13.78-.3 1.55-.5 2.28-.31 1.22-.85 2.13-1.61 2.74-.77.59-1.8.89-3.1.89Zm.19-1.93c.5 0 .93-.15 1.28-.45.36-.3.62-.75.77-1.36.21-.87.38-1.62.49-2.27.04-.19.06-.39.06-.59 0-.83-.43-1.24-1.29-1.24-.5 0-.94.15-1.3.45-.35.3-.6.75-.75 1.38-.17.62-.33 1.38-.5 2.27a2.9 2.9 0 0 0-.06.58c0 .83.44 1.23 1.3 1.23Zm5.83 1.79a.24.24 0 0 1-.19-.08.29.29 0 0 1-.03-.22l1.7-7.99c.02-.09.06-.16.14-.22a.36.36 0 0 1 .22-.08h3.27c.91 0 1.64.19 2.19.57.56.37.84.92.84 1.63 0 .2-.02.42-.08.64-.2 1-.65 1.75-1.34 2.22-.68.48-1.61.72-2.79.72h-1.66l-.57 2.7a.4.4 0 0 1-.14.22.36.36 0 0 1-.22.08h-1.34Zm4.15-4.6c.38 0 .7-.1.99-.31.28-.21.47-.51.56-.9.03-.16.04-.3.04-.42 0-.24-.07-.42-.21-.55-.14-.13-.38-.2-.72-.2h-1.47l-.5 2.38h1.31Z" />
+    </svg>
+  )
+
+  if (mark === 'arbitrum') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="12" fill="#213147" />
+      <path fill="#12AAFF" d="m10.9 9.9 1.6-2.7 4.3 6.7v2.7l-1.6-2.5-4.3-4.2Z" />
+      <path fill="#12AAFF" d="M17.2 15.9v-2.5l-1.6 2.5h1.6Z" />
+      <path fill="#9DCCED" d="M6.5 16.7 8.6 13l3.9 6.4-1.9 1.1-4.1-3.8Z" />
+      <path fill="#fff" d="m12.1 4.9 5.2 3v.7l-4.6 7.6-1.3-2.2 3-5-2.3-3.9v-.2Zm-.3 0-5.2 3v9.2l1.4-2.3 2.2-6.9 1.6-3Z" />
+    </svg>
+  )
+
+  if (mark === 'polygon') return (
+    <svg {...common} viewBox="0 0 38.4 33.5" className={className} aria-hidden>
+      <rect width="38.4" height="33.5" rx="8" fill="#8247E5" opacity=".16" />
+      <path fill="#8247E5" d="M29 10.2c-.7-.4-1.6-.4-2.4 0L21 13.5l-3.8 2.1-5.5 3.3c-.7.4-1.6.4-2.4 0L5 16.3c-.7-.4-1.2-1.2-1.2-2.1v-5c0-.8.4-1.6 1.2-2.1l4.3-2.5c.7-.4 1.6-.4 2.4 0L16 7.2c.7.4 1.2 1.2 1.2 2.1v3.3l3.8-2.2V7c0-.8-.4-1.6-1.2-2.1l-8-4.7c-.7-.4-1.6-.4-2.4 0L1.2 5C.4 5.4 0 6.2 0 7v9.4c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l5.5-3.2 3.8-2.2 5.5-3.2c.7-.4 1.6-.4 2.4 0l4.3 2.5c.7.4 1.2 1.2 1.2 2.1v5c0 .8-.4 1.6-1.2 2.1L29 28.8c-.7.4-1.6.4-2.4 0l-4.3-2.5c-.7-.4-1.2-1.2-1.2-2.1V21l-3.8 2.2v3.3c0 .8.4 1.6 1.2 2.1l8.1 4.7c.7.4 1.6.4 2.4 0l8.1-4.7c.7-.4 1.2-1.2 1.2-2.1V17c0-.8-.4-1.6-1.2-2.1L29 10.2Z" />
+    </svg>
+  )
+
+  if (mark === 'local') return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="11" className="stroke-mute" strokeWidth="1.6" strokeDasharray="3 2.6" />
+      <rect x="7.5" y="8" width="9" height="3.2" rx="1" className="fill-mute" />
+      <rect x="7.5" y="12.8" width="9" height="3.2" rx="1" className="fill-mute" opacity=".55" />
+    </svg>
+  )
+
+  // Unknown chain — a filled dot in the warning hue, same silhouette as a
+  // logo so the row never reflows when the wallet lands somewhere odd.
+  return (
+    <svg {...common} fill="none">
+      <circle cx="12" cy="12" r="11" className="fill-gold/20 stroke-gold" strokeWidth="1.6" />
+      <path d="M12 7.5v6" className="stroke-gold" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="12" cy="16.6" r="1.2" className="fill-gold" />
+    </svg>
+  )
+}
 
 // ── Types ───────────────────────────────────────────────────────────────
 
 interface StakePosition {
   stakeId: number
   amount: string
-  startBlock: number
-  lockBlocks: number
+  startTime: number       // unix timestamp at stake
+  lockSeconds: number
   blocTimeBalance: string
-  blocksRemaining: number
+  secondsRemaining: number
 }
 
 interface Overview {
@@ -104,6 +213,13 @@ interface PotInfo {
 
 interface Stats {
   pot: PotInfo | null
+  owner?: string           // contract owner() — the only address setPoints accepts
+  treasury?: string        // configured treasury address, '' when none exists
+  chainId?: string
+  maxLockSeconds?: number
+  secondsPerBlock?: number
+  priceUsdMicro?: number   // micro-USD per whole token (1_000_000 = $1.00)
+  priceUsd?: number        // same thing in dollars, for display
   totalBlocTime: string
   totalSupply: string
   totalStakes: number
@@ -119,13 +235,13 @@ interface Stats {
     initialRewardPerEpoch: string
     halvingInterval: number
     minRewardPerEpoch: string
-    epochLength: number
-    startBlock: number
+    epochLength: number     // SECONDS per epoch (86400 = 1 day)
+    startTime: number       // unix timestamp when inflation began
   }
 }
 
 interface MultiplierPoint {
-  blocks: number
+  lockSeconds: number
   multiplier: number
   multiplierX: number
 }
@@ -212,6 +328,7 @@ interface Instance {
   rpc: string
   bloctime: string
   nativeToken: string
+  treasury?: string
   owner: string
   official: boolean
   explorer: string
@@ -224,13 +341,22 @@ interface FactoryContract {
   bytecode: string
 }
 
+interface ReserveTokenDef {
+  symbol: string
+  address: string
+  decimals: number
+}
+
 interface FactoryKit {
-  contracts: { bloctime: FactoryContract; nativeToken: FactoryContract }
+  contracts: { bloctime: FactoryContract; nativeToken: FactoryContract; treasury?: FactoryContract }
   defaults: {
     initialSupply: string
-    maxLockBlocks: number
-    distributionPercentage: number
-    points: { blocks: number; multiplier: number }[]
+    maxLockSeconds: number
+    priceUsdMicro: number
+    secondsPerBlock?: number
+    reserveTokens?: Record<string, ReserveTokenDef>
+    reserveTokenLists?: Record<string, ReserveTokenDef[]>
+    points: { lockSeconds: number; multiplier: number }[]
     inflation: {
       initialRewardPerEpoch: string
       halvingInterval: number
@@ -254,9 +380,13 @@ type Tab = 'stake' | 'rewards' | 'market' | 'deploy' | 'bridge' | 'contracts'
 // ── API helper ──────────────────────────────────────────────────────────
 
 async function api(fn: string, params: Record<string, any> = {}, method = 'POST') {
+  // Server-signer endpoints require the API token (~/.mod/bloctime/api_token
+  // on the server). Paste it once: localStorage.setItem('bloctime_api_token', t)
+  const token = typeof window !== 'undefined' ? localStorage.getItem('bloctime_api_token') : null
+  const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
   const opts: RequestInit = method === 'GET'
-    ? { method: 'GET' }
-    : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params) }
+    ? { method: 'GET', headers: auth }
+    : { method: 'POST', headers: { 'Content-Type': 'application/json', ...auth }, body: JSON.stringify(params) }
 
   const res = await fetch(`${API_URL}/${fn}`, opts)
   if (!res.ok) {
@@ -267,20 +397,110 @@ async function api(fn: string, params: Record<string, any> = {}, method = 'POST'
   return data.result !== undefined ? data.result : data
 }
 
+// v2 locks are denominated in SECONDS against block.timestamp. Blocks are
+// only a display convention now — seconds = blocks × secondsPerBlock, with
+// secondsPerBlock read from the contract's params() (2 on Base).
+const SECONDS_PER_HOUR = 3_600
+const SECONDS_PER_DAY = 86_400
+const SECONDS_PER_WEEK = SECONDS_PER_DAY * 7
+const SECONDS_PER_YEAR = SECONDS_PER_DAY * 365    // 31,536,000
+const MAX_LOCK_SECONDS = SECONDS_PER_YEAR * 8     // 252,288,000 — 8 years
+const DEFAULT_SECONDS_PER_BLOCK = 2               // Base
+
+// The lock can be entered and read in either unit; the contract call is
+// always seconds. The choice sticks across visits.
+type LockUnit = 'seconds' | 'blocks'
+const LOCK_UNIT_KEY = 'bloctime_lock_unit'
+
+// Set once a wallet has been connected here, so a reload can re-attach via
+// eth_accounts (silent) instead of eth_requestAccounts (pops the wallet).
+const WALLET_KEY = 'bloctime_wallet_connected'
+
+// 252,288,000 reads as noise; "8y" reads as a decision. Every place that
+// prints a lock length as a duration goes through here.
+function fmtLockSpan(seconds: number): string {
+  if (!seconds || seconds <= 0) return 'no lock'
+  const days = seconds / SECONDS_PER_DAY
+  if (days >= 365) {
+    const y = days / 365
+    return `${Number.isInteger(y) ? y : y.toFixed(y < 10 ? 1 : 0)}y`
+  }
+  if (days >= 1) return `${Number.isInteger(days) ? days : days.toFixed(days < 10 ? 1 : 0)}d`
+  const hours = days * 24
+  if (hours >= 1) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
+  const mins = hours * 60
+  if (mins >= 1) return `${Math.max(1, Math.round(mins))}m`
+  return `${Math.max(1, Math.round(seconds))}s`
+}
+
+// The raw lock figure in whichever unit is chosen: "1,000,000 s" or
+// "500,000 blk". Duration formatting is fmtLockSpan's job, not this one's.
+function fmtLockRaw(seconds: number, unit: LockUnit, spb: number): string {
+  if (unit === 'blocks') {
+    const blocks = Math.round(seconds / Math.max(1, spb))
+    return `${blocks.toLocaleString()} blk`
+  }
+  return `${Math.round(seconds).toLocaleString()} s`
+}
+
+// Compact axis labels in the chosen unit — 86400 → "86k" (seconds) or
+// "43k" (blocks at 2s each).
+function fmtLockAxis(seconds: number, unit: LockUnit, spb: number): string {
+  const v = unit === 'blocks' ? Math.round(seconds / Math.max(1, spb)) : Math.round(seconds)
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v < 10_000_000 ? 1 : 0)}M`
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}k`
+  return String(v)
+}
+
+// Integer-bps mirror of the contract's getMultiplier — the same piecewise
+// interpolation, so the client-side quote matches what stake() will mint.
+function multiplierBpsAt(points: MultiplierPoint[], lockSeconds: number): number {
+  if (points.length === 0) return 10000
+  if (lockSeconds <= points[0].lockSeconds) return points[0].multiplier
+  const last = points[points.length - 1]
+  if (lockSeconds >= last.lockSeconds) return last.multiplier
+  for (let i = 0; i < points.length - 1; i++) {
+    if (lockSeconds >= points[i].lockSeconds && lockSeconds <= points[i + 1].lockSeconds) {
+      const range = points[i + 1].lockSeconds - points[i].lockSeconds
+      if (range === 0) return points[i].multiplier
+      const pos = lockSeconds - points[i].lockSeconds
+      const yRange = points[i + 1].multiplier - points[i].multiplier
+      return points[i].multiplier + Math.floor((yRange * pos) / range)
+    }
+  }
+  return last.multiplier
+}
+
+// BigInt-safe mirror of the contract's quoteBloc:
+//   (amountWei × priceUsdMicro / 1e6) × lockSeconds × multiplierBps / 10000
+function quoteBlocWei(amountWei: bigint, priceUsdMicro: number, lockSeconds: number, multBps: number): bigint {
+  const usdValue = (amountWei * BigInt(Math.max(0, Math.round(priceUsdMicro)))) / 1_000_000n
+  return (usdValue * BigInt(Math.max(0, Math.floor(lockSeconds))) * BigInt(multBps)) / 10_000n
+}
+
+// A "real" curve shapes the mint; the deployed default — one flat 1x point —
+// doesn't, and drawing it as a chart would just be a horizontal line.
+const hasRealCurve = (points: MultiplierPoint[]) =>
+  points.length > 1 || points.some(p => p.multiplierX > 1)
+
 // Contracts deployed before getPoints() answer /points with an empty list.
 // getMultiplier() still works one lock length at a time, so sample it — a
-// curve you can read beats a panel that says "unavailable".
-const SAMPLE_LOCKS = [0, 10_000, 50_000, 100_000, 200_000]
+// curve you can read beats a panel that says "unavailable". Sampling is a
+// fraction of the instance's own cap, never a fixed count: an instance
+// capped at 100k seconds must not be offered a 200k lock it would revert on.
+const SAMPLE_FRACTIONS = [0, 1 / 8, 1 / 4, 1 / 2, 1]
 
 // Sequential on purpose: each call is an RPC round-trip on the API side, and
 // firing all five at once gets the batch rate-limited — a half-sampled curve
 // is worse than a slightly slower one.
-async function sampleCurve(): Promise<MultiplierPoint[]> {
+async function sampleCurve(maxLock: number): Promise<MultiplierPoint[]> {
+  const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
   const pts: MultiplierPoint[] = []
-  for (const blocks of SAMPLE_LOCKS) {
+  for (const f of SAMPLE_FRACTIONS) {
+    const lockSeconds = Math.floor(cap * f)
     try {
-      const r = await api('get_multiplier', { block_count: blocks })
-      pts.push({ blocks, multiplier: r.multiplier, multiplierX: r.multiplierX })
+      const r = await api('get_multiplier', { lock_seconds: lockSeconds })
+      pts.push({ lockSeconds, multiplier: r.multiplier, multiplierX: r.multiplierX })
     } catch { return [] }   // partial curves lie about the shape — drop it
   }
   return pts
@@ -388,6 +608,23 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
     c.totalBlocTime(), c.totalSupply(), c.nextStakeId(),
   ])
 
+  // v2 params() is { maxLockSeconds, secondsPerBlock }. Instances registered
+  // against the old ABI ({ maxLockBlocks, distributionPercentage }) decode as
+  // the same two uints — the second field just isn't a usable spb, so anything
+  // implausible falls back to the Base default rather than blanking the page.
+  let maxLock = 0, spb = DEFAULT_SECONDS_PER_BLOCK
+  try {
+    const prm = await c.params()
+    maxLock = Number(prm[0])
+    const rawSpb = Number(prm[1])
+    spb = rawSpb > 0 && rawSpb <= 60 ? rawSpb : DEFAULT_SECONDS_PER_BLOCK
+  } catch { /* older contract without params() */ }
+
+  // priceUsdMicro only exists on v2 — old instances revert, and a $1.00
+  // default keeps the linear quote readable instead of zeroing it.
+  let priceMicro = 1_000_000
+  try { priceMicro = Number(await c.priceUsdMicro()) || 1_000_000 } catch { /* pre-price contract */ }
+
   let infl: Stats['inflationParams'] | null = null
   let epoch = 0n, epochReward = 0n, totalDist = 0n, lastDist = 0n
   try {
@@ -401,7 +638,7 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
       halvingInterval: Number(ip[1]),
       minRewardPerEpoch: ip[2].toString(),
       epochLength: Number(ip[3]),
-      startBlock: Number(ip[4]),
+      startTime: Number(ip[4]),
     }
   } catch { /* older contract without inflation */ }
 
@@ -409,7 +646,7 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
   try {
     const raw = await c.getPoints()
     points = raw.map((p: any) => ({
-      blocks: Number(p[0]), multiplier: Number(p[1]), multiplierX: Number(p[1]) / 10000,
+      lockSeconds: Number(p[0]), multiplier: Number(p[1]), multiplierX: Number(p[1]) / 10000,
     }))
   } catch { /* older contract without getPoints */ }
 
@@ -432,6 +669,10 @@ async function readInstanceState(inst: Instance, kit: FactoryKit): Promise<{ sta
 
   const stats: Stats = {
     pot,
+    maxLockSeconds: maxLock,
+    secondsPerBlock: spb,
+    priceUsdMicro: priceMicro,
+    priceUsd: priceMicro / 1_000_000,
     totalBlocTime: totalBT.toString(),
     totalSupply: supply.toString(),
     totalStakes: Number(nextId),
@@ -455,8 +696,8 @@ async function readInstanceOverview(inst: Instance, kit: FactoryKit, addr: strin
   const positions: StakePosition[] = await Promise.all([...ids].map(async sid => {
     const p = await c.getStakePosition(addr, sid)
     return {
-      stakeId: Number(sid), amount: p[0].toString(), startBlock: Number(p[1]),
-      lockBlocks: Number(p[2]), blocTimeBalance: p[3].toString(), blocksRemaining: Number(p[4]),
+      stakeId: Number(sid), amount: p[0].toString(), startTime: Number(p[1]),
+      lockSeconds: Number(p[2]), blocTimeBalance: p[3].toString(), secondsRemaining: Number(p[4]),
     }
   }))
   let pending = 0n, vp = 0n, deleg = '', bloc = 0n
@@ -561,29 +802,29 @@ function InflationChart({ points, currentEpoch, halvingInterval }: {
 
 // ── Multiplier curve ────────────────────────────────────────────────────
 // The lock-length → BlocTime-multiplier curve, with a marker on wherever the
-// stake form currently sits. This is the one chart that answers the only
-// question the page exists to ask: how much longer do I have to lock?
+// stake form currently sits. Drawn only when the owner has shaped a real
+// curve — the deployed default is one flat 1x point, which is no chart.
 
-function MultiplierChart({ points, atBlocks, atMultiplier }: {
-  points: MultiplierPoint[], atBlocks: number, atMultiplier: number
+function MultiplierChart({ points, atSeconds, atMultiplier, unit, spb }: {
+  points: MultiplierPoint[], atSeconds: number, atMultiplier: number, unit: LockUnit, spb: number
 }) {
   const c = useThemeColors()
   const W = 600, H = 150, PAD_L = 34, PAD_R = 14, PAD_T = 16, PAD_B = 24
   const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B
 
-  const maxB = points[points.length - 1]?.blocks || 1
+  const maxS = points[points.length - 1]?.lockSeconds || 1
   const maxM = points[points.length - 1]?.multiplierX || 1
   const minM = points[0]?.multiplierX ?? 1
   const span = maxM - minM || 1
 
-  const toX = (b: number) => PAD_L + (Math.min(b, maxB) / maxB) * cw
+  const toX = (s: number) => PAD_L + (Math.min(s, maxS) / maxS) * cw
   const toY = (m: number) => PAD_T + ch - ((m - minM) / span) * ch
 
-  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.blocks).toFixed(1)},${toY(p.multiplierX).toFixed(1)}`).join(' ')
+  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.lockSeconds).toFixed(1)},${toY(p.multiplierX).toFixed(1)}`).join(' ')
   const area = `${line} L${(PAD_L + cw).toFixed(1)},${(PAD_T + ch).toFixed(1)} L${PAD_L},${(PAD_T + ch).toFixed(1)} Z`
 
-  const showMarker = atBlocks > 0
-  const mx = toX(atBlocks)
+  const showMarker = atSeconds > 0
+  const mx = toX(atSeconds)
   const my = toY(Math.min(Math.max(atMultiplier, minM), maxM))
 
   return (
@@ -609,9 +850,9 @@ function MultiplierChart({ points, atBlocks, atMultiplier }: {
       <path d={line} fill="none" stroke={c.accent} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
 
       {points.map((p, i) => (
-        <text key={i} x={toX(p.blocks)} y={H - 7} textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}
+        <text key={i} x={toX(p.lockSeconds)} y={H - 7} textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}
               fill={c.faint} fontSize="8" fontFamily="var(--font-num)">
-          {p.blocks >= 1000 ? `${(p.blocks / 1000).toFixed(0)}k` : p.blocks}
+          {fmtLockAxis(p.lockSeconds, unit, spb)}
         </text>
       ))}
 
@@ -622,6 +863,380 @@ function MultiplierChart({ points, atBlocks, atMultiplier }: {
           <text x={Math.min(mx + 8, W - PAD_R - 4)} y={Math.max(my - 8, PAD_T + 8)}
                 textAnchor={mx > W * 0.75 ? 'end' : 'start'} fill={c.gold} fontSize="10" fontFamily="var(--font-num)">
             {atMultiplier.toFixed(2)}x
+          </text>
+        </g>
+      )}
+    </svg>
+  )
+}
+
+// ── Treasury connection ─────────────────────────────────────────────────
+// Whether the instance on screen is actually wired to a treasury — a live
+// probe (code at the address, token() == this NTV), not a config echo.
+// Official mode asks the API, which probes over its own RPC; market
+// instances are probed straight over theirs.
+
+interface TreasuryProbe {
+  configured: boolean
+  connected: boolean
+  address: string
+  symbol?: string
+  heldUsd?: number
+  note?: string
+}
+
+function TreasuryStatus({ treasury, nativeToken, rpc, official }: {
+  treasury: string; nativeToken: string; rpc?: string; official: boolean
+}) {
+  const [probe, setProbe] = useState<TreasuryProbe | null>(null)
+
+  useEffect(() => {
+    let dead = false
+    const run = async () => {
+      if (!treasury) {
+        if (!dead) setProbe({ configured: false, connected: false, address: '' })
+        return
+      }
+      try {
+        if (official) {
+          const r = await api('treasury', {}, 'GET')
+          if (dead) return
+          setProbe({
+            configured: !!r.configured, connected: !!r.connected,
+            address: r.address || treasury, symbol: r.reserve?.symbol,
+            heldUsd: r.reserveHeldUsd, note: r.note,
+          })
+        } else {
+          const provider = new ethers.JsonRpcProvider(rpc)
+          const t = new ethers.Contract(treasury, TREASURY_MIN_ABI, provider)
+          const [token, reserve, decimals, held] = await t.info()
+          const matches = String(token).toLowerCase() === nativeToken.toLowerCase()
+          let symbol = ''
+          try { symbol = await new ethers.Contract(reserve, ERC20_MIN_ABI, provider).symbol() } catch { /* symbol is a nicety */ }
+          if (dead) return
+          setProbe({
+            configured: true, connected: matches, address: treasury, symbol,
+            heldUsd: Number(held) / 10 ** Number(decimals),
+            note: matches ? undefined : "answers, but its token() is not this instance's NTV",
+          })
+        }
+      } catch {
+        if (!dead) setProbe({ configured: true, connected: false, address: treasury, note: 'not answering over RPC' })
+      }
+    }
+    setProbe(null)
+    run()
+    return () => { dead = true }
+  }, [treasury, nativeToken, rpc, official])
+
+  const dot = (cls: string, pulse = false) =>
+    <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${cls} ${pulse ? 'animate-pulse' : ''}`} />
+
+  let tone = 'border-hair'
+  let body: React.ReactNode
+  if (!probe) {
+    body = <>{dot('bg-gold', true)}<span className="text-mute">Checking treasury connection…</span></>
+  } else if (!probe.configured) {
+    body = <>
+      {dot('bg-line2')}
+      <span className="text-mute font-bold">No treasury</span>
+      <span className="text-faint">— this instance has no dollar door; nothing mints NTV 1:1 per $</span>
+    </>
+  } else if (probe.connected) {
+    tone = 'border-up/30'
+    body = <>
+      {dot('bg-up')}
+      <span className="text-up font-bold">Treasury connected</span>
+      <span className="font-mono text-ink2">{fmtAddr(probe.address)}</span>
+      <span className="text-faint">
+        mints NTV 1:1 per $
+        {probe.symbol ? ` · holds ${(probe.heldUsd ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${probe.symbol}` : ''}
+      </span>
+    </>
+  } else {
+    tone = 'border-down/30'
+    body = <>
+      {dot('bg-down')}
+      <span className="text-down font-bold">Treasury not connected</span>
+      <span className="font-mono text-ink2">{fmtAddr(probe.address)}</span>
+      {probe.note && <span className="text-faint">— {probe.note}</span>}
+    </>
+  }
+
+  return (
+    <div className={`flex items-center gap-2 flex-wrap border ${tone} rounded-lg px-3 py-2 bg-panel text-[11px]`}>
+      <span className="lbl-dim">Treasury</span>
+      {body}
+    </div>
+  )
+}
+
+// ── Curve editor ────────────────────────────────────────────────────────
+// The lock-length → multiplier curve, editable in place. Everyone sees the
+// live curve; only the contract owner can APPLY — setPoints is onlyOwner,
+// so the button explains whose signature it needs instead of letting the
+// transaction revert. Locks are edited in raw seconds (the contract's own
+// unit) with a duration hint per row; multipliers in x (1.5 = 15000 bps).
+
+interface DraftPoint { lock: string; mult: string }
+
+const draftFromChain = (pts: MultiplierPoint[]): DraftPoint[] =>
+  (pts.length ? pts : [{ lockSeconds: 0, multiplier: 10000, multiplierX: 1 }])
+    .map(p => ({ lock: String(p.lockSeconds), mult: String(p.multiplierX) }))
+
+function CurveCard({ points, maxLock, unit, spb, ownerAddr, account, official, apiTokenPresent, onApply }: {
+  points: MultiplierPoint[]
+  maxLock: number
+  unit: LockUnit
+  spb: number
+  ownerAddr: string
+  account: string
+  official: boolean
+  apiTokenPresent: boolean
+  onApply: (pts: { lockSeconds: number; multiplier: number }[]) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<DraftPoint[]>(() => draftFromChain(points))
+  const [dirty, setDirty] = useState(false)
+  const [applying, setApplying] = useState(false)
+
+  // The 15s poll re-seeds the editor only while it's untouched — a refetch
+  // must never overwrite points someone is in the middle of shaping.
+  useEffect(() => { if (!dirty) setDraft(draftFromChain(points)) }, [points, dirty])
+
+  const parsed = useMemo(() => draft.map(d => ({
+    lockSeconds: Math.max(0, Math.floor(Number(d.lock) || 0)),
+    multiplier: Math.round((Number(d.mult) || 0) * 10000),
+  })), [draft])
+
+  // Mirror of the contract's requires — say it before the gas does.
+  const error = useMemo(() => {
+    if (parsed.length === 0) return 'The curve needs at least one point'
+    for (let i = 0; i < parsed.length; i++) {
+      if (parsed[i].multiplier < 10000) return `Point ${i + 1}: multiplier must be at least 1x`
+      if (maxLock > 0 && parsed[i].lockSeconds > maxLock) return `Point ${i + 1}: lock exceeds the ${fmtLockSpan(maxLock)} cap`
+      if (i > 0 && parsed[i].lockSeconds <= parsed[i - 1].lockSeconds) return `Point ${i + 1}: lock must be longer than point ${i}'s`
+      if (i > 0 && parsed[i].multiplier < parsed[i - 1].multiplier) return `Point ${i + 1}: multiplier can't drop`
+    }
+    return ''
+  }, [parsed, maxLock])
+
+  const preview: MultiplierPoint[] = useMemo(() =>
+    error ? [] : parsed.map(p => ({ ...p, multiplierX: p.multiplier / 10000 })), [parsed, error])
+
+  const isOwner = !!account && !!ownerAddr && account.toLowerCase() === ownerAddr.toLowerCase()
+  const canApply = isOwner || (official && apiTokenPresent)
+
+  const edit = (i: number, key: keyof DraftPoint, value: string) => {
+    setDirty(true)
+    setDraft(d => d.map((row, j) => j === i ? { ...row, [key]: value } : row))
+  }
+
+  const addPoint = () => {
+    setDirty(true)
+    setDraft(d => {
+      const last = d[d.length - 1]
+      const lastLock = Number(last?.lock) || 0
+      const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
+      const nextLock = Math.min(cap, lastLock > 0 ? lastLock * 2 : SECONDS_PER_YEAR)
+      const nextMult = (Number(last?.mult) || 1) + 0.5
+      return [...d, { lock: String(nextLock), mult: String(nextMult) }]
+    })
+  }
+
+  const removePoint = (i: number) => {
+    setDirty(true)
+    setDraft(d => d.filter((_, j) => j !== i))
+  }
+
+  const reset = () => { setDraft(draftFromChain(points)); setDirty(false) }
+
+  const apply = async () => {
+    setApplying(true)
+    try {
+      await onApply(parsed)
+      setDirty(false)
+    } catch (err: any) {
+      toast.error(err?.reason || err?.shortMessage || err?.message || 'Curve update failed')
+    }
+    setApplying(false)
+  }
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <ChartBarIcon className="w-4 h-4 text-accent" />
+        <span className="lbl">Multiplier Curve</span>
+        {ownerAddr && (
+          <span className="lbl-dim ml-auto">
+            owner <span className={`font-mono ${isOwner ? 'text-up' : 'text-ink2'}`}>{fmtAddr(ownerAddr)}</span>
+            {isOwner && ' — you'}
+          </span>
+        )}
+      </div>
+
+      <div className="grid lg:grid-cols-[minmax(0,340px)_1fr] gap-4 p-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-[10px] text-faint">
+            <span className="flex-1">Lock (seconds)</span>
+            <span className="w-20">Mult (x)</span>
+            <span className="w-16" />
+            <span className="w-5" />
+          </div>
+
+          {draft.map((d, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="number" min="0" value={d.lock}
+                onChange={e => edit(i, 'lock', e.target.value)}
+                className="input flex-1"
+              />
+              <input
+                type="number" min="1" step="0.1" value={d.mult}
+                onChange={e => edit(i, 'mult', e.target.value)}
+                className="input w-20"
+              />
+              <span className="w-16 text-[10px] text-faint tabular-nums text-right">
+                {fmtLockSpan(parsed[i]?.lockSeconds || 0)}
+              </span>
+              <button
+                onClick={() => removePoint(i)}
+                disabled={draft.length <= 1}
+                className="w-5 text-mute hover:text-down disabled:opacity-30"
+                title="Remove point"
+              >
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+
+          <div className="flex items-center gap-2 pt-1">
+            <button onClick={addPoint} className="btn btn-sm">
+              <PlusIcon className="w-3.5 h-3.5" /> Add point
+            </button>
+            <button onClick={reset} disabled={!dirty} className="btn btn-sm">Reset</button>
+            <button
+              onClick={apply}
+              disabled={!dirty || !!error || applying || !canApply}
+              className="btn btn-accent btn-sm ml-auto"
+            >
+              {applying
+                ? <><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Applying…</>
+                : <><CheckCircleIcon className="w-3.5 h-3.5" /> Apply on-chain</>}
+            </button>
+          </div>
+
+          {dirty && error && <p className="text-[10px] text-down">{error}</p>}
+          {!canApply && (
+            <p className="text-[10px] text-faint leading-relaxed">
+              Only the contract owner can apply a curve — connect{' '}
+              {ownerAddr ? <span className="font-mono">{fmtAddr(ownerAddr)}</span> : 'the owner wallet'}
+              {official ? ', or paste the server API token' : ''}.
+              Anyone can preview.
+            </p>
+          )}
+          <p className="text-[10px] text-faint leading-relaxed">
+            The contract interpolates between points: BLOC = USD staked × seconds × multiplier.
+            First point at 0s sets the floor; later points reward longer locks.
+          </p>
+        </div>
+
+        <div className="rounded-md border border-hair bg-panel2 p-3 flex flex-col justify-center">
+          {hasRealCurve(preview) ? (
+            <>
+              <p className="lbl-dim mb-1">{dirty ? 'Preview — not applied yet' : 'Live curve'}</p>
+              <MultiplierChart points={preview} atSeconds={0} atMultiplier={1} unit={unit} spb={spb} />
+            </>
+          ) : (
+            <p className="lbl-dim text-center leading-relaxed">
+              {error && dirty ? 'Fix the curve to preview it' : <>Flat 1x — pure USD × seconds.<br />Add points above 1x to reward longer locks.</>}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Projected BLOC ──────────────────────────────────────────────────────
+// The linear model's primary chart: BLOC minted vs lock length for the
+// amount currently in the form (or 1 token when it's empty). With the flat
+// default curve this is a straight line — usd × seconds — and any owner-set
+// curve bends it upward through the same math the contract uses.
+
+function ProjectionChart({ points, amount, priceUsd, maxLock, atSeconds, unit, spb }: {
+  points: MultiplierPoint[], amount: number, priceUsd: number,
+  maxLock: number, atSeconds: number, unit: LockUnit, spb: number
+}) {
+  const c = useThemeColors()
+  const W = 600, H = 150, PAD_L = 44, PAD_R = 14, PAD_T = 16, PAD_B = 24
+  const cw = W - PAD_L - PAD_R, ch = H - PAD_T - PAD_B
+
+  const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
+  const blocAt = (s: number) => amount * priceUsd * s * (multiplierBpsAt(points, s) / 10000)
+
+  const STEPS = 32
+  const samples = Array.from({ length: STEPS + 1 }, (_, i) => {
+    const s = (cap * i) / STEPS
+    return { s, v: blocAt(s) }
+  })
+  const maxV = samples[samples.length - 1].v || 1
+
+  const toX = (s: number) => PAD_L + (Math.min(s, cap) / cap) * cw
+  const toY = (v: number) => PAD_T + ch - (Math.min(v, maxV) / maxV) * ch
+
+  const line = samples.map((p, i) => `${i === 0 ? 'M' : 'L'}${toX(p.s).toFixed(1)},${toY(p.v).toFixed(1)}`).join(' ')
+  const area = `${line} L${(PAD_L + cw).toFixed(1)},${(PAD_T + ch).toFixed(1)} L${PAD_L},${(PAD_T + ch).toFixed(1)} Z`
+
+  const fmtBloc = (v: number) => {
+    if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`
+    if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`
+    return v >= 10 ? v.toFixed(0) : v.toFixed(2)
+  }
+
+  const showMarker = atSeconds > 0
+  const mx = toX(atSeconds)
+  const mv = blocAt(Math.min(atSeconds, cap))
+  const my = toY(mv)
+
+  const xTicks = [0, 0.25, 0.5, 0.75, 1].map(f => cap * f)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 170 }} role="img"
+         aria-label="Projected BLOC minted by lock length">
+      <defs>
+        <linearGradient id="projGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={c.accent} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={c.accent} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+
+      {[0, 0.5, 1].map(f => (
+        <g key={f}>
+          <line x1={PAD_L} y1={PAD_T + ch * f} x2={W - PAD_R} y2={PAD_T + ch * f}
+                stroke={c.line} strokeOpacity="0.45" strokeWidth="1" />
+          <text x={PAD_L - 6} y={PAD_T + ch * f + 3} textAnchor="end" fill={c.faint} fontSize="9"
+                fontFamily="var(--font-num)">{fmtBloc(maxV * (1 - f))}</text>
+        </g>
+      ))}
+
+      <path d={area} fill="url(#projGrad)" />
+      <path d={line} fill="none" stroke={c.accent} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+
+      {xTicks.map((s, i) => (
+        <text key={i} x={toX(s)} y={H - 7} textAnchor={i === 0 ? 'start' : i === xTicks.length - 1 ? 'end' : 'middle'}
+              fill={c.faint} fontSize="8" fontFamily="var(--font-num)">
+          {fmtLockAxis(s, unit, spb)}
+        </text>
+      ))}
+
+      {showMarker && (
+        <g>
+          <line x1={mx} y1={PAD_T} x2={mx} y2={PAD_T + ch} stroke={c.gold} strokeOpacity="0.5" strokeWidth="1" strokeDasharray="3,3" />
+          <circle cx={mx} cy={my} r="4" fill={c.gold} stroke={c.panel} strokeWidth="2" />
+          <text x={Math.min(mx + 8, W - PAD_R - 4)} y={Math.max(my - 8, PAD_T + 8)}
+                textAnchor={mx > W * 0.75 ? 'end' : 'start'} fill={c.gold} fontSize="10" fontFamily="var(--font-num)">
+            {fmtBloc(mv)} BLOC
           </text>
         </g>
       )}
@@ -1015,7 +1630,7 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
       </div>
 
       {instances.length === 0 && (
-        <div className="border border-line rounded-lg bg-panel py-16 text-center">
+        <div className="border border-line rounded-lg bg-panel py-12 text-center">
           <span className="text-xs text-mute uppercase tracking-wider">
             {loading ? 'Loading market...' : 'No instances registered yet — deploy one from the DEPLOY tab'}
           </span>
@@ -1069,8 +1684,21 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
               </div>
 
               <div className="space-y-1 text-[10px] font-mono text-mute">
-                <p>chain <span className="text-iris">{inst.chainId || '?'}</span> · contract <span className="text-ink2">{fmtAddr(inst.bloctime)}</span></p>
+                <p className="flex items-center gap-1.5">
+                  <ChainLogo chainId={inst.chainId} className="w-3.5 h-3.5 shrink-0" />
+                  <span className="text-iris">{netLabel(inst.chainId)}</span>
+                  <span className="text-hair">·</span>
+                  <span className="text-ink2">{fmtAddr(inst.bloctime)}</span>
+                </p>
                 {inst.owner && <p>owner <span className="text-ink2">{fmtAddr(inst.owner)}</span></p>}
+                {inst.treasury && (
+                  <p className="flex items-center gap-1.5">
+                    <BanknotesIcon className="w-3.5 h-3.5 shrink-0 text-gold" />
+                    <span className="text-gold">treasury</span>
+                    <span className="text-ink2">{fmtAddr(inst.treasury)}</span>
+                    <span className="text-faint">· mints 1 per $1</span>
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -1098,6 +1726,143 @@ function MarketPanel({ instances, activeId, account, loading, onUse, onRefresh }
   )
 }
 
+// ── Treasury: the dollar door of an instance ────────────────────────────
+
+const TREASURY_MIN_ABI = [
+  'function info() view returns (address token_, address reserve_, uint8 reserveDecimals_, uint256 reserveBalance_, uint256 totalDeposited_, uint256 totalRedeemed_)',
+  'function deposit(uint256 reserveAmount) returns (uint256)',
+  'function redeem(uint256 tokenAmount) returns (uint256)',
+]
+const ERC20_MIN_ABI = [
+  'function symbol() view returns (string)',
+  'function balanceOf(address) view returns (uint256)',
+  'function allowance(address, address) view returns (uint256)',
+  'function approve(address, uint256) returns (bool)',
+]
+
+interface TreasuryInfo {
+  reserve: string
+  symbol: string
+  decimals: number
+  reserveBalance: bigint
+  totalDeposited: bigint
+  totalRedeemed: bigint
+}
+
+function TreasuryCard({ inst, connected, onChanged }: {
+  inst: Instance
+  connected: boolean
+  onChanged: () => void
+}) {
+  const [info, setInfo] = useState<TreasuryInfo | null>(null)
+  const [amount, setAmount] = useState('')
+  const [busy, setBusy] = useState<'deposit' | 'redeem' | null>(null)
+
+  const load = useCallback(async () => {
+    if (!inst.treasury) return
+    const provider = new ethers.JsonRpcProvider(inst.rpc)
+    const t = new ethers.Contract(inst.treasury, TREASURY_MIN_ABI, provider)
+    const [, reserve, decimals, reserveBalance, totalDeposited, totalRedeemed] = await t.info()
+    let symbol = 'USD'
+    try { symbol = await new ethers.Contract(reserve, ERC20_MIN_ABI, provider).symbol() } catch {}
+    setInfo({ reserve, symbol, decimals: Number(decimals), reserveBalance, totalDeposited, totalRedeemed })
+  }, [inst.treasury, inst.rpc])
+
+  useEffect(() => { load().catch(() => setInfo(null)) }, [load])
+
+  const run = useCallback(async (mode: 'deposit' | 'redeem') => {
+    if (!info || !inst.treasury) return
+    const dollars = parseFloat(amount)
+    if (!(dollars > 0)) { toast.error('Enter a dollar amount'); return }
+    const w = window as any
+    if (!w.ethereum) { toast.error('Install MetaMask'); return }
+    setBusy(mode)
+    try {
+      await ensureChain({ chainId: inst.chainId, rpc: inst.rpc })
+      const signer = await new ethers.BrowserProvider(w.ethereum).getSigner()
+      const me = await signer.getAddress()
+      const treasury = new ethers.Contract(inst.treasury, TREASURY_MIN_ABI, signer)
+      if (mode === 'deposit') {
+        // Dollars → reserve units at the reserve's own decimals.
+        const units = ethers.parseUnits(dollars.toFixed(info.decimals), info.decimals)
+        const reserve = new ethers.Contract(info.reserve, ERC20_MIN_ABI, signer)
+        if ((await reserve.allowance(me, inst.treasury)) < units) {
+          await (await reserve.approve(inst.treasury, units)).wait()
+        }
+        await (await treasury.deposit(units)).wait()
+        toast.success(`Deposited $${dollars} — minted ${dollars} NTV`)
+      } else {
+        const units = ethers.parseEther(String(dollars))
+        const token = new ethers.Contract(inst.nativeToken, ERC20_MIN_ABI, signer)
+        if ((await token.allowance(me, inst.treasury)) < units) {
+          await (await token.approve(inst.treasury, units)).wait()
+        }
+        await (await treasury.redeem(units)).wait()
+        toast.success(`Redeemed ${dollars} NTV for $${dollars}`)
+      }
+      setAmount('')
+      await load().catch(() => {})
+      onChanged()
+    } catch (err: any) {
+      toast.error(err?.reason || err?.shortMessage || err?.message || `${mode} failed`)
+    }
+    setBusy(null)
+  }, [info, inst, amount, load, onChanged])
+
+  if (!inst.treasury) return null
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <BanknotesIcon className="w-4 h-4 text-gold" />
+        <span className="lbl">Treasury</span>
+        <span className="lbl-dim ml-auto hidden sm:inline">1 NTV per $1 · redeem 1:1</span>
+      </div>
+      <div className="p-4 space-y-3">
+        <div className="grid grid-cols-3 border border-hair rounded-lg overflow-hidden">
+          <div className="p-2 text-center border-r border-hair">
+            <p className="text-sm font-bold text-gold tabular-nums">
+              {info ? `$${ethers.formatUnits(info.reserveBalance, info.decimals)}` : '--'}
+            </p>
+            <p className="lbl-dim">{info?.symbol || 'Reserve'} held</p>
+          </div>
+          <div className="p-2 text-center border-r border-hair">
+            <p className="text-sm font-bold text-up tabular-nums">
+              {info ? `$${ethers.formatUnits(info.totalDeposited, info.decimals)}` : '--'}
+            </p>
+            <p className="lbl-dim">Deposited</p>
+          </div>
+          <div className="p-2 text-center">
+            <p className="text-sm font-bold text-down tabular-nums">
+              {info ? `$${ethers.formatUnits(info.totalRedeemed, info.decimals)}` : '--'}
+            </p>
+            <p className="lbl-dim">Redeemed</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            placeholder="Dollars"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            className="input flex-1"
+          />
+          <button onClick={() => run('deposit')} disabled={!connected || busy !== null} className="btn btn-accent">
+            {busy === 'deposit' ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : 'Deposit'}
+          </button>
+          <button onClick={() => run('redeem')} disabled={!connected || busy !== null} className="btn">
+            {busy === 'redeem' ? <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> : 'Redeem'}
+          </button>
+        </div>
+        <p className="text-[10px] text-faint">
+          Deposit {info?.symbol || 'the reserve'} and the treasury mints NTV 1:1 per dollar to stake with;
+          redeem burns NTV and pays the dollar back from what the treasury holds.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ── Deploy your own ─────────────────────────────────────────────────────
 
 type StepState = 'pending' | 'active' | 'done' | 'error'
@@ -1112,9 +1877,18 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [supply, setSupply] = useState('1000000')
-  const [maxLock, setMaxLock] = useState('100000')
-  const [distPct, setDistPct] = useState('5000')
+  const [maxLock, setMaxLock] = useState(String(MAX_LOCK_SECONDS))   // seconds
+  const [priceUsd, setPriceUsd] = useState('1.00')                   // dollars per token
   const [rpc, setRpc] = useState(known?.rpc || '')
+  const [reserveToken, setReserveToken] = useState('')
+  const [reserveMap, setReserveMap] = useState<Record<string, ReserveTokenDef[]>>({})
+  // The manage controls only draw for the operator who pasted the API token;
+  // the server enforces the bearer token on every write regardless.
+  const [isOwner] = useState(() => typeof window !== 'undefined' && !!localStorage.getItem('bloctime_api_token'))
+  const [manage, setManage] = useState(false)
+  const [addSym, setAddSym] = useState('')
+  const [addAddr, setAddAddr] = useState('')
+  const [addDec, setAddDec] = useState('6')
   const [busy, setBusy] = useState(false)
   const [forkCmd, setForkCmd] = useState('m bloctime/fork name=<yourname>')
   const [steps, setSteps] = useState<{ label: string; state: StepState }[]>([])
@@ -1123,8 +1897,8 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
     getFactory().then(kit => {
       if (kit.fork) setForkCmd(kit.fork)
       setSupply(kit.defaults.initialSupply)
-      setMaxLock(String(kit.defaults.maxLockBlocks))
-      setDistPct(String(kit.defaults.distributionPercentage))
+      setMaxLock(String(kit.defaults.maxLockSeconds))
+      if (kit.defaults.priceUsdMicro > 0) setPriceUsd((kit.defaults.priceUsdMicro / 1_000_000).toFixed(2))
     }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -1133,23 +1907,66 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
   // an RPC when the wallet sits on a chain we don't know a public one for.
   useEffect(() => { setRpc(netFor(chainId)?.rpc || '') }, [chainId])
 
+  // The treasury's dollar comes off the owner-curated allowlist — the form
+  // only offers what the site owner has listed for the current chain.
+  useEffect(() => {
+    api('reserve-tokens', {}, 'GET').then(setReserveMap).catch(() => {})
+  }, [])
+  const reserveList = reserveMap[chainId] || []
+  useEffect(() => {
+    const list = reserveMap[chainId] || []
+    if (!list.some(t => t.address.toLowerCase() === reserveToken.toLowerCase())) {
+      setReserveToken(list[0]?.address || '')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chainId, reserveMap])
+
+  const addReserve = useCallback(async () => {
+    if (!ethers.isAddress(addAddr.trim())) { toast.error('Paste the token contract address'); return }
+    try {
+      const map = await api('reserve-tokens/add', {
+        chainId, symbol: addSym.trim(), address: addAddr.trim(), decimals: parseInt(addDec) || 6,
+      })
+      setReserveMap(map)
+      setAddSym(''); setAddAddr('')
+      toast.success('Reserve token listed')
+    } catch (err: any) { toast.error(err?.message || 'Add failed') }
+  }, [chainId, addSym, addAddr, addDec])
+
+  const removeReserve = useCallback(async (address: string) => {
+    try {
+      const map = await api('reserve-tokens/remove', { chainId, address })
+      setReserveMap(map)
+      toast.success('Removed from the list')
+    } catch (err: any) { toast.error(err?.message || 'Remove failed') }
+  }, [chainId])
+
   const setStep = (i: number, state: StepState) =>
     setSteps(s => s.map((st, j) => j === i ? { ...st, state } : st))
 
   const handleDeploy = useCallback(async () => {
     if (!name.trim()) { toast.error('Name your instance'); return }
     if (!rpc.trim()) { toast.error('Set a public RPC URL for this network'); return }
+    if (!ethers.isAddress(reserveToken.trim())) {
+      toast.error(reserveList.length
+        ? 'Pick a reserve token (the dollar the treasury takes in)'
+        : 'No reserve token is listed for this network — the site owner curates the list')
+      return
+    }
     const w = window as any
     if (!w.ethereum) { toast.error('Install MetaMask'); return }
     setBusy(true)
     const labels = [
-      'Switch network', 'Deploy NativeToken', 'Deploy BlocTime',
+      'Switch network', 'Deploy NativeToken', 'Deploy Treasury (1 per $1)',
+      'Hand mint keys to treasury', 'Deploy BlocTime',
       'Set multiplier curve', 'Set inflation params', 'Register on market',
     ]
     setSteps(labels.map((label, i) => ({ label, state: i === 0 ? 'active' : 'pending' })))
     let step = 0
+    let treasuryAddr = ''
     try {
       const kit = await getFactory()
+      if (!kit.contracts.treasury) throw new Error('Factory has no treasury artifact — recompile the module contracts')
       await ensureChain({ chainId, rpc })
       const provider = new ethers.BrowserProvider(w.ethereum)
       const signer = await provider.getSigner()
@@ -1162,19 +1979,37 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       const tokenAddr = await token.getAddress()
       setStep(step, 'done'); step = 2; setStep(step, 'active')
 
-      const btFactory = new ethers.ContractFactory(
-        kit.contracts.bloctime.abi as any, kit.contracts.bloctime.bytecode, signer)
-      const maxLockN = BigInt(parseInt(maxLock) || 100000)
-      const bt = await btFactory.deploy(tokenAddr, maxLockN, BigInt(parseInt(distPct) || 5000))
-      await bt.waitForDeployment()
-      const btAddr = await bt.getAddress()
+      const treasuryFactory = new ethers.ContractFactory(
+        kit.contracts.treasury.abi as any, kit.contracts.treasury.bytecode, signer)
+      const treasury = await treasuryFactory.deploy(tokenAddr, reserveToken.trim())
+      await treasury.waitForDeployment()
+      treasuryAddr = await treasury.getAddress()
       setStep(step, 'done'); step = 3; setStep(step, 'active')
 
-      // Contract rejects points beyond maxLockBlocks.
-      const points = kit.defaults.points.filter(p => BigInt(p.blocks) <= maxLockN)
-      const btWrite = bt as unknown as ethers.Contract
-      await (await btWrite.setPoints(points.map(p => ({ blocks: BigInt(p.blocks), multiplier: BigInt(p.multiplier) })))).wait()
+      // The treasury is the only minter: 1 NTV per $1 deposited.
+      await (await (token as unknown as ethers.Contract).transferOwnership(treasuryAddr)).wait()
       setStep(step, 'done'); step = 4; setStep(step, 'active')
+
+      const btFactory = new ethers.ContractFactory(
+        kit.contracts.bloctime.abi as any, kit.contracts.bloctime.bytecode, signer)
+      const maxLockN = BigInt(parseInt(maxLock) || MAX_LOCK_SECONDS)
+      const priceMicro = BigInt(Math.max(1, Math.round((parseFloat(priceUsd) || 1) * 1_000_000)))
+      const bt = await btFactory.deploy(tokenAddr, maxLockN, priceMicro)
+      await bt.waitForDeployment()
+      const btAddr = await bt.getAddress()
+      setStep(step, 'done'); step = 5; setStep(step, 'active')
+
+      // Contract rejects points beyond maxLockSeconds.
+      const points = kit.defaults.points.filter(p => BigInt(p.lockSeconds) <= maxLockN)
+      const btWrite = bt as unknown as ethers.Contract
+      // The constructor already seeds the flat {0, 1x} point — writing the
+      // same thing back is a tx for nothing, so only real curves are set.
+      const isDefaultCurve = points.length === 0 ||
+        (points.length === 1 && points[0].lockSeconds === 0 && Number(points[0].multiplier) === 10000)
+      if (!isDefaultCurve) {
+        await (await btWrite.setPoints(points.map(p => ({ lockSeconds: BigInt(p.lockSeconds), multiplier: BigInt(p.multiplier) })))).wait()
+      }
+      setStep(step, 'done'); step = 6; setStep(step, 'active')
 
       const infl = kit.defaults.inflation
       await (await btWrite.setInflationParams(
@@ -1183,11 +2018,11 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
         ethers.parseEther(infl.minRewardPerEpoch || '0'),
         BigInt(infl.epochLength),
       )).wait()
-      setStep(step, 'done'); step = 5; setStep(step, 'active')
+      setStep(step, 'done'); step = 7; setStep(step, 'active')
 
       const entry: Instance = await api('registry/register', {
         name: name.trim(), description: description.trim(),
-        rpc, bloctime: btAddr, nativeToken: tokenAddr,
+        rpc, bloctime: btAddr, nativeToken: tokenAddr, treasury: treasuryAddr,
       })
       setStep(step, 'done')
       toast.success(`${entry.name} deployed and listed on the market`)
@@ -1197,7 +2032,7 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Deploy failed')
     }
     setBusy(false)
-  }, [name, description, supply, maxLock, distPct, rpc, chainId, getFactory, onDeployed])
+  }, [name, description, supply, maxLock, priceUsd, rpc, reserveToken, reserveList, chainId, getFactory, onDeployed])
 
   const input = "w-full text-sm px-4 py-2.5 rounded-lg border border-line bg-field text-ink focus:outline-none focus:border-line2 font-mono transition-colors placeholder:text-faint"
 
@@ -1210,8 +2045,10 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
           <span className="lbl">Deploy your own BlocTime</span>
         </div>
         <p className="text-[11px] text-mute">
-          Deploys a fresh NativeToken + BlocTime pair from <span className="text-ink2">your wallet</span> —
-          you pay gas, you own the contracts. It is then listed on the market for everyone to browse and stake.
+          Deploys a fresh NativeToken + Treasury + BlocTime from <span className="text-ink2">your wallet</span>, on
+          whatever chain the header picker points at — you pay gas, you own the contracts. The treasury
+          mints <span className="text-ink2">1 token per $1</span> of the reserve deposited (and redeems back),
+          and the deployment is recorded on the market for everyone to browse and stake.
         </p>
 
         <div className="grid md:grid-cols-2 gap-3">
@@ -1222,17 +2059,70 @@ function DeployPanel({ connected, chainId, getFactory, onDeployed }: {
             <input type="number" value={supply} onChange={e => setSupply(e.target.value)} className={input} />
           </div>
           <div>
-            <p className="lbl-dim mb-1">Max lock (blocks)</p>
+            <p className="lbl-dim mb-1">
+              Max lock (seconds)
+              {(parseInt(maxLock) || 0) > 0 && (
+                <span className="text-accent normal-case tracking-normal"> — {fmtLockSpan(parseInt(maxLock) || 0)}</span>
+              )}
+            </p>
             <input type="number" value={maxLock} onChange={e => setMaxLock(e.target.value)} className={input} />
+            <p className="text-[10px] text-faint mt-1">Default 8 years — as owner you can change it any time via <span className="font-mono">setParams</span></p>
+          </div>
+          <div className="md:col-span-2">
+            <p className="lbl-dim mb-1 flex items-center">
+              <span>Reserve token — the dollar the treasury takes in</span>
+              {isOwner && (
+                <button onClick={() => setManage(m => !m)} className="ml-auto text-accent normal-case tracking-normal hover:underline">
+                  {manage ? 'done' : 'manage list'}
+                </button>
+              )}
+            </p>
+            {reserveList.length > 0 ? (
+              <select value={reserveToken} onChange={e => setReserveToken(e.target.value)} className={input}>
+                {reserveList.map(t => (
+                  <option key={t.address} value={t.address}>{t.symbol} — {t.address}</option>
+                ))}
+              </select>
+            ) : (
+              <div className={`${input} text-faint cursor-default`}>
+                No reserve token listed for this network yet
+              </div>
+            )}
+            <p className="text-[10px] text-faint mt-1">
+              The treasury mints 1 token per $1 deposited and redeems 1:1 — it becomes the token&apos;s only minter.
+              Only tokens listed by the site owner can be picked.
+            </p>
+            {isOwner && manage && (
+              <div className="mt-2 border border-hair rounded-lg p-3 space-y-2">
+                <p className="lbl-dim">Owner — reserve tokens on {netLabel(chainId)}</p>
+                {reserveList.map(t => (
+                  <div key={t.address} className="flex items-center gap-2 text-[11px] font-mono text-ink2">
+                    <span className="text-ink">{t.symbol}</span>
+                    <span className="text-mute truncate">{t.address}</span>
+                    <span className="text-faint">{t.decimals}d</span>
+                    <button onClick={() => removeReserve(t.address)} className="ml-auto text-down hover:opacity-70" title="Remove from the list">
+                      <XMarkIcon className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  <input type="text" placeholder="SYMBOL" value={addSym} onChange={e => setAddSym(e.target.value)} className={`${input} w-28`} />
+                  <input type="text" placeholder="0x… token contract" value={addAddr} onChange={e => setAddAddr(e.target.value)} className={input} />
+                  <input type="number" title="Decimals" value={addDec} onChange={e => setAddDec(e.target.value)} className={`${input} w-20`} />
+                  <button onClick={addReserve} className="btn btn-accent px-4">Add</button>
+                </div>
+                <p className="text-[10px] text-faint">Additions need the API token — the server rejects anyone else</p>
+              </div>
+            )}
           </div>
           <div>
-            <p className="lbl-dim mb-1">Distribution % (bps, 5000 = 50%)</p>
-            <input type="number" value={distPct} onChange={e => setDistPct(e.target.value)} className={input} />
+            <p className="lbl-dim mb-1">Token price (USD, e.g. 1.00)</p>
+            <input type="number" step="0.01" value={priceUsd} onChange={e => setPriceUsd(e.target.value)} className={input} />
           </div>
           <div>
             <p className="lbl-dim mb-1">Network</p>
             <div className="flex items-center gap-2 h-[42px] px-4 rounded-lg border border-hair bg-panel">
-              <span className={`w-1.5 h-1.5 rounded-full ${known ? 'bg-up' : 'bg-gold'}`} />
+              <ChainLogo chainId={chainId} className="w-4 h-4 shrink-0" />
               <span className="text-sm text-ink2">{netLabel(chainId)}</span>
               <span className="lbl-dim ml-auto">pick it up top</span>
             </div>
@@ -1405,7 +2295,10 @@ function BuildPanel({ connected, chainId, onDeployed }: {
         <div className="flex items-center gap-2">
           <CodeBracketIcon className="w-4 h-4 text-mute" />
           <span className="lbl">Deploy any contract</span>
-          <span className="ml-auto text-[10px] uppercase tracking-wider text-iris">{netLabel(chainId)}</span>
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-iris">
+            <ChainLogo chainId={chainId} className="w-3.5 h-3.5" />
+            {netLabel(chainId)}
+          </span>
         </div>
         <p className="text-[11px] text-mute">
           Write Solidity, compile it here, and deploy from <span className="text-ink2">your wallet</span>.
@@ -1671,8 +2564,16 @@ function NetworkPicker({ chainId, onSelect }: {
   onSelect: (net: NetworkDef) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [customs, setCustoms] = useState<NetworkDef[]>([])
+  const [cId, setCId] = useState('')
+  const [cLabel, setCLabel] = useState('')
+  const [cRpc, setCRpc] = useState('')
+  const [cSymbol, setCSymbol] = useState('ETH')
   const ref = useRef<HTMLDivElement>(null)
   const known = netFor(chainId)
+
+  useEffect(() => { setCustoms(loadCustomNets()) }, [])
 
   useEffect(() => {
     if (!open) return
@@ -1680,6 +2581,23 @@ function NetworkPicker({ chainId, onSelect }: {
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [open])
+
+  const addCustom = () => {
+    const id = String(parseInt(cId) || 0)
+    if (id === '0') { toast.error('Chain ID must be a number'); return }
+    if (!/^https?:\/\//.test(cRpc.trim())) { toast.error('RPC must be an http(s) URL'); return }
+    const net: NetworkDef = {
+      chainId: id,
+      label: cLabel.trim() || `Chain ${id}`,
+      rpc: cRpc.trim(),
+      symbol: cSymbol.trim() || 'ETH',
+    }
+    saveCustomNet(net)
+    setCustoms(loadCustomNets())
+    setAdding(false); setCId(''); setCLabel(''); setCRpc('')
+    setOpen(false)
+    onSelect(net)
+  }
 
   return (
     <div ref={ref} className="relative">
@@ -1689,16 +2607,16 @@ function NetworkPicker({ chainId, onSelect }: {
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <span className={`chip-dot ${known ? 'bg-up' : 'bg-gold animate-pulse-dot'}`} />
-        {/* The dot alone carries the network on a phone — the label is the
-            first thing to go when the header runs out of room. */}
+        {/* The mark alone carries the network on a phone — the label is the
+            first thing to go when the rail runs out of room. */}
+        <ChainLogo chainId={chainId} className="w-4 h-4 shrink-0" />
         <span className="normal-case tracking-normal hidden sm:inline">{netLabel(chainId)}</span>
         <ChevronDownIcon className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="menu right-0 mt-2 w-60" role="menu">
           <p className="lbl-dim px-2.5 pt-1.5 pb-2">Network</p>
-          {NETWORKS.map(net => (
+          {[...NETWORKS, ...customs].map(net => (
             <button
               key={net.chainId}
               role="menuitemradio"
@@ -1706,10 +2624,32 @@ function NetworkPicker({ chainId, onSelect }: {
               onClick={() => { setOpen(false); onSelect(net) }}
               className="menu-item"
             >
+              <ChainLogo chainId={net.chainId} className="w-4 h-4 shrink-0" />
               <span className="flex-1">{net.label}</span>
               <span className="font-mono text-faint">{net.chainId}</span>
             </button>
           ))}
+          {!adding ? (
+            <button onClick={() => setAdding(true)} className="menu-item text-mute">
+              <PlusIcon className="w-4 h-4 shrink-0" />
+              <span className="flex-1">Custom network…</span>
+            </button>
+          ) : (
+            <div className="px-2.5 py-2 space-y-1.5 border-t border-hair">
+              <p className="lbl-dim">Any EVM chain</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <input value={cId} onChange={e => setCId(e.target.value)} placeholder="Chain ID"
+                       className="text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+                <input value={cSymbol} onChange={e => setCSymbol(e.target.value)} placeholder="Symbol"
+                       className="text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+              </div>
+              <input value={cLabel} onChange={e => setCLabel(e.target.value)} placeholder="Name"
+                     className="w-full text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+              <input value={cRpc} onChange={e => setCRpc(e.target.value)} placeholder="https://rpc..."
+                     className="w-full text-[11px] font-mono px-2 py-1.5 rounded border border-line bg-field text-ink placeholder:text-faint focus:outline-none" />
+              <button onClick={addCustom} className="btn btn-sm w-full">Add & switch</button>
+            </div>
+          )}
           {!known && (
             <p className="px-2.5 py-2 text-[10px] text-gold leading-relaxed">
               Wallet is on chain {chainId || '?'} — deploys will ask for its RPC.
@@ -1721,6 +2661,179 @@ function NetworkPicker({ chainId, onSelect }: {
   )
 }
 
+// ── User sidebar ────────────────────────────────────────────────────────
+// The connected account as a panel you can keep open: identity, gas,
+// balances, live positions — and the way out. The header wallet chip
+// toggles it, and disconnect lives here rather than in the header so the
+// one destructive wallet action is never a single stray click.
+
+function SideRow({ label, value, tone = 'text-ink2' }: {
+  label: string; value: React.ReactNode; tone?: string
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 px-4 py-2 border-b border-hair">
+      <span className="lbl-dim shrink-0">{label}</span>
+      <span className={`text-xs font-mono tabular-nums text-right ${tone}`}>{value}</span>
+    </div>
+  )
+}
+
+function UserSidebar({ open, onClose, account, chainId, gasBal, overview, stats, potShare, instances, activeId, instLoading, onUse, onBrowse, onDisconnect }: {
+  open: boolean
+  onClose: () => void
+  account: string
+  chainId: string
+  gasBal: string | null
+  overview: Overview | null
+  stats: Stats | null
+  potShare: string
+  instances: Instance[]
+  activeId: string
+  instLoading: boolean
+  onUse: (inst: Instance) => void
+  onBrowse: () => void
+  onDisconnect: () => void
+}) {
+  const net = netFor(chainId)
+  const explorer = stats?.explorer && account
+    ? `${stats.explorer.replace(/\/address\/.*$/, '')}/address/${account}`
+    : ''
+
+  return (
+    <>
+      {/* Backdrop only below lg — on desktop the drawer coexists with the page. */}
+      {open && (
+        <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={onClose} aria-hidden />
+      )}
+      <aside
+        aria-label="Connected wallet"
+        aria-hidden={!open}
+        className={`fixed top-0 right-0 bottom-0 z-50 w-[300px] max-w-[85vw] flex flex-col
+          border-l border-line bg-base/95 backdrop-blur-xl shadow-2xl
+          transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
+      >
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-hair">
+          <span className="chip-dot bg-up" />
+          <span className="lbl">My Wallet</span>
+          <button onClick={onClose} className="btn btn-icon ml-auto" title="Close">
+            <XMarkIcon className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* The full address, not the ellipsis the header wears. */}
+        <div className="px-4 py-3 border-b border-hair space-y-2">
+          <p className="text-[11px] font-mono text-ink2 break-all leading-relaxed">{account || '--'}</p>
+          <div className="flex items-center gap-1.5">
+            <button
+              className="btn btn-sm flex items-center gap-1"
+              onClick={() => { navigator.clipboard.writeText(account); toast.success('Address copied') }}
+            >
+              <DocumentDuplicateIcon className="w-3.5 h-3.5" /> Copy
+            </button>
+            {explorer && (
+              <a href={explorer} target="_blank" rel="noreferrer" className="btn btn-sm flex items-center gap-1">
+                <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Explorer
+              </a>
+            )}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {/* Which BlocTime deployment this wallet view is pointed at.
+              Every instance on the market is listed and togglable in place —
+              all the balance rows below are per-instance, so the selector
+              sits above them. */}
+          <div className="border-b border-hair">
+            <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
+              <span className="lbl-dim">Instance ({instances.length})</span>
+              {instLoading && <ArrowPathIcon className="w-3 h-3 animate-spin text-faint" />}
+              <button onClick={onBrowse} className="ml-auto text-[9px] uppercase tracking-wider text-mute hover:text-accent transition-colors">
+                All deployments →
+              </button>
+            </div>
+            <div className="px-4 pb-3 space-y-1.5 max-h-48 overflow-y-auto">
+              {instances.map(inst => {
+                const active = inst.id === activeId
+                return (
+                  <button
+                    key={inst.id}
+                    onClick={() => { if (!active) onUse(inst) }}
+                    disabled={active}
+                    // The active instance stays full-strength — it's the
+                    // current state, not an unavailable action.
+                    className={`w-full flex items-center gap-2 border rounded-lg px-2.5 py-2 text-left transition-colors
+                      ${active ? 'border-accent/40 bg-accent/10 cursor-default' : 'border-hair bg-panel hover:border-line'}`}
+                  >
+                    <ChainLogo chainId={inst.chainId} className="w-3.5 h-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[11px] font-bold text-ink truncate">
+                        {inst.name}
+                        {inst.official && <span className="ml-1.5 text-[8px] uppercase tracking-wider text-gold font-normal">official</span>}
+                      </span>
+                      <span className="block text-[9px] font-mono text-faint truncate">
+                        {netLabel(inst.chainId)} · {fmtAddr(inst.bloctime)}
+                      </span>
+                    </span>
+                    {active
+                      ? <CheckCircleIcon className="w-3.5 h-3.5 text-accent shrink-0" />
+                      : <span className="text-[9px] uppercase tracking-wider text-mute shrink-0">use</span>}
+                  </button>
+                )
+              })}
+              {instances.length === 0 && (
+                <p className="text-[10px] text-faint py-1">
+                  {instLoading ? 'Loading deployments...' : 'No deployments found'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <SideRow label="Network" value={
+            <span className="inline-flex items-center gap-1.5">
+              <ChainLogo chainId={chainId} className="w-3.5 h-3.5" />{netLabel(chainId)}
+            </span>
+          } />
+          <SideRow label="Gas" tone={gasBal === '0' ? 'text-down' : 'text-up'}
+                   value={gasBal !== null ? `${fmtEth(gasBal)} ${net?.symbol || 'ETH'}` : '--'} />
+          <SideRow label="BLOC" tone="text-accent" value={overview ? fmtEth(overview.totalBlocTime) : '--'} />
+          <SideRow label="Staked" tone="text-gold" value={overview ? fmtEth(overview.totalStaked) : '--'} />
+          <SideRow label="Pending Rewards" tone="text-up" value={overview ? fmtEth(overview.pendingRewards) : '--'} />
+          <SideRow label="Voting Power" tone="text-iris" value={overview ? fmtEth(overview.votingPower) : '--'} />
+          <SideRow label="Next Pot Share" tone="text-gold" value={overview ? `${fmtEth(potShare)} BLOC` : '--'} />
+          <SideRow label="Delegate" value={overview?.delegate ? fmtAddr(overview.delegate) : 'none'} />
+
+          {/* Every position at a glance — enough to see what's locked and
+              what's ripe without leaving whatever tab you're on. */}
+          {overview && overview.positions.length > 0 && (
+            <div className="px-4 py-3 space-y-1.5">
+              <span className="lbl-dim">Positions ({overview.positions.length})</span>
+              {overview.positions.map(p => (
+                <div key={p.stakeId}
+                     className="flex items-center justify-between gap-2 text-[11px] font-mono border border-hair rounded-lg px-2.5 py-1.5 bg-panel">
+                  <span className="text-faint">#{p.stakeId}</span>
+                  <span className="text-ink2">{fmtEth(p.amount)}</span>
+                  <span className={p.secondsRemaining > 0 ? 'text-gold' : 'text-up'}>
+                    {p.secondsRemaining > 0 ? fmtLockSpan(p.secondsRemaining) : 'unlocked'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 py-3 border-t border-hair">
+          <button
+            onClick={onDisconnect}
+            className="w-full px-4 py-2 rounded-lg border border-down/40 bg-down/10 text-down text-[10px] font-bold uppercase tracking-wider hover:bg-down/20 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <ArrowRightOnRectangleIcon className="w-3.5 h-3.5" /> Disconnect
+          </button>
+        </div>
+      </aside>
+    </>
+  )
+}
+
 function BlocTimePageInner() {
   const [overview, setOverview] = useState<Overview | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
@@ -1728,13 +2841,78 @@ function BlocTimePageInner() {
   const [loading, setLoading] = useState(false)
   const [connected, setConnected] = useState(false)
   const [account, setAccount] = useState('')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [gasBal, setGasBal] = useState<string | null>(null)
   const [chainId, setChainId] = useState(DEFAULT_CHAIN)
   const [tab, setTab] = useState<Tab>('stake')
 
-  // Stake form
+  // Stake form. The lock is stored in whichever unit the toggle says —
+  // SECONDS by default, BLOCKS as a view on the same span — and the contract
+  // call always converts to seconds at the edge. It starts empty and fills
+  // in with 30 days once stats land. Typing pins it: a poll must never
+  // rewrite a number someone is in the middle of choosing.
   const [stakeAmount, setStakeAmount] = useState('')
-  const [lockBlocks, setLockBlocks] = useState('10000')
+  const [lockUnit, setLockUnit] = useState<LockUnit>(() => {
+    if (typeof window === 'undefined') return 'seconds'
+    return localStorage.getItem(LOCK_UNIT_KEY) === 'blocks' ? 'blocks' : 'seconds'
+  })
+  const [lockValue, setLockValue] = useState('')
+  const lockTouched = useRef(false)
   const [staking, setStaking] = useState(false)
+
+  // Each instance carries its own cap in params(); the shipped default is
+  // 8 years (252,288,000 seconds). 0 means the contract predates params() —
+  // then nothing is clamped and nothing is claimed.
+  const maxLock = stats?.maxLockSeconds || 0
+  const secondsPerBlock = stats?.secondsPerBlock || DEFAULT_SECONDS_PER_BLOCK
+  const priceUsdMicro = stats?.priceUsdMicro ?? 1_000_000
+  const priceUsd = stats?.priceUsd ?? priceUsdMicro / 1_000_000
+
+  // The current lock in contract units, whatever unit is on screen.
+  const lockSeconds = useMemo(() => {
+    const n = parseInt(lockValue) || 0
+    return lockUnit === 'blocks' ? n * secondsPerBlock : n
+  }, [lockValue, lockUnit, secondsPerBlock])
+  const lockOverCap = maxLock > 0 && lockSeconds > maxLock
+
+  const setLockFromSeconds = useCallback((secs: number) => {
+    setLockValue(String(lockUnit === 'blocks'
+      ? Math.round(secs / Math.max(1, secondsPerBlock))
+      : Math.round(secs)))
+  }, [lockUnit, secondsPerBlock])
+
+  // Switching SECONDS ⇄ BLOCKS keeps the same real lock — only the number
+  // in the field changes. The choice sticks across visits.
+  const changeLockUnit = useCallback((u: LockUnit) => {
+    if (u === lockUnit) return
+    try { localStorage.setItem(LOCK_UNIT_KEY, u) } catch { /* quota */ }
+    const n = parseInt(lockValue) || 0
+    if (n > 0) {
+      const secs = lockUnit === 'blocks' ? n * secondsPerBlock : n
+      setLockValue(String(u === 'blocks' ? Math.round(secs / Math.max(1, secondsPerBlock)) : secs))
+    }
+    setLockUnit(u)
+  }, [lockUnit, lockValue, secondsPerBlock])
+
+  useEffect(() => {
+    if (lockTouched.current || !maxLock) return
+    setLockFromSeconds(Math.min(30 * SECONDS_PER_DAY, maxLock))
+  }, [maxLock, setLockFromSeconds])
+
+  // Time presets that fit under the instance's cap, plus the cap itself.
+  const timePresets = useMemo<[string, number][]>(() => {
+    const cap = maxLock > 0 ? maxLock : MAX_LOCK_SECONDS
+    const base: [string, number][] = [
+      ['1 hour', SECONDS_PER_HOUR],
+      ['1 day', SECONDS_PER_DAY],
+      ['1 week', SECONDS_PER_WEEK],
+      ['30 days', 30 * SECONDS_PER_DAY],
+      ['1 year', SECONDS_PER_YEAR],
+    ]
+    const fit = base.filter(([, s]) => s <= cap)
+    fit.push(['max', cap])
+    return fit
+  }, [maxLock])
 
   // Sort
   type SortKey = 'amount' | 'bloctime' | 'remaining'
@@ -1756,6 +2934,11 @@ function BlocTimePageInner() {
 
   // Contracts playground
   const [contractsMeta, setContractsMeta] = useState<ContractsMeta | null>(null)
+
+  // Server API token (pasted once by the operator) — lets the curve editor
+  // fall back to the server signer on the official instance.
+  const [hasApiToken] = useState(() =>
+    typeof window !== 'undefined' && !!localStorage.getItem('bloctime_api_token'))
 
   // Marketplace / instances
   const [instances, setInstances] = useState<Instance[]>([])
@@ -1832,12 +3015,75 @@ function BlocTimePageInner() {
       if (accounts.length > 0) {
         setAccount(accounts[0])
         setConnected(true)
+        setSidebarOpen(true)
+        try { localStorage.setItem(WALLET_KEY, '1') } catch { /* quota */ }
         toast.success(`Connected: ${accounts[0].slice(0, 8)}...`)
       }
     } catch (err: any) {
       toast.error(err?.message || 'Connection failed')
     }
   }, [])
+
+  // Disconnect is app-side state plus a permission revoke where the wallet
+  // supports one (MetaMask does); either way this console forgets the account.
+  const disconnectWallet = useCallback(() => {
+    setConnected(false); setAccount(''); setOverview(null); setGasBal(null)
+    setSidebarOpen(false)
+    try { localStorage.removeItem(WALLET_KEY) } catch { /* quota */ }
+    const w = window as any
+    w.ethereum?.request?.({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] })
+      .catch(() => { /* wallet without revoke — state is cleared regardless */ })
+    toast.success('Wallet disconnected')
+  }, [])
+
+  // Re-attach silently on load if this browser connected before —
+  // eth_accounts never pops the wallet, it only answers when permission
+  // is already granted, and the WALLET_KEY flag means it once was.
+  useEffect(() => {
+    const w = window as any
+    if (!w.ethereum) return
+    try { if (localStorage.getItem(WALLET_KEY) !== '1') return } catch { return }
+    let stale = false
+    w.ethereum.request({ method: 'eth_accounts' }).then((accs: string[]) => {
+      if (!stale && accs?.length) { setAccount(accs[0]); setConnected(true) }
+    }).catch(() => {})
+    return () => { stale = true }
+  }, [])
+
+  // Follow the wallet: switching accounts re-points the console, and a
+  // wallet-side revoke arrives as an empty list — that IS a disconnect.
+  useEffect(() => {
+    const w = window as any
+    if (!w.ethereum) return
+    const onAccounts = (accs: string[]) => {
+      if (accs && accs.length > 0) { setAccount(accs[0]); setConnected(true) }
+      else if (connected) disconnectWallet()
+    }
+    w.ethereum.on?.('accountsChanged', onAccounts)
+    return () => w.ethereum.removeListener?.('accountsChanged', onAccounts)
+  }, [connected, disconnectWallet])
+
+  // Native (gas) balance for the connected account on the header's chain —
+  // the number that says whether the next write can even pay for itself.
+  useEffect(() => {
+    if (!account) { setGasBal(null); return }
+    let dead = false
+    const read = async () => {
+      try {
+        const w = window as any
+        const rpc = netFor(chainId)?.rpc
+        const provider = w.ethereum
+          ? new ethers.BrowserProvider(w.ethereum)
+          : rpc ? new ethers.JsonRpcProvider(rpc) : null
+        if (!provider) return
+        const bal = await provider.getBalance(account)
+        if (!dead) setGasBal(bal.toString())
+      } catch { /* keep the last reading */ }
+    }
+    read()
+    const iv = setInterval(read, 15000)
+    return () => { dead = true; clearInterval(iv) }
+  }, [account, chainId])
 
   // ── Data fetching ─────────────────────────────────────────────────
 
@@ -1863,7 +3109,7 @@ function BlocTimePageInner() {
         if (statsData) setStats(statsData)
         // A curve we already have beats an empty poll — the 15s refetch must
         // never blank the chart just because one sample round came back short.
-        const pts = pointsData?.length ? pointsData : await sampleCurve()
+        const pts = pointsData?.length ? pointsData : await sampleCurve(statsData?.maxLockSeconds || 0)
         if (pts.length) setPoints(pts)
 
         if (account) {
@@ -1904,9 +3150,11 @@ function BlocTimePageInner() {
     return () => clearInterval(iv)
   }, [tab])
 
+  // The wallet drawer carries the instance selector, so opening it needs
+  // the registry just as much as the MARKET tab does.
   useEffect(() => {
-    if (tab === 'market') loadMarket()
-  }, [tab, loadMarket])
+    if (tab === 'market' || sidebarOpen) loadMarket()
+  }, [tab, sidebarOpen, loadMarket])
 
   // ── Instance switching ─────────────────────────────────────────────
 
@@ -1931,6 +3179,11 @@ function BlocTimePageInner() {
 
   const handleStake = useCallback(async () => {
     if (!stakeAmount || Number(stakeAmount) <= 0) { toast.error('Enter amount'); return }
+    // The contract reverts with "Exceeds max lock" — say it before the gas.
+    if (maxLock > 0 && lockSeconds > maxLock) {
+      toast.error(`Lock is capped at ${fmtLockRaw(maxLock, lockUnit, secondsPerBlock)} (${fmtLockSpan(maxLock)})`)
+      return
+    }
     setStaking(true)
     try {
       if (instanceMode && activeInst) {
@@ -1938,12 +3191,12 @@ function BlocTimePageInner() {
           const amt = ethers.parseEther(stakeAmount)
           const token = new ethers.Contract(activeInst.nativeToken, kit.contracts.nativeToken.abi as any, signer)
           await (await token.approve(activeInst.bloctime, amt)).wait()
-          await (await c.stake(amt, BigInt(parseInt(lockBlocks) || 0))).wait()
+          await (await c.stake(amt, BigInt(lockSeconds))).wait()
         })
       } else {
         await api('stake', {
           amount: stakeAmount,
-          lock_blocks: parseInt(lockBlocks),
+          lock_seconds: lockSeconds,
           as_ether: true,
         })
       }
@@ -1954,7 +3207,7 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Stake failed')
     }
     setStaking(false)
-  }, [stakeAmount, lockBlocks, fetchAll, instanceMode, activeInst, withInstance])
+  }, [stakeAmount, lockSeconds, lockUnit, secondsPerBlock, maxLock, fetchAll, instanceMode, activeInst, withInstance])
 
   const handleUnstake = useCallback(async (stakeId: number) => {
     try {
@@ -1969,6 +3222,35 @@ function BlocTimePageInner() {
       toast.error(err?.reason || err?.shortMessage || err?.message || 'Unstake failed')
     }
   }, [fetchAll, instanceMode, withInstance])
+
+  // ── Curve Actions ──────────────────────────────────────────────────
+
+  // setPoints is onlyOwner. Instance mode writes through the wallet as
+  // usual; official mode also prefers the wallet when it IS the owner
+  // (the pm2 API carries no PRIVATE_KEY), falling back to the server-signer
+  // endpoint for operators who pasted the API token.
+  const handleSetPoints = useCallback(async (pts: { lockSeconds: number; multiplier: number }[]) => {
+    const structs = pts.map(p => ({ lockSeconds: BigInt(p.lockSeconds), multiplier: BigInt(p.multiplier) }))
+    if (instanceMode && activeInst) {
+      await withInstance(async c => { await (await c.setPoints(structs)).wait() })
+    } else {
+      const w = window as any
+      const ownerAddr = stats?.owner || ''
+      if (w.ethereum && account && ownerAddr && account.toLowerCase() === ownerAddr.toLowerCase()) {
+        const cid = stats?.chainId || DEFAULT_CHAIN
+        await ensureChain({ chainId: cid, rpc: netFor(cid)?.rpc || '' })
+        const kit = await getFactory()
+        const provider = new ethers.BrowserProvider(w.ethereum)
+        const signer = await provider.getSigner()
+        const c = new ethers.Contract(stats!.address, kit.contracts.bloctime.abi as any, signer)
+        await (await c.setPoints(structs)).wait()
+      } else {
+        await api('set_points', { points: pts.map(p => ({ lock_seconds: p.lockSeconds, multiplier: p.multiplier })) })
+      }
+    }
+    toast.success('Curve updated')
+    fetchAll()
+  }, [instanceMode, activeInst, withInstance, stats, account, getFactory, fetchAll])
 
   // ── Delegation Actions ─────────────────────────────────────────────
 
@@ -2092,28 +3374,25 @@ function BlocTimePageInner() {
       let cmp = 0
       if (sortKey === 'amount') cmp = Number(BigInt(a.amount) - BigInt(b.amount))
       else if (sortKey === 'bloctime') cmp = Number(BigInt(a.blocTimeBalance) - BigInt(b.blocTimeBalance))
-      else if (sortKey === 'remaining') cmp = a.blocksRemaining - b.blocksRemaining
+      else if (sortKey === 'remaining') cmp = a.secondsRemaining - b.secondsRemaining
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [overview, sortKey, sortDir])
 
-  // ── Multiplier preview ─────────────────────────────────────────────
+  // ── Linear quote preview ───────────────────────────────────────────
+  // Integer-bps multiplier + BigInt quote, mirroring getMultiplier and
+  // quoteBloc exactly — what this panel promises is what stake() mints.
 
-  const currentMultiplier = useMemo(() => {
-    const blocks = parseInt(lockBlocks) || 0
-    if (points.length === 0) return 1.0
-    if (blocks <= points[0].blocks) return points[0].multiplierX
-    if (blocks >= points[points.length - 1].blocks) return points[points.length - 1].multiplierX
-    for (let i = 0; i < points.length - 1; i++) {
-      if (blocks >= points[i].blocks && blocks <= points[i + 1].blocks) {
-        const range = points[i + 1].blocks - points[i].blocks
-        const pos = blocks - points[i].blocks
-        const yRange = points[i + 1].multiplierX - points[i].multiplierX
-        return points[i].multiplierX + (yRange * pos) / range
-      }
-    }
-    return points[points.length - 1].multiplierX
-  }, [lockBlocks, points])
+  const currentMultiplierBps = useMemo(
+    () => multiplierBpsAt(points, lockSeconds), [lockSeconds, points])
+  const currentMultiplier = currentMultiplierBps / 10000
+
+  const projectedBloc = useMemo(() => {
+    try {
+      const amtWei = ethers.parseEther(stakeAmount || '0')
+      return quoteBlocWei(amtWei, priceUsdMicro, lockSeconds, currentMultiplierBps)
+    } catch { return 0n }
+  }, [stakeAmount, priceUsdMicro, lockSeconds, currentMultiplierBps])
 
   return (
     <div className="min-h-screen text-ink">
@@ -2123,31 +3402,50 @@ function BlocTimePageInner() {
       <div className="field-grid" aria-hidden />
       <div className="field-scan" aria-hidden />
 
-      {/* Header — sticky, because the network you're on and the wallet
-          you're signing with are the two facts you need at every scroll. */}
-      <header className="sticky top-0 z-30 border-b border-hair bg-base/85 backdrop-blur-xl">
-        <div className="max-w-5xl mx-auto px-4 md:px-6 py-3 flex items-center gap-3">
-          <div className="w-10 h-10 shrink-0 grid place-items-center rounded-lg border border-line bg-panel2">
-            <ClockIcon className="w-5 h-5 text-accent" />
-          </div>
-          {/* Below sm the clock mark carries the brand on its own — the
-              wallet and network controls need every pixel of that row. */}
-          <div className="min-w-0 hidden sm:block">
-            <h1 className="text-lg md:text-xl font-semibold uppercase leading-none truncate" style={{ letterSpacing: '.16em' }}>
-              BlocTime
-            </h1>
-            <p className="lbl-dim mt-1.5">Time-weighted staking</p>
+      {/* Control rail — one sticky row, no brand block above it. The tabs,
+          the network and the wallet are the only things you need at every
+          scroll; the module's name is the page you're already on. */}
+      <div className="sticky top-0 z-30 border-b border-hair bg-base/85 backdrop-blur-xl">
+        <div className="max-w-5xl mx-auto px-3 md:px-5 py-1.5 flex items-center gap-2">
+          <div className="tabbar flex-1 min-w-0">
+            {([
+              ['stake', 'Stake', LockClosedIcon],
+              ['rewards', 'Rewards', GiftIcon],
+              ['market', 'Market', BuildingStorefrontIcon],
+              ['deploy', 'Deploy', RocketLaunchIcon],
+              ['bridge', 'Bridge', ArrowsRightLeftIcon],
+              ['contracts', 'Contracts', CodeBracketIcon],
+            ] as [Tab, string, any][]).map(([t, label, Icon]) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                aria-current={tab === t}
+                title={label}
+                className={`tab ${tab === t ? 'tab-on' : ''}`}
+              >
+                <Icon className={`w-3.5 h-3.5 shrink-0 ${tab === t ? 'text-accent' : ''}`} />
+                {/* Below sm the icons carry the tabs alone — the wallet and
+                    network controls share this row now. */}
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             <NetworkPicker chainId={chainId} onSelect={selectNetwork} />
             {connected ? (
               <button
                 className="chip hover:border-line"
-                title="Copy address"
-                onClick={() => { navigator.clipboard.writeText(account); toast.success('Address copied') }}
+                title="Wallet"
+                aria-expanded={sidebarOpen}
+                onClick={() => setSidebarOpen(o => !o)}
               >
                 <span className="chip-dot bg-up" />
+                {gasBal !== null && (
+                  <span className={`font-mono ${gasBal === '0' ? 'text-down' : 'text-up'}`}>
+                    {fmtEth(gasBal)} {netFor(chainId)?.symbol || 'ETH'}
+                  </span>
+                )}
                 {fmtAddr(account)}
               </button>
             ) : (
@@ -2164,31 +3462,26 @@ function BlocTimePageInner() {
             <ThemePicker />
           </div>
         </div>
-      </header>
+      </div>
 
-      <div className="relative z-10 px-4 md:px-6 py-5 max-w-5xl mx-auto space-y-5">
+      <UserSidebar
+        open={connected && sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        account={account}
+        chainId={chainId}
+        gasBal={gasBal}
+        overview={overview}
+        stats={stats}
+        potShare={potShare}
+        instances={instances}
+        activeId={activeInst ? activeInst.id : 'official'}
+        instLoading={marketLoading}
+        onUse={handleUse}
+        onBrowse={() => { setTab('market'); setSidebarOpen(false) }}
+        onDisconnect={disconnectWallet}
+      />
 
-        {/* Tab Bar */}
-        <div className="tabbar">
-          {([
-            ['stake', 'Stake', LockClosedIcon],
-            ['rewards', 'Rewards', GiftIcon],
-            ['market', 'Market', BuildingStorefrontIcon],
-            ['deploy', 'Deploy', RocketLaunchIcon],
-            ['bridge', 'Bridge', ArrowsRightLeftIcon],
-            ['contracts', 'Contracts', CodeBracketIcon],
-          ] as [Tab, string, any][]).map(([t, label, Icon]) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              aria-current={tab === t}
-              className={`tab ${tab === t ? 'tab-on' : ''}`}
-            >
-              <Icon className={`w-3.5 h-3.5 ${tab === t ? 'text-accent' : ''}`} />
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="relative z-10 px-3 md:px-5 py-3 max-w-5xl mx-auto space-y-3">
 
         {/* Active market instance banner */}
         {instanceMode && activeInst && (
@@ -2230,14 +3523,31 @@ function BlocTimePageInner() {
 
         {/* ── Stake Tab ────────────────────────────────────────────────── */}
         {tab === 'stake' && (
-          <div key="stake" className="space-y-5 animate-fade-up">
+          <div key="stake" className="space-y-4 animate-fade-up">
+            {/* Is this instance actually wired to a treasury? A live probe,
+                answered in one line — connected, misconnected, or none. */}
+            {stats && (
+              <TreasuryStatus
+                treasury={(instanceMode ? activeInst?.treasury : stats.treasury) || ''}
+                nativeToken={(instanceMode ? activeInst?.nativeToken : stats.nativeToken) || ''}
+                rpc={instanceMode ? activeInst?.rpc : undefined}
+                official={!instanceMode}
+              />
+            )}
+
+            {/* The instance's dollar door, when it has one — deposit mints
+                the NTV the stake form below wants. */}
+            {instanceMode && activeInst?.treasury && (
+              <TreasuryCard inst={activeInst} connected={connected} onChanged={fetchAll} />
+            )}
+
             {/* Stake form and the curve it moves along, side by side — the
                 marker on the curve is the preview for the lock field. */}
             <div className="card">
               <div className="card-head">
                 <LockClosedIcon className="w-4 h-4 text-accent" />
                 <span className="lbl">Stake Tokens</span>
-                <span className="lbl-dim ml-auto hidden sm:inline">Longer lock, bigger multiplier</span>
+                <span className="lbl-dim ml-auto hidden sm:inline">USD locked x seconds = BLOC</span>
               </div>
 
               <div className="grid lg:grid-cols-[minmax(0,340px)_1fr] gap-4 p-4">
@@ -2253,42 +3563,91 @@ function BlocTimePageInner() {
                     />
                   </label>
 
-                  <label className="block">
-                    <span className="lbl-dim mb-1.5 block">Lock (blocks)</span>
+                  <div>
+                    {/* SECONDS / BLOCKS — one lock, two rulers. The contract
+                        only ever hears seconds. */}
+                    <span className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="lbl-dim">Lock ({lockUnit})</span>
+                      <span className="flex gap-0.5 p-0.5 rounded-md border border-line bg-panel">
+                        {(['seconds', 'blocks'] as LockUnit[]).map(u => (
+                          <button
+                            key={u}
+                            onClick={() => changeLockUnit(u)}
+                            aria-pressed={lockUnit === u}
+                            className={`px-2 py-0.5 rounded-sm text-[9px] font-bold uppercase tracking-wider transition-all
+                              ${lockUnit === u ? 'bg-panel2 text-accent' : 'text-mute hover:text-ink2'}`}
+                          >
+                            {u}
+                          </button>
+                        ))}
+                      </span>
+                    </span>
                     <input
                       type="number"
-                      placeholder="10000"
-                      value={lockBlocks}
-                      onChange={e => setLockBlocks(e.target.value)}
+                      placeholder={lockUnit === 'blocks' ? '1296000' : '2592000'}
+                      value={lockValue}
+                      onChange={e => { lockTouched.current = true; setLockValue(e.target.value) }}
                       className="input"
                     />
-                    {points.length > 0 && (
-                      <span className="flex gap-1 mt-2">
+                    <span className="flex items-center justify-between gap-2 mt-1">
+                      <span className="text-[10px] text-faint tabular-nums">
+                        {lockSeconds > 0
+                          ? `= ${fmtLockSpan(lockSeconds)} · ${fmtLockRaw(lockSeconds, lockUnit === 'seconds' ? 'blocks' : 'seconds', secondsPerBlock)}`
+                          : 'no lock'}
+                      </span>
+                      {lockOverCap && (
+                        <span className="text-[10px] text-down tabular-nums">
+                          max {fmtLockRaw(maxLock, lockUnit, secondsPerBlock)}
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex gap-1 mt-2 flex-wrap">
+                      {timePresets.map(([label, secs]) => (
+                        <button
+                          key={label}
+                          onClick={() => { lockTouched.current = true; setLockFromSeconds(secs) }}
+                          className={`btn btn-sm flex-1 px-1 ${Math.abs(lockSeconds - secs) < secondsPerBlock ? 'btn-accent' : ''}`}
+                          title={`${fmtLockRaw(secs, lockUnit, secondsPerBlock)} — ${fmtLockSpan(secs)}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </span>
+                    {/* Owner-shaped curve points double as presets — they're
+                        the corners the multiplier bends at. */}
+                    {points.length > 1 && (
+                      <span className="flex gap-1 mt-1.5 flex-wrap">
                         {points.map(pt => (
                           <button
-                            key={pt.blocks}
-                            onClick={() => setLockBlocks(String(pt.blocks))}
-                            className={`btn btn-sm flex-1 px-0 ${Number(lockBlocks) === pt.blocks ? 'btn-accent' : ''}`}
-                            title={`${pt.blocks.toLocaleString()} blocks — ${pt.multiplierX}x`}
+                            key={pt.lockSeconds}
+                            onClick={() => { lockTouched.current = true; setLockFromSeconds(pt.lockSeconds) }}
+                            className={`btn btn-sm flex-1 px-1 ${lockSeconds === pt.lockSeconds ? 'btn-accent' : ''}`}
+                            title={`${fmtLockRaw(pt.lockSeconds, lockUnit, secondsPerBlock)} — ${pt.multiplierX}x`}
                           >
-                            {pt.blocks >= 1000 ? `${(pt.blocks / 1000).toFixed(0)}k` : pt.blocks}
+                            {fmtLockSpan(pt.lockSeconds)}
                           </button>
                         ))}
                       </span>
                     )}
-                  </label>
+                  </div>
 
-                  <div className="flex items-center justify-between gap-3 p-3 rounded-md border border-hair bg-panel2">
-                    <span>
-                      <span className="lbl-dim block">You receive</span>
-                      <span className="text-lg font-semibold text-up tabular-nums">
-                        {stakeAmount ? (Number(stakeAmount) * currentMultiplier).toFixed(2) : '0.00'} BT
+                  <div className="p-3 rounded-md border border-hair bg-panel2 space-y-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>
+                        <span className="lbl-dim block">You mint</span>
+                        <span className="text-lg font-semibold text-up tabular-nums">
+                          {'≈'} {fmtEth(projectedBloc.toString())} BLOC
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-right">
-                      <span className="lbl-dim block">Multiplier</span>
-                      <span className="text-lg font-semibold text-accent tabular-nums">{currentMultiplier.toFixed(2)}x</span>
-                    </span>
+                      <span className="text-right">
+                        <span className="lbl-dim block">Multiplier</span>
+                        <span className="text-lg font-semibold text-accent tabular-nums">{currentMultiplier.toFixed(2)}x</span>
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-faint leading-relaxed">
+                      Linear model — 1 USD locked for 1 second mints 1 BLOC.
+                      Token price ${priceUsd.toFixed(2)}.
+                    </p>
                   </div>
 
                   <button
@@ -2302,13 +3661,34 @@ function BlocTimePageInner() {
                   </button>
                 </div>
 
-                {points.length > 0 ? (
+                {/* With the default flat curve the multiplier chart is a
+                    horizontal line saying nothing — the chart worth drawing
+                    is the linear model itself: BLOC minted vs lock length.
+                    A real owner-set curve gets the multiplier chart back. */}
+                {hasRealCurve(points) ? (
                   <div className="rounded-md border border-hair bg-panel2 p-3 flex flex-col justify-center">
                     <p className="lbl-dim mb-1">Multiplier curve</p>
                     <MultiplierChart
                       points={points}
-                      atBlocks={Number(lockBlocks) || 0}
+                      atSeconds={lockSeconds}
                       atMultiplier={currentMultiplier}
+                      unit={lockUnit}
+                      spb={secondsPerBlock}
+                    />
+                  </div>
+                ) : stats ? (
+                  <div className="rounded-md border border-hair bg-panel2 p-3 flex flex-col justify-center">
+                    <p className="lbl-dim mb-1">
+                      Projected BLOC · {Number(stakeAmount) > 0 ? `${stakeAmount} NTV` : '1 NTV'} by lock length
+                    </p>
+                    <ProjectionChart
+                      points={points}
+                      amount={Number(stakeAmount) > 0 ? Number(stakeAmount) : 1}
+                      priceUsd={priceUsd}
+                      maxLock={maxLock}
+                      atSeconds={lockSeconds}
+                      unit={lockUnit}
+                      spb={secondsPerBlock}
                     />
                   </div>
                 ) : (
@@ -2324,6 +3704,22 @@ function BlocTimePageInner() {
               </div>
             </div>
 
+            {/* Shape the curve the chart above moves along — view for
+                everyone, apply for the owner. */}
+            {stats && (
+              <CurveCard
+                points={points}
+                maxLock={maxLock}
+                unit={lockUnit}
+                spb={secondsPerBlock}
+                ownerAddr={(instanceMode ? activeInst?.owner : stats.owner) || ''}
+                account={account}
+                official={!instanceMode}
+                apiTokenPresent={hasApiToken}
+                onApply={handleSetPoints}
+              />
+            )}
+
             {/* With no wallet there are no positions to show, so say what the
                 thing does instead of leaving the page half empty. */}
             {!connected && (
@@ -2335,8 +3731,8 @@ function BlocTimePageInner() {
                 </div>
                 <div className="grid sm:grid-cols-3 gap-px bg-hair">
                   {([
-                    [LockClosedIcon, 'Lock', 'Stake native tokens for a number of blocks. Longer locks earn a bigger multiplier.', 'accent'],
-                    [ClockIcon, 'Accrue', 'Your stake × multiplier is minted as BLOC — time-weighted voting power you hold or delegate.', 'gold'],
+                    [LockClosedIcon, 'Lock', 'Stake native tokens for a length of time — enter it in seconds or blocks, whichever reads better.', 'accent'],
+                    [ClockIcon, 'Accrue', 'USD value × seconds locked is minted as BLOC — time-weighted voting power you hold or delegate.', 'gold'],
                     [GiftIcon, 'Collect', 'Every Friday the pot is split across BLOC holders. Anyone can trigger the payout.', 'up'],
                   ] as [any, string, string, Tone][]).map(([Icon, title, body, tone]) => (
                     <div key={title} className="p-4 bg-panel">
@@ -2384,12 +3780,12 @@ function BlocTimePageInner() {
                 ) : (
                   <div>
                     {sortedPositions.map((pos) => {
-                      const unlocked = pos.blocksRemaining === 0
+                      const unlocked = pos.secondsRemaining === 0
                       // How far through its lock this position has served —
                       // the bar under the row is the only place you can read
                       // "nearly ready" at a glance.
-                      const served = pos.lockBlocks > 0
-                        ? Math.min(1, Math.max(0, 1 - pos.blocksRemaining / pos.lockBlocks))
+                      const served = pos.lockSeconds > 0
+                        ? Math.min(1, Math.max(0, 1 - pos.secondsRemaining / pos.lockSeconds))
                         : 1
                       return (
                         <div
@@ -2403,11 +3799,12 @@ function BlocTimePageInner() {
                           <span className="text-xs font-semibold text-accent text-right tabular-nums">
                             {fmtEth(pos.blocTimeBalance)}
                           </span>
-                          <span className="text-xs text-mute text-right tabular-nums">
-                            {pos.lockBlocks.toLocaleString()} blk
+                          <span className="text-xs text-mute text-right tabular-nums" title={fmtLockSpan(pos.lockSeconds)}>
+                            {fmtLockRaw(pos.lockSeconds, lockUnit, secondsPerBlock)}
                           </span>
-                          <span className={`text-xs text-right tabular-nums ${unlocked ? 'text-up font-semibold' : 'text-ink2'}`}>
-                            {unlocked ? 'Ready' : pos.blocksRemaining.toLocaleString()}
+                          <span className={`text-xs text-right tabular-nums ${unlocked ? 'text-up font-semibold' : 'text-ink2'}`}
+                                title={unlocked ? 'Lock served' : `${pos.secondsRemaining.toLocaleString()} s left`}>
+                            {unlocked ? 'Ready' : fmtCountdown(pos.secondsRemaining)}
                           </span>
                           <div className="flex justify-center">
                             <button
@@ -2436,7 +3833,7 @@ function BlocTimePageInner() {
 
         {/* ── Rewards Tab ──────────────────────────────────────────────── */}
         {tab === 'rewards' && (
-          <div key="rewards" className="space-y-5 animate-fade-up">
+          <div key="rewards" className="space-y-4 animate-fade-up">
             {/* Epoch Stats */}
             {stats && (
               <StatGrid>
@@ -2531,7 +3928,8 @@ function BlocTimePageInner() {
                   <span className="lbl">Bitcoin-Style Inflation Curve</span>
                   {stats.inflationParams?.halvingInterval > 0 && (
                     <span className="ml-auto text-[10px] text-gold tabular-nums">
-                      Halving every {stats.inflationParams.halvingInterval} epochs (~{(stats.inflationParams.halvingInterval / 365.25).toFixed(1)} years)
+                      Halving every {stats.inflationParams.halvingInterval} epochs
+                      {' '}(~{((stats.inflationParams.halvingInterval * (stats.inflationParams.epochLength || SECONDS_PER_DAY)) / SECONDS_PER_YEAR).toFixed(1)} years)
                     </span>
                   )}
                 </div>
@@ -2649,7 +4047,7 @@ function BlocTimePageInner() {
 
         {/* ── Deploy Tab ───────────────────────────────────────────────── */}
         {tab === 'deploy' && (
-          <div key="deploy" className="space-y-5 animate-fade-up">
+          <div key="deploy" className="space-y-4 animate-fade-up">
             <DeployPanel connected={connected} chainId={chainId} getFactory={getFactory} onDeployed={handleDeployed} />
             <BuildPanel connected={connected} chainId={chainId} onDeployed={handleContractDeployed} />
           </div>
@@ -2667,14 +4065,14 @@ function BlocTimePageInner() {
           contractsMeta
             ? <div key="contracts" className="animate-fade-up"><ContractsPlayground meta={contractsMeta} connected={connected} /></div>
             : (
-              <div className="card py-16 flex items-center justify-center">
+              <div className="card py-12 flex items-center justify-center">
                 <ArrowPathIcon className="w-5 h-5 text-mute animate-spin" />
               </div>
             )
         )}
 
         {/* Footer */}
-        <footer className="flex items-center justify-center gap-2 py-6">
+        <footer className="flex items-center justify-center gap-2 py-4">
           <ClockIcon className="w-3.5 h-3.5 text-faint" />
           <span className="lbl-dim">BlocTime Module</span>
         </footer>

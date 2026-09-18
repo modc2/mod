@@ -4,7 +4,9 @@ pub mod proxy;
 pub mod pipeline;
 pub mod cache;
 pub mod categories;
+pub mod fees;
 pub mod types;
+pub mod first_trade;
 pub mod strats;
 pub mod auth;
 pub mod signer;
@@ -14,9 +16,15 @@ pub mod deposit_wallet;
 pub mod relayer;
 pub mod order_place;
 pub mod user_strats;
+pub mod score_fns;
 pub mod share;
 pub mod live_engine;
 pub mod sync;
+pub mod scans;
+pub mod copy;
+pub mod copy_actions;
+pub mod sentiment;
+pub mod settled;
 
 use std::sync::Arc;
 
@@ -26,9 +34,11 @@ pub use strats::StratStore;
 pub use signer::SignerStore;
 pub use live_engine::EngineRegistry;
 pub use user_strats::UserStratStore;
+pub use score_fns::ScoreFnStore;
 pub use share::ShareStore;
 pub use access::AccessStore;
 pub use sync::SyncSchedule;
+pub use copy::CopyBookStore;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -39,10 +49,17 @@ pub struct AppState {
     pub signer_store: Arc<SignerStore>,
     pub engines: Arc<EngineRegistry>,
     pub user_strats: Arc<UserStratStore>,
+    /// The ƒ SCORE MARKET's community shelf — published score functions
+    /// (score_fns.rs). Storage only; scores always compile in the browser.
+    pub score_fns: Arc<ScoreFnStore>,
     /// Content-addressable backend for sharing strats by CID.
     pub share: ShareStore,
     /// Cadence + status of the background trader-data sync (sync.rs).
     pub sync: Arc<SyncSchedule>,
+    /// The COPY BOOK — which traders this deployment copies and with how much
+    /// (copy.rs). Server-owned and plaintext so the console and an MCP agent
+    /// read and write the SAME desk.
+    pub copy_book: Arc<CopyBookStore>,
 }
 
 pub fn router() -> axum::Router<AppState> {

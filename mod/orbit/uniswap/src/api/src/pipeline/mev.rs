@@ -71,7 +71,7 @@ pub fn detect_mev(swaps: &[Swap], active_days: u32) -> (bool, MevIndicators) {
     }
     let total_vol: f64 = pool_volumes.values().sum();
     let mut vols: Vec<f64> = pool_volumes.values().copied().collect();
-    vols.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    vols.sort_by(|a, b| b.total_cmp(a));
     let top2_vol: f64 = vols.iter().take(2).sum();
     let high_volume_pool_ratio = if total_vol > 0.0 {
         top2_vol / total_vol

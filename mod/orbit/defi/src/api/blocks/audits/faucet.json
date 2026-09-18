@@ -1,0 +1,88 @@
+{
+  "block": "faucet",
+  "contract": "ModFaucet",
+  "file": "faucet.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "medium",
+  "summary": "ModFaucet is a 51-line drip contract: it holds one immutable ERC20, and drip() sends min(dripAmount, balance) to msg.sender once per cooldown per address; the owner can retune the drip and sweep the balance. The code itself is clean (checks-effects-interactions, no reentrancy window, immutable token, no ETH handling) and as a TESTNET utility holding a throwaway ModToken it is safe to deploy as-is. The worst finding is a composition hazard, not a code bug: the catalog advertises the faucet as a `sink`, so the canvas will let it be wired as the feeSink / treasury / recoveryFund of cdp, psm, stableswap, lst, flashlender, bonding and safetymodule, at which point real protocol revenue lands in a contract whose only exit is a publicly callable, per-address (trivially sybil-able) drip, and any token other than the one it was constructed with is stuck forever because sweep() only moves `token`. The per-address cooldown provides no global rate limit at all, so whatever the faucet holds is drainable in one block by a contract factory; do not fund it with anything you would miss, and never point it at a mainnet token.",
+  "counts": {
+    "critical": 0,
+    "high": 1,
+    "medium": 1,
+    "low": 4,
+    "info": 1
+  },
+  "findings": [
+    {
+      "id": "FAUCET-1",
+      "severity": "high",
+      "title": "Advertised as a `sink`: protocol fee revenue wired into the faucet becomes publicly claimable, and any other token is stuck forever",
+      "where": "catalog `provides: [\"sink\"]`; constructor L20-L25 (immutable token); drip() L32-L41; sweep() L48-L50",
+      "detail": "The catalog lists the faucet under `provides: sink`, the same port type as treasury, feesplitter and vesting. Seven blocks (cdp surplus, psm fees, stableswap admin fees, lst staking fees, flashlender fee share, bonding proceeds, safetymodule slashed funds) accept a `sink` input and post-deploy-wire themselves to push revenue there. Nothing in ModFaucet or the composer stops a user from dropping a Faucet on that port. Two failure modes follow: (a) if the revenue token equals `token`, every fee the protocol earns is handed to whoever calls drip() from enough addresses (see FAUCET-2) - the 'treasury' is a public giveaway; (b) if the revenue token differs from the immutable `token` (e.g. cdp pays surplus in its own stablecoin while the faucet was built for the collateral token), the funds are unrecoverable: sweep() L49 only moves `token`, there is no generic rescue function, and the contract has no way to change `token`. Either way this is silent - the wires succeed and the sending blocks emit their normal events.",
+      "exploit": "1. On the canvas, wire Faucet(token=COLL) into cdp.feeSink; the composer calls cdp.setSurplusSink(faucet). 2. Users open vaults, stability fees accrue, cdp pushes surplus STABLE to the faucet. 3. STABLE != COLL, so faucet.token.balanceOf(faucet) stays 0, drip() reverts DRY, sweep() moves nothing, and the STABLE balance is locked forever. Variant: wire Faucet(token=STABLE) instead; then every surplus push is immediately drainable by anyone via drip() from N fresh addresses.",
+      "recommendation": "Remove `sink` from the faucet's `provides` in catalog.json (it is an infrastructure block, not a revenue destination), or have the composer refuse/warn when a faucet is placed on a fee port. In the contract, add an owner-only `rescue(IERC20 t, address to, uint256 amt)` so mis-wired tokens can at least be recovered."
+    },
+    {
+      "id": "FAUCET-2",
+      "severity": "medium",
+      "title": "Per-address cooldown is not a rate limit: one contract factory drains the whole balance in a single block",
+      "where": "drip() L32-L41, specifically the check at L33 keyed on msg.sender",
+      "detail": "The only throttle is `lastClaim[msg.sender]`. Fresh EOAs are free, and drip() has no `msg.sender == tx.origin` / `extcodesize` guard, so a minimal contract can call drip() and forward the tokens; a factory can CREATE2 hundreds of such contracts in one transaction, each a brand-new msg.sender with lastClaim == 0. Total outflow per block is therefore bounded only by gas, not by dripAmount or cooldown. For a testnet faucet holding a valueless ModToken this is expected behaviour and is rated medium only because the catalog text ('at least has a cooldown') implies a protection the code does not deliver - deployers should understand the cooldown protects against nothing but lazy users. If the faucet is pointed at a token with market value (see FAUCET-3) this is a full drain and would be critical.",
+      "exploit": "1. Deploy `contract Sip { constructor(ModFaucet f, address to){ uint256 a = f.drip(); f.token().transfer(to, a); } }`. 2. Deploy `Drain { function go(ModFaucet f, uint256 n){ for(uint i;i<n;i++) new Sip(f, msg.sender); } }`. 3. Call go(faucet, balance/dripAmount) once. Every Sip is a new msg.sender, lastClaim is 0 for each, so each receives dripAmount; the faucet is empty after one transaction and the cooldown never fired.",
+      "recommendation": "Accept the limitation for testnets and document it, or add a global throttle: a per-block/per-window cap on total dripped (`uint256 public windowStart; uint256 public windowDripped; uint256 public windowCap`), and optionally `require(msg.sender == tx.origin)` to force at least one EOA per claim. Neither stops a patient sybil, so also keep the funded balance small."
+    },
+    {
+      "id": "FAUCET-3",
+      "severity": "low",
+      "title": "Any ERC20 on any chain can be wired in; the catalog's fixed `scale: 18` on dripAmount makes a low-decimal real token drain in one call",
+      "where": "constructor L20-L25 (only checks token_ != 0); drip() L36 `amount = dripAmount > balance ? balance : dripAmount`; catalog params `dripAmount_` scale 18",
+      "detail": "The constructor accepts any non-zero address, so nothing prevents deploying the faucet on mainnet/Base against USDC, WETH or a live project token; the eth module's confirm=true gate is a per-transaction prompt, not a check that the token is a test asset. Separately, the catalog scales the `dripAmount_` param by 1e18 unconditionally while the token's decimals are whatever the wired erc20 reports (IERC20.decimals exists in common.sol but the faucet never reads it). With the default '100' on a 6-decimal token dripAmount becomes 100e18 base units = 100,000,000,000,000 USDC, so L36 caps to `balance` and the first drip() takes everything in the contract. A deployer who transfers 1,000 USDC in 'to test the flow' loses all of it to the first caller.",
+      "exploit": "1. Deploy Faucet(token=USDC on Base, dripAmount=100 via the UI => 100e18, cooldown=86400). 2. Owner transfers 1,000 USDC (1e9 units) to the faucet. 3. Anyone calls drip(): balance=1e9 < dripAmount=1e18 so amount=1e9; the entire 1,000 USDC leaves in one call, and the caller was never even asked to sybil.",
+      "recommendation": "Have the composer scale dripAmount by `token.decimals()` (or express the param in whole tokens and multiply in the constructor: `dripAmount = dripAmount_ * 10 ** IERC20(token_).decimals()`). Consider a constructor sanity check such as `require(block.chainid != 1 && block.chainid != 8453, 'TESTNET_ONLY')`, or at least have the console warn when a faucet is deployed on a mainnet network."
+    },
+    {
+      "id": "FAUCET-4",
+      "severity": "low",
+      "title": "Non-standard ERC20s (no bool return, e.g. USDT) brick both drip() and sweep(), locking the balance permanently",
+      "where": "drip() L38 and sweep() L49 via SafeTransfer.push (common.sol L125-L127)",
+      "detail": "SafeTransfer.push calls `token.transfer(to, amount)` through the IERC20 interface, which declares a `bool` return, and then `require`s it. Under solc >=0.8 a high-level call to a function declared as returning bool reverts during return-data decoding if the callee returns nothing. Tokens like USDT (mainnet) and several older tokens return no value, so with such a token wired in, every drip() reverts with a raw revert (no 'PUSH_FAILED'), and - more importantly - the owner's sweep() reverts for the same reason. Whatever was transferred into the faucet is unrecoverable. Fee-on-transfer or rebasing tokens do not brick the contract but make the `Dripped` amount and `nextClaimAt` accounting inaccurate.",
+      "exploit": "1. Deploy Faucet(token=USDT). 2. Owner transfers 500 USDT in. 3. Any drip() call reverts in abi decoding of the transfer return value; owner calls sweep(owner) and it reverts identically. 4. There is no other function that moves `token`; the 500 USDT is stuck in the contract forever.",
+      "recommendation": "Use a low-level safeTransfer that accepts either empty return data or `true` (`(bool ok, bytes memory ret) = address(token).call(abi.encodeWithSelector(IERC20.transfer.selector, to, amt)); require(ok && (ret.length == 0 || abi.decode(ret, (bool))))`) in common.sol so every block benefits, and add a generic owner `rescue()` as in FAUCET-1."
+    },
+    {
+      "id": "FAUCET-5",
+      "severity": "low",
+      "title": "Owner powers are unbounded and one-step: sweep to anyone (including address(0)), setDrip to any values, setOwner(0) orphans the faucet, cooldown near uint max freezes prior claimants",
+      "where": "setDrip() L43-L46; sweep() L48-L50; Owned.setOwner() common.sol L47-L50; overflow at drip() L33 and nextClaimAt() L29",
+      "detail": "The owner (the `governor` input, or the deployer when unwired) can (a) sweep() the whole balance to an arbitrary `to` with no zero-address check - ERC20Base.transfer happily moves tokens to address(0), which is an irreversible burn for ModToken; (b) setDrip(type(uint256).max, 0), turning the faucet into an unlimited, cooldown-free dispenser, which is exactly the 'unlimited-mint faucet in production' the header comment warns against; (c) setDrip(x, huge) where `lastClaim + cooldown` overflows checked arithmetic, so every address that has ever claimed reverts forever in drip() and nextClaimAt(), while never-claimed addresses still pass - an inconsistent, hard-to-diagnose freeze; (d) setOwner(address(0)) with no two-step handoff, after which sweep and setDrip are permanently unavailable and the faucet drips at its last settings until empty. None of these are exploits by outsiders, but they mean the faucet is fully trusted to the governor key, and if that governor is the ModGovernor/timelock pair any passed proposal can empty it.",
+      "exploit": "1. Owner (or a compromised governor key) calls sweep(0x0000...0000): ERC20Base._move requires only balance, so the entire balance is transferred to the zero address and, for ModToken, effectively burned with totalSupply unchanged. 2. Alternatively owner calls setDrip(1, type(uint256).max): next call to drip() by any previous claimant reverts with an arithmetic panic at L33 and nextClaimAt() panics at L29; the faucet looks broken with no event explaining why.",
+      "recommendation": "require(to != address(0)) in sweep(); bound the cooldown (`require(cooldown_ <= 365 days)`) and use `lastClaim + cooldown` in unchecked or compare `block.timestamp - last >= cooldown`; emit a `DripSet(dripAmount, cooldown)` event so the console can show changes; adopt a two-step `setOwner`/`acceptOwner` in Owned so every block inherits it."
+    },
+    {
+      "id": "FAUCET-6",
+      "severity": "low",
+      "title": "A partial (dust) drip consumes the caller's full cooldown, enabling cheap griefing after each refill",
+      "where": "drip() L34-L37: balance>0 check at L35, cap at L36, lastClaim set at L37",
+      "detail": "When the balance is below dripAmount the caller receives whatever is left - possibly 1 wei - and `lastClaim[msg.sender]` is still stamped, so they cannot try again for the whole cooldown. Combined with FAUCET-2, a griefer can keep the faucet at a dust balance: after every refill they drain it down to a few wei with a sybil batch, and every honest user who then calls drip() gets dust and is locked out for 24h. On a testnet the cost is developer time, not money.",
+      "exploit": "1. Owner refills the faucet with 1,000 tokens (dripAmount 100, cooldown 86400). 2. Attacker runs the FAUCET-2 factory for 9 claims and then one claim from a contract that leaves 1 wei (or times a claim so balance < dripAmount). 3. Honest developer calls drip(), receives 1 wei, lastClaim is set, next attempt reverts COOLDOWN for a day; the event Dripped(dev, 1) is the only clue.",
+      "recommendation": "Either require the full amount (`require(balance >= dripAmount, 'DRY')`) so a short faucet reverts instead of stamping the cooldown, or only stamp lastClaim when amount == dripAmount."
+    },
+    {
+      "id": "FAUCET-7",
+      "severity": "info",
+      "title": "Reentrancy and ordering are sound; refills are untracked plain transfers",
+      "where": "drip() L37-L39; whole contract (no receive/fallback, no ETH)",
+      "detail": "lastClaim is written (L37) before the external token.push (L38), so a callback from an ERC777-style token cannot claim twice, and the return value is computed from a local. The faucet holds no ETH and has no payable surface. `token` is immutable so the owner cannot swap the asset after users have been pointed at it. Funding is by direct ERC20 transfer with no deposit function and no event, so the console cannot distinguish 'never funded' from 'drained' except by reading balanceOf; nextClaimAt() reporting block.timestamp for first-time users is a reasonable convention but callers should treat it as 'now', not a timestamp in the past.",
+      "exploit": "Not exploitable. Included so a deployer knows the reentrancy question was checked and why balance monitoring must be done off-chain.",
+      "recommendation": "Optionally add `fund(uint256 amount)` that pulls via transferFrom and emits `Funded(from, amount)` so the composer can chart refills; otherwise no change needed."
+    }
+  ],
+  "safe_use": [
+    "Treat it as a testnet toy: fund it only with a ModToken (or other valueless test asset) and only with an amount you are happy to see drained in one block - the per-address cooldown is not a global rate limit.",
+    "Never wire a Faucet into a `sink` port (cdp/psm/stableswap/lst/flashlender feeSink, bonding treasury, safetymodule recoveryFund). Revenue sent there is either publicly claimable or, if the token differs from the faucet's, lost forever.",
+    "Do not deploy it on mainnet/Base against a real token. If you must, pick the drip in the token's own decimals (the UI's scale-18 default drains a 6-decimal token in one call) and prefer a token that returns bool from transfer() - USDT-style tokens brick both drip() and sweep().",
+    "Keep the owner key (or the governor/timelock it is wired to) as the one place that can empty the faucet; sweep() has no zero-address check and setDrip() has no bounds, so a bad proposal or a fat-fingered call can burn or freeze the balance.",
+    "Monitor balanceOf(faucet) off-chain; there is no funding event, and a faucet at dust balance hands users 1 wei and locks them out for the full cooldown."
+  ]
+}

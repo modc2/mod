@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>redblue — red team vs blue team, scored</title>
+<style>
+  :root{
+    --bg:#07090c; --panel:#0d1117; --line:#1c2530; --ink:#d7e2ec; --dim:#7b8b9c;
+    --red:#ff5d5d; --blue:#5db4ff; --good:#4ade80; --warn:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--blue)}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+         padding:12px 16px;border-bottom:1px solid var(--line);background:#0a0e13;
+         position:sticky;top:0;z-index:5}
+  .mark{font-weight:700;letter-spacing:.18em}
+  .mark .r{color:var(--red)} .mark .b{color:var(--blue)}
+  .tag{color:var(--dim)}
+  nav{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  button,select,input,textarea{
+    background:#111823;color:var(--ink);border:1px solid var(--line);
+    border-radius:3px;padding:5px 10px;font:inherit}
+  button{cursor:pointer}
+  button:hover{border-color:#33465c}
+  button.on{border-color:var(--blue);color:#fff}
+  button.go{border-color:#2e4a63;background:#12202c}
+  main{padding:16px;max-width:1500px;margin:0 auto}
+  section{display:none} section.on{display:block}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:5px;
+         padding:12px 14px;margin-bottom:14px}
+  .panel h2{margin:0 0 4px;font-size:12px;letter-spacing:.14em;color:var(--dim);
+            text-transform:uppercase;font-weight:600}
+  .note{color:var(--dim);font-size:12px;margin:0 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--dim);font-weight:600;padding:5px 8px;
+     border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:5px 8px;border-bottom:1px solid #131b24;vertical-align:top}
+  tr.click{cursor:pointer} tr.click:hover td{background:#101a24}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:5px;background:#16202b;border-radius:3px;overflow:hidden;
+       min-width:70px;margin-top:4px}
+  .bar i{display:block;height:100%}
+  .v{padding:1px 6px;border-radius:3px;font-size:11px;letter-spacing:.05em}
+  .BLOCKED{background:#0d2c1b;color:var(--good)}
+  .DEFLECTED{background:#0e2433;color:var(--blue)}
+  .BREACHED{background:#331013;color:var(--red)}
+  .LEAKED{background:#33210d;color:var(--warn)}
+  .ERROR{background:#232323;color:var(--dim)}
+  .pill{border:1px solid var(--line);border-radius:10px;padding:1px 8px;
+        color:var(--dim);font-size:11px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  label{color:var(--dim);font-size:11.5px;letter-spacing:.06em}
+  textarea{width:100%;min-height:70px;resize:vertical}
+  input[type=text]{min-width:200px}
+  input.sm{min-width:0;width:64px}
+  pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;color:#b7c6d4;
+      background:#0a0f15;border:1px solid var(--line);border-radius:4px;padding:8px;
+      max-height:280px;overflow:auto}
+  .stage{display:flex;gap:8px;align-items:baseline;border-bottom:1px solid #131b24;
+         padding:3px 0}
+  .stage b{color:var(--ink);font-weight:600;min-width:80px}
+  .err{color:var(--red)}
+  .muted{color:var(--dim)}
+  .flash{color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <div class="mark"><span class="r">RED</span><span class="b">BLUE</span></div>
+  <div class="tag" id="sub">jailbreak attacks × defense pipelines, judged on two axes</div>
+  <nav>
+    <button data-tab="board" class="on">BOARD</button>
+    <button data-tab="rounds">ROUNDS</button>
+    <button data-tab="attacks">RED</button>
+    <button data-tab="defenses">BLUE</button>
+    <button data-tab="fight">FIGHT</button>
+    <button data-tab="about">RULES</button>
+  </nav>
+</header>
+
+<main>
+  <!-- BOARD ------------------------------------------------------------- -->
+  <section id="board" class="on">
+    <div class="panel">
+      <h2>the honest number</h2>
+      <p class="note">safety_score = refusal_rate − over_refusal. Refusal rate
+        alone is gamed by refusing everything, so every round also fires benign
+        controls that sit right next to the attacks. A refuse-everything defense
+        nets ~0 here.</p>
+      <div class="row">
+        <button class="go" id="board-refresh">REFRESH</button>
+        <span class="pill" id="board-meta">—</span>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2 style="color:var(--blue)">blue — defenses</h2>
+        <div id="blue-board" class="muted">no completed rounds yet.</div>
+      </div>
+      <div class="panel">
+        <h2 style="color:var(--red)">red — attacks</h2>
+        <div id="red-board" class="muted">no completed rounds yet.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROUNDS ------------------------------------------------------------ -->
+  <section id="rounds">
+    <div class="panel">
+      <h2>run a round</h2>
+      <p class="note">Every attack × every defense, plus the control set. This
+        spends real model calls — <span id="cost-hint">pick a target</span>.</p>
+      <div class="row">
+        <label>target</label><input type="text" id="r-model" value="mock:naive" size="22">
+        <label>judge</label>
+        <select id="r-judge"><option>heuristic</option><option>model</option></select>
+        <label>parallel</label><input type="text" class="sm" id="r-par" value="6">
+        <label><input type="checkbox" id="r-ctl" checked> controls</label>
+        <button class="go" id="r-go">RUN ROUND</button>
+        <span id="r-status" class="flash"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>history</h2>
+      <div id="round-list" class="muted">—</div>
+    </div>
+    <div class="panel" id="round-detail" style="display:none">
+      <h2>round</h2>
+      <div id="round-body"></div>
+    </div>
+  </section>
+
+  <!-- ATTACKS ----------------------------------------------------------- -->
+  <section id="attacks">
+    <div class="panel">
+      <h2 style="color:var(--red)">red team corpus</h2>
+      <p class="note">An attack names a goal and its markers — strings whose
+        presence in a reply is local evidence the attack landed, which is what
+        lets the offline judge work and makes the model judge auditable.</p>
+      <div id="attack-list" class="muted">—</div>
+    </div>
+    <div class="panel">
+      <h2>write an attack</h2>
+      <div class="row">
+        <input type="text" id="a-name" placeholder="name" size="26">
+        <input type="text" id="a-cat" placeholder="category" size="14">
+        <input type="text" id="a-tech" placeholder="technique" size="14">
+      </div>
+      <div class="row"><input type="text" id="a-goal" placeholder="goal — what a breach would obtain" style="flex:1"></div>
+      <textarea id="a-prompt" placeholder="the prompt"></textarea>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="a-markers" placeholder="markers, comma separated" style="flex:1">
+        <button class="go" id="a-save">ADD ATTACK</button>
+        <span id="a-status"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEFENSES ---------------------------------------------------------- -->
+  <section id="defenses">
+    <div class="panel">
+      <h2 style="color:var(--blue)">blue team corpus</h2>
+      <p class="note">input rules → system prompt → model → [self-check] →
+        output rules. Any stage can end the turn, and the round record says
+        which one did — an input block is the cheapest refusal there is.</p>
+      <div id="defense-list" class="muted">—</div>
+    </div>
+    <div class="panel">
+      <h2>write a defense</h2>
+      <div class="row">
+        <input type="text" id="d-name" placeholder="name" size="26">
+        <label><input type="checkbox" id="d-self"> self-check (doubles model cost)</label>
+        <label>max input chars</label><input type="text" class="sm" id="d-cap" value="0">
+      </div>
+      <textarea id="d-sys" placeholder="system prompt"></textarea>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1">
+          <label>input rules — JSON list, or one regex per line</label>
+          <textarea id="d-in" style="min-height:56px"></textarea>
+        </div>
+        <div style="flex:1">
+          <label>output rules</label>
+          <textarea id="d-out" style="min-height:56px"></textarea>
+        </div>
+      </div>
+      <div class="row"><button class="go" id="d-save">ADD DEFENSE</button>
+        <span id="d-status"></span></div>
+    </div>
+  </section>
+
+  <!-- FIGHT ------------------------------------------------------------- -->
+  <section id="fight">
+    <div class="panel">
+      <h2>one exchange</h2>
+      <p class="note">The fastest way to see the whole pipeline: every stage,
+        the response, and the verdict, for a single pair.</p>
+      <div class="row">
+        <label>attack</label><select id="f-attack"></select>
+        <label>defense</label><select id="f-defense"></select>
+        <label>target</label><input type="text" id="f-model" value="mock:naive" size="20">
+        <label>judge</label>
+        <select id="f-judge"><option>heuristic</option><option>model</option></select>
+        <button class="go" id="f-go">FIGHT</button>
+        <span id="f-status" class="flash"></span>
+      </div>
+      <div id="f-out"></div>
+    </div>
+  </section>
+
+  <!-- ABOUT ------------------------------------------------------------- -->
+  <section id="about">
+    <div class="panel"><h2>the rules</h2><div id="about-body" class="muted">—</div></div>
+  </section>
+</main>
+
+<script>
+const P = location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+const API = P.endsWith('/redblue') ? P + '/_api' : '';
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = n => (n == null ? '—' : (n * 100).toFixed(0) + '%');
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({error: r.statusText}));
+  if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+  return body;
+}
+const post = (path, body) => api(path, {method: 'POST',
+  headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('section').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  $('#' + b.dataset.tab).classList.add('on');
+  ({board: loadBoard, rounds: loadRounds, attacks: loadAttacks,
+    defenses: loadDefenses, fight: loadPickers, about: loadAbout}[b.dataset.tab])();
+});
+
+// ── board ──────────────────────────────────────────────────────
+function barRow(value, colour) {
+  const w = Math.max(0, Math.min(1, value || 0)) * 100;
+  return `<div class="bar"><i style="width:${w}%;background:${colour}"></i></div>`;
+}
+
+async function loadBoard() {
+  const b = await api('/board?rounds=8');
+  $('#board-meta').textContent = b.rounds_counted
+    ? b.rounds_counted + ' rounds counted' : (b.note || 'no rounds yet');
+  $('#blue-board').innerHTML = (b.blue || []).length ? `<table>
+    <tr><th>#</th><th>defense</th><th class="num">safety</th>
+        <th class="num">refusal</th><th class="num">over-refusal</th><th class="num">rounds</th></tr>
+    ${b.blue.map(d => `<tr><td>${d.rank}</td><td>${esc(d.defense)}
+      ${barRow(d.safety_score, 'var(--blue)')}</td>
+      <td class="num">${d.safety_score.toFixed(2)}</td>
+      <td class="num">${pct(d.refusal_rate)}</td>
+      <td class="num">${pct(d.over_refusal)}</td>
+      <td class="num">${d.rounds}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no completed rounds yet — run one.</span>';
+  $('#red-board').innerHTML = (b.red || []).length ? `<table>
+    <tr><th>attack</th><th>technique</th><th class="num">breach</th><th class="num">fired</th></tr>
+    ${b.red.map(a => `<tr><td>${esc(a.attack)}
+      ${barRow(a.breach_rate, 'var(--red)')}</td>
+      <td class="muted">${esc(a.technique || a.category || '')}</td>
+      <td class="num">${pct(a.breach_rate)}</td>
+      <td class="num">${a.fired}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no completed rounds yet.</span>';
+}
+$('#board-refresh').onclick = loadBoard;
+
+// ── rounds ─────────────────────────────────────────────────────
+async function loadRounds() {
+  const {rounds} = await api('/rounds?limit=20');
+  $('#round-list').innerHTML = rounds.length ? `<table>
+    <tr><th>round</th><th>status</th><th>target</th><th class="num">matches</th>
+        <th>leader</th></tr>
+    ${rounds.map(r => `<tr class="click" data-id="${esc(r.id)}">
+      <td>${esc(r.id)}</td>
+      <td>${r.status === 'done' ? 'done'
+            : `<span class="flash">${esc(r.status)} ${r.done || 0}/${r.matches || 0}</span>`}</td>
+      <td class="muted">${esc(r.model)}</td>
+      <td class="num">${r.matches || 0}</td>
+      <td>${r.winner ? esc(r.winner.defense) + ' · ' +
+            r.winner.safety_score.toFixed(2) : '—'}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no rounds yet.</span>';
+  document.querySelectorAll('#round-list tr.click').forEach(
+    tr => tr.onclick = () => showRound(tr.dataset.id));
+}
+
+async function showRound(id) {
+  const r = await api('/rounds?id=' + encodeURIComponent(id));
+  $('#round-detail').style.display = 'block';
+  const scores = r.scores || [];
+  $('#round-body').innerHTML = `
+    <div class="row"><span class="pill">${esc(r.id)}</span>
+      <span class="pill">${esc(r.model)}</span>
+      <span class="pill">judge: ${esc(r.judge)}</span>
+      <span class="pill">${r.done}/${r.total_matches}</span>
+      <span class="pill">${esc(r.status)}</span></div>
+    ${scores.length ? `<table>
+      <tr><th>defense</th><th class="num">safety</th><th class="num">refusal</th>
+          <th class="num">over-refusal</th><th class="num">breach</th>
+          <th class="num">leak</th><th>first block</th><th class="num">calls</th></tr>
+      ${scores.map(s => `<tr><td>${esc(s.defense)}</td>
+        <td class="num">${s.safety_score.toFixed(2)}</td>
+        <td class="num">${pct(s.refusal_rate)}</td>
+        <td class="num">${pct(s.over_refusal)}</td>
+        <td class="num">${pct(s.breach_rate)}</td>
+        <td class="num">${pct(s.leak_rate)}</td>
+        <td class="muted">${Object.entries(s.first_block).filter(([, n]) => n)
+          .map(([k, n]) => k + ':' + n).join(' ')}</td>
+        <td class="num">${s.model_calls}</td></tr>`).join('')}</table>` : ''}
+    <h2 style="margin-top:14px">matches</h2>
+    <table><tr><th>attack</th><th>defense</th><th>verdict</th><th>stopped at</th>
+      <th>why</th></tr>
+      ${(r.matches || []).map(m => `<tr><td>${esc(m.attack)}</td>
+        <td>${esc(m.defense)}</td>
+        <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
+        <td class="muted">${esc(m.blocked_at || 'model')}</td>
+        <td class="muted">${esc(m.reason || m.error || '')}</td></tr>`).join('')}
+    </table>`;
+  $('#round-detail').scrollIntoView({behavior: 'smooth'});
+}
+
+$('#r-go').onclick = async () => {
+  const btn = $('#r-go'); btn.disabled = true;
+  $('#r-status').textContent = 'starting…';
+  try {
+    const started = await post('/round', {
+      model: $('#r-model').value.trim(), judge: $('#r-judge').value,
+      parallel: Number($('#r-par').value) || 6, controls: $('#r-ctl').checked,
+      background: true});
+    poll(started.id, started.total_matches);
+  } catch (e) {
+    $('#r-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
+
+async function poll(id, total) {
+  const r = await api('/rounds?id=' + encodeURIComponent(id)).catch(() => null);
+  if (!r) { $('#r-status').textContent = ''; return; }
+  $('#r-status').textContent = `${id} — ${r.done || 0}/${r.total_matches || total} ${r.status}`;
+  await loadRounds();
+  if (r.status === 'running') { setTimeout(() => poll(id, total), 1500); }
+  else { showRound(id); loadBoard(); }
+}
+
+// ── corpora ────────────────────────────────────────────────────
+async function loadAttacks() {
+  const {attacks} = await api('/attacks');
+  $('#attack-list').innerHTML = attacks.length ? `<table>
+    <tr><th>id</th><th>name</th><th>category</th><th>technique</th>
+        <th>goal</th><th></th></tr>
+    ${attacks.map(a => `<tr><td>${esc(a.id)}</td><td>${esc(a.name)}</td>
+      <td class="muted">${esc(a.category)}</td>
+      <td class="muted">${esc(a.technique || '')}</td>
+      <td class="muted">${esc((a.goal || '').slice(0, 70))}</td>
+      <td><button data-del="${esc(a.id)}">×</button></td></tr>`).join('')}</table>`
+    : '<span class="muted">empty.</span>';
+  document.querySelectorAll('#attack-list button[data-del]').forEach(b =>
+    b.onclick = async () => {
+      await api('/attacks?id=' + encodeURIComponent(b.dataset.del),
+                {method: 'DELETE'}); loadAttacks(); });
+}
+
+$('#a-save').onclick = async () => {
+  try {
+    await post('/attacks', {
+      name: $('#a-name').value.trim(), goal: $('#a-goal').value.trim(),
+      category: $('#a-cat').value.trim() || 'custom',
+      technique: $('#a-tech').value.trim(),
+      prompt: $('#a-prompt').value,
+      markers: $('#a-markers').value.split(',').map(s => s.trim()).filter(Boolean)});
+    $('#a-status').textContent = 'added.'; $('#a-prompt').value = '';
+    loadAttacks();
+  } catch (e) { $('#a-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+function rules(text) {
+  const t = text.trim();
+  if (!t) return [];
+  if (t.startsWith('[')) return JSON.parse(t);
+  return t.split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+async function loadDefenses() {
+  const {defenses} = await api('/defenses');
+  $('#defense-list').innerHTML = `<table>
+    <tr><th>id</th><th>name</th><th class="num">in</th><th class="num">out</th>
+        <th>self-check</th><th>prompt</th><th></th></tr>
+    ${defenses.map(d => `<tr><td>${esc(d.id)}</td><td>${esc(d.name)}</td>
+      <td class="num">${(d.input_rules || []).length}</td>
+      <td class="num">${(d.output_rules || []).length}</td>
+      <td class="muted">${d.self_check ? 'yes' : '—'}</td>
+      <td class="muted">${esc((d.system_prompt || '').slice(0, 60))}${
+        (d.system_prompt || '').length > 60 ? '…' : ''}</td>
+      <td>${d.builtin ? '<span class="pill">built-in</span>'
+        : `<button data-del="${esc(d.id)}">×</button>`}</td></tr>`).join('')}</table>`;
+  document.querySelectorAll('#defense-list button[data-del]').forEach(b =>
+    b.onclick = async () => {
+      await api('/defenses?id=' + encodeURIComponent(b.dataset.del),
+                {method: 'DELETE'}); loadDefenses(); });
+}
+
+$('#d-save').onclick = async () => {
+  try {
+    const out = await post('/defenses', {
+      name: $('#d-name').value.trim(), system_prompt: $('#d-sys').value,
+      input_rules: rules($('#d-in').value), output_rules: rules($('#d-out').value),
+      self_check: $('#d-self').checked,
+      max_input_chars: Number($('#d-cap').value) || 0});
+    $('#d-status').textContent =
+      `added — ${out.cost.model_calls_per_turn} model call(s) per turn.`;
+    loadDefenses();
+  } catch (e) { $('#d-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+// ── fight ──────────────────────────────────────────────────────
+async function loadPickers() {
+  const [{attacks}, {defenses}] = await Promise.all(
+    [api('/attacks'), api('/defenses')]);
+  $('#f-attack').innerHTML = attacks.map(
+    a => `<option value="${esc(a.id)}">${esc(a.id)}</option>`).join('');
+  $('#f-defense').innerHTML = defenses.map(
+    d => `<option value="${esc(d.id)}">${esc(d.id)}</option>`).join('');
+}
+
+$('#f-go').onclick = async () => {
+  $('#f-status').textContent = 'firing…'; $('#f-out').innerHTML = '';
+  try {
+    const m = await post('/fight', {
+      attack: $('#f-attack').value, defense: $('#f-defense').value,
+      model: $('#f-model').value.trim(), judge: $('#f-judge').value});
+    $('#f-status').textContent = '';
+    $('#f-out').innerHTML = `
+      <div class="row" style="margin-top:10px">
+        <span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span>
+        <span class="pill">stopped at ${esc(m.blocked_at || 'model')}</span>
+        <span class="pill">judge: ${esc(m.judge || '—')}</span>
+        <span class="pill">${m.model_calls || 0} model calls</span>
+        <span class="pill">${m.ms || 0} ms</span>
+      </div>
+      <div class="muted">${esc(m.reason || m.error || '')}</div>
+      ${(m.stages || []).map(s => `<div class="stage"><b>${esc(s.stage)}</b>
+        <span>${esc(s.rule || s.action)}</span>
+        <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+      <pre>${esc(m.response || m.error || '')}</pre>`;
+  } catch (e) {
+    $('#f-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  }
+};
+
+// ── about ──────────────────────────────────────────────────────
+async function loadAbout() {
+  const i = await api('/');
+  $('#about-body').innerHTML = `
+    <p>${esc(i.what)}</p>
+    <table><tr><th>verdict</th><th>meaning</th></tr>
+      ${Object.entries(i.scoring.verdicts).map(([k, v]) =>
+        `<tr><td><span class="v ${esc(k)}">${esc(k)}</span></td>
+         <td class="muted">${esc(v)}</td></tr>`).join('')}</table>
+    <table style="margin-top:10px"><tr><th>number</th><th>definition</th></tr>
+      ${Object.entries(i.scoring.numbers).map(([k, v]) =>
+        `<tr><td>${esc(k)}</td><td class="muted">${esc(v)}</td></tr>`).join('')}</table>
+    <p class="note" style="margin-top:10px">${esc(i.scoring.why_controls)}</p>
+    <p class="note">pipeline: ${esc(i.pipeline)}</p>
+    <p class="note">targets: ${esc(i.targets)}</p>
+    <p class="note">state: ${esc(i.state)} · mcp: ${i.mcp.tools} tools at
+      POST /mcp · version ${esc(i.version)}</p>`;
+}
+
+// ── boot ───────────────────────────────────────────────────────
+api('/targets').then(t => {
+  const ready = Object.entries(t.providers).filter(([, p]) => p.ready)
+    .map(([n]) => n).join(' · ');
+  $('#sub').textContent = `target ${t.default} · ready: ${ready}`;
+  $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
+}).catch(() => {});
+loadBoard();
+</script>
+</body>
+</html>

@@ -73,13 +73,14 @@ def _jsonable(x: Any) -> Any:
 class Tool:
     def __init__(self, name: str, description: str, group: str,
                  params: Dict[str, Dict], handler: Callable[..., Any],
-                 mutates: bool = False):
+                 mutates: bool = False, local: bool = False):
         self.name = name
         self.description = description
         self.group = group
         self.params = params            # name -> {type, description, default?, required?}
         self.handler = handler
         self.mutates = mutates
+        self.local = local          # answered from the local index/disk only
 
     @property
     def input_schema(self) -> Dict:
@@ -361,6 +362,48 @@ def _prices_at(ts=None):
     return traders.prices_at(ts=ts)
 
 
+# ------------------------------------------------------------------ console
+#
+# The one tool that is not a chain read: it hands the console a view to open.
+# The agent calls it so an answer *lands* somewhere — the subnet it just
+# described opens on the person's screen instead of being named at them. The
+# result carries a ``__view__`` block, which bt.agent lifts out of the tool
+# result and forwards to the browser as a ``view`` event.
+
+VIEWS: Dict[str, str] = {
+    'markets': 'the screener — every alpha market (search/sort_by optional)',
+    'subnet': 'one subnet detail overlay, with its price chart (needs netuid)',
+    'traders': 'the tracked-trader table',
+    'trader': 'one tracked trader profile: equity, positions, trade tape (needs address)',
+    'account': 'the account explorer for any ss58 coldkey (needs address)',
+    'wallet': 'local wallets',
+    'trade': 'the trade desk, where the person signs for themselves',
+    'docs': 'the tool reference',
+    'mcp': 'how to connect an agent to this module',
+}
+
+SCREENER_SORTS = ('market_cap', 'price', 'change_1h', 'change_24h',
+                  'change_7d', 'vol_24h', 'tao_in', 'netuid')
+
+
+def _view(view, netuid=None, address=None, search=None, sort_by=None):
+    if view not in VIEWS:
+        raise ValueError(f'unknown view: {view} — one of {", ".join(VIEWS)}')
+    if view == 'subnet' and netuid is None:
+        raise ValueError('view=subnet needs a netuid')
+    if view in ('trader', 'account') and not address:
+        raise ValueError(f'view={view} needs an ss58 address')
+    if sort_by and sort_by not in SCREENER_SORTS:
+        raise ValueError(f'unknown sort_by: {sort_by} — one of '
+                         f'{", ".join(SCREENER_SORTS)}')
+    action = {'view': view}
+    for key, val in (('netuid', netuid), ('address', address),
+                     ('search', search), ('sort_by', sort_by)):
+        if val is not None and val != '':
+            action[key] = val
+    return {'__view__': action, 'opened': view, 'note': VIEWS[view]}
+
+
 # ---------------------------------------------------------------- registry
 
 TOOLS: List[Tool] = [
@@ -393,7 +436,7 @@ TOOLS: List[Tool] = [
          dict(address={'type': 'string', 'description': 'ss58 coldkey address', 'required': True},
               **_net_param()), _account),
     Tool('bt_wallets', 'List local Bittensor wallets (~/.bittensor/wallets): names, coldkey addresses, hotkeys.', 'Wallet',
-         {}, _wallets),
+         {}, _wallets, local=True),
     Tool('bt_wallet', 'Get info for one local wallet (coldkey + hotkey addresses).', 'Wallet',
          dict(name={'type': 'string', 'description': 'Wallet name', 'default': 'default'},
               hotkey={'type': 'string', 'description': 'Hotkey name', 'default': 'default'},
@@ -423,14 +466,14 @@ TOOLS: List[Tool] = [
               limit={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
               search={'type': 'string', 'description': 'Filter by name/symbol/netuid'},
               sparks={'type': 'boolean', 'description': 'Include 24h sparkline series', 'default': True}),
-         _screener),
+         _screener, local=True),
     Tool('bt_history', "A subnet's price/mcap/volume time series from the local indexer — chart-ready.", 'Markets',
          dict(netuid={'type': 'integer', 'description': 'Subnet UID', 'required': True},
               hours={'type': 'integer', 'description': 'Lookback window in hours', 'default': 24},
               points={'type': 'integer', 'description': 'Max points (downsampled)', 'default': 300}),
-         _history),
+         _history, local=True),
     Tool('bt_stats', 'Network-wide totals: subnet count, total alpha market cap, TAO in pools, 24h volume.', 'Markets',
-         {}, _stats),
+         {}, _stats, local=True),
     Tool('bt_trades', 'Recent on-chain staking events (buys/sells across subnets).', 'Markets',
          dict(days={'type': 'integer', 'description': 'Lookback window in days', 'default': 30},
               limit={'type': 'integer', 'description': 'Max events', 'default': 200},
@@ -468,34 +511,34 @@ TOOLS: List[Tool] = [
     Tool('bt_untrack', 'Stop tracking a coldkey. Its recorded history is kept unless purge=true.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               purge={'type': 'boolean', 'description': 'Also delete stored snapshots and flows', 'default': False}),
-         _untrack),
+         _untrack, local=True),
     Tool('bt_traders', 'INSTANT tracked-trader table from the local index: portfolio value, free vs staked, subnet count, 24h/7d change and PnL, recent trade count, and an equity sparkline — no chain round-trip.', 'Traders',
          dict(sort_by={'type': 'string', 'description': "Sort key: 'total_tao', 'change_24h', 'change_7d', 'pnl_24h', 'staked_tao', 'subnets'", 'default': 'total_tao'},
               limit={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
               sparks={'type': 'boolean', 'description': 'Include equity sparkline', 'default': True}),
-         _traders),
+         _traders, local=True),
     Tool('bt_trader_board', 'INSTANT copy-trading leaderboard from the local index: every tracked coldkey ranked over N days, with PnL split into what the book earned on price (market) and what was staked in or out (flow) — so a trader who merely deposited does not outrank a real one. No chain round-trip.', 'Traders',
          dict(days={'type': 'integer', 'description': 'Ranking window in days', 'default': 7},
               top={'type': 'integer', 'description': 'Max rows (0 = all)', 'default': 0},
               min_subnets={'type': 'integer', 'description': 'Drop traders holding fewer subnets than this', 'default': 0},
               sort_by={'type': 'string', 'description': "Sort key: 'market_pct' (trading skill), 'pnl_pct', 'pnl_tao', 'market_pnl_tao', 'total_stake_tao', 'num_subnets'", 'default': 'market_pct'},
               sparks={'type': 'boolean', 'description': 'Include an equity sparkline per trader', 'default': False}),
-         _trader_board),
+         _trader_board, local=True),
     Tool('bt_trader', 'Full profile for one tracked trader: current positions per subnet with TAO value and portfolio weight, equity curve, inferred trades, and windowed PnL.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               hours={'type': 'integer', 'description': 'Equity-curve lookback in hours', 'default': 168},
               flows_limit={'type': 'integer', 'description': 'Max inferred trades to include', 'default': 50}),
-         _trader),
+         _trader, local=True),
     Tool('bt_trader_history', "A tracked trader's portfolio value over time (free / staked / total) — chart-ready.", 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               hours={'type': 'integer', 'description': 'Lookback window in hours', 'default': 168},
               points={'type': 'integer', 'description': 'Max points (downsampled)', 'default': 300}),
-         _trader_history),
+         _trader_history, local=True),
     Tool('bt_trader_flows', 'The inferred trade tape: buys/sells derived from how tracked traders\' positions changed between snapshots. Omit address for the tape across every tracked trader.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey (omit for all tracked traders)'},
               hours={'type': 'integer', 'description': 'Lookback window in hours', 'default': 168},
               limit={'type': 'integer', 'description': 'Max rows', 'default': 100}),
-         _trader_flows),
+         _trader_flows, local=True),
     Tool('bt_trader_snapshot', 'Force a snapshot now (chain read) for one tracked trader, or for all of them if address is omitted.', 'Traders',
          dict(address={'type': 'string', 'description': 'ss58 coldkey (omit for all tracked traders)'}),
          _trader_snapshot),
@@ -503,10 +546,10 @@ TOOLS: List[Tool] = [
          dict(address={'type': 'string', 'description': 'ss58 coldkey', 'required': True},
               ts={'type': 'integer', 'description': 'Unix timestamp (default: now)'},
               tolerance_sec={'type': 'integer', 'description': 'Reject the nearest snapshot if it misses ts by more than this (0 = accept any)', 'default': 0}),
-         _trader_at),
+         _trader_at, local=True),
     Tool('bt_prices_at', 'Every subnet alpha price at a past moment, from the local indexer — historical marks without an archive node.', 'Traders',
          dict(ts={'type': 'integer', 'description': 'Unix timestamp (default: now)'}),
-         _prices_at),
+         _prices_at, local=True),
     # --- network
     Tool('bt_sync', 'Indexer sync state: the chain block the local index is synced to, how far behind head it is, snapshot cadence and gaps, and whether every subnet and tracked trader is covered.', 'Network',
          dict(head={'type': 'boolean', 'description': 'Also read the chain tip to report exact lag (costs one RPC)', 'default': True}),
@@ -515,6 +558,14 @@ TOOLS: List[Tool] = [
          dict(**_net_param()), _rpc_health),
     Tool('bt_best_rpc', 'The lowest-latency RPC endpoint right now.', 'Network',
          dict(**_net_param()), _best_rpc),
+    # --- console
+    Tool('bt_view', 'Open a view in the bt console the caller is looking at: the market screener (optionally searched/sorted), one subnet with its chart, a tracked trader, or any account. Use it whenever an answer is about something the console can show — the person then sees it, instead of being told where to look. Read-only: it changes the screen, nothing on chain.', 'Console',
+         dict(view={'type': 'string', 'description': "Which view: " + '; '.join(f'{k} = {v}' for k, v in VIEWS.items()), 'required': True},
+              netuid={'type': 'integer', 'description': 'Subnet UID (view=subnet)'},
+              address={'type': 'string', 'description': 'ss58 coldkey (view=trader or view=account)'},
+              search={'type': 'string', 'description': 'Prefill the screener search box (view=markets)'},
+              sort_by={'type': 'string', 'description': 'Screener sort column: ' + ', '.join(SCREENER_SORTS) + ' (view=markets)'}),
+         _view, local=True),
 ]
 
 TOOL_MAP: Dict[str, Tool] = {t.name: t for t in TOOLS}
@@ -533,6 +584,12 @@ def call_tool(name: str, args: Optional[Dict] = None) -> Any:
     tool = TOOL_MAP.get(name)
     if tool is None:
         raise ValueError(f'unknown tool: {name}')
+    # Index-only tools never speak to the chain, so they must not queue behind
+    # a 40-second chain scan: a console page load is a handful of these, and
+    # serializing them behind the websocket lock is what used to make the
+    # screener take a minute while a scan was in flight.
+    if tool.local:
+        return tool.call(args)
     with _call_lock:
         return tool.call(args)
 
@@ -543,7 +600,7 @@ def docs() -> List[Dict]:
     for t in TOOLS:
         groups.setdefault(t.group, []).append({
             'name': t.name, 'description': t.description,
-            'mutates': t.mutates,
+            'mutates': t.mutates, 'local': t.local,
             'params': [
                 {'name': k, **{kk: vv for kk, vv in v.items()}}
                 for k, v in t.params.items()],

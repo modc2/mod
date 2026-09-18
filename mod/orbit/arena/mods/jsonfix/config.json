@@ -1,0 +1,35 @@
+{
+    "name": "jsonfix",
+    "description": "A drill: six JSON literals, each broken one way that real output breaks \u2014 single quotes, trailing comma, unquoted keys, True/None, a missing brace, a comment. Graded on what the answer parses to, never on its text.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "731001d45073c352d1f91e673e90d9334eb9417ddcb3faa3479f2304480fe6e4",
+    "bytes": 6729,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "class",
+        "python",
+        "drill",
+        "json"
+    ],
+    "defines": [
+        "__init__",
+        "build",
+        "broken",
+        "turn",
+        "view",
+        "step",
+        "done",
+        "result"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/jsonfix/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

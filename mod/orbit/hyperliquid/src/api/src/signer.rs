@@ -165,9 +165,16 @@ impl Keccak256 {
     fn update(&mut self, data: &[u8]) { self.buf.extend_from_slice(data); }
     fn finalize(mut self) -> [u8; 32] {
         let mut padded = std::mem::take(&mut self.buf);
-        padded.push(0x01);
-        while padded.len() % RATE != RATE - 1 { padded.push(0x00); }
-        padded.push(0x80);
+        // pad10*1: when exactly one byte of the block remains, the 0x01 and
+        // 0x80 markers share it (0x81) — a separate 0x01 would close the block
+        // and grow a spurious extra one, silently wrong for len ≡ RATE-1.
+        if padded.len() % RATE == RATE - 1 {
+            padded.push(0x81);
+        } else {
+            padded.push(0x01);
+            while padded.len() % RATE != RATE - 1 { padded.push(0x00); }
+            padded.push(0x80);
+        }
         for chunk in padded.chunks(RATE) {
             for (i, lane) in chunk.chunks(8).enumerate() {
                 let mut b = [0u8; 8];
@@ -253,6 +260,19 @@ mod tests {
     fn keccak_hello() {
         let h = keccak256(b"hello");
         assert_eq!(hex::encode(h), "1c8aff950685c2ed4bc3174f3472287b56d9517b9c948127319a09a7a36deac8");
+    }
+
+    // Padding edge cases (vectors from pycryptodome's legacy keccak):
+    // RATE-1 bytes forces the shared 0x81 pad byte, RATE an all-pad block,
+    // and >RATE exercises multi-block absorption.
+    #[test]
+    fn keccak_pad_boundaries() {
+        let h = keccak256(&[b'a'; 135]);
+        assert_eq!(hex::encode(h), "34367dc248bbd832f4e3e69dfaac2f92638bd0bbd18f2912ba4ef454919cf446");
+        let h = keccak256(&[b'a'; 136]);
+        assert_eq!(hex::encode(h), "a6c4d403279fe3e0af03729caada8374b5ca54d8065329a3ebcaeb4b60aa386e");
+        let h = keccak256(&[b'a'; 200]);
+        assert_eq!(hex::encode(h), "96ea54061def936c4be90b518992fdc6f12f535068a256229aca54267b4d084d");
     }
 
     #[test]

@@ -122,5 +122,96 @@ def test_local_git_log_smoke(up):
     assert commits[0]['repo'] == 'modc2/mod'
 
 
+# --- daily digest -----------------------------------------------------------
+
+def _stub_day(up, monkeypatch, commits, files):
+    monkeypatch.setattr(up, 'commits', lambda repo=None, branch=None, n=20, **k: commits)
+    monkeypatch.setattr(up, '_day_files', lambda repo, rows: files)
+
+
+def test_daily_buckets_commits_by_utc_day(up, monkeypatch):
+    cs = [_commit('modc2/mod', 'c3', '2026-09-10T01:00:00+00:00'),
+          _commit('modc2/mod', 'c2', '2026-09-09T23:59:00Z'),
+          _commit('modc2/mod', 'c1', '2026-09-09T08:00:00Z')]
+    _stub_day(up, monkeypatch, cs, ['mod/orbit/polymarket/a.py'])
+    d = up.daily(days=7)
+    assert [x['date'] for x in d['days']] == ['2026-09-10', '2026-09-09']   # newest day first
+    assert [x['commits'] for x in d['days']] == [1, 2]
+    assert d['branch'] == 'dev' and d['tz'] == 'UTC'
+
+
+@pytest.mark.parametrize('path,module', [
+    ('mod/orbit/polymarket/src/api.py', 'polymarket'),
+    ('mod/core/registry/mod.py', 'core/registry'),
+    ('core/api/config.json', 'core/api'),
+    ('docs/whitepaper.md', 'docs'),
+    ('README.md', 'root'),
+])
+def test_module_attribution(up, path, module):
+    assert up._module_of(path) == module
+
+
+def test_day_rolls_files_up_by_module(up, monkeypatch):
+    _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')],
+              ['mod/orbit/polymarket/a.py', 'mod/orbit/polymarket/b.py', 'core/api/config.json'])
+    day = up.daily(days=1)['days'][0]
+    assert day['files'] == 3
+    assert day['modules'] == [{'name': 'polymarket', 'files': 2}, {'name': 'core/api', 'files': 1}]
+
+
+def test_every_style_names_the_branch(up, monkeypatch):
+    _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')],
+              ['mod/orbit/polymarket/a.py'])
+    post = up.daily(days=1)['days'][0]['post']
+    for style, text in post.items():
+        assert 'dev' in text and 'modc2/mod' in text, style
+    assert '`dev`' in post['discord']                    # discord renders it as code
+    assert post['discord'].endswith('>')                 # <link> = no embed card
+
+
+def test_tweet_trims_modules_to_fit_280(up, monkeypatch):
+    files = [f'mod/orbit/m{i}/f{j}.py' for i in range(30) for j in range(3)]
+    _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')], files)
+    day = up.daily(days=1)['days'][0]
+    assert len(day['modules']) == 30
+    tweet = day['post']['twitter']
+    assert day['chars']['twitter'] <= up.TWEET_MAX      # link weighted at 23 chars
+    assert '+25 more' in tweet                           # 5 shown, rest summarised
+
+
+def test_post_goes_out_once_per_day(up, monkeypatch):
+    _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')],
+              ['mod/orbit/polymarket/a.py'])
+    first = up.post()
+    assert first['date'] == '2026-09-10' and first['skip'] is False and first['marked'] is True
+    assert first['style'] == 'twitter' and first['chars'] <= 280
+
+    again = up.post()                                    # same day -> don't repeat yourself
+    assert again['skip'] is True and again['already_posted'] is True
+    assert up.post(force=True)['skip'] is False          # unless asked to
+
+    up.mark_posted('2026-09-10', posted=False)           # un-post and it is pending again
+    assert up.daily(days=1)['days'][0]['posted'] is False
+
+
+def test_post_selects_a_named_day(up, monkeypatch):
+    cs = [_commit('modc2/mod', 'c2', '2026-09-10T01:00:00Z'),
+          _commit('modc2/mod', 'c1', '2026-09-09T01:00:00Z')]
+    _stub_day(up, monkeypatch, cs, ['mod/orbit/defi/a.rs'])
+    assert up.post(date='2026-09-09', style='discord')['date'] == '2026-09-09'
+    assert up.post(date='2020-01-01')['skip'] is True     # a day with no commits
+
+
+def test_daily_smoke_over_local_dev_branch(up):
+    """Real digest over the checked-out repo — exercises `git show` file rollup."""
+    if not up.toplevel:
+        pytest.skip('not in a git checkout')
+    d = up.daily(days=2, n=40)
+    assert d['repo'] == 'modc2/mod' and d['branch'] == 'dev' and d['days']
+    day = d['days'][0]
+    assert day['commits'] >= 1 and day['files'] >= 1 and day['modules']
+    assert day['post']['twitter'].startswith('modc2/mod · dev · ')
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

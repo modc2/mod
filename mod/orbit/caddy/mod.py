@@ -56,6 +56,16 @@ class Mod:
     # Roots scanned for routable modules.
     ROOTS = ["/root/mod/mod/orbit", "/root/mod/mod/core"]
 
+    # A module the build console has marked PRIVATE is not published here.
+    # Privacy is an owner's opt-out of being visible at all — dropping it from
+    # the hub while {host}/{mod} still answers would be a hole, so the router
+    # reads the same per-module records build writes (0600, off-tree) and
+    # simply never generates a route for one. Going public again restores the
+    # route on the next apply.
+    PRIVATE_DIR = os.path.expanduser(
+        os.environ.get("MOD_PRIVATE_STATE", "~/.mod/build/private")
+    )
+
     # ── mod protocol ─────────────────────────────────────────────────────────
     def forward(self, **kwargs):
         return self.info()
@@ -200,6 +210,8 @@ class Mod:
                     continue
                 if require_optin and not cfg.get("route"):
                     continue
+                if self._is_private(cfg.get("name", name)):
+                    continue
                 api = cfg.get("port") or (cfg.get("ports") or {}).get("api")
                 app = cfg.get("app_port") or (cfg.get("ports") or {}).get("app")
                 if not api and not app:
@@ -217,6 +229,22 @@ class Mod:
                     "app_port": app,
                 })
         return out
+
+    def _is_private(self, name):
+        """Has this module been made private in the build console?
+
+        The record is `~/.mod/build/private/<name>.json` with `enabled: true`
+        (nested names flatten `/` to `__`, same as build writes them). Any
+        read failure means "not private" — the router must never fail closed
+        on a missing state dir and take the whole fleet off the air."""
+        safe = "".join(c for c in name if c.isalnum() or c in "-_/").replace("/", "__")
+        if not safe:
+            return False
+        try:
+            with open(os.path.join(self.PRIVATE_DIR, f"{safe}.json")) as f:
+                return bool(json.load(f).get("enabled"))
+        except (OSError, json.JSONDecodeError, AttributeError):
+            return False
 
     def _base_text(self):
         try:

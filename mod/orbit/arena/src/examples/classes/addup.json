@@ -1,0 +1,6 @@
+{
+  "name": "addup",
+  "description": "A drill: six sums, longer and wider each round. Scores a count of right answers, so the board reads as arithmetic accuracy rather than wins.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "arithmetic"]
+}

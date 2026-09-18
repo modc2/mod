@@ -31,6 +31,8 @@ fn info() -> Value {
         "matches": "POST /matches {task, agents[]} | GET /matches | GET /matches/:id",
         "submit": "POST /submit {task, code, language?, agent?}",
         "leaderboard": "GET /leaderboard",
+        "bench": "GET /bench/sources | POST /bench/preview | POST /bench/import",
+        "hf": "GET /hf/search?query= | GET /hf/dataset?dataset=",
         "forward": "POST /forward {action, ...args}",
         "tools": "GET /tools",
         "console": "GET /openarena (browser)"
@@ -130,6 +132,28 @@ async fn leaderboard(Query(q): Query<HashMap<String, String>>) -> Response {
     via_tool("leaderboard", json!({ "limit": limit })).await
 }
 
+async fn bench_sources() -> Response {
+    via_tool("bench_sources", json!({})).await
+}
+
+async fn bench_preview(Json(body): Json<Value>) -> Response {
+    via_tool("bench_preview", body).await
+}
+
+async fn bench_import(Json(body): Json<Value>) -> Response {
+    via_tool("bench_import", body).await
+}
+
+/// Both HuggingFace calls take their arguments as a query string on GET, so a
+/// browser or a `curl` is a first-class client of the hub interface.
+async fn hf_search(Query(q): Query<HashMap<String, String>>) -> Response {
+    via_tool("hf_search", json!(q)).await
+}
+
+async fn hf_dataset(Query(q): Query<HashMap<String, String>>) -> Response {
+    via_tool("hf_dataset", json!(q)).await
+}
+
 /// Generic escape hatch — any tool by name, the same shape as the mod
 /// protocol's `forward`.
 async fn forward(Json(mut body): Json<Value>) -> Response {
@@ -170,6 +194,11 @@ fn api_routes() -> Router {
         .route("/matches/:id", get(get_match))
         .route("/submit", post(submit))
         .route("/leaderboard", get(leaderboard))
+        .route("/bench/sources", get(bench_sources))
+        .route("/bench/preview", post(bench_preview))
+        .route("/bench/import", post(bench_import))
+        .route("/hf/search", get(hf_search))
+        .route("/hf/dataset", get(hf_dataset))
         .route("/forward", post(forward))
         .route("/tools", get(tools))
 }

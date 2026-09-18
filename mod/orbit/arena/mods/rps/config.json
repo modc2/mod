@@ -1,0 +1,34 @@
+{
+    "name": "rps",
+    "description": "Rock, paper, scissors \u2014 best of five, both seats throwing at once. The simplest game with simultaneous moves.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "wasm",
+    "lang": "wasm",
+    "anchor": "mod.py",
+    "artifact": "2ac0509583720a471c087e517f2d1aee57e4b40abcb108efc166f92a352248b7",
+    "bytes": 71039,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game"
+    ],
+    "defines": [
+        "memory",
+        "alloc",
+        "game_done",
+        "game_info",
+        "game_init",
+        "game_result",
+        "game_step",
+        "game_turn",
+        "game_view",
+        "__data_end",
+        "__heap_base"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/rps/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

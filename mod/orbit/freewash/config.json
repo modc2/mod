@@ -1,7 +1,7 @@
 {
     "name": "freewash",
-    "version": "0.2.0",
-    "description": "Free-roam WebGL game set in Washington Square Park, rendered as pixel art - walk or skate around the marble arch, fountain and tree-lined paths. Golden-hour lighting and true-scale detail, squeezed through a low-res buffer, nearest-neighbour upscale and a dithered palette. Renders entirely in the browser via three.js/WebGL.",
+    "version": "0.5.1",
+    "description": "Free-roam WebGL game set in Washington Square Park, rendered as pixel art - walk or skate the Fifth Avenue promenade, the fountain plaza and the tree-lined walks, past Garibaldi, the chess corner, the dog run and the arch. Laid out to the real park's plan, with a full day-night cycle, fully synthesised sound and a ~180-strong crowd built to human measurements: adult proportions, shoulders that slope off a joint six centimetres under the acromion so everyone has a neck and a full-length arm, a waist narrower than the ribcage, skulls with a jaw and a nose and lids over the eyes, hair with a hairline, sleeves and belts and hands in pockets. Nobody stands to attention: standing still is a weight shift, a breath, a soft knee and hands against the thighs. Press F to talk to anyone: everyone has a name, a job and a taste in conversation, rapport is a five-tone flirting game, and numbers you win go in your phone. Nine sidequests around the park pay rep, and rep is charisma. Renders entirely in the browser via three.js/WebGL.",
     "icon": "\ud83d\udef9",
     "color": "#a78bfa",
     "port": 8799,
@@ -18,5 +18,5 @@
         "serve": "Start the static WebGL game server",
         "stop": "Stop the running server"
     },
-    "schema": "Qmdv4G57fgLzHzbQzEJcC9kTs7b8RZub446iP181jcLq2S"
+    "schema": "QmYB9T6F7knxKeB2Me7XWFxbjuKL1A7vkvSke7RFKjdo1A"
 }

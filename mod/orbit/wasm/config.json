@@ -1,6 +1,10 @@
 {
-    "name": "wasm",
-    "description": "wasm",
-    "version": "0.1.0",
-    "schema": "QmScCaxMqR9tngBmiKhTWQvrdVo4Mm16rkNMfiVLwM4WD6"
+  "name": "wasm",
+  "description": "wasm",
+  "version": "0.1.0",
+  "schema": "QmfTxTp3wRXrUiZymyUgqWRMcsrUoQUJS3iRFyg1jTXaZa",
+  "urls": {
+    "api": "http://localhost:50080"
+  },
+  "port": 50080
 }

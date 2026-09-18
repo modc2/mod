@@ -29,11 +29,15 @@ export default function ThemePicker() {
       <button
         onClick={() => setOpen((o) => !o)}
         className="theme-toggle"
-        title={`Theme: ${theme.label}`}
-        aria-label="Pick a theme"
+        title={`Theme: ${theme.label} — ${THEMES.length} to choose from`}
+        aria-label={`Theme: ${theme.label}. Pick a theme`}
         aria-expanded={open}
       >
-        {theme.glyph}
+        <span className="theme-toggle__glyph" aria-hidden>{theme.glyph}</span>
+        <span className="theme-toggle__label">{theme.label}</span>
+        <span className="theme-toggle__swatch" aria-hidden>
+          {theme.swatch.map((c) => <i key={c} style={{ background: c }} />)}
+        </span>
       </button>
 
       {open && (

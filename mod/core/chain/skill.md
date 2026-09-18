@@ -51,8 +51,12 @@ console — Hub / Interact / Contracts / Control / Protocol / Owner / Docs).
   deployed by one project can be driven from another with nothing but a CID.
 - **Project gallery**: upload a project off your machine, or publish one you
   built so anybody can fork it (`~/.mod/chain/build/shared.json`, keyed
-  `<author>/<name>`). BlocTime ships in the gallery read-only — fork it and its
-  13 tests run as-is.
+  `<author>/<name>`). Every fleet module ships in the gallery read-only —
+  `fleet/token`, `oracle`, `registry`, `perms`, `tokengate`, `bloctime`,
+  `treasury`, `market`, `debit`, `safe`, `defi` — each laid out as a Hardhat
+  project with the contracts it depends on, its README and its own tests, and
+  `fleet/protocol` bundles all of them with every test. Fork one and the tests
+  run as-is.
 - **Owner-only host readout**: per-core CPU, memory, swap, disk, per-interface
   network traffic, socket census and the top processes of the machine the API
   runs on. Gated by a wallet signature from an address in
@@ -60,6 +64,22 @@ console — Hub / Interact / Contracts / Control / Protocol / Owner / Docs).
 - **Wallets in the web console**: MetaMask (auto chain-switch/add on send) or a
   browser-local ethers keypair (import/export private key); reads are
   wallet-free via RPC.
+- **Claude Code over a project (AGENT tab)**: `src/agent/mod.py` is a harness
+  runner in the `orbit/agent` sense — `harness()` + `run(query, project=,
+  address=, network=, on_step=)` — registered there as `chainmod` behind the
+  shipped `chain-mod` agent, exactly like the build console's `buildmod`. A run
+  lays the project out as a Hardhat workspace under
+  `~/.mod/chain/build/agent/run/<address>/<project>/`, spawns the `claude` CLI
+  there with `--permission-mode acceptEdits` (edits inside the workspace only),
+  `--allowedTools "Bash(npx hardhat:*)"` (the shell runs hardhat and nothing
+  else) and no web/subagent tools, translates its stream-json into the fleet's
+  step dicts, and writes `contracts/` + `test/` back into the project when it
+  ends (even after a timeout). The console reaches it through `POST /agent/run`
+  → `orbit/agent` `POST /run/stream` (`agent_type: chain-mod`, `harness_args:
+  {project, address, network, model}`) — never straight from the browser — so
+  the agent module's owner gate (harness runs are owner-only: the host's own
+  Claude account) and task ledger apply. `GET /agent/status` says whether it
+  can run here and who may press the button; `GET /agent/runs` is the ledger.
 
 ## Usage
 
@@ -132,13 +152,16 @@ curl -X POST localhost:8800/call -H 'Content-Type: application/json' \
 | POST | `/build/compile` | `{source, filename?, optimize?, runs?}` → deployable `{name, abi, bytecode, size, constructor}` + errors/warnings |
 | GET | `/build/templates` | Starter contracts |
 | GET/POST/DELETE | `/build/projects` — GET `/build/projects/{name}` | Per-address projects (a named bag of files) |
-| GET/POST/DELETE | `/build/shared` — GET `/build/shared/{id}` | Shared project gallery; publish yours, fork anyone's. Ships `fleet/bloctime` read-only |
+| GET/POST/DELETE | `/build/shared` — GET `/build/shared/{id}` | Shared project gallery; publish yours, fork anyone's. Ships every fleet module read-only (`fleet/<module>`, `fleet/protocol` = all of them) |
 | GET/POST/DELETE | `/build/drafts` | Per-address source drafts |
 | GET/POST | `/build/deployments` | Per-address record of wallet-signed builds; POST stores the ABI + source and returns their CIDs |
 | GET | `/build/abi/{cid}` | One ABI out of the store, parsed |
 | POST | `/build/abi` | `{address, name, network, abi, source?}` → `{cid}` — store an ABI for a contract deployed anywhere |
 | GET | `/build/abis?address=` | ABIs that address has in the store |
 | GET | `/cid/{cid}` | Raw stored content (ABI JSON or `.sol` source) |
+| GET | `/agent/status` | Claude Code CLI + orbit/agent reachable, `chainmod` registered, the agent module's owner (harness runs are owner-only) |
+| POST | `/agent/run` | `{key, query, project?, network?, model?}` → SSE bridge to orbit/agent `/run/stream` as `chain-mod`; events `start` / `step` / `done` / `error` |
+| GET | `/agent/runs?address=` | Past agent runs on that address's projects |
 | GET | `/system/access` · `/system/challenge` — POST `/system/login` | Owner sign-in for the host readout (wallet signature → 12h Bearer token) |
 | GET | `/system/stats` | **Owner-only.** CPU per core, memory, disk, network traffic per interface, sockets, top processes |
 
@@ -154,12 +177,12 @@ Used by `hardhat.config.js` / deploy tooling (all optional; sane defaults):
 
 - `config.json` — per-network deployments: addresses + pinned ABI/src CIDs
 - `src/mod.py` — Python orchestrator (the full-power surface)
+- `src/agent/mod.py` — the Claude Code harness runner (`m.mod('chain.agent')`)
+- `tests/test_agent_harness.py` — the runner without the CLI (stubbed `claude`)
 - `src/api/api.py` — FastAPI server; `src/api/start.sh`
 - `src/app/` — Next.js console; `src/app/start.sh` (`DEV=0` → build + start)
 - `src/contracts/<module>/` — Solidity sources, one README per module
 - `src/build/compile.js` + `src/build/templates/` — contract builder toolchain
-- `src/build/shared/` — fixtures the shipped gallery entries need (BlocTime's
-  staking `Token.sol`), kept out of the compiled contracts tree
 - `src/api/host.py` — /proc reader behind `/system/stats` (stdlib only)
 - `~/.mod/chain/build/` — builder drafts + recorded user deployments (off-tree)
 - `~/.mod/chain/owners.json` — who may read the host (0600, seeded from the

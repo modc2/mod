@@ -613,3 +613,140 @@ def test_a_building_explanation_agrees_with_the_map():
     # The explain view must not quietly switch to the in-sample model.
     assert abs(one['predicted'] - worst['predicted']) < 0.11
     assert one['drivers'] and all('label' in d for d in one['drivers'])
+
+
+# ── mcp ─────────────────────────────────────────────────────────────────────
+#
+# The stdio and HTTP transports both dispatch through mcp_server.rpc, so these
+# test the protocol once and the HTTP envelope separately.
+
+def test_mcp_initialize_advertises_tools_and_echoes_protocol():
+    from tdotgis import mcp_server as MCP
+    r = MCP.rpc({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+                 'params': {'protocolVersion': '2024-11-05'}})
+    assert r['result']['serverInfo']['name'] == 'tdot'
+    assert 'tools' in r['result']['capabilities']
+    # A server that ignores the client's version breaks older clients.
+    assert r['result']['protocolVersion'] == '2024-11-05'
+
+
+def test_mcp_lists_every_tool_with_a_schema():
+    from tdotgis import mcp_server as MCP
+    from tdotgis import tools as T
+    tools = MCP.rpc({'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})['result']['tools']
+    assert len(tools) == len(T.TOOLS)
+    for t in tools:
+        assert t['name'] and t['description']
+        assert t['inputSchema']['type'] == 'object'
+
+
+def test_mcp_notification_gets_no_reply():
+    from tdotgis import mcp_server as MCP
+    # A notification has no id; replying to one corrupts the stream.
+    assert MCP.rpc({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) is None
+
+
+def test_mcp_unknown_method_is_a_jsonrpc_error():
+    from tdotgis import mcp_server as MCP
+    r = MCP.rpc({'jsonrpc': '2.0', 'id': 3, 'method': 'resources/list'})
+    assert r['error']['code'] == -32601
+
+
+def test_mcp_tool_failure_is_content_not_transport_error():
+    from tdotgis import mcp_server as MCP
+    r = MCP.rpc({'jsonrpc': '2.0', 'id': 4, 'method': 'tools/call',
+                 'params': {'name': 'tdot_layer_summary', 'arguments': {}}})
+    # The model has to be able to read why it failed and try again, so a tool
+    # that raised comes back as isError content rather than a JSON-RPC error.
+    assert 'error' not in r
+    assert r['result']['isError'] is True
+    assert r['result']['content'][0]['text']
+
+
+def test_map_driving_tools_are_flagged_and_carry_an_action():
+    from tdotgis import tools as T
+    drivers = [t for t in T.TOOLS if t.drives_map]
+    assert {'tdot_show_layers', 'tdot_fly_to'} <= {t.name for t in drivers}
+    # The console applies result['__map__']; a tool flagged as driving the map
+    # that returns no action would silently do nothing.
+    out = T.call_tool('tdot_show_layers', {'layers': ['crime']})
+    assert out['__map__']['show'] == ['crime']
+
+
+def test_mod_publishes_a_config_for_both_transports():
+    import mod as m
+    cfg = m.mod('tdot')().mcp()
+    assert cfg['tools'] > 0
+    servers = cfg['mcpServers']
+    assert servers['tdot']['args'] == ['-m', 'tdotgis.mcp_server']
+    assert servers['tdot-http']['url'].endswith('/mcp')
+
+
+# ── housing lots (no network: the scoring is pure) ──────────────────────────
+
+from tdotgis import lots as LO          # noqa: E402
+
+
+def test_lot_score_rewards_the_housing_now_shape():
+    """A big surplus parking lot at a station is the canonical PRIME site."""
+    prime = LO.score_lot(28000, 250, 'Parking Facility', 'Declared Surplus')
+    weak = LO.score_lot(500, 2500, 'Vacant Land', 'City Use')
+    assert prime >= 90
+    assert weak < 45
+    assert LO.tier_of(prime) == 'PRIME'
+    assert LO.tier_of(weak) == 'POSSIBLE'
+
+
+def test_lot_score_is_bounded_and_transit_decays():
+    assert 0 <= LO.score_lot(1e9, 0, 'Parking Facility', 'Declared Surplus') <= 100
+    near = LO.score_lot(2000, 300, 'Vacant Land', 'City Use')
+    far = LO.score_lot(2000, 3000, 'Vacant Land', 'City Use')
+    assert near > far
+    # No station at all is scored like a very distant one, not an error.
+    assert LO.score_lot(2000, None, 'Vacant Land', 'City Use') <= far
+
+
+def test_massing_steps_with_lot_size():
+    s_small, h_small, _ = LO._massing(600)
+    s_big, h_big, height = LO._massing(20000)
+    assert s_small == 4 and s_big == 12
+    assert h_big > h_small
+    assert height == pytest.approx(12 * 3.2)
+
+
+def test_merge_polys_folds_parcels_into_one_lot():
+    a = {'type': 'Polygon', 'coordinates': [[[0, 0], [0, 1], [1, 1], [0, 0]]]}
+    b = {'type': 'MultiPolygon',
+         'coordinates': [[[[2, 2], [2, 3], [3, 3], [2, 2]]]]}
+    merged = LO._merge_polys([a, b])
+    assert merged['type'] == 'MultiPolygon'
+    assert len(merged['coordinates']) == 2
+    assert LO._merge_polys([{'type': 'Point', 'coordinates': [0, 0]}]) is None
+
+
+def test_housing_lots_layer_is_registered():
+    ids = {l['id'] for l in L.LAYERS}
+    assert 'housing_lots' in ids
+    assert 'housing_lots' in L.LOADERS
+    spec = next(l for l in L.LAYERS if l['id'] == 'housing_lots')
+    assert spec['style']['highlight'] is True
+    assert set(spec['style']['classes']) == {'PRIME', 'STRONG', 'POSSIBLE'}
+
+
+@pytest.mark.network
+def test_housing_lots_build_live():
+    fc = LO.candidates()
+    assert fc['type'] == 'FeatureCollection'
+    assert len(fc['features']) > 100
+    p = fc['features'][0]['properties']
+    assert p['score'] <= 100 and p['tier'] in ('PRIME', 'STRONG', 'POSSIBLE')
+    # Parcels of one property fold together. Distinct unnumbered lots can
+    # share a placeholder address ("0 Bloor St W"), so the test is that no
+    # address *dominates* — before the fix, 777 Victoria Park was six of the
+    # top eight rows.
+    from collections import Counter
+    top_addrs = Counter(f['properties']['address'] for f in fc['features'][:20])
+    assert max(top_addrs.values()) <= 2
+    # Parks must never be proposed, whatever their status.
+    assert all(f['properties']['use'] != 'Park/Rec/Open Space'
+               for f in fc['features'])

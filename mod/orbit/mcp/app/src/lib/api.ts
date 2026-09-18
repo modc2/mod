@@ -1,304 +1,278 @@
+// Hub API client. In prod Caddy routes /api/mcp/* → mcp-api; in dev the Next
+// rewrite in next.config.mjs does the same, so one base works everywhere.
 const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/mcp";
 
-function authHeaders(token: string | null): HeadersInit {
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-// Errors carry the status so callers can react (drop a dead session on 401,
-// open the terms gate on 451) without string-matching the message.
-export class ApiError extends Error {
-  status: number;
-  detail: string;
-  constructor(status: number, detail: string, message: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.detail = detail;
-  }
-}
-
-function detailOf(text: string): string {
-  try {
-    const body = JSON.parse(text);
-    const d = body?.detail ?? body?.error ?? body?.message;
-    if (typeof d === "string") return d;
-    if (Array.isArray(d)) return d.map((e) => e?.msg ?? JSON.stringify(e)).join("; ");
-    if (d) return JSON.stringify(d);
-  } catch {
-    /* not JSON — fall through to the raw text */
-  }
-  return text.trim();
-}
-
-function messageFor(status: number, detail: string): string {
-  switch (status) {
-    case 401:
-      return "session expired — sign in again";
-    case 403:
-      return detail || "not authorized";
-    case 404:
-      return detail || "not found";
-    case 429:
-      return detail || "rate limited — try again shortly";
-    case 502:
-      return detail || "an upstream registry or the store mod is unreachable";
-    default:
-      if (status >= 500) return detail || "hub API error — the service may be restarting";
-      return detail || `request failed (${status})`;
-  }
-}
-
-async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const detail = detailOf(await res.text().catch(() => ""));
-    throw new ApiError(res.status, detail, messageFor(res.status, detail));
-  }
-  return res.json() as Promise<T>;
-}
-
-export interface Source {
-  id: string;
-  label: string;
-  about: string;
-  ttl: number;
-  weight: number;
-  url: string;
-  auth: string;
-}
-
-export interface Remote {
-  type: string;
-  url: string;
-}
-
-export interface Pkg {
-  registry: string;
-  identifier: string;
-  version?: string | null;
-}
-
-export interface Server {
-  id: string;
-  ids?: string[];
-  source: string;
-  sources?: string[];
-  name: string;
-  title: string;
-  description: string;
-  repo: string;
-  homepage: string;
-  author: string;
-  license: string | null;
-  stars: number | null;
-  downloads: number | null;
-  tags: string[];
-  transports: string[];
-  remotes: Remote[];
-  packages: Pkg[];
-  install: Record<string, unknown>;
-  updated: string | null;
-  tools: number | null;
-  cid: string | null;
-  version: string | null;
-  open_source: boolean;
-  osi: boolean;
-  categories: string[];
-  score?: number;
-  probe?: ProbeResult;
-}
-
-export interface SearchResult {
-  q: string;
-  count: number;
-  sort: string;
-  sources: string[];
-  per_source: Record<string, number>;
-  errors: Record<string, string>;
-  servers: Server[];
-}
-
-export interface Tool {
-  name: string;
-  description: string;
-  input_schema: Record<string, unknown>;
-}
-
-export interface ProbeResult {
-  url: string;
+export type Probe = {
   ok: boolean;
-  tools: Tool[];
-  tool_count?: number;
-  protocol_version?: string;
-  server_info?: { name?: string; version?: string };
-  instructions?: string | null;
-  latency_ms?: number;
-  error?: string;
-  tools_error?: string;
-  needs_auth?: boolean;
-  stdio_only?: boolean;
-  cached?: boolean;
-  probed_at?: number;
-}
+  protocolVersion: string;
+  serverInfo: { name?: string; version?: string } | null;
+  toolCount: number;
+  latency_ms: number;
+  checked_at: number;
+  error: string;
+};
 
-export interface ClientConfig {
+export type Server = {
   id: string;
-  client: string;
-  config: Record<string, unknown> | null;
-  command: string | null;
-  file?: string;
-  note?: string;
-  repo?: string;
-}
+  name: string;
+  url: string;
+  source: "fleet" | "user" | string;
+  note: string;
+  enabled: boolean;
+  added_at: number;
+  auth_headers: string[];
+  probe: Probe;
+};
 
-export interface Submission {
+export type Tool = {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+};
+
+export type WebProvider = { name: string; ready: boolean; needs_key: boolean; note?: string };
+
+export type AuthConfig = {
+  issuer: string;
+  issuer_api: string;
+  token_key: string;
+  available: boolean;
+  owners: number;
+  gates: { writes: boolean; calls: boolean; local_calls_open: boolean; hub_secret: boolean };
+};
+
+export type Stats = {
+  servers: number;
+  up: number;
+  down: number;
+  tools: number;
+  by_source: Record<string, number>;
+  write_gate: boolean;
+  swept_at: number;
+  hubs?: { count: number; ready: number | null; checked_at: number };
+  web: { provider: string | null; providers: WebProvider[] };
+  auth: AuthConfig;
+};
+
+export type Me = {
+  authenticated: boolean;
+  address: string | null;
+  role: string;
+  key: string | null;
+  can_write: boolean;
+  can_call: boolean;
+  is_owner: boolean;
+  local: boolean;
+};
+
+export type Listing = {
   id: string;
-  slug: string;
   name: string;
-  title: string;
-  description: string;
-  repo: string;
-  homepage: string;
-  license: string | null;
-  author: string;
-  tags: string[];
-  transports: string[];
-  remotes: Remote[];
-  packages: Pkg[];
-  install: Record<string, unknown>;
-  version: string | null;
-  cid: string | null;
-  pinned: boolean;
-  pin_error?: string | null;
-  created: number;
-  updated: number;
-}
-
-export interface Terms {
-  version: string;
-  text: string;
-  required: boolean;
-  accepted?: boolean;
-}
-
-export interface Stats {
-  providers: number;
-  fleet_servers: number;
-  fleet: string[];
-  probes: number;
-  submissions: number;
-  publishers: number;
-  pinned: number;
-  unpinned: number;
-  cache: { entries: number; bytes: number; dir: string };
-  store: { url: string; up: boolean; via?: string; error?: string };
-}
-
-export interface SearchParams {
-  q?: string;
-  sources?: string;
-  oss?: boolean;
-  transport?: string;
-  license?: string;
-  tag?: string;
-  category?: string;
-  sort?: string;
-  limit?: number;
-}
-
-export interface SubmitBody {
-  name: string;
-  description: string;
-  repo?: string;
+  description?: string;
+  url: string;
+  /// featured | official | smithery | glama | pulsemcp | an index id | a peer hub id
+  registry: "featured" | "official" | "smithery" | string;
   homepage?: string;
-  license?: string;
+  verified?: boolean;
+  uses?: number;
+  needs_key?: boolean;
+  note?: string;
+  /// Set when `url` is another hub's MCP endpoint rather than the server
+  /// itself — connect that hub once and this row's tools arrive nested.
+  via?: string;
+  /// live | auth | down | error | unknown — what an index last saw.
+  status?: string;
+  tools?: number;
+};
+
+/// Anything that lists MCP servers. kind: mod (a hub like this one — this
+/// deployment is the one with self=true), index (an internet-wide crawl),
+/// directory (a public registry).
+export type Hub = {
+  id: string;
+  kind: "mod" | "index" | "directory" | string;
+  name: string;
+  description: string;
+  url: string;
+  homepage?: string;
+  mcp?: string;
+  registry?: string;
+  source: "builtin" | "fleet" | "user" | string;
+  self: boolean;
+  needs_key: boolean;
+  key_name?: string;
+  ready: boolean;
+  servers?: number;
+  live?: number;
+  tools?: number;
   version?: string;
-  remote_url?: string;
-  npm?: string;
-  pypi?: string;
-  tags?: string[];
-  transports?: string[];
-  slug?: string;
+  latency_ms: number;
+  checked_at: number;
+  error?: string;
+  note?: string;
+};
+
+export type HubsView = {
+  self: string | null;
+  count: number;
+  ready: number;
+  kinds: Record<string, number>;
+  hubs: Hub[];
+  checked_at: number;
+  kind_docs: Record<string, string>;
+};
+
+export type Hit = { title: string; url: string; snippet?: string; published?: string };
+
+export type SearchResult = {
+  query: string;
+  /// Which provider answered — empty when none did.
+  provider: string;
+  results: Hit[];
+  /// Every provider that was tried, and why it didn't answer.
+  tried?: string[];
+  /// Set when nobody answered — the search ran, it just came up empty.
+  error?: string;
+};
+
+export type PageText = {
+  url: string;
+  title: string;
+  text: string;
+  chars: number;
+  via: string;
+  truncated?: boolean;
+};
+
+export type Candidate = {
+  id: string;
+  name: string;
+  url: string;
+  headers?: Record<string, string>;
+  note?: string;
+  kind: string;
+};
+
+export type ApiKey = {
+  id: string;
+  name: string;
+  hint: string;
+  created: number;
+  created_by: string;
+  last_used: number;
+  calls: number;
+};
+
+const TOKEN_KEY = "mcp:token";
+/// The identity issuer's session key. Same origin, so signing in at /build
+/// signs you in here — the hub validates that token without minting its own.
+const ISSUER_TOKEN_KEY = "build_jobs_token";
+
+export function getToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || localStorage.getItem(ISSUER_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setToken(t: string) {
+  try {
+    t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+}
+
+async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const r = await fetch(`${BASE}${path}`, { ...init, headers });
+  const raw = await r.text();
+  let body: unknown = {};
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    // Not JSON — something between us and the hub wrote this. Cloudflare
+    // replaces the body of any 5xx with its own "error code: 502", so carry
+    // whatever text did arrive rather than reporting a bare status.
+    if (!r.ok) throw new Error(`HTTP ${r.status}${raw.trim() ? ` — ${raw.trim().slice(0, 200)}` : ""}`);
+  }
+  if (!r.ok) throw new Error((body as { error?: string }).error || `HTTP ${r.status}`);
+  return body as T;
 }
 
 export const api = {
-  async health() {
-    return json<{ ok: boolean; service: string; version: string }>(await fetch(`${BASE}/health`));
-  },
-  async sources() {
-    return json<{ sources: Source[] }>(await fetch(`${BASE}/sources`));
-  },
-  async stats() {
-    return json<Stats>(await fetch(`${BASE}/stats`));
-  },
-  async search(params: SearchParams = {}) {
-    const qs = new URLSearchParams();
-    Object.entries(params).forEach(([k, v]) => {
-      if (v === undefined || v === "" || v === null) return;
-      qs.append(k, typeof v === "boolean" ? String(v) : String(v));
-    });
-    return json<SearchResult>(await fetch(`${BASE}/search?${qs.toString()}`));
-  },
-  async server(id: string) {
-    return json<Server>(await fetch(`${BASE}/server?id=${encodeURIComponent(id)}`));
-  },
-  async probe(body: { id?: string; url?: string; refresh?: boolean; token?: string }) {
-    return json<ProbeResult>(
-      await fetch(`${BASE}/probe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-    );
-  },
-  async clientConfig(id: string, client = "claude") {
-    return json<ClientConfig>(
-      await fetch(`${BASE}/client_config?id=${encodeURIComponent(id)}&client=${client}`)
-    );
-  },
-  async terms(token?: string | null) {
-    return json<Terms>(await fetch(`${BASE}/store/terms`, { headers: authHeaders(token ?? null) }));
-  },
-  async acceptTerms(token: string) {
-    return json<{ address: string; accepted: boolean; version: string }>(
-      await fetch(`${BASE}/store/terms/accept`, { method: "POST", headers: authHeaders(token) })
-    );
-  },
-  async submit(token: string, body: SubmitBody) {
-    return json<Submission>(
-      await fetch(`${BASE}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders(token) },
-        body: JSON.stringify(body),
-      })
-    );
-  },
-  async submissions(token?: string | null, mine = false) {
-    return json<{ count: number; address: string | null; servers: Submission[] }>(
-      await fetch(`${BASE}/submissions${mine ? "?mine=true" : ""}`, {
-        headers: authHeaders(token ?? null),
-      })
-    );
-  },
-  async repin(token: string, id: string) {
-    return json<Submission>(
-      await fetch(`${BASE}/submissions/repin`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders(token) },
-        body: JSON.stringify({ id }),
-      })
-    );
-  },
-  async delist(token: string, id: string) {
-    return json<{ removed: string; cid: string | null; note: string }>(
-      await fetch(`${BASE}/submissions?id=${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        headers: authHeaders(token),
-      })
-    );
-  },
-  // Manifests are store objects — link straight at the object page so a CID is
-  // verifiable without leaving the fleet.
-  storeObjectUrl(cid: string) {
-    return `/store/o/${cid}`;
-  },
+  stats: () => req<Stats>("/stats"),
+  servers: () => req<{ servers: Server[] }>("/servers").then((r) => r.servers),
+  tools: (server?: string) =>
+    req<{ count: number; tools: Tool[] }>(`/tools${server ? `?server=${server}` : ""}`),
+  addServer: (body: {
+    url: string;
+    id?: string;
+    name?: string;
+    note?: string;
+    headers?: Record<string, string>;
+    force?: boolean;
+  }) => req<{ added: Server; probe: Probe }>("/servers", { method: "POST", body: JSON.stringify(body) }),
+  removeServer: (id: string) => req<{ removed: string }>(`/servers/${id}`, { method: "DELETE" }),
+  toggle: (id: string, enabled: boolean) =>
+    req<{ id: string; enabled: boolean }>(`/servers/${id}/toggle`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+  refresh: (id?: string) =>
+    req<Record<string, unknown>>(id ? `/servers/${id}/refresh` : "/refresh", {
+      method: "POST",
+      body: "{}",
+    }),
+  probe: (url: string, headers?: Record<string, string>) =>
+    req<{ probe: Probe; tools: Tool[] }>("/probe", {
+      method: "POST",
+      body: JSON.stringify({ url, headers: headers || {} }),
+    }),
+  call: (tool: string, args: unknown) =>
+    req<{ tool: string; result: unknown }>("/call", {
+      method: "POST",
+      body: JSON.stringify({ tool, args }),
+    }),
+  clientConfig: (client: string) =>
+    req<{ url: string; config: unknown }>(`/client_config?client=${client}`),
+
+  /// Knock on every fleet port and adopt whatever speaks MCP.
+  discover: () => req<{ swept: number; servers: string[] }>("/discover", { method: "POST", body: "{}" }),
+
+  search: (q: string, count = 8, provider?: string) =>
+    req<SearchResult>(
+      `/search?q=${encodeURIComponent(q)}&count=${count}${provider ? `&provider=${provider}` : ""}`
+    ),
+  readPage: (url: string, maxChars = 6000) =>
+    req<PageText>(`/fetch?url=${encodeURIComponent(url)}&max_chars=${maxChars}`),
+
+  catalog: (q: string, registry = "all", limit = 20) =>
+    req<{ count: number; listings: Listing[]; errors?: string[]; sources: string[] }>(
+      `/catalog?q=${encodeURIComponent(q)}&registry=${registry}&limit=${limit}`
+    ),
+
+  /// Every hub type this one can see, with what each holds.
+  hubs: (refresh = false) => req<HubsView>(`/hubs${refresh ? "?refresh=1" : ""}`),
+  manifest: () => req<Record<string, unknown>>("/hub"),
+  addHub: (body: { url: string; id?: string; name?: string; headers?: Record<string, string>; note?: string }) =>
+    req<{ added: Hub; kind: string }>("/hubs", { method: "POST", body: JSON.stringify(body) }),
+  removeHub: (id: string) => req<{ removed: string }>(`/hubs/${id}`, { method: "DELETE" }),
+  /// Register a mod/index hub's own MCP endpoint as one upstream server.
+  connectHub: (id: string) =>
+    req<{ added: Server; probe: Probe }>(`/hubs/${id}/connect`, { method: "POST", body: "{}" }),
+
+  /// Parse a URL, CID, client config, CLI line or QR payload into candidates.
+  intake: (text: string) =>
+    req<{ kind: string; candidates: Candidate[]; warnings: string[]; source?: string }>("/intake", {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    }),
+
+  me: () => req<{ me: Me; auth: AuthConfig }>("/auth/me"),
+  keys: () => req<{ keys: ApiKey[] }>("/keys"),
+  createKey: (name: string) =>
+    req<{ key: ApiKey; secret: string }>("/keys", { method: "POST", body: JSON.stringify({ name }) }),
+  revokeKey: (id: string) => req<{ revoked: string }>(`/keys/${id}`, { method: "DELETE" }),
 };

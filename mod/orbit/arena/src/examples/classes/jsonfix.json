@@ -1,0 +1,6 @@
+{
+  "name": "jsonfix",
+  "description": "A drill: six JSON literals, each broken one way that real output breaks — single quotes, trailing comma, unquoted keys, True/None, a missing brace, a comment. Graded on what the answer parses to, never on its text.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "json"]
+}

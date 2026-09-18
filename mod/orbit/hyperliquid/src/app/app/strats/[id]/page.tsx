@@ -7,12 +7,19 @@ import {
   getIndex, indexPerf, deleteIndex, vaultIntent, updateIndex,
   Index, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
 } from "../../lib/api";
-import { useWallet } from "../../lib/wallet";
+import { useSession } from "../../lib/auth";
+import AuthGate, { AuthGateInline } from "../../components/AuthGate";
 import VaultTransferPanel from "../../components/VaultTransferPanel";
+import InvestPanel from "../../components/InvestPanel";
+import StratCurve from "../../components/StratCurve";
+import { Identicon, Kpi, Medal } from "../../components/BoardBits";
 
 export default function StratDetail() {
   const { id } = useParams<{ id: string }>();
-  const { address } = useWallet();
+  // Ownership decides what is *shown* — a watched address should still see
+  // that a strat is its own. Whether the buttons *work* is a separate
+  // question, and AuthGate is the one that asks it.
+  const { address } = useSession();
   const [idx, setIdx] = useState<Index | null>(null);
   const [perf, setPerf] = useState<any>(null);
   const [days, setDays] = useState(7);
@@ -21,6 +28,7 @@ export default function StratDetail() {
   const [intent, setIntent] = useState<any>(null);
   const [initialUsd, setInitialUsd] = useState(100);
   const [vaultAddr, setVaultAddr] = useState("");
+  const [err, setErr] = useState<string | null>(null);
 
   const isOwner = idx && address && idx.owner.toLowerCase() === address.toLowerCase();
 
@@ -38,25 +46,28 @@ export default function StratDetail() {
 
   useEffect(() => { load(); }, [load]);
 
-  const onDelete = async () => {
-    if (!confirm("delete this strat?")) return;
+  // Every write on this page went through a bare `await` with no catch, so a
+  // refused one failed in total silence — the button clicked, nothing moved,
+  // and the reason stayed in the network tab. One wrapper, one error line.
+  const attempt = async (fn: () => Promise<unknown>) => {
+    setBusy(true); setErr(null);
+    try { await fn(); } catch (e: any) { setErr(e?.message ?? String(e)); }
+    finally { setBusy(false); }
+  };
+
+  const onDelete = () => attempt(async () => {
+    if (!confirm(`Delete "${idx?.name ?? "this strat"}"? This can't be undone.`)) return;
     await deleteIndex(id);
     window.location.href = "/strats";
-  };
+  });
 
-  const buildVaultIntent = async () => {
-    setBusy(true);
-    try {
-      const r = await vaultIntent(id, initialUsd);
-      setIntent(r);
-    } finally { setBusy(false); }
-  };
+  const buildVaultIntent = () => attempt(async () => setIntent(await vaultIntent(id, initialUsd)));
 
-  const linkVault = async () => {
+  const linkVault = () => attempt(async () => {
     if (!idx || !vaultAddr.trim()) return;
     await updateIndex(id, { vault_address: vaultAddr.trim() });
-    load();
-  };
+    await load();
+  });
 
   const reload = async (d?: number) => {
     if (!idx) return;
@@ -71,31 +82,48 @@ export default function StratDetail() {
   return (
     <div className="space-y-5">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <Link href="/strats" className="text-[11px] text-muted hover:text-ink">← strats</Link>
-          <h1 className="font-display font-bold text-2xl tracking-tight text-ink mt-1">{idx.name}</h1>
-          <div className="text-[10px] uppercase tracking-wider text-muted">
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight mt-1 truncate">{idx.name}</h1>
+          <div className="text-[10px] uppercase tracking-wider text-muted mt-0.5 flex items-center gap-1.5">
+            <Identicon address={idx.owner} size={14} />
             by {shortAddr(idx.owner)} · {idx.legs.length} traders · created {ago(idx.created_ms)}
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
           <Link href={`/strats/new?fork=${idx.id}`} className="btn-primary">fork this strat</Link>
-          {isOwner && <button className="btn-danger" onClick={onDelete}>delete</button>}
+          {isOwner && (
+            <AuthGateInline action="delete this strat">
+              <button className="btn-danger" onClick={onDelete} disabled={busy}>delete</button>
+            </AuthGateInline>
+          )}
         </div>
       </div>
+
+      {err && <div className="panel p-3 text-xs text-loss">{err}</div>}
 
       {idx.description && (
         <div className="panel p-3 text-xs text-muted">{idx.description}</div>
       )}
 
+      {/* The curve leads — same rule as polymarket's strat pages. */}
+      <StratCurve legs={idx.legs} days={perf?.days || days} />
+
       {/* Perf */}
-      <div className="grid md:grid-cols-3 gap-3">
-        <Tile label={`weighted pnl (${perf?.days || days}d)`}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <Kpi label={`weighted pnl · ${perf?.days || days}d`}
           value={fmtPnl(perf?.weighted_pnl ?? 0)}
-          tone={(perf?.weighted_pnl ?? 0) >= 0 ? "win" : "loss"} />
-        <Tile label="raw pnl (sum traders)" value={fmtPnl(perf?.total_pnl ?? 0)} />
-        <Tile label="traders" value={`${idx.legs.length}`} />
+          tone={(perf?.weighted_pnl ?? 0) >= 0 ? "win" : "loss"}
+          sub="each leg's pnl × its basket weight" />
+        <Kpi label="raw pnl" value={fmtPnl(perf?.total_pnl ?? 0)}
+          sub="unweighted sum across legs" />
+        <Kpi label="traders" value={idx.legs.length}
+          sub={idx.vault_address ? "vault-linked basket" : "signal basket"} />
       </div>
+
+      {/* Back the whole basket in one amount: each leg becomes its own
+          position, sized by weight, managed from the Invest page. */}
+      <InvestPanel kind="strat" target={idx.id} name={idx.name} legs={idx.legs} />
 
       <div className="panel">
         <div className="px-4 py-2 border-b border-border flex items-center justify-between">
@@ -107,18 +135,22 @@ export default function StratDetail() {
             )}
           </div>
         </div>
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted">
-          <div>address</div>
+        <div className="grid grid-cols-[2.4fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 border-b border-border text-[10px] uppercase tracking-wider text-muted">
+          <div>trader</div>
           <div className="text-right">weight</div>
           <div className="text-right">pnl</div>
           <div className="text-right">volume</div>
           <div className="text-right">win%</div>
           <div className="text-right">trades</div>
         </div>
-        {(perf?.legs ?? []).map((l: any) => (
+        {(perf?.legs ?? []).map((l: any, i: number) => (
           <Link key={l.address} href={`/trader/${l.address}?days=${perf?.days || days}`}
-            className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 table-row hover:bg-panel2/40">
-            <div className="text-accent2 text-xs num">{shortAddr(l.address)}</div>
+            className="grid grid-cols-[2.4fr_1fr_1fr_1fr_1fr_1fr] gap-2 px-4 py-2 table-row hover:bg-panel2/40 items-center">
+            <div className="flex items-center gap-2 min-w-0">
+              <Medal rank={i + 1} />
+              <Identicon address={l.address} size={16} />
+              <span className="text-accent2 text-xs num truncate">{shortAddr(l.address)}</span>
+            </div>
             <div className="num text-right">{(l.weight * 100).toFixed(1)}%</div>
             <div className={`num text-right ${l.pnl >= 0 ? "text-win" : "text-loss"}`}>{fmtPnl(l.pnl)}</div>
             <div className="num text-right">{fmtUsd(l.volume)}</div>
@@ -160,9 +192,11 @@ export default function StratDetail() {
               <div className="grid grid-cols-[1fr_auto] gap-2">
                 <input className="input num" type="number" min={1} step={1}
                   value={initialUsd} onChange={(e) => setInitialUsd(Number(e.target.value))} />
-                <button className="btn-primary" onClick={buildVaultIntent} disabled={busy}>
-                  build vault-create payload
-                </button>
+                <AuthGate action="create this strat's vault">
+                  <button className="btn-primary" onClick={buildVaultIntent} disabled={busy}>
+                    build vault-create payload
+                  </button>
+                </AuthGate>
               </div>
               {intent && (
                 <div className="bg-panel2 p-3 rounded text-[11px] space-y-2">
@@ -178,7 +212,9 @@ export default function StratDetail() {
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <input className="input num" placeholder="0xvault…"
                     value={vaultAddr} onChange={(e) => setVaultAddr(e.target.value)} />
-                  <button className="btn" onClick={linkVault}>link</button>
+                  <AuthGateInline action="link a vault">
+                    <button className="btn" onClick={linkVault} disabled={busy}>link</button>
+                  </AuthGateInline>
                 </div>
               </div>
             </div>
@@ -186,17 +222,6 @@ export default function StratDetail() {
             <div className="text-xs text-muted">only the owner can create or link a vault.</div>
           )
         )}
-      </div>
-    </div>
-  );
-}
-
-function Tile({ label, value, tone }: { label: string; value: string; tone?: "win" | "loss" }) {
-  return (
-    <div className="panel p-3">
-      <div className="stat">{label}</div>
-      <div className={`text-lg num mt-1 ${tone === "win" ? "text-win" : tone === "loss" ? "text-loss" : ""}`}>
-        {value}
       </div>
     </div>
   );

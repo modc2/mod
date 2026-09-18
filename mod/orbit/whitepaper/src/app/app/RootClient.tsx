@@ -31,14 +31,14 @@ export default function RootClient({ initialRoot }: { initialRoot: RootInfo }) {
       <header className="border-b border-rule pb-6 mb-8">
         <div className="flex items-start justify-between gap-4">
           <p className="text-xs uppercase tracking-widest text-modblue/80">
-            MOD Protocol · Whitepaper v0.1
+            MOD Protocol · Whitepaper v0.2
           </p>
           <ThemeToggle />
         </div>
         <h1>Scaling Off-Chain Open-Source Management</h1>
         <p className="text-modblue/90 -mt-1">
           Storing the tree, not the leaves: a Merkle-root registry for the MOD
-          orbit ecosystem, anchored by StakeTime priority.
+          orbit ecosystem, anchored by StakeTime priority — and the mod protocol it registers.
         </p>
         <div className="mt-6 grid grid-cols-2 gap-4 text-sm">
           <div className="border border-rule rounded p-3 bg-panel">
@@ -70,7 +70,7 @@ export default function RootClient({ initialRoot }: { initialRoot: RootInfo }) {
       <h2>Motivation</h2>
       <p>
         The current <code>Registry.sol</code> stores each module as an independent row keyed by
-        an IPFS CID. With 200+ modules already deployed and agent-driven publishing on the
+        an IPFS CID. With 300+ modules already deployed and agent-driven publishing on the
         horizon, the linear per-row gas cost has become the binding constraint on ecosystem
         scale.
       </p>
@@ -265,6 +265,119 @@ POST /api/whitepaper/tree/verify  { "leaf": "0x..", "proof": ["0x..", ...] }
 GET  /api/whitepaper/tree/root
 POST /api/whitepaper/mod/call     { "fn": "agent/info" }`}</pre>
 
+      <h2 className="pt-4 border-t border-rule">Part II — The Mod Protocol</h2>
+      <p>
+        The registry above is only useful because of what it registers. The mod protocol is a
+        small set of conventions that turn any directory of code into a <strong>module</strong>:
+        loadable from Python, callable from the CLI, servable as HTTP, reachable by name through
+        a gateway, legible to an agent, and anchored on chain by the tree above.
+      </p>
+
+      <h3>A module is a directory</h3>
+      <pre>{`mod/orbit/<name>/
+  mod.py         # anchor: class Mod — public methods ARE the functions
+  config.json    # name, description, owner, port, app_port, schema (CID)
+  skill.md       # agent-facing docs      README.md  # human docs
+  src/ app/ ...  # Rust service, Next.js app, data`}</pre>
+      <p>
+        No decorators, no export manifest, no registration step. Signatures are derived by
+        introspection, and <code>config.json</code> is both the module&apos;s public face and the
+        exact object the registry hashes into a leaf. Its <code>schema</code> field is an IPFS
+        CID over the introspected function surface — which is what makes &ldquo;this module still
+        does what it claimed&rdquo; a checkable statement rather than a promise.
+      </p>
+      <p>
+        One name may carry several implementations: a Python class, a compiled Rust API, a
+        Next.js app. This module is its own example — the same Merkle tree in Python and in Rust,
+        sharing one state file and one canonical-JSON rule, so both produce identical roots.
+      </p>
+
+      <h3>Three surfaces, one semantics</h3>
+      <pre>{`m.fn('whitepaper/tree_proof')(name='agent')        # Python
+m whitepaper/tree_proof name=agent                 # CLI
+POST /api/whitepaper/tree/proof  {"name":"agent"}  # HTTP`}</pre>
+      <p>
+        Serving is not a rewrite: every public function becomes a POST endpoint. And a POST to a
+        module&apos;s bare URL with no function named — the <strong>null call</strong> — returns
+        its name, functions, and schema. That single rule makes the ecosystem self-describing
+        without a service directory, and the schema it reports is the schema its registry leaf
+        commits to.
+      </p>
+
+      <h3>One name, three forms</h3>
+      <table>
+        <thead>
+          <tr><th>Form</th><th>Target</th><th>Rule</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>host/{"{mod}"}</code></td><td>app</td><td>prefix kept (app sets <code>basePath</code>)</td></tr>
+          <tr><td><code>host/api/{"{mod}"}</code></td><td>API</td><td>prefix stripped</td></tr>
+          <tr><td><code>{"{mod}"}.host</code></td><td>app</td><td>resolved by the DNS layer</td></tr>
+        </tbody>
+      </table>
+      <p>
+        Three interchangeable implementations enforce it: the production Caddy gateway, whose
+        routes are <em>generated</em> from each module&apos;s <code>config.json</code>;{" "}
+        <code>routy</code>, a standalone Rust gateway reserving <code>/_api/*</code> for its own
+        control plane so no module name is shadowed; and a Next.js middleware applying the
+        identical rewrite. Because the rule is mechanical, routing is a consequence of config —
+        which is what lets a registry leaf, rather than an operator, decide where a name resolves.
+      </p>
+
+      <h3>Runtime: one environment, scale to zero</h3>
+      <p>
+        Instead of a <code>Dockerfile</code> per module, a single Nix environment
+        (<code>core/nix</code>) pins the toolchains, and <code>core/pm</code> launches every
+        service inside its nix image and <code>exec</code>s the real server, so the supervisor
+        tracks the actual process. In front of the fleet an <em>activator</em> stops idle modules
+        and wakes them on the next request. That is why a 300-module fleet fits on one machine:
+        the marginal cost of a registered-but-idle module is zero.
+      </p>
+
+      <h3>Identity: a token is a signature, not a session</h3>
+      <pre>{`token = b64url({ data, time, key: <signer address>,
+                 signature: sign(hash(data|time|key)) })`}</pre>
+      <p>
+        One shared auth module mints and verifies it: the signer is recovered from the signature,
+        checked against the declared <code>key</code>, and rejected once <code>time</code> exceeds
+        the max age — so a captured token is not a durable credential. Browser wallets are
+        first-class; a <code>personal_sign</code> over the same envelope mints a valid mod token.
+        The key that signs a registry update is the key that signs an HTTP request.
+      </p>
+      <p>
+        Authorization is two tiers. The <strong>owner</strong> is the address in{" "}
+        <code>config.json</code> and holds every destructive power. Every other identity is a{" "}
+        <strong>peer</strong>, confined to <code>~/.mod/peers/&lt;addr&gt;/</code> with
+        privilege-dropped jobs. Private state — ACLs, whitelists, secrets — lives under{" "}
+        <code>~/.mod/</code>, never in the committed config. That separation is load-bearing:
+        a world-readable manifest is safe precisely because nothing secret is ever a leaf.
+      </p>
+
+      <h3>Agents are the assumed caller</h3>
+      <p>
+        Introspection generates the tool list, <code>skill.md</code> states how to drive the
+        module, and one method exposes those same functions over MCP. So an agent that writes a
+        directory with an anchor class and a <code>config.json</code> has produced a module that
+        is immediately callable, routable, and registrable by the same rules as a hand-written
+        one — which is exactly the growth curve Part I is sized for.
+      </p>
+
+      <h3>The protocol in nine rules</h3>
+      <table>
+        <thead><tr><th>Invariant</th><th>Statement</th></tr></thead>
+        <tbody>
+          <tr><td>Definition</td><td>A module is a directory with an anchor class and a <code>config.json</code>.</td></tr>
+          <tr><td>Exposure</td><td>The public methods of the anchor class are the module&apos;s functions.</td></tr>
+          <tr><td>Equivalence</td><td>Python, CLI, and HTTP call the same function with the same semantics.</td></tr>
+          <tr><td>Discovery</td><td>A null call returns name, functions, and schema.</td></tr>
+          <tr><td>Addressing</td><td>App at <code>/{"{mod}"}</code>, API at <code>/api/{"{mod}"}</code>, name at <code>{"{mod}"}.host</code>.</td></tr>
+          <tr><td>Identity</td><td>One shared auth module; a token is a time-bounded signature.</td></tr>
+          <tr><td>Authority</td><td>Owner from <code>config.json</code>; everyone else is a confined peer.</td></tr>
+          <tr><td>Privacy</td><td>Code and config are committed; state and ACLs stay under <code>~/.mod/</code>.</td></tr>
+          <tr><td>Provenance</td><td><code>config.json</code> is the leaf; its <code>schema</code> CID commits to the function surface.</td></tr>
+        </tbody>
+      </table>
+
       <h2>Migration</h2>
       <ol>
         <li>Shadow mode — <code>TreeRegistry</code> deployed alongside legacy <code>Registry</code>; both serve.</li>
@@ -274,7 +387,7 @@ POST /api/whitepaper/mod/call     { "fn": "agent/info" }`}</pre>
       </ol>
 
       <footer className="border-t border-rule mt-12 pt-6 text-xs text-muted flex justify-between">
-        <span>MOD Protocol — whitepaper module · v0.1</span>
+        <span>MOD Protocol — whitepaper module · v0.2</span>
         <a className="underline text-modcyan" href={`${API}/paper.tex`} target="_blank" rel="noreferrer">
           download .tex
         </a>

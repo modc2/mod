@@ -71,11 +71,15 @@ class Copytensor(m.Mod):
         "traders", "trader_history", "flows",
         # watchlist + the trader pool the leaderboard ranks
         "watch", "unwatch", "watches", "discover", "universe", "set_pool",
+        # how deep the index actually is, per horizon
+        "coverage",
         # the strat agent — talk to it, get a basket back
         "ask", "agent_status",
         # copy management (needs wallet)
         "create_copy", "list_copies", "pause_copy", "resume_copy",
-        "delete_copy", "sync_copy",
+        "delete_copy", "sync_copy", "resize_copy",
+        # the blended book
+        "portfolio", "sync_portfolio",
         # wallet
         "set_wallet", "wallet_balance",
         # default
@@ -447,6 +451,7 @@ class Copytensor(m.Mod):
                 "app": f"http://localhost:{app_port}/copytensor",
                 "gateway_api": f"http://localhost:{gateway_port}/api/copytensor",
                 "gateway_app": f"http://localhost:{gateway_port}/copytensor",
+                "mcp": f"http://localhost:{api_port}/mcp",
             }
             cfg["port"] = api_port
             cfg["app_port"] = app_port
@@ -584,6 +589,11 @@ class Copytensor(m.Mod):
         r.raise_for_status()
         return r.json()
 
+    def _put(self, path: str, body: Optional[Dict] = None) -> Any:
+        r = requests.put(f"{self.api_url}{path}", json=body or {}, timeout=30)
+        r.raise_for_status()
+        return r.json()
+
     def _delete(self, path: str) -> Any:
         r = requests.delete(f"{self.api_url}{path}", timeout=30)
         r.raise_for_status()
@@ -666,6 +676,10 @@ class Copytensor(m.Mod):
         """How many traders we rank vs how many exist on-chain."""
         return self._get("/universe")
 
+    def coverage(self) -> Any:
+        """How far back the index goes, and which horizons it can fill."""
+        return self._get("/coverage")
+
     def set_pool(self, size: int = 250, refresh: bool = False) -> Any:
         """Watch the top `size` coldkeys by stake. Grows in the background."""
         return self._post_q("/pool", size=str(size),
@@ -677,19 +691,34 @@ class Copytensor(m.Mod):
 
     # copies
     def create_copy(self, target_ss58: str, our_hotkey: str,
+                    alloc_tao: Optional[float] = None,
                     label: Optional[str] = None,
                     max_tao_per_tx: Optional[float] = None,
                     daily_limit_tao: Optional[float] = None,
-                    rebalance_threshold_pct: Optional[float] = None) -> Any:
+                    rebalance_threshold_pct: Optional[float] = None,
+                    poll_interval_sec: Optional[int] = None) -> Any:
+        """Copy one trader with `alloc_tao` TAO behind them.
+
+        Copies compose: every active one contributes its trader's shape at
+        its own size, and the engine blends them into a single book. Run this
+        once per trader to copy a set of them.
+        """
         body = {
             "target_ss58": target_ss58,
             "our_hotkey": our_hotkey,
+            "alloc_tao": alloc_tao,
             "label": label,
             "max_tao_per_tx": max_tao_per_tx,
             "daily_limit_tao": daily_limit_tao,
             "rebalance_threshold_pct": rebalance_threshold_pct,
+            "poll_interval_sec": poll_interval_sec,
         }
         return self._post("/copy", {k: v for k, v in body.items() if v is not None})
+
+    def resize_copy(self, copy_id: str, alloc_tao: float) -> Any:
+        """Change the TAO behind one trader. The next pass rebalances to it —
+        the position is re-weighted, not exited and re-entered."""
+        return self._put(f"/copy/{copy_id}", {"alloc_tao": alloc_tao})
 
     def list_copies(self) -> Any:
         return self._get("/copies")
@@ -704,7 +733,28 @@ class Copytensor(m.Mod):
         return self._delete(f"/copy/{copy_id}")
 
     def sync_copy(self, copy_id: str) -> Any:
+        """Rebalance now. Runs the whole book — a sleeve applied on its own
+        would drag every other trader's money with it."""
         return self._post(f"/copy/{copy_id}/sync")
+
+    def portfolio(self) -> Any:
+        """The blended book: every trader you copy, the TAO behind each, and
+        the trades that would close the gap. Pure read."""
+        return self._get("/portfolio")
+
+    def sync_portfolio(self, dry_run: bool = False) -> Any:
+        """Run a portfolio pass now. `dry_run=True` returns the same plan
+        without signing anything."""
+        return self._post(f"/portfolio/sync?dry_run={str(bool(dry_run)).lower()}")
+
+    # MCP
+    def mcp(self) -> Any:
+        """How to connect an MCP client, and every tool it gets. The server
+        is the running API itself (POST /mcp) — nothing extra to start."""
+        out = self._get("/mcp/schema")
+        out["tools"] = [{"name": t["name"], "description": t["description"]}
+                        for t in out.get("tools", [])]
+        return out
 
     # the strat agent
     def agent_status(self) -> Any:
@@ -712,22 +762,34 @@ class Copytensor(m.Mod):
         return self._get("/agent")
 
     def ask(self, question: str, session_id: Optional[str] = None,
-            stream: bool = False) -> Dict[str, Any]:
-        """Ask the strat agent for a basket of traders to mirror.
+            stream: bool = False, approve: str = "ask") -> Dict[str, Any]:
+        """Talk to the desk agent — research, a basket, or work on the book.
 
-        Returns {answer, strat, tools, session_id}. Pass `session_id` back to
-        keep talking about the same basket; `stream=True` prints each tool
-        call as it happens instead of waiting in the dark.
+        Returns {answer, strat, tools, approvals, session_id}. Pass
+        `session_id` back to keep talking about the same basket;
+        `stream=True` prints each tool call as it happens instead of waiting
+        in the dark.
 
-        The proposal is not live and not saved — `strat` is a basket you feed
-        to `create_copy` (or the console's strat maker) yourself.
+        Every WRITE the agent wants to make (start a copy, re-size one, sync
+        the book to the chain) stops for you first:
+
+            approve="ask"   prompt on this terminal — the default, and what
+                            you want interactively
+            approve="never" decline everything; research still works
+            approve="all"   say yes to whatever it asks. Only for a script
+                            you have already read the plan of.
+
+        A proposal (`strat`) is not live and not saved — it is a basket you
+        feed to `create_copy` or the console's strat maker yourself.
         """
         out: Dict[str, Any] = {"answer": "", "strat": None, "tools": [],
-                               "session_id": session_id}
+                               "approvals": [], "session_id": session_id}
         r = requests.post(
             f"{self.api_url}/agent/ask",
             json={"question": question, "session_id": session_id},
-            stream=True, timeout=(10, 420),
+            # No read timeout: the run is allowed to sit on an approval for
+            # as long as the human in front of it takes.
+            stream=True, timeout=(10, None),
         )
         r.raise_for_status()
         for line in r.iter_lines(decode_unicode=True):
@@ -746,6 +808,9 @@ class Copytensor(m.Mod):
                 print(ev["text"])
             elif kind == "strat":
                 out["strat"] = ev["strat"]
+            elif kind == "approval":
+                out["approvals"].append(ev["approval"])
+                self._answer_approval(ev["approval"], approve)
             elif kind in ("start", "done"):
                 out["session_id"] = ev.get("session_id") or out["session_id"]
                 if kind == "done":
@@ -753,6 +818,48 @@ class Copytensor(m.Mod):
             elif kind == "error":
                 out["error"] = ev.get("error")
         return out
+
+    def _answer_approval(self, approval: Dict[str, Any], mode: str) -> None:
+        """Decide a parked write. The agent is blocked until this lands."""
+        note = ""
+        if mode == "all":
+            ok = True
+        elif mode in ("never", "none", "no"):
+            ok, note = False, "this caller approves nothing"
+        else:
+            print(f"\n  ⚠ APPROVE? {approval['summary']}")
+            print(f"    {approval['tool']} {approval.get('args') or ''}")
+            try:
+                # Not a TTY (a cron, a pipe) means nobody is here to say yes,
+                # and a write nobody watched is exactly what the gate is for.
+                ans = input("    [y/N] ").strip().lower() if sys.stdin.isatty() else "n"
+            except (EOFError, KeyboardInterrupt):
+                ans = "n"
+            ok = ans in ("y", "yes")
+            if not ok:
+                note = "declined at the terminal"
+        requests.post(f"{self.api_url}/agent/approvals/{approval['id']}",
+                      json={"approve": ok, "note": note}, timeout=30)
+        print(f"    → {'APPROVED' if ok else 'DECLINED'}")
+
+    def approvals(self, run_id: Optional[str] = None) -> Any:
+        """Writes an agent is waiting on you for, right now.
+
+        An MCP client (Claude Code, the fleet) parks its writes here too, so
+        this is also how you see what something else asked for while you
+        were not looking.
+        """
+        return self._get("/agent/approvals", **({"run_id": run_id} if run_id else {}))
+
+    def approve(self, approval_id: str, note: str = "") -> Any:
+        """Let one parked write through."""
+        return self._post(f"/agent/approvals/{approval_id}",
+                          {"approve": True, "note": note})
+
+    def decline(self, approval_id: str, note: str = "") -> Any:
+        """Refuse one. `note` is handed to the agent as the reason."""
+        return self._post(f"/agent/approvals/{approval_id}",
+                          {"approve": False, "note": note})
 
     # wallet
     def set_wallet(self, mnemonic: Optional[str] = None,

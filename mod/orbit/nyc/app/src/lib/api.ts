@@ -13,6 +13,9 @@ export type LayerDef = {
   endpoint: string
   style?: Record<string, any>
   controls?: Record<string, any>
+  /** Set on layers that read live instruments; the UI re-polls on this cadence. */
+  live?: boolean
+  refresh_seconds?: number
   source: { name: string; dataset: string; url: string; portal: string }
 }
 
@@ -131,8 +134,50 @@ export async function* chatStream(
   }
 }
 
+/** The MCP surface, as served by `/tools` — what the docs page renders from. */
+export type ToolDef = {
+  name: string
+  title?: string
+  description: string
+  inputSchema: {
+    type: 'object'
+    properties: Record<string, { type: string; description: string; default?: any }>
+    required?: string[]
+  }
+  annotations?: Record<string, any>
+}
+
+export type McpSurface = {
+  count: number
+  groups: Record<string, string[]>
+  tools: ToolDef[]
+  prompts: {
+    name: string
+    title?: string
+    description: string
+    arguments?: { name: string; description: string; required?: boolean }[]
+  }[]
+  resources: {
+    uri: string
+    name: string
+    title?: string
+    description: string
+    mimeType: string
+  }[]
+  server: { name: string; title?: string; version: string }
+  instructions: string
+  mcp: {
+    http: string
+    stdio: string
+    protocol: string
+    supported: string[]
+    capabilities: Record<string, any>
+  }
+}
+
 export const api = {
   catalog: () => get<Catalog>('/layers'),
+  tools: () => get<McpSurface>('/tools'),
   options: () => get<Options>('/options'),
   view: () => get<any>('/view'),
   layer: (id: string) => get<GeoJSON.FeatureCollection>(`/layers/${id}`),

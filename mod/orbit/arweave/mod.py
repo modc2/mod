@@ -6,7 +6,7 @@ Usage (Python):
     ar = m.mod('arweave')()
     ar.put({'hello': 'arweave'})            # → {txid, size, backend}
     ar.get('abc123...')                      # → parsed content
-    ar.serve()                                # bring up FastAPI + web app at :50151
+    ar.serve()                                # bring up FastAPI + web app at :50153
     ar.status()                               # backend connectivity
 
 Usage (CLI):
@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 DIR = Path(__file__).resolve().parent
-DEFAULT_PORT = 50151
+DEFAULT_PORT = 50153
 
 
 class Mod:
@@ -56,7 +56,7 @@ class Mod:
         if self._client is None:
             import sys
             sys.path.insert(0, str(self.module_dir))
-            from arweave import ArweaveClient
+            from arlocal import ArweaveClient
             self._client = ArweaveClient()
         return self._client
 

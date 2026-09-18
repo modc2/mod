@@ -26,23 +26,63 @@
     "saved": 1785431656.9064722
   },
   {
-    "cid": "QmaREzKy4RdncthvcKupRSBnyhvyihg8Xa6rbVJCGDAtGC",
+    "cid": "QmTquBMv9DSmA9PSfNE1Leb4oRKs6WfeJnThuDqsQp7Zmw",
+    "name": "editor-smoke-test",
+    "saved": 1786391296.1272202
+  },
+  {
+    "cid": "QmREjMviocPSSgy8A2gi1GtQeqJDs9cA3UzUf7HJGYrFLQ",
+    "name": "broski",
+    "saved": 1786648675.3203342
+  },
+  {
+    "cid": "Qmb4QEVBpMf1Z4jTyquKgUE5dkAjwkW4dKwVn71wEmnaXK",
+    "name": "architect-copy-qa",
+    "saved": 1788375130.517113
+  },
+  {
+    "cid": "QmPca3APisukXhpdXerHTPXDczCiqd5uZ5PYvp5veRjEnS",
+    "name": "qa-fork-agent",
+    "saved": 1788375321.601933
+  },
+  {
+    "cid": "QmXHoqYM3sEgmRnn5mvaFK1oaVGPhDgpxkHYabGsZJbyCs",
+    "name": "qa-roundtrip-test",
+    "saved": 1788727796.0758533
+  },
+  {
+    "cid": "QmUMpfAGz3qfxkTtojcdMJSeiH56kBAX9ox2TdGU8cScfa",
+    "name": "qa-cortex-check",
+    "saved": 1788935739.1266174
+  },
+  {
+    "cid": "QmfQAfRuuW4JufMVUWExgUcEMNVQDDyTp8Pt5ZkEjxL1vz",
+    "name": "reads-repo-agent",
+    "saved": 1789413240.8084624
+  },
+  {
+    "cid": "QmbM7xhPzGUW2iH1LawmyXnaFNPbiP2fbCFeWzAoKeWqgN",
     "name": "test-custom-agent",
-    "saved": 1785965272.715528
+    "saved": 1789416431.2960348
   },
   {
-    "cid": "Qmcbm7nZzQvnAhezeb5zqu4zLheVPghmdTX1gsVvCiX5HW",
+    "cid": "QmWymvKCoCKwVMdATCV3yVNUjbhLAbCexEkNheadn8Q39h",
     "name": "test-owned-agent",
-    "saved": 1785965272.731893
+    "saved": 1789416431.3222668
   },
   {
-    "cid": "QmXnCo7EukseUrL5qpkqeXRmYByQARhJt1CcYdFGmymxAZ",
+    "cid": "QmWhGwGM1tdr8UsADiBTX5iDGY3BdSg3vYzirWuTvSKHxv",
     "name": "test-unbound-agent",
-    "saved": 1785965272.7365935
+    "saved": 1789416431.327197
   },
   {
-    "cid": "QmRJ8m6kW8LZ7A77W7JERcijsQde89cRTicsUHgYCUxwRz",
+    "cid": "QmVvQ5KY5u8wZrtnwBbh7vmc9g6c1FjEerEshcnPLjUtZM",
     "name": "test-harness-agent",
-    "saved": 1785965321.2817092
+    "saved": 1789416492.9622371
+  },
+  {
+    "cid": "Qmb9a26UpsWoooSYod5yvVhHqcxo87iZBYT2wuVHGkUjub",
+    "name": "vibe-smoke-test-agent",
+    "saved": 1789416578.0293045
   }
 ]

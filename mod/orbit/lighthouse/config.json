@@ -1,16 +1,46 @@
 {
     "name": "lighthouse",
-    "description": "Lighthouse Labs perpetual decentralized storage (lighthouse.storage) \u2014 API-key uploads to IPFS/Filecoin with perpetual pinning, gateway retrieval, owner-keyed local index",
-    "version": "0.2.0",
+    "version": "1.0.0",
+    "description": "Lighthouse Labs perpetual decentralized storage (lighthouse.storage) \u2014 API-key uploads to IPFS/Filecoin with perpetual pinning, gateway retrieval, and a bridge that registers every CID in the store module so it gets the store's visibility, grants, pools and marketplace without the store holding the bytes. API + console, mod-protocol wallet auth, bring-your-own-key.",
+    "icon": "\u25ce",
+    "anchor": "mod.py",
+    "protocol": "lighthouse/1.0",
+    "port": 50680,
+    "app_port": 50681,
+    "base_path": "/lighthouse",
+    "route": true,
     "urls": {
-        "api": "https://api.lighthouse.storage",
+        "api": "http://localhost:50680",
+        "app": "http://localhost:50681/lighthouse",
+        "same_origin_api": "http://localhost:50681/lighthouse/_api",
+        "mcp": "http://localhost:50680/mcp",
+        "gateway_api": "https://modc2.com/api/lighthouse",
+        "gateway_app": "https://modc2.com/lighthouse",
+        "gateway_mcp": "https://modc2.com/api/lighthouse/mcp",
+        "lighthouse_api": "https://api.lighthouse.storage",
         "upload": "https://upload.lighthouse.storage/api/v0/add",
         "gateway": "https://gateway.lighthouse.storage",
         "dashboard": "https://files.lighthouse.storage"
     },
+    "backend": "api/api.py (FastAPI \u2014 the API, :50680)",
+    "frontend": "app/server.py (stdlib \u2014 the console at /lighthouse on :50681; proxies /lighthouse/_api to the API)",
+    "auth": "mod-protocol",
+    "deps": [
+        "store",
+        "auth"
+    ],
+    "store": {
+        "url": "http://127.0.0.1:50152",
+        "backend": "lighthouse",
+        "scheme": "ipfs",
+        "auth": "the caller's own protocol token is forwarded \u2014 this module holds no store credential, so the store's whitelist, terms and quota apply to the address that actually signed",
+        "note": "the store keeps the gateway url, so store /get redirects a reader straight at Lighthouse; no bytes are copied into the store"
+    },
     "fns": [
+        "forward",
         "put",
         "get",
+        "preview",
         "pin",
         "list",
         "rm",
@@ -19,12 +49,184 @@
         "uploads",
         "set_key",
         "key_status",
-        "install"
+        "install",
+        "store",
+        "push",
+        "mirror",
+        "mcp",
+        "mcp_tools",
+        "mcp_call",
+        "serve",
+        "stop",
+        "app",
+        "api"
     ],
+    "endpoints": {
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness probe"
+        },
+        "/status": {
+            "method": "GET",
+            "auth": "optional",
+            "docs": "Module status: key configured, gateway, index size, auth mode, and the store link (whitelist / terms / quota when a token is sent)"
+        },
+        "/me": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Caller address, owner flag, which Lighthouse key this request would use, and the store's view of the caller"
+        },
+        "/key": {
+            "method": "GET/POST",
+            "auth": true,
+            "docs": "GET key status (+ remote validation); POST (owner) persist the deployment key off-chain in ~/.mod/lighthouse/credentials.json"
+        },
+        "/put": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Upload a file to Lighthouse (perpetual IPFS/Filecoin pin); form: key, register=true, public, pool. Registers the CID in the store unless register=false"
+        },
+        "/put/text": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Same as /put for a string body: {text, key, register, public, pool}"
+        },
+        "/get": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Stream a CID through the Lighthouse gateway (?download=1 to attach). Public by construction \u2014 access control is the store's job"
+        },
+        "/preview": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Peek at a CID: decoded text when it is text, size, truncated flag"
+        },
+        "/list": {
+            "method": "GET",
+            "auth": true,
+            "docs": "This module's index: the caller's uploads (?scope=all for every row, owner only)"
+        },
+        "/pin": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Record a CID in the index (Lighthouse uploads are already pinned perpetually)"
+        },
+        "/rm": {
+            "method": "DELETE",
+            "auth": true,
+            "docs": "Drop a row from the index. Does NOT unpin \u2014 the pin is perpetual and the CID stays retrievable"
+        },
+        "/usage": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Remote data usage for the key this request is using"
+        },
+        "/uploads": {
+            "method": "GET",
+            "auth": true,
+            "docs": "What Lighthouse itself lists under this key (?page=)"
+        },
+        "/store": {
+            "method": "GET",
+            "auth": "optional",
+            "docs": "The store link from the caller's side: reachable, address, whitelisted, terms accepted, quota, and what still blocks a push"
+        },
+        "/store/terms": {
+            "method": "GET",
+            "auth": "optional",
+            "docs": "The store's current terms text + version"
+        },
+        "/store/terms/accept": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Sign-accept the store terms \u2014 the caller's own token is forwarded as the proof, this module never signs for anybody"
+        },
+        "/store/register": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Reference an existing Lighthouse CID in the store: {cid, key, size, public, pool}. No bytes move"
+        },
+        "/store/objects": {
+            "method": "GET",
+            "auth": true,
+            "docs": "The caller's store objects, Lighthouse-backed only unless ?all_backends=1"
+        },
+        "/store/mirror": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Make a store object perpetual: fetch it with the caller's token, upload to Lighthouse, register the CID back. Reports whether the CID came back identical"
+        },
+        "/mcp": {
+            "method": "GET/POST",
+            "auth": "GET none; POST per tool",
+            "docs": "MCP. GET is the whole schema as a document (protocol, transports, auth, every tool inputSchema, client config); POST is the Streamable HTTP JSON-RPC 2.0 transport. A tools/call for a tool that acts for a signer needs the caller Bearer token, which is forwarded to the store exactly as the REST routes do"
+        },
+        "/mcp/tools": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Just the tools: name, description, inputSchema, annotations, which auth and which transports each one accepts"
+        },
+        "/mcp/config": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Client config for this deployment \u2014 http block, stdio block, and the `claude mcp add` line, with the url as the caller reached it"
+        },
+        "/endpoints": {
+            "method": "GET",
+            "auth": false,
+            "docs": "This table"
+        }
+    },
+    "byok": {
+        "header": "x-lh-key",
+        "get_key": "https://files.lighthouse.storage",
+        "note": "a per-request Lighthouse key, never written to disk and discarded when the request ends \u2014 how a visitor uses the console without trusting the box's key"
+    },
+    "mcp": {
+        "protocol": "2025-06-18 (also speaks 2025-03-26 and 2024-11-05)",
+        "transports": {
+            "http": "POST /mcp on the API \u2014 schema at GET /mcp",
+            "stdio": "python3 mcp.py \u2014 runs with this box\u2019s own keys"
+        },
+        "auth": "the caller\u2019s mod-protocol token as Authorization: Bearer, same as the REST routes; lighthouse_status, lighthouse_preview and lighthouse_store need none",
+        "byok": "the `key` argument (or `api_key` on the upload tools) spends the caller\u2019s Lighthouse account and is never written to disk",
+        "local_only": [
+            "lighthouse_get",
+            "lighthouse_set_key",
+            "lighthouse_put with `path`"
+        ],
+        "tools": [
+            "lighthouse_status",
+            "lighthouse_put",
+            "lighthouse_preview",
+            "lighthouse_get",
+            "lighthouse_list",
+            "lighthouse_pin",
+            "lighthouse_forget",
+            "lighthouse_account",
+            "lighthouse_store",
+            "lighthouse_terms",
+            "lighthouse_register",
+            "lighthouse_objects",
+            "lighthouse_mirror",
+            "lighthouse_set_key"
+        ],
+        "note": "one implementation behind three faces \u2014 the MCP tools, the REST routes and the CLI all call mod.py and store_link.py, so the schema the console renders is the server\u2019s own"
+    },
     "env": {
         "LIGHTHOUSE_API_KEY": "API key from files.lighthouse.storage (or persist via m lighthouse/set_key)",
-        "LIGHTHOUSE_GATEWAY": "Override retrieval gateway (default https://gateway.lighthouse.storage)"
+        "LIGHTHOUSE_GATEWAY": "Override retrieval gateway (default https://gateway.lighthouse.storage)",
+        "LIGHTHOUSE_DIR": "State dir: credentials, owner claim, sqlite index (default ~/.mod/lighthouse)",
+        "LIGHTHOUSE_STORE_URL": "Store module API base (default http://127.0.0.1:50152)",
+        "LIGHTHOUSE_ACTIVATOR_URL": "Fleet activator used to wake a slept store (default http://127.0.0.1:9000; empty string = never wake, just report it down)",
+        "LIGHTHOUSE_STORE_MODULE": "Activator's name for the store module (default 'store')",
+        "LIGHTHOUSE_WAKE_TIMEOUT": "Seconds to wait for a woken store's api port (default 45)",
+        "LIGHTHOUSE_API_PORT": "API port (default 50680)",
+        "LIGHTHOUSE_APP_PORT": "Console port (default 50681)",
+        "LIGHTHOUSE_OPEN": "1 = treat every caller as signed in (local development only)",
+        "LIGHTHOUSE_OWNER": "Fallback owner address when ~/.mod/lighthouse/owner.json is absent"
     },
-    "credentials": "~/.mod/lighthouse/credentials.json (off-chain, never committed)",
-    "schema": "QmeyNbTReWgML1EmMhBcQZDGZnjGmypdX7Z14R5ZkagG8G"
+    "credentials": "~/.mod/lighthouse/credentials.json + owner.json (off-chain, never committed)",
+    "schema": "QmVCjCtEv1MmCDEocDjmAd62BKUwMTn7wnoseofxxUnMuU"
 }

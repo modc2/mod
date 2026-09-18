@@ -1,0 +1,15 @@
+{
+  "name": "bt6",
+  "description": "BT6 arsenal launcher \u2014 a single interface to every app in the Pliny / BT6 red-team toolkit (bt6.gg/#arsenal)",
+  "version": "0.1.0",
+  "urls": {
+    "api": "http://localhost:50590",
+    "app": "http://localhost:50591/bt6",
+    "mcp": "http://localhost:50590/mcp"
+  },
+  "port": 50590,
+  "app_port": 50591,
+  "base_path": "/bt6",
+  "route": true,
+  "schema": "QmcVLDz3krdxi7M9QjiQwuVPn6LrozHnmG1oZxMUYehKVy"
+}

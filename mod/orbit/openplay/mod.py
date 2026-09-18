@@ -39,12 +39,12 @@ SPORTS = {
 # Cities you can play in. Toronto is the default. Each has a map center + zoom.
 # Adding a city here (or via the UI's "add a spot") makes it selectable.
 CITIES = [
-    {"key": "toronto", "label": "Toronto", "country": "Canada", "lat": 43.6532, "lng": -79.3832, "zoom": 12},
-    {"key": "nyc", "label": "New York", "country": "USA", "lat": 40.7128, "lng": -74.0060, "zoom": 12},
-    {"key": "vancouver", "label": "Vancouver", "country": "Canada", "lat": 49.2827, "lng": -123.1207, "zoom": 12},
-    {"key": "london", "label": "London", "country": "UK", "lat": 51.5072, "lng": -0.1276, "zoom": 12},
-    {"key": "la", "label": "Los Angeles", "country": "USA", "lat": 34.0522, "lng": -118.2437, "zoom": 11},
-    {"key": "chicago", "label": "Chicago", "country": "USA", "lat": 41.8781, "lng": -87.6298, "zoom": 11},
+    {"key": "toronto", "label": "Toronto", "country": "Canada", "lat": 43.6532, "lng": -79.3832, "zoom": 12, "tz": "America/Toronto"},
+    {"key": "nyc", "label": "New York", "country": "USA", "lat": 40.7128, "lng": -74.0060, "zoom": 12, "tz": "America/New_York"},
+    {"key": "vancouver", "label": "Vancouver", "country": "Canada", "lat": 49.2827, "lng": -123.1207, "zoom": 12, "tz": "America/Vancouver"},
+    {"key": "london", "label": "London", "country": "UK", "lat": 51.5072, "lng": -0.1276, "zoom": 12, "tz": "Europe/London"},
+    {"key": "la", "label": "Los Angeles", "country": "USA", "lat": 34.0522, "lng": -118.2437, "zoom": 11, "tz": "America/Los_Angeles"},
+    {"key": "chicago", "label": "Chicago", "country": "USA", "lat": 41.8781, "lng": -87.6298, "zoom": 11, "tz": "America/Chicago"},
 ]
 
 # Curated, real pickup spots per city — suggestions so a game lands on the map
@@ -182,7 +182,7 @@ class Mod:
         for city, n in counts.items():
             if city and city not in known:
                 out.append({"key": city, "label": city.title(), "country": "",
-                            "lat": None, "lng": None, "zoom": 12, "venues": n, "default": False})
+                            "lat": None, "lng": None, "zoom": 12, "tz": None, "venues": n, "default": False})
         return out
 
     def _venue_store(self):

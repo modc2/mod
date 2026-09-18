@@ -58,6 +58,11 @@ impl Engine {
         g.push_back(s);
     }
 
+    /// Which follower a signal belongs to — the ack route's ownership check.
+    pub fn signal_follower(&self, id: &str) -> Option<String> {
+        self.signals.read().iter().find(|x| x.id == id).map(|x| x.follower.clone())
+    }
+
     pub fn mark_signal(&self, id: &str, status: &str) {
         let mut g = self.signals.write();
         if let Some(s) = g.iter_mut().find(|x| x.id == id) {

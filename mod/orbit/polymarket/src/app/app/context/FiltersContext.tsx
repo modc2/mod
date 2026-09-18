@@ -78,6 +78,17 @@ const DEFAULTS: Record<string, string> = {
   minPnl: "",
 };
 
+// Has ANY useUrlSync instance seeded from the URL since this JS context
+// loaded? Module-scoped on purpose: it survives client-side navigations and
+// resets on a real page load. The keyword (?q=) seeds from the URL only on
+// that first load — afterwards the LIVE context is the user's most recent
+// action, and re-adopting an older history entry's q (back-nav to the board,
+// remount of a page whose URL was written before the user cleared the box)
+// resurrects a keyword they just removed. Topic/window params (?mq=, ?days=)
+// keep seeding on every mount: FindTraders hands a profile its ranking slice
+// through exactly those params.
+let urlSeededThisSession = false;
+
 /**
  * Call this hook in any page that should sync filter state with URL params.
  * Only trader pages should call this — other pages (markets, portfolio) don't
@@ -89,13 +100,14 @@ export function useUrlSync() {
   const router = useRouter();
   const pathname = usePathname();
   const initialized = useRef(false);
-  const skipUrlWrite = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 1. On mount: read URL params into filter state (URL wins)
+  // 1. On mount: read URL params into filter state (URL wins; q first-load only)
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
+    const firstLoad = !urlSeededThisSession;
+    urlSeededThisSession = true;
 
     const read = (param: string) => searchParams.get(param);
     const d = read(PARAM_MAP.daysAgo);
@@ -109,14 +121,8 @@ export function useUrlSync() {
     const ms = read(PARAM_MAP.minSellVolume);
     const mp = read(PARAM_MAP.minPnl);
 
-    // Only seed from URL if at least one param is present
-    const hasUrlParams = d !== null || q !== null || cat !== null || mq !== null || mt !== null || mpd !== null ||
-      mv !== null || mb !== null || ms !== null || mp !== null;
-    if (!hasUrlParams) return;
-
-    skipUrlWrite.current = true;
     if (d !== null) filters.setDaysAgo(d);
-    if (q !== null) filters.setSearch(q);
+    if (q !== null && firstLoad) filters.setSearch(q);
     if (cat !== null) filters.setCategory(cat as CategorySlug);
     if (mq !== null) filters.setMarketQuery(mq);
     if (mt !== null) filters.setMinTrades(mt);
@@ -128,13 +134,18 @@ export function useUrlSync() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. On filter change: debounced URL write
+  // 2. On filter change: debounced URL write.
+  //
+  // The write is gated on an actual DIFF against the live URL, never on a
+  // "skip the next write" flag. The old flag was set unconditionally whenever
+  // the URL changed — including by our own replace — so the very next filter
+  // change was silently swallowed and the URL sat one change behind the
+  // screen: clear the keyword and ?q= kept the old one, reload/back brought
+  // it back. Diffing can't desync that way, and it also suppresses the
+  // pointless rewrite after effect #1/#3 adopt URL → state (state now equals
+  // the URL, so there is no diff).
   useEffect(() => {
     if (!initialized.current) return;
-    if (skipUrlWrite.current) {
-      skipUrlWrite.current = false;
-      return;
-    }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -157,6 +168,15 @@ export function useUrlSync() {
           params.set(param, val);
         }
       }
+      // Compare against the URL as it is NOW (window.location, not the
+      // hook's render-time snapshot) — only a real difference is worth a
+      // router.replace. Params outside PARAM_MAP (e.g. ?tf=) don't count as
+      // a diff on their own, so they survive until a mapped param changes.
+      const live = new URLSearchParams(window.location.search);
+      const differs = Object.values(PARAM_MAP).some(
+        (param) => (params.get(param) ?? "") !== (live.get(param) ?? ""),
+      );
+      if (!differs) return;
       const qs = params.toString();
       const target = qs ? `${pathname}?${qs}` : pathname;
       router.replace(target, { scroll: false });
@@ -174,6 +194,9 @@ export function useUrlSync() {
   // 3. On popstate / external URL change: re-read into state.
   //    Skip the FIRST fire (mount) — effect #1 handles initial seeding.
   //    This effect only handles subsequent URL changes (back/forward nav).
+  //    `q` is deliberately NOT adopted here: a history entry's keyword is a
+  //    snapshot of the box at write time, and the user may have cleared or
+  //    changed it since — the live context wins (see urlSeededThisSession).
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!initialized.current) return;
@@ -182,7 +205,6 @@ export function useUrlSync() {
       return;
     }
     const d = searchParams.get(PARAM_MAP.daysAgo) ?? "";
-    const q = searchParams.get(PARAM_MAP.search) ?? "";
     const cat = searchParams.get(PARAM_MAP.category) ?? "";
     const mq = searchParams.get(PARAM_MAP.marketQuery) ?? "";
     const mt = searchParams.get(PARAM_MAP.minTrades) ?? "";
@@ -192,9 +214,7 @@ export function useUrlSync() {
     const ms = searchParams.get(PARAM_MAP.minSellVolume) ?? "";
     const mp = searchParams.get(PARAM_MAP.minPnl) ?? "";
 
-    skipUrlWrite.current = true;
     if (d !== filters.daysAgo) filters.setDaysAgo(d);
-    if (q !== filters.search) filters.setSearch(q);
     if (cat !== filters.category) filters.setCategory(cat as CategorySlug);
     if (mq !== filters.marketQuery) filters.setMarketQuery(mq);
     if (mt !== filters.minTrades) filters.setMinTrades(mt);

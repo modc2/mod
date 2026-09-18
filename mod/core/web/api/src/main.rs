@@ -9,6 +9,7 @@ mod chain;
 mod embed;
 mod owner;
 mod routes;
+mod staking;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -50,11 +51,17 @@ async fn main() -> anyhow::Result<()> {
 
     let owner = Arc::new(OwnerAuth::from_env());
 
+    // Wallet-signed module backing: verifies personal_sign locally and checks
+    // balances against the bloctime module.
+    let staking = Arc::new(staking::Staking::from_env());
+    tracing::info!("module backing: wallet-signed staking on {}", staking.network());
+
     let state = AppState {
         catalog,
         chain,
         semantic,
         owner,
+        staking,
         version: VERSION,
     };
 

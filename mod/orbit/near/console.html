@@ -1,0 +1,836 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>near — deploy the chain</title>
+<style>
+  :root{
+    --bg:#050807; --panel:#0a120eee; --line:#16291f; --line2:#1f3a2c;
+    --ink:#dcefe3; --dim:#5f8a72; --dimmer:#3d5c4a;
+    --hot:#00ec97; --hot2:#6ef0be; --hot3:#00c27d; --ink2:#b6d8c4;
+    --good:#3fd68c; --warn:#fbbf24; --bad:#f87171; --violet:#8b7bf0;
+  }
+  *{box-sizing:border-box}
+  html{scrollbar-color:#1f3a2c #050807}
+  body{margin:0;background:var(--bg);color:var(--ink);min-height:100vh;
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+       position:relative;overflow-x:hidden}
+  /* aurora + grid backdrop */
+  body::before{content:'';position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:
+      radial-gradient(600px 400px at 85% -10%, #00ec9714, transparent 70%),
+      radial-gradient(700px 500px at -10% 30%, #00ec970d, transparent 70%),
+      radial-gradient(500px 400px at 60% 110%, #8b7bf00a, transparent 70%);
+    animation:drift 24s ease-in-out infinite alternate}
+  body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
+    background-image:linear-gradient(#0d1a1310 1px,transparent 1px),
+                     linear-gradient(90deg,#0d1a1310 1px,transparent 1px);
+    background-size:44px 44px;
+    -webkit-mask-image:radial-gradient(80% 60% at 50% 0%,#000,transparent);
+            mask-image:radial-gradient(80% 60% at 50% 0%,#000,transparent)}
+  @keyframes drift{from{transform:translateY(0)}to{transform:translateY(-40px)}}
+
+  header{display:flex;align-items:center;gap:14px;padding:12px 20px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;z-index:9;
+         background:#050807e6;backdrop-filter:blur(8px);flex-wrap:wrap}
+  h1{font-size:16px;margin:0;letter-spacing:.16em;display:flex;
+     align-items:center;gap:8px}
+  h1 .tri{color:var(--hot);text-shadow:0 0 14px #00ec9780}
+  h1 b{background:linear-gradient(90deg,var(--hot),var(--hot2) 60%,#c8ffe9);
+       -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:7px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--hot);
+       box-shadow:0 0 8px var(--hot);animation:pulse 2.2s infinite}
+  .dot.off{background:var(--bad);box-shadow:0 0 8px var(--bad);animation:none}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  .seg{display:flex;border:1px solid var(--line2);border-radius:3px;overflow:hidden}
+  .seg button{background:none;border:0;color:var(--dim);padding:5px 13px;
+              cursor:pointer;font:inherit;font-size:10px;letter-spacing:.12em}
+  .seg button.on{background:var(--hot);color:#02120a;font-weight:700}
+  .seg button.on.tn{background:var(--warn)}
+  #walletchip{border:1px solid var(--line2);border-radius:3px;padding:5px 11px;
+    font-size:10px;letter-spacing:.08em;color:var(--hot2);cursor:pointer;
+    background:#0a120e}
+  #walletchip:hover{border-color:var(--hot)}
+  #walletchip .k{color:var(--dimmer)}
+
+  nav{margin-left:auto;display:flex;gap:2px;flex-wrap:wrap}
+  nav button{background:none;border:0;border-bottom:2px solid transparent;
+             color:var(--dim);padding:7px 12px;cursor:pointer;font:inherit;
+             font-size:11px;letter-spacing:.11em;transition:color .15s}
+  nav button:hover{color:var(--ink)}
+  nav button.on{color:var(--hot);border-bottom-color:var(--hot);
+                text-shadow:0 0 12px #00ec9750}
+  main{padding:18px 20px 60px;max-width:1440px;margin:0 auto}
+  section{display:none} section.on{display:block;animation:fadein .18s ease-out}
+  @keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select,textarea{background:var(--panel);border:1px solid var(--line);
+      color:var(--ink);padding:7px 10px;font:inherit;border-radius:2px;
+      transition:border-color .15s, box-shadow .15s}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--hot);
+      box-shadow:0 0 0 1px #00ec9740, 0 0 18px #00ec971a}
+  input.wide{min-width:min(460px,72vw)}
+  ::placeholder{color:var(--dimmer)}
+  button.go{background:linear-gradient(180deg,var(--hot),var(--hot3));
+      color:#02120a;border:0;padding:8px 18px;cursor:pointer;font:inherit;
+      font-weight:700;letter-spacing:.1em;border-radius:2px;
+      box-shadow:0 0 16px #00ec9730;transition:box-shadow .15s,transform .1s}
+  button.go:hover{box-shadow:0 0 26px #00ec9760}
+  button.go:active{transform:translateY(1px)}
+  button.go:disabled{opacity:.45;cursor:wait;box-shadow:none}
+  button.go.warn{background:linear-gradient(180deg,var(--warn),#d19a08);
+      box-shadow:0 0 16px #fbbf2430}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
+      padding:4px 10px;cursor:pointer;font:inherit;font-size:11px;border-radius:2px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
+     padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #0e1a14;vertical-align:top}
+  tr:hover td{background:#0c1712}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+
+  .p{display:inline-block;padding:1px 7px;border:1px solid var(--line);
+     border-radius:10px;font-size:10px;color:var(--dim);margin:1px 3px 1px 0}
+  .p.hot{color:var(--hot);border-color:#12503a}
+  .p.grn{color:var(--good);border-color:#164a33}
+  .p.bad{color:var(--bad);border-color:#4a1d1d}
+  .p.wrn{color:var(--warn);border-color:#4a3c14}
+  .p.vio{color:var(--violet);border-color:#332d5e}
+  .p.click{cursor:pointer;transition:all .12s}
+  .p.click:hover{color:var(--hot);border-color:var(--hot);
+                 box-shadow:0 0 10px #00ec9730}
+  .up{color:var(--good)} .down{color:var(--bad)} .dimtxt{color:var(--dim)}
+  .addr{color:var(--hot2);cursor:pointer;word-break:break-all}
+  .addr:hover{text-decoration:underline}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;
+      overflow:auto;font-size:11px;max-height:60vh;white-space:pre-wrap;
+      word-break:break-word;margin:0;border-radius:3px}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px}
+
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+         gap:10px;margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:13px;
+        border-radius:3px;position:relative;overflow:hidden;
+        transition:border-color .15s,transform .15s,box-shadow .15s;
+        backdrop-filter:blur(3px)}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+        background:linear-gradient(90deg,transparent,#00ec9740,transparent)}
+  .card:hover{border-color:var(--line2);transform:translateY(-1px);
+        box-shadow:0 6px 22px #00000060}
+  .card h3{margin:0 0 6px;font-size:10px;letter-spacing:.14em;color:var(--dim);
+           text-transform:uppercase}
+  .card .big{font-size:19px;color:var(--ink2);font-variant-numeric:tabular-nums;
+             overflow-wrap:anywhere}
+  .card .big.grn{color:var(--hot);text-shadow:0 0 16px #00ec9740}
+  .card .sm{font-size:11px;color:var(--dim);overflow-wrap:break-word}
+  .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  @media(max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+  h2.t{font-size:11px;letter-spacing:.16em;color:var(--dim);
+       text-transform:uppercase;margin:20px 0 8px;border-bottom:1px solid var(--line);
+       padding-bottom:5px;display:flex;gap:8px;align-items:baseline}
+  h2.t::before{content:'◆';color:var(--hot);font-size:8px}
+  .empty{color:var(--dim);padding:18px 0;font-size:12px}
+  .stakebar{height:4px;background:#0e1a14;position:relative;min-width:70px;
+            border-radius:2px;overflow:hidden}
+  .stakebar i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;
+    background:linear-gradient(90deg,var(--hot3),var(--hot));opacity:.75}
+  textarea{width:min(460px,72vw);min-height:64px;resize:vertical}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;
+         padding:16px;backdrop-filter:blur(3px)}
+  .panel h2{margin:0 0 12px;font-size:11px;letter-spacing:.16em;color:var(--hot);
+            text-transform:uppercase}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+  @media(max-width:1000px){.grid2{grid-template-columns:1fr}}
+  label.f{display:block;font-size:10px;letter-spacing:.1em;color:var(--dim);
+          text-transform:uppercase;margin:10px 0 4px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  #dropzone{border:2px dashed var(--line2);border-radius:6px;padding:34px 18px;
+    text-align:center;color:var(--dim);cursor:pointer;transition:all .2s;
+    position:relative}
+  #dropzone:hover,#dropzone.over{border-color:var(--hot);color:var(--hot2);
+    background:#00ec9708;box-shadow:inset 0 0 40px #00ec970d}
+  #dropzone .big{font-size:15px;letter-spacing:.1em;margin-bottom:6px}
+  #dropzone.loaded{border-style:solid;border-color:var(--hot3);color:var(--ink)}
+  .mode{display:flex;border:1px solid var(--line2);border-radius:3px;
+        overflow:hidden;margin-right:6px}
+  .mode button{background:none;border:0;color:var(--dim);padding:6px 14px;
+        cursor:pointer;font:inherit;font-size:10px;letter-spacing:.12em}
+  .mode button.on{background:var(--hot);color:#02120a;font-weight:700}
+  .mode button.on.chg{background:var(--warn)}
+  .confirmwrap{display:none;align-items:center;gap:6px;color:var(--warn);
+        font-size:11px}
+  .confirmwrap.show{display:flex}
+  .okline{color:var(--good);font-size:12px}
+  .kbd{border:1px solid var(--line2);border-radius:3px;padding:0 5px;
+       color:var(--ink2);font-size:10px}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="tri">▲</span> <b>NEAR</b></h1>
+  <span class="sub"><span class="dot" id="livedot"></span><span id="tagline">connecting…</span></span>
+  <div class="seg" id="netseg">
+    <button data-net="mainnet" class="on">MAINNET</button>
+    <button data-net="testnet">TESTNET</button>
+  </div>
+  <span id="walletchip" title="go to wallet"><span class="k">signer</span> —</span>
+  <nav>
+    <button data-tab="explore" class="on">EXPLORE</button>
+    <button data-tab="view">CALL</button>
+    <button data-tab="deploy">DEPLOY</button>
+    <button data-tab="wallet">WALLET</button>
+    <button data-tab="tx">TX</button>
+    <button data-tab="chain">CHAIN</button>
+    <button data-tab="mcp">MCP</button>
+  </nav>
+</header>
+<main>
+
+<!-- ── explore ── -->
+<section id="explore" class="on">
+  <div class="bar">
+    <input id="ex-q" class="wide" placeholder="an account — root.near, wrap.near, or 64 hex for an implicit account">
+    <button class="go" id="ex-go">LOOK UP</button>
+    <span class="flash" id="ex-flash"></span>
+  </div>
+  <div class="note">On NEAR an account and a contract are the same object. One lookup
+    answers balances, access keys, and — if code is deployed — what it can be asked to do.</div>
+  <div id="ex-out"></div>
+</section>
+
+<!-- ── call (view + change) ── -->
+<section id="view">
+  <div class="bar">
+    <div class="mode" id="callmode">
+      <button data-mode="view" class="on">VIEW · free</button>
+      <button data-mode="change">CHANGE · signed</button>
+    </div>
+    <input id="v-contract" placeholder="contract — wrap.near" style="min-width:220px">
+    <input id="v-method" placeholder="method — ft_metadata" style="min-width:180px">
+    <button class="ghost" id="v-methods">LOAD METHODS</button>
+    <span class="flash" id="v-flash"></span>
+  </div>
+  <div class="bar">
+    <textarea id="v-args" placeholder='args as JSON — {"account_id":"root.near"}'></textarea>
+    <span id="v-changeopts" style="display:none">
+      <input id="v-gas" placeholder="gas Tgas (100)" style="width:110px">
+      <input id="v-deposit" placeholder="deposit N (0)" style="width:110px">
+    </span>
+    <span class="confirmwrap" id="v-confirm"><input type="checkbox" id="v-confirmck"> mainnet — spend real NEAR</span>
+    <button class="go" id="v-go">CALL</button>
+  </div>
+  <div class="note" id="v-note">View calls are free — no key, no gas. A change method called this
+    way refuses; that is how you tell them apart. Methods come from the contract's
+    WASM export section, since NEAR keeps no ABI on chain.</div>
+  <div id="v-pills"></div>
+  <h2 class="t">Result</h2>
+  <pre id="v-out" class="empty">nothing called yet</pre>
+</section>
+
+<!-- ── deploy ── -->
+<section id="deploy">
+  <div class="grid2">
+    <div class="panel">
+      <h2>Ship a contract</h2>
+      <div id="dropzone">
+        <div class="big">DROP A COMPILED .WASM HERE</div>
+        <div>or click to pick a file — cargo near build, or npm run build for JS contracts</div>
+        <input type="file" id="d-file" accept=".wasm" style="display:none">
+      </div>
+      <label class="f">deploy to — the account IS the contract; redeploying upgrades in place</label>
+      <div class="row">
+        <select id="d-account" style="min-width:240px"></select>
+        <button class="ghost" onclick="goTab('wallet')">MANAGE KEYS</button>
+      </div>
+      <label class="f">init call — optional, batched into the same transaction</label>
+      <div class="row">
+        <input id="d-init" placeholder="method — new" style="width:150px">
+        <input id="d-initargs" placeholder='{"owner_id":"you.testnet"}' style="min-width:220px">
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="go" id="d-go">DEPLOY</button>
+        <span class="confirmwrap" id="d-confirm"><input type="checkbox" id="d-confirmck"> mainnet — spend real NEAR</span>
+        <span class="flash" id="d-flash"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Result</h2>
+      <div id="d-out" class="empty">nothing deployed yet — testnet deploys are free
+        (make an account in WALLET first, the faucet funds it with ~10 N)</div>
+    </div>
+  </div>
+  <div class="note">The .wasm never leaves your browser except to this module. Storage on
+    NEAR costs 1 N per 100 KB of code, staked not burned — redeploys reuse it.</div>
+</section>
+
+<!-- ── wallet ── -->
+<section id="wallet">
+  <div class="grid2">
+    <div>
+      <div class="panel">
+        <h2>Accounts in the keystore</h2>
+        <div id="w-list" class="empty">loading…</div>
+        <div class="note">Keys live in <span class="kbd">~/.mod/near/keys.json</span> on the host —
+          never in the repo, never returned by any API. The default signer is used
+          when a write names no account.</div>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h2>Send NEAR</h2>
+        <div class="row">
+          <input id="w-to" placeholder="to — bob.testnet" style="min-width:200px">
+          <input id="w-amt" placeholder="amount N" style="width:110px">
+          <button class="go" id="w-send">SEND</button>
+          <span class="confirmwrap" id="w-confirm"><input type="checkbox" id="w-confirmck"> mainnet — real NEAR</span>
+        </div>
+        <div class="flash" id="w-sendflash"></div>
+      </div>
+    </div>
+    <div>
+      <div class="panel">
+        <h2>New account</h2>
+        <label class="f">testnet — the faucet mints and funds it (~10 N), free</label>
+        <div class="row">
+          <input id="w-newname" placeholder="myapp.testnet" style="min-width:220px">
+          <button class="go" id="w-create">CREATE</button>
+        </div>
+        <label class="f">or a raw keypair (implicit account / bring-your-own name)</label>
+        <div class="row"><button class="ghost" id="w-generate">GENERATE KEYPAIR</button></div>
+        <label class="f">or import a NEAR CLI secret key (ed25519:base58)</label>
+        <div class="row">
+          <input id="w-impname" placeholder="account id" style="min-width:160px">
+          <input id="w-impkey" placeholder="ed25519:…" type="password" style="min-width:200px">
+          <button class="ghost" id="w-import">IMPORT</button>
+        </div>
+        <div class="flash" id="w-flash"></div>
+        <pre id="w-newout" style="display:none"></pre>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h2>Remote-write token</h2>
+        <div class="note">This console talks to a publicly routed port, so every write
+          needs the token from <span class="kbd">~/.mod/near/token</span> on the host.
+          Paste it once — it stays in this browser only.</div>
+        <div class="row">
+          <input id="w-token" type="password" placeholder="token" style="min-width:260px">
+          <button class="ghost" id="w-tokensave">SAVE</button>
+          <span id="w-tokenstate" class="dimtxt"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── tx ── -->
+<section id="tx">
+  <div class="bar">
+    <input id="t-hash" class="wide" placeholder="transaction hash (base58)">
+    <input id="t-sender" placeholder="sender (optional)" style="min-width:180px">
+    <button class="go" id="t-go">DECODE</button>
+    <span class="flash" id="t-flash"></span>
+  </div>
+  <div class="note">The RPC needs the sender to find the shard; leave it blank and the
+    NearBlocks indexer resolves it.</div>
+  <div id="t-out"></div>
+</section>
+
+<!-- ── chain ── -->
+<section id="chain">
+  <div class="bar">
+    <button class="go" id="c-go">REFRESH</button>
+    <input id="c-block" placeholder="block height or hash (optional)" style="min-width:260px">
+    <button class="ghost" id="c-blockgo">BLOCK</button>
+    <span class="flash" id="c-flash"></span>
+  </div>
+  <div id="c-cards" class="cards"></div>
+  <div class="split">
+    <div>
+      <h2 class="t">Validators by stake</h2>
+      <div id="c-vals" class="empty">loading…</div>
+    </div>
+    <div>
+      <h2 class="t">Block</h2>
+      <pre id="c-blockout" class="empty">latest final block loads with refresh</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ── mcp ── -->
+<section id="mcp">
+  <div class="note">This same port is an MCP server — eighteen tools over Streamable
+    HTTP: twelve reads, six writes (writes want <span class="kbd">token</span>, and
+    <span class="kbd">confirm=true</span> off testnet). Point any MCP client at it:</div>
+  <pre id="m-config"></pre>
+  <h2 class="t">Tools</h2>
+  <div id="m-tools" class="empty">loading…</div>
+</section>
+
+</main>
+<script>
+'use strict';
+// The console calls <its own path>/_api, so it works mounted at /near behind
+// the gateway or bare at :50910/. Always ends with a path, never a bare host.
+const API = location.pathname.replace(/\/(index\.html)?$/,'') + '/_api';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = (n, d=4) => n == null ? '—' :
+  Number(n).toLocaleString('en-US',
+    {maximumFractionDigits: Math.abs(n) >= 1000 ? Math.min(d, 2) : d});
+const usd = n => n == null ? '' : '$' + fmt(n, 2);
+
+async function j(path) {
+  const r = await fetch(API + path);
+  const body = await r.json().catch(() => ({error:'bad JSON from ' + path}));
+  if (!r.ok) throw new Error(body.error || r.status);
+  return body;
+}
+async function jp(path, body) {           // writes: POST + token from this browser
+  const token = localStorage.getItem('near_token') || '';
+  const r = await fetch(API + path, {method:'POST',
+    headers:{'content-type':'application/json'},
+    body: JSON.stringify({token, ...body})});
+  const out = await r.json().catch(() => ({error:'bad JSON from ' + path}));
+  if (!r.ok) throw new Error(out.error || r.status);
+  return out;
+}
+
+// ── global network ──
+let NET = localStorage.getItem('near_net') || 'mainnet';
+const net = () => NET;
+const netq = () => '&network=' + NET;
+function paintNet() {
+  document.querySelectorAll('#netseg button').forEach(b => {
+    b.classList.toggle('on', b.dataset.net === NET);
+    b.classList.toggle('tn', b.dataset.net === 'testnet');
+  });
+  const mainnet = NET === 'mainnet';
+  ['v-confirm','d-confirm','w-confirm'].forEach(id =>
+    $(id).classList.toggle('show', mainnet));
+  refreshTagline(); refreshWalletChip();
+}
+document.querySelectorAll('#netseg button').forEach(b => b.onclick = () => {
+  NET = b.dataset.net; localStorage.setItem('near_net', NET); paintNet();
+});
+const confirmed = ckId => NET !== 'mainnet' || $(ckId).checked;
+
+// ── tabs ──
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x===b));
+  document.querySelectorAll('main section').forEach(s =>
+    s.classList.toggle('on', s.id === b.dataset.tab));
+  if (b.dataset.tab === 'chain' && !chainLoaded) loadChain();
+  if (b.dataset.tab === 'mcp' && !mcpLoaded) loadMcp();
+  if (b.dataset.tab === 'wallet') loadWallet();
+  if (b.dataset.tab === 'deploy') fillAccounts();
+});
+function goTab(name){ document.querySelector(`nav [data-tab=${name}]`).click(); }
+$('walletchip').onclick = () => goTab('wallet');
+
+// ── header tagline + wallet chip ──
+async function refreshTagline() {
+  try {
+    const n = await j('/network?network=' + NET);
+    $('livedot').classList.remove('off');
+    $('tagline').textContent =
+      `${n.network} · block ${fmt(n.block_height,0)} · ${n.validators} validators` +
+      (n.near_usd ? ` · NEAR ${usd(n.near_usd)}` : '');
+  } catch (e) {
+    $('livedot').classList.add('off');
+    $('tagline').textContent = 'offline — ' + e.message;
+  }
+}
+let WALLET = null;
+async function refreshWalletChip() {
+  try {
+    WALLET = await j('/wallet');
+    const def = (WALLET.accounts||[]).find(a => a.network === NET && a.default);
+    $('walletchip').innerHTML = '<span class="k">signer</span> ' +
+      (def ? esc(def.account_id) : 'none — create one');
+  } catch (e) { $('walletchip').innerHTML = '<span class="k">signer</span> ?'; }
+}
+paintNet();
+
+// ── explore ──
+async function explore() {
+  const q = $('ex-q').value.trim().toLowerCase();
+  if (!q) return;
+  $('ex-flash').textContent = ''; $('ex-go').disabled = true;
+  $('ex-out').innerHTML = '<div class="empty">asking the chain…</div>';
+  try {
+    const acct = await j('/account?account_id=' + encodeURIComponent(q) + netq());
+    const [keys, contract, history] = await Promise.all([
+      j('/keys?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message})),
+      acct.is_contract
+        ? j('/contract?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message}))
+        : null,
+      j('/history?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message})),
+    ]);
+    renderExplore(acct, keys, contract, history);
+  } catch (e) {
+    $('ex-out').innerHTML = ''; $('ex-flash').textContent = e.message;
+  } finally { $('ex-go').disabled = false; }
+}
+
+function renderExplore(a, keys, contract, history) {
+  const b = a.balance || {};
+  let h = '<div class="cards">' +
+    card('total', `<span class="grn">${fmt(b.total_near)} N</span>`, b.total_usd ? usd(b.total_usd) : '') +
+    card('liquid', fmt(b.liquid_near) + ' N') +
+    card('staked', fmt(b.staked_near) + ' N') +
+    card('storage', fmt(a.storage_bytes,0) + ' B',
+         fmt(b.storage_reserved_near) + ' N reserved') +
+    card('contract', a.is_contract ? 'deployed' : 'none',
+         a.is_contract ? (a.code_hash||'').slice(0,16) + '…' : '') +
+    '</div>';
+
+  if (contract && !contract.error && contract.methods) {
+    h += `<h2 class="t">Contract methods · ${contract.method_count} exported · ` +
+         `${fmt(contract.code_bytes,0)} B of WASM — click one to call it</h2><div>` +
+      contract.methods.map(m =>
+        `<span class="p hot click" onclick="prefill('${esc(a.account_id)}','${esc(m)}')">${esc(m)}</span>`
+      ).join('') + '</div>';
+  }
+
+  if (keys && !keys.error) {
+    h += `<h2 class="t">Access keys · ${keys.count}</h2>` +
+      '<table><tr><th>public key</th><th>permission</th><th>scope</th></tr>' +
+      (keys.keys||[]).slice(0,40).map(k => `<tr>
+        <td class="dimtxt">${esc((k.public_key||'').slice(0,40))}…</td>
+        <td>${k.permission === 'FullAccess'
+              ? '<span class="p wrn">FULL ACCESS</span>'
+              : '<span class="p grn">FUNCTION CALL</span>'}</td>
+        <td>${k.receiver ? `<span class="addr" onclick="lookup('${esc(k.receiver)}')">${esc(k.receiver)}</span>
+              <span class="dimtxt">${esc((k.methods||[]).slice(0,4).join(', '))}</span>` : ''}</td>
+        </tr>`).join('') + '</table>';
+  }
+
+  if (history && !history.error && history.txns) {
+    h += `<h2 class="t">Recent transactions · ${history.count}</h2>` +
+      '<table><tr><th>when</th><th>dir</th><th>counterparty</th><th>actions</th>' +
+      '<th class="n">NEAR</th><th>status</th></tr>' +
+      history.txns.map(t => {
+        const other = t.direction === 'out' ? t.receiver : t.signer;
+        return `<tr>
+          <td class="dimtxt">${esc(t.time||'')}</td>
+          <td>${t.direction === 'out' ? '<span class="down">→ out</span>'
+                                      : '<span class="up">← in</span>'}</td>
+          <td><span class="addr" onclick="lookup('${esc(other)}')">${esc(other)}</span></td>
+          <td>${(t.actions||[]).slice(0,3).map(x=>`<span class="p">${esc(x)}</span>`).join('')}
+              <span class="addr dimtxt" onclick="lookupTx('${esc(t.hash)}')">${esc((t.hash||'').slice(0,8))}…</span></td>
+          <td class="n">${fmt(t.deposit_near)}</td>
+          <td>${t.status === 'ok' ? '<span class="p grn">ok</span>'
+              : t.status === 'failed' ? '<span class="p bad">failed</span>'
+              : '<span class="p">?</span>'}</td></tr>`;
+      }).join('') + '</table>';
+  } else if (history && history.error) {
+    h += `<div class="note">history: ${esc(history.error)}</div>`;
+  }
+  h += `<div class="note"><a class="addr" href="${esc(a.explorer)}" target="_blank" rel="noopener">open on NearBlocks ↗</a></div>`;
+  $('ex-out').innerHTML = h;
+}
+
+const card = (t, big, sm='') =>
+  `<div class="card"><h3>${t}</h3><div class="big">${big}</div>` +
+  (sm ? `<div class="sm">${sm}</div>` : '') + '</div>';
+
+function lookup(id){ $('ex-q').value = id; goTab('explore'); explore(); }
+function lookupTx(h){ $('t-hash').value = h; $('t-sender').value=''; goTab('tx'); decodeTx(); }
+function prefill(c, m){
+  $('v-contract').value = c; $('v-method').value = m; $('v-args').value = '';
+  goTab('view'); loadMethods();
+}
+$('ex-go').onclick = explore;
+$('ex-q').addEventListener('keydown', e => { if (e.key === 'Enter') explore(); });
+
+// ── call: view + change ──
+let CALLMODE = 'view';
+document.querySelectorAll('#callmode button').forEach(b => b.onclick = () => {
+  CALLMODE = b.dataset.mode;
+  document.querySelectorAll('#callmode button').forEach(x => {
+    x.classList.toggle('on', x === b);
+    x.classList.toggle('chg', x === b && CALLMODE === 'change');
+  });
+  $('v-changeopts').style.display = CALLMODE === 'change' ? 'inline' : 'none';
+  $('v-go').classList.toggle('warn', CALLMODE === 'change');
+  $('v-go').textContent = CALLMODE === 'change' ? 'SIGN + CALL' : 'CALL';
+  $('v-note').textContent = CALLMODE === 'change'
+    ? 'A change call is a real transaction: signed by the wallet\'s default ' +
+      'key (make one in WALLET), gas-metered in Tgas, optionally attaching a ' +
+      'NEAR deposit. On mainnet it also wants the confirm checkbox.'
+    : 'View calls are free — no key, no gas. A change method called this way ' +
+      'refuses; that is how you tell them apart. Methods come from the ' +
+      'contract\'s WASM export section, since NEAR keeps no ABI on chain.';
+});
+
+async function loadMethods() {
+  const c = $('v-contract').value.trim(); if (!c) return;
+  $('v-flash').textContent = '';
+  try {
+    const r = await j('/contract?account_id=' + encodeURIComponent(c) + netq());
+    $('v-pills').innerHTML = (r.methods||[]).map(m =>
+      `<span class="p hot click" onclick="$('v-method').value='${esc(m)}'">${esc(m)}</span>`).join('')
+      || '<span class="dimtxt">no contract on this account</span>';
+  } catch (e) { $('v-flash').textContent = e.message; }
+}
+async function viewCall() {
+  const c = $('v-contract').value.trim(), m = $('v-method').value.trim();
+  if (!c || !m) { $('v-flash').textContent = 'contract and method, please'; return; }
+  if (CALLMODE === 'change' && !confirmed('v-confirmck')) {
+    $('v-flash').textContent = 'tick the mainnet confirm box first'; return; }
+  $('v-flash').textContent = ''; $('v-go').disabled = true;
+  $('v-out').textContent = CALLMODE === 'change' ? 'signing + sending…' : 'calling…';
+  try {
+    const args = $('v-args').value.trim();
+    let out;
+    if (CALLMODE === 'change') {
+      out = await jp('/call', {contract:c, method:m, args: args || undefined,
+        gas_tgas: parseFloat($('v-gas').value) || undefined,
+        deposit_near: parseFloat($('v-deposit').value) || undefined,
+        network: NET, confirm: confirmed('v-confirmck')});
+    } else {
+      out = await j('/view?contract=' + encodeURIComponent(c) + '&method=' + encodeURIComponent(m) +
+        (args ? '&args=' + encodeURIComponent(args) : '') + netq());
+    }
+    $('v-out').textContent = JSON.stringify(out, null, 2);
+  } catch (e) { $('v-out').textContent = ''; $('v-flash').textContent = e.message; }
+  finally { $('v-go').disabled = false; }
+}
+$('v-go').onclick = viewCall;
+$('v-methods').onclick = loadMethods;
+
+// ── deploy ──
+let WASM_B64 = null, WASM_NAME = null;
+const dz = $('dropzone');
+dz.onclick = () => $('d-file').click();
+dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
+dz.ondragleave = () => dz.classList.remove('over');
+dz.ondrop = e => { e.preventDefault(); dz.classList.remove('over');
+  if (e.dataTransfer.files[0]) readWasm(e.dataTransfer.files[0]); };
+$('d-file').onchange = e => { if (e.target.files[0]) readWasm(e.target.files[0]); };
+function readWasm(f) {
+  const rd = new FileReader();
+  rd.onload = () => {
+    const bytes = new Uint8Array(rd.result);
+    if (bytes[0] !== 0 || bytes[1] !== 0x61 || bytes[2] !== 0x73 || bytes[3] !== 0x6d) {
+      $('d-flash').textContent = 'not a .wasm (missing \\0asm magic)'; return;
+    }
+    let bin = ''; const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK)
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    WASM_B64 = btoa(bin); WASM_NAME = f.name;
+    dz.classList.add('loaded');
+    dz.querySelector('.big').textContent = '◆ ' + f.name;
+    dz.children[1].textContent = fmt(bytes.length,0) + ' bytes — ~' +
+      fmt(bytes.length / 100000, 2) + ' N of storage · click to swap';
+    $('d-flash').textContent = '';
+  };
+  rd.readAsArrayBuffer(f);
+}
+async function fillAccounts() {
+  await refreshWalletChip();
+  const mine = (WALLET?.accounts||[]).filter(a => a.network === NET);
+  $('d-account').innerHTML = mine.length
+    ? mine.map(a => `<option ${a.default?'selected':''}>${esc(a.account_id)}</option>`).join('')
+    : '<option value="">no keys for ' + NET + ' — go to WALLET</option>';
+}
+$('d-go').onclick = async () => {
+  if (!WASM_B64) { $('d-flash').textContent = 'drop a .wasm first'; return; }
+  const acct = $('d-account').value;
+  if (!acct) { $('d-flash').textContent = 'no signing account — create one in WALLET'; return; }
+  if (!confirmed('d-confirmck')) {
+    $('d-flash').textContent = 'tick the mainnet confirm box first'; return; }
+  $('d-flash').textContent = ''; $('d-go').disabled = true;
+  $('d-out').innerHTML = '<div class="empty">signing + broadcasting ' + esc(WASM_NAME) + '…</div>';
+  try {
+    const r = await jp('/deploy', {wasm: WASM_B64, account_id: acct,
+      init_method: $('d-init').value.trim() || undefined,
+      init_args: $('d-initargs').value.trim() || undefined,
+      network: NET, confirm: confirmed('d-confirmck')});
+    $('d-out').innerHTML =
+      `<div class="okline">${r.ok ? '◆ DEPLOYED' : 'FAILED'} — ${esc(r.deployed_to)}</div>` +
+      '<div class="cards" style="margin-top:10px">' +
+      card('code', fmt(r.code_bytes,0) + ' B', (r.code_sha256||'').slice(0,16) + '…') +
+      card('fee', fmt(r.fee_near, 6) + ' N') +
+      card('init', r.init || '—') + '</div>' +
+      `<div class="note"><a class="addr" href="${esc(r.explorer)}" target="_blank" rel="noopener">transaction on NearBlocks ↗</a>
+       · <span class="addr" onclick="lookup('${esc(r.deployed_to)}')">explore the contract</span>
+       · <span class="addr" onclick="prefill('${esc(r.deployed_to)}','')">call it</span></div>` +
+      (r.failure ? '<pre>' + esc(JSON.stringify(r.failure, null, 2)) + '</pre>' : '') +
+      (r.logs?.length ? '<pre>' + esc(r.logs.join('\n')) + '</pre>' : '');
+  } catch (e) { $('d-out').innerHTML = ''; $('d-flash').textContent = e.message; }
+  finally { $('d-go').disabled = false; }
+};
+
+// ── wallet ──
+function tokenState() {
+  $('w-tokenstate').textContent = localStorage.getItem('near_token')
+    ? '◆ saved in this browser' : 'not set — writes will refuse';
+}
+$('w-tokensave').onclick = () => {
+  localStorage.setItem('near_token', $('w-token').value.trim());
+  $('w-token').value = ''; tokenState();
+};
+async function loadWallet() {
+  tokenState();
+  try {
+    WALLET = await j('/wallet');
+    const rows = (WALLET.accounts||[]);
+    $('w-list').innerHTML = rows.length
+      ? '<table><tr><th>account</th><th>net</th><th>public key</th><th></th></tr>' +
+        rows.map(a => `<tr>
+          <td><span class="addr" onclick="lookup('${esc(a.account_id)}')">${esc(a.account_id)}</span>
+              ${a.default ? '<span class="p hot">default</span>' : ''}</td>
+          <td><span class="p ${a.network==='mainnet'?'vio':'wrn'}">${esc(a.network)}</span></td>
+          <td class="dimtxt">${esc((a.public_key||'').slice(0,28))}…</td>
+          <td>${a.default ? '' :
+            `<button class="ghost" onclick="selectAcct('${esc(a.account_id)}','${esc(a.network)}')">make default</button>`}</td>
+          </tr>`).join('') + '</table>'
+      : 'no keys yet — create a testnet account on the right, the faucet funds it';
+    refreshWalletChip();
+  } catch (e) { $('w-list').textContent = e.message; }
+}
+async function selectAcct(id, network) {
+  try { await jp('/wallet', {op:'select', account_id:id, network}); loadWallet(); }
+  catch (e) { $('w-flash').textContent = e.message; }
+}
+$('w-create').onclick = async () => {
+  const name = $('w-newname').value.trim().toLowerCase();
+  if (!name) { $('w-flash').textContent = 'a name, please — myapp.testnet'; return; }
+  $('w-flash').textContent = 'minting…'; $('w-create').disabled = true;
+  try {
+    const r = await jp('/create_account', {new_account_id: name, network: NET,
+                                           confirm: confirmed('w-confirmck')});
+    $('w-flash').textContent = '';
+    $('w-newout').style.display = 'block';
+    $('w-newout').textContent = JSON.stringify(r, null, 2);
+    loadWallet();
+  } catch (e) { $('w-flash').textContent = e.message; }
+  finally { $('w-create').disabled = false; }
+};
+$('w-generate').onclick = async () => {
+  try {
+    const r = await jp('/wallet', {op:'generate', network: NET});
+    $('w-newout').style.display = 'block';
+    $('w-newout').textContent = JSON.stringify(r, null, 2);
+    loadWallet();
+  } catch (e) { $('w-flash').textContent = e.message; }
+};
+$('w-import').onclick = async () => {
+  try {
+    const r = await jp('/wallet', {op:'import', network: NET,
+      account_id: $('w-impname').value.trim() || undefined,
+      secret_key: $('w-impkey').value.trim()});
+    $('w-impkey').value = '';
+    $('w-newout').style.display = 'block';
+    $('w-newout').textContent = JSON.stringify(r, null, 2);
+    loadWallet();
+  } catch (e) { $('w-flash').textContent = e.message; }
+};
+$('w-send').onclick = async () => {
+  const to = $('w-to').value.trim(), amt = parseFloat($('w-amt').value);
+  if (!to || !amt) { $('w-sendflash').textContent = 'to + amount, please'; return; }
+  if (!confirmed('w-confirmck')) {
+    $('w-sendflash').textContent = 'tick the mainnet confirm box first'; return; }
+  $('w-sendflash').textContent = 'signing…'; $('w-send').disabled = true;
+  try {
+    const r = await jp('/send', {to, amount_near: amt, network: NET,
+                                 confirm: confirmed('w-confirmck')});
+    $('w-sendflash').innerHTML = r.ok
+      ? `<span class="okline">◆ sent ${fmt(amt)} N — </span><a class="addr" href="${esc(r.explorer)}" target="_blank" rel="noopener">tx ↗</a>`
+      : esc(JSON.stringify(r.failure));
+  } catch (e) { $('w-sendflash').textContent = e.message; }
+  finally { $('w-send').disabled = false; }
+};
+
+// ── tx ──
+async function decodeTx() {
+  const h = $('t-hash').value.trim(); if (!h) return;
+  $('t-flash').textContent = ''; $('t-go').disabled = true;
+  $('t-out').innerHTML = '<div class="empty">decoding…</div>';
+  try {
+    const s = $('t-sender').value.trim();
+    const t = await j('/tx?hash=' + encodeURIComponent(h) +
+                      (s ? '&sender=' + encodeURIComponent(s) : '') + netq());
+    $('t-out').innerHTML = '<div class="cards">' +
+      card('status', t.status === 'ok' ? '<span class="up">ok</span>'
+                                       : '<span class="down">failed</span>') +
+      card('signer', `<span class="addr" onclick="lookup('${esc(t.signer)}')">${esc(t.signer)}</span>`) +
+      card('receiver', `<span class="addr" onclick="lookup('${esc(t.receiver)}')">${esc(t.receiver)}</span>`) +
+      card('fee', fmt(t.fee_near, 6) + ' N') + '</div>' +
+      '<h2 class="t">Actions</h2>' +
+      (t.actions||[]).map(a => `<span class="p hot">${esc(a.type)}</span> ` +
+        `<span class="dimtxt">${esc(a.method || (a.near != null ? fmt(a.near)+' N' : ''))}</span><br>`).join('') +
+      '<h2 class="t">Full decode</h2><pre>' + esc(JSON.stringify(t, null, 2)) + '</pre>';
+  } catch (e) { $('t-out').innerHTML = ''; $('t-flash').textContent = e.message; }
+  finally { $('t-go').disabled = false; }
+}
+$('t-go').onclick = decodeTx;
+$('t-hash').addEventListener('keydown', e => { if (e.key === 'Enter') decodeTx(); });
+
+// ── chain ──
+let chainLoaded = false;
+async function loadChain() {
+  chainLoaded = true;
+  $('c-flash').textContent = '';
+  try {
+    const [n, v, b, p] = await Promise.all([
+      j('/network' + '?network=' + net()), j('/validators?limit=30&network=' + net()),
+      j('/block?network=' + net()), j('/price').catch(() => null)]);
+    $('c-cards').innerHTML =
+      card('block height', `<span class="grn">${fmt(n.block_height,0)}</span>`) +
+      card('validators', n.validators, `Nakamoto ${v.nakamoto_coefficient}`) +
+      card('total stake', fmt(n.total_stake_near,0) + ' N') +
+      card('gas price', fmt(Number(n.gas_price_yocto)/1e12,2) + ' Tyocto') +
+      (p ? card('NEAR', usd(p.usd),
+        `<span class="${p.change_24h_pct >= 0 ? 'up':'down'}">${p.change_24h_pct >= 0?'+':''}${p.change_24h_pct}% 24h</span>`) : '') +
+      card('protocol', 'v' + n.protocol_version, n.chain_id);
+    $('c-vals').innerHTML =
+      '<table><tr><th>#</th><th>validator</th><th class="n">stake N</th>' +
+      '<th class="n">share</th><th></th><th class="n">uptime</th></tr>' +
+      v.validators.map((x, i) => `<tr>
+        <td class="dimtxt">${i+1}</td>
+        <td><span class="addr" onclick="lookup('${esc(x.account_id)}')">${esc(x.account_id)}</span></td>
+        <td class="n">${fmt(x.stake_near,0)}</td>
+        <td class="n">${x.share_pct}%</td>
+        <td><div class="stakebar"><i style="width:${Math.min(100, x.share_pct*8)}%"></i></div></td>
+        <td class="n">${x.uptime_pct != null ? x.uptime_pct + '%' : '—'}</td></tr>`).join('') +
+      '</table>';
+    $('c-blockout').textContent = JSON.stringify(b, null, 2);
+  } catch (e) { $('c-flash').textContent = e.message; }
+}
+$('c-go').onclick = loadChain;
+$('c-blockgo').onclick = async () => {
+  const id = $('c-block').value.trim();
+  try {
+    $('c-blockout').textContent = JSON.stringify(await j(
+      '/block?network=' + net() + (id ? '&block_id=' + encodeURIComponent(id) : '')), null, 2);
+  } catch (e) { $('c-flash').textContent = e.message; }
+};
+
+// ── mcp ──
+let mcpLoaded = false;
+async function loadMcp() {
+  mcpLoaded = true;
+  const mcpUrl = location.origin + location.pathname.replace(/\/(index\.html)?$/,'') + '/_api/mcp';
+  $('m-config').textContent = JSON.stringify(
+    {mcpServers: {near: {type: 'http', url: mcpUrl}}}, null, 2) +
+    '\n\n# or over stdio, from this box:\n#   python3 ' + 'mcp.py';
+  try {
+    const r = await j('/tools');
+    $('m-tools').innerHTML = '<table><tr><th>tool</th><th>what it does</th></tr>' +
+      r.tools.map(t => `<tr><td><span class="p ${/deploy|call$|send|wallet|create|key$/.test(t.name)?'wrn':'hot'}">${esc(t.name)}</span></td>
+        <td class="dimtxt">${esc(t.description)}</td></tr>`).join('') + '</table>';
+  } catch (e) { $('m-tools').textContent = e.message; }
+}
+</script>
+</body>
+</html>

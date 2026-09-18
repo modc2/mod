@@ -1,8 +1,9 @@
 """
-whitepaper — MOD off-chain Merkle-tree registry whitepaper.
+whitepaper — the MOD whitepaper: the off-chain Merkle-tree registry (Part I)
+and the mod protocol it registers (Part II).
 
 Ships:
-  * docs/whitepaper.tex   — LaTeX source
+  * whitepaper.tex        — LaTeX source (v0.2)
   * src/app/              — Next.js viewer (basePath /whitepaper)
   * Caddyfile             — proxy stanza (:3000 routes /whitepaper and /api/whitepaper)
   * reference impl        — tree_build / tree_root / tree_proof / tree_verify
@@ -100,7 +101,7 @@ def _verify(leaf: bytes, proof: list[bytes], root: bytes) -> bool:
 
 
 class Mod:
-    description = "Off-chain Merkle-tree open-source registry whitepaper + reference impl."
+    description = "MOD whitepaper: off-chain Merkle-tree registry + the mod protocol spec, with a reference tree impl."
 
     def __init__(self, **kwargs):
         self.dir = DIR
