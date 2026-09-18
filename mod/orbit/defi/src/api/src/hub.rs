@@ -187,11 +187,25 @@ impl Hub {
         });
 
         let total: f64 = rows.iter().filter_map(|r| r.get("stable_tvl_usd").and_then(|v| v.as_f64())).sum();
+        // Everything sitting in the shown rows, dollars or not: Bittensor and
+        // the Hyperliquid vaults keep their TVL out of `stable_tvl_usd` (it is
+        // not USD), so a tao-only view would otherwise total $0.
+        let total_all: f64 = rows
+            .iter()
+            .filter_map(|r| {
+                r.get("tvl_usd")
+                    .and_then(|v| v.as_f64())
+                    .or_else(|| r.get("stable_tvl_usd").and_then(|v| v.as_f64()))
+            })
+            .sum();
         json!({
             "hub": rows,
-            "protocols": self.entries.len(),
+            "protocols": rows.len(),
+            "curated": self.entries.len(),
+            "off_chain": off_chain,
             "chains": chain_rows,
-            "stable_tvl_usd": round2(total),
+            "stable_tvl_usd": round2(total + 0.0),
+            "tvl_usd": round2(total_all + 0.0),
             "note": self.note,
             "min_tvl": min_tvl,
             "as_of": fetched,
@@ -643,7 +657,13 @@ fn round2(value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
     }
-    (value * 100.0).round() / 100.0
+    let rounded = (value * 100.0).round() / 100.0;
+    // -0.0 is a true f64 that serialises as "-0.0" and reads like a bug.
+    if rounded == 0.0 {
+        0.0
+    } else {
+        rounded
+    }
 }
 
 #[cfg(test)]
@@ -826,10 +846,18 @@ mod tests {
     fn a_chain_filter_hides_bittensor_like_anywhere_else() {
         let h = hub(vec![tao_entry()]);
         let subnets = vec![subnet(0, "root", 5_000_000.0)];
+        // Filtered to a chain it does not run on, the row is not shown at all
+        // — an empty card under a chain filter is noise, not an answer.
         let eth = h.assemble(&[], &Registry::default(), 0, Some("ethereum"), 0.0, &subnets, Some(260.0), &[]);
-        assert_eq!(eth["hub"][0]["chain_count"], json!(0));
+        assert_eq!(eth["hub"].as_array().unwrap().len(), 0);
+        assert_eq!(eth["off_chain"], json!(1));
         let tao = h.assemble(&[], &Registry::default(), 0, Some("tao"), 0.0, &subnets, Some(260.0), &[]);
         assert_eq!(tao["hub"][0]["chain_count"], json!(1));
+        assert_eq!(tao["off_chain"], json!(0));
+        // Its TAO depth never lands in stable_tvl_usd, but the desk total
+        // still counts it — a tao-only hub is not a $0 hub.
+        assert_eq!(tao["stable_tvl_usd"], json!(0.0));
+        assert!(tao["tvl_usd"].as_f64().unwrap() > 0.0);
     }
 
     #[test]

@@ -27,6 +27,14 @@ const TIER_WORD: Record<string, string> = {
   frontier: "frontier",
 };
 
+/// What one row of a protocol IS — the hub calls them "USD pools" everywhere
+/// except the three entries that are not dollar pools, which name their own
+/// unit (a Bittensor subnet, a Hyperliquid vault, a Polymarket trader).
+function poolWord(chain: any, n: number) {
+  const word = chain?.pool_word ?? "USD pool";
+  return `${word}${n === 1 ? "" : "s"}`;
+}
+
 function TierTag({ tier }: { tier: string }) {
   const cls = tier === "core" ? "ok" : tier === "frontier" ? "bad" : "";
   return <span className={`tag ${cls}`}>{TIER_WORD[tier] ?? tier}</span>;
@@ -45,10 +53,17 @@ export default function Hub({ say, onExplore }: Props) {
   // the selected chain once a filter is on, so keep the unfiltered snapshot.
   const [allChains, setAllChains] = useState<any[]>([]);
   const [showChains, setShowChains] = useState(false);
+  // A chain filter can be a slow read (Bittensor knocks the bt module), and a
+  // stale grid under a freshly-clicked chip reads as the chip doing nothing.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let dead = false;
     setError(null);
+    setLoading(true);
+    // The open card may not survive the new filter — a rail describing a
+    // protocol the grid no longer lists is the confusing part.
+    setPicked(null);
     api
       .getHub(chain ? { chain } : {})
       .then((d) => {
@@ -56,7 +71,8 @@ export default function Hub({ say, onExplore }: Props) {
         setData(d);
         if (!chain) setAllChains(d.chains ?? []);
       })
-      .catch((e) => !dead && setError(e.message));
+      .catch((e) => !dead && setError(e.message))
+      .finally(() => !dead && setLoading(false));
     return () => {
       dead = true;
     };
@@ -71,6 +87,13 @@ export default function Hub({ say, onExplore }: Props) {
 
   const rows: any[] = data?.hub ?? [];
   const reachable = rows.filter((r) => r.enterable_from_desk).length;
+  // Bittensor (and the vaults) keep their TVL out of stable_tvl_usd because it
+  // is not dollars — filtered down to them, the dollar stat would read $0.
+  const usdOnly = !data || (data.stable_tvl_usd ?? 0) > 0;
+  // How many vetted names the chain filter dropped, so the shortlist getting
+  // shorter reads as the filter working rather than as the hub losing rows.
+  const offChain: number = data?.off_chain ?? 0;
+  const chainLabel = CHAIN_FILTERS.find((c) => c.id === chain)?.label ?? chain.toUpperCase();
 
   const explore = (p: any, pool?: any) => {
     // Bittensor's rows aren't stablecoins — a stable filter would hide them.
@@ -100,8 +123,8 @@ export default function Hub({ say, onExplore }: Props) {
           Legit places for dollars — hand-picked names, live numbers, every chain they run on.
         </span>
         <div style={{ flex: 1 }} />
-        <span className="pill" title="age of the cached DefiLlama index">
-          {data ? (data.age_seconds < 90 ? "live" : `${Math.round(data.age_seconds / 60)}m old`) : "…"}
+        <span className="pill" title={loading ? "reading this chain now" : "age of the cached DefiLlama index"}>
+          {loading ? "reading…" : data ? (data.age_seconds < 90 ? "live" : `${Math.round(data.age_seconds / 60)}m old`) : "…"}
         </span>
       </div>
 
@@ -123,9 +146,9 @@ export default function Hub({ say, onExplore }: Props) {
           </span>
           <span className="stat-l">chains</span>
         </div>
-        <div className="stat">
-          <span className="stat-n">{data ? money(data.stable_tvl_usd) : "…"}</span>
-          <span className="stat-l">USD sitting in them</span>
+        <div className="stat" title={usdOnly ? "dollars sitting in the vetted USD pools" : "everything sitting in the shown protocols — Bittensor and the vaults are not dollars"}>
+          <span className="stat-n">{data ? money(usdOnly ? data.stable_tvl_usd : data.tvl_usd ?? data.stable_tvl_usd) : "…"}</span>
+          <span className="stat-l">{usdOnly ? "USD sitting in them" : "value sitting in them"}</span>
         </div>
         <div className="stat">
           <span className="stat-n" style={{ color: "var(--accent)" }}>{data ? reachable : "…"}</span>
@@ -176,7 +199,12 @@ export default function Hub({ say, onExplore }: Props) {
             </div>
           )}
           {!data && !error && <div className="empty">reading the hub…</div>}
-          <div className="hub-grid">
+          {data && !loading && rows.length === 0 && !error && (
+            <div className="empty">
+              nothing on the vetted list runs on {chainLabel} — try EVERYWHERE
+            </div>
+          )}
+          <div className="hub-grid" style={loading && data ? { opacity: 0.45 } : {}}>
             {rows.map((p) => {
               const best = p.best;
               const chains: any[] = p.chains ?? [];
@@ -206,7 +234,9 @@ export default function Hub({ say, onExplore }: Props) {
                       >
                         <span className={`chain-dot ${c.desk ?? ""}`} />
                         {c.chain}
-                        <b>{pct(c.best?.apy, 1)}</b>
+                        {/* No APY is promised on a TAO subnet or a vault — say
+                            what is there instead of printing a dash. */}
+                        <b>{c.best?.apy == null ? `${c.pools} ${poolWord(c, c.pools)}` : pct(c.best?.apy, 1)}</b>
                       </span>
                     ))}
                     {chains.length > 5 && <span className="hub-chain dim-chain">+{chains.length - 5} more</span>}
@@ -238,6 +268,12 @@ export default function Hub({ say, onExplore }: Props) {
               );
             })}
           </div>
+          {offChain > 0 && rows.length > 0 && !loading && (
+            <div className="foot">
+              {offChain} more vetted {offChain === 1 ? "protocol does" : "protocols do"} not run on{" "}
+              {chainLabel} — hidden by this filter.
+            </div>
+          )}
           {data?.note && <div className="foot">{data.note}</div>}
         </div>
 
@@ -282,9 +318,11 @@ export default function Hub({ say, onExplore }: Props) {
 
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <span className="dim">takes</span>
-                {(detail.usd_in ?? []).map((s: string) => (
-                  <span key={s} className="pill">{s}</span>
-                ))}
+                {(detail.usd_in?.length ? detail.usd_in : detail.source === "bittensor" ? ["TAO"] : ["—"]).map(
+                  (s: string) => (
+                    <span key={s} className="pill">{s}</span>
+                  ),
+                )}
                 <a
                   href={detail.website}
                   target="_blank"
@@ -324,7 +362,7 @@ export default function Hub({ say, onExplore }: Props) {
                       <span className={`chain-dot ${c.desk ?? ""}`} />
                       <b style={{ fontSize: 12 }}>{c.chain}</b>
                       <span className="dim">
-                        {c.pools} USD pool{c.pools === 1 ? "" : "s"} · {money(c.tvl_usd)}
+                        {c.pools} {poolWord(c, c.pools)} · {money(c.tvl_usd)}
                       </span>
                       <span style={{ marginLeft: "auto" }}>
                         {c.enterable ? (
@@ -342,7 +380,10 @@ export default function Hub({ say, onExplore }: Props) {
                         style={{ marginTop: 5, display: "flex", gap: 8, alignItems: "center" }}
                       >
                         <span>
-                          best: {c.best.symbol} {pct(c.best.apy)} ({pct(c.best.apy_base, 1)} fees) ·{" "}
+                          best: {c.best.symbol}{" "}
+                          {c.best.apy == null
+                            ? "· no promised rate ·"
+                            : `${pct(c.best.apy)} (${pct(c.best.apy_base, 1)} fees) ·`}{" "}
                           {money(c.best.tvl_usd)}
                         </span>
                         <button
@@ -363,11 +404,16 @@ export default function Hub({ say, onExplore }: Props) {
                 style={{ width: "100%", marginTop: 14 }}
                 onClick={() => explore(detail)}
               >
-                {detail.enterable_from_desk ? "put USD in from this desk →" : "see its pools in MODULES →"}
+                {detail.enterable_from_desk
+                  ? detail.source === "bittensor"
+                    ? "stake TAO from this desk →"
+                    : "put USD in from this desk →"
+                  : `see its ${poolWord(detail.chains?.[0], 2)} in MODULES →`}
               </button>
               <div className="mono-small" style={{ marginTop: 8, lineHeight: 1.6 }}>
-                Opens the MODULES room filtered to this protocol&apos;s USD pools — quote the round
-                trip before anything moves. Executed by the chain&apos;s own module; no keys live here.
+                Opens the MODULES room filtered to this protocol&apos;s{" "}
+                {poolWord(detail.chains?.[0], 2)} — quote the round trip before anything moves.
+                Executed by the chain&apos;s own module; no keys live here.
               </div>
             </>
           )}
