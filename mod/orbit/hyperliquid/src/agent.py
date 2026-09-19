@@ -51,9 +51,13 @@ OAUTH_FILE = os.path.expanduser("~/.claude/.credentials.json")
 MCP_SERVER = "hyperliquid"
 TOOL_PREFIX = f"mcp__{MCP_SERVER}__"
 
-# The agent reasons over Hyperliquid, not over this host. Local file and shell
-# tools are denied outright — its only reach is the MCP server.
-LOCAL_TOOLS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task"]
+# The agent reasons over Hyperliquid and over this module's own code — nothing
+# else on this host. Shell, writes and the open web are denied outright; its
+# reach is the MCP server plus read-only access to the module directory (no
+# secrets live there — wallet keys are under ~/.mod), so "how does the board
+# cache work?" is answerable with file:line receipts.
+LOCAL_TOOLS = ["Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Grep", "Glob"]
+CODE_READ = f"Read(/{ROOT_DIR}/**)"  # permission rule: // prefix = absolute path
 
 SYSTEM_PROMPT = (
     "You are the Hyperliquid module's desk analyst. Every fact you state must "
@@ -74,6 +78,38 @@ ACT_PROMPT = (
     "calling one, never place an order the user did not ask for, and after any "
     "write report exactly what came back. Prefer one order over several."
 )
+
+
+def source_map(cap: int = 220) -> str:
+    """Compact file listing for the system prompt, so the model can Read the
+    right file without needing a Glob or Grep tool."""
+    skip = {"target", "node_modules", ".next", "__pycache__", ".git", "out"}
+    out: List[str] = []
+    for base, dirs, files in os.walk(ROOT_DIR):
+        dirs[:] = sorted(d for d in dirs if d not in skip)
+        rel = os.path.relpath(base, ROOT_DIR)
+        for f in sorted(files):
+            if f.endswith((".pyc", ".lock", ".tsbuildinfo", ".log")):
+                continue
+            out.append(f if rel == "." else os.path.join(rel, f))
+            if len(out) >= cap:
+                out.append("…")
+                return "\n".join(out)
+    return "\n".join(out)
+
+
+def code_prompt() -> str:
+    return (
+        "\n\nCODE QUESTIONS: you may also explain this module itself — its "
+        "features, design and behavior. The Read tool is enabled, read-only, "
+        f"for the module directory ({ROOT_DIR}); cite answers as path:line. "
+        "Map: src/api/src/*.rs is the Rust REST API (traders.rs = leaderboard "
+        "board + cache, sync.rs = background refresher, live_engine.rs = "
+        "copy-trade engine, mcp.rs = this tool server), src/app/app is the "
+        "Next.js console, src/mod.py the orchestrator, src/agent.py this "
+        "agent, src/strats the strat classes, docs/ the guides. Files:\n"
+        + source_map()
+    )
 
 
 # ─── tool policy — derived from the module's own MCP schema ──────────────
@@ -180,7 +216,8 @@ def build_cmd(question: str, allowed: List[str], denied: List[str], act: bool,
         "--strict-mcp-config", "--mcp-config", json.dumps(mcp_config(api_url, token)),
         "--allowedTools", ",".join(allowed),
         "--disallowedTools", ",".join(denied),
-        "--append-system-prompt", SYSTEM_PROMPT + (ACT_PROMPT if act else ""),
+        "--append-system-prompt",
+        SYSTEM_PROMPT + code_prompt() + (ACT_PROMPT if act else ""),
     ]
 
 
@@ -236,7 +273,7 @@ def ask(question: str, api_url: str = "", token: str = "",
         yield {"type": "error", "error": f"MCP schema unreachable at {api_url}: {e}"}
         return
 
-    allowed = reads + writes if act else reads
+    allowed = (reads + writes if act else reads) + [CODE_READ]
     denied = LOCAL_TOOLS + ([] if act else writes)
     yield {"type": "ready", "tools": len(allowed), "act": act,
            "signed_in": bool(token)}
