@@ -1,17 +1,28 @@
 "use client";
 
-// MONEY — topping up and taking money out, as its OWN TAB on the side
-// panel's rail (INDEX · MONEY · BACKTEST · LIVE).
+// MONEY — the liquidity view, as its OWN TAB on the side panel's rail
+// (INDEX · MONEY · BACKTEST · LIVE).
 //
-// It used to be a collapsible drawer INSIDE the INDEX column, above the
-// allocation list. That read as the same thing three times — the header
-// already prints the funded balance, the drawer's collapsed line printed it
-// again, and the expanded WalletPanel printed it a third time — and when
-// open, the two big wallet tiles pushed the strat allocation (the thing the
-// INDEX tab is actually for) below the fold. Money is still a drawer in
-// spirit — you want it mid-backtest, mid-browse — but the rail IS the
-// drawer handle now, one tap away at the top of the column, and INDEX gets
-// to lead with "which strat holds what".
+// The tab used to stack a fold inside a fold: WalletPanel, then a
+// "⌄ BRING IT FROM ANOTHER CHAIN" toggle, which revealed a funding panel
+// with its OWN "+ ADD FUNDS" toggle, a chain dropdown and three asset chips.
+// Reaching the bridge was two folds and two pickers deep for a question the
+// wallet can answer by itself. Now the tab reads top to bottom in the order
+// money flows:
+//
+//   LIQUIDITY   (LiquidityFlow)  — OTHER CHAINS ▸ WALLET ▸ TRADING ▸ IN PLAY,
+//                                  one number per pool, each a shortcut to
+//                                  the block that moves it
+//   MOVE        (WalletPanel)    — wallet ⇄ trading, one amount, one button
+//   BRIDGE      (BridgePanel)    — one row per chain+asset that actually
+//                                  holds funds, prefilled, one button each;
+//                                  no dropdowns, no folds
+//   V1 SAFE     (PolymarketAccountPanel) — renders itself away unless a
+//                                  balance is stranded on the legacy Safe
+//
+// "Where the liquidity GOES" (the split across strats) stays on the INDEX
+// tab's ALLOCATION block — one home per question; the strip's IN PLAY pool
+// jumps there.
 //
 // Anything that discovers you're short of funds fires
 //
@@ -19,19 +30,11 @@
 //
 // and UserSidebar opens the column on this tab (LIVE's FUND NOW banner, an
 // engine "not enough balance" state, the header's balance chip).
-//
-// The panel itself is `WalletPanel` — two tiles, one amount, one button, and
-// the direction flips by tapping the other tile. Deposit and withdraw were
-// never two forms; they're one flow with an arrow in it. Bridging from
-// another chain and the legacy V1 Safe stay behind MORE — they are
-// once-ever operations, and a first-time user meeting three funding panels
-// at once is how "how do I add money" becomes a support question.
-
-import { useState } from "react";
 
 import { useAuth } from "../context/AuthContext";
+import LiquidityFlow from "./LiquidityFlow";
 import WalletPanel from "./WalletPanel";
-import WalletFundingPanel from "./WalletFundingPanel";
+import BridgePanel from "./BridgePanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
 
 /** Ask the side panel to open on the MONEY tab. Anything short of funds
@@ -40,7 +43,6 @@ export const OPEN_MONEY_EVENT = "poly-open-money";
 
 export default function MoneyTab() {
   const { auth } = useAuth();
-  const [more, setMore] = useState(false);
 
   if (!auth.connected) {
     return (
@@ -53,27 +55,13 @@ export default function MoneyTab() {
 
   return (
     <div className="px-2 py-2 space-y-2">
-      {/* Deposit / withdraw / send — one flow. */}
+      <LiquidityFlow />
       <div id="sidebar-wallet-panel">
         <WalletPanel />
       </div>
-
-      <button
-        onClick={() => setMore((v) => !v)}
-        className="text-[10px] font-mono tracking-[0.16em] text-pixel-gray hover:text-pixel-white px-1"
-      >
-        {more ? "⌃ LESS" : "⌄ BRING IT FROM ANOTHER CHAIN"}
-      </button>
-
-      {more && (
-        <div className="space-y-2">
-          {/* Bridge / send in from any chain. */}
-          <WalletFundingPanel />
-          {/* Legacy V1 Safe — renders itself away unless there's a
-              leftover balance stranded on it. */}
-          <PolymarketAccountPanel />
-        </div>
-      )}
+      <BridgePanel />
+      {/* Legacy V1 Safe — self-hides unless a balance is stranded on it. */}
+      <PolymarketAccountPanel />
     </div>
   );
 }

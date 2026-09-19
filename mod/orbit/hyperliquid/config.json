@@ -110,7 +110,7 @@
         "src/mod.py": "Python orchestrator (serve/kill/status/forward, plus typed wrappers for every endpoint)",
         "src/api/": "Rust REST API (axum, tokio) \u2014 backend agent signer, action signing, /exchange poster, live engine, MCP tool server",
         "src/api/src/mcp.rs": "MCP tool registry + JSON-RPC dispatch \u2014 one schema for the mod fn surface and the MCP tool list",
-        "src/agent.py": "Claude agent whose only toolbox is this module's MCP server \u2014 read-only by default, write tools behind act=true + a token",
+        "src/agent.py": "Claude agent \u2014 toolbox is this module's MCP server plus read-only Read scoped to the module dir (code Q&A); write tools behind act=true + a token",
         "src/api/src/agent.rs": "POST /ask (SSE) + GET /ask/status \u2014 spawns src/agent.py and streams its run",
         "src/app/": "Next.js 14 app (copy-trade UI, indexes, vaults, live panel)",
         "src/api/src/deposit.rs": "Cross-chain deposit rails \u2014 multicall balance scan across 12 EVM chains, LI.FI routing straight into the Hyperliquid perps account"
@@ -127,7 +127,7 @@
     "agent": {
         "endpoint": "POST /ask (SSE)",
         "status": "GET /ask/status (public)",
-        "toolbox": "this module's own MCP server over stdio \u2014 the agent holds no authority of its own",
+        "toolbox": "this module's own MCP server over stdio, plus read-only Read of the module directory for code questions \u2014 the agent holds no other authority",
         "modes": "read-only by default; write tools need act=true and a mod protocol token",
         "model_auth": "ANTHROPIC_API_KEY \u2192 ~/.mod/hyperliquid/anthropic.key \u2192 claude CLI OAuth"
     },

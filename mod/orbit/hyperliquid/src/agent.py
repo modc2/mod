@@ -10,7 +10,9 @@ Signed out, the agent can only read what the public routes already serve.
 Two modes:
     ask   — read-only. Only GET-backed tools are on the allowlist; anything
             that signs, spends or mutates stored state is explicitly denied,
-            so a question can never place an order.
+            so a question can never place an order. The Read tool is allowed,
+            scoped to this module's own directory, so the agent can also
+            answer questions about the module's code and design.
     act   — the full tool surface. Requires a token, and the caller has to opt
             in per run (`act=True` / `HL_AGENT_ACT=1`).
 
@@ -18,7 +20,8 @@ The allow/deny split is derived from the live `GET /mcp/schema` — the same
 table `mcp.rs` publishes — so there is no second tool list to drift.
 
 Auth for the model resolves in order: ANTHROPIC_API_KEY env →
-~/.mod/hyperliquid/anthropic.key → Claude CLI OAuth (~/.claude/.credentials.json).
+~/.mod/hyperliquid/anthropic.key → ~/.mod/hyperliquid/claude_oauth_token
+(long-lived setup token) → Claude CLI OAuth (~/.claude/.credentials.json).
 If none exist the key file is created empty (0600) and status()/ask() say so.
 
 CLI (this is what the Rust `/ask` route drives):
@@ -40,12 +43,19 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SRC_DIR)
 API_DIR = os.path.join(SRC_DIR, "api")
 
-CLAUDE_BIN = os.environ.get("HL_AGENT_BIN", "claude")
+# Pin the system CLI by absolute path: apps launched via npx get ancestor
+# node_modules/.bin shims prepended to PATH, and the fleet carries a stale one.
+_SYSTEM_CLAUDE = "/usr/local/bin/claude"
+CLAUDE_BIN = os.environ.get("HL_AGENT_BIN") or (
+    _SYSTEM_CLAUDE if os.path.exists(_SYSTEM_CLAUDE) else "claude")
 MODEL = os.environ.get("HL_AGENT_MODEL", "sonnet")
 MAX_TURNS = int(os.environ.get("HL_AGENT_MAX_TURNS", "16"))
 TIMEOUT_SEC = int(os.environ.get("HL_AGENT_TIMEOUT", "300"))
 
 KEY_FILE = os.path.expanduser("~/.mod/hyperliquid/anthropic.key")
+# Long-lived setup token (sk-ant-oat01…) — outlives the interactive login in
+# ~/.claude/.credentials.json, which expires and strands pm2-spawned children.
+OAUTH_TOKEN_FILE = os.path.expanduser("~/.mod/hyperliquid/claude_oauth_token")
 OAUTH_FILE = os.path.expanduser("~/.claude/.credentials.json")
 
 MCP_SERVER = "hyperliquid"
@@ -83,7 +93,8 @@ ACT_PROMPT = (
 def source_map(cap: int = 220) -> str:
     """Compact file listing for the system prompt, so the model can Read the
     right file without needing a Glob or Grep tool."""
-    skip = {"target", "node_modules", ".next", "__pycache__", ".git", "out"}
+    skip = {"target", "node_modules", ".next", "__pycache__", ".git", "out",
+            ".pytest_cache"}
     out: List[str] = []
     for base, dirs, files in os.walk(ROOT_DIR):
         dirs[:] = sorted(d for d in dirs if d not in skip)
@@ -174,6 +185,12 @@ def ensure_auth() -> Tuple[bool, Optional[str], Optional[str], Dict[str, str]]:
         key = ""
     if key:
         return True, "api-key-file", None, {"ANTHROPIC_API_KEY": key}
+    try:
+        tok = open(OAUTH_TOKEN_FILE).read().strip()
+    except OSError:
+        tok = ""
+    if tok:
+        return True, "oauth-token-file", None, {"CLAUDE_CODE_OAUTH_TOKEN": tok}
     if os.path.exists(OAUTH_FILE):
         return True, "claude-cli", None, {}
     os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)

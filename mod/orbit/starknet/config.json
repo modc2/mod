@@ -1,0 +1,69 @@
+{
+    "name": "starknet",
+    "version": "0.1.0",
+    "description": "Starknet as one mod: JSON-RPC reads over a failover pool of free public endpoints (your own node first via STARKNET_RPC), starknet_keccak entry-point hashing in-tree, account balances (ETH/STRK/any ERC-20 Uint256), blocks, transactions, receipts, nonces, class hashes, storage and arbitrary contract calls. Python stdlib only, zero dependencies. One port serves the REST API and the browser console.",
+    "icon": "S",
+    "anchor": "mod.py",
+    "port": 51020,
+    "app_port": 51020,
+    "base_path": "/starknet",
+    "route": true,
+    "urls": {
+        "api": "http://localhost:51020",
+        "app": "http://localhost:51020/starknet",
+        "explorer": "https://voyager.online"
+    },
+    "networks": {
+        "mainnet": "https://starknet-rpc.publicnode.com",
+        "sepolia": "https://starknet-sepolia-rpc.publicnode.com"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "status": "GET /status?network=",
+        "block_number": "GET /block_number",
+        "block": "GET /block?id=latest|<n>|<hash>&full=1",
+        "tx": "GET /tx?hash=",
+        "receipt": "GET /receipt?hash=",
+        "account": "GET /account?address=",
+        "balance": "GET /balance?address=&token=eth|strk|usdc|0x..",
+        "nonce": "GET /nonce?address=",
+        "class_hash": "GET /class_hash?address=",
+        "storage": "GET /storage?address=&key=",
+        "selector": "GET /selector?name=",
+        "call": "GET|POST /call {contract, entrypoint|selector, calldata}",
+        "rpc": "POST /rpc {method, params}",
+        "app": "GET /starknet/"
+    },
+    "fns": [
+        "info",
+        "forward",
+        "status",
+        "chain_id",
+        "block_number",
+        "block",
+        "tx",
+        "receipt",
+        "account",
+        "balance",
+        "nonce",
+        "class_hash",
+        "storage",
+        "call",
+        "selector",
+        "rpc",
+        "serve",
+        "kill",
+        "test",
+        "readme"
+    ],
+    "backend": "python stdlib only (http.server + urllib); keccak-256 and starknet_keccak selectors in-tree",
+    "auth": "reads only in v0.1 \u2014 no keys are held, nothing to leak; writes (account deploy, invoke) are a later version with the keystore under ~/.mod/starknet/, never the repo",
+    "env": {
+        "PORT": "port for API and console (default 51020)",
+        "STARKNET_NETWORK": "default network (mainnet)",
+        "STARKNET_RPC": "your own node \u2014 always tried first, no third party contacted if it answers",
+        "STARKNET_TIMEOUT": "per-endpoint RPC timeout in seconds (default 15)"
+    },
+    "schema": "Qmd5p1adCmSkpJs7uRkqA5SNywFCuWm2w1WGHoGiPkM8PX"
+}

@@ -181,7 +181,7 @@ export default function AskConsole({ compact = false }: { compact?: boolean }) {
       <div className="flex items-center gap-2">
         <input
           className="input flex-1 min-w-0"
-          placeholder={blocked ? "sign in with your wallet to ask" : act ? "tell the agent what to do…" : compact ? "ask the desk…" : "ask about traders, markets, vaults, your account…"}
+          placeholder={blocked ? "sign in with your wallet to ask" : act ? "tell the agent what to do…" : compact ? "ask the desk — markets, or the code…" : "ask about traders, markets, vaults, your account — or how the code works…"}
           value={q}
           disabled={blocked}
           onChange={(e) => setQ(e.target.value)}

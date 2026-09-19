@@ -93,7 +93,7 @@ const TAB_KEY = "poly_sidebar_tab";
 const TABS: SidebarTab[] = ["INDEX", "MONEY", "BACKTEST", "LIVE"];
 const TAB_HINTS: Record<SidebarTab, string> = {
   INDEX: "Your strats and the money on each — allocation, the bench, the copy book",
-  MONEY: "Top up your trading balance, take money out, or send it somewhere",
+  MONEY: "Your liquidity — bridge in from any EVM chain, top up, take out, see where it sits",
   BACKTEST: "Replay the bench against history on simulated money — no wallet touched",
   LIVE: "Run the bench against the real book with real money",
 };
