@@ -7,7 +7,7 @@ MCP endpoint and an A record — and they are only consistent if one thing
 computes all four from the same source. That thing is here.
 
 `resolve()` accepts whatever the caller happens to be holding: a module name
-(`eth`), a hostname (`eth.modc2.com`), a gateway path (`modc2.com/api/eth` or
+(`eth`), a hostname (`eth.modc2.com`), a gateway path (`modc2.com/eth/api` or
 `eth.modc2.com/api`) or
 a whole URL. It answers with the module, the host it is served on, every
 address for it, whether the upstream ports are actually listening, and the DNS
@@ -101,7 +101,7 @@ def resolve(query, qtype='A'):
                     'mod': module, 'owner': entry.get('owner'),
                     'key': fleet.box_key(), 'cid': entry.get('schema'),
                     'version': entry.get('version'), 'orbit': entry.get('root'),
-                    'app': f'/{module}', 'api': f'/api/{module}'}),
+                    'app': f'/{module}', 'api': f'/{module}/api'}),
                 'means': (f'{module} declares {entry["owner"]} as its owner'
                           if entry.get('owner') else
                           f'{module} declares no owner — the only claim on '
@@ -234,12 +234,12 @@ def plan(host, target=None):
                     f'modules, so {host}/{{mod}} reaches them over TLS',
              'who': 'the OWNER of that box — this is the one step you cannot '
                     'do yourself, because it edits the live router',
-             'gets': f'{host}/{{mod}} serves the app; {{mod}}.{host}/api serves the API'},
+             'gets': f'{host}/{{mod}} serves the app; {host}/{{mod}}/api serves the API'},
         ],
         'then': {
             'app': f'https://{host}/{{mod}}',
-            'api': f'https://{{mod}}.{host}/api',
-            'mcp': f'https://{{mod}}.{host}/api/mcp',
+            'api': f'https://{host}/{{mod}}/api',
+            'mcp': f'https://{host}/{{mod}}/api/mcp',
             'subdomain': f'https://{{mod}}.{host}',
             'modules': modules[:12],
             'module_count': len(modules),
@@ -272,11 +272,12 @@ def overview():
         'attribution': attrib.deployment(host),
         'naming': {
             'app': f'https://{host}/{{mod}}',
-            'api': f'https://{{mod}}.{host}/api',
-            'mcp': f'https://{{mod}}.{host}/api/mcp',
+            'api': f'https://{host}/{{mod}}/api',
+            'mcp': f'https://{host}/{{mod}}/api/mcp',
             'subdomain': f'https://{{mod}}.{host}',
-            'rule': 'the app lives at the path form; the api and mcp live '
-                    'under the module subdomain. Both point at one box.',
+            'rule': 'one path space per module: /{mod} is the app, '
+                    '/{mod}/api is the API, /{mod}/api/mcp is MCP. The '
+                    'legacy /api/{mod} form still answers as an alias.',
         },
         'listener': server.state(),
     }

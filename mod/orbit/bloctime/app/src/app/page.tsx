@@ -39,7 +39,7 @@ const isLocal = typeof window !== 'undefined' &&
   ['localhost', '127.0.0.1'].includes(window.location.hostname)
 const API_URL = isLocal
   ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8851')
-  : '/api/bloctime'
+  : '/bloctime/api'
 
 // ── Networks ────────────────────────────────────────────────────────────
 

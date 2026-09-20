@@ -1025,8 +1025,9 @@ class Hyperliquid(m.Mod):
                 "url": f"{self.api_url}/sse",
                 "headers": {"Authorization": "Bearer <mod protocol token>"},
             },
-            # Same server through the public gateway (mod protocol URL shape).
-            "gateway": {"type": "http", "url": "/api/hyperliquid/mcp"},
+            # Same server through the public gateway (mod protocol URL shape;
+            # legacy alias /api/hyperliquid/mcp still accepted).
+            "gateway": {"type": "http", "url": "/hyperliquid/api/mcp"},
             "add_cmd": f"claude mcp add --transport http hyperliquid {self.api_url}/mcp",
             "add_cmd_stdio": f"claude mcp add hyperliquid -- {binary} --stdio",
         }

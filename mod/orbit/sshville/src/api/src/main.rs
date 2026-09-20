@@ -45,6 +45,8 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .nest("/", routes::router())
+        // Canonical fleet form; legacy /api/sshville alias kept below.
+        .nest("/sshville/api", routes::router())
         .nest("/api/sshville", routes::router())
         .with_state(state)
         .layer(cors)

@@ -20,6 +20,12 @@ const nextConfig = {
   async rewrites() {
     return [
       {
+        // Canonical fleet form; legacy /api/dns alias kept below.
+        source: '/dns/api/:path*',
+        destination: `${apiUrl}/:path*`,
+        basePath: false,
+      },
+      {
         source: '/api/dns/:path*',
         destination: `${apiUrl}/:path*`,
         basePath: false,

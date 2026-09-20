@@ -63,7 +63,7 @@ search-and-call instead:
 | `mcp_stats` | index size and what the scraper has been doing |
 
 ```bash
-claude mcp add mcpscan --transport http https://modc2.com/api/mcpscan/mcp
+claude mcp add mcpscan --transport http https://modc2.com/mcpscan/api/mcp
 ```
 
 Registered on the fleet's hub (`orbit/mcp`) the same tools arrive as

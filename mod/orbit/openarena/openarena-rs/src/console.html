@@ -242,7 +242,7 @@
 <script>
 // Behind the fleet router the console is at /openarena and the API at
 // /api/openarena; standalone on :50400 both are the same origin root.
-const API = location.pathname.startsWith('/openarena') ? '/api/openarena' : '';
+const API = location.pathname.startsWith('/openarena') ? '/openarena/api' : '';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const when = t => t ? new Date(t * 1000).toLocaleString() : '';

@@ -29,7 +29,7 @@ import { updateIndex } from "../lib/indexStore";
 import { applyPatch, describeEntry, validatePatch, type PatchEntry } from "../lib/stratPatch";
 import type { SavedIndex } from "../lib/types";
 
-const CHAT_API = "/polymarket/api/strat-chat";
+const CHAT_API = "/polymarket/_api/strat-chat";
 /** Turns kept per strat. The server only sends the last dozen anyway. */
 const MAX_KEPT = 24;
 

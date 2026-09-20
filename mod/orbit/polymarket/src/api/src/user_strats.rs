@@ -1,9 +1,10 @@
-//! User-uploaded strats (Python mod.py / Rust mod.rs) + sharing/forking.
+//! User-uploaded strats (Python mod.py / Rust mod.rs / TypeScript mod.ts)
+//! + sharing/forking.
 //!
 //! Stores files on the persistent data volume so they survive container
 //! recreates. Each strat lives at:
 //!
-//!   <DATA_DIR>/polymarket-user-strats/<id>/mod.<py|rs>
+//!   <DATA_DIR>/polymarket-user-strats/<id>/mod.<py|rs|ts>
 //!   <DATA_DIR>/polymarket-user-strats/<id>/meta.json   (owner, title, …)
 //!
 //! Storage is layered against execution: this module only handles
@@ -52,13 +53,18 @@ pub const BUNDLE_VERSION: u32 = 1;
 pub enum StratKind {
     Py,
     Rs,
+    Ts,
 }
 
 impl StratKind {
+    /// Every kind, in lookup-priority order (primary_kind picks the first hit).
+    pub const ALL: [StratKind; 3] = [StratKind::Py, StratKind::Rs, StratKind::Ts];
+
     fn extension(self) -> &'static str {
         match self {
             StratKind::Py => "py",
             StratKind::Rs => "rs",
+            StratKind::Ts => "ts",
         }
     }
 }
@@ -191,7 +197,7 @@ impl UserStratStore {
     }
 
     fn has_source(&self, id: &str) -> bool {
-        [StratKind::Py, StratKind::Rs]
+        StratKind::ALL
             .iter()
             .any(|k| self.strat_path(id, *k).map(|p| p.exists()).unwrap_or(false))
     }
@@ -340,7 +346,7 @@ impl UserStratStore {
         let new_dir = self.strat_dir(new_id)?;
         fs::create_dir_all(&new_dir).context("create fork dir")?;
         let mut copied_kind: Option<StratKind> = None;
-        for kind in [StratKind::Py, StratKind::Rs] {
+        for kind in StratKind::ALL {
             let from = self.strat_path(src_id, kind)?;
             if from.exists() {
                 let content = fs::read_to_string(&from).context("read source for fork")?;
@@ -538,7 +544,7 @@ impl UserStratStore {
     }
 
     fn primary_kind(&self, id: &str) -> Result<StratKind> {
-        for kind in [StratKind::Py, StratKind::Rs] {
+        for kind in StratKind::ALL {
             if self.strat_path(id, kind)?.exists() {
                 return Ok(kind);
             }
@@ -563,7 +569,7 @@ impl UserStratStore {
             if !keep(&meta) {
                 continue;
             }
-            for kind in [StratKind::Py, StratKind::Rs] {
+            for kind in StratKind::ALL {
                 if let Ok(e) = self.entry_for(&id, kind, &None) {
                     out.push(e);
                 }
@@ -706,6 +712,25 @@ mod tests {
             ..Default::default()
         };
         assert!(s.upload("a1", StratKind::Py, "print(2)", &bob).is_err());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn ts_uploads_round_trip_like_py() {
+        let (s, dir) = tmp_store();
+        let alice = UploadMeta {
+            owner: Some("0xaaaa".into()),
+            title: Some("TS momentum".into()),
+            ..Default::default()
+        };
+        let e = s.upload("ts1", StratKind::Ts, "export const EDGE = 0.05;", &alice).unwrap();
+        assert_eq!(e.kind, StratKind::Ts);
+        assert_eq!(s.read("ts1", StratKind::Ts).unwrap(), "export const EDGE = 0.05;");
+        // Listed, forkable once public, and stored as mod.ts on disk.
+        assert!(s.list(Some("0xaaaa")).unwrap().iter().any(|x| x.id == "ts1"));
+        s.set_public("ts1", "0xaaaa", true).unwrap();
+        s.fork("ts1", "ts1-fork", "0xbbbb").unwrap();
+        assert_eq!(s.read("ts1-fork", StratKind::Ts).unwrap(), "export const EDGE = 0.05;");
         let _ = fs::remove_dir_all(dir);
     }
 

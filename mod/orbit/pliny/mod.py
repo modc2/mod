@@ -345,7 +345,7 @@ class Mod:
         return {'server': 'plinyville-all', 'count': len(reg),
                 'core': len(_mcp.TOOLS), 'repo_tools': len(repos),
                 'http': f'POST http://localhost:{API_PORT}/mcp/all',
-                'public': 'https://modc2.com/api/pliny/mcp/all',
+                'public': 'https://modc2.com/pliny/api/mcp/all',
                 'stdio': f'python3 {os.path.join(HERE, "mcp.py")} --all',
                 'claude': ('claude mcp add --transport http plinyville '
                            f'http://localhost:{API_PORT}/mcp/all'),
@@ -513,8 +513,8 @@ class Mod:
             raise RuntimeError(f'not serving: {", ".join(down)} — run worker/serve first '
                                '(caddy only routes live ports)')
         out = {'wired': 'https://modc2.com/plinyville',
-               'api': 'https://modc2.com/api/plinyville',
-               'mcp': 'https://modc2.com/api/pliny/mcp',
+               'api': 'https://modc2.com/plinyville/api',
+               'mcp': 'https://modc2.com/pliny/api/mcp',
                'include': self.CADDYFILE}
         out['caddy'] = m.mod('caddy')().apply(reload=reload)
         return out
@@ -608,9 +608,9 @@ class Mod:
             'user': GITHUB_USER,
             'ports': {'api': API_PORT, 'app': APP_PORT},
             'urls': {'app': 'https://modc2.com/plinyville',
-                     'api': 'https://modc2.com/api/plinyville',
-                     'mcp': 'https://modc2.com/api/pliny/mcp',
-                     'mcp_all': 'https://modc2.com/api/pliny/mcp/all',
+                     'api': 'https://modc2.com/plinyville/api',
+                     'mcp': 'https://modc2.com/pliny/api/mcp',
+                     'mcp_all': 'https://modc2.com/pliny/api/mcp/all',
                      'market': 'https://modc2.com/plinyville'},
             'mcp_tools': len(_mcp.TOOLS),
             'mcp_all': 'POST /mcp/all — the same tools plus one per repo '

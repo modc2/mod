@@ -1511,7 +1511,7 @@ class Mod:
         return mods
 
     def app_namespace(self, search: str = None, **kwargs):
-        """Registered app servers {name: {url, api_url, owner}}. Used by the gateway middleware to route /{mod}/* and /api/{mod}/*."""
+        """Registered app servers {name: {url, api_url, owner}}. Used by the gateway middleware to route /{mod}/*, /{mod}/api/* and the legacy /api/{mod}/*."""
         return self.fn('server.namespace/app_namespace')(search=search, **kwargs)
 
     def app_owner(self, name: str, **kwargs):

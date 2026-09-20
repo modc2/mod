@@ -14,7 +14,7 @@
         "api": "http://localhost:50610",
         "app": "http://localhost:50611/0xprof",
         "same_origin_api": "http://localhost:50611/0xprof/_api",
-        "gateway_api": "https://modc2.com/api/0xprof",
+        "gateway_api": "https://modc2.com/0xprof/api",
         "gateway_app": "https://modc2.com/0xprof"
     },
     "backend": "src/api/api.py (FastAPI \u2014 the API, :50610)",

@@ -9,7 +9,7 @@
 //   TEST   [now − test d,        now         ]   did it keep paying
 //
 // Defaults: 20d train + 10d test = 30 days back, the last 10 the backtest.
-// Both are user-set through /api/hub/autocopy; validation clamps them so
+// Both are user-set through /_api/hub/autocopy; validation clamps them so
 // train ≥ 1, test ≥ 1 and train+test ≤ 30 (MAX_LOOKBACK_DAYS — the feed's
 // own ceiling; asking past it silently returns less data, which would make
 // the train window a fiction).

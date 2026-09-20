@@ -1839,7 +1839,7 @@ def mcp_schema():
     port = int(os.environ.get("COPYTENSOR_API_PORT", _config.get("port", 50150)))
     out["connect"] = {
         "http": f"http://localhost:{port}/mcp",
-        "gateway": "/api/copytensor/mcp on the mod gateway (:3001 / caddy :3000)",
+        "gateway": "/copytensor/api/mcp on the mod gateway (:3001 / caddy :3000)",
         "claude": f"claude mcp add --transport http copytensor http://localhost:{port}/mcp",
         "stdio": {"command": "python3", "args": ["-m", "src.agent.mcp_server"],
                   "cwd": os.path.dirname(os.path.dirname(os.path.dirname(

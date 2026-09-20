@@ -12,10 +12,12 @@ import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { NextUp, PageHead, Shell } from '../../components/chrome'
 import { SplitBar } from '../../components/motion'
-import { TermsData, useResource } from '../../lib/api'
+import { TermsData, timeAgo, useResource } from '../../lib/api'
+import { CurrencyPicker, useCurrency } from '../../lib/currency'
 
-function SimField({ label, value, set, min, max, step, unit }: {
+function SimField({ label, value, set, min, max, step, unit, hint }: {
   label: string; value: number; set: (n: number) => void; min: number; max: number; step: number; unit: string
+  hint?: string | null
 }) {
   return (
     <div className="flex-1 min-w-[120px]">
@@ -26,6 +28,7 @@ function SimField({ label, value, set, min, max, step, unit }: {
           className="w-full bg-transparent text-white text-sm px-3 py-2.5 font-mono focus:outline-none" />
         <span className="text-white/55 text-xs pr-3 font-mono">{unit}</span>
       </div>
+      {hint && <div className="text-[10px] text-white/50 mt-1 font-mono tabular-nums">≈ {hint}</div>}
     </div>
   )
 }
@@ -34,6 +37,7 @@ function SimulatorInner() {
   const { data: terms } = useResource<TermsData | null>('terms', null)
   const feeInit = terms?.fee_pct ?? 2.5
   const creditInit = terms?.credit_pct ?? 100
+  const { code, setCode, fiat, fx, approximate } = useCurrency()
 
   const [price, setPrice] = useState(120)     // home price, Ξ
   const [monthly, setMonthly] = useState(2)   // monthly payment, Ξ
@@ -84,12 +88,12 @@ function SimulatorInner() {
   const owned = ownPct >= 100
 
   const stats = [
-    { v: `${principalPaid.toFixed(1)} Ξ`, c: 'text-white', k: 'your equity' },
-    { v: `${remaining.toFixed(1)} Ξ`, c: 'text-emerald-400', k: 'left to own' },
-    { v: canOwn ? `${monthsToOwn} mo` : 'never', c: 'text-coral', k: 'to own outright' },
-    { v: `${ownerIncome.toFixed(2)} Ξ`, c: 'text-white/80', k: "owner's rent income" },
-    { v: `${feesPaid.toFixed(2)} Ξ`, c: 'text-pink', k: `protocol fee · ${feePct}%` },
-    { v: `${yieldEarned.toFixed(2)} Ξ`, c: 'text-pink', k: "owner's lowfi yield" },
+    { v: `${principalPaid.toFixed(1)} Ξ`, sub: fiat(principalPaid), c: 'text-white', k: 'your equity' },
+    { v: `${remaining.toFixed(1)} Ξ`, sub: fiat(remaining), c: 'text-emerald-400', k: 'left to own' },
+    { v: canOwn ? `${monthsToOwn} mo` : 'never', sub: null, c: 'text-coral', k: 'to own outright' },
+    { v: `${ownerIncome.toFixed(2)} Ξ`, sub: fiat(ownerIncome), c: 'text-white/80', k: "owner's rent income" },
+    { v: `${feesPaid.toFixed(2)} Ξ`, sub: fiat(feesPaid), c: 'text-pink', k: `protocol fee · ${feePct}%` },
+    { v: `${yieldEarned.toFixed(2)} Ξ`, sub: fiat(yieldEarned), c: 'text-pink', k: "owner's lowfi yield" },
   ]
 
   return (
@@ -101,12 +105,13 @@ function SimulatorInner() {
 
       <div className="max-w-6xl mx-auto px-5 md:px-8">
         <div className="glass rounded-3xl p-6 md:p-9 border-coral/15">
-          <div className="flex flex-wrap items-end gap-4 mb-5">
-            <SimField label="Home price" value={price} set={setPrice} min={1} max={100000} step={1} unit="Ξ" />
-            <SimField label="Monthly payment" value={monthly} set={setMonthly} min={0.01} max={10000} step={0.1} unit="Ξ" />
+          <div className="flex flex-wrap items-start gap-4 mb-5">
+            <SimField label="Home price" value={price} set={setPrice} min={1} max={100000} step={1} unit="Ξ" hint={fiat(price)} />
+            <SimField label="Monthly payment" value={monthly} set={setMonthly} min={0.01} max={10000} step={0.1} unit="Ξ" hint={fiat(monthly)} />
             <SimField label="lowfi APY" value={apy} set={setApy} min={0} max={50} step={0.5} unit="%" />
             <SimField label="Protocol fee" value={feePct} set={n => { touched.current = true; setFeePct(n) }} min={0} max={5} step={0.1} unit="%" />
             <SimField label="Rent credit" value={creditPct} set={n => { touched.current = true; setCreditPct(n) }} min={0} max={100} step={1} unit="%" />
+            <CurrencyPicker code={code} setCode={setCode} />
           </div>
 
           {/* One month of rent, cut three ways */}
@@ -146,12 +151,21 @@ function SimulatorInner() {
                 {stats.map((s, i) => (
                   <div key={i} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
                     <div className={`font-bold tabular-nums text-xl ${s.c}`}>{s.v}</div>
+                    {s.sub && <div className="text-[11px] text-white/60 font-mono tabular-nums mt-0.5">≈ {s.sub}</div>}
                     <div className="text-[10px] uppercase tracking-widest text-white/58 mt-0.5">{s.k}</div>
                   </div>
                 ))}
               </div>
               <p className="text-[10px] text-white/50 leading-relaxed">
                 Illustrative projection from your inputs — not live data or financial advice. Real stakes come straight from the contract.
+                {fiat(1) && (
+                  <span className="block mt-1 font-mono tabular-nums">
+                    1 Ξ ≈ {fiat(1)}
+                    {approximate
+                      ? ' · approximate rate (live feed unavailable)'
+                      : fx && fx.fetched > 0 ? ` · rate ${timeAgo(fx.fetched)} via CoinGecko` : ''}
+                  </span>
+                )}
               </p>
             </div>
           </div>

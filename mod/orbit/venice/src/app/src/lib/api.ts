@@ -1,7 +1,7 @@
 // Typed client for the Venice gateway. All calls go through /api/venice/*,
 // proxied to the Rust backend (see next.config.mjs).
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/venice";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/venice/api";
 
 function authHeaders(token: string | null): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};

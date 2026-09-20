@@ -97,7 +97,7 @@ against *that key's* GitHub connection; a read without one runs anonymously.
 
 One zero-dependency server on **:50770** serves the console (`/`) and the JSON
 API (`/api/*`), tolerating the gateway prefix either way, so caddy auto-routes
-`modc2.com/github` (app) and `modc2.com/api/github` (API) from `config.json`
+`modc2.com/github` (app) and `modc2.com/github/api` (API) from `config.json`
 (`route: true`).
 
 ```bash

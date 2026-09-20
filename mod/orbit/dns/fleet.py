@@ -2,7 +2,7 @@
 The fleet, as a name space.
 
 The mod protocol's naming rule is short: `{host}/{mod}` is a module's app and
-`{host}/api/{mod}` is its API. That rule only works because two separate things
+`{host}/{mod}/api` is its API. That rule only works because two separate things
 agree — the router has a route for the module, and the host resolves to the box
 the router runs on. This file is the half that knows the modules; `zone.py` is
 the half that turns them into records.
@@ -122,8 +122,8 @@ def urls(name, host=None, scheme='https'):
     host = host or settings.host()
     return {
         'app': f'{scheme}://{host}/{name}',
-        'api': f'{scheme}://{name}.{host}/api',
-        'mcp': f'{scheme}://{name}.{host}/api/mcp',
+        'api': f'{scheme}://{host}/{name}/api',
+        'mcp': f'{scheme}://{host}/{name}/api/mcp',
         'subdomain': f'{scheme}://{name}.{host}',
     }
 

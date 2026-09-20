@@ -47,9 +47,9 @@
     "urls": {
         "api": "http://localhost:50980",
         "app": "http://localhost:50980/",
-        "gateway_api": "http://localhost:3001/api/voice",
+        "gateway_api": "http://localhost:3001/voice/api",
         "gateway_app": "http://localhost:3001/voice"
     },
     "version": "0.1.0",
-    "schema": "QmVoxGXYjKBmRk3wHgrhJV4A4ruCQ8byt6UCQkJQf8tiWX"
+    "schema": "QmXDUQ1zFrqUovcBfoSRNwLrCQojWoyGAmykFdWeiNXxUR"
 }

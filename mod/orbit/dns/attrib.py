@@ -19,12 +19,12 @@ Neither travels with a DNS answer today, which is the gap this file closes.
 Every derived module name gets a TXT record beside its address:
 
     _mod.eth.modc2.com.  TXT  "v=mod1 mod=eth key=0x7d7c… cid=Qmau24…
-                               ver=1.0.0 orbit=orbit app=/eth api=/api/eth"
+                               ver=1.0.0 orbit=orbit app=/eth api=/eth/api"
 
 and the host itself gets one that names the deployment:
 
     _mod.modc2.com.      TXT  "v=mod1 host=modc2.com key=0x7d7c…
-                               owner=0x… mods=52 app=/{mod} api=/api/{mod}"
+                               owner=0x… mods=52 app=/{mod} api=/{mod}/api"
 
 The prefixed-underscore name is deliberate: `_mod` cannot collide with a module
 called `mod`, because a leading underscore is not a legal label in a hostname,
@@ -101,7 +101,7 @@ def card(name, host=None):
         'orbit': (entry or {}).get('root') or ('orbit' if path and '/orbit/' in path else None),
         'path': path or (entry or {}).get('dir'),
         'description': (cfg.get('description') or '')[:200],
-        'app': f'/{n}', 'api': f'/api/{n}',
+        'app': f'/{n}', 'api': f'/{n}/api',
         'name': f'{PREFIX}.{n}.{host}' if entry else None,
         'urls': fleet.urls(n, host),
     }
@@ -134,7 +134,7 @@ def deployment(host=None):
         'modules': len(ms),
         'with_owner': len(owned),
         'with_cid': sum(1 for m in ms if m.get('schema')),
-        'app': '/{mod}', 'api': '/api/{mod}',
+        'app': '/{mod}', 'api': '/{mod}/api',
         'name': f'{PREFIX}.{host}',
     }
 
@@ -173,7 +173,7 @@ def records(zone_name, derive_modules=True):
             'mod': m['name'], 'owner': m.get('owner'), 'key': d['key'],
             'cid': m.get('schema'), 'version': m.get('version'),
             'orbit': m.get('root'), 'app': f'/{m["name"]}',
-            'api': f'/api/{m["name"]}',
+            'api': f'/{m["name"]}/api',
         })
         add(f'{PREFIX}.{m["name"]}', line,
             f'who {m["name"]} is attributed to, and which code it is — '

@@ -23,13 +23,15 @@ const nextConfig = {
   ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   ...(basePath ? { basePath } : {}),
   env: {
-    NEXT_PUBLIC_API_URL: "/api/web",
+    NEXT_PUBLIC_API_URL: "/web/api",
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   async rewrites() {
     return [
-      // Client fetches /api/web/* (at the domain root, NOT under basePath) →
-      // proxy to the Rust gateway. basePath:false mirrors the Caddy block.
+      // Client fetches /web/api/* (canonical; at the domain root, NOT under
+      // basePath) → proxy to the Rust gateway. basePath:false mirrors the
+      // Caddy block. The legacy /api/web alias stays supported below.
+      { source: "/web/api/:path*", destination: `${apiUrl}/:path*`, basePath: false },
       { source: "/api/web/:path*", destination: `${apiUrl}/:path*`, basePath: false },
       // Client fetches {basePath}/api/chain/* → proxy to the chain hub
       // (registration, MOD mint, reward pool, per-mod staking). Lives UNDER the

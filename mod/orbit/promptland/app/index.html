@@ -169,7 +169,7 @@
 // prefix (/promptland). The ethers bundle is vendored and served locally.
 const AT_APP_PORT = location.port === '50581';
 const BASE = AT_APP_PORT ? '' : '/promptland';
-const API = AT_APP_PORT ? location.protocol + '//' + location.hostname + ':50580' : '/api/promptland';
+const API = AT_APP_PORT ? location.protocol + '//' + location.hostname + ':50580' : '/promptland/api';
 
 // modc2 modules share one localStorage origin — writes must never throw.
 function safeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { console.warn('localStorage full', e); } }

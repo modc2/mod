@@ -2,9 +2,10 @@
 
 // The module is served by the mod protocol: POST /{fn} with a JSON body,
 // answering {"result": ...}. Through the fleet gateway that lives under
-// /api/zcash; standalone it is the module's own API port.
+// /zcash/_api (the console's internal Next proxy); standalone it is the
+// module's own API port.
 const BASE = process.env.NEXT_PUBLIC_API_URL
-  || `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api`
+  || `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/_api`
 
 export type Json = Record<string, any>
 

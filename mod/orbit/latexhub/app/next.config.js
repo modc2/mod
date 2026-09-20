@@ -14,11 +14,17 @@ if (!process.env.API_INTERNAL_URL) {
 const nextConfig = {
   basePath: '/latexhub',
   reactStrictMode: true,
-  // The browser always calls the same-origin path /api/latexhub: through the
-  // gateway caddy proxies it, and on :3200 direct the rewrite below does.
+  // The browser always calls the same-origin path /latexhub/api (canonical;
+  // legacy /api/latexhub stays supported): through the gateway caddy proxies
+  // it, and on :3200 direct the rewrites below do.
   // A hardcoded localhost:50200 only ever worked on this host.
   async rewrites() {
     return [
+      {
+        source: '/latexhub/api/:path*',
+        destination: `${apiUrl}/:path*`,
+        basePath: false,
+      },
       {
         source: '/api/latexhub/:path*',
         destination: `${apiUrl}/:path*`,

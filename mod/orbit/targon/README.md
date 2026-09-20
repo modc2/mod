@@ -152,7 +152,7 @@ targon-rs/src/
   mcp.rs              JSON-RPC 2.0 core, stdio transport
   chain.rs            Bittensor: SS58, balances, the top-up extrinsic
   http.rs             axum routes (/mcp, REST adapters, /chain, console) — the
-                      API is served at the root, at /api/targon and /targon/_api
+                      API is served at the root, at /targon/api and /targon/_api
   console.html        zero-dep browser console + the eight skins
 ```
 

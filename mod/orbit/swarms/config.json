@@ -14,9 +14,9 @@
         "api": "http://localhost:50690",
         "app": "http://localhost:50690/swarms",
         "mcp": "http://localhost:50690/mcp",
-        "gateway_api": "https://modc2.com/api/swarms",
+        "gateway_api": "https://modc2.com/swarms/api",
         "gateway_app": "https://modc2.com/swarms",
-        "gateway_mcp": "https://modc2.com/api/swarms/mcp",
+        "gateway_mcp": "https://modc2.com/swarms/api/mcp",
         "runtime_upstream": "https://api.swarms.world",
         "marketplace_upstream": "https://swarms.world/api",
         "signup": "https://swarms.world/platform/api-keys"

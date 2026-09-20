@@ -10,7 +10,7 @@ message, this module stages, commits and pushes it over your GitHub account.
 
 One zero-dependency server on **:50330** serves the app (`/`) and the JSON API
 (`/api/*`), tolerating the gateway prefix either way, so caddy auto-routes
-`modc2.com/git` (app) and `modc2.com/api/git` (API) straight from
+`modc2.com/git` (app) and `modc2.com/git/api` (API) straight from
 `config.json` (`route: true`).
 
 ## Quick start

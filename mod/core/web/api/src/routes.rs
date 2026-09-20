@@ -1,7 +1,7 @@
 //! HTTP surface for the mod-api gateway.
 //!
-//! The gateway strips the `/api/web` prefix before proxying, so these routes
-//! are mounted at the root: a request to `modc2.com/api/web/mods` arrives here
+//! The gateway strips the `/web/api` (or legacy `/api/web`) prefix before proxying, so these routes
+//! are mounted at the root: a request to `modc2.com/web/api/mods` arrives here
 //! as `GET /mods`.
 
 use axum::{

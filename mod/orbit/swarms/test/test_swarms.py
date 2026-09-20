@@ -250,8 +250,8 @@ def test_bearer_is_read_but_only_when_there_is_no_dedicated_header():
 
 
 def test_mcp_config_points_at_this_deployment():
-    cfg = api.mcp_config('claude', 'https://modc2.com/api/swarms')
-    assert cfg['endpoint'] == 'https://modc2.com/api/swarms/mcp'
+    cfg = api.mcp_config('claude', 'https://modc2.com/swarms/api')
+    assert cfg['endpoint'] == 'https://modc2.com/swarms/api/mcp'
     assert cfg['http']['mcpServers']['swarms']['url'] == cfg['endpoint']
     assert 'claude mcp add' in cfg['claude_cli']
 

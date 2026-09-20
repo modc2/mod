@@ -54,7 +54,7 @@ lh.mirror('QmcDF4…')            # → adds 'source_cid' and 'same_cid'
 
 ## HTTP
 
-`http://localhost:50680` · `https://modc2.com/api/lighthouse` ·
+`http://localhost:50680` · `https://modc2.com/lighthouse/api` ·
 `/lighthouse/_api` from the console's origin.
 
 ```bash

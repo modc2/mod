@@ -23,14 +23,14 @@
 // the search bar's TRADER SCOUT finds traders and each strat's CHAT tab tunes
 // that strat, this one answers the question that comes BEFORE those — where
 // things are and what they do. It's a guide with no hands: the route behind
-// it (/api/help-agent) has no tools and can only give directions.
+// it (/_api/help-agent) has no tools and can only give directions.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { getAccessToken } from "../lib/access";
 
-const HELP_API = "/polymarket/api/help-agent";
+const HELP_API = "/polymarket/_api/help-agent";
 
 /** Anything can ask for the agent column by name. */
 export const OPEN_AGENT_EVENT = "poly-open-agent";

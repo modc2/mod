@@ -496,7 +496,7 @@ The app needs a build before `next start`: `cd src/app && npm install && npx nex
 | | local | gateway |
 |---|---|---|
 | app | http://localhost:50411/prefi | https://modc2.com/prefi |
-| api | http://localhost:50410 | https://modc2.com/api/prefi |
+| api | http://localhost:50410 | https://modc2.com/prefi/api |
 
 The app is served under `basePath: /prefi` and talks to the API same-origin at
 `/prefi/api/*` (a Next rewrite), so one gateway route covers the whole module.

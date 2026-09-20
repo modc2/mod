@@ -38,7 +38,7 @@ Two transports, one dispatch:
 
 Connect a client:
 
-    claude mcp add --transport http agent https://modc2.com/api/agent/mcp \\
+    claude mcp add --transport http agent https://modc2.com/agent/api/mcp \\
         --header "Authorization: Bearer $MOD_TOKEN"
     claude mcp add agent -- python3 /root/mod/mod/orbit/agent/src/mcp.py
 
@@ -1310,7 +1310,7 @@ def info(base: str = None) -> dict:
     base = base or f"http://localhost:{os.environ.get('PORT', 50117)}"
     return {
         'endpoint': f'{base}/mcp',
-        'gateway': 'https://modc2.com/api/agent/mcp',
+        'gateway': 'https://modc2.com/agent/api/mcp',
         'transport': 'Streamable HTTP (JSON-RPC 2.0)',
         'stdio': f'python3 {os.path.join(MODULE_ROOT, "src", "mcp.py")}',
         'protocol': PROTOCOL_VERSION,
@@ -1319,7 +1319,7 @@ def info(base: str = None) -> dict:
         'tools': len(TOOLS),
         'resources': len(RESOURCES),
         'connect': 'claude mcp add --transport http agent '
-                   'https://modc2.com/api/agent/mcp',
+                   'https://modc2.com/agent/api/mcp',
         'names': list(TOOLS),
     }
 

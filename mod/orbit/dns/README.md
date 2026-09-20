@@ -128,7 +128,7 @@ not a guide.
 ## Resolving
 
 `resolve` takes whatever you happen to be holding — a module name (`eth`), a
-hostname (`eth.modc2.com`), a gateway path (`modc2.com/api/eth`) or a whole URL
+hostname (`eth.modc2.com`), a gateway path (`modc2.com/eth/api`) or a whole URL
 — and answers with the module, the host, all four addresses, whether the
 upstream ports are actually listening, the DNS records behind the name, and who
 the module is attributed to.

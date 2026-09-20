@@ -1,12 +1,31 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+interface IApprovedTokens {
+    function isApproved(address token) external view returns (bool);
+    function valueOf(address token, uint256 amount) external view returns (uint256);
+}
+
+interface IERC20 {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+}
+
 /// @title OpenHouse — rent-to-own, on-chain
 /// @notice Renters pay monthly. The protocol takes 0–5% (owner-set, hard-capped in
 ///         code — and zero is inside the band) and everything else stays with the
 ///         property: a share is credited to the renter as PRINCIPAL toward the home,
 ///         the rest is the owner's rent income. Compare an Airbnb-style 14–16% take.
 ///         Pay 100% of the price → own the house outright.
+///
+///         Rent is money, not a currency: any token on the deployer's approved
+///         list (see ApprovedTokens.sol) pays here — a set of USD stablecoins,
+///         plus the chain's native coin. Every number in this contract is
+///         denominated in 18-decimal USD VALUE, so a 6-decimal USDC dollar and
+///         an 18-decimal DAI dollar buy exactly the same equity; the tokens
+///         themselves flow straight through to the owner and the vault, and the
+///         fee pool remembers which tokens it holds so claims pay out in the
+///         money that actually came in.
 ///
 ///         What the fee does collect is not kept. It pools in this contract and every
 ///         quarter the pool is split by BLOCTIME — dollars x seconds of liquidity
@@ -25,10 +44,21 @@ pragma solidity ^0.8.20;
 contract OpenHouse {
     // ─────────────────────────────────────────── The home ──
     string  public description;          // the property
-    uint256 public immutable homePrice;  // principal required to own outright (wei)
+    uint256 public immutable homePrice;  // principal required to own outright (USD value, 18 dec)
     address public owner;                // current legal owner / asset provider
     address public yieldVault;           // lowfi vault principal is routed to
     address public treasury;             // where unclaimed pool dust is swept, nothing else
+
+    // ─────────────────────────────────────────── The money ──
+    /// The deployer's whitelist of payment tokens — stablecoins and the native
+    /// coin, each with the USD value of one whole token. Which registry this
+    /// deal answers to is fixed at birth; what is ON the list is the registry
+    /// deployer's ongoing call. Approval is checked at the door only: a token
+    /// delisted mid-quarter still pays out of every pool it is already in.
+    IApprovedTokens public immutable approvedTokens;
+    /// The native coin's slot on the list — ApprovedTokens.NATIVE.
+    address public constant NATIVE = address(0);
+    mapping(address => uint256) public totalPaidIn;   // token → gross amount received, lifetime
 
     // ─────────────────────────────────────────── The bank ──
     /// Every lever that can move the deal — where principal is routed, where dust
@@ -90,13 +120,23 @@ contract OpenHouse {
 
     uint256 public quarter;              // index of the quarter now accruing
     uint256 public quarterStart;         // when it started (the last close, or deploy)
-    uint256 public pendingPool;          // fees collected since that start
+    uint256 public pendingPool;          // fees collected since that start (USD value)
 
-    mapping(uint256 => uint256) public quarterPool;     // q → wei to split
+    mapping(uint256 => uint256) public quarterPool;     // q → USD value to split
     mapping(uint256 => uint256) public quarterEnd;      // q → close timestamp
     mapping(uint256 => uint256) public quarterWeight;   // q → total bloctime, final at close
-    mapping(uint256 => uint256) public quarterClaimed;  // q → wei paid out so far
+    mapping(uint256 => uint256) public quarterClaimed;  // q → USD value paid out so far
     mapping(uint256 => bool)    public swept;           // q → dust sent to the treasury
+
+    /// The pool's value is one number; the pool's CONTENTS are whatever tokens
+    /// the fees arrived in. Both rails are kept: value splits the pool by
+    /// bloctime, and the per-token books say what a claimant is actually sent.
+    mapping(address => uint256) public pendingPoolOf;   // token → fee amount accruing now
+    address[] private _pendingTokens;
+    mapping(address => bool) private _pendingSeen;
+    mapping(uint256 => address[]) private _poolTokens;                        // q → tokens frozen at close
+    mapping(uint256 => mapping(address => uint256)) public quarterPoolOf;     // q → token → amount
+    mapping(uint256 => mapping(address => uint256)) public quarterClaimedOf;  // q → token → paid out
     mapping(uint256 => mapping(address => uint256)) public weightOf;  // q → who → bloctime
     mapping(uint256 => mapping(address => bool))    public claimed;   // q → who → paid
 
@@ -110,7 +150,9 @@ contract OpenHouse {
     // ─────────────────────────────────────────── Events ────
     event RentPaid(
         address indexed renter,
-        uint256 amount,
+        address indexed token,
+        uint256 amount,       // in the token's own units
+        uint256 value,        // the same payment in USD value — what the books use
         uint256 fee,
         uint256 credit,
         uint256 ownerIncome,
@@ -144,9 +186,18 @@ contract OpenHouse {
         _;
     }
 
+    uint256 private _lock = 1;
+    modifier nonReentrant() {
+        require(_lock == 1, "OpenHouse: reentrant");
+        _lock = 2;
+        _;
+        _lock = 1;
+    }
+
     constructor(
         string memory _description,
         uint256 _homePrice,
+        address _approvedTokens,
         address _yieldVault,
         address _treasury,
         address _bank,
@@ -154,11 +205,13 @@ contract OpenHouse {
         uint256 _rentCreditBps
     ) {
         require(_homePrice > 0, "OpenHouse: zero price");
+        require(_approvedTokens != address(0), "OpenHouse: zero token list");
         require(_treasury != address(0), "OpenHouse: zero treasury");
         require(_bank != address(0), "OpenHouse: zero bank");
         require(_bank != msg.sender, "OpenHouse: bank is the owner");
         description = _description;
         homePrice = _homePrice;
+        approvedTokens = IApprovedTokens(_approvedTokens);
         owner = msg.sender;
         yieldVault = _yieldVault;
         treasury = _treasury;
@@ -170,16 +223,36 @@ contract OpenHouse {
 
     // ─────────────────────────────────────── Pay rent ──────
 
-    /// @notice Pay rent. The protocol takes `platformFeeBps` — possibly nothing; of
-    ///         what's left, `rentCreditBps` is credited to you as principal toward
-    ///         the home and the remainder is the owner's rent income. Principal is
-    ///         routed to the owner's low-risk yield vault (lowfi) while it sits, and
-    ///         it starts earning bloctime here the moment it lands.
-    function payRent() external payable notPaused {
-        require(msg.value > 0, "OpenHouse: no payment");
+    /// @notice Pay rent, in any approved token — pass `NATIVE` (the zero address)
+    ///         and send the coin as msg.value, or an approved stablecoin you have
+    ///         approved this contract to pull. The protocol takes `platformFeeBps`
+    ///         — possibly nothing; of what's left, `rentCreditBps` is credited to
+    ///         you as principal toward the home and the remainder is the owner's
+    ///         rent income. Principal is routed to the owner's low-risk yield
+    ///         vault (lowfi) while it sits, and it starts earning bloctime here
+    ///         the moment it lands. Equity is bought in USD value, so a dollar is
+    ///         a dollar whichever token carried it.
+    /// @param token an entry on the ApprovedTokens list; NATIVE for the coin
+    /// @param amount in the token's own units; for NATIVE it must equal msg.value
+    function payRent(address token, uint256 amount) external payable notPaused nonReentrant {
+        if (token == NATIVE) {
+            require(msg.value > 0 && msg.value == amount, "OpenHouse: bad native amount");
+        } else {
+            require(msg.value == 0, "OpenHouse: coin sent with a token payment");
+            require(amount > 0, "OpenHouse: no payment");
+        }
         require(totalPrincipalPaid < homePrice, "OpenHouse: home already paid off");
+        require(approvedTokens.isApproved(token), "OpenHouse: token not approved");
 
-        (uint256 fee, uint256 credit, uint256 ownerIncome) = quoteRent(msg.value);
+        uint256 value = approvedTokens.valueOf(token, amount);
+        require(value > 0, "OpenHouse: pays nothing");
+        (uint256 fee, uint256 credit, uint256 ownerIncome) = quoteRent(value);
+
+        // The value split, mapped back onto the token pro-rata. Rounding dust
+        // lands in the owner's slice — dust is rent, never equity and never fee.
+        uint256 feeAmt = (amount * fee) / value;
+        uint256 creditAmt = (amount * credit) / value;
+        uint256 ownerAmt = amount - feeAmt - creditAmt;
 
         // Bank the bloctime earned on the old balances before they change.
         _accrue(msg.sender);
@@ -187,40 +260,61 @@ contract OpenHouse {
 
         _track(msg.sender);
         principalPaid[msg.sender] += credit;
-        rentPaid[msg.sender] += msg.value;
+        rentPaid[msg.sender] += value;
         totalPrincipalPaid += credit;
-        totalRentPaid += msg.value;
+        totalRentPaid += value;
         totalFees += fee;
         totalOwnerIncome += ownerIncome;
+        totalPaidIn[token] += amount;
 
-        emit RentPaid(msg.sender, msg.value, fee, credit, ownerIncome, principalPaid[msg.sender]);
-
-        // Principal sits in lowfi yield and rent income settles now. The fee stays
-        // here, in the quarter's pool — it is owed back, not taken.
-        if (credit > 0) {
-            address sink = yieldVault != address(0) ? yieldVault : owner;
-            _send(sink, credit);
-            if (sink == yieldVault) emit FundsRoutedToYield(yieldVault, credit);
-        }
-        if (ownerIncome > 0) _send(owner, ownerIncome);
+        // The fee stays here, in the quarter's pool — it is owed back, not
+        // taken. Both rails: the value that splits it, the token that pays it.
         pendingPool += fee;
+        if (feeAmt > 0) {
+            pendingPoolOf[token] += feeAmt;
+            if (!_pendingSeen[token]) { _pendingSeen[token] = true; _pendingTokens.push(token); }
+        }
+
+        emit RentPaid(msg.sender, token, amount, value, fee, credit, ownerIncome, principalPaid[msg.sender]);
+
+        if (token != NATIVE) _pull(token, msg.sender, amount);
+
+        // Principal sits in lowfi yield and rent income settles now.
+        if (creditAmt > 0) {
+            address sink = yieldVault != address(0) ? yieldVault : owner;
+            _pay(token, sink, creditAmt);
+            if (sink == yieldVault) emit FundsRoutedToYield(yieldVault, creditAmt);
+        }
+        if (ownerAmt > 0) _pay(token, owner, ownerAmt);
 
         if (totalPrincipalPaid == homePrice) emit HomeFullyOwned(block.timestamp);
     }
 
-    /// @notice Split a payment the way `payRent` would, without paying.
+    /// @notice Split a payment the way `payRent` would, without paying. Value in,
+    ///         value out — use `quoteToken` to start from a token amount.
+    /// @param value the payment in 18-decimal USD value
     /// @return fee protocol take, credit principal toward the home, ownerIncome the owner's rent
-    function quoteRent(uint256 amount)
+    function quoteRent(uint256 value)
         public view
         returns (uint256 fee, uint256 credit, uint256 ownerIncome)
     {
-        fee = (amount * platformFeeBps) / 10_000;
-        uint256 net = amount - fee;
+        fee = (value * platformFeeBps) / 10_000;
+        uint256 net = value - fee;
         credit = (net * rentCreditBps) / 10_000;
         // Never credit past the price — the overflow is rent, not equity.
         uint256 room = homePrice - totalPrincipalPaid;
         if (credit > room) credit = room;
         ownerIncome = net - credit;
+    }
+
+    /// @notice What an amount of an approved token buys: its USD value, split
+    ///         the way `payRent` would split it.
+    function quoteToken(address token, uint256 amount)
+        external view
+        returns (uint256 value, uint256 fee, uint256 credit, uint256 ownerIncome)
+    {
+        value = approvedTokens.valueOf(token, amount);
+        (fee, credit, ownerIncome) = quoteRent(value);
     }
 
     // ─────────────────────────── Quarterly redistribution ──
@@ -247,6 +341,18 @@ contract OpenHouse {
         quarterPool[q] = pendingPool;
         pendingPool = 0;
 
+        // Freeze the pool's contents alongside its value: the tokens the fees
+        // arrived in become q's payout rail, and the pending rail starts empty.
+        uint256 n = _pendingTokens.length;
+        for (uint256 i = 0; i < n; i++) {
+            address t = _pendingTokens[i];
+            _poolTokens[q].push(t);
+            quarterPoolOf[q][t] = pendingPoolOf[t];
+            delete pendingPoolOf[t];
+            delete _pendingSeen[t];
+        }
+        delete _pendingTokens;
+
         quarter = q + 1;
         quarterStart = block.timestamp;
 
@@ -255,8 +361,10 @@ contract OpenHouse {
     }
 
     /// @notice Claim your share of a closed quarter's pool: the fee back, in
-    ///         proportion to the dollars x seconds you had locked that quarter.
-    function claim(uint256 q) external notPaused returns (uint256 amount) {
+    ///         proportion to the dollars x seconds you had locked that quarter —
+    ///         paid out in the very tokens the quarter's fees arrived in.
+    /// @return amount the claim's USD value; the transfers are per token
+    function claim(uint256 q) external notPaused nonReentrant returns (uint256 amount) {
         require(q < quarter, "OpenHouse: quarter still open");
         require(!swept[q], "OpenHouse: quarter swept");
         require(!claimed[q][msg.sender], "OpenHouse: already claimed");
@@ -270,19 +378,40 @@ contract OpenHouse {
         amount = (quarterPool[q] * weight) / quarterWeight[q];
         quarterClaimed[q] += amount;
         emit PoolClaimed(q, msg.sender, weight, amount);
-        if (amount > 0) _send(msg.sender, amount);
+
+        address[] storage toks = _poolTokens[q];
+        uint256 n = toks.length;
+        for (uint256 i = 0; i < n; i++) {
+            address t = toks[i];
+            uint256 share = (quarterPoolOf[q][t] * weight) / quarterWeight[q];
+            if (share > 0) {
+                quarterClaimedOf[q][t] += share;
+                _pay(t, msg.sender, share);
+            }
+        }
     }
 
     /// @dev After a full year unclaimed, what's left of a quarter's pool (plus the
-    ///      wei of rounding dust every division leaves) goes to the treasury. A
-    ///      sweep moves money, so it is a 2-of-2 operation: propose(Sweep, q).
+    ///      rounding dust every division leaves) goes to the treasury, token by
+    ///      token. A sweep moves money, so it is a 2-of-2 operation:
+    ///      propose(Sweep, q).
     function _sweepUnclaimed(uint256 q) internal returns (uint256 amount) {
         require(quarter > q + CLAIM_WINDOW, "OpenHouse: claim window still open");
         require(!swept[q], "OpenHouse: already swept");
         swept[q] = true;
         amount = quarterPool[q] - quarterClaimed[q];
         emit PoolSwept(q, amount);
-        if (amount > 0) _send(treasury, amount);
+
+        address[] storage toks = _poolTokens[q];
+        uint256 n = toks.length;
+        for (uint256 i = 0; i < n; i++) {
+            address t = toks[i];
+            uint256 left = quarterPoolOf[q][t] - quarterClaimedOf[q][t];
+            if (left > 0) {
+                quarterClaimedOf[q][t] = quarterPoolOf[q][t];
+                _pay(t, treasury, left);
+            }
+        }
     }
 
     // ─────────────────────────────────────────── Views ─────
@@ -355,6 +484,16 @@ contract OpenHouse {
     function toPropertyBps() external view returns (uint256) {
         if (totalRentPaid == 0) return 10_000 - platformFeeBps;
         return ((totalRentPaid - totalFees) * 10_000) / totalRentPaid;
+    }
+
+    /// @notice The tokens a closed quarter's pool holds — what `claim(q)` pays in.
+    function poolTokens(uint256 q) external view returns (address[] memory) {
+        return _poolTokens[q];
+    }
+
+    /// @notice The tokens the accruing quarter's fees have arrived in so far.
+    function pendingTokens() external view returns (address[] memory) {
+        return _pendingTokens;
     }
 
     function renterCount() external view returns (uint256) { return renters.length; }
@@ -526,9 +665,24 @@ contract OpenHouse {
         _totalQuarter = quarter;
     }
 
-    function _send(address to, uint256 amount) internal {
-        (bool ok, ) = to.call{value: amount}("");
-        require(ok, "OpenHouse: transfer failed");
+    /// @dev Pay out in whatever the money is — the native coin by call, a token
+    ///      by transfer. Tolerates non-standard stables (USDT) that return
+    ///      nothing instead of true.
+    function _pay(address token, address to, uint256 amount) internal {
+        if (token == NATIVE) {
+            (bool ok, ) = to.call{value: amount}("");
+            require(ok, "OpenHouse: transfer failed");
+        } else {
+            (bool ok, bytes memory ret) =
+                token.call(abi.encodeCall(IERC20.transfer, (to, amount)));
+            require(ok && (ret.length == 0 || abi.decode(ret, (bool))), "OpenHouse: transfer failed");
+        }
+    }
+
+    function _pull(address token, address from, uint256 amount) internal {
+        (bool ok, bytes memory ret) =
+            token.call(abi.encodeCall(IERC20.transferFrom, (from, address(this), amount)));
+        require(ok && (ret.length == 0 || abi.decode(ret, (bool))), "OpenHouse: transfer failed");
     }
 
     function _track(address who) internal {

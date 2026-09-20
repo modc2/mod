@@ -528,6 +528,9 @@ class Mod:
                 ("'/bloctime'", f"'/{name}'"),
             ],
             dest / 'app' / 'src' / 'app' / 'page.tsx': [
+                # canonical form first; legacy /api/<mod> pair kept so forks
+                # of either vintage of page.tsx rewrite correctly.
+                ('/bloctime/api', f'/{name}/api'),
                 ('/api/bloctime', f'/api/{name}'),
                 ('http://localhost:8851', f'http://localhost:{port}'),
             ],

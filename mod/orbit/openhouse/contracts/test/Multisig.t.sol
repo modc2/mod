@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {OpenHouse} from "../OpenHouse.sol";
+import {ApprovedTokens} from "../ApprovedTokens.sol";
 
 interface Vm {
     function prank(address) external;
@@ -23,7 +24,9 @@ contract MultisigTest {
     receive() external payable {}
 
     function setUp() public {
-        oh = new OpenHouse("123 Test St", 100 ether, address(0), address(0xFEE5), bank, 300, 8000);
+        // Native priced at $1 so value units equal wei and the old numbers hold.
+        ApprovedTokens toks = new ApprovedTokens("ETH", 1e18);
+        oh = new OpenHouse("123 Test St", 100 ether, address(toks), address(0), address(0xFEE5), bank, 300, 8000);
         vm.deal(renter, 1000 ether);
         vm.deal(stranger, 10 ether);
     }
@@ -133,7 +136,7 @@ contract MultisigTest {
         oh.pause();
         vm.prank(renter);
         vm.expectRevert(bytes("OpenHouse: paused"));
-        oh.payRent{value: 1 ether}();
+        oh.payRent{value: 1 ether}(address(0), 1 ether);
         vm.prank(renter);
         vm.expectRevert(bytes("OpenHouse: paused"));
         oh.claim(0);
@@ -149,14 +152,14 @@ contract MultisigTest {
         require(!oh.paused(), "not unpaused");
         // Money flows again.
         vm.prank(renter);
-        oh.payRent{value: 1 ether}();
+        oh.payRent{value: 1 ether}(address(0), 1 ether);
     }
 
     // ── daily life is untouched ────────────────────────────────
 
     function test_rentAndCloseStillWork() public {
         vm.prank(renter);
-        oh.payRent{value: 10 ether}();
+        oh.payRent{value: 10 ether}(address(0), 10 ether);
         require(oh.totalRentPaid() == 10 ether, "rent not recorded");
         vm.warp(block.timestamp + 90 days);
         oh.closeQuarter(); // still permissionless

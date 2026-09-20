@@ -32,7 +32,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const DEFAULT_URL: &str = "http://127.0.0.1:9000/api/store";
-const DEFAULT_PUBLIC: &str = "/api/store";
+const DEFAULT_PUBLIC: &str = "/store/api";
 const DEFAULT_PAGE: &str = "/store";
 /// A token is time-bounded by the store (7 days by default); this is well inside.
 const TOKEN_TTL: Duration = Duration::from_secs(6 * 3600);

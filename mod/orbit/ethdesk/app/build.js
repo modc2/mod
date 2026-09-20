@@ -326,7 +326,7 @@ export function initBuild(ctx) {
     }
     const links = project.cid ? {
       open: `${location.origin}${location.pathname}?open=${project.cid}`,
-      store: `/api/store/get?cid=${project.cid}`,
+      store: `/store/api/get?cid=${project.cid}`,
     } : null;
     el.innerHTML = `
       <dl class="facts">

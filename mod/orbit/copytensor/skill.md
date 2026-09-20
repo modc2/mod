@@ -244,13 +244,13 @@ without that note a stale `claude login` shows a green READY badge and then answ
 
 The API **is** the MCP server: `POST /mcp` on the API port speaks streamable
 HTTP (JSON-RPC 2.0, batches ok), and the gateway forwards it as
-`/api/copytensor/mcp`. `GET /mcp/schema` (or `m copytensor/mcp`) lists the
+`/copytensor/api/mcp`. `GET /mcp/schema` (or `m copytensor/mcp`) lists the
 transports and every tool before you connect.
 
 ```bash
 claude mcp add --transport http copytensor http://localhost:50150/mcp
 # through the gateway / from another box:
-claude mcp add --transport http copytensor https://<host>/api/copytensor/mcp
+claude mcp add --transport http copytensor https://<host>/copytensor/api/mcp
 # stdio, if you would rather not go over the network (same dispatcher):
 claude mcp add copytensor -- python3 -m src.agent.mcp_server   # from the module dir
 ```
@@ -494,5 +494,5 @@ Check at least one light skin and one dark before shipping a visual change.
 - **Default entry**: `forward()` returns module info; `forward(fn="leaderboard")` dispatches
 - **Logs**: `/tmp/copytensor/api.log`, `/tmp/copytensor/app.log` (local mode), `docker logs copytensor` (docker mode)
 - **Ports**: api 50150, app 3150
-- **Gateway**: registered in `server.namespace.app_namespace` on first `serve()`. Accessible via the mod-protocol gateway on :3001 (`/copytensor` for app, `/api/copytensor/*` for API) and the caddy edge on :3000. Use `m.copytensor.gateway()` (or `m copytensor/gateway`) to print live URLs.
+- **Gateway**: registered in `server.namespace.app_namespace` on first `serve()`. Accessible via the mod-protocol gateway on :3001 (`/copytensor` for app, `/copytensor/api/*` for API) and the caddy edge on :3000. Use `m.copytensor.gateway()` (or `m copytensor/gateway`) to print live URLs.
 - **Docker**: `docker compose up -d --build` from the module dir, or `m copytensor/serve` (auto-picks docker when available, falls back to local with the prebuilt arm64 binary). Image: `copytensor-copytensor:latest`. Rust 1.93+ required (older base images choke on `ar_archive_writer`/`constant_time_eq` edition2024 features).

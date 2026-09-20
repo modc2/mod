@@ -66,7 +66,7 @@ interface StoreFile {
 /** A prototype-less map. Both halves of the store are keyed by
     caller-supplied condition ids, and on a plain `{}` a lookup for
     "constructor" (or "toString", "__proto__"…) hits `Object.prototype` and
-    answers with a truthy non-resolution — `POST /api/hub {"resolve":
+    answers with a truthy non-resolution — `POST /_api/hub {"resolve":
     ["constructor"]}` then threw on `hit.legs` and 500'd. `Object.create(null)`
     has no inherited keys, so a miss is a miss. */
 function bareMap<T>(src?: Record<string, T>): Record<string, T> {

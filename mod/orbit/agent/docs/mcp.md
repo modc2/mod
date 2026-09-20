@@ -4,12 +4,12 @@ The module's API, spoken as Model Context Protocol. Twenty-five tools, seven
 resources, and the prompt library — over one endpoint.
 
 ```
-POST https://modc2.com/api/agent/mcp        Streamable HTTP (JSON-RPC 2.0)
+POST https://modc2.com/agent/api/mcp        Streamable HTTP (JSON-RPC 2.0)
 python3 src/mcp.py                          stdio
 ```
 
 ```bash
-claude mcp add --transport http agent https://modc2.com/api/agent/mcp \
+claude mcp add --transport http agent https://modc2.com/agent/api/mcp \
     --header "Authorization: Bearer $MOD_TOKEN"
 
 # or, on the host itself

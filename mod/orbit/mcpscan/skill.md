@@ -38,7 +38,7 @@ scan.export(status="live", format="mcp")             # mcpServers block of every
 ## Use it from an MCP client
 
 ```bash
-claude mcp add mcpscan --transport http https://modc2.com/api/mcpscan/mcp
+claude mcp add mcpscan --transport http https://modc2.com/mcpscan/api/mcp
 ```
 
 Six tools, because a flat union of ~200k tools is not a thing a client can

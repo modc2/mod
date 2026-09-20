@@ -226,7 +226,7 @@ export function readManifest(): HubManifest {
   return readJson<HubManifest>(manifestPath(), { days: HUB_BACKTEST_DAYS, strats: [], at: 0 });
 }
 
-// tmp + rename, via feedStore's writer: `/api/hub` reads these files from the
+// tmp + rename, via feedStore's writer: `/_api/hub` reads these files from the
 // same process on another tick, and a plain writeFileSync let a reader catch
 // a truncated backtests.json mid-write and fall back to an empty cache.
 export function writeManifest(m: HubManifest): void {

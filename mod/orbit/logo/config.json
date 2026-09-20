@@ -16,7 +16,7 @@
         "api": "http://localhost:50760",
         "app": "http://localhost:50761/logo",
         "same_origin_api": "http://localhost:50761/logo/_api",
-        "gateway_api": "https://modc2.com/api/logo",
+        "gateway_api": "https://modc2.com/logo/api",
         "gateway_app": "https://modc2.com/logo"
     },
     "backend": "api/api.py (FastAPI \u2014 the API, :50760)",

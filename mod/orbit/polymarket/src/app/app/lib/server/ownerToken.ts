@@ -4,7 +4,7 @@
 // persists at ~/.mod/polymarket/server.secret (api/src/access.rs). Two things
 // in the Next server need that secret:
 //
-//   • the /api/hub route, to check that a caller is the owner before it reads
+//   • the /_api/hub route, to check that a caller is the owner before it reads
 //     or writes the backtest cache;
 //   • the background worker, which has to call the gated Rust API with no
 //     browser to sign in for it, so it mints itself the same token the console

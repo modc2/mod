@@ -127,6 +127,7 @@ class Mod:
         self.rent_path = self.store_dir / 'rent.json'
         self.pool_path = self.store_dir / 'pool.json'
         self.peers_cache_path = self.store_dir / 'peers_cache.json'
+        self.fx_cache_path = self.store_dir / 'fx_cache.json'
         self.civic_path = self.store_dir / 'civic.json'
 
         # Config
@@ -915,6 +916,23 @@ class Mod:
         """OpenHouse against the field — including where the field is ahead."""
         return self._peers_mod().compare(self.terms(), self.peers_cache_path, refresh=refresh)
 
+    def _fx_mod(self):
+        """Load fx.py by path, same reasoning as _peers_mod."""
+        if getattr(self, '_fx_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_fx', self.module_dir / 'fx.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._fx_cache = mod_
+        return self._fx_cache
+
+    def fx(self, refresh: bool = False) -> dict:
+        """What a Ξ is worth: ETH quoted in a dozen fiat currencies.
+        Keyless CoinGecko, 15-min cache, stale-cache then baked-in fallback —
+        the simulator always gets an answer, marked by `source`."""
+        return self._fx_mod().rates(self.fx_cache_path, refresh=refresh)
+
     # ━━ Health & Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def health(self):
@@ -1486,6 +1504,7 @@ class Mod:
             bloctime           - One address's locked liquidity + dollar-days (address=)
             peers              - Other on-chain housing projects (refresh=)
             compare            - OpenHouse against the field (refresh=)
+            fx                 - ETH in fiat currencies for display (refresh=)
             property           - Property details
             shareholders       - All shareholders
             shareholder        - Shareholder info (address=)
@@ -1549,6 +1568,7 @@ class Mod:
             'bloctime': lambda: self.bloctime(kwargs.get('address', '')),
             'peers': lambda: self.peers(refresh=bool(kwargs.get('refresh'))),
             'compare': lambda: self.compare(refresh=bool(kwargs.get('refresh'))),
+            'fx': lambda: self.fx(refresh=bool(kwargs.get('refresh'))),
             'property': lambda: self.property(),
             'shareholders': lambda: self.shareholders(),
             'shareholder': lambda: self.shareholder(kwargs.get('address', '')),

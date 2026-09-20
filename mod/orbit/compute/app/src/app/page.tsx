@@ -33,7 +33,7 @@ export default function ComputePage() {
 
   const fetchInstances = useCallback(async () => {
     try {
-      const res = await fetch("/api/instances");
+      const res = await fetch("/compute/_api/instances");
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setInstances(data);
@@ -44,7 +44,7 @@ export default function ComputePage() {
 
   const fetchOffers = useCallback(async () => {
     try {
-      const res = await fetch("/api/offers");
+      const res = await fetch("/compute/_api/offers");
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setOffers(data);
@@ -71,7 +71,7 @@ export default function ComputePage() {
   async function instanceAction(action: string, name: string) {
     setError(null);
     try {
-      const res = await fetch("/api/instances", {
+      const res = await fetch("/compute/_api/instances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, name }),
@@ -90,7 +90,7 @@ export default function ComputePage() {
   async function submitOffer(data: any) {
     setError(null);
     try {
-      const res = await fetch("/api/offers", {
+      const res = await fetch("/compute/_api/offers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "register", ...data }),
@@ -106,7 +106,7 @@ export default function ComputePage() {
   async function removeOffer(name: string) {
     setError(null);
     try {
-      const res = await fetch("/api/offers", {
+      const res = await fetch("/compute/_api/offers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "remove", name }),
@@ -122,7 +122,7 @@ export default function ComputePage() {
   async function submitRent(data: any) {
     setError(null);
     try {
-      const res = await fetch("/api/instances", {
+      const res = await fetch("/compute/_api/instances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "rent", ...data }),
@@ -139,7 +139,7 @@ export default function ComputePage() {
   async function billAll() {
     setError(null);
     try {
-      const res = await fetch("/api/billing", {
+      const res = await fetch("/compute/_api/billing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "bill_all" }),

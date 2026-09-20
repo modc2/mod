@@ -43,7 +43,7 @@ VERSION = '1.1.0'
 
 INSTRUCTIONS = (
     'The DNS layer of the mod protocol. In this protocol a module is reachable '
-    'at {host}/{mod} (app), {host}/api/{mod} (API) and {mod}.{host} (name), and '
+    'at {host}/{mod} (app), {host}/{mod}/api (API) and {mod}.{host} (name), and '
     'this module is what makes all three agree: it derives a zone from the '
     'module fleet, serves it authoritatively over UDP and TCP, and resolves any '
     'of those forms back to addresses. Start with dns_resolve. Use dns_check '
@@ -225,7 +225,7 @@ TOOLS = [
      'inputSchema': _s({'word': STR}, ['word'])},
     {'name': 'dns_resolve', 'fn': _t_resolve,
      'description': 'Where is this? Takes a module name (eth), a hostname '
-                    '(eth.modc2.com), a gateway path (modc2.com/api/eth) or a '
+                    '(eth.modc2.com), a gateway path (modc2.com/eth/api) or a '
                     'URL, and returns the app/API/MCP addresses, whether the '
                     'upstream ports are live, and the DNS answer for the name.',
      'inputSchema': _s({'query': dict(STR, description='module, hostname, path or URL'),

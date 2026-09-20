@@ -20,12 +20,12 @@ const ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
 // The search row is also THE AGENT: type what you want in words ("consistent
 // 30-day winners with real volume") and Enter hands the ask to a trader scout
 // that answers through this module's own MCP server (pm_top_traders /
-// pm_trader — /api/trader-agent), so every address it returns came out of the
+// pm_trader — /_api/trader-agent), so every address it returns came out of the
 // live leaderboard, not the model's memory. Typing still live-filters the
 // board underneath, and an 0x address still teleports — three behaviors, one
 // box, disambiguated by what the text is.
 
-const SCOUT_API = "/polymarket/api/trader-agent";
+const SCOUT_API = "/polymarket/_api/trader-agent";
 
 interface ScoutTrader {
   address: string;

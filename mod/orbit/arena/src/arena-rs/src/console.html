@@ -780,7 +780,7 @@
 
 // Served at /arena behind the fleet router and at / standalone. Both worlds
 // answer on /api/arena, so the only question is whether there is a prefix.
-const API = location.pathname.startsWith("/arena") ? "/api/arena" : "";
+const API = location.pathname.startsWith("/arena") ? "/arena/api" : "";
 const RUNTIME = `${API}/runtime`;
 
 const { makeApi } = await import(`${RUNTIME}/match.mjs`);

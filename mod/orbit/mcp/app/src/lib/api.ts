@@ -1,6 +1,6 @@
 // Hub API client. In prod Caddy routes /api/mcp/* → mcp-api; in dev the Next
 // rewrite in next.config.mjs does the same, so one base works everywhere.
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/mcp";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/mcp/api";
 
 export type Probe = {
   ok: boolean;

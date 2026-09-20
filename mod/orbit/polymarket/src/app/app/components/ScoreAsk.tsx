@@ -10,7 +10,7 @@ import { useCallback, useState } from "react";
 
 import { getAccessToken } from "../lib/access";
 
-const ASK_API = "/polymarket/api/score-agent";
+const ASK_API = "/polymarket/_api/score-agent";
 
 interface Props {
   formula: string;

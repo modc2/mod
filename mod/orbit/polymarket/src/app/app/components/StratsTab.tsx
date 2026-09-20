@@ -27,8 +27,10 @@
 //   COMMUNITY   every published recipe strat on this deploy — fork one into
 //               a private copy you own. Your own published cards show here
 //               too so you can see exactly what's public and pull it back.
-//   CODE        user-written Strat classes (mod.py) — upload, publish, and
-//               the CID share/import path that works across deploys.
+//   CODE        user-written Strat classes (strat.py / strat.rs / strat.ts)
+//               — upload, publish, and the CID share/import path that works
+//               across deploys. The header row's ⇪ UPLOAD and the grid's
+//               UPLOAD CODE tile both feed this store.
 //   SCORE       the ▦ SCORE MARKET — this is its ONE home (it used to sit
 //               inside the board's ƒ SCORE panel). USE broadcasts the source
 //               over the formula bus (scoreFormula.FORMULA_EVENT), so the
@@ -41,7 +43,7 @@
 // own owner-keyed public flag + CID store (UserStratsPanel). Nothing here
 // touches allocation: funding lives on INDEX, running lives on LIVE.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useAuth } from "../context/AuthContext";
@@ -61,7 +63,7 @@ import Sparkline from "./Sparkline";
 import StratChat from "./StratChat";
 import StratLab from "./StratLab";
 import StratVibe from "./StratVibe";
-import UserStratsPanel from "./UserStratsPanel";
+import UserStratsPanel, { USER_STRATS_CHANGED_EVENT } from "./UserStratsPanel";
 
 function timeSince(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -152,6 +154,47 @@ export default function StratsTab() {
 
   const myAddr = auth.address?.toLowerCase() ?? "";
 
+  // ── Upload a code strat (strat.py / strat.rs / strat.ts) from this tab ──
+  // The file lands in the CODE STRATS store below (private, owned by the
+  // connected wallet); the kind comes from the extension, the id from the
+  // filename. USER_STRATS_CHANGED_EVENT tells UserStratsPanel to re-read.
+  const uploadRef = useRef<HTMLInputElement | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const handleStratFile = useCallback(async (file: File) => {
+    setStatus(null);
+    const ext = /\.(py|rs|ts)$/i.exec(file.name)?.[1]?.toLowerCase();
+    if (!ext) {
+      setStatus(`"${file.name}" isn't a strat file — upload a strat.py, strat.rs or strat.ts.`);
+      return;
+    }
+    const id = (file.name.replace(/\.(py|rs|ts)$/i, "").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64)) || "strat";
+    setUploading(true);
+    try {
+      const content = await file.text();
+      const r = await fetch("/api/polymarket/user-strats", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, kind: ext, content, owner: myAddr, title: id, description: "", public: false }),
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        let detail = text.slice(0, 200);
+        try {
+          const j = JSON.parse(text) as { error?: string };
+          if (j.error) detail = j.error.slice(0, 200);
+        } catch {}
+        throw new Error(detail);
+      }
+      setStatus(`Uploaded "${id}.${ext}" — it's under CODE STRATS below, private and yours. Publish or SHARE it from there.`);
+      window.dispatchEvent(new Event(USER_STRATS_CHANGED_EVENT));
+    } catch (e) {
+      setStatus(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setUploading(false);
+      if (uploadRef.current) uploadRef.current.value = "";
+    }
+  }, [myAddr]);
+
   // The SCORE MARKET's view of the board's score box, over the formula bus:
   // seeded from the shared sessionStorage key, kept live by FORMULA_EVENT
   // (edits typed on the board while this tab is open), and USE/EDIT here
@@ -194,10 +237,28 @@ export default function StratsTab() {
             </button>
           ))}
         </div>
+        <input
+          ref={uploadRef}
+          type="file"
+          accept=".py,.rs,.ts"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleStratFile(f);
+          }}
+        />
+        <button
+          onClick={() => { uploadRef.current?.click(); setView("strats"); }}
+          disabled={uploading}
+          title="Add a strat from code — upload a strat.py, strat.rs or strat.ts. It lands under CODE STRATS, private until you publish it."
+          className={`ml-auto shrink-0 px-2.5 py-1 rounded-full border border-pixel-border text-[10px] font-mono font-semibold tracking-[0.1em] text-pixel-gray hover:text-green-400 hover:border-green-400/50 transition-colors ${uploading ? "opacity-40" : ""}`}
+        >
+          {uploading ? "UPLOADING…" : "⇪ UPLOAD"}
+        </button>
         <button
           onClick={() => { forkDefault(traderIndexTemplate()); setView("strats"); }}
-          title="New strat — a TRADER INDEX seeded with this week's best traders. Private until you publish it."
-          className="ml-auto shrink-0 px-2.5 py-1 rounded-full border border-green-400/50 text-[10px] font-mono font-semibold tracking-[0.1em] text-green-400 hover:bg-green-400/10 transition-colors"
+          title="New strat from the default COPY TRADING template — a TRADER INDEX seeded with this week's best traders, every trade scaled to your capital. Private until you publish it."
+          className="shrink-0 px-2.5 py-1 rounded-full border border-green-400/50 text-[10px] font-mono font-semibold tracking-[0.1em] text-green-400 hover:bg-green-400/10 transition-colors"
         >
           + NEW STRAT
         </button>
@@ -298,10 +359,13 @@ export default function StratsTab() {
       {/* ── MY STRATS — the management list ── */}
       <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
         <SectionHeader label="MY STRATS" hint="click = active · live money + last backtest per card" />
-        <div className="flex flex-col gap-0.5">
+        {/* Cards, two-up: each strat is a self-contained card; the two dashed
+            tiles at the end are the ways a new one is born — fork the default
+            COPY TRADING template, or upload your own strat.py/.rs/.ts. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 items-stretch">
           {indexes.length === 0 && (
-            <div className="px-1.5 py-2 text-[10.5px] font-mono text-pixel-gray">
-              No strats yet — <span className="text-pixel-gray-light">+ NEW STRAT</span> makes the default one.
+            <div className="sm:col-span-2 px-1.5 py-2 text-[10.5px] font-mono text-pixel-gray">
+              No strats yet — <span className="text-pixel-gray-light">+ NEW STRAT</span> makes the default copy-trading one.
             </div>
           )}
 
@@ -326,12 +390,11 @@ export default function StratsTab() {
               <div
                 key={idx.id}
                 onClick={() => select(idx.id)}
-                className={`relative rounded-[var(--radius-sm)] cursor-pointer transition-colors overflow-hidden ${
+                className={`relative flex flex-col rounded-[var(--radius-sm)] cursor-pointer transition-colors overflow-hidden ${
                   isActive
                     ? "bg-green-400/[0.07] ring-1 ring-green-400/30"
                     : "hover:bg-pixel-white/[0.04] ring-1 ring-pixel-border/60"
                 }`}
-                style={{ marginBottom: 2 }}
               >
                 {/* Active accent bar */}
                 <span
@@ -476,9 +539,10 @@ export default function StratsTab() {
                   </div>
                 </div>
 
-                {/* ── Action strip ── */}
+                {/* ── Action strip — mt-auto pins it so cards in a grid row
+                    stay equal-height with actions on the bottom edge ── */}
                 <div
-                  className="flex items-center gap-0 px-2 pb-1.5"
+                  className="mt-auto flex items-center gap-0 px-2 pb-1.5"
                   onClick={(e) => e.stopPropagation()}
                 >
                   <button
@@ -530,9 +594,23 @@ export default function StratsTab() {
           <button
             onClick={() => forkDefault(traderIndexTemplate())}
             title="New strat — a TRADER INDEX: copies the bench trade for trade, each one scaled by your capital against that trader's book. Seeded with this week's best traders. Private until you publish it."
-            className="rounded-[var(--radius-sm)] border border-dashed border-pixel-border px-2 py-1.5 text-left text-[10.5px] font-mono font-semibold tracking-[0.08em] text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors"
+            className="flex flex-col justify-center gap-1 rounded-[var(--radius-sm)] border border-dashed border-pixel-border px-3 py-3 text-left text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors min-h-[72px]"
           >
-            + NEW STRAT
+            <span className="text-[11px] font-mono font-semibold tracking-[0.08em]">+ NEW STRAT</span>
+            <span className="text-[9.5px] font-mono leading-snug text-pixel-gray/80">
+              COPY TRADING template — mirrors your trader bench, every trade sized to your capital
+            </span>
+          </button>
+          <button
+            onClick={() => uploadRef.current?.click()}
+            disabled={uploading}
+            title="Add a strat from code — upload a strat.py, strat.rs or strat.ts. It lands under CODE STRATS, private until you publish it."
+            className={`flex flex-col justify-center gap-1 rounded-[var(--radius-sm)] border border-dashed border-pixel-border px-3 py-3 text-left text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors min-h-[72px] ${uploading ? "opacity-40" : ""}`}
+          >
+            <span className="text-[11px] font-mono font-semibold tracking-[0.08em]">{uploading ? "UPLOADING…" : "⇪ UPLOAD CODE"}</span>
+            <span className="text-[9.5px] font-mono leading-snug text-pixel-gray/80">
+              your own strat.py · strat.rs · strat.ts — lands under CODE STRATS below
+            </span>
           </button>
         </div>
 
@@ -657,7 +735,7 @@ export default function StratsTab() {
 
       {/* ── CODE — user-written Strat classes, with the CID share path ── */}
       <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
-        <SectionHeader label="CODE STRATS" hint="Python Strat classes — upload, publish, share by CID across deploys" />
+        <SectionHeader label="CODE STRATS" hint="your own strat.py / strat.rs / strat.ts — upload, publish, share by CID across deploys" />
         <UserStratsPanel eoa={auth.address ?? undefined} />
       </section>
 

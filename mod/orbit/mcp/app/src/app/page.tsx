@@ -958,7 +958,7 @@ function HubsSheet({
         <div className="form" style={{ marginTop: 16 }}>
           <h4 style={{ margin: "0 0 6px" }}>Add a peer hub</h4>
           <div className="muted small" style={{ marginBottom: 8 }}>
-            Another mod hub or index, by its API base — e.g. <code>https://host/api/mcp</code>. It has to answer{" "}
+            Another mod hub or index, by its API base — e.g. <code>https://host/mcp/api</code>. It has to answer{" "}
             <code>/hub</code> (or a hub-shaped <code>/stats</code>); a bare MCP endpoint is a server, not a hub —
             use <em>add server</em> for that.
           </div>
@@ -968,7 +968,7 @@ function HubsSheet({
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && add()}
-              placeholder="https://other-host/api/mcp"
+              placeholder="https://other-host/mcp/api"
               disabled={!canEdit}
             />
             <button className="primary" disabled={!canEdit || !url.trim() || busy === "add"} onClick={add}>

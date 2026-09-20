@@ -26,7 +26,7 @@ Four faces, one module:
 | MCP | `mcp.py` → `POST /mcp` or stdio | 14 tools; schema at `GET /mcp` |
 
 Behind the gateway: `modc2.com/lighthouse` (console) and
-`modc2.com/api/lighthouse` (API). The console always calls its own origin at
+`modc2.com/lighthouse/api` (API). The console always calls its own origin at
 `/lighthouse/_api`, so one build works in both places and the wallet token never
 crosses an origin.
 
@@ -103,7 +103,7 @@ lh.get('bafy…')                  # gateway retrieval (public IPFS fallbacks)
 
 ## API
 
-`http://localhost:50680` — or `modc2.com/api/lighthouse`, or
+`http://localhost:50680` — or `modc2.com/lighthouse/api`, or
 `/lighthouse/_api` from the console's own origin.
 
 | route | auth | what |
@@ -139,7 +139,7 @@ equal — a stdio server is a process someone started on this box with this box'
 keys, an HTTP caller is not.
 
 ```bash
-claude mcp add --transport http lighthouse https://modc2.com/api/lighthouse/mcp
+claude mcp add --transport http lighthouse https://modc2.com/lighthouse/api/mcp
 # or, on the box:
 python3 mcp.py                    # stdio, one JSON-RPC message per line
 ```

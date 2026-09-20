@@ -947,9 +947,10 @@ fn cors_headers() -> HeaderMap {
     h
 }
 
-/// The gateway can deliver the same endpoint three ways — `/api/github/search`
-/// arrives stripped as `/search`, the app route keeps `/github/...`, and a
-/// direct caller may use `/api/...`. All three mean the same route.
+/// The gateway can deliver the same endpoint several ways — canonical
+/// `/github/api/search` (or legacy `/api/github/search`) arrives stripped as
+/// `/search`, the app route keeps `/github/...`, and a direct caller may use
+/// `/api/...`. All of them mean the same route.
 fn normalize(path: &str) -> String {
     let mut p = path.trim_end_matches('/').to_string();
     if p.is_empty() {

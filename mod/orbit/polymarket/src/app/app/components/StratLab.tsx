@@ -1,6 +1,6 @@
 "use client";
 
-// STRAT LAB — the sidebar's window onto /api/lab: an agent that researches the
+// STRAT LAB — the sidebar's window onto /_api/lab: an agent that researches the
 // leaderboard, designs candidate strats, backtests each on the server bench
 // and iterates until the data clears the confidence bar (or it says plainly
 // that it doesn't). The agent never writes anything; a confident verdict shows
@@ -12,7 +12,7 @@ import { getAccessToken } from "../lib/access";
 import { saveParamsAsStrat } from "../lib/stratDraft";
 import type { SavedIndex } from "../lib/types";
 
-const LAB_API = "/polymarket/api/lab";
+const LAB_API = "/polymarket/_api/lab";
 const POLL_MS = 4000;
 
 interface LabStep {

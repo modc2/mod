@@ -282,7 +282,7 @@
     ],
     "rebalance_threshold_pct": 5.0,
     "route": true,
-    "schema": "QmXGQiyEg8M42hcHXWjeCTZMcjuX5DPriQ1aVzRYhyfQ4G",
+    "schema": "Qmczu1TTwUXztmboEN8K7cLWS6SL3iVni5yJBY9i3EXBFa",
     "seed_validators": [
         {
             "label": "Top delegate #1 owner",
@@ -317,7 +317,7 @@
     "urls": {
         "api": "http://localhost:50150",
         "app": "http://localhost:3150/copytensor",
-        "gateway_api": "http://localhost:3001/api/copytensor",
+        "gateway_api": "http://localhost:3001/copytensor/api",
         "gateway_app": "http://localhost:3001/copytensor",
         "mcp": "http://localhost:50150/mcp"
     },

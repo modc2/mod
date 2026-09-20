@@ -1,5 +1,5 @@
 // Owner gate for the Next routes that read/write the agent's Claude
-// credentials (/api/credentials, /api/credentials/oauth).
+// credentials (/_api/credentials, /_api/credentials/oauth).
 //
 // Those routes hand out session metadata and — worse — WRITE the credentials
 // every job runs under, so they must not be open. Rather than re-deriving the

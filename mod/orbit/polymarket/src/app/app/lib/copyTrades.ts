@@ -22,7 +22,7 @@
 // paper over.
 //
 // PURE — no network, no React, no clock except the `now` passed in. The route
-// (app/api/copytrades/route.ts) fetches, this decides, lib/__test__.ts pins it.
+// (app/%5Fapi/copytrades/route.ts) fetches, this decides, lib/__test__.ts pins it.
 // Same split as lib/basketSim.ts.
 
 import type { PolymarketTrade } from "./types";

@@ -21,10 +21,11 @@ function candidates(): string[] {
   if (CONFIGURED) list.push(CONFIGURED);
   if (typeof window !== "undefined") {
     const { origin, hostname, protocol } = window.location;
-    // The fleet gateway's rule is /{mod} → app and /api/{mod} → API, so that is
-    // the first thing to try from anywhere the app is actually served.
-    list.push(`${origin}/api${BASE_PATH}`);
+    // The fleet gateway's rule is /{mod} → app and /{mod}/api → API (the
+    // legacy /api/{mod} form still answers), so that is the first thing to
+    // try from anywhere the app is actually served.
     list.push(`${origin}${BASE_PATH}/api`);
+    list.push(`${origin}/api${BASE_PATH}`);
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       list.push("http://localhost:50500");
     } else if (protocol === "http:") {

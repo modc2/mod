@@ -59,7 +59,7 @@ fn activator() -> String {
 /// woken instead of refused. Only local fleet mods get this — a remote URL is
 /// never rewritten, and neither is one that already points at the proxy.
 ///
-/// The proxy routes `/{mod}/…` to a mod's app and `/api/{mod}/…` to its API,
+/// The proxy routes `/{mod}/…` to a mod's app and `/{mod}/api/…` to its API,
 /// which is where MCP lives; either one wakes the mod.
 pub fn wake_url(server: &ServerEntry) -> Option<String> {
     if server.source == "user" {
@@ -78,7 +78,7 @@ pub fn wake_url(server: &ServerEntry) -> Option<String> {
     if server.url.starts_with(&proxy) {
         return None;
     }
-    Some(format!("{}/api/{}{}", proxy.trim_end_matches('/'), server.id, path))
+    Some(format!("{}/{}/api{}", proxy.trim_end_matches('/'), server.id, path))
 }
 
 /// The same server, addressed through the activator.

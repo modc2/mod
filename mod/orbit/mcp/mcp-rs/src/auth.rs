@@ -381,7 +381,7 @@ pub fn config_json() -> Value {
     let issuer = issuer();
     serde_json::json!({
         "issuer": issuer,
-        "issuer_api": std::env::var("MCP_AUTH_API").unwrap_or_else(|_| format!("/api/{issuer}")),
+        "issuer_api": std::env::var("MCP_AUTH_API").unwrap_or_else(|_| format!("/{issuer}/api")),
         // The issuer's app and the hub's app are served from one origin, so a
         // session stored under this key is already shared between them.
         "token_key": std::env::var("MCP_AUTH_TOKEN_KEY").unwrap_or_else(|_| "build_jobs_token".into()),

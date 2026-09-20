@@ -556,9 +556,11 @@ pub async fn serve(port: u16) {
         .route("/arena/", get(console))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls
-        // /api/arena. Behind the fleet router caddy strips that prefix;
+        // /arena/api (canonical; /api/arena is the permanently supported
+        // legacy alias). Behind the fleet router caddy strips that prefix;
         // standalone on this port nothing does, so the same routes answer
         // there too and one console works in both places.
+        .nest("/arena/api", api_routes())
         .nest("/api/arena", api_routes())
         .layer(CorsLayer::permissive());
 

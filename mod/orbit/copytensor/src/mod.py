@@ -432,12 +432,12 @@ class Copytensor(m.Mod):
 
         The gateway is the core Next.js app on :3001 (whose middleware reads
         app_namespace from the Flask backend on :8000 and rewrites
-        /api/{mod}/* → api_url and /{mod}/* → app url). Caddy on :3000 is the
+        /{mod}/api/* (and legacy /api/{mod}/*) → api_url and /{mod}/* → app url). Caddy on :3000 is the
         public-facing edge. Registering with `server.namespace.reg_app`
         publishes copytensor into the namespace so both work:
 
             http://localhost:3001/copytensor          → app  (mod gateway)
-            http://localhost:3001/api/copytensor/*    → API  (mod gateway)
+            http://localhost:3001/copytensor/api/*    → API  (mod gateway)
             http://localhost:3000/copytensor          → app  (caddy edge)
             http://localhost:3000/api/copytensor/*    → API  (caddy edge)
         """

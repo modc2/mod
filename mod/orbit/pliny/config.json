@@ -119,13 +119,13 @@
     "mcp": {
         "all": {
             "connect": "claude mcp add --transport http plinyville http://localhost:50592/mcp/all",
-            "endpoint": "https://modc2.com/api/pliny/mcp/all",
+            "endpoint": "https://modc2.com/pliny/api/mcp/all",
             "local": "http://localhost:50592/mcp/all",
             "stdio": "python3 orbit/pliny/mcp.py --all",
             "tool_count": "15 corpus tools + one per repo (47 today)",
             "what": "one MCP server for the whole market: the pv_* corpus tools plus one tool per elder-plinius repo, named after it (pv_l1b3rt4s, pv_cl4r1t4s \u2026). Each repo tool takes op=readme|tree|file|search|info|install|run|build and reads the archived copy when installed, live from GitHub otherwise; op=search archives the repo first if it has to."
         },
-        "endpoint": "https://modc2.com/api/pliny/mcp",
+        "endpoint": "https://modc2.com/pliny/api/mcp",
         "local": "http://localhost:50592/mcp",
         "per_mod": "each installed mod also serves its own MCP server at POST /api/plinyville/m/<repo>/mcp (tools: <slug>_info, _readme, _tree, _file, _search, _install)",
         "stdio": "python3 orbit/pliny/mcp.py",
@@ -167,16 +167,16 @@
         "runs": "python3 scan.py --run (m pliny/scan)",
         "surfaces": "GET /status \u00b7 pv_status (MCP) \u00b7 m pliny/scan_status \u00b7 the header pill"
     },
-    "schema": "QmaAKfFCHndBtLXdHXtcSupWx45nwAKcqukBX5bt6BFQ34",
+    "schema": "QmanknpkzrnJ5sy8uHXjSVykpvAQ7BSCf69Sfvz9yu7eum",
     "upstream": "https://github.com/elder-plinius",
     "urls": {
-        "api": "https://modc2.com/api/plinyville",
+        "api": "https://modc2.com/plinyville/api",
         "app": "https://modc2.com/plinyville",
         "gateway": "https://modc2.com/plinyville",
         "mcp": "http://localhost:50592/mcp",
         "mcp_all": "http://localhost:50592/mcp/all",
-        "mcp_all_public": "https://modc2.com/api/pliny/mcp/all",
-        "mcp_public": "https://modc2.com/api/pliny/mcp",
+        "mcp_all_public": "https://modc2.com/pliny/api/mcp/all",
+        "mcp_public": "https://modc2.com/pliny/api/mcp",
         "plinyworld": "https://modc2.com/plinyville/plinyworld"
     },
     "version": "0.7.0",

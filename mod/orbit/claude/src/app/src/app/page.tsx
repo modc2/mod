@@ -907,7 +907,7 @@ export default function Home() {
   // ── Module hub ────────────────────────────────────────────────────
   // Landing grid of every module: pick one to start editing it, with a live
   // online/offline dot per module. Statuses are probed in the background while
-  // the hub is open (app port via the same-origin /api/service route, API via
+  // the hub is open (app port via the same-origin /_api/service route, API via
   // its /health). `autoRestartAfterEdit` restarts a module through pm2 as soon
   // as an edit job targeting it completes, so changes actually take effect.
   const [moduleStatuses, setModuleStatuses] = useState<Record<string, { app: boolean | null; api: boolean | null }>>({});
@@ -1232,8 +1232,8 @@ export default function Home() {
   // ── Terminal tab state (owner-only shell access) ────────────────────
   // Each history entry is one executed command plus its captured output.
   // The terminal runs commands inside the selected module's working dir
-  // via /api/terminal — no PTY, just one-shot `bash -c` exec, which keeps
-  // the surface small and matches the existing /api/service pattern.
+  // via /_api/terminal — no PTY, just one-shot `bash -c` exec, which keeps
+  // the surface small and matches the existing /_api/service pattern.
   type TerminalEntry = {
     id: string;
     cmd: string;
@@ -1244,14 +1244,14 @@ export default function Home() {
     durationMs: number;
     pending: boolean;
     // Which nix env the command ran inside ("flake" | "shell"), or null/undefined
-    // for the bare host shell. Set from the /api/terminal response.
+    // for the bare host shell. Set from the /_api/terminal response.
     nix?: string | null;
   };
   const [terminalHistory, setTerminalHistory] = useState<TerminalEntry[]>([]);
   const [terminalInput, setTerminalInput] = useState("");
   const [terminalRunning, setTerminalRunning] = useState(false);
   const [terminalRecallIdx, setTerminalRecallIdx] = useState<number | null>(null);
-  // Owner session token for the host shell — minted by /api/terminal/auth after
+  // Owner session token for the host shell — minted by /_api/terminal/auth after
   // the owner signs with their wallet. Without it the terminal route 401s.
   const [terminalToken, setTerminalToken] = useState<string | null>(null);
   const [terminalTokenExp, setTerminalTokenExp] = useState<number>(0);
@@ -1355,7 +1355,7 @@ export default function Home() {
   const [agentAuthErr, setAgentAuthErr] = useState<string | null>(null);
 
   // The Claude *session* itself — the subscription login (~/.claude/.credentials.json)
-  // the CLI runs under, read from the app's own GET /api/credentials. `null`
+  // the CLI runs under, read from the app's own GET /_api/credentials. `null`
   // means "not fetched yet"; loggedIn:false means there is no usable session and
   // the connect flow below is the way in.
   const [claudeSession, setClaudeSession] = useState<{
@@ -2890,7 +2890,7 @@ export default function Home() {
 
   const startApiServer = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2910,7 +2910,7 @@ export default function Home() {
   const stopApiServer = useCallback(async () => {
     try {
       const port = API_PORT;
-      await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
+      await fetch(`${DEFAULT_BASE_PATH}/_api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "stop", port }),
@@ -2933,7 +2933,7 @@ export default function Home() {
     // Try starting via start.sh (the Rust binary)
     const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/claude/src/api`;
     try {
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/service`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -4044,7 +4044,7 @@ export default function Home() {
   // Read the live Claude session (subscription login) status.
   const fetchClaudeSession = useCallback(async () => {
     try {
-      const res = await appFetch("/api/credentials");
+      const res = await appFetch("/_api/credentials");
       const d = await res.json().catch(() => null);
       if (!res.ok) {
         setClaudeSession({ loggedIn: false, reason: d?.error || `status ${res.status}` });
@@ -4076,7 +4076,7 @@ export default function Home() {
     setClaudeLoginErr(null);
     setClaudeLoginOk(null);
     try {
-      const res = await appFetch("/api/credentials/oauth");
+      const res = await appFetch("/_api/credentials/oauth");
       const d = await res.json().catch(() => ({} as any));
       if (!res.ok || !d?.url) throw new Error(d?.error || "could not start login");
       setClaudeLogin({ url: d.url, verifier: d.verifier, state: d.state });
@@ -4096,7 +4096,7 @@ export default function Home() {
     setClaudeLoginBusy(true);
     setClaudeLoginErr(null);
     try {
-      const res = await appFetch("/api/credentials/oauth", {
+      const res = await appFetch("/_api/credentials/oauth", {
         method: "POST",
         body: JSON.stringify({ code, verifier: claudeLogin.verifier, state: claudeLogin.state }),
       });
@@ -4771,7 +4771,7 @@ export default function Home() {
     if (!selectedModuleInfo?.app_url) {
       setAppRunning(null);
     } else {
-      // Probe via the same-origin /api/service route (uses net.createServer
+      // Probe via the same-origin /_api/service route (uses net.createServer
       // to check port occupancy, no HTTP request to the app — avoids CORS).
       const portMatch = selectedModuleInfo.app_url.match(/:(\d+)/);
       const port = portMatch?.[1];
@@ -4779,7 +4779,7 @@ export default function Home() {
         setAppRunning(null);
       } else {
         try {
-          const res = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2000) });
+          const res = await fetch(`${DEFAULT_BASE_PATH}/_api/service?port=${port}`, { signal: AbortSignal.timeout(2000) });
           const data = await res.json();
           setAppRunning(!!data.running);
         } catch {
@@ -4868,7 +4868,7 @@ export default function Home() {
   }, [rankedHeaderModules, moduleList, isRealModule]);
 
   // Probe one module's liveness without a cross-origin app request: the app is
-  // checked by port occupancy through the same-origin /api/service route, the
+  // checked by port occupancy through the same-origin /_api/service route, the
   // API by its /health (same pattern as checkModuleHealth for the selected mod).
   const probeModuleStatus = useCallback(async (m: typeof moduleList[0]) => {
     let app: boolean | null = null;
@@ -4876,7 +4876,7 @@ export default function Home() {
     const port = m.app_url?.match(/:(\d+)/)?.[1];
     if (port) {
       try {
-        const r = await fetch(`${DEFAULT_BASE_PATH}/api/service?port=${port}`, { signal: AbortSignal.timeout(2500) });
+        const r = await fetch(`${DEFAULT_BASE_PATH}/_api/service?port=${port}`, { signal: AbortSignal.timeout(2500) });
         const d = await r.json();
         app = !!d.running;
       } catch { app = false; }
@@ -9782,7 +9782,7 @@ export default function Home() {
         "Sign to use the owner terminal on this server. This is a free signature, not a transaction.",
       ].join("\n");
       const signature = await signTerminalMessage(msg);
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal/auth`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/terminal/auth`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, ts, signature }),
@@ -9829,7 +9829,7 @@ export default function Home() {
     setTerminalRecallIdx(null);
     setTerminalRunning(true);
     try {
-      const res = await fetch(`${DEFAULT_BASE_PATH}/api/terminal`, {
+      const res = await fetch(`${DEFAULT_BASE_PATH}/_api/terminal`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

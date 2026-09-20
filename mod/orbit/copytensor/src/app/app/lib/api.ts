@@ -23,10 +23,10 @@ import type {
   Coverage,
 } from "./types";
 
-// All requests go through the Next.js rewrite at /api/copytensor → backend.
-// Defined in next.config.js so the basePath ("/copytensor") doesn't get
-// prepended to API calls.
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/copytensor";
+// All requests go through the Next.js rewrite at /copytensor/api → backend
+// (canonical mod-protocol form; /api/copytensor stays as a legacy alias).
+// Defined in next.config.js.
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/copytensor/api";
 
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {

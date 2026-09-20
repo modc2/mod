@@ -7,7 +7,7 @@
 // KNOWN types inside KNOWN ranges, and everything else is dropped with a
 // reason. This file is that contract, and it is deliberately pure and shared:
 //
-//   • the server route (api/strat-chat) validates the model's patch with it,
+//   • the server route (_api/strat-chat) validates the model's patch with it,
 //     so a bad patch never reaches the strat store;
 //   • the browser validates again before applying, so a compromised route
 //     can't write a field the UI doesn't know how to show;
@@ -271,7 +271,7 @@ export function describeEntry(e: PatchEntry): string {
 }
 
 // ── Prompt material ────────────────────────────────────────────────
-// Both of these are read by api/strat-chat to build the agent's context. They
+// Both of these are read by _api/strat-chat to build the agent's context. They
 // live here so the reference the agent gets and the validator it's checked
 // against can never describe different parameters.
 

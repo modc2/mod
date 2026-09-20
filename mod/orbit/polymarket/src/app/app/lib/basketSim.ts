@@ -33,7 +33,7 @@
 // already reports it, and `basketFunding()` below repeats it here.
 //
 // Nothing in this file touches React, the network or localStorage: the panel
-// (components/BasketSim.tsx) and the server route (app/api/basket/route.ts)
+// (components/BasketSim.tsx) and the server route (app/%5Fapi/basket/route.ts)
 // both call it with feeds already in hand, exactly like lib/hubReplay.ts.
 
 import {

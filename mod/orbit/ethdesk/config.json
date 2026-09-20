@@ -14,9 +14,9 @@
         "app": "http://localhost:50751/ethdesk",
         "same_origin_api": "http://localhost:50751/ethdesk/_api",
         "mcp": "http://localhost:50750/mcp",
-        "gateway_api": "https://modc2.com/api/ethdesk",
+        "gateway_api": "https://modc2.com/ethdesk/api",
         "gateway_app": "https://modc2.com/ethdesk",
-        "gateway_mcp": "https://modc2.com/api/ethdesk/mcp"
+        "gateway_mcp": "https://modc2.com/ethdesk/api/mcp"
     },
     "backend": "api/api.py (FastAPI — the API, :50750)",
     "frontend": "app/server.py (stdlib — the console at /ethdesk on :50751; proxies /ethdesk/_api to the API)",

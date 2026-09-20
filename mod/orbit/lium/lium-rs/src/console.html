@@ -295,9 +295,9 @@ pre{background:rgba(0,0,0,.4);border:1px solid var(--line);border-radius:10px;pa
 </div>
 
 <script>
-// Behind the fleet router the console lives at /lium and the API at /api/lium;
+// Behind the fleet router the console lives at /lium and the API at /lium/api;
 // standalone on this port both answer here, so one base works in both worlds.
-const API = location.pathname.startsWith('/lium') ? '/api/lium' : '';
+const API = location.pathname.startsWith('/lium') ? '/lium/api' : '';
 const $ = (id) => document.getElementById(id);
 let KEY = sessionStorage.getItem('lium_key') || '';
 let rpcId = 0;

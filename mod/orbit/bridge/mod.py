@@ -534,7 +534,7 @@ class Mod:
         Args:
             dev:     run Next.js in dev mode (default False — production build + start)
             api_url: public API URL baked into the prod build
-                     (default https://modc2.com/api/bridge)
+                     (default https://modc2.com/bridge/api)
             app_url: public app URL baked into the prod build
                      (default https://modc2.com/bridge)
 
@@ -549,7 +549,7 @@ class Mod:
         api_dir = self.module_dir / 'api'
         app_dir = self.module_dir / 'app'
 
-        api_url = api_url or 'https://modc2.com/api/bridge'
+        api_url = api_url or 'https://modc2.com/bridge/api'
         app_url = app_url or 'https://modc2.com/bridge'
 
         # ── API (Rust / axum via pm2) ──────────────────────

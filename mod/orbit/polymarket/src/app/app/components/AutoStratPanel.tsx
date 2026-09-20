@@ -1,6 +1,6 @@
 "use client";
 
-// AUTO STRAT — the sidebar's window onto /api/autostrat: a factory agent that
+// AUTO STRAT — the sidebar's window onto /_api/autostrat: a factory agent that
 // invents a copy-index recipe off the live board, proves it on the lab bench
 // and registers it. Two triggers: the RANDOM NEW STRAT button (one run now)
 // and the AUTO toggle (a run every minute, server-side, browser optional).
@@ -16,7 +16,7 @@ import { getAccessToken } from "../lib/access";
 import { loadIndexes, saveIndex } from "../lib/indexStore";
 import type { SavedIndex } from "../lib/types";
 
-const API = "/polymarket/api/autostrat";
+const API = "/polymarket/_api/autostrat";
 const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 30_000;
 const SEEN_KEY = "poly8bit_autostrat_seen";

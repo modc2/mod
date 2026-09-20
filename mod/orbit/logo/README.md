@@ -43,7 +43,7 @@ pip install -r api/requirements.txt
 
 - API — <http://localhost:50760>
 - Console — <http://localhost:50761/logo>
-- Behind the gateway — `modc2.com/logo` and `modc2.com/api/logo`
+- Behind the gateway — `modc2.com/logo` and `modc2.com/logo/api`
 
 ```bash
 m logo/status

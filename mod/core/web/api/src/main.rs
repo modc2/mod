@@ -2,7 +2,7 @@
 //!
 //! Serves protocol identity and a live catalog of the mod ecosystem (every
 //! module under `mod/orbit/`). Designed to sit behind the modc2.com gateway at
-//! `/api/web` and back the Next.js app mounted at `/web`.
+//! `/web/api` (legacy alias `/api/web`) and back the Next.js app mounted at `/web`.
 
 mod catalog;
 mod chain;

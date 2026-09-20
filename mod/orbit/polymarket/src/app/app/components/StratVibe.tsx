@@ -20,7 +20,17 @@ import {
   type BenchResult, type VibeResult, money, parseParams, saveParamsAsStrat,
 } from "../lib/stratDraft";
 
-const LAB_API = "/polymarket/api/lab";
+const LAB_API = "/polymarket/_api/lab";
+
+/** Anyone can summon the vibe box: dispatch this event (focusVibe below) and
+    it scrolls itself into view and puts the cursor in the words box. The tab
+    header's ✧ VIBE button and the grid's dashed tile both use it — with a
+    long roster this block lives below the fold, and "describe a strat" must
+    never require scrolling past sixteen cards to find the box. */
+export const VIBE_FOCUS_EVENT = "polymarket:vibe-focus";
+export function focusVibe() {
+  window.dispatchEvent(new Event(VIBE_FOCUS_EVENT));
+}
 
 /** A bench over traders whose tape this deployment has never cached comes back
     as a FLOOR — the replay saw silence, and the same call queued the fetch.

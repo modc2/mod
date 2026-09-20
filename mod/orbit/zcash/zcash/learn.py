@@ -697,7 +697,7 @@ GLOSSARY = {
                      "module's API.", "using-this-module"),
     "mod protocol": ("The fleet convention this module is built for: named "
                      "functions taking JSON, reachable at /{module} and "
-                     "/api/{module}.", "using-this-module"),
+                     "/{module}/api.", "using-this-module"),
     "nu5": ("The 2022 network upgrade that introduced Orchard and the "
             "transaction format this module builds.", "reading-the-chain"),
     "consensus branch id": ("A number identifying which network upgrade the "

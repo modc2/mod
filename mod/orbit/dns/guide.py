@@ -312,7 +312,7 @@ def _terms(c):
             'reads the path and forwards to the port that module listens on. '
             'The two halves have to agree about the host name, which is why '
             'this module can hand its host to the router.',
-            f'{host}/{{mod}} is the app, {{mod}}.{host}/api is the API'),
+            f'{host}/{{mod}} is the app, {host}/{{mod}}/api is the API'),
         'listener': (
             'the name server process itself, bound to a port',
             'Answering DNS means holding a UDP and TCP port open and replying '
@@ -350,7 +350,7 @@ def _terms(c):
             'port, so Claude or any other agent can resolve names, read zones '
             'and — with your token — make changes, through the same functions '
             'and the same permission checks.',
-            f'POST https://dns.{host}/api/mcp'),
+            f'POST https://{host}/dns/api/mcp'),
     }
 
 
@@ -731,7 +731,7 @@ def _intents(c):
              f'all valid — and you get four addresses back: the app page, the '
              f'API, the MCP endpoint an agent would call, and the hostname.',
              f'The rule never changes: {host}/<module> is the app, '
-             f'<module>.{host}/api is the API, <module>.{host} is the hostname. '
+             f'{host}/<module>/api is the API, <module>.{host} is the hostname. '
              f'You can also paste a whole URL in and it will '
              f'work backwards from it.'],
             do=[{'label': 'browse every module', 'tab': 'fleet'},
@@ -1083,17 +1083,17 @@ def _intents(c):
             'using this from an agent or the terminal',
             [f'Everything in this console is also an MCP tool, on the same '
              f'port. Point Claude or any other agent at '
-             f'https://dns.{host}/api/mcp and it gets the same functions with '
+             f'https://{host}/dns/api/mcp and it gets the same functions with '
              f'the same permission checks — including this guide, as dns_ask.',
              'From a shell, the module is a CLI: m dns/resolve eth, '
              'm dns/check yourdomain.com, m dns/plan yourdomain.com, '
              'm dns/ask "why is my domain broken".',
              'And it is a plain REST API with no client library needed: '
-             f'curl https://dns.{host}/api/resolve?query={mod}'],
+             f'curl https://{host}/dns/api/resolve?query={mod}'],
             do=[{'label': 'the whole tool list', 'tab': 'ops'}],
             terms=['mcp', 'module', 'token'],
             cli=[f'm dns/ask "what is a zone"',
-                 f'curl https://dns.{host}/api/resolve?query={mod}'],
+                 f'curl https://{host}/dns/api/resolve?query={mod}'],
             related=['what is this thing?', 'do I need a wallet?'])
 
     def zone_q(q, s, g):

@@ -33,7 +33,7 @@ import {
 } from "../lib/hubReplay";
 import Sparkline from "./Sparkline";
 
-const API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/hub/autocopy`;
+const API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/_api/hub/autocopy`;
 const POLL_MS = 60_000;
 
 interface Settings {

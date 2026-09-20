@@ -142,7 +142,7 @@ cd app && npm install && npx next build && pm2 start npm --name mcp-app -- start
 Connect a client to everything at once:
 
 ```sh
-claude mcp add hub --transport http https://modc2.com/api/mcp/mcp
+claude mcp add hub --transport http https://modc2.com/mcp/api/mcp
 ```
 
 Register a remote server:
@@ -176,7 +176,7 @@ turns every gate off.
 Mint a key in the console (owner only) and give it to a remote client:
 
 ```sh
-claude mcp add hub --transport http https://modc2.com/api/mcp/mcp \
+claude mcp add hub --transport http https://modc2.com/mcp/api/mcp \
   --header "Authorization: Bearer mcphub_…"
 ```
 

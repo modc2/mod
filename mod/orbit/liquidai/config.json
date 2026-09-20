@@ -139,11 +139,11 @@
     "name": "liquidai",
     "port": 50460,
     "route": true,
-    "schema": "QmUd468DgsDmNxmQpi34g7grYS9tKT2x7ML8xoMgQa4zcr",
+    "schema": "QmdsAfxjNhV7VmqVSeuvDbh6M1eu8xAzWLPHNCy58C8UKm",
     "urls": {
         "api": "http://localhost:50460",
         "app": "http://localhost:50461/liquidai",
-        "gateway_api": "http://localhost:3001/api/liquidai",
+        "gateway_api": "http://localhost:3001/liquidai/api",
         "gateway_app": "http://localhost:3001/liquidai",
         "hf": "LiquidAI"
     },

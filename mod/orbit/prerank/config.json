@@ -14,7 +14,7 @@
         "api": "http://localhost:50630",
         "app": "http://localhost:50631/prerank",
         "same_origin_api": "http://localhost:50631/prerank/_api",
-        "gateway_api": "https://modc2.com/api/prerank",
+        "gateway_api": "https://modc2.com/prerank/api",
         "gateway_app": "https://modc2.com/prerank"
     },
     "backend": "src/api (Rust: axum, an append-only hash chain, sealed-bid parimutuel settlement \u2014 :50630)",

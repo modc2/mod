@@ -232,11 +232,15 @@ class Mod:
                 api_port = info.get('api_port')
                 app_port = info.get('app_port')
                 if api_port:
-                    lines.append(f'    @{name}_api path /api/{name} /api/{name}/*')
-                    lines.append(f'    handle @{name}_api {{')
-                    lines.append(f'        uri strip_prefix /api/{name}')
-                    lines.append(f'        reverse_proxy {host}:{api_port}')
-                    lines.append(f'    }}')
+                    # Canonical /{name}/api first (wins the /{name}/* overlap),
+                    # legacy /api/{name} kept as an alias for old clients.
+                    for tag, prefix in ((f'{name}_api', f'/{name}/api'),
+                                        (f'{name}_api_legacy', f'/api/{name}')):
+                        lines.append(f'    @{tag} path {prefix} {prefix}/*')
+                        lines.append(f'    handle @{tag} {{')
+                        lines.append(f'        uri strip_prefix {prefix}')
+                        lines.append(f'        reverse_proxy {host}:{api_port}')
+                        lines.append(f'    }}')
                 if app_port:
                     lines.append(f'    @{name}_app path /{name} /{name}/*')
                     lines.append(f'    handle @{name}_app {{')

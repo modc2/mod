@@ -311,7 +311,7 @@ POST /api/whitepaper/tree/proof  {"name":"agent"}  # HTTP`}</pre>
         </thead>
         <tbody>
           <tr><td><code>host/{"{mod}"}</code></td><td>app</td><td>prefix kept (app sets <code>basePath</code>)</td></tr>
-          <tr><td><code>host/api/{"{mod}"}</code></td><td>API</td><td>prefix stripped</td></tr>
+          <tr><td><code>host/{"{mod}"}/api</code></td><td>API</td><td>prefix stripped (legacy <code>host/api/{"{mod}"}</code> still answers)</td></tr>
           <tr><td><code>{"{mod}"}.host</code></td><td>app</td><td>resolved by the DNS layer</td></tr>
         </tbody>
       </table>
@@ -370,7 +370,7 @@ POST /api/whitepaper/tree/proof  {"name":"agent"}  # HTTP`}</pre>
           <tr><td>Exposure</td><td>The public methods of the anchor class are the module&apos;s functions.</td></tr>
           <tr><td>Equivalence</td><td>Python, CLI, and HTTP call the same function with the same semantics.</td></tr>
           <tr><td>Discovery</td><td>A null call returns name, functions, and schema.</td></tr>
-          <tr><td>Addressing</td><td>App at <code>/{"{mod}"}</code>, API at <code>/api/{"{mod}"}</code>, name at <code>{"{mod}"}.host</code>.</td></tr>
+          <tr><td>Addressing</td><td>App at <code>/{"{mod}"}</code>, API at <code>/{"{mod}"}/api</code>, name at <code>{"{mod}"}.host</code>.</td></tr>
           <tr><td>Identity</td><td>One shared auth module; a token is a time-bounded signature.</td></tr>
           <tr><td>Authority</td><td>Owner from <code>config.json</code>; everyone else is a confined peer.</td></tr>
           <tr><td>Privacy</td><td>Code and config are committed; state and ACLs stay under <code>~/.mod/</code>.</td></tr>

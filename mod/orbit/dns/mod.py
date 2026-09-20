@@ -1,6 +1,6 @@
 """dns — the name layer of the mod protocol.
 
-The protocol's rule is `{host}/{mod}` for a module's app and `{host}/api/{mod}`
+The protocol's rule is `{host}/{mod}` for a module's app and `{host}/{mod}/api`
 for its API. That rule only holds if the host resolves to the box the router
 runs on, which is a DNS fact, not an HTTP one. This module is that half: it
 derives a zone from the module fleet, serves it authoritatively over UDP and
@@ -9,7 +9,7 @@ publishes — beside every name — who the protocol attributes that module to.
 
     m dns/ask "how do I use my own domain"   # plain words in, plain answer out
     m dns/resolve eth                  # a module name → app, API, MCP, A record
-    m dns/resolve modc2.com/api/eth    # a URL, a hostname or a bare name, same answer
+    m dns/resolve modc2.com/eth/api    # a URL, a hostname or a bare name, same answer
     m dns/attribution eth              # whose module that is: owner, CID, signed card
     m dns/check modc2.com              # what we hold vs what the internet returns
     m dns/records                      # the system zone, derived + stored

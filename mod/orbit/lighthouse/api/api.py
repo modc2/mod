@@ -558,7 +558,7 @@ def _mcp_url(request: Request, suffix: str = '/mcp') -> str:
     a client that never connects, so the answer is rebuilt from the request
     rather than baked into the config:
 
-        the gateway   https://modc2.com/api/lighthouse/mcp — caddy strips
+        the gateway   https://modc2.com/lighthouse/api/mcp — caddy strips
                       `/api/lighthouse` before proxying and does not say so, so
                       the prefix is put back from the fleet's own routing
                       convention (`/api/<module>`), keyed off the forwarded host.

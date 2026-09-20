@@ -2,7 +2,7 @@
 
 // The module is served either standalone on its own port or behind the fleet
 // gateway under /monero. basePath keeps assets correct in both cases, so the
-// browser always calls `${basePath}/api/<fn>`; src/app/api/[...fn]/route.ts
+// browser always calls `${basePath}/_api/<fn>`; src/app/_api/[...fn]/route.ts
 // serves that and forwards to the REST backend (MONERO_API_ORIGIN, :8940 by
 // default). It is a route handler rather than a rewrite because it also starts
 // the backend when it is not running -- a rewrite to a dead port only ever

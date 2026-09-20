@@ -1,4 +1,4 @@
-/* The chrome every page wears: testnet strip, the route rail, the footer.
+/* The chrome every page wears: the route rail and the footer.
 
    This is what replaced the anchor nav. The site used to be one document
    with eight `#targets` in it — every visitor waited on the landscape's
@@ -49,16 +49,6 @@ export function SiteNav() {
 
   return (
     <div className="sticky top-0 z-50">
-      <div className="banner-strip">
-        <div className="max-w-6xl mx-auto px-5 md:px-8 min-h-[2.25rem] py-1.5 flex items-center justify-center gap-2.5 text-center">
-          <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.18em] text-paper bg-ink rounded px-1.5 py-0.5">{LAUNCH.stage}</span>
-          <p className="text-[11px] leading-tight text-white/85">
-            Running on {LAUNCH.chain} — test ETH only, nothing here is real money or a real deed.
-            <span className="text-white/68"> Mainnet launch: {LAUNCH.date.toLowerCase()}.</span>
-          </p>
-        </div>
-      </div>
-
       <nav className="bg-paper/85 backdrop-blur-xl border-b border-white/[0.07]">
         {/* Wider than the 6xl text column above xl: seven routes, a swatch
             and a CTA need more room than a paragraph does, and a header

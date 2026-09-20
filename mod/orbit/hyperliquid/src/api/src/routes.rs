@@ -238,7 +238,7 @@ async fn mcp_get() -> (StatusCode, Json<Value>) {
 /// HTTP+SSE transport, the half a client opens first. The stream's first
 /// event names where to POST messages — as a *relative* URL, so it resolves
 /// correctly whether this API is reached directly or behind the gateway's
-/// `/api/hyperliquid` prefix. Responses to those POSTs arrive here.
+/// `/hyperliquid/api` (or legacy `/api/hyperliquid`) prefix. Responses to those POSTs arrive here.
 async fn mcp_sse(headers: axum::http::HeaderMap) -> axum::response::Response {
     use axum::response::sse::{Event, KeepAlive, Sse};
     use axum::response::IntoResponse;
@@ -361,7 +361,7 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
             "payload_too_large": {"status": 413, "sign_in": false, "means": "body over 1 MiB"},
         },
         "testnet": s.hl.testnet,
-        "urls": { "app": "/hyperliquid", "api": "/api/hyperliquid" },
+        "urls": { "app": "/hyperliquid", "api": "/hyperliquid/api" },
         "endpoints": {
             // `crate::auth::is_public` is the authority; mcp::tools() carries
             // the same flag per tool and a test holds the two in agreement.

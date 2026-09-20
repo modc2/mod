@@ -2,7 +2,7 @@
 
 // The copy-trades feed, as a hook.
 //
-// One GET to `/polymarket/api/copytrades` (the Next route, not the Rust API —
+// One GET to `/polymarket/_api/copytrades` (the Next route, not the Rust API —
 // so the token is attached here rather than by access.ts's fetch patch, same
 // as lib/hubCache.ts). The route answers with ROWS; filtering happens in the
 // browser against lib/semanticFilter.ts, which is why re-typing a query never
@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getAccessToken } from "./access";
 import type { CopySummary, CopyTradeRow, LeaderScore } from "./copyTrades";
 
-const ROUTE = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/copytrades`;
+const ROUTE = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/_api/copytrades`;
 
 export interface CopyTradesResponse {
   days: number;

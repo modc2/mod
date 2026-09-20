@@ -127,7 +127,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
     // Behind the fleet gateway the app lives at /model but the API at /api/model
-    const API = location.pathname.startsWith('/model') ? '/api/model' : '';
+    const API = location.pathname.startsWith('/model') ? '/model/api' : '';
     const KEY_PREFIX = 'modelgw_key_';
     const SEL_KEY = 'modelgw_last_provider';
     const MODEL_KEY = 'modelgw_last_model_';

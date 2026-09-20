@@ -9,7 +9,7 @@
     "app_port": 50530,
     "route": true,
     "urls": {
-        "api": "https://modc2.com/api/replit",
+        "api": "https://modc2.com/replit/api",
         "app": "https://modc2.com/replit"
     },
     "sources": {

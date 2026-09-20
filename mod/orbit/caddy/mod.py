@@ -334,12 +334,28 @@ class Mod:
         lines = [f"{host} {{"]
         for n in sorted(routes):
             spec = routes[n]
-            for kind, prefix in (("api", f"/api/{n}"), ("app", f"/{n}")):
-                r = spec.get(kind)
-                if not r:
-                    continue
-                lines.append(f"    @{n}_{kind} path {prefix} {prefix}/*")
-                lines.append(f"    handle @{n}_{kind} {{")
+            api = spec.get("api")
+            if api:
+                # Canonical API route is {host}/{n}/api — emitted BEFORE the
+                # app handle so it wins the /{n}/* overlap. The legacy
+                # /api/{n} form stays as an alias so old clients keep working.
+                for tag, prefix in ((f"{n}_api", f"/{n}/api"),
+                                    (f"{n}_api_legacy", f"/api/{n}")):
+                    lines.append(f"    @{tag} path {prefix} {prefix}/*")
+                    lines.append(f"    handle @{tag} {{")
+                    if api.get("strip"):
+                        lines.append(f"        uri strip_prefix {prefix}")
+                    elif prefix == f"/{n}/api":
+                        # Non-strip upstreams (the activator) speak the legacy
+                        # /api/{n} shape — normalize before proxying.
+                        lines.append(f"        uri replace /{n}/api /api/{n}")
+                    lines.append(f"        reverse_proxy {api['upstream']}")
+                    lines.append("    }")
+            r = spec.get("app")
+            if r:
+                prefix = f"/{n}"
+                lines.append(f"    @{n}_app path {prefix} {prefix}/*")
+                lines.append(f"    handle @{n}_app {{")
                 if r.get("strip"):
                     lines.append(f"        uri strip_prefix {prefix}")
                 lines.append(f"        reverse_proxy {r['upstream']}")

@@ -7,7 +7,7 @@
 // is an aggregate ledger with no time axis. So this loop samples the same
 // number the sidebar already shows per strat — realized − fees + unrealized —
 // every SAMPLE_MS into ~/.mod/polymarket/strat-pnl-history.json, and the
-// /api/strat-pnl route serves the last 7 days of it to the cards.
+// /_api/strat-pnl route serves the last 7 days of it to the cards.
 //
 // First run seeds the file from the engines' surviving realizedEvents (up to
 // 48h of real fills), anchored so each strat's backfilled curve ends at its

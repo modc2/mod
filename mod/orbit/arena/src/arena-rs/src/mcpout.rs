@@ -152,8 +152,8 @@ pub fn list() -> Value {
 // person running the arena, at their own console, so the answer can be the
 // whole fleet rather than an allowlist.
 //
-// A module in this fleet answers at {gateway}/api/{name}, and its MCP server
-// at {gateway}/api/{name}/mcp. Going through the gateway rather than a port is
+// A module in this fleet answers at {gateway}/{name}/api, and its MCP server
+// at {gateway}/{name}/api/mcp. Going through the gateway rather than a port is
 // what wakes a module that the activator has put to sleep.
 
 /// The fleet router. Every module is reachable behind it whether or not it is
@@ -168,7 +168,7 @@ pub fn gateway() -> String {
 
 /// Where one fleet module's own MCP server answers.
 pub fn module_mcp_url(name: &str) -> String {
-    format!("{}/api/{}/mcp", gateway(), name.trim().trim_matches('/'))
+    format!("{}/{}/api/mcp", gateway(), name.trim().trim_matches('/'))
 }
 
 /// A module of this fleet, addressed as a server. No headers: the gateway is

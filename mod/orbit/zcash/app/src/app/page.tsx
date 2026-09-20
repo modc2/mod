@@ -1844,7 +1844,7 @@ function Mcp() {
   const ping = async () => {
     setProbing(true)
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/api/mcp`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/_api/mcp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

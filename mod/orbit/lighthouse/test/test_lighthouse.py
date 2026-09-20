@@ -414,7 +414,7 @@ def test_the_advertised_url_is_the_one_the_caller_reached(client):
     # put back — a forwarded host means the gateway's own route, not this port.
     assert url('/mcp/config', **{'x-forwarded-host': 'modc2.com',
                                  'x-forwarded-proto': 'https'}) \
-        == 'https://modc2.com/api/lighthouse/mcp'
+        == 'https://modc2.com/lighthouse/api/mcp'
 
 
 def test_batching_is_refused_in_words(client):

@@ -256,7 +256,7 @@ export interface StratPnlPoint {
   pnl: number;
 }
 
-/** Per-strat 7-day PnL series from /api/strat-pnl. Empty until the sidecar
+/** Per-strat 7-day PnL series from /_api/strat-pnl. Empty until the sidecar
     has sampled (first deploy) or when the caller isn't the owner. Keyed off
     the ACCESS token, not the wallet: the tab only mounts once the gate is
     open, and a QR-paired phone session holds a token with no wallet at all. */
@@ -270,7 +270,7 @@ export function useStratPnlHistory(days = 7, pollMs = 5 * 60_000): Record<string
         // Same-origin Next route (not the Rust API): access.ts's fetch patch
         // only stamps API-bound URLs, so attach the token explicitly.
         const token = getAccessToken();
-        const res = await fetch(`/polymarket/api/strat-pnl?days=${days}`, {
+        const res = await fetch(`/polymarket/_api/strat-pnl?days=${days}`, {
           cache: "no-store",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });

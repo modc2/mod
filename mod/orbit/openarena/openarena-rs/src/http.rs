@@ -210,9 +210,11 @@ pub async fn serve(port: u16) {
         .route("/openarena/", get(console))
         .merge(api_routes())
         // The console is served at /openarena in both worlds, so it always
-        // calls /api/openarena. Behind the fleet router caddy strips that
+        // calls /openarena/api (canonical; /api/openarena is the permanently
+        // supported legacy alias). Behind the fleet router caddy strips that
         // prefix; standalone on this port nothing does, so the same routes
         // answer there too and one console works in both places.
+        .nest("/openarena/api", api_routes())
         .nest("/api/openarena", api_routes())
         .layer(CorsLayer::permissive());
 

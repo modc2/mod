@@ -14,9 +14,9 @@
         "app": "http://localhost:50731/eth",
         "same_origin_api": "http://localhost:50731/eth/_api",
         "mcp": "http://localhost:50730/mcp",
-        "gateway_api": "https://modc2.com/api/eth",
+        "gateway_api": "https://modc2.com/eth/api",
         "gateway_app": "https://modc2.com/eth",
-        "gateway_mcp": "https://modc2.com/api/eth/mcp"
+        "gateway_mcp": "https://modc2.com/eth/api/mcp"
     },
     "backend": "api/api.py (FastAPI \u2014 the API, :50730)",
     "frontend": "app/server.py (stdlib \u2014 the console at /eth on :50731; proxies /eth/_api to the API)",

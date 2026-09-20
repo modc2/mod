@@ -1,1 +1,1 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || '/api/latexhub'
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || '/latexhub/api'

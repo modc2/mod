@@ -14,7 +14,7 @@
         "api": "http://localhost:50480",
         "app": "http://localhost:50481/wasmland",
         "same_origin_api": "http://localhost:50481/wasmland/_api",
-        "gateway_api": "https://modc2.com/api/wasmland",
+        "gateway_api": "https://modc2.com/wasmland/api",
         "gateway_app": "https://modc2.com/wasmland"
     },
     "backend": "src/api/api.py (FastAPI \u2014 the API, :50480)",

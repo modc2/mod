@@ -21,7 +21,7 @@ import type {
 
 // Everything goes through the Next rewrite at /api/liquidai → backend, so the
 // basePath ("/liquidai") never gets prepended to an API call.
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/liquidai";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/liquidai/api";
 
 // The session token, held here rather than passed down through every caller:
 // AuthProvider owns it and pushes it in, and each fetch picks it up. One place

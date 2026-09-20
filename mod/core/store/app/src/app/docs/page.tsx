@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { SubHeader } from "@/components/SubHeader";
 
-const API_BASE = "/api/store";
+const API_BASE = "/store/api";
 
 type Ep = { method: string; path: string; auth: string; docs: string };
 

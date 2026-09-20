@@ -3,11 +3,11 @@
 // Per-TRADER backtest scores, merged from the two places the worker already
 // posts them:
 //
-//   1. AUTO COPY (`/api/hub/autocopy`) — the top-PnL roster, each trader
+//   1. AUTO COPY (`/_api/hub/autocopy`) — the top-PnL roster, each trader
 //      replayed over a train window and then a disjoint TEST window. The test
 //      number is the honest one (out-of-sample), and the verdict compares the
 //      two. Covers the roster only (top N).
-//   2. THE HUB (`/api/hub?days=1`) — every `copy-<addr>` identity strat the
+//   2. THE HUB (`/_api/hub?days=1`) — every `copy-<addr>` identity strat the
 //      worker replays for the COPY DESK's leaders. Single window, walk-forward
 //      verdict when present.
 //
@@ -97,8 +97,8 @@ function fromHub(bt: HubBacktest, source: TraderBacktestScore["source"]): Trader
     same rule the money tiles use for a transient error. */
 export async function fetchTraderBacktestScores(): Promise<Map<string, TraderBacktestScore> | null> {
   const [auto, hub] = await Promise.all([
-    getJson<{ cards?: AutoCopyCard[] }>(`${BASE}/api/hub/autocopy`),
-    getJson<{ results?: Record<string, HubBacktest> }>(`${BASE}/api/hub?days=1`),
+    getJson<{ cards?: AutoCopyCard[] }>(`${BASE}/_api/hub/autocopy`),
+    getJson<{ results?: Record<string, HubBacktest> }>(`${BASE}/_api/hub?days=1`),
   ]);
   if (!auto && !hub) return null;
 

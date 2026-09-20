@@ -194,7 +194,7 @@ const COPY_ENDPOINTS: Endpoint[] = [
   },
   {
     method: "POST",
-    path: "/polymarket/api/basket",
+    path: "/polymarket/_api/basket",
     description:
       "THE BASKET — replay a SET of traders, each on its OWN capital, as one portfolio. Runs " +
       "on the Next app (not the Rust API), out of the background worker's feed store, so a " +
@@ -210,11 +210,11 @@ const COPY_ENDPOINTS: Endpoint[] = [
       { name: "floors", type: "boolean?", desc: "Also find the smallest amount at which each leg trades at all. null ⇒ that leg never trades at any size on the ladder." },
       { name: "ladder", type: "number[]?", desc: "Also replay the whole split at these totals — copying is not linear in the money." },
     ],
-    example: `POST /polymarket/api/basket {"legs":[{"address":"0xab…","allocationUsd":700},{"address":"0xcd…","allocationUsd":300}],"days":7,"compare":true}`,
+    example: `POST /polymarket/_api/basket {"legs":[{"address":"0xab…","allocationUsd":700},{"address":"0xcd…","allocationUsd":300}],"days":7,"compare":true}`,
   },
   {
     method: "GET",
-    path: "/polymarket/api/copytrades",
+    path: "/polymarket/_api/copytrades",
     description:
       "RESULTS (my copy trades) — every trade the desk's leaders made, joined to every on-chain fill of " +
       "mine. Nothing upstream links them (a fill carries no leader tag), so the join is " +
@@ -228,7 +228,7 @@ const COPY_ENDPOINTS: Endpoint[] = [
       { name: "q", type: "string?", desc: "Plain-language filter — \"big buys on crypto under 30c\", \"missed longshots\", \"politics, not candles\". The answer echoes how it was read (`query.chips`) and the enforceable gate it compiles to (`query.gate`)." },
       { name: "matchMinutes", type: "number?", desc: "How long after a leader's trade a fill may still count as mirroring it (default 30)." },
     ],
-    example: "GET /polymarket/api/copytrades?days=7&q=missed+longshots",
+    example: "GET /polymarket/_api/copytrades?days=7&q=missed+longshots",
   },
   {
     method: "GET",

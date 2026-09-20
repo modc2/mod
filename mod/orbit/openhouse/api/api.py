@@ -254,6 +254,11 @@ def compare(refresh: bool = False):
     """OpenHouse against the field — including where the field is ahead."""
     return get_openhouse().compare(refresh=refresh)
 
+@app.get("/fx")
+def fx(refresh: bool = False):
+    """ETH quoted in fiat currencies, for display. Cached; never errors."""
+    return get_openhouse().fx(refresh=refresh)
+
 @app.get("/equity/{address}")
 def equity(address: str):
     return get_openhouse().equity(address)

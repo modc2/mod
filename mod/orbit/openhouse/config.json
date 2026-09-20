@@ -43,6 +43,7 @@
         "rent_stats",
         "peers",
         "compare",
+        "fx",
         "purchase",
         "distribute",
         "record_action",

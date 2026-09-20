@@ -16,7 +16,7 @@ export default function AuthBadge({ inline = false }: { inline?: boolean }) {
     let alive = true;
     const check = async () => {
       try {
-        const r = await fetch(`${BASE_PATH}/api/credentials`, { cache: "no-store" });
+        const r = await fetch(`${BASE_PATH}/_api/credentials`, { cache: "no-store" });
         const d = await r.json();
         if (!alive) return;
         setOk(!!d.loggedIn);

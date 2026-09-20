@@ -3,7 +3,8 @@
  * Module activator — scale-to-zero front proxy for the mod fleet.
  *
  * Sits in front of the local (pm2-managed) module ports. For every request it:
- *   1. maps the path to a module + target port (`/api/{mod}` → api port with the
+ *   1. maps the path to a module + target port (`/{mod}/api` — or the legacy
+ *      `/api/{mod}` alias — → api port with the
  *      prefix stripped, `/{mod}` → app port — matching the old per-module Caddy
  *      blocks it replaces),
  *   2. WAKES the module if its port isn't listening (pm2 start the matching
@@ -294,7 +295,8 @@ async function wake(mod, port) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── routing ───────────────────────────────────────────────────────────────────
-// Returns { mod, port, strip } or null. `/api/{mod}/...`→api (strip `/api/{mod}`),
+// Returns { mod, port, strip } or null. `/{mod}/api/...`→api (canonical; strip
+// `/{mod}/api`), `/api/{mod}/...`→api (legacy alias, strip `/api/{mod}`),
 // `/{mod}/...`→app (no strip, apps carry their basePath).
 function route(url) {
   const seg = url.split("?")[0].split("/").filter(Boolean);
@@ -302,6 +304,10 @@ function route(url) {
   if (seg[0] === "api" && seg[1] && REGISTRY[seg[1]]) {
     const mod = seg[1];
     return { mod, port: REGISTRY[mod].apiPort, strip: `/api/${mod}` };
+  }
+  if (seg[1] === "api" && REGISTRY[seg[0]] && REGISTRY[seg[0]].apiPort) {
+    const mod = seg[0];
+    return { mod, port: REGISTRY[mod].apiPort, strip: `/${mod}/api` };
   }
   if (REGISTRY[seg[0]]) {
     const mod = seg[0];

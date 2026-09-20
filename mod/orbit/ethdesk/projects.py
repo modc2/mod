@@ -401,7 +401,7 @@ def share_links(cid: str) -> Dict[str, str]:
     """
     return {
         'open': f'/eth/?open={cid}',
-        'store': f'/api/store/get?cid={cid}',
+        'store': f'/store/api/get?cid={cid}',
         'command': f'm eth/open cid={cid}',
     }
 

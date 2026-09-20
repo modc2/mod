@@ -11,7 +11,7 @@ One JSON-RPC dispatcher (`handle_message`) serves two transports:
     `POST /mcp` (src/api/app.py), which is how the fleet connects:
 
         claude mcp add --transport http copytensor http://localhost:50150/mcp
-        # or through the gateway: https://<host>/api/copytensor/mcp
+        # or through the gateway: https://<host>/copytensor/api/mcp
 
 Scope: `COPYTENSOR_MCP_SCOPE=agent` restricts the tool list to the read-only
 set; the default, `all`, adds the ops tools — the copy book and `ct_sync`.

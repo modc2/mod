@@ -1,6 +1,7 @@
 "use client";
 
-// Upload + manage user-written strats (mod.py / mod.rs) AND share them.
+// Upload + manage user-written strats (strat.py / strat.rs / strat.ts) AND
+// share them.
 // Rendered as the STRAT → MARKET subtab (CopyIndex).
 //
 // The Polymarket engine ships a Python `Strat` base class in
@@ -20,7 +21,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type StratKind = "py" | "rs";
+type StratKind = "py" | "rs" | "ts";
+
+// Fired (on window) whenever a user strat is created outside this panel —
+// e.g. the MY STRATS card grid's upload tile — so the list here re-reads.
+export const USER_STRATS_CHANGED_EVENT = "pm:user-strats-changed";
 
 interface UserStratEntry {
   id: string;
@@ -143,6 +148,9 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
 
   useEffect(() => {
     refresh();
+    const onChanged = () => void refresh();
+    window.addEventListener(USER_STRATS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(USER_STRATS_CHANGED_EVENT, onChanged);
   }, [refresh]);
 
   const handleFile = useCallback(async (file: File) => {
@@ -150,10 +158,11 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     const text = await file.text();
     setContent(text);
     if (!id) {
-      const base = file.name.replace(/\.(py|rs)$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const base = file.name.replace(/\.(py|rs|ts)$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
       setId(base.slice(0, 64));
     }
     if (file.name.endsWith(".rs")) setKind("rs");
+    else if (file.name.endsWith(".ts")) setKind("ts");
     else if (file.name.endsWith(".py")) setKind("py");
   }, [id]);
 
@@ -495,8 +504,9 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
             className="bg-pixel-bg border border-pixel-border rounded px-2 py-1 font-mono text-xs outline-none"
             disabled={busy}
           >
-            <option value="py">mod.py</option>
-            <option value="rs">mod.rs</option>
+            <option value="py">strat.py</option>
+            <option value="rs">strat.rs</option>
+            <option value="ts">strat.ts</option>
           </select>
         </div>
         <input
@@ -521,7 +531,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
           <input
             ref={fileRef}
             type="file"
-            accept=".py,.rs"
+            accept=".py,.rs,.ts"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) void handleFile(f);
@@ -738,10 +748,14 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
         <summary className="cursor-pointer">How does this work?</summary>
         <div className="mt-1 space-y-1.5">
           <p>
-            Strats are Python files. Subclass{" "}
+            A code strat is one source file — <code className="font-mono">strat.py</code>,{" "}
+            <code className="font-mono">strat.rs</code> or{" "}
+            <code className="font-mono">strat.ts</code>. In Python, subclass{" "}
             <code className="font-mono">Strat</code> from{" "}
-            <code className="font-mono">src/strats/base.py</code> and
-            implement two methods:
+            <code className="font-mono">src/strats/base.py</code> (the copy-trading
+            reference is <code className="font-mono">copytrader.py</code> — the
+            default template); Rust and TypeScript files mirror the same
+            two-method surface:
           </p>
           <ul className="list-disc pl-5 space-y-1">
             <li>
