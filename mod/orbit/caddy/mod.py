@@ -12,7 +12,8 @@ class Mod:
     """caddy — THE router: one generated site block for {host}/{mod}.
 
     Every module whose config.json opts in (`"route": true`) and declares ports
-    gets a route at {host}/{name} (app) and {host}/api/{name} (API). The whole
+    gets a route at {host}/{name} (app) and {host}/{name}/api (API; the legacy
+    {host}/api/{name} form is kept as an alias for old clients). The whole
     site block — module routes, root redirect, catch-all — is generated into a
     single include (mod_site.caddy) that the base Caddyfile imports at top
     level. There are no hand-written per-module routes left: on first apply the
@@ -31,8 +32,10 @@ class Mod:
     committed config.json).
 
     Convention (per module config.json):
-      port      → API   (proxied at /api/{name}, prefix stripped)
-      app_port  → app   (proxied at /{name}, prefix kept — Next basePath)
+      port      → API   (proxied at /{name}/api, prefix stripped;
+                         legacy /api/{name} kept as an alias)
+      app_port  → app   (proxied at /{name}, prefix kept — Next basePath;
+                         app-internal Next API routes live at /{name}/_api)
     """
 
     description = "The mod router — generates the whole {host}/{mod} Caddy site from module configs; host is owner-configurable so anyone can run a router."
