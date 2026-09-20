@@ -13,7 +13,7 @@ const nextConfig = {
   experimental: { instrumentationHook: true },
   ...(basePath ? { basePath } : {}),
   env: {
-    NEXT_PUBLIC_API_URL: "/api/polymarket",
+    NEXT_PUBLIC_API_URL: "/polymarket/api",
     NEXT_PUBLIC_BASE_PATH: basePath,
     // Body-integrity tag for the strat-sync PUT/DELETE, and nothing more:
     // anything under NEXT_PUBLIC_ is compiled into the browser bundle, so this
@@ -35,6 +35,14 @@ const nextConfig = {
         source: "/api/polymarket/:path*",
         destination: `${apiUrl}/:path*`,
         basePath: false,
+      },
+      // Canonical /{mod}/api form. With basePath set, this source is
+      // auto-prefixed, so it serves /polymarket/api/:path* in dev / behind
+      // the sandbox Caddy — matching the flipped NEXT_PUBLIC_API_URL above.
+      // The legacy /api/polymarket rewrite above is kept as belt-and-braces.
+      {
+        source: "/api/:path*",
+        destination: `${apiUrl}/:path*`,
       },
       // L2 CLOB passthrough (order, balance-allowance, orders, cancel).
       // Mirrors the Caddy @l2 block so the app works in dev modes where

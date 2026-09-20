@@ -98,7 +98,7 @@ export default function WalletPanel() {
     if (!eoa) return;
     const polygon = networkById("polygon")!;
     const [infoRes, eoaBal] = await Promise.all([
-      fetch(`/api/polymarket/deposit-wallet/info?eoa=${eoa}`, { cache: "no-store" })
+      fetch(`/polymarket/api/deposit-wallet/info?eoa=${eoa}`, { cache: "no-store" })
         .then(async (res) => {
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           return (await res.json()) as InfoResp;
@@ -203,7 +203,7 @@ export default function WalletPanel() {
     setStatus("Wrapping for trading (gasless)…");
     setBusy(true);
     try {
-      const res = await fetch("/api/polymarket/deposit-wallet/wrap", {
+      const res = await fetch("/polymarket/api/deposit-wallet/wrap", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ eoa }),
@@ -302,7 +302,7 @@ export default function WalletPanel() {
           // Polymarket V2 counts a *wrapped* collateral token, not raw
           // USDC.e — without this wrap the deposit reads as $0 tradable.
           setStatus(`Deposited $${amt.toFixed(2)} ✓ — wrapping for trading (gasless)…`);
-          const wrapRes = await fetch("/api/polymarket/deposit-wallet/wrap", {
+          const wrapRes = await fetch("/polymarket/api/deposit-wallet/wrap", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ eoa }),
@@ -324,7 +324,7 @@ export default function WalletPanel() {
         // burns collateral and mints USDC.e at the destination in one
         // relayer batch. Gasless, no popup.
         setStatus("Sending via Polymarket relayer (gasless)…");
-        const res = await fetch("/api/polymarket/deposit-wallet/unwrap-and-send", {
+        const res = await fetch("/polymarket/api/deposit-wallet/unwrap-and-send", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({

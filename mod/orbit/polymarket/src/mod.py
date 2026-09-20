@@ -268,7 +268,8 @@ class Polymarket(m.Mod):
         except Exception:
             pass
 
-        # Gateway middleware routes /polymarket/* and /api/polymarket/* from
+        # Gateway middleware routes /polymarket/* (incl. the canonical
+        # /polymarket/api/*) and the legacy /api/polymarket/* alias from
         # the app_namespace registry — register the same way app/serve does
         # for bridge.
         try:

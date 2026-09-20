@@ -23,7 +23,7 @@ mod/orbit/whitepaper/
   mod.py              # anchor class — Mod (Python protocol surface)
   config.json         # ports + proxy routing
   Caddyfile           # :3000 → /whitepaper (app) + /api/whitepaper (api)
-  whitepaper.tex      # LaTeX source (v0.2 — Parts I/II/III)
+  whitepaper.tex      # LaTeX source (v0.3 — Parts I/II/III)
   src/api/            # Rust API (axum + tiny-keccak)
     Cargo.toml
     src/main.rs       # routes + state
@@ -46,7 +46,7 @@ The Python `Mod` class and the Rust binary share one source of truth:
 
 | Service | Port  | Proxy path          |
 |---------|-------|---------------------|
-| API     | 50106 | `/api/whitepaper/*` |
+| API     | 50106 | `/whitepaper/api/*` (canonical since 2026-09-20; `/api/whitepaper/*` is a permanent legacy alias) |
 | App     | 3106  | `/whitepaper`       |
 
 ## Usage (Python)
@@ -121,7 +121,7 @@ Build the binary:
 m whitepaper/build_api          # or: cd src/api && cargo build --release
 ```
 
-All endpoints are exposed under `/api/whitepaper/*` via the Caddy stanza.
+All endpoints are exposed under `/whitepaper/api/*` (canonical) and `/api/whitepaper/*` (permanent legacy alias) via the fleet Caddy; the standalone Caddyfile in this directory still uses the legacy form.
 
 ## Proxy
 

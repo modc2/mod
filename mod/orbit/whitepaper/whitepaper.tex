@@ -70,7 +70,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small\textcolor{gray}{MOD Protocol -- Merkle-Tree Module Registry}}
-\fancyhead[R]{\small\textcolor{gray}{v0.2 -- August 2026}}
+\fancyhead[R]{\small\textcolor{gray}{v0.3 -- September 2026}}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 
@@ -92,8 +92,8 @@
 {\Large\textcolor{gray}{Storing the tree, not the leaves:\\a Merkle-root registry for the MOD orbit ecosystem,\\and the mod protocol it registers}\par}
 
 \vspace{2cm}
-{\large Version 0.2\par}
-{\large August 2026\par}
+{\large Version 0.3\par}
+{\large September 2026\par}
 
 \vspace{3cm}
 
@@ -250,7 +250,7 @@ The manifest CID is emitted in the \texttt{Rotated} event so that any indexer wi
 
 \begin{enumerate}
     \item Developer signs a record update with their wallet.
-    \item Signed update is broadcast to a public mempool (a Caddy-fronted FastAPI endpoint at \texttt{/api/whitepaper/tree/submit}).
+    \item Signed update is broadcast to a public mempool (a Caddy-fronted FastAPI endpoint at \texttt{/whitepaper/api/tree/submit}).
     \item Publisher (or any node) aggregates updates between epochs.
     \item Publisher recomputes the tree, uploads the manifest, calls \texttt{rotate(newRoot, manifestCid)}.
     \item Clients verify their relevant leaves against the new root via Merkle proofs.
@@ -510,7 +510,7 @@ A function is invoked identically from three places:
 \begin{lstlisting}[style=python]
 m.fn('whitepaper/tree_proof')(name='agent')       # Python
 m whitepaper/tree_proof name=agent                # CLI
-POST /api/whitepaper/tree/proof  {"name":"agent"} # HTTP
+POST /whitepaper/api/tree/proof  {"name":"agent"} # HTTP
 \end{lstlisting}
 
 Serving is not a rewrite: \texttt{m serve <name>} places the module behind the
@@ -547,12 +547,25 @@ reachable as:
 \textbf{Form} & \textbf{Target} & \textbf{Rule} \\
 \midrule
 \texttt{https://<host>/X} & app (\texttt{app\_port}) & prefix \emph{kept}; the app sets \texttt{basePath /X} \\
-\texttt{https://<host>/api/X} & API (\texttt{port}) & prefix \emph{stripped}: \texttt{/api/X/y} $\to$ \texttt{/y} \\
+\texttt{https://<host>/X/api} & API (\texttt{port}) & \emph{canonical}; prefix \emph{stripped}: \texttt{/X/api/y} $\to$ \texttt{/y} \\
+\texttt{https://<host>/api/X} & API (\texttt{port}) & \emph{legacy alias}, kept permanently; same stripping \\
 \texttt{https://X.<host>} & app & name form, resolved by the DNS layer \\
 \bottomrule
 \end{tabularx}
-\caption{The URL rule. App at \texttt{/X}, API at \texttt{/api/X}, discovery by null call.}
+\caption{The URL rule (v0.3). App at \texttt{/X}, API at \texttt{/X/api}, discovery by null call.}
 \end{table}
+
+The v0.3 revision moves the canonical API form from \texttt{/api/X} to
+\texttt{/X/api}, so that a module's \emph{name prefix owns its entire
+namespace}: everything a caller can reach about \texttt{X} lives under
+\texttt{/X}. Two segments beneath that prefix are reserved. \texttt{/X/api} is
+the protocol API. \texttt{/X/\_api} belongs to the app itself---its private
+internal routes---and is deliberately \emph{not} part of the protocol surface;
+the leading underscore, which is never legal at the start of a module name,
+guarantees neither reserved segment can be shadowed by a module. The old
+\texttt{/api/X} form remains a permanent alias: protocol aliases are additive
+and never removed, so no client, bundle, or registry leaf written against an
+earlier revision ever breaks.
 
 Three interchangeable implementations enforce it: the production Caddy gateway,
 whose routes are \emph{generated} from each module's \texttt{config.json} rather
@@ -565,7 +578,7 @@ lets a registry leaf, rather than an operator, determine where a name resolves.
 
 The \texttt{dns} module closes the loop for the third form: it derives an
 authoritative zone from the module fleet and serves it over UDP and TCP, so
-\texttt{X.<host>}, \texttt{<host>/X}, and \texttt{<host>/api/X} agree by
+\texttt{X.<host>}, \texttt{<host>/X}, and \texttt{<host>/X/api} agree by
 construction rather than by convention. Attribution records (\texttt{\_mod} TXT)
 carry the declared owner and CID of the module answering at a name, making the
 DNS layer a second, independent witness to the same facts the tree commits.
@@ -608,7 +621,7 @@ image becomes a pinned Nix image, and the supervisor is shared.
 
 All traffic enters through a single gateway. Some modules are routed directly by
 host rules; the remainder are federated through a portal that maps
-\texttt{/\{mod\}} and \texttt{/api/\{mod\}} to each module's registered
+\texttt{/\{mod\}} and \texttt{/\{mod\}/api} to each module's registered
 \texttt{app}/\texttt{api} endpoints, resolved from the registry's app namespace.
 A request thus reaches a module by \emph{name}, independent of where it runs---
 the same indirection that lets the registry of Part~I move a name to a new host
@@ -751,7 +764,7 @@ Definition & A module is a directory with an anchor class and a \texttt{config.j
 Exposure & The public methods of the anchor class are the module's functions. \\
 Equivalence & Python, CLI, and HTTP call the same function with the same semantics. \\
 Discovery & A null call to a module returns its name, functions, and schema. \\
-Addressing & App at \texttt{/\{mod\}}, API at \texttt{/api/\{mod\}}, name at \texttt{\{mod\}.\{host\}}. \\
+Addressing & App at \texttt{/\{mod\}}, API at \texttt{/\{mod\}/api} (legacy alias \texttt{/api/\{mod\}}), name at \texttt{\{mod\}.\{host\}}. \\
 Identity & One shared auth module; a token is a time-bounded signature. \\
 Authority & Owner from \texttt{config.json}; everyone else is a confined peer. \\
 Privacy & Public code and config are committed; state and ACLs stay under \texttt{\textasciitilde/.mod/}. \\
@@ -800,6 +813,18 @@ class Mod:
     def tree_proof(self, name: str) -> list[str]: ...
     def tree_verify(self, leaf: str, proof: list[str]) -> bool: ...
 \end{lstlisting}
+
+\section{Revision History}
+
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Version} & \textbf{Date} & \textbf{Changes} \\
+\midrule
+0.1 & May 2026 & Initial proposal: the Merkle-root registry (Part~I). \\
+0.2 & August 2026 & Part~II added: the mod protocol specification and its nine invariants. \\
+0.3 & September 2026 & Canonical API form moved from \texttt{/api/\{mod\}} to \texttt{/\{mod\}/api}; \texttt{/api/\{mod\}} retained as a permanent alias; \texttt{/\{mod\}/\_api} reserved for app-internal routes. Addressing table, examples, and the Addressing invariant updated accordingly. \\
+\bottomrule
+\end{tabularx}
 
 \section{Notation}
 

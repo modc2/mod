@@ -38,7 +38,7 @@ RUN npm ci --no-audit --no-fund
 COPY src/app/app/ ./app/
 COPY src/app/next.config.mjs src/app/tsconfig.json src/app/tailwind.config.js src/app/postcss.config.js ./
 COPY src/strats/ /strats/
-ENV NEXT_PUBLIC_API_URL=/api/polymarket
+ENV NEXT_PUBLIC_API_URL=/polymarket/api
 ENV NEXT_PUBLIC_BASE_PATH=/polymarket
 ENV POLYMARKET_API_URL=http://localhost:50091
 ARG STRAT_HMAC_SECRET=polymarket_strats_default_hmac_key_2024

@@ -2,15 +2,16 @@
 // time-weighted staking on Base Sepolia (lock NAT for N blocks, mint BLOC at a
 // multiplier that grows with the lock).
 //
-// Proxied through Next at {basePath}/api/bloctime (see next.config.mjs) for
+// Proxied through Next at {basePath}/_api/bloctime (see next.config.mjs) for
 // the same reason the chain hub is: the module isn't publicly routed, and a
 // domain-root path would never reach this app through the Caddy gateway.
+// _api, not api: /web/api/* is the protocol API and Caddy intercepts it.
 //
 // Reads go through here (the module holds the RPC + ABI). WRITES do not —
 // they're signed by the visitor's own wallet in lib/wallet.tsx, because the
 // server has no key for them and shouldn't.
 
-export const BLOCTIME_API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/bloctime`;
+export const BLOCTIME_API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/_api/bloctime`;
 
 export type ContractInfo = {
   name: string;

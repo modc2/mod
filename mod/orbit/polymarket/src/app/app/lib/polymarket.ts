@@ -114,7 +114,7 @@ export function timeAgo(ts: number): string {
 const API_URL =
   typeof window === "undefined"
     ? process.env.POLYMARKET_API_URL || "http://127.0.0.1:50091"
-    : process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+    : process.env.NEXT_PUBLIC_API_URL || "/polymarket/api";
 /** Base URL of the module API — for callers that need non-proxy routes
  *  (deposit-wallet info, live engine status) without hardcoding the path. */
 export const API_BASE = API_URL;
@@ -173,9 +173,9 @@ async function httpErrorMessage(res: Response): Promise<string> {
 async function polyApiQs(endpoint: string, params: URLSearchParams): Promise<unknown> {
   const qs = new URLSearchParams(params);
   qs.set("endpoint", endpoint);
-  // NOTE the slash before `?`. The gateway route strips the `/api/polymarket`
+  // NOTE the slash before `?`. The gateway route strips the `/polymarket/api`
   // prefix; without a trailing slash the upstream request line has an empty
-  // path and Caddy/Cloudflare reject it with a 400. `/api/polymarket/?…` →
+  // path and Caddy/Cloudflare reject it with a 400. `/polymarket/api/?…` →
   // strips to `/?…` → valid. (Direct localhost:50091 tolerates both.)
   const url = `${API_URL}/?${qs.toString()}`;
   const ATTEMPTS = 3;

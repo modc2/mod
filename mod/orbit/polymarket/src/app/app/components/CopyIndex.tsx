@@ -938,7 +938,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
     let cancelled = false;
     const fetchBalance = async () => {
       try {
-        const res = await fetch(`/api/polymarket/deposit-wallet/info?eoa=${auth.address}`);
+        const res = await fetch(`/polymarket/api/deposit-wallet/info?eoa=${auth.address}`);
         if (!res.ok) return;
         const info = await res.json() as { usdcBalance?: string | null };
         // usdcBalance is RAW 6-decimal token units (same as WalletChip /

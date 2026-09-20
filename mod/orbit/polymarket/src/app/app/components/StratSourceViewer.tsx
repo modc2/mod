@@ -7,7 +7,7 @@
 //     strategy class) — read-only. Pulled in via the webpack `?raw` rule
 //     wired in next.config.mjs.
 //   - User-uploaded mod.py / mod.rs strats — editable, persisted through
-//     /api/polymarket/user-strats POST (same endpoint UserStratsPanel uses).
+//     /polymarket/api/user-strats POST (same endpoint UserStratsPanel uses).
 //
 // Read-only vs editable is decided by `editable` on the entry, NOT by
 // kind, so a future "share a built-in fork as editable" flow can drop in
@@ -50,7 +50,7 @@ export default function StratSourceViewer() {
 
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch("/api/polymarket/user-strats", { cache: "no-store" });
+      const r = await fetch("/polymarket/api/user-strats", { cache: "no-store" });
       if (!r.ok) return;
       const j = (await r.json()) as {
         strats?: Array<{ id: string; kind: StratKind; updatedAt: number }>;
@@ -59,7 +59,7 @@ export default function StratSourceViewer() {
         (j.strats ?? []).map(async (s): Promise<ViewerStrat | null> => {
           try {
             const rr = await fetch(
-              `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/${s.kind}`,
+              `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/${s.kind}`,
               { cache: "no-store" },
             );
             if (!rr.ok) return null;
@@ -107,7 +107,7 @@ export default function StratSourceViewer() {
     setStatus(null);
     setError(null);
     try {
-      const r = await fetch("/api/polymarket/user-strats", {
+      const r = await fetch("/polymarket/api/user-strats", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id: current.id, kind: current.kind, content: draft }),

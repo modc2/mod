@@ -3,9 +3,11 @@
     "description": "Member-owned insurance mutuals as an Ethereum contract: operator fee capped at 10% and published on chain, 7-day fee notice, pro-rata surplus rebates, FIFO unfunded queue, agent-adjudicated claims, optional oracle for real data (advisory / required / automatic), and a US health mutual template with a 0% operator fee",
     "version": "0.2.0",
     "port": 50850,
+    "app_port": 50851,
+    "route": true,
     "urls": {
         "api": "http://localhost:50850",
-        "app": "http://localhost:50850",
+        "app": "http://localhost:50851",
         "mcp": "http://localhost:50850/mcp"
     },
     "contracts": {
@@ -62,7 +64,7 @@
     "mcp": {
         "url": "http://localhost:50850/mcp",
         "transport": "streamable-http",
-        "stdio": "python3 mcp.py",
+        "stdio": "python3 src/mcp.py",
         "auth": "none",
         "docs": "26 tools. Off-chain pools: si_pools, si_pool, si_create_pool, si_set_terms, si_quote, si_join, si_premium, si_donate, si_member, si_register_agent, si_admit_agent, si_agents, si_claim_file, si_queue, si_claim, si_vote, si_withdraw_claim, si_distribute, si_withdraw_fees, si_ledger, si_stats. On-chain: si_contract (describe/source/abi/compile/calls), si_preset (health/parametric/mutual terms scaled to an asset), si_deploy (through the eth module keystore), si_onchain (a live pool: money, the provider's profit share, solvency), si_onchain_claim."
     },

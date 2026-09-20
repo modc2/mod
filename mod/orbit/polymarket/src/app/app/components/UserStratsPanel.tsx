@@ -121,11 +121,11 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
   const refresh = useCallback(async () => {
     try {
       const mineUrl = owner
-        ? `/api/polymarket/user-strats?owner=${encodeURIComponent(owner)}`
-        : "/api/polymarket/user-strats";
+        ? `/polymarket/api/user-strats?owner=${encodeURIComponent(owner)}`
+        : "/polymarket/api/user-strats";
       const pubUrl = owner
-        ? `/api/polymarket/user-strats/public?owner=${encodeURIComponent(owner)}`
-        : "/api/polymarket/user-strats/public";
+        ? `/polymarket/api/user-strats/public?owner=${encodeURIComponent(owner)}`
+        : "/polymarket/api/user-strats/public";
       const [rm, rp] = await Promise.all([
         fetch(mineUrl, { cache: "no-store" }),
         fetch(pubUrl, { cache: "no-store" }),
@@ -179,7 +179,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     }
     setBusy(true);
     try {
-      const r = await fetch("/api/polymarket/user-strats", {
+      const r = await fetch("/polymarket/api/user-strats", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -213,7 +213,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setError(null);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/${s.kind}?owner=${encodeURIComponent(owner)}`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/${s.kind}?owner=${encodeURIComponent(owner)}`,
         { method: "DELETE" },
       );
       if (!r.ok) throw new Error(await readError(r));
@@ -228,7 +228,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setStatus(null);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/publish`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/publish`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -246,7 +246,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
   const fetchSource = useCallback(async (s: UserStratEntry): Promise<string | null> => {
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/${s.kind}`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/${s.kind}`,
       );
       if (!r.ok) return null;
       const j = (await r.json()) as { content?: string };
@@ -276,7 +276,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setCopied(false);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/share`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/share`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -313,7 +313,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setStatus(null);
     setImporting(true);
     try {
-      const r = await fetch("/api/polymarket/user-strats/import", {
+      const r = await fetch("/polymarket/api/user-strats/import", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ cid, owner }),
@@ -347,7 +347,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     setStatus(null);
     try {
       const r = await fetch(
-        `/api/polymarket/user-strats/${encodeURIComponent(s.id)}/fork`,
+        `/polymarket/api/user-strats/${encodeURIComponent(s.id)}/fork`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -727,7 +727,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
               key={t.name}
               onClick={async () => {
                 try {
-                  const r = await fetch(`/api/polymarket/user-strats/template/${t.name}`);
+                  const r = await fetch(`/polymarket/api/user-strats/template/${t.name}`);
                   if (!r.ok) return;
                   const j = (await r.json()) as { content?: string };
                   if (!j.content) return;

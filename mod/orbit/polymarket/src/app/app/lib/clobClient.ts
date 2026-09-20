@@ -137,7 +137,7 @@ export interface ClobOpenOrder {
 // Two code paths:
 //
 //   sigType=2 (POLY_GNOSIS_SAFE — the AUTO-TRADING toggle path):
-//     Order args are shipped to /api/polymarket/order/place. The backend
+//     Order args are shipped to /polymarket/api/order/place. The backend
 //     signs with a per-EOA key registered as a Safe co-owner (one-time
 //     MetaMask popup in BackendSignerPanel) and forwards to CLOB. ZERO
 //     MetaMask prompts per trade — this is what makes long-running copy
@@ -270,7 +270,7 @@ async function placeOrderViaBackend(
       maker,
     },
   });
-  const res = await fetch("/api/polymarket/order/place", {
+  const res = await fetch("/polymarket/api/order/place", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,

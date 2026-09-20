@@ -33,16 +33,23 @@ const nextConfig = {
       // Caddy block. The legacy /api/web alias stays supported below.
       { source: "/web/api/:path*", destination: `${apiUrl}/:path*`, basePath: false },
       { source: "/api/web/:path*", destination: `${apiUrl}/:path*`, basePath: false },
-      // Client fetches {basePath}/api/chain/* → proxy to the chain hub
+      // Client fetches {basePath}/_api/chain/* → proxy to the chain hub
       // (registration, MOD mint, reward pool, per-mod staking). Lives UNDER the
       // basePath so the Caddy gateway's existing /web/* route carries it in
-      // prod — a domain-root /api/chain would never reach this app through the
-      // gateway. The hub itself stays private; only this proxy is public.
+      // prod. _api (not api) because /web/api/* now belongs to the protocol
+      // API — Caddy hands it to mod-api before this app ever sees it; _api is
+      // the fleet convention for an app's own internal routes. The hub itself
+      // stays private; only this proxy is public.
+      { source: "/_api/chain/:path*", destination: `${chainUrl}/:path*` },
+      // Back-compat for direct local use without the basePath, plus the old
+      // /api/chain shape for anything still holding a pre-flip bundle in dev.
+      { source: "/_api/chain/:path*", destination: `${chainUrl}/:path*`, basePath: false },
       { source: "/api/chain/:path*", destination: `${chainUrl}/:path*` },
-      // Back-compat for direct local use without the basePath.
       { source: "/api/chain/:path*", destination: `${chainUrl}/:path*`, basePath: false },
       // Same deal for the bloctime module: under the basePath so the gateway's
-      // /web/* route carries it, plus a root alias for local use.
+      // /web/* route carries it, plus root + legacy aliases for local use.
+      { source: "/_api/bloctime/:path*", destination: `${bloctimeUrl}/:path*` },
+      { source: "/_api/bloctime/:path*", destination: `${bloctimeUrl}/:path*`, basePath: false },
       { source: "/api/bloctime/:path*", destination: `${bloctimeUrl}/:path*` },
       { source: "/api/bloctime/:path*", destination: `${bloctimeUrl}/:path*`, basePath: false },
     ];

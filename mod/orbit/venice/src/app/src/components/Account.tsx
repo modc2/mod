@@ -22,6 +22,8 @@ type Props = {
   onSignOut: () => void;
   onForget: () => void;
   busy: string | null;
+  /** Bump this number to pop the menu open from outside (e.g. "add key" CTAs). */
+  openTick?: number;
 };
 
 /**
@@ -43,10 +45,15 @@ export default function Account({
   onSignOut,
   onForget,
   busy,
+  openTick,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (openTick) setOpen(true);
+  }, [openTick]);
 
   useEffect(() => {
     if (!open) return;
@@ -135,6 +142,7 @@ export default function Account({
                   value={keyInput}
                   onChange={(e) => setKeyInput(e.target.value)}
                   disabled={!!busy}
+                  autoFocus
                 />
                 <button className="primary sm" onClick={onSaveKey} disabled={!keyInput.trim() || !!busy}>
                   Save

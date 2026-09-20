@@ -22,7 +22,7 @@ done
 
 # ── Start Next.js ──
 cd /app/app
-NEXT_PUBLIC_API_URL="/api/$MODULE" \
+NEXT_PUBLIC_API_URL="/$MODULE/api" \
 NEXT_PUBLIC_BASE_PATH="/$MODULE" \
 PORT=$APP_PORT \
 npx next start -p $APP_PORT &
@@ -44,6 +44,11 @@ cat > /app/Caddyfile <<EOF
 }
 
 :${GATEWAY_PORT} {
+    @api_canonical path /$MODULE/api /$MODULE/api/*
+    handle @api_canonical {
+        uri strip_prefix /$MODULE/api
+        reverse_proxy localhost:${API_PORT}
+    }
     @api path /api/$MODULE /api/$MODULE/*
     handle @api {
         uri strip_prefix /api/$MODULE

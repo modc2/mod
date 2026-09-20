@@ -67,7 +67,7 @@ interface PositionLite {
 //            hide on this — a flaky poll shouldn't make a real position vanish.
 async function fetchBestBid(tokenId: string): Promise<number | null | undefined> {
   try {
-    const r = await fetch(`/api/polymarket/?endpoint=book&token_id=${tokenId}`, { cache: "no-store" });
+    const r = await fetch(`/polymarket/api/?endpoint=book&token_id=${tokenId}`, { cache: "no-store" });
     if (r.ok) {
       const book = await r.json();
       const bids = Array.isArray(book?.bids) ? book.bids : [];
@@ -218,7 +218,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     let wallet: string | null = null;
     try {
       const r = await fetch(
-        `/api/polymarket/deposit-wallet/info?eoa=${eoa}`,
+        `/polymarket/api/deposit-wallet/info?eoa=${eoa}`,
         { cache: "no-store" },
       );
       if (r.ok) {
@@ -244,7 +244,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
       // 2a) Authoritative TOTAL positions value — one light call that tends to
       // survive rate-limiting even when the heavier /positions list is empty.
       try {
-        const vr = await fetch(`/api/polymarket/?endpoint=value&user=${wallet}`, { cache: "no-store" });
+        const vr = await fetch(`/polymarket/api/?endpoint=value&user=${wallet}`, { cache: "no-store" });
         if (vr.ok) {
           const vj = await vr.json();
           const v = Array.isArray(vj) ? Number(vj[0]?.value) : Number(vj?.value);
@@ -439,7 +439,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
     setRedeeming(true);
     setRedeemStatus(`${opts.auto ? "auto-" : ""}redeeming ${red.length} settled position(s)…`);
     try {
-      const r = await fetch("/api/polymarket/redeem", {
+      const r = await fetch("/polymarket/api/redeem", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ eoa }),
@@ -750,7 +750,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
                         maker: "0x0000000000000000000000000000000000000000",
                       },
                     };
-                    const r = await fetch("/api/polymarket/order/place", {
+                    const r = await fetch("/polymarket/api/order/place", {
                       method: "POST",
                       headers: { "content-type": "application/json" },
                       body: JSON.stringify(body),

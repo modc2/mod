@@ -8,7 +8,7 @@
 // server-side (see api/src/copy.rs).
 //
 // Bearer auth is attached by the fetch patch in lib/access.ts — every request
-// to `/api/polymarket` carries the owner token without a call site knowing.
+// to `/polymarket/api` carries the owner token without a call site knowing.
 
 import { API_BASE } from "./polymarket";
 import type { AllocationParams } from "./identityStrat";

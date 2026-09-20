@@ -12,7 +12,7 @@ WORKDIR /build
 COPY app/package.json app/package-lock.json* ./
 RUN npm ci --no-audit --no-fund
 COPY app/ ./
-ENV NEXT_PUBLIC_API_URL=/api/neartensor
+ENV NEXT_PUBLIC_API_URL=/neartensor/api
 ENV NEXT_PUBLIC_BASE_PATH=/neartensor
 RUN npm run build
 

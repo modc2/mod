@@ -4,7 +4,8 @@ import sys
 
 import mod as m
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.abspath(__file__))    # src/ — the code
+ROOT = os.path.dirname(HERE)                         # the module: README, config, contracts
 if HERE not in sys.path:
     # appended, not prepended — this file would otherwise shadow the protocol's `mod`
     sys.path.append(HERE)
@@ -15,7 +16,7 @@ class Mod:
 fee capped at 10% and published on chain, surplus returned pro rata, claims
 adjudicated by agents with an optional oracle for real data, and a US health
 mutual template with a 0% operator fee."""
-    path = HERE
+    path = ROOT
 
     def forward(self, **kwargs):
         """Default entry point."""

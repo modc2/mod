@@ -25,11 +25,14 @@ contracts/
   src/oracles/SignedOracle.sol  real data, signed by named reporters
   test/SelfInsure.t.sol         35 forge tests
   script/Demo.s.sol             a whole health mutual on a local anvil
-pool.py     the same mutual off-chain (cents, JSON ledger) — for pools that are not on a chain yet
-chain.py    the bridge to the eth / solana modules (this module holds no keys)
-onchain.py  source · abi · presets · deploy through the eth module · read a live pool back
-mcp.py      26 MCP tools (si_*) for agents — adjudicating claims is the point
-api.py      one port: REST + POST /mcp + the transparency page
+src/
+  pool.py       the same mutual off-chain (cents, JSON ledger) — for pools that are not on a chain yet
+  chain.py      the bridge to the eth / solana modules (this module holds no keys)
+  onchain.py    source · abi · presets · deploy through the eth module · read a live pool back
+  mcp.py        26 MCP tools (si_*) for agents — adjudicating claims is the point
+  api.py        one port: REST + POST /mcp + the transparency page
+  mod.py        the mod-protocol entry point
+  console.html  the transparency page
 ```
 
 ## What the contract guarantees, in code
@@ -112,8 +115,8 @@ How a community, employer, union or county uses it:
 cd contracts && forge test                                   # 35 tests
 forge script script/Demo.s.sol --tc Demo --rpc-url http://127.0.0.1:8545 --broadcast
 python3 -m pytest test/                                      # the off-chain engine
-python3 api.py --port 50850                                  # REST + MCP + page
-python3 mcp.py                                               # MCP over stdio
+python3 src/api.py --port 50850                              # REST + MCP + page
+python3 src/mcp.py                                           # MCP over stdio
 ```
 
 Deploying through the module signs with the **eth module's keystore** —

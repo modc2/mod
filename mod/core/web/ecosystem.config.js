@@ -45,8 +45,8 @@ module.exports = {
         PORT: APP_PORT,
         NEXT_PUBLIC_BASE_PATH: "/web",
         MOD_API_URL: `http://localhost:${API_PORT}`,
-        // Server-side proxy targets for {basePath}/api/chain and
-        // {basePath}/api/bloctime (see next.config.mjs).
+        // Server-side proxy targets for {basePath}/_api/chain and
+        // {basePath}/_api/bloctime (see next.config.mjs).
         CHAIN_API_URL: process.env.CHAIN_API_URL || "http://localhost:8800",
         BLOCTIME_API_URL: process.env.BLOCTIME_API_URL || "http://localhost:8851",
       },

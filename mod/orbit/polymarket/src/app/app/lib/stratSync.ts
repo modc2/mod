@@ -1,6 +1,6 @@
 import type { SavedIndex } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/polymarket/api";
 const HMAC_SECRET = process.env.NEXT_PUBLIC_STRAT_HMAC_SECRET || "";
 
 // ── Crypto helpers (Web Crypto API — no npm deps) ──

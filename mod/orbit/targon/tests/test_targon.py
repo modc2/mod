@@ -114,8 +114,9 @@ def test_forward_dispatches_any_tool(server):
 def test_console_and_gateway_aliases(server):
     for path in ['/targon', '/targon/']:
         assert '<!doctype html>' in requests.get(f'{server}{path}', timeout=10).text[:40]
-    # Same API at the root, behind the fleet router prefix, and at the app alias.
-    for prefix in ['', '/api/targon', '/targon/_api']:
+    # Same API at the root, at the canonical fleet form, the legacy router
+    # prefix, and the app alias.
+    for prefix in ['', '/targon/api', '/api/targon', '/targon/_api']:
         assert requests.get(f'{server}{prefix}/health', timeout=10).json()['name'] == 'targon'
 
 

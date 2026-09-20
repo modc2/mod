@@ -6,7 +6,7 @@ Nothing of it is here. The bytes live in the arena under the hash of
 themselves, and this directory is a pointer: a config.json, and the methods
 below, which are a thin face over two things the arena already serves —
 
-    the REST API      http://…/api/arena
+    the REST API      http://…/arena/api
     its own MCP server  /m/bot-oracle/mcp — this module alone, as a server
 
 `mcp_config()` prints the block that points an MCP client straight at it.

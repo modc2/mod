@@ -131,7 +131,7 @@ const COPY_ENDPOINTS: Endpoint[] = [
     params: [
       { name: "eoa", type: "0x…", desc: "Wallet whose sessions to report. Omit for the book alone." },
     ],
-    example: "GET /api/polymarket/copy/book?eoa=0x89bc…",
+    example: "GET /polymarket/api/copy/book?eoa=0x89bc…",
   },
   {
     method: "POST",
@@ -243,7 +243,7 @@ const COPY_ENDPOINTS: Endpoint[] = [
 const ENDPOINTS: Endpoint[] = [
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=markets",
+    path: "/polymarket/api?endpoint=markets",
     description: "List active prediction markets sorted by volume, liquidity, or end date.",
     params: [
       { name: "endpoint", type: "string", desc: "markets", required: true },
@@ -254,31 +254,31 @@ const ENDPOINTS: Endpoint[] = [
       { name: "end_date_min", type: "ISO date", desc: "Filter by minimum end date" },
       { name: "end_date_max", type: "ISO date", desc: "Filter by maximum end date" },
     ],
-    example: "/api/polymarket?endpoint=markets&_limit=20&order=volume&active=true",
+    example: "/polymarket/api?endpoint=markets&_limit=20&order=volume&active=true",
   },
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=markets/{id}",
+    path: "/polymarket/api?endpoint=markets/{id}",
     description: "Get a single market by condition ID.",
     params: [
       { name: "endpoint", type: "string", desc: "markets/{condition_id}", required: true },
     ],
-    example: "/api/polymarket?endpoint=markets/0x1234...",
+    example: "/polymarket/api?endpoint=markets/0x1234...",
   },
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=public-search",
+    path: "/polymarket/api?endpoint=public-search",
     description: "Search markets by keyword. Returns events with embedded markets.",
     params: [
       { name: "endpoint", type: "string", desc: "public-search", required: true },
       { name: "q", type: "string", desc: "Search query", required: true },
       { name: "_limit", type: "number", desc: "Max results (default 40)" },
     ],
-    example: "/api/polymarket?endpoint=public-search&q=election&_limit=20",
+    example: "/polymarket/api?endpoint=public-search&q=election&_limit=20",
   },
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=events",
+    path: "/polymarket/api?endpoint=events",
     description: "List events, optionally filtered by tag/category.",
     params: [
       { name: "endpoint", type: "string", desc: "events", required: true },
@@ -287,21 +287,21 @@ const ENDPOINTS: Endpoint[] = [
       { name: "_offset", type: "number", desc: "Pagination offset" },
       { name: "active", type: "boolean", desc: "Active events only (default true)" },
     ],
-    example: "/api/polymarket?endpoint=events&tag_slug=crypto&_limit=20",
+    example: "/polymarket/api?endpoint=events&tag_slug=crypto&_limit=20",
   },
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=trending",
+    path: "/polymarket/api?endpoint=trending",
     description: "Get trending markets ranked by volume.",
     params: [
       { name: "endpoint", type: "string", desc: "trending", required: true },
       { name: "_limit", type: "number", desc: "Max results (default 20)" },
     ],
-    example: "/api/polymarket?endpoint=trending&_limit=10",
+    example: "/polymarket/api?endpoint=trending&_limit=10",
   },
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=positions",
+    path: "/polymarket/api?endpoint=positions",
     description: "Get positions for a wallet address.",
     params: [
       { name: "endpoint", type: "string", desc: "positions", required: true },
@@ -309,22 +309,22 @@ const ENDPOINTS: Endpoint[] = [
       { name: "sizeThreshold", type: "number", desc: "Min position size (default 0.1)" },
       { name: "limit", type: "number", desc: "Max results (default 100)" },
     ],
-    example: "/api/polymarket?endpoint=positions&user=0x1234...&sizeThreshold=.1",
+    example: "/polymarket/api?endpoint=positions&user=0x1234...&sizeThreshold=.1",
   },
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=activity",
+    path: "/polymarket/api?endpoint=activity",
     description: "Get trade activity for a wallet address.",
     params: [
       { name: "endpoint", type: "string", desc: "activity", required: true },
       { name: "user", type: "address", desc: "Wallet address", required: true },
       { name: "limit", type: "number", desc: "Max results (default 200)" },
     ],
-    example: "/api/polymarket?endpoint=activity&user=0x1234...&limit=50",
+    example: "/polymarket/api?endpoint=activity&user=0x1234...&limit=50",
   },
   {
     method: "GET",
-    path: "/api/polymarket?endpoint=v1/leaderboard",
+    path: "/polymarket/api?endpoint=v1/leaderboard",
     description: "Get the trader leaderboard ranked by PNL or volume.",
     params: [
       { name: "endpoint", type: "string", desc: "v1/leaderboard", required: true },
@@ -332,7 +332,7 @@ const ENDPOINTS: Endpoint[] = [
       { name: "orderBy", type: "string", desc: "PNL | VOL" },
       { name: "limit", type: "number", desc: "Max results (default 30)" },
     ],
-    example: "/api/polymarket?endpoint=v1/leaderboard&timePeriod=MONTH&orderBy=PNL&limit=10",
+    example: "/polymarket/api?endpoint=v1/leaderboard&timePeriod=MONTH&orderBy=PNL&limit=10",
   },
   {
     method: "GET",
@@ -377,13 +377,13 @@ const ENDPOINTS: Endpoint[] = [
   },
   {
     method: "GET",
-    path: "/api/polymarket/sync/status",
+    path: "/polymarket/api/sync/status",
     description:
       "Background sync schedule: the server re-pulls the 1/7/14/30-day trader leaderboards on this cadence (every 5 minutes by default) whether or not the console is open. Returns cadence, last run + duration, next run, and the last error.",
   },
   {
     method: "POST",
-    path: "/api/polymarket/sync/config",
+    path: "/polymarket/api/sync/config",
     description:
       "Owner sets the sync cadence. Applies immediately (the sleeping scheduler is re-timed) and persists to ~/.mod/polymarket/sync.json. Range 5 minutes – 7 days.",
     body: [
@@ -396,7 +396,7 @@ const ENDPOINTS: Endpoint[] = [
   },
   {
     method: "POST",
-    path: "/api/polymarket/sync/run",
+    path: "/polymarket/api/sync/run",
     description:
       "Run one background cycle now, bypassing the freshness skip. Queued for the scheduler, so a manual run can never overlap a scheduled one — poll /sync/status for progress.",
   },
@@ -1207,7 +1207,7 @@ export default function DocsPage() {
             <div className="text-[11px] text-pixel-gray-light leading-relaxed">
               Read access to the Gamma API (market data, events, search) and Data API (positions, trades, leaderboards),
               plus authenticated write access to the CLOB API (orders) — all proxied to avoid CORS:{" "}
-              <span className="font-mono text-pixel-white">/api/polymarket</span> (Gamma + Data),{" "}
+              <span className="font-mono text-pixel-white">/polymarket/api</span> (Gamma + Data),{" "}
               <span className="font-mono text-pixel-white">/api/clob</span> (order book, prices, trading).
             </div>
           </div>

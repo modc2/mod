@@ -695,7 +695,7 @@ def handle(body):
 
 def version():
     try:
-        with open(os.path.join(HERE, 'config.json')) as f:
+        with open(os.path.join(os.path.dirname(HERE), 'config.json')) as f:
             return json.load(f).get('version') or '0.0.0'
     except Exception:
         return '0.0.0'

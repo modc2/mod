@@ -26,7 +26,8 @@ import subprocess
 import chain as C
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CONTRACTS = os.path.join(HERE, 'contracts')
+ROOT = os.path.dirname(HERE)
+CONTRACTS = os.path.join(ROOT, 'contracts')
 SRC = os.path.join(CONTRACTS, 'src')
 OUT = os.path.join(CONTRACTS, 'out')
 

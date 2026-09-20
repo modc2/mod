@@ -65,5 +65,5 @@
         "STARKNET_RPC": "your own node \u2014 always tried first, no third party contacted if it answers",
         "STARKNET_TIMEOUT": "per-endpoint RPC timeout in seconds (default 15)"
     },
-    "schema": "Qmd5p1adCmSkpJs7uRkqA5SNywFCuWm2w1WGHoGiPkM8PX"
+    "schema": "QmXNjmyAFYAUw5fp2hGSbG2mie46FxWBg2xpUKU53HSnEi"
 }

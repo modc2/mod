@@ -31,6 +31,14 @@ type Convo = { id: string; title: string; thread: ChatMsg[]; updated: number };
 const convosKey = (addr: string) => `venice:convos:${addr.toLowerCase()}`;
 const MAX_CONVOS = 30;
 
+// Starter prompts — live in the sidebar so they're always one tap away.
+const STARTERS = [
+  "draw a neon cyberpunk fox",
+  "a Murano-glass koi, then upscale it 2×",
+  "a melting clock over the Venetian lagoon, Dalí style",
+  "animate a paper crane unfolding into flight, 5s",
+];
+
 function newId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -82,6 +90,8 @@ export default function Page() {
 
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<MediaOut[]>([]);
+  // Bumped to pop the account menu open from anywhere (the "add a key" CTAs).
+  const [acctTick, setAcctTick] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -360,6 +370,12 @@ export default function Page() {
   };
 
   const send = async () => {
+    // Signed in but nothing to fund a turn with — SEND stays alive and walks
+    // the user to the fix instead of playing dead.
+    if (needsAccess) {
+      setAcctTick((t) => t + 1);
+      return;
+    }
     if (!token || !prompt.trim() || !model) return;
     setError(null);
     setOk(null);
@@ -422,6 +438,20 @@ export default function Page() {
       setBusy(null);
     }
   };
+
+  // Drop a starter into the composer; on small screens the sidebar is a
+  // fixed overlay covering the composer, so picking one also dismisses it.
+  const pickStarter = (p: string) => {
+    setPrompt(p);
+    if (window.innerWidth <= 800) {
+      setSideOpen(false);
+      safeSetItem(SIDE_KEY, "closed");
+    }
+  };
+
+  // Signed in, but no key on file and no paid path on this deployment —
+  // there is no way to fund a turn until a key is saved.
+  const needsAccess = !!token && !!me && !me.has_key && !me.paid_available;
 
   const canSend =
     !!token && !!prompt.trim() && !!model && (mode === "byok" ? me?.has_key : me?.paid_available);
@@ -534,8 +564,17 @@ export default function Page() {
           ))}
         </div>
 
+        <div className="side-sec side-prompts">
+          <div className="sec-title">Warm up</div>
+          {STARTERS.map((p) => (
+            <button key={p} className="prompt-chip" onClick={() => pickStarter(p)} disabled={!!busy}>
+              {p}
+            </button>
+          ))}
+        </div>
+
         {/* Identity and billing live in the top-right account menu; the rail is
-            for the conversation and the model driving it, nothing else. */}
+            for the conversation, its starting points, and the model. */}
         <div className="side-foot">
           <div className="sec-title">Model</div>
           <select value={model} onChange={(e) => setModel(e.target.value)} title="orchestrator model (calls the image/video tools)">
@@ -578,6 +617,7 @@ export default function Page() {
             onSignOut={signOut}
             onForget={forgetIdentity}
             busy={busy}
+            openTick={acctTick}
           />
         </div>
 
@@ -589,19 +629,7 @@ export default function Page() {
             <div className="empty">
               <div className="empty-title">what shall we dream up?</div>
               <div className="empty-sub">
-                Type below, or attach a photo and say what to change. Pick a starting point:
-              </div>
-              <div className="prompts">
-                {[
-                  "draw a neon cyberpunk fox",
-                  "a Murano-glass koi, then upscale it 2×",
-                  "a melting clock over the Venetian lagoon, Dalí style",
-                  "animate a paper crane unfolding into flight, 5s",
-                ].map((p) => (
-                  <button key={p} className="prompt-chip" onClick={() => setPrompt(p)} disabled={!!busy}>
-                    {p}
-                  </button>
-                ))}
+                Type below, or attach a photo and say what to change — starting points live in the sidebar.
               </div>
             </div>
           )}
@@ -641,6 +669,18 @@ export default function Page() {
           </div>
         )}
 
+        {needsAccess && (
+          <div className="gate">
+            <span className="gate-text">
+              nothing to fund a turn with yet — venice runs on <b>your own key</b>, saved
+              encrypted on this node
+            </span>
+            <button className="primary sm" onClick={() => setAcctTick((t) => t + 1)} disabled={!!busy}>
+              Add key
+            </button>
+          </div>
+        )}
+
         <div className="composer">
           <label className="attach" title="attach an image">
             <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) attachImage(f); e.target.value = ""; }} />
@@ -657,7 +697,12 @@ export default function Page() {
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
             rows={2}
           />
-          <button className="primary send" onClick={send} disabled={!canSend || !!busy}>
+          <button
+            className="primary send"
+            onClick={send}
+            disabled={(!canSend && !needsAccess) || !!busy}
+            title={needsAccess ? "add your Venice key first — this opens the account menu" : undefined}
+          >
             {mode === "paid" ? `Pay & send` : "Send"}
           </button>
         </div>

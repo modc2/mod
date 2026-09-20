@@ -29,7 +29,11 @@ const LAB_API = "/polymarket/_api/lab";
     never require scrolling past sixteen cards to find the box. */
 export const VIBE_FOCUS_EVENT = "polymarket:vibe-focus";
 export function focusVibe() {
-  window.dispatchEvent(new Event(VIBE_FOCUS_EVENT));
+  // Deferred past the next paint: the caller may have just switched the tab's
+  // view, and the box (and its listener) must mount before the event fires.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    window.dispatchEvent(new Event(VIBE_FOCUS_EVENT));
+  }));
 }
 
 /** A bench over traders whose tape this deployment has never cached comes back
@@ -107,6 +111,17 @@ export default function StratVibe() {
   /** How many times the cold-feed retest has fired for this result. */
   const [waits, setWaits] = useState(0);
   const retestRef = useRef<((p?: Record<string, unknown>) => Promise<void>) | null>(null);
+  const askRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Summoned from elsewhere on the tab: scroll here and focus the words box.
+  useEffect(() => {
+    const onFocus = () => {
+      askRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      askRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener(VIBE_FOCUS_EVENT, onFocus);
+    return () => window.removeEventListener(VIBE_FOCUS_EVENT, onFocus);
+  }, []);
 
   /** The params SAVE would write: whatever the last bench actually replayed. */
   const benched = result?.bench ? result.params : null;
@@ -188,6 +203,7 @@ export default function StratVibe() {
   return (
     <div className="mt-1 space-y-1.5">
       <textarea
+        ref={askRef}
         value={ask}
         onChange={(e) => setAsk(e.target.value)}
         onKeyDown={(e) => {

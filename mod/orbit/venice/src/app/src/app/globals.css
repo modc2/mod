@@ -289,6 +289,9 @@ body::after {
 .shell {
   display: flex;
   height: 100dvh;
+  /* embedded in a short frame (or a tiny window), the page scrolls instead
+     of crushing the thread to a sliver under the composer */
+  min-height: 340px;
   overflow: hidden;
 }
 
@@ -333,7 +336,9 @@ body::after {
   color: var(--accent-2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.main .thread { flex: 1; min-height: 0; max-height: none; }
+/* min-height must stay small enough that the thread can shrink and scroll,
+   but never collapse below a few visible lines */
+.main .thread { flex: 1; min-height: 120px; max-height: none; }
 
 /* ── brand ──────────────────────────────────────────────────────────────── */
 .brand {
@@ -663,6 +668,17 @@ html[data-theme="velvet"] .empty-title { font-style: italic; font-size: 30px; }
 }
 .prompt-chip:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
 
+/* starter prompts stacked in the sidebar rail */
+.side-prompts { display: flex; flex-direction: column; gap: 6px; }
+.side-prompts .sec-title { margin-bottom: 4px; }
+.side-prompts .prompt-chip {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  white-space: normal;
+  line-height: 1.4;
+}
+
 .msg { display: flex; flex-direction: column; gap: 6px; max-width: 82%; animation: rise 0.3s ease both; }
 .msg.user { align-self: flex-end; align-items: flex-end; }
 .msg.assistant { align-self: flex-start; }
@@ -722,6 +738,20 @@ html[data-theme="velvet"] .thinking .orb { border-radius: 50%; }
   animation: rise 0.4s ease both;
 }
 .media:hover { border-color: var(--accent-2); transform: translate(-2px, -2px); }
+
+/* the "no way to fund a turn" notice parked right above the composer — the
+   one state where SEND can't work, so it has to say so where the user looks */
+.gate {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 12px; padding: 10px 14px;
+  border: var(--bw) solid var(--accent-2);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow-sm);
+  animation: rise 0.25s ease both;
+}
+.gate-text { flex: 1; font-size: calc(var(--body-size) - 2px); color: var(--text); }
+.gate-text b { color: var(--accent-2); }
 
 /* ── composer ───────────────────────────────────────────────────────────── */
 .composer {

@@ -1280,7 +1280,12 @@ class Mod:
     _SOURCE_FILES = [
         ('contracts/OpenHouse.sol', 'solidity',
          'The single-renter contract: rent credited as principal, the quarterly '
-         'BLOCTIME pool, governance.'),
+         'BLOCTIME pool, governance. Rent is payable in any approved token — '
+         'equity is bought in USD value, so a dollar is a dollar.'),
+        ('contracts/ApprovedTokens.sol', 'solidity',
+         'What money is good here: the deployer\'s whitelist of payment tokens '
+         '— USD stablecoins and the chain\'s native coin — each carried with '
+         'the dollar value of one whole token.'),
         ('contracts/OpenHouseTrust.sol', 'solidity',
          'The tokenized trust: many people, one mortgage. Shares minted one per '
          'dollar the servicer confirms, so equity is pro-rata to money in. The '

@@ -427,7 +427,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
       // paginate its activity history (cutoff 0 = as far back as the
       // global MAX_LOOKBACK_DAYS ceiling allows).
       const info = await fetch(
-        `/api/polymarket/deposit-wallet/info?eoa=${eoa}`,
+        `/polymarket/api/deposit-wallet/info?eoa=${eoa}`,
         { cache: "no-store" },
       ).then((r) => (r.ok ? r.json() : null));
       const wallet: string | undefined = info?.depositWallet;
@@ -476,7 +476,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     const fetchBal = async () => {
       try {
         const res = await fetch(
-          `/api/polymarket/deposit-wallet/info?eoa=${auth.address}`,
+          `/polymarket/api/deposit-wallet/info?eoa=${auth.address}`,
           { cache: "no-store" },
         );
         if (!res.ok) return;

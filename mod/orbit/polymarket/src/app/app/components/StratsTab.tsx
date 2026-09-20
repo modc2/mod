@@ -62,7 +62,7 @@ import ScoreMarket from "./ScoreMarket";
 import Sparkline from "./Sparkline";
 import StratChat from "./StratChat";
 import StratLab from "./StratLab";
-import StratVibe from "./StratVibe";
+import StratVibe, { focusVibe } from "./StratVibe";
 import UserStratsPanel, { USER_STRATS_CHANGED_EVENT } from "./UserStratsPanel";
 
 function timeSince(ts: number): string {
@@ -171,7 +171,7 @@ export default function StratsTab() {
     setUploading(true);
     try {
       const content = await file.text();
-      const r = await fetch("/api/polymarket/user-strats", {
+      const r = await fetch("/polymarket/api/user-strats", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ id, kind: ext, content, owner: myAddr, title: id, description: "", public: false }),
@@ -254,6 +254,13 @@ export default function StratsTab() {
           className={`ml-auto shrink-0 px-2.5 py-1 rounded-full border border-pixel-border text-[10px] font-mono font-semibold tracking-[0.1em] text-pixel-gray hover:text-green-400 hover:border-green-400/50 transition-colors ${uploading ? "opacity-40" : ""}`}
         >
           {uploading ? "UPLOADING…" : "⇪ UPLOAD"}
+        </button>
+        <button
+          onClick={() => { setView("strats"); focusVibe(); }}
+          title="Vibecode a strat — describe it in plain words, an agent writes the params and backtests them over 1/3/7 days. Jumps to the VIBE box below."
+          className="shrink-0 px-2.5 py-1 rounded-full border border-pixel-border text-[10px] font-mono font-semibold tracking-[0.1em] text-pixel-gray hover:text-green-400 hover:border-green-400/50 transition-colors"
+        >
+          ✧ VIBE
         </button>
         <button
           onClick={() => { forkDefault(traderIndexTemplate()); setView("strats"); }}
@@ -359,12 +366,19 @@ export default function StratsTab() {
       {/* ── MY STRATS — the management list ── */}
       <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
         <SectionHeader label="MY STRATS" hint="click = active · live money + last backtest per card" />
-        {/* Cards, two-up: each strat is a self-contained card; the two dashed
-            tiles at the end are the ways a new one is born — fork the default
-            COPY TRADING template, or upload your own strat.py/.rs/.ts. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 items-stretch">
+        {/* Cards: each strat is a self-contained card. Columns come from the
+            CONTAINER's width (auto-fill), not a viewport breakpoint — this tab
+            renders inside frames (modc2, the phone view) whose width has
+            nothing to do with the window's, so `sm:` lies here and the cards
+            were collapsing to full-width slabs. The dashed tiles at the end
+            are the ways a new strat is born — vibecode one from words, fork
+            the default COPY TRADING template, or upload your own code. */}
+        <div
+          className="grid gap-1.5 items-stretch"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+        >
           {indexes.length === 0 && (
-            <div className="sm:col-span-2 px-1.5 py-2 text-[10.5px] font-mono text-pixel-gray">
+            <div style={{ gridColumn: "1 / -1" }} className="px-1.5 py-2 text-[10.5px] font-mono text-pixel-gray">
               No strats yet — <span className="text-pixel-gray-light">+ NEW STRAT</span> makes the default copy-trading one.
             </div>
           )}
@@ -393,7 +407,7 @@ export default function StratsTab() {
                 className={`relative flex flex-col rounded-[var(--radius-sm)] cursor-pointer transition-colors overflow-hidden ${
                   isActive
                     ? "bg-green-400/[0.07] ring-1 ring-green-400/30"
-                    : "hover:bg-pixel-white/[0.04] ring-1 ring-pixel-border/60"
+                    : "bg-pixel-white/[0.02] hover:bg-pixel-white/[0.05] ring-1 ring-pixel-border"
                 }`}
               >
                 {/* Active accent bar */}
@@ -591,6 +605,16 @@ export default function StratsTab() {
             );
           })}
 
+          <button
+            onClick={() => focusVibe()}
+            title="Vibecode a strat — describe it in plain words and an agent writes the params, picks real traders off the board, and backtests it over 1/3/7 days. SAVE if the numbers are good."
+            className="flex flex-col justify-center gap-1 rounded-[var(--radius-sm)] border border-dashed border-green-400/40 px-3 py-3 text-left text-pixel-gray hover:text-green-400 hover:border-green-400/70 transition-colors min-h-[72px]"
+          >
+            <span className="text-[11px] font-mono font-semibold tracking-[0.08em] text-green-400/90">✧ VIBE A STRAT</span>
+            <span className="text-[9.5px] font-mono leading-snug text-pixel-gray/80">
+              describe it in plain words — an agent writes it and backtests it over 1/3/7 days
+            </span>
+          </button>
           <button
             onClick={() => forkDefault(traderIndexTemplate())}
             title="New strat — a TRADER INDEX: copies the bench trade for trade, each one scaled by your capital against that trader's book. Seeded with this week's best traders. Private until you publish it."

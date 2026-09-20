@@ -15,7 +15,7 @@ import { fetchPositions } from "./polymarket";
 import { useAuth } from "../context/AuthContext";
 import { fetchLiveSessions, runningStrategyIds, type SessionStratLedger } from "./liveSessions";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/polymarket/api";
 
 export interface StratMoney {
   /** USDC committed to this strat — its session's `capital` allocation.

@@ -52,3 +52,24 @@ phase 2, to avoid double-pushing.
 
 New CLI fns on top: `m hub/probe 8890,8893`, `m hub/screenshot claude`,
 `m hub/snapshot_status`.
+
+## The app (app/, :50521 → /hub)
+
+The public front door: a zero-dependency Node viewer (`app/server.js` +
+`app/index.html`, same shape as `core/docs/app`) with two views — **MODS**
+(searchable card catalog, per-module README/skill viewer) and **WHITEPAPER**
+(HUMAN/ENGINEER toggle; the text is read live from `core/docs/docs/
+[simple/]whitepaper.md`, never duplicated). `bash app/start.sh` runs it (pm2
+name `hub-app`, `APP_PORT` 50521, basePath `/hub`).
+
+Unlike the loopback api, the app IS meant to be routed: it applies the same
+privacy rule as the caddy router (a module with an enabled record under
+`~/.mod/build/private/` is absent) and exposes only names, descriptions and
+shipped docs. Routing is via a caddy override (app-only — `"route"` stays
+`false` in config.json so auto-discovery never routes the raw :50520 api):
+
+```
+GET /hub            # the viewer          GET /hub/_wp?v=simple|full
+GET /hub/_mods      # catalog JSON        GET /hub/health
+GET /hub/_doc/{name}
+```

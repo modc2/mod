@@ -88,7 +88,7 @@ taox/
 ├── api.py          # FastAPI wrapper
 ├── start.sh        # launch API + Next.js app
 ├── stop.sh         # tear down
-├── Caddyfile       # /api/taox + /taox routes
+├── Caddyfile       # /taox/api + /taox routes
 ├── requirements.txt
 └── app/            # Next.js 14 frontend
     ├── app/{layout,page,globals.css}.tsx
