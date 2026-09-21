@@ -1666,7 +1666,6 @@ export default function Home() {
     setTasks(t => [task, ...t])
     setSelectedTask(id)
     setActiveTab('output')
-    setViewingFile(null)
 
     // the run's price as it is spent: each model call lands here the moment it
     // resolves, so the footer counts up instead of appearing at the end. Held
@@ -1897,7 +1896,6 @@ export default function Home() {
     if (selectedTask === task.id) {
       setSelectedTask(tasks.find(t => t.id !== task.id)?.id || null)
       setActiveTab('output')
-      setViewingFile(null)
     }
     if (task.uid && task.synced && auth?.token) {
       fetch(`${API_URL}/conversations/${encodeURIComponent(task.uid)}?key=${encodeURIComponent(auth.token)}`,
@@ -2015,50 +2013,9 @@ export default function Home() {
   const getSteps = (task: TaskEntry | undefined) =>
     task ? task.messages.flatMap(msg => msg.steps || []) : []
 
-  const getDeltas = (task: TaskEntry | undefined) => {
-    if (!task) return []
-    const deltas: { tool: string; file?: string; action: string }[] = []
-    for (const msg of task.messages) {
-      if (!msg.steps) continue
-      for (const step of msg.steps) {
-        if (['read', 'write', 'edit', 'glob', 'grep'].includes(step.tool)) {
-          deltas.push({
-            tool: step.tool,
-            file: step.params?.path || step.params?.file_path || step.params?.pattern || '—',
-            action: step.tool === 'read' ? 'read' : step.tool === 'write' ? 'created' : step.tool === 'edit' ? 'modified' : 'searched',
-          })
-        }
-      }
-    }
-    return deltas
-  }
-
   const shortPath = (p: string) => {
     const parts = p.split('/')
     return parts.length > 3 ? '.../' + parts.slice(-3).join('/') : p
-  }
-
-  const fileExt = (p: string) => {
-    const ext = p.split('.').pop()?.toLowerCase() || ''
-    return ext
-  }
-
-  const extColor = (ext: string) => {
-    const map: Record<string, string> = {
-      py: 'text-yellow-400', ts: 'text-sky-400', tsx: 'text-sky-400', js: 'text-yellow-300',
-      rs: 'text-orange-400', sol: 'text-purple-400', json: 'text-green-400', md: 'text-gray-400',
-      css: 'text-pink-400', html: 'text-orange-300', sh: 'text-green-300',
-    }
-    return map[ext] || 'text-gray-400'
-  }
-
-  const actionBadge = (action: string) => {
-    const map: Record<string, { bg: string; text: string }> = {
-      read: { bg: 'bg-sky-500/15 border-sky-500/25', text: 'text-sky-400' },
-      created: { bg: 'bg-emerald-500/15 border-emerald-500/25', text: 'text-emerald-400' },
-      modified: { bg: 'bg-amber-500/15 border-amber-500/25', text: 'text-amber-400' },
-    }
-    return map[action] || { bg: 'bg-gray-500/15 border-gray-500/25', text: 'text-gray-400' }
   }
 
   // where the weights are, for the `browser` provider — a run can't start
@@ -3376,42 +3333,32 @@ export default function Home() {
     </div>
   )
 
-  // --- Transcript — the console body: the run's messages, its tool trace, or its file deltas ---
+  // --- Transcript — the console body: the run's messages, its tool trace, or the agent roster ---
   const transcript = (
     <div className="h-full overflow-y-auto min-h-0">
       {activeTab === 'tools' ? toolTrace : activeTab === 'memory' ? (
         <MemoryPanel token={auth?.token} session={sessionId()} memSel={memSel} onToggleMem={toggleNote}
           onNotesChanged={() => { fetchLibrary(); libChanged() }} />
-      ) : activeTab === 'deltas' ? (
+      ) : activeTab === 'agents' ? (
+        // The roster, in the console where runs start — pick a row and the
+        // next run is that agent. The full gallery (models, memory, FLOW
+        // wiring) still lives in the HUB; this is the short way there.
         <div className="p-3 max-w-4xl mx-auto w-full">
-          {!currentTask ? (
-            <p className="text-sm text-gray-600 text-center mt-8">Select a chat to see what it touched</p>
-          ) : (() => {
-            const deltas = getDeltas(currentTask)
-            if (deltas.length === 0) return (
-              <p className="text-sm text-gray-600 text-center mt-8">No file operations</p>
-            )
-            return (
-              <div className="space-y-0.5">
-                {deltas.map((d, i) => (
-                  <div key={i} className="flex items-center gap-2 px-2.5 py-2 rounded-md hover:bg-white/[0.03] transition text-sm cursor-pointer"
-                    onClick={() => {
-                      const files = getTaskFiles(currentTask)
-                      const file = files.find(f => f.path === d.file)
-                      if (file) setViewingFile(file)
-                    }}>
-                    <span className={`font-mono text-xs w-16 shrink-0 ${
-                      d.action === 'created' ? 'text-emerald-400' :
-                      d.action === 'modified' ? 'text-amber-400' :
-                      d.action === 'read' ? 'text-sky-400' :
-                      'text-gray-500'
-                    }`}>{d.action}</span>
-                    <span className="text-gray-400 truncate font-mono">{shortPath(d.file || '')}</span>
-                  </div>
-                ))}
-              </div>
-            )
-          })()}
+          <div className="space-y-0.5">
+            {personas.filter(p => p.kind === 'agent').map(p => personaRow(p))}
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={() => openAgentEditor()}
+              className="flex-1 text-left px-2.5 py-2 rounded-md text-xs transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
+              <span className="w-5 text-center shrink-0">+</span> build a new agent
+            </button>
+            <button onClick={() => openHub('agents')}
+              className="shrink-0 text-[10px] px-2 py-2 text-emerald-300/90 hover:text-emerald-200 transition"
+              title="The full gallery — prompt, model, memory, tools, FLOW wiring">
+              hub →
+            </button>
+          </div>
         </div>
       ) : !currentTask ? (
         // Auto margins, not justify-center: a centred flex child overflows in
@@ -3662,7 +3609,6 @@ export default function Home() {
   // --- Chats rail — every conversation, always visible on the side ---
   const newChat = () => {
     setSelectedTask(null)
-    setViewingFile(null)
     setActiveTab('output')
     setTimeout(() => inputRef.current?.focus(), 40)
   }
@@ -3702,7 +3648,7 @@ export default function Home() {
       key={t.id}
       role="button"
       tabIndex={0}
-      onClick={() => { setSelectedTask(t.id); setActiveTab('output'); setViewingFile(null) }}
+      onClick={() => { setSelectedTask(t.id); setActiveTab('output') }}
       onKeyDown={e => { if (e.key === 'Enter') { setSelectedTask(t.id); setActiveTab('output') } }}
       className={`w-full text-left px-2.5 py-2 rounded-lg text-sm transition group cursor-pointer border ${
         selectedTask === t.id
@@ -3964,50 +3910,6 @@ export default function Home() {
     </div>
   )
 
-  // --- File viewer — one file the run touched, opened from the DELTAS tab.
-  //     It takes over the console body rather than owning a panel of its own:
-  //     an empty file list is not worth half a screen. ---
-  const fileViewer = viewingFile && (
-    <div className="h-full flex flex-col min-h-0">
-      <div className="border-b border-white/[0.06] px-3 py-2 flex items-center gap-2 shrink-0 bg-surface-1">
-        <button onClick={() => setViewingFile(null)}
-          className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-gray-500 hover:text-gray-200 transition"
-          title="Back to the run (Esc)">
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-          back
-        </button>
-        <span className={`text-[10px] font-mono ml-1 ${extColor(fileExt(viewingFile.path))}`}>
-          .{fileExt(viewingFile.path)}
-        </span>
-        <span className="text-xs text-gray-400 font-mono truncate min-w-0">{shortPath(viewingFile.path)}</span>
-        {(() => {
-          const b = actionBadge(viewingFile.action)
-          return (
-            <span className={`text-[9px] px-1.5 py-0.5 rounded-md border ${b.bg} ${b.text} shrink-0 ml-auto uppercase tracking-wider`}>
-              {viewingFile.action}
-            </span>
-          )
-        })()}
-      </div>
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <pre className="text-[12px] leading-[1.6] font-mono text-gray-300 p-3 whitespace-pre-wrap">
-          {viewingFile.content ? (
-            viewingFile.content.split('\n').map((line, i) => (
-              <div key={i} className="flex hover:bg-white/[0.02] transition-colors">
-                <span className="text-gray-700 select-none w-12 shrink-0 text-right pr-4 text-[11px]">{i + 1}</span>
-                <span className="flex-1 min-w-0">{line || ' '}</span>
-              </div>
-            ))
-          ) : (
-            <span className="text-gray-600">No content available</span>
-          )}
-        </pre>
-      </div>
-    </div>
-  )
-
   // --- The console — the workspace itself, full height ---
   const consoleDock = (
     <div className="relative flex-1 flex flex-col min-h-0 console-bg">
@@ -4019,7 +3921,7 @@ export default function Home() {
       <div className="border-b border-white/[0.06] shrink-0 min-w-0">
       <div className="px-2 flex flex-wrap items-center gap-x-2 gap-y-1 py-1 min-w-0">
         <div className="tab-strip shrink-0 max-w-full">
-          {(['output', 'tools', 'memory', 'deltas'] as Tab[]).map(tab => (
+          {(['output', 'tools', 'memory', 'agents'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -4038,6 +3940,9 @@ export default function Home() {
               ) : null)}
               {tab === 'memory' && memSel.length > 0 && (
                 <span className="tab-badge ml-1 text-sky-400/80 normal-case">{memSel.length}</span>
+              )}
+              {tab === 'agents' && agentOptions.length > 0 && (
+                <span className="tab-badge ml-1 text-gray-600 normal-case">{agentOptions.length}</span>
               )}
               {activeTab === tab && (
                 <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />
@@ -4087,7 +3992,7 @@ export default function Home() {
       </div>
       </div>
 
-      <div className="flex-1 min-h-0">{viewingFile ? fileViewer : transcript}</div>
+      <div className="flex-1 min-h-0">{transcript}</div>
       {composeBar}
     </div>
   )
