@@ -97,7 +97,7 @@ const sessionId = (): string => {
     return 's-ephemeral'    // private mode: this tab remembers, nothing else
   }
 }
-type Tab = 'tasks' | 'output' | 'tools' | 'memory' | 'deltas'
+type Tab = 'tasks' | 'output' | 'tools' | 'memory' | 'agents'
 // the TOOLS tab answers two questions: what did this run call, and what can
 // the agent call at all
 type ToolPane = 'trace' | 'registry'
@@ -148,7 +148,6 @@ type SidebarSide = 'left' | 'right'
 // the rail holds two lists: the chats you've had and the agents you can run as
 type RailPane = 'chats' | 'agents'
 
-type FileEntry = { path: string; content: string; action: 'read' | 'created' | 'modified' | 'searched' }
 
 // ── Provider key metadata + missing-key detection ───────────────────
 // Shared by the KeyPanel modal and the inline "key needed" banner so the
@@ -548,7 +547,6 @@ export default function Home() {
   })
 
   // file viewer state
-  const [viewingFile, setViewingFile] = useState<FileEntry | null>(null)
 
   // draggable rail width
   const [sidebarWidth, setSidebarWidth] = useState(280)
@@ -725,8 +723,7 @@ export default function Home() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (showPicker) { setShowPicker(false); return }
-      setViewingFile(null)
+      if (showPicker) setShowPicker(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1580,28 +1577,6 @@ export default function Home() {
   const currentAgentDef = agentOptions.find(a => a.value === agentType)
 
   // Extract files touched by a task
-  const getTaskFiles = useCallback((task: TaskEntry | undefined): FileEntry[] => {
-    if (!task) return []
-    const files: FileEntry[] = []
-    const seen = new Set<string>()
-    for (const msg of task.messages) {
-      if (!msg.steps) continue
-      for (const step of msg.steps) {
-        const path = step.params?.path || step.params?.file_path || ''
-        if (!path || seen.has(path + step.tool)) continue
-        seen.add(path + step.tool)
-        if (['read', 'write', 'edit'].includes(step.tool)) {
-          files.push({
-            path,
-            content: typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2),
-            action: step.tool === 'read' ? 'read' : step.tool === 'write' ? 'created' : 'modified',
-          })
-        }
-      }
-    }
-    return files
-  }, [])
-
   // derive the final display message from a full step list
   const finalizeSteps = (allSteps: any[], apiError?: string) => {
     // what the agent said, in order — a response step's text or a finish
