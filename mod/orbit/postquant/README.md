@@ -9,16 +9,45 @@ that pair costs money for as long as you hold it.
 
 ## No curves
 
-Every signature is ML-DSA (FIPS 204, lattice), key exchange is ML-KEM
-(FIPS 203), and every commitment is SHA3-256. Nothing here is ed25519 or
+Signatures come from two families that share nothing: ML-DSA (FIPS 204,
+module lattices — 44/65/87) and SLH-DSA (FIPS 205, nothing but SHAKE256).
+If lattices fall, a hash-based witness still stands. Key exchange is ML-KEM
+(FIPS 203) and every commitment is SHA3-256. Nothing here is ed25519 or
 secp256k1, because a curve is exactly the thing Shor's algorithm takes apart.
 What survives a quantum adversary is lattices and hashes, at worst with a
-square-root loss the parameter sizes already absorb. Both schemes are
+square-root loss the parameter sizes already absorb. Every scheme is
 implemented from the FIPS specs in pure python under `pq/`, no dependencies.
 
-An address is `pq` + 20 bytes of domain-separated SHA3-256 over the ML-DSA
-public key. The first transaction from an address carries its key inline
-(~1.3KB); every later one does not.
+An account picks its key type at wallet creation and its address commits to
+the choice: `pq` + 20 bytes of domain-separated SHA3-256 over the algorithm's
+domain and the public key, so a signature can never be replayed across key
+types. The first transaction from an address carries its key inline; every
+later one does not.
+
+## The wasm is the algorithm
+
+A key type is not a branch in the node's code — it is a compiled **wasm
+verifier** plus the SHA3-256 of its bytes (`pq/wasm/manifest.json`). Every
+transaction the chain accepts has its witness checked *inside* the wasm
+module registered for its key's algorithm: the node refuses to run a blob
+whose hash does not match the registry, and refuses the witness outright if
+the module cannot run. What "valid signature" means is thereby pinned to
+exact bytes any node can hash, ship and re-run.
+
+That is also what makes the key-type set amendable. A future algorithm is one
+plugin file — `pq/algos.d/<name>.py` in-tree, or `~/.mod/postquant/algos/`
+per node — that registers keygen/sign/verify and stamps its `SigAlgo` with
+`wasm={file, sha3_256}`; the binding pass (`pq/algos.d/zz_wasm.py` →
+`pq/wasmvm.py`) then enforces that blob on every witness of that type. The
+quantum gate still applies: an algorithm that declares itself classical
+registers, shows up in `pq_algos`, and is turned away at the mempool
+(`pq/algos.d/ed25519.py` is the worked example).
+
+The builtin verifiers are dependency-free Rust in `pq/wasm-src/`, compiled
+with bare rustc (no cargo, no network) by `build.sh`, executed by a
+persistent node host, and parity-tested against the python references
+(`parity_test.py`: valid / tampered-sig / tampered-msg / wrong-ctx /
+wrong-key across every scheme).
 
 ## Three prices, separate on purpose
 
@@ -27,9 +56,11 @@ public key. The first transaction from an address carries its key inline
   a value declared `kind=hash` is cheaper still: the chain prices commitments
   below blobs, out loud.
 - **witness gas** — per byte of signature and public key. An ML-DSA-44
-  signature is 2420 bytes against ed25519's 64. A chain that charges a flat
-  21000 for a transfer is quietly subsidising its own witnesses; this one
-  bills them.
+  signature is 2420 bytes against ed25519's 64, and an SLH-DSA-SHAKE-128f
+  one is 17088 — the honest price of resting on nothing but hashes. A chain
+  that charges a flat 21000 for a transfer is quietly subsidising its own
+  witnesses; this one bills each key type for exactly the bytes it puts on
+  the wire (`pq_quote scheme=` prices the difference).
 - **rent** — per byte per hour against a prepaid escrow. When the escrow runs
   dry the entry expires and anyone may sweep it for the bond the writer put
   up, which is what makes expiry real rather than advisory. Delete the entry
@@ -64,7 +95,7 @@ python3 -m pytest tests -q     # the suite, against a throwaway chain
 - Console: `http://localhost:51030/postquant`
 - REST: `GET /head /market /keys /get?key= /quote?key= /prove?key= …`,
   `POST /set /del /fund /sweep /list /buy /transfer /wallet /faucet /mine`
-- MCP: `POST /mcp` (Streamable HTTP), 23 tools, `pq_head` through `pq_verify`
+- MCP: `POST /mcp` (Streamable HTTP), 24 tools, `pq_head` through `pq_algos`
 
 The usual life of a key:
 
@@ -85,7 +116,7 @@ magnitude.
 ## State
 
 `~/.mod/postquant/` — `keys.json` (32-byte wallet seeds, mode 0600, never
-committed; ML-DSA keys are deterministic from the seed), and per chain
+committed; every scheme's keys are deterministic from the seed), and per chain
 `blocks.jsonl` (the truth) plus `state.json` (a snapshot, thrown away and
 replayed if it disagrees with the log).
 
@@ -96,12 +127,17 @@ Writes are open by default on a local devnet. Create
 ## Layout
 
 ```
-pq/mldsa.py     ML-DSA (FIPS 204), pure python
+pq/mldsa.py     ML-DSA (FIPS 204), pure python — keygen/sign/reference verify
+pq/slhdsa.py    SLH-DSA (FIPS 205), pure python — the hash-based hedge
 pq/mlkem.py     ML-KEM (FIPS 203), pure python
+pq/algos.py     the key-type registry; plugins in pq/algos.d/
+pq/wasmvm.py    the enforcement layer — every witness runs its type's wasm
+pq/wasm/        the verifier blobs + manifest.json (SHA3-256 per blob)
+pq/wasm-src/    their Rust sources, build.sh (bare rustc), parity_test.py
 state.py        the state machine — pure functions of (state, tx, timestamp)
 keys.py         keystore, addresses, transaction signing
 chain.py        blocks, mempool, the proposer, replay + verify
-mcp.py          23 tools; call_tool() is the one door
+mcp.py          24 tools; call_tool() is the one door
 api.py          REST + console + MCP on one port
 console.html    the app
 mod.py          the module surface

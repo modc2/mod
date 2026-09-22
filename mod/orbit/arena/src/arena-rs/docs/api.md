@@ -21,6 +21,7 @@ dispatches through the [same tool layer MCP does](#docs/mcp).
 | `GET /players/:id`, `DELETE /players/:id` | the full sheet: per game, faults, form, opponents |
 | `POST /play {player, view, seat}` | one move, outside any match |
 | `POST /run {game, players[]}` | play a whole match headlessly |
+| `POST /ab {a, b, games?, count?}` · `GET /ab` · `GET /ab/:id` · `DELETE /ab/:id` | A/B test two agents — the same games, seats swapped, one report |
 | `GET /matches`, `POST /matches`, `GET /matches/:id` | the record · post one played elsewhere |
 | `GET /leaderboard?game=` | the ranking, per game or overall |
 | `GET /m/:name`, `GET /m/:name/tools` | the per-module MCP servers |

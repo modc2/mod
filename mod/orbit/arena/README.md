@@ -438,8 +438,17 @@ $ m arena/test                       # end to end against the running server
 $ pytest src/tests -q                # end to end, on a throwaway server
 ```
 
-Then the console at `/arena`. It has two nouns and nothing else: **games**
-and **players**. A game is a card showing who is winning it, and opening it
+Then the console at `/arena`. It has two nouns and nothing else — **agents**
+and **games** — and it opens on the agents, because assessing them is what the
+arena is for. The agents tab leads with an **a/b test**: pick two agents (the
+agent protocol roster is first in each list), tick the games, and the server
+plays them head to head — seats swapped every match so first-mover advantage
+cancels out, every match rated as usual — and reports the difference counted:
+wins, scores, illegal moves, timeouts, pace, elo before and after, and a
+verdict in a sentence. The experiment runs server-side (`POST /ab`), so it
+survives the tab that started it, and past reports keep under the panel.
+Below it the roster: agents of the agent mod protocol first, then everyone
+else entered. A game is a card showing who is winning it, and opening it
 opens its leaderboard — the ranking, the seats you play into, and the matches
 that produced the ranking. A player is a card that says who it is and how it
 plays, and opening it opens its sheet: rating, record, win rate, average

@@ -262,6 +262,36 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "ab_test",
+            "description": "A/B test two agents: play them head to head on the same games, seats swapped every match so first-mover advantage cancels out, through the normal rated match loop. The front door is two agents of the agent mod protocol, but any two entered players compare. Returns the running report; poll ab_report until status is `done`. One experiment runs at a time.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "a": { "type": "string", "description": "Player id or name — one side" },
+                    "b": { "type": "string", "description": "Player id or name — the other side" },
+                    "games": { "type": "array", "items": { "type": "string" }, "description": "Game ids or names to play on. Left out, the three most-played games stand in." },
+                    "count": { "type": "integer", "default": 2, "description": "Matches per game (1–20; even numbers seat each side first equally often)" },
+                    "seed": { "type": "integer", "description": "Base seed — match k plays seed+k, so a whole experiment replays" },
+                    "timeout_ms": { "type": "integer", "description": "Per-match budget in milliseconds; agents writing code need more than the default five minutes" }
+                },
+                "required": ["a", "b"]
+            }
+        },
+        {
+            "name": "ab_report",
+            "description": "One A/B experiment, whole: totals per side (wins, scores, faults, pace), the per-game breakdown, every match id it recorded, and the verdict in a sentence. A running experiment answers with a true partial score.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string" } },
+                "required": ["id"]
+            }
+        },
+        {
+            "name": "ab_reports",
+            "description": "Every A/B experiment kept on this box, newest first — the conclusions without the working.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
             "name": "play_move",
             "description": "Ask one player for one move, given what a seat can see. This is what a running match calls for anything the execution layer cannot drive itself — a model, a fleet agent, someone's endpoint. Useful on its own to check a player answers before entering it in a match.",
             "inputSchema": {
@@ -803,7 +833,7 @@ pub async fn runner_within(args: &[String], budget_ms: Option<u64>) -> Result<Va
 /// Play a match by spawning the node runner — the same execution layer the
 /// browser uses, so a match run from an MCP client and a match run in a tab
 /// are the same computation.
-async fn run_match(args: &Value) -> Result<Value, String> {
+pub async fn run_match(args: &Value) -> Result<Value, String> {
     let game = s(args, "game");
     let names = list_of(args, "players");
     if game.is_empty() || names.is_empty() {
@@ -982,6 +1012,15 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
         }
 
         "run_match" => run_match(args).await,
+        "ab_test" => crate::ab::start(args).await,
+        "ab_report" => {
+            let id = s(args, "id");
+            if id.is_empty() {
+                return Err("ab_report requires `id` — ab_reports lists them".into());
+            }
+            crate::ab::report(&id)
+        }
+        "ab_reports" => Ok(crate::ab::list()),
         "play_move" => {
             let key = s(args, "player");
             let view = args.get("view").and_then(|v| v.as_str()).unwrap_or("");

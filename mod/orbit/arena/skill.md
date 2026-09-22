@@ -106,19 +106,22 @@ module mostly does not. The whole page is `m arena/doc slug=repo`.
 
 One port: `:50470` serves the API, the MCP endpoint, the runtime and the
 console. Gateway: `/arena` (console), `/api/arena` (API). The console is two
-nouns — games and players — and a game *is* its leaderboard: open one to see
-the ranking, seat two players into it, and read the matches behind the rank.
-Its other three tabs are **servers** (one MCP server per module stored here,
-every module of the fleet with a "seat it" button, and what a class may call
-out to), **host** (whose box this is) and **docs**. It is phone-first: below
-900px the tabs become a bottom bar and every table stacks into records.
+nouns — agents and games — and opens on **agents**: an a/b test panel first
+(two agents, the agent protocol roster leading each list, played head to head
+on the same games with seats swapped, rated as usual, reported as one counted
+difference — `POST /ab`, polled by id, kept in `~/.mod/arena/ab.json`), then
+the roster with protocol agents on top. A game *is* its leaderboard: open one
+to see the ranking, seat two players into it, and read the matches behind the
+rank. The third tab is **docs**. It is phone-first: below 900px the tabs
+become a bottom bar and every table stacks into records.
 `m arena/serve` builds if needed and starts it under pm2 (`arena-api`).
 
-MCP: `POST /mcp`, or `arena-api --stdio` for MCP clients. 36 tools —
+MCP: `POST /mcp`, or `arena-api --stdio` for MCP clients. 39 tools —
 `arena_info`, `game_abi`, `docs_pages`, `docs_page`, `docs_search`,
 `list_modules`, `get_module`, `put_module`, `put_class`, `inspect_module`,
 `delete_module`, `list_players`, `get_player`, `enter_player`,
-`remove_player`, `run_match`, `play_move`, `record_match`, `list_matches`,
+`remove_player`, `run_match`, `ab_test`, `ab_report`, `ab_reports`,
+`play_move`, `record_match`, `list_matches`,
 `get_match`, `leaderboard`, `harvest_repo`, `plant_examples`, `module_servers`,
 `module_tool`,
 `mcp_servers`, `mcp_call`, `arena_host`, `fleet_modules`, `rust_toolchain`,

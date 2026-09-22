@@ -1,0 +1,36 @@
+{
+  "what": "every builtin key type's wasm verifier, by SHA3-256 \u2014 pq/wasmvm.py refuses to run a blob whose hash is not here",
+  "abi": {
+    "pq1": "exports pq_reset(), pq_alloc(n)->ptr, pq_verify(pk,pk_len,msg,msg_len,sig,sig_len,ctx,ctx_len)->i32; the FIPS m' context wrapping happens inside the module"
+  },
+  "algorithms": {
+    "ML-DSA-44": {
+      "file": "mldsa44.wasm",
+      "source": "wasm-src/mldsa.rs",
+      "sha3_256": "62017f65ba31243b7117e7ab44ecf88187aa5e22e14698021890244e4cfb0deb",
+      "bytes": 14386,
+      "abi": "pq1"
+    },
+    "ML-DSA-65": {
+      "file": "mldsa65.wasm",
+      "source": "wasm-src/mldsa.rs",
+      "sha3_256": "650894d1756b37adff9fe8d8cefb6e813bcd060f2e9cf0355c1261c0dae13809",
+      "bytes": 14094,
+      "abi": "pq1"
+    },
+    "ML-DSA-87": {
+      "file": "mldsa87.wasm",
+      "source": "wasm-src/mldsa.rs",
+      "sha3_256": "0757af6cb5d704f37cac01898dbdd0cdee2f7a014fb19eae9d7d4e3df8311a73",
+      "bytes": 15291,
+      "abi": "pq1"
+    },
+    "SLH-DSA-SHAKE-128f": {
+      "file": "slhdsa128f.wasm",
+      "source": "wasm-src/slhdsa128f.rs",
+      "sha3_256": "6b49e72ca44c8167eebbb024ab8dd450e48755c7da576272e7075ca688bf5f75",
+      "bytes": 8236,
+      "abi": "pq1"
+    }
+  }
+}

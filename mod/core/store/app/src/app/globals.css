@@ -800,6 +800,9 @@ a.brand-row:hover { text-decoration: none; }
 .svc-dot.down { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 14%, transparent); }
 
 .identity { display: flex; align-items: center; gap: 6px; }
+/* sign-in controls never break into multi-line slabs — the row wraps, they don't */
+.identity button { white-space: nowrap; }
+.identity > button.ghost:not(.icon) { border-color: var(--line); padding: 7px 13px; }
 .id-chip {
   display: inline-flex; align-items: center; gap: 8px;
   border: var(--bw-thin) solid var(--line); border-radius: var(--radius-pill);
@@ -1127,6 +1130,10 @@ a.navtab:hover { text-decoration: none; }
 
 @media (max-width: 900px) {
   .objects { grid-template-columns: 1fr; }
+  /* mid widths: let the identity cluster drop to its own line instead of
+     crushing the sign-in buttons into wrapped text */
+  .topbar-row { flex-wrap: wrap; }
+  .identity { margin-left: auto; }
 }
 
 .cid { word-break: break-all; font-size: 12px; font-family: var(--mono); }
@@ -1422,9 +1429,18 @@ button.danger:hover:not(:disabled) {
   background: linear-gradient(100deg, var(--grad-a) 10%, var(--grad-b) 45%, var(--violet) 75%, var(--good) 100%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.market-tag { margin: 8px 0 0; color: var(--ink-dim); font-size: 13.5px; }
+.market-tag { margin: 8px 0 0; color: var(--ink-dim); font-size: 13.5px; max-width: 58ch; text-wrap: balance; }
 .market-tag i { font-style: normal; color: var(--ink-faint); margin: 0 6px; }
 .market-tag strong { color: var(--warn-ink); }
+
+/* the signed-out nudges read as quiet capsules, not stray lines of text */
+.market-hero .hint, .mk-actions .hint {
+  display: inline-flex; align-items: center; gap: 7px;
+  margin: 14px 0 0; padding: 6px 13px;
+  border: var(--bw-thin) dashed var(--line-strong); border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface-2) 62%, transparent);
+}
+.mk-actions .hint { margin: 0; padding: 5px 11px; font-size: 11.5px; }
 
 /* live numbers, right-aligned beside the pitch */
 .market-hero-side {
@@ -1442,6 +1458,10 @@ button.danger:hover:not(:disabled) {
   font-family: var(--font-display); font-size: 20px; font-weight: var(--display-w);
   line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums;
 }
+/* each live number keeps its own hue — drops / free / tags */
+.market-hero-stats .mk-stat:nth-child(1) strong { color: var(--accent-ink); }
+.market-hero-stats .mk-stat:nth-child(2) strong { color: var(--good-ink); }
+.market-hero-stats .mk-stat:nth-child(3) strong { color: var(--warn-ink); }
 .mk-stat i {
   font-style: normal; font-family: var(--font-chrome);
   font-size: var(--pill-fs); letter-spacing: var(--pill-ls); text-transform: uppercase;
@@ -1499,8 +1519,10 @@ button.danger:hover:not(:disabled) {
 .market-card.mine { border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .mk-ribbon { height: 5px; opacity: 0.95; }
 .mk-body { display: flex; flex-direction: column; gap: 9px; padding: 13px 15px 14px; flex: 1; }
-.mk-top { display: flex; align-items: center; gap: 8px; }
+.mk-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; row-gap: 6px; }
 .mk-top .like-btn { margin-left: auto; }
+/* badges and counters are atoms — a tight card wraps whole chips, never inside one */
+.price-badge, .like-btn, .pill, .tag-chip, .mk-tag { white-space: nowrap; }
 
 .price-badge {
   font-family: var(--font-chrome);
@@ -1534,9 +1556,12 @@ button.danger:hover:not(:disabled) {
   margin: 0; font-family: var(--font-display);
   font-size: 15px; font-weight: var(--display-w); letter-spacing: var(--display-ls); line-height: 1.3;
   color: var(--ink);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-a.mk-title-link { color: var(--ink); display: block; min-width: 0; }
+/* two full lines beat one line chopped mid-word */
+a.mk-title-link {
+  color: var(--ink); min-width: 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 a.mk-title-link:hover { color: var(--accent-ink); text-decoration: none; }
 .mk-desc {
   margin: 0; color: var(--ink-mute); font-size: 12.5px; line-height: 1.5;

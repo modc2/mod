@@ -34,6 +34,7 @@ if HERE not in sys.path:
 
 import keys as K                                                # noqa: E402
 import state as S                                               # noqa: E402
+from pq import algos                                            # noqa: E402
 from state import State, StateError, canonical, merkle_root, sha3  # noqa: E402
 
 DATA_DIR = os.path.expanduser(os.environ.get("POSTQUANT_DATA_DIR",
@@ -115,7 +116,13 @@ class Node:
             "base_fee": S.BASE_FEE_INITIAL,
             "alloc": {w["address"]: GENESIS_SUPPLY},
             "rules": {
-                "signatures": w["scheme"] + " (FIPS 204)",
+                "signatures": {
+                    "proposer": w["scheme"],
+                    "accepted": algos.names(pq_only=True),
+                    "gate": "quantum-safe key types only — algorithms are "
+                            "pluggable (pq/algos.d/) but a witness from one "
+                            "that declared quantum_safe=false is refused",
+                },
                 "kem": "ML-KEM-768 (FIPS 203)",
                 "hash": "SHA3-256",
                 "consensus": "single proposer (authority) — no fork choice",
@@ -165,11 +172,10 @@ class Node:
         h = block_hash(header)
         block = {"header": header, "hash": h, "txs": txs, "receipts": receipts}
         if self.validator:
-            sk = K.secret_key(self.validator)
-            from pq import mldsa
-            block["sig"] = mldsa.sign(sk, bytes.fromhex(h),
-                                      self.validator["scheme"],
-                                      ctx=b"postquant/block/v1").hex()
+            algo = algos.get(self.validator["scheme"])
+            block["sig"] = algo.sign(K.secret_key(self.validator),
+                                     bytes.fromhex(h),
+                                     b"postquant/block/v1").hex()
             block["proposer_pk"] = self.validator["pk"]
         return block
 
@@ -278,7 +284,6 @@ class Node:
         """Replay every block and check every root and every proposer
         signature. The answer a node gives about itself is worth what this
         check says it is worth."""
-        from pq import mldsa
         with open(self.genesis_file) as f:
             genesis = json.load(f)
         st = State(self.chain_id, genesis["alloc"], genesis["base_fee"])
@@ -298,12 +303,13 @@ class Node:
                 problems.append(f"height {h['height']}: tx root mismatch")
                 bad += 1
             if block.get("sig") and block.get("proposer_pk"):
+                scheme = genesis.get("scheme", K.SCHEME)
                 pk = bytes.fromhex(block["proposer_pk"])
-                if K.address(pk) != h["proposer"] or not mldsa.verify(
-                        pk, bytes.fromhex(block["hash"]),
-                        bytes.fromhex(block["sig"]),
-                        genesis.get("scheme", K.SCHEME),
-                        ctx=b"postquant/block/v1"):
+                if K.address(pk, scheme) != h["proposer"] or \
+                        not algos.get(scheme).verify(
+                            pk, bytes.fromhex(block["hash"]),
+                            bytes.fromhex(block["sig"]),
+                            b"postquant/block/v1"):
                     problems.append(f"height {h['height']}: proposer signature "
                                     "does not verify")
                     bad += 1
@@ -363,6 +369,22 @@ class Node:
                                  code="bad_address")
             acct = self.state.accounts.get(body["from"], {})
             known = acct.get("pk")
+            # The quantum gate, with its reasons out loud — verify_tx would
+            # refuse these anyway, but "signature does not verify" is the
+            # wrong error for "your key type is not allowed here".
+            scheme = tx.get("scheme") or acct.get("scheme") or K.SCHEME
+            if algos.maybe(scheme) is None:
+                raise StateError(
+                    f"unknown signature algorithm {scheme!r} — this node "
+                    f"accepts {', '.join(algos.names(pq_only=True))}; new "
+                    "key types are one file in pq/algos.d/",
+                    code="unknown_scheme")
+            if not algos.allowed(scheme):
+                raise StateError(
+                    f"{scheme} declared quantum_safe=false and this chain "
+                    "is post-quantum — its witnesses are refused "
+                    "(POSTQUANT_ALLOW_CLASSICAL=1 opens the gate on a "
+                    "throwaway devnet)", code="not_quantum_safe", status=403)
             if known is None and not tx.get("pk"):
                 raise StateError(
                     "this address has never transacted, so the chain does not "

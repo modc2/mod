@@ -54,6 +54,7 @@ import {
   FreeIcon,
   LockIcon,
   UnlockIcon,
+  HeartIcon,
   GlobeIcon,
   ClockIcon,
   CopyIcon,
@@ -2811,13 +2812,16 @@ function MarketView({
 
       <div className="panel market-panel">
         <div className="market-controls">
-          <input
-            type="text"
-            className="market-search"
-            placeholder="search drops — title, tag, cid…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
+          <div className="search-field market-search">
+            <SearchIcon />
+            <input
+              type="text"
+              placeholder="search drops — title, tag, cid…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            {q && <button className="search-x" onClick={() => setQ("")} title="clear">✕</button>}
+          </div>
           <div className="sort-seg">
             {SORTS.map((s) => (
               <button key={s.key} className={`seg ${sort === s.key ? "active" : ""}`} onClick={() => setSort(s.key)}>
@@ -2918,7 +2922,7 @@ function MarketCard({
             disabled={!token || busy === `like-${l.cid}`}
             title={token ? (l.liked ? "unlike" : "like") : "sign in to like"}
           >
-            {l.liked ? "♥" : "♡"} {l.likes}
+            <HeartIcon filled={!!l.liked} /> {l.likes}
           </button>
           <button className="mk-qr" onClick={() => setQrOpen(true)} title="Scan to open this drop on your phone">
             <QRCodeSVG value={dropUrl} size={30} level="L" />

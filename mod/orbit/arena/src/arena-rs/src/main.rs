@@ -28,6 +28,7 @@
 // default macro recursion budget.
 #![recursion_limit = "512"]
 
+mod ab;
 mod arena;
 mod blobs;
 mod docs;

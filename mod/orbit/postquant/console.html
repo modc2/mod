@@ -6,68 +6,106 @@
 <title>postquant — a post-quantum key/value market</title>
 <style>
   :root{
-    --bg:#07090c; --panel:#0d1117; --line:#1c2530; --ink:#d7e2ec; --dim:#7b8b9c;
-    --pq:#9d7bff; --gold:#e8c05a; --good:#4ade80; --warn:#fbbf24; --bad:#ff5d5d;
-    --blue:#5db4ff;
+    --bg:#06080b; --panel:#0c1118; --inset:#0a0f15; --line:#1b2431; --line2:#2b3a4d;
+    --ink:#dbe6f0; --dim:#7d8ea0;
+    --pq:#9d7bff; --pq-dim:#54418a; --gold:#e8c05a; --good:#4ade80; --warn:#fbbf24;
+    --bad:#ff5d5d; --blue:#5db4ff;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  body{margin:0;color:var(--ink);
+       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+       background:
+         radial-gradient(1100px 480px at 82% -12%, rgba(157,123,255,.08), transparent 60%),
+         radial-gradient(900px 420px at 8% -6%, rgba(232,192,90,.05), transparent 55%),
+         var(--bg)}
   a{color:var(--blue)}
   header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-         padding:12px 16px;border-bottom:1px solid var(--line);background:#0a0e13;
-         position:sticky;top:0;z-index:5}
-  .mark{font-weight:700;letter-spacing:.18em}
+         padding:12px 18px;background:rgba(8,11,15,.88);backdrop-filter:blur(6px);
+         position:sticky;top:0;z-index:5;border-bottom:1px solid var(--line)}
+  header::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
+         background:linear-gradient(90deg,var(--pq) 0%,rgba(157,123,255,.25) 30%,
+                    transparent 55%,rgba(232,192,90,.25) 80%,var(--gold) 100%);
+         opacity:.55;pointer-events:none}
+  .mark{font-weight:700;letter-spacing:.18em;display:flex;align-items:center;gap:9px}
+  .mark .glyph{color:var(--pq);font-size:15px;letter-spacing:0;
+         text-shadow:0 0 12px rgba(157,123,255,.6)}
   .mark .p{color:var(--pq)} .mark .q{color:var(--gold)}
-  .tag{color:var(--dim)}
-  nav{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .tag{color:var(--dim);font-size:12px}
+  nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
   button,select,input,textarea{
-    background:#111823;color:var(--ink);border:1px solid var(--line);
-    border-radius:3px;padding:5px 10px;font:inherit}
-  button{cursor:pointer}
-  button:hover{border-color:#33465c}
-  button.on{border-color:var(--pq);color:#fff}
-  button.go{border-color:#4a3a73;background:#171226}
-  button.sm{padding:1px 7px;font-size:11px}
-  main{padding:16px;max-width:1500px;margin:0 auto}
+    background:#101724;color:var(--ink);border:1px solid var(--line);
+    border-radius:5px;padding:5px 10px;font:inherit}
+  input,select,textarea{transition:border-color .12s, box-shadow .12s}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--pq-dim);
+    box-shadow:0 0 0 2px rgba(157,123,255,.14)}
+  ::placeholder{color:#546274}
+  button{cursor:pointer;transition:border-color .12s, background .12s,
+         color .12s, box-shadow .12s}
+  button:hover{border-color:var(--line2);color:#fff}
+  button.on{border-color:var(--pq);color:#fff;background:rgba(157,123,255,.12)}
+  button.go{border-color:var(--pq-dim);color:#cfc0f6;
+    background:linear-gradient(180deg,#211a3a,#151021)}
+  button.go:hover{border-color:var(--pq);color:#fff;
+    box-shadow:0 0 12px rgba(157,123,255,.22)}
+  button.sm{padding:1px 8px;font-size:11px;border-radius:4px}
+  nav button{background:transparent;border-color:transparent;color:var(--dim);
+    font-size:12px;letter-spacing:.1em;padding:6px 12px}
+  nav button:hover{color:var(--ink);border-color:var(--line);background:#101724}
+  nav button.on{color:#fff;border-color:var(--pq-dim);
+    background:rgba(157,123,255,.12);box-shadow:0 0 14px rgba(157,123,255,.12)}
+  main{padding:18px 18px 60px;max-width:1500px;margin:0 auto}
   section{display:none} section.on{display:block}
   .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:5px;
-         padding:12px 14px;margin-bottom:14px}
-  .panel h2{margin:0 0 4px;font-size:12px;letter-spacing:.14em;color:var(--dim);
-            text-transform:uppercase;font-weight:600}
+  .panel{background:linear-gradient(180deg,#0d131c,#0b1017);
+         border:1px solid var(--line);border-radius:9px;
+         padding:14px 16px;margin-bottom:14px;
+         box-shadow:0 1px 0 rgba(255,255,255,.02) inset, 0 8px 24px rgba(0,0,0,.25)}
+  .panel h2{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:11.5px;
+            letter-spacing:.16em;color:var(--dim);text-transform:uppercase;
+            font-weight:600}
+  .panel h2::before{content:'';width:7px;height:7px;border-radius:2px;
+            background:var(--pq);box-shadow:0 0 8px rgba(157,123,255,.55);
+            flex:none}
   .note{color:var(--dim);font-size:12px;margin:0 0 10px}
   table{width:100%;border-collapse:collapse;font-size:12.5px}
-  th{text-align:left;color:var(--dim);font-weight:600;padding:5px 8px;
-     border-bottom:1px solid var(--line);white-space:nowrap}
-  td{padding:5px 8px;border-bottom:1px solid #131b24;vertical-align:top}
-  tr.click{cursor:pointer} tr.click:hover td{background:#101a24}
+  th{text-align:left;color:var(--dim);font-weight:600;padding:6px 8px;
+     border-bottom:1px solid var(--line);white-space:nowrap;font-size:11px;
+     letter-spacing:.08em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #121a24;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  tr.click{cursor:pointer} tr.click:hover td{background:rgba(157,123,255,.06)}
   .num{text-align:right;font-variant-numeric:tabular-nums}
-  .stats{display:flex;gap:8px;flex-wrap:wrap}
-  .stat{border:1px solid var(--line);border-radius:4px;padding:6px 12px;
-        background:#0a0f15;min-width:100px}
-  .stat b{display:block;font-size:15px;font-variant-numeric:tabular-nums}
-  .stat span{color:var(--dim);font-size:10.5px;letter-spacing:.08em;
+  .stats{display:flex;gap:10px;flex-wrap:wrap}
+  .stat{border:1px solid var(--line);border-radius:7px;padding:9px 14px 7px;
+        background:linear-gradient(180deg,#0e1520,#0a0f15);min-width:108px;
+        border-top:1px solid #26334a;transition:border-color .12s}
+  .stat:hover{border-color:var(--line2)}
+  .stat b{display:block;font-size:17px;font-variant-numeric:tabular-nums;
+        margin-bottom:2px}
+  .stat span{color:var(--dim);font-size:10px;letter-spacing:.1em;
              text-transform:uppercase}
-  .pill{border:1px solid var(--line);border-radius:10px;padding:1px 8px;
-        color:var(--dim);font-size:11px}
+  .pill{border:1px solid var(--line);border-radius:20px;padding:2px 10px;
+        color:var(--dim);font-size:11px;background:rgba(16,23,36,.6)}
   .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
   label{color:var(--dim);font-size:11.5px;letter-spacing:.06em}
   textarea{width:100%;min-height:60px;resize:vertical}
   input[type=text]{min-width:190px}
   input.sm{min-width:0;width:74px}
   pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;color:#b7c6d4;
-      background:#0a0f15;border:1px solid var(--line);border-radius:4px;padding:8px;
-      max-height:320px;overflow:auto;font-size:12px}
+      background:var(--inset);border:1px solid var(--line);border-radius:6px;
+      padding:10px;max-height:320px;overflow:auto;font-size:12px}
+  pre::-webkit-scrollbar{width:8px;height:8px}
+  pre::-webkit-scrollbar-thumb{background:var(--line2);border-radius:4px}
   .mono{word-break:break-all}
   .addr{color:var(--pq)}
   .amt{color:var(--gold);font-variant-numeric:tabular-nums}
   .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
   .err{color:var(--bad)}
   .muted{color:var(--dim)}
-  .kv{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;font-size:12.5px}
+  .kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:12.5px}
   .kv b{color:var(--dim);font-weight:600}
   .tabs2{display:flex;gap:6px;margin-bottom:10px}
+  @media (max-width:900px){.tag{display:none}}
   /* ── the whitepaper ── */
   .paper{max-width:860px;margin:0 auto;font-size:17px;line-height:1.75;
          padding:28px 34px 60px}
@@ -97,8 +135,8 @@
 </head>
 <body>
 <header>
-  <div class="mark"><span class="p">POST</span><span class="q">QUANT</span></div>
-  <div class="tag">a key/value market where every byte pays rent — ML-DSA + SHA3, no curves</div>
+  <div class="mark"><span class="glyph">▧</span><span><span class="p">POST</span><span class="q">QUANT</span></span></div>
+  <div class="tag">a key/value market where every byte pays rent — ML-DSA or SLH-DSA + SHA3, no curves, every witness checked by its key type's wasm</div>
   <nav>
     <button data-tab="chain" class="on">CHAIN</button>
     <button data-tab="store">STORE</button>
@@ -277,15 +315,30 @@
   <section id="wallet">
     <div class="panel">
       <h2>the keystore</h2>
-      <p class="note">ML-DSA wallets. What is stored is the 32-byte seed, mode
-        0600, in ~/.mod/postquant — never in this repo, never sent anywhere.
-        The faucet is a real signed transfer from the genesis treasury.</p>
+      <p class="note">A wallet picks its key type at creation — ML-DSA
+        (lattice) or SLH-DSA (nothing but hashes) — and its address commits to
+        the choice. Whatever the scheme, what is stored is the 32-byte seed,
+        mode 0600, in ~/.mod/postquant — never in this repo, never sent
+        anywhere. The faucet is a real signed transfer from the genesis
+        treasury.</p>
       <div class="row">
         <input type="text" id="nw-name" placeholder="new wallet name">
+        <select id="nw-scheme" title="key type"><option value="">ML-DSA-44 (default)</option></select>
         <button class="go" id="nw-create">CREATE</button>
         <button id="w-refresh">REFRESH</button>
       </div>
       <div id="wallets"></div>
+    </div>
+    <div class="panel">
+      <h2>key types</h2>
+      <p class="note">The algorithms this chain can witness with. Each one IS
+        a wasm module: a transaction is accepted only if the verifier blob
+        registered for its key type — hash-committed in the manifest — says
+        the signature holds. New types are pluggable (a .py + .wasm in
+        pq/algos.d/ or ~/.mod/postquant/algos/); classical curves register
+        but are refused at the gate.</p>
+      <div id="algos" class="muted">loading…</div>
+      <p class="note" id="algos-gate" style="margin-top:8px"></p>
     </div>
     <div class="panel">
       <h2>one account</h2>
@@ -297,45 +350,134 @@
     </div>
   </section>
 
-  <!-- RULES -------------------------------------------------------------- -->
+  <!-- WHITEPAPER --------------------------------------------------------- -->
   <section id="about">
-    <div class="panel">
-      <h2>what this is</h2>
-      <p class="note" style="font-size:13px;color:var(--ink)">
+    <div class="panel paper">
+      <div class="wp-title"><span class="p">POST</span><span class="q">QUANT</span></div>
+      <p class="wp-sub">a key/value market where every byte pays rent</p>
+      <div class="wp-meta">ML-DSA (FIPS 204) · SLH-DSA (FIPS 205) · SHA3-256 · wasm-verified witnesses · no elliptic curves · v0.3</div>
+
+      <p class="abstract">
         A post-quantum L1 whose entire state machine is a market in key/value
-        space. There is one thing to own — a key in the store — and the whole
-        protocol is the market for it.</p>
-      <div class="kv">
-        <b>signatures</b><span>ML-DSA (FIPS 204, lattice). A signature is 2420
-          bytes and the chain bills for every one of them.</span>
-        <b>commitments</b><span>SHA3-256 throughout — addresses, state root,
-          Merkle proofs. Grover halves the exponent; 256 bits stays 128.</span>
-        <b>no curves</b><span>Nothing here is ed25519 or secp256k1, because a
-          curve is exactly the thing Shor's algorithm takes apart.</span>
-        <b>write gas</b><span>One-time, per byte. A key byte costs 4x a value
-          byte — a key is an index entry the whole network sorts forever. A
-          value declared as a hash is cheaper still: the chain prices
-          commitments below blobs on purpose.</span>
-        <b>witness gas</b><span>Per byte of signature and public key. A chain
-          that charges a flat 21000 for a transfer quietly subsidises its own
-          witnesses; this one does not.</span>
-        <b>rent</b><span>Per byte per hour against a prepaid escrow. When it
-          runs dry the entry expires and anyone may sweep it for the bond the
-          writer put up — which is what makes expiry real rather than
-          advisory. Delete the entry yourself and the bond comes back whole.</span>
-        <b>fee market</b><span>EIP-1559 over state growth instead of execution:
-          if the store grows faster than target, writing gets more expensive
-          until it stops. Base fee burned, tip to the proposer.</span>
-        <b>the market</b><span>List a key you own at a price; a buyer takes it
-          with its remaining lease. Human-readable keys are the point — you
-          cannot bid on something you cannot say.</span>
-        <b>consensus</b><span>Single proposer — authority, not agreement. What
-          is real is the ordered log, deterministic execution, and a state
-          root anyone can recompute: VERIFY THE CHAIN replays every block from
-          genesis and re-checks every root.</span>
-        <b>api</b><span>Same functions three ways: REST under <span class="mono" id="about-api"></span>,
-          MCP (22 tools) at POST /mcp, and this console.</span>
-      </div>
+        space. There is one thing to own on this chain — a key in the store —
+        and the whole protocol is the market for it: write gas per byte,
+        witness gas per byte of signature, and rent per byte-hour against a
+        prepaid escrow. Every signature is lattice or hash-based, every
+        commitment is a hash, nothing in the trust path is an elliptic curve —
+        and every witness is checked by the wasm module that <em>is</em> its
+        key type.</p>
+
+      <hr class="rule">
+
+      <h3><span class="n">1</span>No curves</h3>
+      <p>Signatures on this chain come from two families that share nothing:
+        <strong>ML-DSA</strong> (FIPS 204, module lattices) and
+        <strong>SLH-DSA</strong> (FIPS 205, nothing but SHAKE256). If
+        lattices fall, a hash-based witness still stands. Key exchange is
+        <strong>ML-KEM</strong> (FIPS 203), and every commitment — addresses,
+        transaction ids, Merkle roots, state roots — is
+        <strong>SHA3-256</strong>. Nothing here is ed25519 or secp256k1,
+        because a curve is exactly the thing Shor's algorithm takes apart.</p>
+      <p>What survives a quantum adversary is lattices and hashes. Grover's
+        algorithm halves the exponent of a hash search, so 256 bits stays an
+        effective 128 — a square-root loss the parameter sizes already
+        absorb. Every scheme is implemented from the FIPS specifications in
+        pure python under <code>pq/</code>, with no dependencies.</p>
+      <p>An account picks its key type at creation and its address commits to
+        the choice: <code>pq</code> + the first 20 bytes of domain-separated
+        SHA3-256 over the algorithm's domain and the public key, so the same
+        bytes arriving under two schemes are two different addresses and a
+        signature can never be replayed across key types. The first
+        transaction from an address carries its public key inline; every
+        later one does not.</p>
+
+      <h3><span class="n">1b</span>The wasm is the algorithm</h3>
+      <p>A key type here is not a branch in the node's code — it is a
+        <strong>compiled wasm verifier</strong> plus the SHA3-256 of its
+        bytes, registered in a manifest. Every transaction the chain accepts
+        has its witness checked <em>inside</em> the wasm module registered
+        for its key's algorithm; the node refuses to run a blob whose hash
+        does not match the registry, and refuses the witness outright if the
+        module cannot run. What it means for a signature to be valid is
+        thereby pinned to exact bytes any node can hash, ship and re-run.</p>
+      <p>That is also what makes the key-type set amendable: a future
+        algorithm arrives as one plugin file that registers keygen/sign plus
+        a verifier blob and its declared hash — in <code>pq/algos.d/</code>
+        in-tree or <code>~/.mod/postquant/algos/</code> per node — with no
+        change to the chain. The gate still applies: an algorithm that
+        declares itself classical registers, appears in the catalog, and is
+        turned away at the mempool. The builtin verifiers are ~600 lines of
+        dependency-free Rust each, compiled with bare rustc, with parity
+        tests against the python references (<code>pq/wasm-src/</code>).</p>
+
+      <h3><span class="n">2</span>One thing to own</h3>
+      <p>A key maps to a value. The value is bytes, and is usually a 32-byte
+        SHA3-256 digest of something kept off-chain — the chain stores the
+        <em>commitment</em>, never the data. Holding that pair costs money
+        for as long as you hold it, and that cost structure is the entire
+        protocol.</p>
+
+      <h3><span class="n">3</span>Three prices, separate on purpose</h3>
+      <ul>
+        <li><strong>Write gas</strong> — one-time, per byte entering the
+          state. A key byte costs <em>4x</em> a value byte, because a key is
+          an index entry the whole network sorts forever. A value declared
+          <code>kind=hash</code> is cheaper still: the chain prices
+          commitments below blobs, out loud.</li>
+        <li><strong>Witness gas</strong> — per byte of signature and public
+          key. An ML-DSA-44 signature is <em>2420 bytes</em> against
+          ed25519's 64, and an SLH-DSA-SHAKE-128f one is <em>17088</em> —
+          the honest price of resting on nothing but hashes. A chain that
+          charges a flat 21000 for a transfer is quietly subsidising its own
+          witnesses; this one bills each key type for exactly the bytes it
+          puts on the wire.</li>
+        <li><strong>Rent</strong> — per byte per hour against a prepaid
+          escrow. When the escrow runs dry the entry expires, and anyone may
+          sweep it for the bond the writer put up — which is what makes
+          expiry real rather than advisory. Delete the entry yourself and
+          the bond comes back whole.</li>
+      </ul>
+
+      <h3><span class="n">4</span>The fee market</h3>
+      <p>Write gas settles at a base fee that floats with state growth —
+        <strong>EIP-1559 over bytes, not execution</strong>. The scarce
+        resource metered is every node's disk forever: the target is 4096
+        bytes of state growth per block, and the base fee moves ±12.5% per
+        block against it. If the store grows faster than target, writing
+        gets more expensive until it stops. The base fee is burned; the tip
+        goes to the proposer.</p>
+
+      <h3><span class="n">5</span>The market for keys</h3>
+      <p>Keys can be <strong>listed and bought</strong>. The buyer takes the
+        entry with its remaining lease and bond — a well-funded key is worth
+        more than an empty one. Human-readable keys are the point of a
+        namespace market: you cannot bid on something you cannot say.</p>
+
+      <h3><span class="n">6</span>Consensus, honestly</h3>
+      <p>Single proposer — <em>authority, not agreement</em>. What is real is
+        the ordered log (<code>blocks.jsonl</code>), deterministic execution,
+        and a state root anyone can recompute. VERIFY THE CHAIN replays every
+        block from genesis and re-checks every parent link, header hash,
+        transaction root, state root and proposer signature — the check that
+        would still matter under any consensus. A Merkle proof
+        (<code>pq_prove</code>) takes any key to the state root, which is
+        what a light client needs to trust a commitment without holding the
+        store.</p>
+
+      <h3><span class="n">7</span>Units</h3>
+      <p>1 <em>PQ</em> = 1e9 <em>nq</em>. In every API, an amount given as a
+        <strong>string</strong> (<code>"1.5"</code>) is PQ, the display
+        unit; a <strong>bare integer</strong> is nq, the base unit. Nothing
+        is ever guessed from magnitude.</p>
+
+      <h3><span class="n">8</span>One surface, three doors</h3>
+      <p>The same functions serve REST under
+        <span class="mono" id="about-api"></span>, MCP (24 tools,
+        <code>pq_head</code> through <code>pq_algos</code>) at
+        <code>POST /mcp</code>, and this console. State lives in
+        <code>~/.mod/postquant</code>: wallet seeds mode 0600 and never
+        committed, <code>blocks.jsonl</code> as the truth, and a state
+        snapshot that is discarded if it ever disagrees with the log.</p>
     </div>
   </section>
 </main>
@@ -380,7 +522,8 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('main > section').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); $(b.dataset.tab).classList.add('on');
   ({chain: loadChain, store: loadKeys, market: loadMarket,
-    wallet: loadWallets, write: fillWallets}[b.dataset.tab] || (()=>{}))();
+    wallet: () => { loadWallets(); loadAlgos(); },
+    write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
 
 // ── CHAIN ──
@@ -397,7 +540,8 @@ async function loadChain() {
       stat('<span class="amt">' + esc(pq(h.burned)) + '</span>', 'burned PQ') +
       stat(h.pending, 'mempool'));
     $('chain-root').textContent = 'root ' + short(h.state_root, 22) +
-      ' · ' + esc(h.scheme);
+      ' · ' + (h.schemes ? h.schemes.length + ' key types, wasm-verified'
+                         : esc(h.scheme));
     const now = Math.floor(Date.now()/1000);
     const blocks = [];
     for (let i = h.height; i > Math.max(-1, h.height - 8); i--)
@@ -437,7 +581,7 @@ $('chain-verify').onclick = async () => {
     const v = await api('/verify?signatures=true');
     out('verify-out', `<pre class="${v.ok ? 'good' : 'bad'}">` +
       `${v.ok ? 'OK' : 'BROKEN'} — ${v.blocks} blocks replayed, every state ` +
-      `root and every ML-DSA signature re-checked.\n` +
+      `root re-checked and every witness re-verified by its key type's wasm.\n` +
       `tip root ${esc(v.tip_root)}\nmatches live state: ${v.matches_live_state}` +
       (v.problems.length ? '\n' + v.problems.map(esc).join('\n') : '') + '</pre>');
   } catch (e) { err('verify-out', e); }
@@ -562,15 +706,46 @@ async function fillWallets() {
     return w;
   } catch (e) { return {wallets: []}; }
 }
+async function loadAlgos() {
+  try {
+    const r = await api('/algos');
+    const wasm = (r.wasm && r.wasm.algorithms) || {};
+    out('algos', '<table><tr><th>key type</th><th>family</th>' +
+      '<th class="num">sig bytes</th><th class="num">pk bytes</th>' +
+      '<th class="num">accounts</th><th>gate</th><th>verified by</th></tr>' +
+      r.algorithms.map(a => {
+        const wv = wasm[a.name];
+        return `<tr><td class="mono">${esc(a.name)}` +
+          `${a.name === r.default ? ' <span class="pill">default</span>' : ''}</td>` +
+          `<td class="muted">${esc(a.family)} · ${esc(a.standard)}</td>` +
+          `<td class="num">${a.sig_bytes}</td><td class="num">${a.pk_bytes}</td>` +
+          `<td class="num">${a.accounts_on_chain}</td>` +
+          `<td class="${a.accepted ? 'good' : 'bad'}">${a.accepted ? 'accepted' : 'refused'}</td>` +
+          `<td>${wv ? `<span class="good">wasm</span> <span class="pill mono" ` +
+            `title="sha3-256 of ${esc(wv.file)} — the blob every witness of this ` +
+            `key type is checked by">${esc(wv.file)} · ${esc(wv.sha3_256.slice(0, 12))}…</span>`
+            : '<span class="warn">python (unenforced)</span>'}</td></tr>`;
+      }).join('') + '</table>');
+    const eng = r.wasm && r.wasm.engine;
+    $('algos-gate').textContent = r.quantum_gate +
+      (eng ? ` · wasm engine: ${eng.ok ? 'ready' : 'UNAVAILABLE — witnesses refused'}` +
+             ` (${eng.calls} verifications this run)` : '');
+    const accepted = r.algorithms.filter(a => a.accepted);
+    $('nw-scheme').innerHTML = accepted.map(a =>
+      `<option value="${esc(a.name)}" ${a.name === r.default ? 'selected' : ''}>` +
+      `${esc(a.name)} — ${a.sig_bytes}b sig</option>`).join('');
+  } catch (e) { err('algos', e); }
+}
 async function loadWallets() {
   try {
     const w = await fillWallets();
     out('wallets', w.wallets.length
-      ? '<table><tr><th>name</th><th>address</th><th class="num">balance PQ</th>' +
-        '<th class="num">nonce</th><th></th></tr>' +
+      ? '<table><tr><th>name</th><th>address</th><th>key type</th>' +
+        '<th class="num">balance PQ</th><th class="num">nonce</th><th></th></tr>' +
         w.wallets.map(x => `<tr><td>${esc(x.name)}` +
           `${x.name === w.default ? ' <span class="pill">default</span>' : ''}</td>` +
           `<td class="mono addr">${esc(x.address)}</td>` +
+          `<td class="mono muted">${esc(x.scheme)}</td>` +
           `<td class="num amt">${esc(pq(x.balance))}</td>` +
           `<td class="num">${x.nonce}</td>` +
           `<td><button class="sm" data-f="${esc(x.name)}">FAUCET 100</button> ` +
@@ -587,12 +762,13 @@ async function loadWallets() {
     });
   } catch (e) { err('wallets', e); }
 }
-$('w-refresh').onclick = loadWallets;
+$('w-refresh').onclick = () => { loadWallets(); loadAlgos(); };
 $('nw-create').onclick = async () => {
   const name = $('nw-name').value.trim();
   if (!name) return;
-  try { await api('/wallet', {action: 'create', name}); $('nw-name').value = '';
-        loadWallets(); }
+  try { await api('/wallet', {action: 'create', name,
+                              scheme: $('nw-scheme').value || undefined});
+        $('nw-name').value = ''; loadWallets(); }
   catch (e) { err('wallets', e); }
 };
 $('acct-btn').onclick = async () => {
@@ -648,12 +824,12 @@ $('w-quote').onclick = async () => {
   } catch (e) { err('w-out', e); }
 };
 $('w-set').onclick = async () => {
-  out('w-out', 'signing (ML-DSA, pure python — a moment)…', 'muted');
+  out('w-out', 'signing (post-quantum, pure python — SLH-DSA takes a second)…', 'muted');
   try {
     const r = await api('/set', writeArgs());
     out('w-out', `<div class="good">${r.status.toUpperCase()} in block ${r.height ?? '—'}</div>` +
       `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash)}</span>` +
-      `<b>witness</b><span>${r.witness_bytes} bytes of ML-DSA signature` +
+      `<b>witness</b><span>${r.witness_bytes} bytes of post-quantum signature` +
       (r.receipt ? ` · fee <span class="amt">${esc(pq(r.receipt.fee))}</span> PQ` : '') + `</span>` +
       (r.committed ? `<b>committed</b><span class="mono">${esc(r.committed.value)}</span>` : '') +
       `</div>`);

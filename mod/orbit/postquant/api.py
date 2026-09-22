@@ -8,7 +8,7 @@ state root for the same chain. call_tool() is the single door.
     GET  /                  what this chain is and every way in
     GET  /health            liveness, tip height, mempool depth
     GET  /genesis           the genesis file — rules, allocation, validator
-    GET  /head /market /keys /get /quote /account /block /tx /history
+    GET  /head /algos /market /keys /get /quote /account /block /tx /history
          /prove /check /mempool /verify        reads, args as query params
     POST /set /del /fund /sweep /list /buy /transfer /wallet /faucet /mine
          writes, args as a JSON body
@@ -78,13 +78,16 @@ def info():
     return {
         'name': 'postquant',
         'what': 'a post-quantum L1 whose entire state machine is a market in '
-                'key/value space — ML-DSA signatures, SHA3-256 commitments, '
-                'no elliptic curve anywhere, and every byte of state pays rent',
+                'key/value space — a choice of post-quantum key type per '
+                'account (ML-DSA lattices or SLH-DSA hashes, GET /algos), '
+                'SHA3-256 commitments, no elliptic curve anywhere, and every '
+                'byte of state pays rent',
         'chain_id': head['chain_id'],
         'height': head['height'],
         'state_root': head['state_root'],
         'base_fee': head['base_fee'],
-        'scheme': f'{n.genesis.get("scheme", "ML-DSA-44")} (FIPS 204)',
+        'scheme': f'{n.genesis.get("scheme", "ML-DSA-44")} (proposer) — '
+                  'accounts choose their own key type at creation, GET /algos',
         'endpoints': {
             'GET /health': 'liveness, tip height, mempool depth',
             'GET /genesis': 'the rules and the allocation, verbatim',

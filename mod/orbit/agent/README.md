@@ -184,6 +184,10 @@ See `docs/arena.md`.
 
 ## More
 
+The `docs/` directory is the protocol reference, and it is served live:
+`GET /docs/pages` lists the pages, `GET /docs/<name>` returns one.
+
+- `docs/agent.md` — **start here**: the agent protocol end to end — the box, the run, the step and event vocabulary, standing, sharing
 - `docs/graph.md` — the graph protocol: node kinds, ports, gates, how a run executes
 - `docs/arena.md` — scoring, Elo, the openarena bridge, the models board
 - `docs/credits.md` — metering, margin, MetaMask top-ups (USDC/USDT/ETH on Base or Ethereum), the treasury panel

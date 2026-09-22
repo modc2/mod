@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """postquant mcp — the chain as tools.
 
-Twenty-two tools over one state machine. The order below is the order to use
+Twenty-four tools over one state machine. The order below is the order to use
 them in: pq_quote before pq_set, because on this chain a write has a price and
 the price moves; pq_get and pq_prove after, because a value that is a hash is
 only worth what a proof against the state root says it is worth.
@@ -31,6 +31,7 @@ if HERE not in sys.path:
 import chain as C                                              # noqa: E402
 import keys as K                                               # noqa: E402
 import state as S                                              # noqa: E402
+from pq import algos as ALGOS                                  # noqa: E402
 from state import StateError, to_pq                            # noqa: E402
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
@@ -38,14 +39,18 @@ DEFAULT_PROTOCOL_VERSION = '2025-03-26'
 
 INSTRUCTIONS = (
     'A post-quantum L1 whose entire state machine is a market in key/value '
-    'space. Every signature is ML-DSA (FIPS 204, lattice) and every commitment '
-    'is SHA3-256 — there is no elliptic curve anywhere, which is the point. '
+    'space. Every account picks its key type at creation — ML-DSA (FIPS 204, '
+    'lattice) or SLH-DSA (FIPS 205, hash-based), two families chosen to share '
+    'no assumption — and every commitment is SHA3-256; there is no elliptic '
+    'curve anywhere, which is the point. pq_algos lists the key types this '
+    'node accepts. '
     'A key maps to a value, the value is bytes and is usually a 32-byte hash of '
     'something stored elsewhere, and holding that pair costs money continuously: '
     'write gas per byte of KEY and per byte of VALUE (a key byte costs 4x a '
     'value byte, and a value declared kind=hash is cheaper still), witness gas '
-    'per byte of signature (an ML-DSA signature is 2420 bytes and the chain '
-    'bills for it), and rent per byte per hour against a prepaid escrow. When '
+    'per byte of signature (an ML-DSA-44 signature is 2420 bytes, an SLH-DSA '
+    'one 17088, and the chain bills the difference honestly), and rent per '
+    'byte per hour against a prepaid escrow. When '
     'the escrow runs out the entry expires and anyone can pq_sweep it for the '
     'bond the writer put up. '
     'ALWAYS call pq_quote before pq_set: it returns the exact split of write '
@@ -201,7 +206,9 @@ def _t_head(a):
     return {**h, 'burned': _money(h['burned']), 'supply': _money(h['supply']),
             'base_fee': _money(h['base_fee']),
             'scheme': K.SCHEME, 'hash': h['hash'],
-            'signatures': f'{K.SCHEME} (FIPS 204)',
+            'signatures': ', '.join(n for n in ALGOS.names()
+                                    if ALGOS.allowed(n)) +
+                          ' — per account, chosen at key creation (pq_algos)',
             'state_target_bytes': S.STATE_TARGET_BYTES,
             'pending': len(n.mempool)}
 
@@ -251,14 +258,33 @@ def _t_quote(a):
     value = _value_for(a, kind)
     seconds = _seconds(a)
     addr = a.get('address')
+    w = None
     if not addr:
         w = K.get(a.get('wallet'), required=False)
         addr = w['address'] if w else None
+    acct = n.state.accounts.get(addr, {}) if addr else {}
     new_account = bool(addr) and addr not in n.state.accounts
-    q = n.state.quote(key, value, kind, seconds, new_account=new_account)
+    # Witness gas is per byte and key types differ by an order of magnitude,
+    # so the quote prices the scheme that will actually sign: asked for,
+    # the wallet's, whatever the chain already recorded, or the default.
+    scheme = (a.get('scheme') or (w or {}).get('scheme')
+              or acct.get('scheme') or K.SCHEME)
+    algo = ALGOS.maybe(scheme)
+    if algo is None:
+        raise StateError(f'unknown scheme {scheme!r} — pq_algos lists what '
+                         'this node knows', code='bad_scheme')
+    known = acct.get('pk') is not None
+    wb = algo.sizes['sig'] + (0 if known else algo.sizes['pk'])
+    q = n.state.quote(key, value, kind, seconds, witness_bytes=wb,
+                      new_account=new_account)
     existing = n.state.entry(key, int(time.time()))
     return {
         **q,
+        'witness': {'scheme': scheme, 'sig_bytes': algo.sizes['sig'],
+                    'pk_bytes': 0 if known else algo.sizes['pk'],
+                    'pk_note': 'the chain already holds this key' if known
+                               else 'a first transaction carries its public '
+                                    'key inline and pays for the bytes'},
         'write_cost': _money(q['write_cost']),
         'deposit': _money(q['rent']['deposit']),
         'total': _money(q['total']),
@@ -517,6 +543,24 @@ def _t_sweep(a):
     return _submit(_wallet(a.get('wallet')), 'sweep', a, key=a['key'])
 
 
+def _t_algos(a):
+    """Every key type this node can witness, and the gate that decides it."""
+    out = ALGOS.catalog()
+    counts = {}
+    for acct in node().state.accounts.values():
+        if acct.get('scheme'):
+            counts[acct['scheme']] = counts.get(acct['scheme'], 0) + 1
+    for algo in out['algorithms']:
+        algo['accounts_on_chain'] = counts.get(algo['name'], 0)
+    out['default'] = K.SCHEME
+    try:                       # the wasm enforcement layer, when it is present
+        from pq import wasmvm
+        out['wasm'] = wasmvm.status()
+    except ImportError:
+        pass
+    return out
+
+
 def _t_wallet(a):
     action = (a.get('action') or 'list').lower()
     if action in ('list', 'ls'):
@@ -527,10 +571,15 @@ def _t_wallet(a):
             w['nonce'] = n.state.accounts.get(w['address'], {}).get('nonce', 0)
         return out
     if action == 'create':
+        # keys.create runs the quantum gate itself and its refusal names the
+        # escape hatch; nothing to pre-check here.
         w = K.create(a.get('name') or 'default', seed=a.get('seed'),
-                     overwrite=bool(a.get('overwrite')))
-        return {**w, 'note': 'the seed stays in the keystore and never leaves '
-                             'this process; fund it with pq_faucet'}
+                     scheme=a.get('scheme'), overwrite=bool(a.get('overwrite')))
+        sz = ALGOS.get(w['scheme']).sizes
+        return {**w, 'sig_bytes': sz['sig'],
+                'note': 'the seed stays in the keystore and never leaves '
+                        'this process; fund it with pq_faucet. Witness gas '
+                        f'will bill {sz["sig"]} bytes per signature.'}
     if action in ('use', 'default'):
         return K.use(a['name'])
     if action in ('remove', 'delete'):
@@ -596,6 +645,18 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_head,
     },
+    'pq_algos': {
+        'description': 'The key types this chain can witness: ML-DSA (FIPS '
+                       '204, lattice) and SLH-DSA (FIPS 205, hash-based) '
+                       'built in, plus anything a plugin registered — with '
+                       'per-scheme signature and public key sizes (what '
+                       'witness gas bills), whether each is quantum-safe, and '
+                       'whether the node accepts it. Every wallet picks one '
+                       'at creation; new key types are a .py file dropped '
+                       'into a plugin directory, no rebuild.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_algos,
+    },
     'pq_quote': {
         'description': 'What a write will cost, before you sign it. Returns the '
                        'three prices separately — write gas split into key '
@@ -616,6 +677,10 @@ TOOLS = {
             'seconds': _int('lease length in seconds (minimum 3600)'),
             'wallet': _WALLET,
             'address': _str('price it for this address instead of a wallet'),
+            'scheme': _str('price the witness for this key type instead of '
+                           'the wallet\'s (pq_algos lists them) — an SLH-DSA '
+                           'signature is ~7x an ML-DSA-44 one and witness gas '
+                           'notices'),
         }, 'required': ['key']},
         'handler': _t_quote,
     },
@@ -748,14 +813,21 @@ TOOLS = {
         'handler': _t_account,
     },
     'pq_wallet': {
-        'description': 'The local keystore: list, create, show, use or remove a '
-                       'wallet. Keys are ML-DSA; what is stored is the 32-byte '
-                       'seed, mode 0600, off the source tree.',
+        'description': 'The local keystore: list, create, show, use or remove '
+                       'a wallet. Each wallet picks its key type at creation — '
+                       'ML-DSA by default, SLH-DSA for the hash-based hedge '
+                       '(pq_algos compares them). Whatever the scheme, what '
+                       'is stored is a 32-byte seed, mode 0600, off the '
+                       'source tree.',
         'inputSchema': {'type': 'object', 'properties': {
             'action': _str('list, create, use, show or remove',
                            enum=['list', 'create', 'use', 'show', 'remove']),
             'name': _str('wallet name'),
-            'seed': _str('32 bytes of hex for a deterministic wallet'),
+            'scheme': _str('key type for a new wallet (default '
+                           'ML-DSA-44; pq_algos lists the choices and what '
+                           'each costs in witness gas)'),
+            'seed': _str('32 bytes of hex for a deterministic wallet — the '
+                         'same seed under two schemes is two unrelated keys'),
             'overwrite': _bool('replace an existing wallet of that name')}},
         'handler': _t_wallet,
     },
@@ -839,8 +911,8 @@ TOOLS = {
                        'signatures=true also re-verifies every transaction '
                        'witness, which is slow and is the real audit.',
         'inputSchema': {'type': 'object', 'properties': {
-            'signatures': _bool('also re-verify every ML-DSA transaction '
-                                'witness (slow)')}},
+            'signatures': _bool('also re-verify every transaction witness, '
+                                'whatever its key type (slow)')}},
         'handler': _t_verify,
     },
 }

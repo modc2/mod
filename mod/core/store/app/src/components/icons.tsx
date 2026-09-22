@@ -52,6 +52,16 @@ export const LockIcon = ({ s = 11 }: { s?: number }) => (
 export const UnlockIcon = ({ s = 11 }: { s?: number }) => (
   <Ico s={s}><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8.4 10.5V7.8a3.6 3.6 0 0 1 6.9-1.4" /></Ico>
 );
+export const HeartIcon = ({ s = 12, filled = false }: { s?: number; filled?: boolean }) => (
+  <svg
+    width={s} height={s} viewBox="0 0 24 24"
+    fill={filled ? "currentColor" : "none"} stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    className="ico" aria-hidden
+  >
+    <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1L12 21l7.7-7.6 1.1-1a5.5 5.5 0 0 0 0-7.8Z" />
+  </svg>
+);
 export const GlobeIcon = ({ s = 11 }: { s?: number }) => (
   <Ico s={s}><circle cx="12" cy="12" r="8.6" /><path d="M3.4 12h17.2M12 3.4c2.2 2.4 3.4 5.4 3.4 8.6S14.2 18.2 12 20.6c-2.2-2.4-3.4-5.4-3.4-8.6S9.8 5.8 12 3.4Z" /></Ico>
 );

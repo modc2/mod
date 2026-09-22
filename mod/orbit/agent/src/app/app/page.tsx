@@ -729,15 +729,22 @@ export default function Home() {
     return () => window.removeEventListener('resize', onResize)
   }, [promptFloat, promptW])
 
-  // keyboard shortcut: Escape closes the prompt picker, then the file viewer
+  // keyboard shortcut: Escape closes the prompt picker, then the default-agent
+  // card (waving it away counts as "asked" — same as its "not now" button; the
+  // backdrop already answers a click, Escape is the same gesture from the keyboard)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      if (showPicker) setShowPicker(false)
+      if (showPicker) { setShowPicker(false); return }
+      if (showDefaultPick) {
+        setShowDefaultPick(false)
+        setDefaultErr(null)
+        try { localStorage.setItem('agent_default_asked', '1') } catch {}
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [showPicker])
+  }, [showPicker, showDefaultPick])
 
   // the picker is positioned off its button, so anything that moves the
   // button — a resize, a rail drag, opening it from the hero chip rather
@@ -4078,7 +4085,14 @@ export default function Home() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
-          {agentOptions.map(a => {
+          {/* a card asking "which of these" leads with the ones the caller can
+              actually pick — locked harness rows sink below the runnable ones
+              (stable sort, so each group keeps the registry's own order) */}
+          {[...agentOptions]
+            .sort((a, b) =>
+              Number(!!a.harness && !canRunHarness(a.harness)) -
+              Number(!!b.harness && !canRunHarness(b.harness)))
+            .map(a => {
             const locked = !!a.harness && !canRunHarness(a.harness)
             return (
               <button key={a.value}

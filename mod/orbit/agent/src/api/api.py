@@ -131,7 +131,7 @@ from collections import OrderedDict
 from typing import Any, Dict, Optional, List
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 # resolve paths: api.py is at src/api/api.py
@@ -880,6 +880,46 @@ def get_config():
 @app.get("/status")
 def get_status():
     return get_mod().forward('status')
+
+# ── docs — the protocol reference, served live ──────────────────────
+# The markdown under docs/ IS the reference; serving it from the same tree
+# means the docs and the code cannot drift apart in a deploy. docs/agent.md
+# is the root page — it explains the box, the run and the event vocabulary,
+# and links every sibling page. (`GET /docs` itself is FastAPI's Swagger UI.)
+
+DOCS_DIR = os.path.abspath(os.path.join(module_root, 'docs'))
+
+@app.get("/docs/pages")
+def docs_pages():
+    """List the protocol docs. Start at `agent` — it links the rest."""
+    pages = []
+    for f in sorted(os.listdir(DOCS_DIR)) if os.path.isdir(DOCS_DIR) else []:
+        if not f.endswith('.md'):
+            continue
+        path = os.path.join(DOCS_DIR, f)
+        # the first heading is the page's own name for itself
+        title = f[:-3]
+        with open(path, encoding='utf-8', errors='replace') as fh:
+            for line in fh:
+                if line.startswith('# '):
+                    title = line[2:].strip()
+                    break
+        pages.append({"page": f[:-3], "title": title,
+                      "url": f"/docs/{f[:-3]}"})
+    # agent.md first — it is the index the others hang off
+    pages.sort(key=lambda p: (p["page"] != "agent", p["page"]))
+    return {"root": "agent", "pages": pages}
+
+@app.get("/docs/{page}")
+def docs_page(page: str):
+    """One protocol doc as markdown. `page` is the filename without `.md`."""
+    name = os.path.basename(page)                      # no traversal
+    name = name[:-3] if name.endswith('.md') else name
+    path = os.path.join(DOCS_DIR, f"{name}.md")
+    if not os.path.isfile(path):
+        return {"error": f"no doc named '{name}' — see GET /docs/pages"}
+    with open(path, encoding='utf-8', errors='replace') as fh:
+        return PlainTextResponse(fh.read(), media_type="text/markdown")
 
 @app.post("/forward")
 def forward(req: ForwardRequest):

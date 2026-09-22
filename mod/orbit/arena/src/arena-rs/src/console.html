@@ -412,10 +412,10 @@
 <body>
 
 <header>
-  <button class="brand" id="brand" title="games"><span class="mark"></span><b>ARENA</b></button>
+  <button class="brand" id="brand" title="agents"><span class="mark"></span><b>ARENA</b></button>
   <nav class="tabs" id="tabs">
-    <button data-tab="games" aria-selected="true">games</button>
-    <button data-tab="agents">agents</button>
+    <button data-tab="agents" aria-selected="true">agents</button>
+    <button data-tab="games">games</button>
     <button data-tab="docs">docs</button>
   </nav>
   <span class="counts" id="banner">loading…</span>
@@ -549,7 +549,7 @@
   </section>
 
   <!-- ── games ────────────────────────────────────────────────────────── -->
-  <section id="view-games">
+  <section id="view-games" hidden>
     <div class="row" style="margin-bottom:12px">
       <input id="g-search" class="grow" placeholder="search games" autocomplete="off">
       <select id="g-sort" title="how to order them">
@@ -620,7 +620,51 @@
   </section>
 
   <!-- ── agents ──────────────────────────────────────────────────────── -->
-  <section id="view-agents" hidden>
+  <section id="view-agents">
+    <!-- ── a/b — the question the whole arena exists to answer, asked
+         directly: which of these two agents is better? The same games for
+         both, seats swapped every match, every match rated as usual — the
+         report is the difference, counted. -->
+    <div class="card" id="ab">
+      <div class="row" style="margin-bottom:2px">
+        <h2 class="grow" style="margin:0">a/b test</h2>
+        <span class="dim small">the same games for both · seats swapped · rated</span>
+      </div>
+      <p class="dim small" style="margin:8px 0 10px">pick two agents — the agent protocol roster is
+        first in each list — and the arena plays them head to head on the games you tick.</p>
+      <div class="row">
+        <select id="ab-a" class="grow"></select>
+        <span class="dim" style="padding:0 2px">vs</span>
+        <select id="ab-b" class="grow"></select>
+      </div>
+      <div class="row" id="ab-games" style="margin-top:10px"></div>
+      <div class="row" style="margin-top:10px">
+        <label class="dim small">matches per game
+          <input id="ab-count" type="number" min="1" max="20" value="2" style="width:64px"></label>
+        <span class="dim small" id="ab-plan"></span>
+        <span class="grow"></span>
+        <button class="act" id="ab-run">run the a/b</button>
+      </div>
+      <div id="ab-report" style="margin-top:14px" hidden></div>
+      <details style="margin-top:12px">
+        <summary class="dim small" style="cursor:pointer" id="ab-past-label">past experiments</summary>
+        <div class="tw" style="margin-top:8px"><table class="stack"><thead><tr>
+          <th>when</th><th>who</th><th>score</th><th>verdict</th><th></th>
+        </tr></thead><tbody id="ab-past"></tbody></table></div>
+      </details>
+    </div>
+
+    <!-- The roster. Agents of the agent mod protocol lead — they are what
+         this arena is for assessing — and everything else entered follows. -->
+    <div class="row" style="margin:16px 0 10px">
+      <h2 class="grow" style="margin:0">agent protocol</h2>
+      <span class="dim small">agents of this fleet's agent module, seated over the mod protocol</span>
+    </div>
+    <div class="cards" id="agents-proto" style="margin-bottom:14px"></div>
+    <div class="row" style="margin:16px 0 10px">
+      <h2 class="grow" style="margin:0">everyone else</h2>
+      <span class="dim small">models, stored bots, fleet modules, endpoints</span>
+    </div>
     <div class="cards" id="agents" style="margin-bottom:14px"></div>
 
     <!-- Connecting an agent is picking where it comes from. The front door is
@@ -847,8 +891,8 @@ const playerModules = () => modules.filter((m) => m.role === "player");
 // The tabs are the same list twice: along the top on a desk, along the bottom
 // on a phone, where the top of a screen is the hardest place to reach.
 const TABS = [
-  ["games", "<path d='M3 7.5h18v9H3z'/><path d='M7 12h3M8.5 10.5v3'/><circle cx='16' cy='11.4' r='.9'/><circle cx='17.7' cy='13.5' r='.9'/>"],
   ["agents", "<circle cx='9' cy='8' r='3'/><path d='M3.5 19c.6-3 3-4.6 5.5-4.6S14 16 14.6 19'/><path d='M16 6.6a3 3 0 0 1 0 5.8M18 14.6c2 .7 3.2 2.2 3.6 4.4'/>"],
+  ["games", "<path d='M3 7.5h18v9H3z'/><path d='M7 12h3M8.5 10.5v3'/><circle cx='16' cy='11.4' r='.9'/><circle cx='17.7' cy='13.5' r='.9'/>"],
   ["docs", "<path d='M5 4h9l5 5v11H5z'/><path d='M14 4v5h5'/><path d='M8.5 13h7M8.5 16.5h7'/>"],
 ];
 $("bottom").replaceChildren(...TABS.map(([name, paths]) => {
@@ -867,7 +911,7 @@ function show(view) {
   window.scrollTo({ top: 0 });
 }
 $("tabs").querySelectorAll("button").forEach((b) => (b.onclick = () => show(b.dataset.tab)));
-$("brand").onclick = () => show("games");
+$("brand").onclick = () => show("agents");
 $("g-back").onclick = () => show("games");
 $("pl-back").onclick = () => show("agents");
 
@@ -1452,9 +1496,24 @@ async function refreshPlayersOnly() {
 }
 
 /** The players tab is cards, like the games tab: each says who the player is
- *  and how it plays — rating, record, and the faults that matter for a model. */
+ *  and how it plays — rating, record, and the faults that matter for a model.
+ *  Agents of the agent mod protocol get the top of the page: they are what
+ *  this arena is for assessing, so everyone else files in under them. */
 function renderPlayers() {
-  const rows = players.map((p) => {
+  const proto = players.filter((p) => p.kind === "agent_mod");
+  const rest = players.filter((p) => p.kind !== "agent_mod");
+  $("agents-proto").replaceChildren(...(proto.length ? proto.map(playerCard) : [
+    el("p", { className: "dim", textContent:
+      "no protocol agents seated — connect one below, or start the agent module and they seat themselves" }),
+  ]));
+  $("agents").replaceChildren(...(rest.length ? rest.map(playerCard) : [
+    el("p", { className: "dim", textContent: "nobody else entered yet" }),
+  ]));
+  renderAb();
+}
+
+/** One player as a card. */
+function playerCard(p) {
     const where = p.model || (p.via ? `${p.via}${p.tool ? ` · ${p.tool}` : ""}` : null) || p.kind;
     const card = el("div", { className: "card", tabIndex: 0 }, [
       el("div", { className: "head" }, [
@@ -1494,10 +1553,211 @@ function renderPlayers() {
     card.onclick = open;
     card.onkeydown = (e) => { if (e.key === "Enter") open(); };
     return card;
-  });
-  $("agents").replaceChildren(...(rows.length ? rows : [
-    el("p", { className: "dim", textContent: "nobody entered yet — enter one below" }),
+}
+
+// ── a/b ──────────────────────────────────────────────────────────────────
+// Two agents, the same games, seats swapped, one report. The server plays it
+// (POST /ab) and the console only watches — so an experiment survives the
+// tab that started it, and a reopened console picks a running one back up.
+
+let abPoll = null;
+let abPicked = new Set();   // game ids ticked for the next run
+
+function renderAb() {
+  const proto = players.filter((p) => p.kind === "agent_mod");
+  const rest = players.filter((p) => p.kind !== "agent_mod");
+  const opts = () => {
+    const groups = [];
+    if (proto.length) groups.push(el("optgroup", { label: "agent protocol" },
+      proto.map((p) => el("option", { value: p.id, textContent: `${p.name} · ${p.elo} elo` }))));
+    if (rest.length) groups.push(el("optgroup", { label: "everyone else" },
+      rest.map((p) => el("option", { value: p.id, textContent: `${p.name} · ${p.kind} · ${p.elo} elo` }))));
+    return groups.length ? groups : [el("option", { value: "", textContent: "nobody entered yet" })];
+  };
+  const sa = $("ab-a"), sb = $("ab-b");
+  const [va, vb] = [sa.value, sb.value];
+  sa.replaceChildren(...opts());
+  sb.replaceChildren(...opts());
+  const pool = [...proto, ...rest];
+  sa.value = va && pool.some((p) => p.id === va) ? va : (pool[0]?.id ?? "");
+  sb.value = vb && pool.some((p) => p.id === vb) && vb !== sa.value
+    ? vb : (pool.find((p) => p.id !== sa.value)?.id ?? "");
+
+  // The fixtures, as chips to tick. The two most-played boards start ticked —
+  // a board that has seen matches is one whose numbers mean something.
+  const gs = [...games()].sort((x, y) => (y.runs || 0) - (x.runs || 0));
+  if (!abPicked.size) gs.slice(0, 2).forEach((g) => abPicked.add(g.id));
+  abPicked = new Set([...abPicked].filter((id) => gs.some((g) => g.id === id)));
+  $("ab-games").replaceChildren(...(gs.length ? gs.map((g) => {
+    const box = el("input", { type: "checkbox", checked: abPicked.has(g.id) });
+    box.onchange = () => { box.checked ? abPicked.add(g.id) : abPicked.delete(g.id); abPlan(); };
+    return el("label", { className: "check", title: g.description || "" },
+      [box, ` ${g.name}`]);
+  }) : [el("span", { className: "dim small", textContent: "no games stored yet — add one first" })]));
+  abPlan();
+}
+
+const abCount = () => Math.min(Math.max(Number($("ab-count").value) || 2, 1), 20);
+
+function abPlan() {
+  const n = abPicked.size * abCount();
+  $("ab-plan").textContent = abPicked.size
+    ? `= ${n} match${n === 1 ? "" : "es"}` : "tick at least one game";
+}
+$("ab-count").oninput = abPlan;
+
+$("ab-run").onclick = async () => {
+  try {
+    const a = $("ab-a").value, b = $("ab-b").value;
+    if (!a || !b) throw new Error("pick two agents");
+    if (a === b) throw new Error("that is the same agent on both sides");
+    if (!abPicked.size) throw new Error("tick at least one game");
+    $("ab-run").disabled = true;
+    const rep = await post("/ab", { a, b, games: [...abPicked], count: abCount() });
+    renderAbReport(rep);
+    watchAb(rep.id);
+  } catch (e) {
+    $("ab-run").disabled = false;
+    toast(e.message, true);
+  }
+};
+
+function watchAb(id) {
+  clearInterval(abPoll);
+  $("ab-run").disabled = true;
+  const tick = async () => {
+    let rep;
+    try { rep = await call(`/ab/${id}`); }
+    catch (e) {
+      clearInterval(abPoll);
+      abPoll = null;
+      $("ab-run").disabled = false;
+      return toast(e.message, true);
+    }
+    renderAbReport(rep);
+    if (rep.status !== "running") {
+      clearInterval(abPoll);
+      abPoll = null;
+      $("ab-run").disabled = false;
+      toast(rep.verdict || "experiment finished", rep.status === "error");
+      loadAbPast();
+      refresh().catch(() => {});   // the experiment moved every board it touched
+    }
+  };
+  abPoll = setInterval(tick, 2500);
+  tick();
+}
+
+function renderAbReport(rep) {
+  const box = $("ab-report");
+  box.hidden = false;
+  const running = rep.status === "running";
+  const ta = rep.a.total, tb = rep.b.total;
+
+  const kids = [];
+  kids.push(el("div", { className: "row" }, [
+    el("strong", { textContent: rep.a.name }),
+    el("strong", { className: "dim", style: "font-variant-numeric:tabular-nums",
+      textContent: `${ta.wins} – ${ta.draws} – ${tb.wins}` }),
+    el("strong", { textContent: rep.b.name }),
+    el("span", { className: "grow" }),
+    el("span", { className: "dim small", textContent: running
+      ? `${rep.played} of ${rep.planned} · ${rep.current}`
+      : `${rep.played} match${rep.played === 1 ? "" : "es"}${rep.voids ? ` · ${rep.voids} void` : ""}` }),
   ]));
+  if (running && rep.planned) kids.push(el("div", { style: "margin:8px 0" },
+    bar(rep.played / rep.planned)));
+  if (rep.verdict) kids.push(el("p", { className: running ? "dim small" : "",
+    style: "margin:8px 0", textContent: rep.verdict }));
+  if (rep.status === "error" && rep.error) kids.push(el("p", { className: "bad small",
+    style: "margin:8px 0", textContent: rep.error }));
+
+  // The numbers side by side — every one counted by the match loop.
+  const table = el("table", { className: "stack" });
+  table.append(el("thead", {}, el("tr", {}, [
+    el("th"), el("th", { textContent: rep.a.name }), el("th", { textContent: rep.b.name })])));
+  const rows = [];
+  // One comparison row: the better side reads ok, the worse reads bad, and a
+  // tie (or a report with nothing played) stays neutral. Each value cell is
+  // labelled with its player's name so the stacked phone view stays readable.
+  const num = (label, a, b, { lower = false, fmt = (x) => x } = {}) => {
+    const cls = (mine, theirs) => rep.played && mine !== theirs
+      ? ((lower ? mine < theirs : mine > theirs) ? "ok" : "bad") : "";
+    rows.push(el("tr", {}, [
+      td("", { className: "dim first", textContent: label }),
+      td(rep.a.name, { className: cls(a, b), textContent: fmt(a) }),
+      td(rep.b.name, { className: cls(b, a), textContent: fmt(b) }),
+    ]));
+  };
+  const plain = (label, a, b) => rows.push(el("tr", {}, [
+    td("", { className: "dim first", textContent: label }),
+    td(rep.a.name, { textContent: a }), td(rep.b.name, { textContent: b }),
+  ]));
+  plain("w/d/l", wdl(ta), wdl(tb));
+  num("avg score", ta.avg_score, tb.avg_score);
+  num("illegal moves", ta.illegal_rate, tb.illegal_rate, { lower: true, fmt: pct });
+  num("timeouts", ta.timeouts, tb.timeouts, { lower: true });
+  num("ms / move", ta.avg_move_ms, tb.avg_move_ms, { lower: true });
+  if (!running) {
+    const shift = (s) => `${s.elo_start} → ${s.elo_end}`;
+    plain("elo, before → after", shift(rep.a), shift(rep.b));
+  }
+  table.append(el("tbody", {}, rows));
+  kids.push(el("div", { className: "tw", style: "margin-top:8px" }, table));
+
+  // Per game — a pair can split 1–1 overall and still own a board each.
+  if (rep.games.length > 1) {
+    const gt = el("table", { className: "stack" });
+    gt.append(el("thead", {}, el("tr", {}, [
+      el("th", { textContent: "game" }),
+      el("th", { textContent: rep.a.name }), el("th", { textContent: rep.b.name })])));
+    gt.append(el("tbody", {}, rep.games.map((g) => {
+      const tr = el("tr", { className: "pick" });
+      tr.append(
+        td("game", { className: "first" }, el("strong", { textContent: g.game_name })),
+        td(rep.a.name, { textContent: `${wdl(g.a)} · avg ${g.a.avg_score}` }),
+        td(rep.b.name, { textContent: `${wdl(g.b)} · avg ${g.b.avg_score}` }));
+      tr.onclick = () => openGamePage(g.game);
+      return tr;
+    })));
+    kids.push(el("div", { className: "tw", style: "margin-top:8px" }, gt));
+  }
+  if (rep.matches?.length) kids.push(el("p", { className: "dim small", style: "margin:8px 0 0",
+    textContent: `every match is on the boards — ${rep.matches.length} recorded, rated as usual` }));
+  box.replaceChildren(...kids);
+}
+
+async function loadAbPast() {
+  let out;
+  try { out = await call("/ab"); } catch { return; }
+  const exps = out.experiments || [];
+  $("ab-past-label").textContent = `past experiments${exps.length ? ` (${exps.length})` : ""}`;
+  $("ab-past").replaceChildren(...(exps.length ? exps.map((x) => {
+    const tr = el("tr", { className: "pick" });
+    const kill = el("button", { className: "link", textContent: "×", title: "forget this experiment" });
+    kill.onclick = async (e) => {
+      e.stopPropagation();
+      try { await call(`/ab/${x.id}`, { method: "DELETE" }); loadAbPast(); }
+      catch (err) { toast(err.message, true); }
+    };
+    tr.append(
+      td("when", { className: "dim", style: "white-space:nowrap",
+        textContent: new Date(x.created * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) }),
+      td("who", { className: "first", textContent: `${x.a} vs ${x.b}` }),
+      td("score", { textContent: `${x.a_wins} – ${x.draws} – ${x.b_wins}` }),
+      td("verdict", { className: "dim", textContent: x.status === "running"
+        ? `running — ${x.played} of ${x.planned}` : (x.verdict || x.status) }),
+      td("", {}, kill));
+    tr.onclick = async () => {
+      try { renderAbReport(await call(`/ab/${x.id}`)); }
+      catch (e) { toast(e.message, true); }
+      $("ab-report").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+    return tr;
+  }) : [empty("no experiments yet", 5)]));
+  // A run started from another tab, or before a reload, is still ours to watch.
+  const live = exps.find((x) => x.status === "running");
+  if (live && !abPoll) watchAb(live.id);
 }
 
 function stat(label, value, cls = "") {
@@ -2234,6 +2494,7 @@ function markdown(src) {
 try {
   await refresh();
   loadFleet().catch(() => {});
+  loadAbPast();
   if (location.hash.startsWith("#docs/")) show("docs");
 } catch (e) {
   $("banner").textContent = `cannot reach the server: ${e.message}`;

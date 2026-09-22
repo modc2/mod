@@ -58,6 +58,7 @@ fn info() -> Value {
         "play": "POST /play {player, view, seat} — one move from a server-driven player",
         "matches": "GET /matches | POST /matches (record one) | GET /matches/:id",
         "run": "POST /run {game, players[]} — play one headlessly via the node runner",
+        "ab": "POST /ab {a, b, games?, count?} — A/B test two agents head to head, seats swapped | GET /ab | GET /ab/:id | DELETE /ab/:id",
         "leaderboard": "GET /leaderboard?game=",
         "abi": "GET /abi?role=game&lang=wasm|class — the contract a module implements",
         "docs": "GET /docs — the contents | GET /docs/:slug (?format=md) | GET /docs/search?q=",
@@ -441,6 +442,33 @@ fn vibe_response(out: Result<Value, String>) -> Response {
     }
 }
 
+// ── a/b experiments ──────────────────────────────────────────────────────
+
+async fn ab_list() -> Json<Value> {
+    Json(crate::ab::list())
+}
+
+async fn ab_start(Json(body): Json<Value>) -> Response {
+    match crate::ab::start(&body).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn ab_get(Path(id): Path<String>) -> Response {
+    match crate::ab::report(&id) {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
+async fn ab_delete(Path(id): Path<String>) -> Response {
+    match crate::ab::remove(&id) {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))).into_response(),
+    }
+}
+
 async fn vibe_list() -> Response {
     let mut v = vibe::list();
     v["build"] = vibe::availability().await;
@@ -523,6 +551,8 @@ fn api_routes() -> Router {
         .route("/matches", get(list_matches).post(record_match))
         .route("/matches/:id", get(get_match))
         .route("/run", post(run))
+        .route("/ab", get(ab_list).post(ab_start))
+        .route("/ab/:id", get(ab_get).delete(ab_delete))
         .route("/leaderboard", get(leaderboard))
         .route("/abi", get(abi))
         .route("/examples", post(plant))
