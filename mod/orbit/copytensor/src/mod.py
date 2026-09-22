@@ -449,7 +449,7 @@ class Copytensor(m.Mod):
             cfg["urls"] = {
                 "api": f"http://localhost:{api_port}",
                 "app": f"http://localhost:{app_port}/copytensor",
-                "gateway_api": f"http://localhost:{gateway_port}/api/copytensor",
+                "gateway_api": f"http://localhost:{gateway_port}/copytensor/api",
                 "gateway_app": f"http://localhost:{gateway_port}/copytensor",
                 "mcp": f"http://localhost:{api_port}/mcp",
             }
@@ -499,11 +499,14 @@ class Copytensor(m.Mod):
         return {
             "gateway_port": p,
             "app": f"http://localhost:{p}/copytensor",
-            "api": f"http://localhost:{p}/api/copytensor",
+            # Canonical mod-protocol form. The legacy /api/copytensor alias
+            # still works on the core gateway but 405s on the caddy edge,
+            # where /api/* belongs to the Flask backend — never advertise it.
+            "api": f"http://localhost:{p}/copytensor/api",
             "examples": {
-                "leaderboard": f"http://localhost:{p}/api/copytensor/leaderboard?days=7&top=20",
-                "subnets": f"http://localhost:{p}/api/copytensor/subnets",
-                "health": f"http://localhost:{p}/api/copytensor/health",
+                "leaderboard": f"http://localhost:{p}/copytensor/api/leaderboard?days=7&top=20",
+                "subnets": f"http://localhost:{p}/copytensor/api/subnets",
+                "health": f"http://localhost:{p}/copytensor/api/health",
             },
         }
 

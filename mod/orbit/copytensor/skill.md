@@ -136,6 +136,13 @@ mod/orbit/copytensor/
     │   ├── client.py            # SubtensorClient with round-robin RPC failover
     │   ├── bt_source.py         # BtSource + BtBackedClient — reads via the bt module
     │   └── snapshot.py          # Periodic snapshot capture
+    ├── strats/
+    │   ├── base.py              # Canonical Strat schema (shared with polymarket + hyperliquid) + sleeve bridge
+    │   ├── copy_coldkeys.py     # Mirror a fixed list of coldkeys
+    │   ├── top_n.py             # Top N by window PnL, PnL-weighted
+    │   ├── whales.py            # Biggest books by staked τ, √value-weighted
+    │   ├── steady.py            # Market-PnL earners (deposit-driven "returns" filtered)
+    │   └── README.md            # The contract + three-venue diff table
     ├── engine/
     │   ├── bt_board.py          # The leaderboard, ranked by bt's index (the default path)
     │   ├── leaderboard.py       # Fallback board: rank watched accounts by walking the chain

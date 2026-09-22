@@ -230,6 +230,12 @@ class Node:
                     break
         return out
 
+    def read_blocks_tail(self, n=10):
+        """The last n blocks, oldest first. Heights are line numbers, so the
+        tail is a seek by height rather than a scan of the whole log."""
+        start = max(0, self.blocks[-1]["height"] - int(n) + 1)
+        return self.read_blocks(start=start)
+
     # ── replay and audit ──────────────────────────────────────────
 
     def replay(self, verify_signatures=False, upto=None):

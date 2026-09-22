@@ -9,7 +9,7 @@ only worth what a proof against the state root says it is worth.
 Self-contained JSON-RPC 2.0 on the standard library, no `mcp` package.
 
     python3 mcp.py                     # stdio — one JSON message per line
-    python3 mcp.py --http --port 50760 # Streamable HTTP — POST /mcp
+    python3 mcp.py --http --port 51030 # Streamable HTTP — POST /mcp
 
 api.py mounts handle() at /mcp and routes its REST paths through call_tool(),
 so an agent, a browser and a shell run the same code.
@@ -98,15 +98,16 @@ def _bool(desc):
 
 
 def _amount(value):
-    """Accept 1.5 or "1.5" as PQ, and 1500000000 as nq. A string with a dot is
-    the display unit; a bare integer is the base unit. Ambiguity here would be
-    a nine-order-of-magnitude mistake, so the rule is explicit."""
+    """The rule is by JSON type: a string is PQ, the display unit — "1.5" and
+    "25" both mean PQ — and a bare integer is nq, the base unit. Ambiguity
+    here would be a nine-order-of-magnitude mistake, so nothing is guessed
+    from magnitude."""
     if value is None:
         return None
-    if isinstance(value, str) and '.' in value:
+    if isinstance(value, str):
         whole, _, frac = value.strip().partition('.')
         frac = (frac + '0' * S.DECIMALS)[:S.DECIMALS]
-        return int(whole or 0) * S.PQ + int(frac)
+        return int(whole or 0) * S.PQ + int(frac or 0)
     if isinstance(value, float):
         return int(round(value * S.PQ))
     return int(value)
@@ -154,13 +155,13 @@ def _submit(wallet, kind, args, **fields):
     """Sign, quote, submit and (by default) mine — the shape every write tool
     shares. dry_run stops after the quote and returns the unsigned plan."""
     n = node()
-    tip = int(args.get('tip') or 0)
+    tip = _amount(args.get('tip')) or 0
     max_fee = args.get('max_fee')
     if args.get('dry_run'):
         return {'dry_run': True, 'kind': kind, 'from': wallet['address'],
                 'fields': fields, 'base_fee': _money(n.state.base_fee),
                 'note': 'nothing was signed or submitted'}
-    tx = n.make_tx(wallet, kind, max_fee=_amount(max_fee), tip=_amount(tip),
+    tx = n.make_tx(wallet, kind, max_fee=_amount(max_fee), tip=tip,
                    **fields)
     out = n.submit(tx)
     mined = _mine_if(args.get('mine', True))
@@ -959,6 +960,8 @@ if __name__ == '__main__':
     if '--http' in argv:
         import api
         i = argv.index('--port') + 1 if '--port' in argv else -1
-        api.serve(int(argv[i]) if i > 0 else int(os.environ.get('PORT', 50760)))
+        api.serve(int(argv[i]) if i > 0 else
+                  int(os.environ.get('PORT', os.environ.get('POSTQUANT_PORT',
+                                                            51030))))
     else:
         serve_stdio()

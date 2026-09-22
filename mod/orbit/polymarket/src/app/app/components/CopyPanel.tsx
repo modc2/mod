@@ -31,8 +31,11 @@
 //     set live on the row's own page (/copy/0x…), the desk (/copy) and the
 //     basket (/copy/basket). The sidebar is for glancing and the one obvious
 //     act, not for the whole instrument panel.
-//   • SPLIT $N EVENLY stays as the one bulk sizing gesture, only with ≥2
-//     traders to split across.
+//   • Adding and sizing live in ONE fenced zone under the roster: a one-line
+//     add (paste → $ → COPY) and one quiet tools line (SPLIT $N EVENLY — the
+//     one bulk sizing gesture, only with ≥2 traders — plus the BASKET and
+//     desk links). Fenced because three $ inputs in a bare stack (row $,
+//     SPLIT $, add $) read as one confusing column of money.
 //   • The roll-up line reconciles the desk against the WALLET. "$100 on 1
 //     trader" over "MONEY $0.18" with nothing between them is a lie by
 //     juxtaposition; short desks say so, as a link to MONEY.
@@ -317,55 +320,71 @@ function CopyBookBody() {
         )}
       </div>
 
-      {/* ── The one bulk sizing gesture: divide a total across the set. ── */}
-      {many && (
-        <div className="px-3 pt-1.5 flex items-center gap-1.5">
-          <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">
-            SPLIT $
-          </span>
-          <input
-            className="pixel-input-sm input-xs w-[62px] font-mono"
-            value={bankrollDraft}
-            inputMode="decimal"
-            onChange={(e) => setBankrollDraft(e.target.value)}
-            placeholder="total"
-            title="A total to divide across the book. It is not a budget — the engine budgets against each trader's own $."
-          />
-          <button
-            className="pixel-btn btn-xs"
-            disabled={busy !== null || !(Number(bankrollDraft) > 0)}
-            onClick={async () => {
-              const v = Number(bankrollDraft);
-              if (!Number.isFinite(v) || v <= 0) return;
-              if (v !== book?.bankroll) await setBankrollUsd(v);
-              await rebalance("equal");
-            }}
-            title={`Give each of the ${rows.length} traders the same share of this total`}
-          >
-            EVENLY
-          </button>
+      {/* ── GROW / SIZE the book. One fenced zone, so its $ inputs can't be
+             read as part of the roster's column of dollars: an add line that
+             scans like a sentence (paste → $ → COPY), then one quiet tools
+             line (SPLIT the total, or leave to the basket / the desk). ── */}
+      <div className="mx-3 mt-2 pt-2 space-y-1.5" style={{ borderTop: "1px solid var(--border)" }}>
+        <AddTraders
+          busy={busy !== null}
+          onAdd={async (addresses, usd) => {
+            for (const a of addresses) await allocate(a, usd);
+          }}
+        />
+        <div className="flex items-center gap-1">
+          {many && (
+            <>
+              <span
+                className="text-[9px] font-mono tracking-[0.08em] text-pixel-gray shrink-0 whitespace-nowrap"
+                title={`Divide one total evenly across all ${rows.length} traders`}
+              >
+                SPLIT $
+              </span>
+              <input
+                className="pixel-input-sm input-xs w-[44px] font-mono min-w-0"
+                value={bankrollDraft}
+                inputMode="decimal"
+                onChange={(e) => setBankrollDraft(e.target.value)}
+                placeholder="total"
+                title="A total to divide across the book. It is not a budget — the engine budgets against each trader's own $."
+              />
+              <button
+                className="pixel-btn btn-xs shrink-0 whitespace-nowrap"
+                disabled={busy !== null || !(Number(bankrollDraft) > 0)}
+                onClick={async () => {
+                  const v = Number(bankrollDraft);
+                  if (!Number.isFinite(v) || v <= 0) return;
+                  if (v !== book?.bankroll) await setBankrollUsd(v);
+                  await rebalance("equal");
+                }}
+                title={`Give each of the ${rows.length} traders the same share of this total`}
+              >
+                EVENLY
+              </button>
+              <Link
+                href="/copy/basket"
+                className="text-[9.5px] font-mono tracking-[0.04em] text-pixel-gray hover:text-cyan-300 shrink-0 whitespace-nowrap"
+                title="Size the whole set at once: different amounts per trader, replayed together, with the equal-split counterfactual"
+              >
+                · BASKET →
+              </Link>
+            </>
+          )}
+          <span className="flex-1 min-w-[8px]" />
           <Link
-            href="/copy/basket"
-            className="ml-auto text-[9.5px] font-mono tracking-[0.1em] text-pixel-gray hover:text-cyan-300 shrink-0"
-            title="Size the whole set at once: different amounts per trader, replayed together, with the equal-split counterfactual"
+            href="/copy"
+            className="text-[9.5px] font-mono tracking-[0.04em] text-pixel-gray hover:text-green-400 shrink-0 whitespace-nowrap"
+            title="The desk — find the best traders in a market"
           >
-            BASKET →
+            FIND TRADERS →
           </Link>
         </div>
-      )}
-
-      {/* ── Add one, or add ten ── */}
-      <AddTraders
-        busy={busy !== null}
-        onAdd={async (addresses, usd) => {
-          for (const a of addresses) await allocate(a, usd);
-        }}
-      />
+      </div>
 
       {/* ── MEASURE — what those amounts would have done ── */}
       <Section
         title="BACKTEST"
-        hint="what $N would have done, per trader"
+        hint="what your $ would have done"
         open={measureOpen}
         onToggle={() => { const v = !measureOpen; setMeasureOpen(v); remember(MEASURE_KEY, v); }}
       >
@@ -500,56 +519,53 @@ function AddTraders({
   const partial = raw.trim().length > 0 && found.length === 0;
 
   return (
-    <div className="px-3 pt-1.5 space-y-1">
-      <textarea
-        className="pixel-input-sm input-xs w-full font-mono resize-y"
-        rows={raw.includes("\n") || found.length > 1 ? 3 : 1}
-        value={raw}
-        placeholder="0x… paste one trader, or a list"
-        onChange={(e) => setRaw(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && valid) {
-            e.preventDefault();
-            void onAdd(found, amount);
-            setRaw("");
-          }
-        }}
-        title="Every 0x… in what you paste is added, each with the amount beside it. Shift+Enter for a new line."
-      />
-      <div className="flex items-center gap-1.5">
-        <span className="text-[9px] font-mono tracking-[0.12em] text-pixel-gray shrink-0">
-          EACH $
-        </span>
+    <div className="space-y-1">
+      {/* One line, read left to right: who → how much → do it. */}
+      <div className="flex items-start gap-1.5">
+        <textarea
+          className="pixel-input-sm input-xs flex-1 min-w-0 font-mono resize-y"
+          rows={raw.includes("\n") || found.length > 1 ? 3 : 1}
+          value={raw}
+          placeholder="0x… paste trader(s)"
+          onChange={(e) => setRaw(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && valid) {
+              e.preventDefault();
+              void onAdd(found, amount);
+              setRaw("");
+            }
+          }}
+          title="Every 0x… in what you paste is added, each with the amount beside it. Shift+Enter for a new line."
+        />
+        <span className="text-[9px] font-mono text-pixel-gray shrink-0 self-center">$</span>
         <input
-          className="pixel-input-sm input-xs w-[56px] font-mono"
+          className="pixel-input-sm input-xs w-[48px] font-mono shrink-0"
           value={usd}
           inputMode="decimal"
           onChange={(e) => setUsd(e.target.value)}
-          title="Dollars to give EACH trader you paste above. Traders already in the book keep their own $ — edit it on their row."
+          title="Dollars to give EACH trader you paste. Traders already in the book keep their own $ — edit it on their row."
         />
         <button
-          className="pixel-btn btn-xs"
+          className="pixel-btn btn-xs shrink-0"
           disabled={!valid || busy}
           onClick={() => { void onAdd(found, amount); setRaw(""); }}
           title={found.length > 1
-            ? `Add all ${found.length} traders with ${usd} each`
+            ? `Add all ${found.length} traders with $${usd} each`
             : "Add this leader to the copy book"}
         >
           + COPY{found.length > 1 ? ` ${found.length}` : ""}
         </button>
-        {partial && (
-          <span className="text-[9px] font-mono text-amber-400" title="An address is 0x followed by 40 hex characters">
-            no address found
-          </span>
-        )}
-        <Link
-          href="/copy"
-          className="ml-auto text-[9.5px] font-mono tracking-[0.1em] text-pixel-gray hover:text-green-400 shrink-0"
-          title="The desk — find the best traders in a market"
-        >
-          FIND TRADERS →
-        </Link>
       </div>
+      {found.length > 1 && (
+        <div className="text-[9px] font-mono text-pixel-gray">
+          {found.length} traders · ${usd || "0"} each
+        </div>
+      )}
+      {partial && (
+        <div className="text-[9px] font-mono text-amber-400" title="An address is 0x followed by 40 hex characters">
+          no address found yet — an address is 0x + 40 characters
+        </div>
+      )}
     </div>
   );
 }
@@ -588,7 +604,7 @@ function MeasureBlock({
           className="pixel-input-sm input-xs w-[52px] font-mono"
           value={simStr}
           inputMode="decimal"
-          placeholder="each"
+          placeholder="own $"
           onChange={(e) => setSimStr(e.target.value)}
           title="Replay every row with THIS much behind the trader. Blank = each row's own allocation, which is the number the background worker already replayed."
         />
@@ -604,29 +620,34 @@ function MeasureBlock({
             </button>
           ))}
         </div>
-        <button onClick={refresh} className="pixel-btn btn-xs shrink-0" title="Re-run every row's replay in this browser now">
+        <button
+          onClick={refresh}
+          className="pixel-btn btn-xs shrink-0"
+          title={`Re-run every row's replay in this browser now${worker?.at ? "" : " (no background pass yet)"}`}
+        >
           ⟳
         </button>
       </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[9px] font-mono text-pixel-gray leading-snug min-w-0 flex-1">
-          {sim > 0
-            ? `what ${fmtUsd(sim, 0)} behind each trader would have done over ${days}D`
-            : `replayed at the $ you already gave each of them, over ${days}D`}
-          {worker?.at ? "" : " · no worker pass yet"}
-        </span>
-        {/* Simulated a size and liked it? Fund exactly what was measured. */}
-        {sim > 0 && rows.length > 0 && (
-          <button
-            className="pixel-btn btn-xs shrink-0"
-            disabled={busy}
-            onClick={() => onFund(sim)}
-            title={`Set all ${rows.length} traders to the ${fmtUsd(sim, 0)} this replay used`}
-          >
-            USE {fmtUsd(sim, 0)}
-          </button>
-        )}
-      </div>
+      {/* Only when a sim amount is typed does this need a sentence — the
+          default replay is just "each row's own $" and the rows say the rest. */}
+      {sim > 0 && (
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[9px] font-mono text-pixel-gray leading-snug min-w-0 flex-1">
+            {fmtUsd(sim, 0)} behind each trader, over {days}D
+          </span>
+          {/* Simulated a size and liked it? Fund exactly what was measured. */}
+          {rows.length > 0 && (
+            <button
+              className="pixel-btn btn-xs shrink-0"
+              disabled={busy}
+              onClick={() => onFund(sim)}
+              title={`Set all ${rows.length} traders to the ${fmtUsd(sim, 0)} this replay used`}
+            >
+              USE {fmtUsd(sim, 0)}
+            </button>
+          )}
+        </div>
+      )}
       <div className="space-y-0.5 max-h-[26vh] overflow-y-auto">
         {rows.length === 0 ? (
           <div className="text-[9.5px] font-mono text-pixel-gray">nothing to measure yet</div>

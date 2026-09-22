@@ -712,6 +712,9 @@ def _task_step(t: dict, step) -> None:
         path = params.get("path") or params.get("file_path") or params.get("pattern")
         if path:
             entry["path"] = str(path)[:200]
+        # what the tool is on right now — rides the polled /tasks list (which
+        # strips the trace) so a running row can say "edit · src/mod.py" live
+        t["path"] = entry.get("path")
         t["trace"].append(entry)
         if len(t["trace"]) > MAX_TRACE:
             t["trace"] = t["trace"][-MAX_TRACE:]

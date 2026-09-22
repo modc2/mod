@@ -1,0 +1,105 @@
+{
+  "pages": {
+    "/_not-found/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/app/_not-found/page-1f70dc787c436ac7.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/css/1a3508d01d935c5b.css",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/847-ffda11d8ac332c1f.js",
+      "static/chunks/932-942ebdc9918356e5.js",
+      "static/chunks/326-c0d6cb403d66f327.js",
+      "static/chunks/app/layout-3cf0342638924b6e.js"
+    ],
+    "/agent/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/932-942ebdc9918356e5.js",
+      "static/chunks/app/agent/page-1ce733003a71ba26.js"
+    ],
+    "/leaderboard/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/app/leaderboard/page-afef8dd5c639a701.js"
+    ],
+    "/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/275-d02126cf3dd48024.js",
+      "static/chunks/app/page-5411dd75d16628df.js"
+    ],
+    "/portfolio/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/app/portfolio/page-1cb764f251d3553b.js"
+    ],
+    "/strats/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/932-942ebdc9918356e5.js",
+      "static/chunks/app/strats/page-4f1c6e621c8e5028.js"
+    ],
+    "/subnets/[netuid]/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/876-12ce1f35397ea47c.js",
+      "static/chunks/932-942ebdc9918356e5.js",
+      "static/chunks/app/subnets/[netuid]/page-cfa55135aef96abf.js"
+    ],
+    "/subnets/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/326-c0d6cb403d66f327.js",
+      "static/chunks/app/subnets/page-ce02865ba6fb31a2.js"
+    ],
+    "/traders/[ss58]/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/876-12ce1f35397ea47c.js",
+      "static/chunks/937-43d3c92c064b18bc.js",
+      "static/chunks/932-942ebdc9918356e5.js",
+      "static/chunks/app/traders/[ss58]/page-fa390f636af62d0f.js"
+    ],
+    "/traders/page": [
+      "static/chunks/webpack-6ac9a302360b9d3b.js",
+      "static/chunks/fd9d1056-c83e58085faa0c99.js",
+      "static/chunks/117-0a7d9f06cc998f59.js",
+      "static/chunks/main-app-43a68c1243eb3b13.js",
+      "static/chunks/648-477e309bd6da6d67.js",
+      "static/chunks/932-942ebdc9918356e5.js",
+      "static/chunks/275-d02126cf3dd48024.js",
+      "static/chunks/app/traders/page-1268b0931d0e4287.js"
+    ]
+  }
+}

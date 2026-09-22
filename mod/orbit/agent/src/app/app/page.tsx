@@ -283,10 +283,17 @@ function addrColors(addr: string): { from: string; to: string } {
 type ServerTask = {
   id: string; query: string; agent_type: string; provider?: string; model?: string | null
   user?: string | null; status: 'running' | 'done' | 'error'; steps: number
-  tool?: string | null; started_at: number; finished_at?: number | null
+  tool?: string | null; path?: string | null; started_at: number; finished_at?: number | null
   summary?: string | null; chain?: boolean
   images?: number            // attachments the run carried — previews are a separate fetch
 }
+
+// one step of a run's trace (GET /tasks/{id}) — tool name plus the file or
+// pattern it was aimed at, results deliberately absent
+type TraceStep = { tool?: string | null; path?: string | null }
+
+// the tail of a path is the part a human recognizes at a glance
+const pathTail = (p: string) => p.split('/').filter(Boolean).slice(-2).join('/')
 
 // a prompt from the library, selectable as an agent's system prompt
 type LibPrompt = Owned & { id: string; name: string; description: string; body?: string; tags: string[] }
@@ -483,6 +490,9 @@ export default function Home() {
   // attachment previews per task id — base64, so they're fetched only when a
   // task is opened and never ride along with the 4s registry poll
   const [taskImages, setTaskImages] = useState<Record<string, string[]>>({})
+  // step traces per task id — only fetched for OPENED running rows, refreshed
+  // on each registry poll, so watching a run means seeing each edit land
+  const [taskTraces, setTaskTraces] = useState<Record<string, TraceStep[]>>({})
 
   const providerModels = providers.find(p => p.key === provider)?.models || []
 
@@ -1367,6 +1377,26 @@ export default function Home() {
     const iv = setInterval(fetchServerTasks, 4000)
     return () => clearInterval(iv)
   }, [fetchServerTasks])
+
+  // Trace tail for every OPENED running row. The polled /tasks list strips
+  // traces; /tasks/{id} carries the [{tool, path}] history. Each 4s poll
+  // replaces serverTasks, which re-runs this — so an open row's step list
+  // stays fresh without its own timer.
+  useEffect(() => {
+    const open = serverTasks.filter(t => t.status === 'running' && expandedServerTasks[t.id])
+    if (!open.length) return
+    let dead = false
+    open.forEach(t => {
+      fetch(`${API_URL}/tasks/${t.id}`, { signal: AbortSignal.timeout(5000) })
+        .then(r => r.json())
+        .then(d => {
+          if (dead || !Array.isArray(d.trace)) return
+          setTaskTraces(m => ({ ...m, [t.id]: d.trace.slice(-14) }))
+        })
+        .catch(() => {})
+    })
+    return () => { dead = true }
+  }, [serverTasks, expandedServerTasks])
 
   // Dismissing a finished run. The row goes immediately rather than waiting
   // for the next poll — a list you can't clear is a list you stop reading.
@@ -2506,7 +2536,10 @@ export default function Home() {
                 </div>
                 <div className="flex items-center gap-3 mt-1.5 pl-8 min-w-0">
                   {t.status === 'running' && t.tool && (
-                    <span className="text-[11px] text-emerald-300/80 font-mono shimmer-text shrink-0">{t.tool}…</span>
+                    <span className="text-[11px] text-emerald-300/80 font-mono shimmer-text truncate min-w-0"
+                      title={t.path || undefined}>
+                      {t.tool}{t.path ? ` · ${pathTail(t.path)}` : ''}…
+                    </span>
                   )}
                   {t.status !== 'running' && t.summary && (
                     <span className={`text-[11px] text-gray-500 min-w-0 ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}>
@@ -2538,6 +2571,28 @@ export default function Home() {
                     ))}
                     {!taskImages[t.id] && <span className="text-[10px] text-gray-600 font-mono">loading images…</span>}
                   </div>
+                )}
+                {/* live trace — an opened running row is a window on the run:
+                    each step's tool + the file it touched, newest at the
+                    bottom, refreshed with the registry poll */}
+                {expanded && t.status === 'running' && (
+                  (taskTraces[t.id] || []).length > 0 ? (
+                    <div className="mt-2 pl-8 space-y-0.5 border-l border-emerald-500/15 ml-4">
+                      {(taskTraces[t.id] || []).map((s, k, arr) => (
+                        <div key={k} className={`flex items-center gap-2 pl-3 text-[10px] font-mono min-w-0 ${
+                          k === arr.length - 1 ? 'text-emerald-300/90' : 'text-gray-500'
+                        }`}>
+                          <span className="shrink-0">{s.tool || '·'}</span>
+                          {s.path && <span className="truncate opacity-80" title={s.path}>{s.path}</span>}
+                          {k === arr.length - 1 && (
+                            <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-2 pl-8 text-[10px] text-gray-600 font-mono">waiting for the first step…</div>
+                  )
                 )}
                 {expanded && (
                   <div className="mt-2 pl-8 flex items-center gap-4 text-[10px] text-gray-600 font-mono flex-wrap">
@@ -4359,11 +4414,11 @@ export default function Home() {
       {/* top bar — the three views and who you are. Everything else lives where
           it's used: the rails carry their own collapse, the dock its own size,
           the key and the tool count sit in the rail's foot. */}
-      {/* The view switcher is the one thing that must always be readable in
-          full, so below lg it drops to its own row (order-last + basis-full)
-          rather than being squeezed or scrolled off behind the sign-in
-          cluster — the bar grows a line instead of hiding a tab. */}
-      <header className="site-header border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 shrink-0 bg-surface-0">
+      {/* The view switcher stays in the top row at every width — it IS the
+          top of the app, never a second line. When the bar runs out of room
+          the .tab-strip scrolls sideways instead of squashing or wrapping,
+          so the tabs stay first without hiding one. */}
+      <header className="site-header border-b border-white/[0.06] px-3 min-h-12 py-1.5 flex items-center gap-x-3 shrink-0 bg-surface-0">
         <div className="flex items-center gap-2.5 shrink-0" title="Agent — mod framework">
           <div className="brand-mark w-7 h-7 flex items-center justify-center shrink-0">
             <span className="select-none">{'>'}_</span>
@@ -4373,30 +4428,45 @@ export default function Home() {
           <span className="title-gradient uppercase select-none hidden sm:block">agent</span>
         </div>
 
-        <nav className="tab-strip order-last basis-full lg:order-none lg:basis-auto gap-px">
-          {(['chat', 'hub', 'arena'] as const).map(v => (
-            <button key={v}
-              onClick={() => {
-                // entering the hub from the top bar shows the agents, not a
-                // canvas someone left up — "show agents" is the shelf's job
-                if (v === 'hub') { setBuilderMode('browse'); openHub(hubPane) }
-                else setView(v)
-              }}
-              className={`nav-tab tab-btn relative flex items-center gap-1.5 px-3 py-2 font-medium uppercase tracking-wider transition-colors ${
-                view === v ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
-              }`}
-              title={v === 'hub'
-                ? runningCount > 0
-                  ? `Agents, library and the ${runningCount} runs still going`
-                  : 'Agents, library and background runs'
-                : v === 'chat' ? 'The console — talk to an agent'
-                : 'Every agent on the same tasks, one ranked board'}>
-              {v}
-              {v === 'hub' && runningCount > 0 && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              )}
-            </button>
-          ))}
+        <nav className="tab-strip min-w-0 gap-px">
+          {(['chat', 'hub', 'arena', 'tasks'] as const).map(v => {
+            // TASKS is the hub's runs shelf given its own door on the top bar
+            // — the runs (and the files they're editing right now) are one
+            // press away instead of two. The two entries split the hub's
+            // light: TASKS owns the runs shelf, HUB owns the rest.
+            const onTasks = view === 'hub' && hubPane === 'tasks'
+            const lit = v === 'tasks' ? onTasks
+              : v === 'hub' ? view === 'hub' && !onTasks
+              : view === v
+            return (
+              <button key={v}
+                onClick={() => {
+                  // entering the hub from the top bar shows the agents, not a
+                  // canvas someone left up — "show agents" is the shelf's job
+                  if (v === 'tasks') openHub('tasks')
+                  else if (v === 'hub') { setBuilderMode('browse'); openHub(hubPane === 'tasks' ? 'agents' : hubPane) }
+                  else setView(v)
+                }}
+                className={`nav-tab tab-btn relative flex items-center gap-1.5 px-3 py-2 font-medium uppercase tracking-wider transition-colors ${
+                  lit ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
+                }`}
+                title={v === 'hub' ? 'Agents and the library'
+                  : v === 'chat' ? 'The console — talk to an agent'
+                  : v === 'tasks'
+                    ? runningCount > 0
+                      ? `${runningCount} running — open one to watch its edits land`
+                      : 'Every run, live — what each agent is doing right now'
+                  : 'Every agent on the same tasks, one ranked board'}>
+                {v}
+                {v === 'tasks' && runningCount > 0 && (
+                  <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {runningCount}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </nav>
 
         <div className="flex items-center gap-3 ml-auto shrink-0">
