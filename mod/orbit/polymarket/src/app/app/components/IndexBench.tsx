@@ -87,7 +87,7 @@ export default function IndexBench() {
         onClick={() => setOpenPersisted(!open)}
         aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-pixel-white/[0.04] transition-colors"
-        title={`The traders on "${strat.name}" — every + ADD on the board lands here. BACKTEST replays this bench; LIVE copies it.`}
+        title={`The traders on "${strat.name}" — every + ADD TO STRAT on the board lands here. BACKTEST replays this bench; LIVE copies it.`}
       >
         <span className="text-[11px] font-semibold tracking-[0.2em] text-pixel-white">BENCH</span>
         <span className="ml-auto flex items-center gap-2 min-w-0 shrink">

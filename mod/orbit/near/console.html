@@ -144,6 +144,31 @@
     background:linear-gradient(90deg,var(--hot3),var(--hot));opacity:.75}
   textarea{width:min(460px,72vw);min-height:64px;resize:vertical}
 
+  /* contract directory */
+  .ccards{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));
+          gap:10px;margin-top:2px}
+  .ccard{background:var(--panel);border:1px solid var(--line);border-radius:4px;
+         padding:12px 13px;cursor:pointer;position:relative;overflow:hidden;
+         backdrop-filter:blur(3px);
+         transition:border-color .15s,transform .15s,box-shadow .15s}
+  .ccard::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+         background:linear-gradient(90deg,transparent,#00ec9735,transparent)}
+  .ccard:hover{border-color:var(--hot);transform:translateY(-2px);
+         box-shadow:0 8px 24px #00000070,0 0 18px #00ec9718}
+  .ccard.dead{opacity:.45;cursor:default}
+  .ccard.dead:hover{border-color:var(--line);transform:none;box-shadow:none}
+  .ccard.mine{border-color:#3a3470}
+  .ccard .lblrow{display:flex;align-items:center;gap:7px;margin-bottom:3px}
+  .ccard .lbl{color:var(--ink2);font-size:12px;letter-spacing:.04em;
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ccard .id{color:var(--hot2);font-size:10px;word-break:break-all;
+         opacity:.85;margin-bottom:8px}
+  .ccard .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+         font-size:10px;color:var(--dim)}
+  .ondot{width:7px;height:7px;border-radius:50%;background:var(--good);
+         box-shadow:0 0 8px var(--good);flex:none;animation:pulse 2.2s infinite}
+  .ondot.off{background:var(--bad);box-shadow:none;animation:none}
+
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;
          padding:16px;backdrop-filter:blur(3px)}
   .panel h2{margin:0 0 12px;font-size:11px;letter-spacing:.16em;color:var(--hot);
@@ -206,6 +231,13 @@
   <div class="note">On NEAR an account and a contract are the same object. One lookup
     answers balances, access keys, and — if code is deployed — what it can be asked to do.</div>
   <div id="ex-out"></div>
+  <h2 class="t">Contracts that are ON — <span id="cd-net">mainnet</span>
+    <span id="cd-count" class="dimtxt" style="text-transform:none"></span>
+    <button class="ghost" id="cd-refresh" style="margin-left:auto">RE-CHECK</button></h2>
+  <div id="cd-grid" class="ccards"><div class="empty">asking the chain which contracts are live…</div></div>
+  <div class="note">A green dot means the chain confirms code is deployed on that account
+    right now — the directory is curated here, but nothing is taken on faith. Contracts you
+    deploy from this keystore join the list automatically. Click a card to open it.</div>
 </section>
 
 <!-- ── call (view + change) ── -->
@@ -365,8 +397,8 @@
 
 <!-- ── mcp ── -->
 <section id="mcp">
-  <div class="note">This same port is an MCP server — eighteen tools over Streamable
-    HTTP: twelve reads, six writes (writes want <span class="kbd">token</span>, and
+  <div class="note">This same port is an MCP server — nineteen tools over Streamable
+    HTTP: thirteen reads, six writes (writes want <span class="kbd">token</span>, and
     <span class="kbd">confirm=true</span> off testnet). Point any MCP client at it:</div>
   <pre id="m-config"></pre>
   <h2 class="t">Tools</h2>
@@ -419,6 +451,7 @@ function paintNet() {
 }
 document.querySelectorAll('#netseg button').forEach(b => b.onclick = () => {
   NET = b.dataset.net; localStorage.setItem('near_net', NET); paintNet();
+  loadContracts();
 });
 const confirmed = ckId => NET !== 'mainnet' || $(ckId).checked;
 
@@ -550,6 +583,44 @@ function prefill(c, m){
 }
 $('ex-go').onclick = explore;
 $('ex-q').addEventListener('keydown', e => { if (e.key === 'Enter') explore(); });
+
+// ── contract directory — every card verified live against the chain ──
+const bytesFmt = b => { b = b || 0;
+  return b >= 1e9 ? fmt(b/1e9, 1) + ' GB' : b >= 1e6 ? fmt(b/1e6, 1) + ' MB'
+       : b >= 1024 ? fmt(b/1024, 0) + ' KB' : fmt(b, 0) + ' B'; };
+let DIR_NET = null;
+async function loadContracts(force) {
+  if (!force && DIR_NET === NET) return;
+  DIR_NET = NET;
+  $('cd-net').textContent = NET; $('cd-count').textContent = '';
+  $('cd-grid').innerHTML =
+    '<div class="empty" style="grid-column:1/-1">asking the chain which contracts are live on ' + esc(NET) + '…</div>';
+  try {
+    const r = await j('/contracts?network=' + NET + (force ? '&refresh=true' : ''));
+    if (NET !== r.network) return;             // user switched mid-flight
+    $('cd-count').textContent = `· ${r.live} of ${r.count} live`;
+    $('cd-grid').innerHTML = (r.contracts || []).map(c => `
+      <div class="ccard ${c.live ? '' : 'dead'} ${c.yours ? 'mine' : ''}"
+           ${c.live ? `onclick="lookup('${esc(c.account_id)}')"` : ''}>
+        <div class="lblrow"><span class="ondot ${c.live ? '' : 'off'}"></span>
+          <span class="lbl">${esc(c.label)}</span>
+          ${c.yours ? '<span class="p vio">yours</span>' : ''}</div>
+        <div class="id">${esc(c.account_id)}</div>
+        <div class="meta">${c.yours ? '' : `<span class="p hot">${esc(c.category)}</span>`}
+          ${c.live
+            ? `<span>${bytesFmt(c.storage_bytes)} state</span>` +
+              (c.balance_near >= 1 ? `<span>${fmt(c.balance_near, 0)} N</span>` : '')
+            : '<span>no code on this account</span>'}</div>
+      </div>`).join('') ||
+      '<div class="empty" style="grid-column:1/-1">no contracts known for ' + esc(NET) + '</div>';
+  } catch (e) {
+    DIR_NET = null;
+    $('cd-grid').innerHTML =
+      '<div class="empty" style="grid-column:1/-1">' + esc(e.message) + '</div>';
+  }
+}
+$('cd-refresh').onclick = () => loadContracts(true);
+loadContracts();
 
 // ── call: view + change ──
 let CALLMODE = 'view';

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""near mcp — twelve read tools for the NEAR protocol.
+"""near mcp — thirteen read tools and six write tools for the NEAR protocol.
 
 NEAR's account model is its personality: accounts are human-readable names
 (`alice.near`) or 64-hex implicit accounts, an account and a contract are the
@@ -36,9 +36,12 @@ DEFAULT_PROTOCOL_VERSION = '2025-03-26'
 INSTRUCTIONS = (
     'NEAR Protocol, whole. Accounts are names (alice.near, app.testnet) or '
     '64-hex implicit accounts, and an account and a contract are the same '
-    'object — start with near_account for balances (liquid, staked, storage-'
-    'reserved, USD), then near_keys for its access keys and their per-contract '
-    'permissions. If it is a contract, near_contract lists its callable methods '
+    'object — near_contracts is the map (the well-known contracts on the '
+    'network plus anything deployed from this keystore, each verified live '
+    'against the chain), near_account is the first call for any single name '
+    '(balances: liquid, staked, storage-reserved, USD), then near_keys for '
+    'its access keys and their per-contract permissions. '
+    'If it is a contract, near_contract lists its callable methods '
     'parsed straight from the deployed WASM (NEAR stores no ABI), and near_view '
     'calls any view method with JSON args. near_ft reads a NEP-141 token; '
     'near_history and near_tx cover transactions; near_network, '
@@ -80,6 +83,20 @@ def _client(args):
     return Client(network=args.get('network'), rpc=args.get('rpc'))
 
 
+def _contracts(args):
+    """The directory plus the caller's own deployed contracts: keystore
+    accounts on this network join the probe, so anything you shipped with
+    near_deploy shows up next to wrap.near, verified the same way."""
+    c = _client(args)
+    try:
+        mine = [w['account_id'] for w in
+                (wallet.wallet('status').get('accounts') or [])
+                if w.get('network') == c.network]
+    except Exception:
+        mine = []
+    return c.contracts(extra=mine, refresh=bool(args.get('refresh')))
+
+
 TOOLS = {
     'near_account': {
         'description': 'An account: total/liquid/staked balance in NEAR and USD, '
@@ -111,6 +128,20 @@ TOOLS = {
                         'properties': {'account_id': _ACCT, **_COMMON},
                         'required': ['account_id']},
         'handler': lambda a: _client(a).contract(a['account_id']),
+    },
+    'near_contracts': {
+        'description': 'The contracts that are ON: a curated directory of the '
+                       'well-known contracts for the network (tokens, DEXes, '
+                       'staking, infra) plus any contract deployed from this '
+                       'host\'s keystore — every entry re-verified against the '
+                       'chain, so live means code is deployed on that account '
+                       'right now. The map you start from before near_contract '
+                       'zooms in on one.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'refresh': {'type': 'boolean',
+                        'description': 'skip the 5-minute cache and re-probe'},
+            **_COMMON}},
+        'handler': _contracts,
     },
     'near_view': {
         'description': 'Call a view method on a contract with JSON args and get '

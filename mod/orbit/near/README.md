@@ -1,7 +1,7 @@
 # near
 
-NEAR Protocol as one mod: a REST API, a browser console and eighteen MCP
-tools running the same code on one port — twelve reads, and a write half
+NEAR Protocol as one mod: a REST API, a browser console and nineteen MCP
+tools running the same code on one port — thirteen reads, and a write half
 that deploys and manages contracts with keys from a keystore under
 `~/.mod/near/` (never the repo; no API ever returns a secret key).
 
@@ -40,6 +40,7 @@ python3 mcp.py            # the same tools over stdio
 | `near_account` | balances, storage, contract flag, USD |
 | `near_keys` | access keys and their permissions |
 | `near_contract` | callable methods, parsed from the WASM |
+| `near_contracts` | the contracts that are ON — curated per network + your own deploys, each verified live |
 | `near_view` | any view method, JSON args, free |
 | `near_ft` | a NEP-141 token, balances scaled by its decimals |
 | `near_history` | recent txns (NearBlocks indexer — RPC has no by-account query) |

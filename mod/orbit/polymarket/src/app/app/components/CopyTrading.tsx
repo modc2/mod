@@ -1158,9 +1158,12 @@ export default function CopyTrading({
     const stamp = syncedAt ?? lastUpdated;
     if (stamp == null) return null;
     const age = nowTick - stamp;
+    // Calm colors: an hour-old cache is normal here (the sync worker runs
+    // hourly) — red is reserved for genuinely dead data, not routine age.
     const color =
       age < 5 * 60_000 ? "text-green-400" :
-      age < 30 * 60_000 ? "text-amber-400" :
+      age < 2 * 60 * 60_000 ? "text-pixel-gray-light" :
+      age < 6 * 60 * 60_000 ? "text-amber-400" :
       "text-red-400";
     const stampNote = syncedAt
       ? `Source data last synced ${new Date(stamp).toLocaleTimeString()} (Polymarket data-api)`
@@ -1176,7 +1179,7 @@ export default function CopyTrading({
         className={`text-[11px] font-mono tracking-wider shrink-0 ${color}`}
         title={sourceNote ? `${sourceNote} ${stampNote}` : stampNote}
       >
-        {source === "fresh" ? "FRESH" : source ? "CACHED" : "sync"} {formatAgo(age)}
+        {source ? "UPDATED" : "sync"} {formatAgo(age)}
       </span>
     );
   })();
@@ -1943,15 +1946,16 @@ export default function CopyTrading({
                         <div className={`text-[9px] tracking-wider ${traderSort === "history" ? "text-green-400" : "text-pixel-gray"}`}>RECORD</div>
                         <div className={`font-mono text-[12px] truncate ${recCls}`}>{formatHistory(trader)}</div>
                       </div>
-                      <div className="min-w-0" title={lastTitle}>
-                        <div className={`text-[9px] tracking-wider ${traderSort === "last" ? "text-green-400" : "text-pixel-gray"}`}>LAST</div>
-                        <div className={`font-mono text-[12px] truncate ${lastCls}`}>{lastLabel}</div>
-                      </div>
+                      {/* LAST lives in the card's top-right corner — repeating
+                          it here just made every card six cells instead of five. */}
                     </div>
 
                     {/* Whose money is on them — your desk allocation next to
                         the community gallery's, so "am I the only one?" is
-                        answered on the card itself. */}
+                        answered on the card itself. Only rendered once someone
+                        actually has money down: a board of $0 · $0 boxes says
+                        nothing and buries the numbers that do. */}
+                    {(mineOn || comm) && (
                     <div className="grid grid-cols-2 gap-1">
                       <div
                         className={`border px-1.5 py-1 ${mineOn ? "border-green-400/50 bg-green-400/5" : "border-pixel-border/60"}`}
@@ -1986,6 +1990,7 @@ export default function CopyTrading({
                         </div>
                       </div>
                     </div>
+                    )}
 
                     {onSelect && (
                       selectedLower.has(addrLower) ? (
@@ -2020,9 +2025,9 @@ export default function CopyTrading({
                           type="button"
                           onClick={(e) => { e.stopPropagation(); onSelect(trader.address); }}
                           className="pixel-btn mt-auto w-full text-[12px] px-2 py-1 !border !border-dashed !border-amber-400/50 !text-amber-300/80 !bg-transparent hover:!border-solid hover:!border-amber-400 hover:!text-amber-200 hover:!bg-amber-500/15 transition-all whitespace-nowrap"
-                          title="Add to active strat"
+                          title="Add this trader to your active strat"
                         >
-                          + ADD
+                          + ADD TO STRAT
                         </button>
                       )
                     )}

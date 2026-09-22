@@ -156,8 +156,8 @@ function AllocationList() {
   return (
     <div className="pb-2">
       <div className="px-3 pb-1.5 text-[9.5px] font-mono leading-snug text-pixel-gray">
-        Click one to make it the strat BACKTEST and LIVE look at — the active row unlocks
-        FORK · RENAME · delete. Bars show each strat&apos;s share of your allocation.
+        Your strats. Click one to make it active — BACKTEST and LIVE run the active strat,
+        and its row unlocks FORK · RENAME · delete. Bars show where your money sits.
       </div>
 
       <div className="px-1.5 flex flex-col gap-0.5">

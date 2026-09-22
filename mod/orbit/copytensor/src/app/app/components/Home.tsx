@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { CopyConfig, LeaderboardEntry } from "../lib/types";
+import type { CopyConfig, CurvePoint, LeaderboardEntry, MarketStats } from "../lib/types";
 import {
-  fetchCopies, fetchLeaderboard, fmtCompact, shortSs58, windowPhrase,
+  fetchCopies, fetchCurve, fetchLeaderboard, fetchMarket, fmtCompact,
+  shortSs58, windowPhrase,
 } from "../lib/api";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
 import { useFilters, type SortKey } from "../context/FiltersContext";
 import { useCoverage } from "../lib/useCoverage";
 import Identicon from "./Identicon";
 import SimpleCopy from "./SimpleCopy";
+import Sparkline from "./Sparkline";
 import WindowRail from "./WindowRail";
 import { RankBy, StakeFloor } from "./BoardFilters";
 
@@ -75,6 +77,41 @@ export default function Home() {
   const top = ranked.slice(0, shown);
   const active = copies.filter((c) => c.status === "active");
 
+  // One small curve per visible plate, from our own snapshot table — cheap
+  // (~60ms each), and unlike bt's bulk /traders it can't hang the front
+  // door when bt is mid refresh. Keyed by ss58, reset when the window
+  // moves so the trace always covers the days the number claims.
+  // Refs, not effect deps: nine fetches land near-together, and a
+  // cleanup-based stale flag lets the first arrival mark the other eight
+  // stale — eight plates stuck on the dashed placeholder. A resolve is
+  // dropped only when the window moved out from under it.
+  const [curves, setCurves] = useState<Record<string, CurvePoint[]>>({});
+  const curvesRef = useRef<Record<string, CurvePoint[]>>({});
+  const inflight = useRef(new Set<string>());
+  const daysRef = useRef(days);
+  useEffect(() => {
+    daysRef.current = days;
+    curvesRef.current = {};
+    inflight.current.clear();
+    setCurves({});
+  }, [days]);
+  useEffect(() => {
+    for (const e of top) {
+      if (curvesRef.current[e.ss58] !== undefined || inflight.current.has(e.ss58)) continue;
+      inflight.current.add(e.ss58);
+      const d = days;
+      const land = (pts: CurvePoint[]) => {
+        if (daysRef.current !== d) return;
+        curvesRef.current[e.ss58] = pts;
+        setCurves((p) => ({ ...p, [e.ss58]: pts }));
+      };
+      fetchCurve(e.ss58, d)
+        .then((c) => land(c.points ?? []))
+        .catch(() => land([]))
+        .finally(() => { inflight.current.delete(e.ss58); });
+    }
+  }, [top, days]);
+
   return (
     <div className="space-y-7">
       <section className="home-hero">
@@ -83,6 +120,7 @@ export default function Home() {
           Pick a trader. Say how much TAO should follow them. We mirror
           what they hold across subnets, and keep it lined up as they move.
         </p>
+        <HeroStats traders={cov?.priced} />
       </section>
 
       {active.length > 0 && (
@@ -154,6 +192,7 @@ export default function Home() {
                   rank={i}
                   days={days}
                   sortKey={sortKey}
+                  curve={curves[e.ss58]}
                   onCopy={() => setPick(e)}
                 />
               ))}
@@ -201,12 +240,13 @@ export default function Home() {
  * move was trading rather than money walking in the door.
  */
 function TraderPlate({
-  e, rank, days, sortKey, onCopy,
+  e, rank, days, sortKey, curve, onCopy,
 }: {
   e: LeaderboardEntry;
   rank: number;
   days: number;
   sortKey: SortKey;
+  curve?: CurvePoint[];
   onCopy: () => void;
 }) {
   const { currency, usdPerTao } = useCurrency();
@@ -214,6 +254,16 @@ function TraderPlate({
   const up = pct >= 0;
   const size = sortKey === "total_stake_tao";
   const spread = sortKey === "num_subnets";
+
+  // The trace agrees with the headline: price-only PnL under a price
+  // return, total PnL under a total return, the book itself when the grid
+  // is ranked by size or spread.
+  const trace = useMemo(() => {
+    if (!curve) return null; // still loading → Sparkline's dashed placeholder
+    return curve.map((p) =>
+      size || spread ? p.value_tao : sortKey === "pnl_pct" ? p.pnl_tao : p.market_tao,
+    );
+  }, [curve, sortKey, size, spread]);
 
   // A window shorter than asked for isn't comparable to the rest of the
   // grid; on the all-history window every row is its own length, so the
@@ -232,13 +282,21 @@ function TraderPlate({
         </Link>
       </div>
 
-      <p className={`trader-card-big ${size || spread ? "text-cyan-400" : up ? "text-green-400" : "text-red-400"}`}>
-        {size
-          ? fmtValue(e.total_stake_tao, currency, usdPerTao)
-          : spread
-            ? `${e.num_subnets} subnets`
-            : `${up ? "+" : ""}${pct.toFixed(1)}%`}
-      </p>
+      <div className="trader-card-hero">
+        <p className={`trader-card-big ${size || spread ? "text-cyan-400" : up ? "text-green-400" : "text-red-400"}`}>
+          {size
+            ? fmtValue(e.total_stake_tao, currency, usdPerTao)
+            : spread
+              ? `${e.num_subnets} subnets`
+              : `${up ? "+" : ""}${pct.toFixed(1)}%`}
+        </p>
+        <Sparkline
+          values={trace}
+          width={104}
+          height={40}
+          className="trader-card-spark"
+        />
+      </div>
 
       <p className="trader-card-sub">
         {size || spread
@@ -319,6 +377,39 @@ function Step({ n, title, children }: { n: string; title: string; children: Reac
       </div>
       <p className="arcade-prose-sm">{children}</p>
     </div>
+  );
+}
+
+/**
+ * The market is on. Four live numbers under the pitch — TAO's price, what
+ * the alpha market is worth, what traded today, and how many wallets the
+ * index watches — so the front door opens onto a running exchange rather
+ * than a static sales page. One cached /market call, nothing that blocks.
+ */
+function HeroStats({ traders }: { traders?: number }) {
+  const { currency, usdPerTao } = useCurrency();
+  const [m, setM] = useState<MarketStats | null>(null);
+  useEffect(() => {
+    fetchMarket().then(setM).catch(() => {});
+  }, []);
+  const show = (tao: number) =>
+    currency === "USD" && usdPerTao ? `$${fmtCompact(tao * usdPerTao)}` : `${fmtCompact(tao)} τ`;
+  return (
+    <div className="hero-stats">
+      <HeroStat k="TAO" v={m?.tao_usd ? `$${m.tao_usd.toFixed(2)}` : "—"} tone="text-green-400" />
+      <HeroStat k="alpha mcap" v={m ? show(m.total_market_cap_tao) : "—"} />
+      <HeroStat k="24h volume" v={m ? show(m.volume_24h_tao) : "—"} />
+      <HeroStat k="traders indexed" v={traders != null ? String(traders) : "—"} />
+    </div>
+  );
+}
+
+function HeroStat({ k, v, tone }: { k: string; v: string; tone?: string }) {
+  return (
+    <span className="hero-stat">
+      <span className="hero-stat-k">{k}</span>
+      <b className={tone}>{v}</b>
+    </span>
   );
 }
 

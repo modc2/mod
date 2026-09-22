@@ -55,7 +55,8 @@ class Mod:
     deploy and upgrade contracts, signed change calls, transfers, account
     creation (testnet faucet or sub-accounts), access-key management — keys
     in ~/.mod/near/, testnet by default, mainnet only with confirm=true.
-    Eighteen MCP tools, a REST API and a console on one port.
+    Nineteen MCP tools, a REST API and a console on one port — including a
+    directory of the contracts that are ON, verified live against the chain.
     """
 
     def __init__(self, network=None, rpc=None, port=None, **kwargs):
@@ -100,6 +101,15 @@ class Mod:
     def contract(self, account_id, network=None, rpc=None):
         """Callable methods, parsed from the deployed WASM's export section."""
         return self.client(network, rpc).contract(account_id)
+
+    def contracts(self, network=None, rpc=None, refresh=False):
+        """The contracts that are ON — the curated directory plus your own
+        keystore deploys, each verified live against the chain."""
+        import mcp
+        return mcp.call_tool('near_contracts',
+                             {'network': network or self._network,
+                              'rpc': rpc or self._rpc,
+                              'refresh': _truthy(refresh)}, local=True)
 
     def view(self, contract, method, args=None, network=None, rpc=None):
         """Call a view method with JSON args. Free — no key, no gas."""

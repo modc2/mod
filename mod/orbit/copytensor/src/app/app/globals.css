@@ -1968,6 +1968,37 @@ button, input, select, textarea {
   .home-hero .arcade-title { font-size: 24px; text-shadow: 2px 2px 0 var(--neon-magenta); }
 }
 
+/* Four live numbers under the pitch. Dim Silkscreen label, bright VT323
+   value — the same label/readout pairing the filter bar uses, so the
+   hero speaks the console's own dialect rather than growing a stat-tile
+   row of its own. */
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 26px;
+  margin-top: 16px;
+}
+.hero-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.hero-stat-k {
+  font-family: 'Silkscreen', monospace;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.hero-stat b {
+  font-family: 'VT323', monospace;
+  font-size: 21px;
+  line-height: 1;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+
 /* One trader, one plate: name, the number that matters, one COPY.
    A column, not a block: a card that earned an extra qualifier chip would
    otherwise push its own buttons below its neighbours' in the same row. */
@@ -2248,7 +2279,36 @@ a.trader-card:hover { border-color: var(--accent); }
 .trader-card-up   { --plate-tone: var(--neon-lime); }
 .trader-card-down { --plate-tone: var(--neon-red); }
 .trader-card-live { --plate-tone: var(--neon-cyan); }
-.trader-card:hover { border-color: var(--plate-tone, var(--accent)); }
+/* A cartridge you're picking up, not a row you're pointing at: the plate
+   lifts a pixel-step and its hard shadow deepens, on the same stepped
+   timing every button uses. */
+.trader-card:hover {
+  border-color: var(--plate-tone, var(--accent));
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--shadow-hard);
+}
+
+/* Headline row: the number on the left, its own trace on the right. The
+   spark is the curve endpoint over the SAME window the % claims — it
+   self-colours by direction, so number and trace can't disagree. */
+.trader-card-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  min-width: 0;
+}
+.trader-card-hero .trader-card-big {
+  margin-top: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.trader-card-spark {
+  flex: none;
+  margin-bottom: 2px;
+  opacity: 0.92;
+}
 
 .trader-card-head {
   display: flex;

@@ -19,6 +19,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 NETWORKS = {
     'mainnet': [
@@ -52,6 +53,42 @@ CACHE_TTL = float(os.environ.get('NEAR_CACHE_TTL', 30))
 ACCOUNT_RE = re.compile(r'^(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$')
 
 _price_cache = {'at': 0.0, 'data': None}
+
+# The contracts everyone actually meets on each network — curated here, but
+# never trusted: contracts() re-verifies each one against the chain before
+# calling it ON, so the directory can only ever show what is really deployed.
+KNOWN_CONTRACTS = {
+    'mainnet': [
+        ('wrap.near', 'Wrapped NEAR', 'token'),
+        ('usdt.tether-token.near', 'USDt (native)', 'token'),
+        ('17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1',
+         'USDC (native)', 'token'),
+        ('token.sweat', 'SWEAT', 'token'),
+        ('game.hot.tg', 'HOT', 'token'),
+        ('token.v2.ref-finance.near', 'REF', 'token'),
+        ('aurora', 'Aurora EVM', 'platform'),
+        ('v2.ref-finance.near', 'Ref Finance DEX', 'defi'),
+        ('intents.near', 'NEAR Intents', 'defi'),
+        ('contract.main.burrow.near', 'Burrow lending', 'defi'),
+        ('meta-pool.near', 'Meta Pool stNEAR', 'staking'),
+        ('linear-protocol.near', 'LiNEAR stNEAR', 'staking'),
+        ('social.near', 'NEAR Social', 'social'),
+        ('near', 'Account registrar', 'infra'),
+        ('poolv1.near', 'Staking-pool factory', 'infra'),
+        ('priceoracle.near', 'Price oracle', 'infra'),
+    ],
+    'testnet': [
+        ('wrap.testnet', 'Wrapped NEAR', 'token'),
+        ('usdt.fakes.testnet', 'USDT (fake)', 'token'),
+        ('usdc.fakes.testnet', 'USDC (fake)', 'token'),
+        ('ref-finance-101.testnet', 'Ref Finance DEX', 'defi'),
+        ('aurora', 'Aurora EVM', 'platform'),
+        ('priceoracle.testnet', 'Price oracle', 'infra'),
+        ('guest-book.testnet', 'Guest book (example)', 'example'),
+    ],
+}
+CONTRACTS_TTL = float(os.environ.get('NEAR_CONTRACTS_TTL', 300))
+_contracts_cache = {}   # (network, extra ids) -> {'at': t, 'data': ...}
 
 
 class NearError(Exception):
@@ -289,6 +326,61 @@ class Client:
                 'methods': methods, 'method_count': len(methods),
                 'note': 'exported WASM functions — view or change is not marked '
                         'on chain; try near_view, a change method will refuse'}
+
+    def contracts(self, extra=None, refresh=False):
+        """The contracts that are ON: the curated directory for this network,
+        plus any account ids passed in extra (the caller's own keystore),
+        each probed live with view_account — ON means code is deployed on
+        that account right now, not that a list says so. Cached briefly;
+        refresh=True re-probes."""
+        known = KNOWN_CONTRACTS.get(self.network, [])
+        extra = [str(e).strip().lower() for e in (extra or [])
+                 if is_account_id(str(e).strip().lower())]
+        # The caller's own accounts lead, and win over a curated duplicate.
+        entries = [(e, 'Deployed by you', 'yours', True)
+                   for e in dict.fromkeys(extra)] + \
+                  [(cid, label, cat, cid in extra)
+                   for cid, label, cat in known if cid not in extra]
+        key = (self.network, tuple(sorted(extra)))
+        held = _contracts_cache.get(key)
+        if held and not refresh and time.time() - held['at'] < CONTRACTS_TTL:
+            return held['data']
+
+        def probe(entry):
+            account_id, label, category, yours = entry
+            row = {'account_id': account_id, 'label': label,
+                   'category': category}
+            if yours:
+                row['yours'] = True
+            try:
+                a = self._query({'request_type': 'view_account',
+                                 'account_id': account_id})
+                code_hash = a.get('code_hash')
+                row['live'] = code_hash not in (
+                    None, '11111111111111111111111111111111')
+                if row['live']:
+                    row['code_hash'] = code_hash
+                row['storage_bytes'] = a.get('storage_usage')
+                row['balance_near'] = round(
+                    near(a.get('amount')) + near(a.get('locked')), 2)
+            except NearError as e:
+                row['live'] = False
+                row['note'] = str(e)
+            return row
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            rows = list(pool.map(probe, entries))
+        # A keystore account with no code is just an account — not a contract
+        # that is off, so it only earns a card once something is deployed.
+        rows = [r for r in rows if r.get('live') or not r.get('yours')]
+        data = {'network': self.network, 'count': len(rows),
+                'live': sum(1 for r in rows if r.get('live')),
+                'contracts': rows,
+                'checked': time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
+                'note': 'each entry verified against the chain — live means '
+                        'code is deployed on that account right now'}
+        _contracts_cache[key] = {'at': time.time(), 'data': data}
+        return data
 
     def view(self, contract, method, args=None):
         """Call a view function. args is a JSON object (or string of one)."""

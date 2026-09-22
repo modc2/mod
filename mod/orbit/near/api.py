@@ -28,7 +28,8 @@ PORT = int(os.environ.get('PORT', 50910))
 
 ROUTE_TOOLS = {
     '/account': 'near_account', '/keys': 'near_keys',
-    '/contract': 'near_contract', '/view': 'near_view', '/ft': 'near_ft',
+    '/contract': 'near_contract', '/contracts': 'near_contracts',
+    '/view': 'near_view', '/ft': 'near_ft',
     '/history': 'near_history', '/tx': 'near_tx', '/block': 'near_block',
     '/network': 'near_network', '/validators': 'near_validators',
     '/price': 'near_price', '/rpc': 'near_rpc',
@@ -64,6 +65,8 @@ def info():
             'GET /account': 'account_id= — balances, storage, contract flag',
             'GET /keys': 'account_id= — access keys and their permissions',
             'GET /contract': 'account_id= — callable methods from the WASM',
+            'GET /contracts': 'the contracts that are ON — well-known + your '
+                              'own, each verified live (refresh= re-probes)',
             'GET|POST /view': 'contract=, method=, args= (JSON) — a view call',
             'GET /ft': 'contract=, account_id?= — a NEP-141 token, and a balance',
             'GET /history': 'account_id=, limit= — recent txns (indexer)',
@@ -119,8 +122,9 @@ def route(method, path, query, body):
                 args[name] = float(args[name])
             except ValueError:
                 raise NearError(f'{name} must be a number, got {args[name]!r}')
-    if isinstance(args.get('confirm'), str):
-        args['confirm'] = args['confirm'].lower() in ('true', '1', 'yes')
+    for flag in ('confirm', 'refresh'):
+        if isinstance(args.get(flag), str):
+            args[flag] = args[flag].lower() in ('true', '1', 'yes')
     return mcp.call_tool(tool, args)
 
 
