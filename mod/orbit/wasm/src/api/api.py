@@ -112,7 +112,7 @@ def root():
     return {
         'module': 'wasm',
         'version': VERSION,
-        'description': 'A marketplace for computations anyone can re-run and check',
+        'description': 'A marketplace for computations anyone can re-run and check — a result is a claim until a stranger replays it and agrees',
         'compute_types': {e['id']: e['status'] for e in engines.descriptors()},
         'venues': ['browser', 'server'],
         'verification': 'independent replay; two agreeing runs make a receipt verified',

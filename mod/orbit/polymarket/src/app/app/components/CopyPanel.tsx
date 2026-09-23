@@ -362,6 +362,11 @@ function CopyBookBody() {
             for (const a of addresses) await allocate(a, usd);
           }}
         />
+        {/* The fold header above already carries FIND TRADERS when the book
+            has rows — repeat it here only for the empty book, where there is
+            no fold header. Two identical links one line apart was part of
+            the "too complicated" screenshot. */}
+        {(many || rows.length === 0) && (
         <div className="flex items-center gap-1">
           {many && (
             <>
@@ -402,14 +407,18 @@ function CopyBookBody() {
             </>
           )}
           <span className="flex-1 min-w-[8px]" />
-          <Link
-            href="/copy"
-            className="text-[9.5px] font-mono tracking-[0.04em] text-pixel-gray hover:text-green-400 shrink-0 whitespace-nowrap"
-            title="The desk — find the best traders in a market"
-          >
-            FIND TRADERS →
-          </Link>
+          {rows.length === 0 && (
+            <Link
+              href="/copy"
+              className="text-[9.5px] font-mono tracking-[0.04em] text-pixel-gray hover:text-green-400 shrink-0 whitespace-nowrap"
+              title="The desk — find the best traders in a market"
+            >
+              FIND TRADERS →
+            </Link>
+          )}
         </div>
+        )}
+        </>}
       </div>
 
       {/* ── MEASURE — what those amounts would have done ── */}

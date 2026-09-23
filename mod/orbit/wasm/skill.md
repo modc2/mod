@@ -1,8 +1,8 @@
 # wasm
 
-A marketplace for verifiable computation. Store an artifact, run it in a
-browser or on the server, and settle whether the result is real by having an
-independent party replay it.
+A marketplace for verifiable computation — no cloud, no trust, no
+take-my-word-for-it. Store an artifact, run it in a browser or on the server,
+and settle whether the result is real by having an independent party replay it.
 
 ## When to reach for this
 

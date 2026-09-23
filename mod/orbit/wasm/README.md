@@ -2,7 +2,8 @@
 
 Fork of `orbit/wasmland` — same marketplace, its own name, ports (:50080 API / :50081 app), store prefix (`wasm/`) and state (`~/.mod/wasm`); shares only the content-addressed `blobs/` store.
 
-A marketplace for computations anyone can check.
+A marketplace for computations anyone can check. No cloud, no trust, no
+take-my-word-for-it — just bytes, a seed, and a receipt a stranger can replay.
 
 Upload something that computes. Run it in your own browser tab, or on the box.
 Get a receipt. Have somebody else run it again and see whether they agree.
