@@ -290,7 +290,21 @@ class Client:
         if p:
             out['balance']['total_usd'] = round(out['balance']['total_near'] * p, 2)
             out['price_usd'] = p
+        if out['is_contract']:
+            self._note_contract(account_id, code_hash, storage,
+                                out['balance']['total_near'])
         return out
+
+    def _note_contract(self, account_id, code_hash=None, storage_bytes=None,
+                       balance_near=None):
+        """Any read that finds code feeds the scraped directory."""
+        try:
+            import directory
+            directory.note(self.network, account_id, code_hash=code_hash,
+                           storage_bytes=storage_bytes,
+                           balance_near=balance_near)
+        except Exception:
+            pass
 
     def keys(self, account_id):
         r = self._query({'request_type': 'view_access_key_list',
@@ -321,6 +335,8 @@ class Client:
         internal = {'__contract_abi', '__data_type'}
         methods = [m for m in _wasm_exports(code)
                    if m not in internal and not m.startswith('__')]
+        self._note_contract(account_id, code_hash=r.get('hash'),
+                            storage_bytes=None, balance_near=None)
         return {'account_id': account_id, 'is_contract': True,
                 'code_hash': r.get('hash'), 'code_bytes': len(code),
                 'methods': methods, 'method_count': len(methods),
@@ -363,6 +379,10 @@ class Client:
                 row['storage_bytes'] = a.get('storage_usage')
                 row['balance_near'] = round(
                     near(a.get('amount')) + near(a.get('locked')), 2)
+                if row['live']:
+                    self._note_contract(account_id, code_hash,
+                                        row['storage_bytes'],
+                                        row['balance_near'])
             except NearError as e:
                 row['live'] = False
                 row['note'] = str(e)
@@ -379,6 +399,11 @@ class Client:
                 'checked': time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime()),
                 'note': 'each entry verified against the chain — live means '
                         'code is deployed on that account right now'}
+        try:
+            import directory
+            data['index'] = directory.get(self.network).status()
+        except Exception:
+            pass
         _contracts_cache[key] = {'at': time.time(), 'data': data}
         return data
 

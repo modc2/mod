@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""near mcp — thirteen read tools and six write tools for the NEAR protocol.
+"""near mcp — fourteen read tools and six write tools for the NEAR protocol.
 
 NEAR's account model is its personality: accounts are human-readable names
 (`alice.near`) or 64-hex implicit accounts, an account and a contract are the
@@ -38,7 +38,9 @@ INSTRUCTIONS = (
     '64-hex implicit accounts, and an account and a contract are the same '
     'object — near_contracts is the map (the well-known contracts on the '
     'network plus anything deployed from this keystore, each verified live '
-    'against the chain), near_account is the first call for any single name '
+    'against the chain; near_directory is the census — every contract the '
+    'module has scraped off the chain itself, live tail plus archival '
+    'backfill), near_account is the first call for any single name '
     '(balances: liquid, staked, storage-reserved, USD), then near_keys for '
     'its access keys and their per-contract permissions. '
     'If it is a contract, near_contract lists its callable methods '
@@ -142,6 +144,26 @@ TOOLS = {
                         'description': 'skip the 5-minute cache and re-probe'},
             **_COMMON}},
         'handler': _contracts,
+    },
+    'near_directory': {
+        'description': 'Every contract on the network this module has scraped '
+                       'off the chain itself: a live tail catches each deploy '
+                       'the moment it lands (EXPERIMENTAL_changes_in_block, '
+                       'one call per block), a backfill walks history '
+                       'backwards through the archival RPC, and every lookup '
+                       'that finds code joins the index too. Local JSON store, '
+                       'no third-party indexer, resumes across restarts. '
+                       'status says how far the scrape has reached; q= '
+                       'filters by substring, limit/offset page.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'q': _str('substring filter on the account id, e.g. ".near" '
+                      'or "ref"'),
+            'limit': _num('rows per page (default 50, max 500)'),
+            'offset': _num('rows to skip (paging)'),
+            **_COMMON}},
+        'handler': lambda a: __import__('directory').snapshot(
+            network=a.get('network'), q=a.get('q'),
+            limit=a.get('limit') or 50, offset=a.get('offset') or 0),
     },
     'near_view': {
         'description': 'Call a view method on a contract with JSON args and get '

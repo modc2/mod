@@ -29,6 +29,7 @@ PORT = int(os.environ.get('PORT', 50910))
 ROUTE_TOOLS = {
     '/account': 'near_account', '/keys': 'near_keys',
     '/contract': 'near_contract', '/contracts': 'near_contracts',
+    '/directory': 'near_directory',
     '/view': 'near_view', '/ft': 'near_ft',
     '/history': 'near_history', '/tx': 'near_tx', '/block': 'near_block',
     '/network': 'near_network', '/validators': 'near_validators',
@@ -38,7 +39,7 @@ ROUTE_TOOLS = {
     '/send': 'near_send', '/create_account': 'near_create_account',
     '/key': 'near_key',
 }
-NUMERIC = ('limit', 'amount_near', 'gas_tgas', 'deposit_near',
+NUMERIC = ('limit', 'offset', 'amount_near', 'gas_tgas', 'deposit_near',
            'initial_near', 'allowance_near')
 
 
@@ -67,6 +68,9 @@ def info():
             'GET /contract': 'account_id= — callable methods from the WASM',
             'GET /contracts': 'the contracts that are ON — well-known + your '
                               'own, each verified live (refresh= re-probes)',
+            'GET /directory': 'every contract scraped off the chain itself — '
+                              'q= filters, limit=/offset= page, status shows '
+                              'how far the tail and backfill have reached',
             'GET|POST /view': 'contract=, method=, args= (JSON) — a view call',
             'GET /ft': 'contract=, account_id?= — a NEP-141 token, and a balance',
             'GET /history': 'account_id=, limit= — recent txns (indexer)',
