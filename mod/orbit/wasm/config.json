@@ -106,7 +106,7 @@
         "kill",
         "test"
     ],
-    "schema": "QmSdNkajv4bKeoLFM9rnGr9WKFUBVrgGYzoHzTkaCh2kde",
+    "schema": "QmP5JznZe5nFDBY2Fn9CVcKJxZSfivZb7nX9e7r7AiGb6f",
     "frontend": "src/app/server.py (stdlib \u2014 the console at /wasm on :50081; proxies /wasm/_api to the API)",
     "services": [
         "wasm-api",

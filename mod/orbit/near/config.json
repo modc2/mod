@@ -111,5 +111,5 @@
         "NEAR_OFFLINE": "skip the tests that need the chain",
         "NEAR_HOME": "keystore + token directory (default ~/.mod/near)"
     },
-    "schema": "Qmf7VsudKPwtXVgYSQLTizzw6jBJkKWoMRKRKoAefP7kzL"
+    "schema": "QmZXzz5YxqVAPakxySunDxkbFYdaxnHzU6NDXHTaLcKTdj"
 }

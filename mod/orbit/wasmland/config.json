@@ -106,7 +106,7 @@
         "kill",
         "test"
     ],
-    "schema": "QmSdNkajv4bKeoLFM9rnGr9WKFUBVrgGYzoHzTkaCh2kde",
+    "schema": "QmSBeLH7gDtDETcYywMJEy2q4qJS8rMJN23FApzZL5DgZd",
     "frontend": "src/app/server.py (stdlib \u2014 the console at /wasmland on :50481; proxies /wasmland/_api to the API)",
     "services": [
         "wasmland-api",
