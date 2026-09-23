@@ -212,6 +212,16 @@ def serve(port=PORT, base=BASE):
 
     print(f'near on :{port} — api /, console {base}, mcp POST /mcp, '
           f'{len(mcp.TOOLS)} tools', flush=True)
+    try:
+        import directory
+        d = directory.ensure(os.environ.get('NEAR_NETWORK') or 'mainnet')
+        s = d.status()
+        print(f'contract scraper on {d.network}: {s["total"]} indexed, '
+              f'tail {s.get("tail_block")}, floor {s.get("floor_block")}'
+              if s['scanning'] else
+              'contract scraper off (NEAR_SCRAPE=0)', flush=True)
+    except Exception as e:
+        print(f'contract scraper not started: {e}', flush=True)
     ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
 
 

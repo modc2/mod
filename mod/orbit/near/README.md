@@ -1,7 +1,7 @@
 # near
 
-NEAR Protocol as one mod: a REST API, a browser console and nineteen MCP
-tools running the same code on one port — thirteen reads, and a write half
+NEAR Protocol as one mod: a REST API, a browser console and twenty MCP
+tools running the same code on one port — fourteen reads, and a write half
 that deploys and manages contracts with keys from a keystore under
 `~/.mod/near/` (never the repo; no API ever returns a secret key).
 
@@ -41,6 +41,7 @@ python3 mcp.py            # the same tools over stdio
 | `near_keys` | access keys and their permissions |
 | `near_contract` | callable methods, parsed from the WASM |
 | `near_contracts` | the contracts that are ON — curated per network + your own deploys, each verified live |
+| `near_directory` | every contract scraped off the chain itself — q= filters, limit/offset page |
 | `near_view` | any view method, JSON args, free |
 | `near_ft` | a NEP-141 token, balances scaled by its decimals |
 | `near_history` | recent txns (NearBlocks indexer — RPC has no by-account query) |
@@ -56,6 +57,32 @@ python3 mcp.py            # the same tools over stdio
 | `near_call` | a signed change call — gas in Tgas, deposit in NEAR |
 | `near_send` | transfer NEAR |
 | `near_key` | add (full or contract-scoped) / delete access keys |
+
+## The census — scraping every contract on the network
+
+No RPC lists contracts, and the public indexers time out when asked, so the
+module builds the list itself from the chain's own primitive:
+`EXPERIMENTAL_changes_in_block` names every account whose contract code was
+touched in a block, one call per block.
+
+- a **live tail** follows the head and catches every deploy the moment it
+  lands — from the day the module starts, coverage of new deploys is total
+- a **backfill** walks history backwards through FastNEAR's free archival
+  RPC at a polite pace (`NEAR_SCAN_RPS`, default 1/s), so the index grows
+  toward genesis for as long as the module runs
+- every lookup that finds code (`near_account`, `near_contract`, the curated
+  probe) feeds the same store — anything a user ever touches is indexed
+
+It all lands in `~/.mod/near/contracts.{network}.json` — no database, no API
+key, no third-party indexer — and both water marks persist, so a restart is
+a resume. The console's EXPLORE tab renders it below the curated grid and
+re-polls the store every 15 s, so the browser never drifts from the index.
+`NEAR_SCRAPE=0` turns the threads off; the stored index still answers.
+
+```bash
+m near/directory q=.near limit=20        # newest deploys matching a filter
+curl :50910/directory?network=mainnet    # same thing over REST
+```
 
 ## Writing — deploy and manage contracts
 
@@ -86,10 +113,13 @@ still has zero hard dependencies.
 
 ## Transport notes
 
-- RPC goes through a failover pool (FastNEAR, Lava, near.org, 1RPC) because
-  NEAR's public endpoints throttle unevenly; `NEAR_RPC` pins your own node.
-- Regular nodes garbage-collect transactions after a few epochs; `near_tx`
-  retries on an archival node before giving up.
+- RPC goes through a failover pool (FastNEAR, dRPC, Shitzu, near.org, 1RPC)
+  because NEAR's public endpoints throttle unevenly — a 429 or a gateway
+  that lacks a method just moves to the next node; `NEAR_RPC` pins your own.
+- Regular nodes garbage-collect state after a few epochs (free FastNEAR
+  keeps roughly the last 100k blocks); older blocks and transactions fall
+  back to `archival-rpc.mainnet.fastnear.com` — free, full history. The
+  near.org archival endpoint is deprecated and answers -429.
 - `near_history` needs an indexer (NearBlocks free tier, IP rate-limited);
   a 502 there means throttled, not missing.
 - The account history endpoint returns *receipts*; the module collapses them

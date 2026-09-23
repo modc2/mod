@@ -13,6 +13,7 @@ import Select from './components/Select'
 import Tools from './components/Tools'
 import Arena from './components/Arena'
 import MemoryPanel from './components/Memory'
+import AgentParts, { agentPartsInvalidate } from './components/AgentParts'
 import { ThemePicker, useTheme } from './components/Theme'
 import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign,
   identityFromSecret, useIdentity, sessionIdentity, clearSessionIdentity } from './lib/localWallet'
@@ -763,6 +764,8 @@ export default function Home() {
   // token: the server answers with the default agent for THIS caller — the
   // host gets Claude Code, a guest gets the native loop it's allowed to run
   const fetchAgents = useCallback((token?: string) => {
+    // the registry is changing under us — the parts rows share a cached copy
+    agentPartsInvalidate()
     const q = token ? `?key=${encodeURIComponent(token)}` : ''
     fetch(`${API_URL}/agents${q}`, { signal: AbortSignal.timeout(5000) })
       .then(r => r.json())
@@ -3407,7 +3410,15 @@ export default function Home() {
         // wiring) still lives in the HUB; this is the short way there.
         <div className="p-3 max-w-4xl mx-auto w-full">
           <div className="space-y-0.5">
-            {personas.filter(p => p.kind === 'agent').map(p => personaRow(p))}
+            {/* each row carries its components — the four ports the agent box
+                is wired from — as a disclosure, so "what is this made of?"
+                is answered here, not a HUB trip away */}
+            {personas.filter(p => p.kind === 'agent').map(p => (
+              <div key={p.key}>
+                {personaRow(p)}
+                <AgentParts name={p.id} version={agentOptions} />
+              </div>
+            ))}
           </div>
           <div className="mt-2 flex items-center gap-2">
             <button

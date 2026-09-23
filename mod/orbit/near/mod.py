@@ -55,8 +55,11 @@ class Mod:
     deploy and upgrade contracts, signed change calls, transfers, account
     creation (testnet faucet or sub-accounts), access-key management — keys
     in ~/.mod/near/, testnet by default, mainnet only with confirm=true.
-    Nineteen MCP tools, a REST API and a console on one port — including a
-    directory of the contracts that are ON, verified live against the chain.
+    Twenty MCP tools, a REST API and a console on one port — including a
+    directory of the contracts that are ON, verified live against the chain,
+    and a self-built census of every contract on the network, scraped block
+    by block off the chain itself (live tail + archival backfill, local
+    store, no third-party indexer).
     """
 
     def __init__(self, network=None, rpc=None, port=None, **kwargs):
@@ -110,6 +113,13 @@ class Mod:
                              {'network': network or self._network,
                               'rpc': rpc or self._rpc,
                               'refresh': _truthy(refresh)}, local=True)
+
+    def directory(self, q=None, limit=50, offset=0, network=None, **kwargs):
+        """Every contract scraped off the chain itself — live tail plus
+        archival backfill into a local store; q= filters, limit/offset page."""
+        import directory
+        return directory.snapshot(network=network or self._network, q=q,
+                                  limit=limit, offset=offset)
 
     def view(self, contract, method, args=None, network=None, rpc=None):
         """Call a view method with JSON args. Free — no key, no gas."""

@@ -40,6 +40,9 @@ from chain import (ARCHIVAL, KNOWN_CONTRACTS, Client, NearError,   # noqa: E402
 
 HOME = os.path.expanduser(os.environ.get('NEAR_HOME') or '~/.mod/near')
 TAIL_POLL = float(os.environ.get('NEAR_TAIL_POLL', 6))
+# Between the calls of one catch-up burst, so a poll that owes ten blocks
+# spreads them instead of firing them back-to-back into a rate limiter.
+TAIL_PACE = float(os.environ.get('NEAR_TAIL_PACE', 0.25))
 SCAN_RPS = max(0.1, float(os.environ.get('NEAR_SCAN_RPS', 1)))
 SCRAPE_ON = os.environ.get('NEAR_SCRAPE', '1').lower() not in ('0', 'false', 'no')
 # A block whose height a regular node has garbage-collected only an archival
@@ -131,9 +134,13 @@ class Directory:
                             {'block_id': height})
         except NearError as e:
             if 'UNKNOWN_BLOCK' in str(e):
-                if not deep and ARCHIVAL.get(self.network):
+                # Near the head a missing height is a height consensus
+                # skipped; deeper down the pool may have garbage-collected
+                # it, so ask the archival node before calling it empty.
+                if not deep and head - height > 10_000 and \
+                        ARCHIVAL.get(self.network):
                     return self.scan_block(height, src,
-                                           head=(height + ARCHIVAL_DEPTH + 1))
+                                           head=height + ARCHIVAL_DEPTH + 1)
                 return 0
             raise
         touched = sorted({ch.get('account_id')
@@ -182,6 +189,7 @@ class Directory:
                         self.scan_block(h, 'tail', head=head)
                         with self.lock:
                             self.state['tail'] = h
+                        time.sleep(TAIL_PACE)
                     self.last_error = None
                 self.save()
             except Exception as e:
@@ -189,40 +197,54 @@ class Directory:
                 time.sleep(10)
             time.sleep(TAIL_POLL)
 
+    def _next_backfill_block(self):
+        """The next unscanned height, gaps (downtime the tail skipped) before
+        the walk toward genesis."""
+        with self.lock:
+            gaps = self.state['gaps']
+            while gaps:
+                lo, hi = gaps[-1]
+                if hi < lo:
+                    gaps.pop()
+                    continue
+                return hi, 'gap'
+            floor = self.state['floor']
+            if floor and floor - 1 > GENESIS.get(self.network, 0):
+                return floor - 1, 'floor'
+            return None, None
+
+    def _mark_backfilled(self, h, kind):
+        with self.lock:
+            if kind == 'gap' and self.state['gaps']:
+                self.state['gaps'][-1][1] = h - 1
+            elif kind == 'floor':
+                self.state['floor'] = h
+
     def _backfill(self):
-        """Down through history, gaps first, at SCAN_RPS. The floor mark makes
-        every restart a resume — the walk to genesis just continues."""
+        """Down through history at SCAN_RPS, one block per pass. The floor
+        mark makes every restart a resume — the walk to genesis just
+        continues. A throttled provider earns exponentially longer pauses;
+        the block that failed is simply picked again."""
         pace = 1.0 / SCAN_RPS
+        fails = 0
         while True:
+            h, kind = self._next_backfill_block()
+            if h is None:
+                time.sleep(30)     # nothing to do: waiting on the tail
+                continue
             try:
-                with self.lock:
-                    gaps = self.state['gaps']
-                    floor = self.state['floor']
-                if gaps:
-                    lo, hi = gaps[-1]
-                    head_hint = (self.state['tail'] or hi) + ARCHIVAL_DEPTH + 1
-                    for h in range(hi, lo - 1, -1):
-                        self.scan_block(h, 'backfill', head=head_hint)
-                        with self.lock:
-                            if h > lo:
-                                gaps[-1][1] = h - 1
-                            else:
-                                gaps.pop()
-                        time.sleep(pace)
-                        self.save()
-                elif floor and floor > GENESIS.get(self.network, 0) + 1:
-                    h = floor - 1
-                    self.scan_block(h, 'backfill', head=h + ARCHIVAL_DEPTH + 1)
-                    with self.lock:
-                        self.state['floor'] = h
-                    time.sleep(pace)
-                    self.save()
-                else:
-                    time.sleep(30)     # nothing to do: waiting on the tail
-                self.last_error = None
+                self.scan_block(h, 'backfill',
+                                head=self.state['tail'] or
+                                (h + ARCHIVAL_DEPTH + 1))
+                self._mark_backfilled(h, kind)
+                self.save()
+                fails, self.last_error = 0, None
+                time.sleep(pace)
             except Exception as e:
-                self.last_error = f'backfill: {e}'
-                time.sleep(15)
+                fails += 1
+                wait = min(600, 15 * (2 ** min(fails - 1, 5)))
+                self.last_error = f'backfill: {e} — backing off {wait}s'
+                time.sleep(wait)
 
     def start(self):
         if self.started or not SCRAPE_ON:

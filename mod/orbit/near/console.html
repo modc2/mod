@@ -238,6 +238,19 @@
   <div class="note">A green dot means the chain confirms code is deployed on that account
     right now — the directory is curated here, but nothing is taken on faith. Contracts you
     deploy from this keystore join the list automatically. Click a card to open it.</div>
+  <h2 class="t">Every contract — scraped from the chain
+    <span id="sc-stat" class="dimtxt" style="text-transform:none"></span></h2>
+  <div class="bar">
+    <input id="sc-q" class="wide" placeholder="filter the index — a name, a suffix like .near, 64 hex…">
+    <span class="flash" id="sc-flash"></span>
+  </div>
+  <div id="sc-list"><div class="empty">reading the local index…</div></div>
+  <div class="bar"><button class="ghost" id="sc-more" style="display:none">MORE</button></div>
+  <div class="note">No indexer can be asked for this list, so the module builds it itself:
+    a live tail reads every new block's state changes and catches each deploy the moment it
+    lands, while a backfill walks history backwards through the archival RPC — the index
+    grows toward genesis for as long as the module runs, and every lookup that finds code
+    joins it too. Stored locally, resumes across restarts. This view re-syncs on its own.</div>
 </section>
 
 <!-- ── call (view + change) ── -->
@@ -452,6 +465,7 @@ function paintNet() {
 document.querySelectorAll('#netseg button').forEach(b => b.onclick = () => {
   NET = b.dataset.net; localStorage.setItem('near_net', NET); paintNet();
   loadContracts();
+  if (typeof loadDirectory === 'function') loadDirectory(true);
 });
 const confirmed = ckId => NET !== 'mainnet' || $(ckId).checked;
 
@@ -621,6 +635,74 @@ async function loadContracts(force) {
 }
 $('cd-refresh').onclick = () => loadContracts(true);
 loadContracts();
+
+// ── the scraped index — polls so the browser never drifts from the store ──
+const SC = {net: null, q: '', offset: 0, limit: 60, stamp: ''};
+function scRow(c){
+  const when = c.deploy_block ? '#' + fmt(c.deploy_block, 0)
+             : c.via === 'lookup' ? 'seen in a lookup' : '—';
+  return `<tr class="click" onclick="lookup('${esc(c.account_id)}')">
+    <td><span class="ondot ${c.live === false ? 'off' : ''}"></span>
+        <span class="addr">${esc(c.account_id)}</span>
+        ${c.label ? `<span class="dimtxt"> ${esc(c.label)}</span>` : ''}</td>
+    <td class="dimtxt">${when}</td>
+    <td>${c.storage_bytes != null ? bytesFmt(c.storage_bytes) : '—'}</td>
+    <td class="n">${c.balance_near != null ? fmt(c.balance_near, 0) + ' N' : ''}</td>
+    <td class="dimtxt">${esc((c.code_hash || '').slice(0, 10))}</td>
+    <td><span class="p ${c.via === 'tail' ? 'grn' : c.via === 'backfill' ? 'hot' : ''}">${esc(c.via || '')}</span></td>
+  </tr>`;
+}
+function scStatus(s){
+  const parts = [`${fmt(s.total, 0)} indexed`];
+  if (s.tail_block) parts.push(`tail at #${fmt(s.tail_block, 0)}`);
+  if (s.floor_block) parts.push(`history to #${fmt(s.floor_block, 0)}` +
+    (s.history_pct != null ? ` — ${s.history_pct}% walked` : ''));
+  if (!s.scanning) parts.push('scraper off');
+  $('sc-stat').textContent = '· ' + parts.join(' · ');
+}
+async function loadDirectory(reset){
+  if (reset) { SC.offset = 0; }
+  SC.net = NET;
+  try {
+    const r = await j('/directory?network=' + NET + '&limit=' + SC.limit +
+      '&offset=' + SC.offset + (SC.q ? '&q=' + encodeURIComponent(SC.q) : ''));
+    if (NET !== r.network) return;
+    scStatus(r.status || {});
+    SC.stamp = `${r.status && r.status.total}|${r.status && r.status.tail_block}`;
+    const rows = (r.contracts || []).map(scRow).join('');
+    const head = '<table><tr><th>contract</th><th>deployed</th><th>state</th>' +
+      '<th class="n">balance</th><th>code</th><th>via</th></tr>';
+    if (SC.offset === 0) {
+      $('sc-list').innerHTML = rows ? head + rows + '</table>' :
+        '<div class="empty">nothing matches yet — the tail indexes new deploys ' +
+        'as they land, so a young index is a quiet one</div>';
+    } else if (rows) {
+      $('sc-list').querySelector('table').insertAdjacentHTML('beforeend', rows);
+    }
+    $('sc-more').style.display =
+      r.matched > SC.offset + SC.limit ? '' : 'none';
+    $('sc-flash').textContent = '';
+  } catch (e) { $('sc-flash').textContent = e.message; }
+}
+$('sc-more').onclick = () => { SC.offset += SC.limit; loadDirectory(); };
+let scTimer = null;
+$('sc-q').addEventListener('input', () => {
+  clearTimeout(scTimer);
+  scTimer = setTimeout(() => { SC.q = $('sc-q').value.trim(); loadDirectory(true); }, 300);
+});
+// The sync loop: while EXPLORE is visible, ask the store for its head every
+// 15s and repaint only when something actually changed.
+setInterval(async () => {
+  if (document.hidden || !document.querySelector('#explore.on')) return;
+  if (SC.offset !== 0 || SC.q) return;      // do not yank a scrolled/filtered view
+  try {
+    const r = await j('/directory?network=' + NET + '&limit=1');
+    const s = (r.status || {});
+    if (`${s.total}|${s.tail_block}` !== SC.stamp) loadDirectory(true);
+    else scStatus(s);
+  } catch (e) {}
+}, 15000);
+loadDirectory(true);
 
 // ── call: view + change ──
 let CALLMODE = 'view';

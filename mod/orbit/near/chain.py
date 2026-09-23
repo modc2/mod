@@ -24,7 +24,8 @@ from concurrent.futures import ThreadPoolExecutor
 NETWORKS = {
     'mainnet': [
         'https://free.rpc.fastnear.com',
-        'https://near.lava.build',
+        'https://near.drpc.org',
+        'https://rpc.shitzuapes.xyz',
         'https://rpc.mainnet.near.org',
         'https://1rpc.io/near',
     ],
@@ -33,11 +34,15 @@ NETWORKS = {
         'https://rpc.testnet.near.org',
     ],
 }
-# Regular nodes garbage-collect transactions after a few epochs (~5 days);
-# anything older only an archival node remembers.
+# Regular nodes garbage-collect state after a few epochs (free.rpc.fastnear
+# keeps roughly the last 100k blocks); anything older only an archival node
+# remembers. FastNEAR's archival tier is free and serves full history; the
+# near.org one is deprecated and answers -429 to nearly everything.
 ARCHIVAL = {
-    'mainnet': ['https://archival-rpc.mainnet.near.org'],
-    'testnet': ['https://archival-rpc.testnet.near.org'],
+    'mainnet': ['https://archival-rpc.mainnet.fastnear.com',
+                'https://archival-rpc.mainnet.near.org'],
+    'testnet': ['https://archival-rpc.testnet.fastnear.com',
+                'https://archival-rpc.testnet.near.org'],
 }
 INDEXERS = {
     'mainnet': 'https://api.nearblocks.io',
@@ -221,11 +226,17 @@ class Client:
                 continue
             err = resp.get('error')
             if err:
+                # A gateway that has dropped NEAR answers {'error': '<string>'}
+                # — not JSON-RPC at all, so treat it as a dead endpoint.
+                if not isinstance(err, dict):
+                    last = f'{url}: {err}'
+                    continue
                 cause = (err.get('cause') or {})
                 name = cause.get('name') or err.get('name') or ''
-                # Server-side throttling/unavailability: try the next node.
+                # Server-side throttling/unavailability — or a gateway that
+                # does not proxy this method at all: try the next node.
                 if name in ('TIMEOUT_ERROR', 'INTERNAL_ERROR') or \
-                        err.get('code') == -429:
+                        err.get('code') in (-429, -32601):
                     last = f'{url}: {name or err.get("message")}'
                     continue
                 raise NearError(f'{name or "RPC error"}: '

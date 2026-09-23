@@ -1,7 +1,7 @@
 {
     "name": "near",
-    "version": "0.3.1",
-    "description": "NEAR Protocol as one mod. NEAR's personality is its account model: accounts are human-readable names (alice.near) or 64-hex implicit accounts, an account and a contract are the same object, and access keys carry per-contract permissions \u2014 session auth on chain. This module reads all of it (balances with staked and storage-locked NEAR priced in USD, access keys, contract methods parsed from the deployed WASM export section, view calls, NEP-141 tokens, history, transactions, validators) and now writes all of it: a keystore under ~/.mod/near/, contract deploys with a batched init call (redeploying upgrades in place), signed change calls with gas and deposit, transfers, account creation (testnet faucet mints funded *.testnet names; elsewhere sub-accounts of the signer), access-key management. Writes default to testnet; a non-testnet write refuses without confirm=true; a write over HTTP needs the token from ~/.mod/near/token. ed25519 via PyNaCl with a pure-Python RFC 8032 fallback, borsh in-tree \u2014 still zero hard dependencies. A curated directory of the contracts that are ON \u2014 well-known contracts per network plus anything deployed from the keystore \u2014 is re-verified live against the chain. Nineteen MCP tools, a REST API and a browser console run the same code on one port.",
+    "version": "0.4.0",
+    "description": "NEAR Protocol as one mod. NEAR's personality is its account model: accounts are human-readable names (alice.near) or 64-hex implicit accounts, an account and a contract are the same object, and access keys carry per-contract permissions \u2014 session auth on chain. This module reads all of it (balances with staked and storage-locked NEAR priced in USD, access keys, contract methods parsed from the deployed WASM export section, view calls, NEP-141 tokens, history, transactions, validators) and now writes all of it: a keystore under ~/.mod/near/, contract deploys with a batched init call (redeploying upgrades in place), signed change calls with gas and deposit, transfers, account creation (testnet faucet mints funded *.testnet names; elsewhere sub-accounts of the signer), access-key management. Writes default to testnet; a non-testnet write refuses without confirm=true; a write over HTTP needs the token from ~/.mod/near/token. ed25519 via PyNaCl with a pure-Python RFC 8032 fallback, borsh in-tree \u2014 still zero hard dependencies. A curated directory of the contracts that are ON \u2014 well-known contracts per network plus anything deployed from the keystore \u2014 is re-verified live against the chain. And a census the chain itself cannot be asked for: a scraper tails every new block's state changes to catch each contract deploy as it lands, backfills history backwards through the archival RPC, and folds in every lookup that finds code \u2014 a local, self-sustaining index of every contract on the network, no third-party indexer, resuming across restarts. Twenty MCP tools, a REST API and a browser console run the same code on one port.",
     "icon": "\u25b2",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -27,6 +27,7 @@
         "keys": "GET /keys?account_id=",
         "contract": "GET /contract?account_id=",
         "contracts": "GET /contracts?network=&refresh=",
+        "directory": "GET /directory?network=&q=&limit=&offset=",
         "view": "GET|POST /view {contract, method, args?}",
         "ft": "GET /ft?contract=&account_id=",
         "history": "GET /history?account_id=&limit=",
@@ -50,6 +51,7 @@
         "near_keys",
         "near_contract",
         "near_contracts",
+        "near_directory",
         "near_view",
         "near_ft",
         "near_history",
@@ -74,6 +76,7 @@
         "keys",
         "contract",
         "contracts",
+        "directory",
         "view",
         "ft",
         "history",
@@ -109,7 +112,10 @@
         "NEAR_RPC": "your own RPC endpoint \u2014 skips the public failover pool",
         "NEAR_CACHE_TTL": "seconds prices are cached (default 30)",
         "NEAR_OFFLINE": "skip the tests that need the chain",
+        "NEAR_SCRAPE": "0 turns the contract scraper's threads off (the stored index still answers)",
+        "NEAR_TAIL_POLL": "seconds between chain-head checks for the live tail (default 6)",
+        "NEAR_SCAN_RPS": "archival requests per second the history backfill spends (default 1)",
         "NEAR_HOME": "keystore + token directory (default ~/.mod/near)"
     },
-    "schema": "QmZXzz5YxqVAPakxySunDxkbFYdaxnHzU6NDXHTaLcKTdj"
+    "schema": "QmTvjZnQnrhZd44rfjdfG2jkZ5LuWBMBSMreEu84Tv9A4Y"
 }
