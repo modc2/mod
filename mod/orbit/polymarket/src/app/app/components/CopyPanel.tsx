@@ -77,6 +77,7 @@ import { OPEN_MONEY_EVENT } from "./MoneyBlock";
 const OPEN_KEY = "poly_copy_panel_open";
 const MEASURE_KEY = "poly_copy_measure_open";
 const TRADES_KEY = "poly_copy_trades_open";
+const GROW_KEY = "poly_copy_grow_open";
 /** Every 0x… in a pasted blob, however it was separated. A whole-string
     match would refuse a pasted list, a pasted table row, or a trailing space. */
 const ADDR_SCAN = /0x[0-9a-fA-F]{40}/g;
@@ -126,9 +127,13 @@ export default function CopyPanel() {
           <span className="block text-[9.5px] font-mono tracking-[0.14em] text-pixel-gray">
             WHO I COPY
           </span>
-          <span className="block truncate text-[11.5px] font-mono text-cyan-300">
-            the traders, their dollars, start / stop
-          </span>
+          {/* The tagline is a door sign — once the door is open the body's own
+              first line ($N on M traders) says the same thing with numbers. */}
+          {!expanded && (
+            <span className="block truncate text-[11.5px] font-mono text-cyan-300">
+              the traders, their dollars, start / stop
+            </span>
+          )}
         </span>
         <span className="text-[9px] text-pixel-gray shrink-0">{expanded ? "▲" : "▼"}</span>
       </button>
@@ -148,16 +153,18 @@ function CopyBookBody() {
     allocate, remove, setEnabled, setBankrollUsd, rebalance, start, stop,
   } = useCopyBook(eoa);
 
-  // ── Sections. Each is its own mount, because each has its own cost. ──
+  // ── Sections. Each is its own mount, because each has its own cost. All of
+  //    them CLOSED until asked: the default view is the roster and one
+  //    start/stop, not the whole instrument panel. ──
   const [measureOpen, setMeasureOpen] = useState(false);
   const [tradesOpen, setTradesOpen] = useState(false);
+  const [growOpen, setGrowOpen] = useState(false);
   useEffect(() => {
     try {
-      setMeasureOpen(localStorage.getItem(MEASURE_KEY) !== "0");
+      setMeasureOpen(localStorage.getItem(MEASURE_KEY) === "1");
       setTradesOpen(localStorage.getItem(TRADES_KEY) === "1");
-    } catch {
-      setMeasureOpen(true);
-    }
+      setGrowOpen(localStorage.getItem(GROW_KEY) === "1");
+    } catch {}
   }, []);
   const remember = (key: string, v: boolean) => {
     try { localStorage.setItem(key, v ? "1" : "0"); } catch {}
@@ -323,8 +330,32 @@ function CopyBookBody() {
       {/* ── GROW / SIZE the book. One fenced zone, so its $ inputs can't be
              read as part of the roster's column of dollars: an add line that
              scans like a sentence (paste → $ → COPY), then one quiet tools
-             line (SPLIT the total, or leave to the basket / the desk). ── */}
+             line (SPLIT the total, or leave to the basket / the desk).
+             With a book already built, the whole zone folds to one line —
+             adding is a sometimes act, and two more $ inputs under the
+             roster's column of dollars is the "too complicated" screenshot. */}
       <div className="mx-3 mt-2 pt-2 space-y-1.5" style={{ borderTop: "1px solid var(--border)" }}>
+        {rows.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => { const v = !growOpen; setGrowOpen(v); remember(GROW_KEY, v); }}
+              aria-expanded={growOpen}
+              className="text-[9.5px] font-mono tracking-[0.08em] text-pixel-gray hover:text-pixel-white whitespace-nowrap"
+              title="Paste more traders, or split one total evenly across the book"
+            >
+              {growOpen ? "▲ ADD / SIZE" : "＋ ADD / SIZE"}
+            </button>
+            <span className="flex-1" />
+            <Link
+              href="/copy"
+              className="text-[9.5px] font-mono tracking-[0.04em] text-pixel-gray hover:text-green-400 shrink-0 whitespace-nowrap"
+              title="The desk — find the best traders in a market"
+            >
+              FIND TRADERS →
+            </Link>
+          </div>
+        )}
+        {(growOpen || rows.length === 0) && <>
         <AddTraders
           busy={busy !== null}
           onAdd={async (addresses, usd) => {
