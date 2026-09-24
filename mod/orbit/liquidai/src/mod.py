@@ -489,11 +489,14 @@ class Liquidai(m.Mod):
                 return {"ok": False, "error": event.get("error"), "text": text}
         return {"ok": True, "text": text, **stats}
 
-    def embed(self, texts: str, model: str = "LiquidAI/LFM2.5-Encoder-230M") -> Any:
-        """Embed `texts` (one per '|') and score every pair against every other."""
+    def embed(self, texts: str, model: str = "LiquidAI/LFM2.5-Encoder-230M",
+              runtime: str = "server") -> Any:
+        """Embed `texts` (one per '|') and score every pair. runtime=server|cloud."""
         lines = [t.strip() for t in texts.split("|") if t.strip()]
-        out = self._post("/embed", {"model": model, "texts": lines})
-        return {"model": model, "dim": out["dim"], "lines": lines,
+        out = self._post("/embed", {"model": model, "texts": lines,
+                                    "runtime": runtime})
+        return {"model": model, "runtime": out.get("runtime", runtime),
+                "dim": out["dim"], "lines": lines,
                 "similarity": out["similarity"], "elapsed_sec": out["elapsed_sec"]}
 
     # ── arena ─────────────────────────────────────────────────────

@@ -48,7 +48,7 @@
             "method": "GET"
         },
         "/embed": {
-            "docs": "Sentence vectors + the cosine matrix between them",
+            "docs": "Sentence vectors + the cosine matrix between them (runtime=server|cloud)",
             "method": "POST"
         },
         "/health": {
@@ -100,7 +100,7 @@
             "method": "POST"
         },
         "/v1/embeddings": {
-            "docs": "OpenAI embeddings",
+            "docs": "OpenAI embeddings \u2014 input (string or list) or texts; runtime=server|cloud",
             "method": "POST"
         },
         "/v1/models": {
@@ -162,13 +162,12 @@
     "name": "liquidai",
     "port": 50460,
     "route": true,
-    "schema": "QmZ5eLDgraPUMJRpPaAwUjaJo2N8NpBeDN45hWxNUPzYuF",
+    "schema": "QmQMtzSkBehC6NzpGXiWX7Fa2Ghwh8G5nK2vUZzHRTtWEb",
     "urls": {
         "api": "http://localhost:50460",
         "app": "http://localhost:50461/liquidai",
-        "gateway_api": "http://localhost:3001/liquidai/api",
-        "gateway_app": "http://localhost:3001/liquidai",
-        "hf": "LiquidAI"
+        "gateway_api": "http://localhost:3001/api/liquidai",
+        "gateway_app": "http://localhost:3001/liquidai"
     },
-    "version": "0.4.0"
+    "version": "0.4.1"
 }

@@ -67,9 +67,11 @@ async fn fetch(path: &str) -> Result<Value, String> {
 /// filters to the ticked traders.
 pub async fn data(Query(q): Query<HashMap<String, String>>) -> impl IntoResponse {
     let days: u32 = q.get("days").and_then(|v| v.parse().ok()).unwrap_or(7).clamp(1, 30);
-    let hours: u32 = q.get("hours").and_then(|v| v.parse().ok()).unwrap_or(48).clamp(1, 168);
+    let hours: u32 = q.get("hours").and_then(|v| v.parse().ok()).unwrap_or(96).clamp(1, 168);
 
-    let board = fetch(&format!("/leaderboard?days={days}&top=60")).await;
+    // Deep board: the tape is wide and a trade only scores if its trader's
+    // window ROI is known, so the join wants everyone copytensor ranks.
+    let board = fetch(&format!("/leaderboard?days={days}&top=500")).await;
     let tape = fetch(&format!("/flows?hours={hours}&limit=300")).await;
 
     let (board, tape) = match (board, tape) {
@@ -88,7 +90,9 @@ pub async fn data(Query(q): Query<HashMap<String, String>>) -> impl IntoResponse
         let stake = row["total_stake_tao"].as_f64().unwrap_or(0.0);
         let roi = row["pnl_pct"].as_f64().unwrap_or(0.0);
         let baseline = row["baseline"].as_bool().unwrap_or(false);
-        if ss58.is_empty() || !baseline || stake < 1.0 || !roi.is_finite() {
+        // A wallet emptied and refilled reads an astronomic % on nothing —
+        // copytensor's own front page caps at 500%, same rule here.
+        if ss58.is_empty() || !baseline || stake < 1.0 || !roi.is_finite() || roi.abs() > 500.0 {
             continue;
         }
         let label = row["label"]
@@ -123,6 +127,18 @@ pub async fn data(Query(q): Query<HashMap<String, String>>) -> impl IntoResponse
     }
     trades.sort_by(|a, b| {
         b["score"].as_f64().partial_cmp(&a["score"].as_f64()).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // The chips list stays legible: everyone who actually traded this
+    // window, plus the top 30 by ROI — every trade's trader is pickable.
+    let active: std::collections::HashSet<String> = trades
+        .iter()
+        .filter_map(|t| t["ss58"].as_str().map(str::to_string))
+        .collect();
+    let mut rank = 0usize;
+    traders.retain(|t| {
+        rank += 1;
+        rank <= 30 || active.contains(t["ss58"].as_str().unwrap_or_default())
     });
 
     Json(json!({

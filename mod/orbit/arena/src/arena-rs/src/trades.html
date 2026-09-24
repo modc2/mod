@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arena · trades</title>
+<style>
+  :root {
+    --bg: #0b0f14; --card: #121820; --line: #1f2a36;
+    --fg: #d7e2ec; --dim: #7d8fa1; --accent: #55e0c8;
+    --up: #7ee787; --down: #ff7b72;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    padding: 0 12px 48px;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 10px;
+    max-width: 880px; margin: 0 auto; padding: 18px 2px 6px;
+  }
+  header .mark {
+    width: 12px; height: 12px; background: var(--accent);
+    border-radius: 3px; align-self: center;
+  }
+  header h1 { font-size: 16px; letter-spacing: 3px; margin: 0; }
+  header a { margin-left: auto; color: var(--dim); font-size: 12px; text-decoration: none; }
+  header a:hover { color: var(--accent); }
+  .card {
+    max-width: 880px; margin: 12px auto; background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+  }
+  .card h2 {
+    font-size: 12px; letter-spacing: 2px; margin: 0 0 8px; color: var(--fg);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .card h2 .sub { color: var(--dim); font-weight: normal; letter-spacing: 0; margin-left: auto; }
+  code.fn {
+    display: block; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 10px 12px; color: var(--accent);
+    overflow-x: auto; white-space: pre;
+  }
+  .note { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+  select {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 16px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px;
+    cursor: pointer; color: var(--dim); background: var(--bg); font: inherit; font-size: 13px;
+  }
+  .chip.on { border-color: var(--accent); color: var(--fg); background: rgba(85, 224, 200, .1); }
+  .chip .roi { margin-left: 6px; }
+  .bulk { margin-top: 10px; font-size: 12px; color: var(--dim); }
+  .bulk button {
+    background: none; border: none; color: var(--dim); cursor: pointer;
+    font: inherit; font-size: 12px; text-decoration: underline; padding: 0 4px;
+  }
+  .bulk button:hover { color: var(--accent); }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; color: var(--dim); font-weight: normal; font-size: 11px;
+    letter-spacing: 1px; padding: 4px 10px 6px 0; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; }
+  th.num { text-align: right; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .score { font-weight: bold; }
+  .bar {
+    display: inline-block; height: 4px; border-radius: 2px; background: var(--accent);
+    vertical-align: middle; margin-left: 8px; opacity: .7;
+  }
+  .dimline { color: var(--dim); padding: 12px 0 4px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="mark"></span><h1>ARENA · TRADES</h1>
+  <a href="/arena/classic" id="classic">classic console</a>
+</header>
+
+<div class="card">
+  <h2>SCORE FUNCTION
+    <span class="sub">roi window
+      <select id="days">
+        <option value="1">24h</option>
+        <option value="7" selected>7d</option>
+        <option value="30">30d</option>
+      </select>
+    </span>
+  </h2>
+  <code class="fn" id="fnexpr">…</code>
+  <p class="note" id="fnnote"></p>
+</div>
+
+<div class="card">
+  <h2>TRADERS <span class="sub" id="tsub">pick whose trades to score</span></h2>
+  <div class="chips" id="chips"><span class="dimline">loading the board…</span></div>
+  <div class="bulk">
+    select <button data-bulk="top">top 8</button>·<button data-bulk="all">all</button>·<button data-bulk="none">none</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>PROPOSED TRADES <span class="sub" id="msub"></span></h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th class="num">SCORE</th><th>WHEN</th><th>TRADER</th><th>SIDE</th>
+        <th>SUBNET</th><th class="num">SIZE τ</th><th class="num">TRADER ROI</th><th class="num">CONVICTION</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="dimline" id="empty" hidden></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // Behind the fleet router this page is /arena and the api /arena/api;
+  // standalone on the port the same nested routes answer — never a bare path.
+  const API = "/arena/api/trades";
+  const SELKEY = "arena:trades:sel";
+  let data = null;
+  let sel = null; // Set of ss58; null = not chosen yet -> default top 8
+
+  const $ = id => document.getElementById(id);
+  const fmt = (n, d = 1) => Number(n).toFixed(d);
+  const ago = ts => {
+    const s = Math.max(0, Date.now() / 1000 - ts);
+    if (s < 3600) return Math.round(s / 60) + "m ago";
+    if (s < 86400) return Math.round(s / 3600) + "h ago";
+    return Math.round(s / 86400) + "d ago";
+  };
+  const roiSpan = r => `<span class="${r >= 0 ? "up" : "down"}">${r >= 0 ? "+" : ""}${fmt(r)}%</span>`;
+
+  function loadSel() {
+    try { const raw = localStorage.getItem(SELKEY); if (raw) sel = new Set(JSON.parse(raw)); }
+    catch (e) { /* fresh browser */ }
+  }
+  function saveSel() {
+    try { localStorage.setItem(SELKEY, JSON.stringify([...sel])); } catch (e) { /* private mode */ }
+  }
+
+  function renderTraders() {
+    const box = $("chips");
+    box.innerHTML = "";
+    if (!data.traders.length) {
+      box.innerHTML = '<span class="dimline">no traders on the board yet</span>';
+      return;
+    }
+    if (sel === null) {
+      // default: everyone who actually traded this window, topped up with
+      // the best-roi traders to 8 — never an empty table on first load
+      sel = new Set(data.trades.map(t => t.ss58));
+      for (const t of data.traders) { if (sel.size >= 8) break; sel.add(t.ss58); }
+    }
+    for (const t of data.traders) {
+      const b = document.createElement("button");
+      b.className = "chip" + (sel.has(t.ss58) ? " on" : "");
+      b.innerHTML = `${t.label}<span class="roi">${roiSpan(t.roi)}</span>`;
+      b.title = `${t.ss58} · ${fmt(t.stake_tao, 0)} τ book`;
+      b.onclick = () => {
+        sel.has(t.ss58) ? sel.delete(t.ss58) : sel.add(t.ss58);
+        saveSel(); renderTraders(); renderTrades();
+      };
+      box.appendChild(b);
+    }
+    $("tsub").textContent = `${sel.size} of ${data.traders.length} selected`;
+  }
+
+  function renderTrades() {
+    const rows = $("rows"), empty = $("empty");
+    const picked = data.trades.filter(t => sel.has(t.ss58));
+    $("msub").textContent = `last ${data.tape_hours}h · scored on ${data.window_days}d roi`;
+    rows.innerHTML = picked.map(t => `<tr>
+      <td class="num score">${fmt(t.score, 0)}<span class="bar" style="width:${Math.round(t.score / 2.5)}px"></span></td>
+      <td>${ago(t.ts)}</td>
+      <td title="${t.ss58}">${t.trader}</td>
+      <td class="${t.side === "buy" ? "up" : "down"}">${String(t.side).toUpperCase()}</td>
+      <td>${t.subnet || ""} · ${t.netuid}</td>
+      <td class="num">${fmt(t.tao_value, 2)}</td>
+      <td class="num">${roiSpan(t.roi)}</td>
+      <td class="num">${fmt(t.conviction * 100, 1)}%</td>
+    </tr>`).join("");
+    empty.hidden = picked.length > 0;
+    empty.textContent = sel.size
+      ? "no trades from the selected traders in this window"
+      : "no traders selected";
+  }
+
+  async function load() {
+    $("rows").innerHTML = "";
+    $("empty").hidden = false;
+    $("empty").textContent = "loading the tape…";
+    let d;
+    try { d = await (await fetch(`${API}?days=${$("days").value}`)).json(); }
+    catch (e) { d = { error: String(e) }; }
+    $("fnexpr").textContent = (d.fn && d.fn.expr) || "";
+    $("fnnote").textContent = (d.fn && d.fn.note) || "";
+    if (d.error) {
+      $("chips").innerHTML = "";
+      $("empty").textContent = d.error;
+      return;
+    }
+    data = d;
+    renderTraders();
+    renderTrades();
+  }
+
+  document.querySelectorAll("[data-bulk]").forEach(b => b.onclick = () => {
+    if (!data) return;
+    const w = b.dataset.bulk;
+    sel = new Set(w === "none" ? [] : data.traders.slice(0, w === "all" ? 1e9 : 8).map(t => t.ss58));
+    saveSel(); renderTraders(); renderTrades();
+  });
+  $("days").onchange = load;
+
+  loadSel();
+  load();
+})();
+</script>
+</body>
+</html>

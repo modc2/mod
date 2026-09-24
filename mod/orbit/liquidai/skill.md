@@ -46,7 +46,7 @@ m liquidai/pull repo=LiquidAI/LFM2.5-350M
 m liquidai/pulls                         # download progress
 m liquidai/load repo=LiquidAI/LFM2.5-350M
 m liquidai/chat prompt="..." model=LiquidAI/LFM2.5-350M runtime=server
-m liquidai/embed texts="a cat|a kitten|a bus"   # vectors + pairwise matrix
+m liquidai/embed texts="a cat|a kitten|a bus"   # vectors + pairwise matrix (runtime=server|cloud)
 m liquidai/games | play game=arithmetic models=... | board
 m liquidai/auth                          # who owns this box, who signed in
 m liquidai/disown                        # release the claim

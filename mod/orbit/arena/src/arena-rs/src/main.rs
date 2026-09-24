@@ -44,6 +44,7 @@ mod rsklass;
 mod rustc;
 mod store;
 mod storelink;
+mod trades;
 mod vibe;
 mod wasm;
 

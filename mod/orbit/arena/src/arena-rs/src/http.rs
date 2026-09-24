@@ -7,7 +7,7 @@
 //! stripped) and the console at /arena (prefix kept), so both are served here
 //! and one console works in both places.
 
-use crate::{arena, mcp, mcpout, modmcp, rustc, storelink, vibe};
+use crate::{arena, mcp, mcpout, modmcp, rustc, storelink, trades, vibe};
 use axum::{
     body::Body,
     extract::{Path, Query, Request},
@@ -67,7 +67,8 @@ fn info() -> Value {
         "tools": "GET /tools",
         "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
         "fleet": "GET /fleet — every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
-        "console": "GET /arena (browser)"
+        "trades": "GET /trades?days=&hours= — the trader board joined onto the tape, every trade scored for potential ROI",
+        "console": "GET /arena (browser, the trades view) | GET /arena/classic (the games/agents console)"
     });
     v["stdio"] = json!("arena-api --stdio");
     v
@@ -81,13 +82,19 @@ async fn root(req: Request) -> Response {
         .map(|a| a.contains("text/html"))
         .unwrap_or(false);
     if wants_html {
-        Html(CONSOLE_HTML).into_response()
+        Html(trades::TRADES_HTML).into_response()
     } else {
         Json(info()).into_response()
     }
 }
 
+/// The front door is the trades view; the full games/agents console lives
+/// on at /arena/classic, untouched.
 async fn console() -> Html<&'static str> {
+    Html(trades::TRADES_HTML)
+}
+
+async fn classic() -> Html<&'static str> {
     Html(CONSOLE_HTML)
 }
 
@@ -559,6 +566,7 @@ fn api_routes() -> Router {
         .route("/runtime/:name", get(runtime_file))
         .route("/forward", post(forward))
         .route("/tools", get(tools))
+        .route("/trades", get(trades::data))
 }
 
 pub async fn serve(port: u16) {
@@ -584,6 +592,7 @@ pub async fn serve(port: u16) {
         .route("/", get(root))
         .route("/arena", get(console))
         .route("/arena/", get(console))
+        .route("/arena/classic", get(classic))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls
         // /arena/api (canonical; /api/arena is the permanently supported

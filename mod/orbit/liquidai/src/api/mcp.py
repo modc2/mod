@@ -122,11 +122,14 @@ TOOLS: List[Dict[str, Any]] = [
         "name": "liquidai_embed",
         "need": "session",
         "description": "Sentence vectors from an LFM encoder, plus the cosine "
-                       "matrix between every pair.",
+                       "matrix between every pair. runtime=server pools on this "
+                       "box, runtime=cloud on inference.liquid.ai with the box's key.",
         "inputSchema": _schema({
             "texts": {"type": "array", "items": {"type": "string"},
                       "description": "sentences to embed"},
-            "model": _str("encoder repo", "LiquidAI/LFM2.5-Encoder-230M"),
+            "model": _str("encoder repo (server) or cloud model id",
+                          "LiquidAI/LFM2.5-Encoder-230M"),
+            "runtime": _str("server | cloud", "server"),
         }, ["texts"]),
     },
     {
@@ -329,6 +332,26 @@ def _chat(args: Dict[str, Any], token: Optional[str]) -> Dict[str, Any]:
             "stats": {k: v for k, v in tail.items() if k != "type"}}
 
 
+def _embed(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Same runtime split as _chat — server pools here, cloud on the box's key."""
+    runtime = args.get("runtime", "server")
+    model = args.get("model") or "LiquidAI/LFM2.5-Encoder-230M"
+    texts = [str(t) for t in (args.get("texts") or []) if str(t).strip()]
+    if not texts:
+        raise ToolError("texts is empty — pass at least one sentence")
+    if runtime == "cloud":
+        key = keys.get("cloud")
+        if not key:
+            raise ToolError("no cloud key on this box — POST /keys or set LIQUID_API_KEY")
+        return cloud.embed(key, model, texts, True)
+    if runtime != "server":
+        raise ToolError("runtime is server or cloud — browser embeds need a tab")
+    avail = server_rt.available()
+    if not avail["ok"]:
+        raise ToolError(f"server runtime unavailable: {avail.get('error')}")
+    return server_rt.embed(model, texts, True)
+
+
 def _models(args: Dict[str, Any]) -> Dict[str, Any]:
     rows = catalog.load()["models"]
     if args.get("runtime"):
@@ -370,8 +393,7 @@ HANDLERS: Dict[str, Callable[[Dict[str, Any], Optional[str]], Any]] = {
         "cloud": cloud.available(keys.get("cloud")),
     },
     "liquidai_chat": lambda a, t: _chat(a, t),
-    "liquidai_embed": lambda a, t: server_rt.embed(
-        a.get("model") or "LiquidAI/LFM2.5-Encoder-230M", a["texts"], True),
+    "liquidai_embed": lambda a, t: _embed(a),
     "liquidai_local_models": lambda a, t: {"models": server_rt.local_models(),
                                            "cache": server_rt.cache_root()},
     "liquidai_pull": lambda a, t: (server_rt.pull(a["repo"])

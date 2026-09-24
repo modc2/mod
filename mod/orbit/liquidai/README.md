@@ -83,7 +83,9 @@ the usable range.
 **Images, speech and vectors.** A vision turn carries its images as content
 parts (`{"type":"image","image":"data:…"}`) on the same `/chat` call; the server
 hands them to the model's processor and a text-only model gets them stripped
-rather than a 500. `/embed` mean-pools an encoder's hidden states and returns
+rather than a 500. `/embed` runs on either paid-for runtime — `runtime=server`
+mean-pools an encoder's hidden states on this box, `runtime=cloud` asks
+inference.liquid.ai on your key — and either way returns
 the cosine matrix between the lines — the matrix is the point, since a bare
 vector says nothing on a screen. `/transcribe` takes a file upload.
 
@@ -144,7 +146,7 @@ m liquidai/status                            # services + health
 | POST   | `/auth/verify`      | signature → session token                                 |
 | GET    | `/auth/me`          | who this bearer is                                        |
 | GET    | `/auth/owner`       | who claimed this box                                      |
-| POST   | `/embed`            | vectors + the cosine matrix between the lines             |
+| POST   | `/embed`            | vectors + the cosine matrix (`runtime=server\|cloud`)      |
 | POST   | `/transcribe`       | multipart audio → text                                    |
 | GET`|`POST | `/arena/games` | every game / write one                                    |
 | POST   | `/arena/match`      | up to 4 models through a game, scored per round           |
@@ -156,7 +158,7 @@ m liquidai/status                            # services + health
 | GET    | `/arena/fleet/matches` | recent arena matches / one in full at `/{id}`          |
 | GET    | `/v1/models`        | OpenAI-shaped model list                                  |
 | POST   | `/v1/chat/completions` | OpenAI chat completions                                |
-| POST   | `/v1/embeddings`    | OpenAI embeddings                                         |
+| POST   | `/v1/embeddings`    | OpenAI embeddings — `input` or `texts`, `runtime=` too    |
 
 Writes (`/local/*`, `POST /keys`) want an owner token; `/chat`, `/embed`,
 `/transcribe` and the arena want any session. Reads are open.

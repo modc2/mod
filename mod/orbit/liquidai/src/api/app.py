@@ -25,7 +25,7 @@ learning its REST shape, through the same gate and into the same ledger.
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import (
     Body, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile,
@@ -43,7 +43,7 @@ except ImportError:  # pragma: no cover
     import arena, auth, catalog, cloud, fleet_arena, keys, ledger, providers, server_rt
     import mcp as mcp_rpc
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 START = time.time()
 
 app = FastAPI(
@@ -118,9 +118,19 @@ class ChatRequest(BaseModel):
 
 
 class EmbedRequest(BaseModel):
+    # `texts` is this module's name; `input` is OpenAI's — /v1/embeddings has
+    # to take both or every off-the-shelf client 422s on its first call.
     model: str
-    texts: List[str]
+    texts: Optional[List[str]] = None
+    input: Optional[Union[str, List[str]]] = None
+    runtime: str = "server"          # server | cloud
     normalize: bool = True
+
+    def sentences(self) -> List[str]:
+        texts = self.texts
+        if texts is None and self.input is not None:
+            texts = [self.input] if isinstance(self.input, str) else list(self.input)
+        return [str(t) for t in (texts or []) if str(t).strip()]
 
 
 class PullRequest(BaseModel):
@@ -466,21 +476,49 @@ def chat(req: ChatRequest, request: Request,
 
 # ── the other two modalities ─────────────────────────────────────────
 
-@app.post("/embed")
-def embed(req: EmbedRequest, request: Request,
-          authorization: Optional[str] = Header(None)):
-    """Sentence vectors + the cosine matrix between them, on this box."""
-    _guard(authorization, "session")
-    ledger.tag(getattr(request.state, "call", None), kind="inference",
-               provider="server", model=req.model, turns=len(req.texts))
+def _run_embed(runtime: str, model: str, texts: List[str], normalize: bool,
+               x_liquid_key: Optional[str]) -> Dict[str, Any]:
+    """One embed dispatch for /embed and /v1/embeddings — same runtime split,
+    same key rule and same errors as /chat, so the two modalities can't drift."""
+    if not texts:
+        raise HTTPException(400, "nothing to embed — pass texts=[…] (or input=…)")
+    if runtime == "browser":
+        raise HTTPException(
+            400, "runtime='browser' embeds in the tab — load the encoder with "
+                 "transformers.js instead of calling this endpoint",
+        )
+    if runtime == "cloud":
+        key = x_liquid_key or keys.get("cloud")
+        if not key:
+            raise HTTPException(401, "no cloud key — POST /keys or send X-Liquid-Key")
+        try:
+            return cloud.embed(key, model, texts, normalize)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        except Exception as e:
+            raise HTTPException(502, f"{type(e).__name__}: {e}")
+    if runtime != "server":
+        raise HTTPException(400, f"unknown runtime {runtime!r}")
     if not server_rt.available()["ok"]:
         raise HTTPException(503, "server runtime unavailable")
     try:
-        return server_rt.embed(req.model, req.texts, req.normalize)
+        return server_rt.embed(model, texts, normalize)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
         raise HTTPException(500, f"{type(e).__name__}: {e}")
+
+
+@app.post("/embed")
+def embed(req: EmbedRequest, request: Request,
+          x_liquid_key: Optional[str] = Header(None),
+          authorization: Optional[str] = Header(None)):
+    """Sentence vectors + the cosine matrix between them. runtime=server|cloud."""
+    _guard(authorization, "session")
+    texts = req.sentences()
+    ledger.tag(getattr(request.state, "call", None), kind="inference",
+               provider=req.runtime, model=req.model, turns=len(texts))
+    return _run_embed(req.runtime, req.model, texts, req.normalize, x_liquid_key)
 
 
 @app.post("/transcribe")
@@ -976,22 +1014,23 @@ def v1_chat(req: ChatRequest, request: Request,
 
 @app.post("/v1/embeddings")
 def v1_embeddings(req: EmbedRequest, request: Request,
+                  x_liquid_key: Optional[str] = Header(None),
                   authorization: Optional[str] = Header(None)):
+    """OpenAI embeddings — takes `input` (string or list) or `texts`,
+    runtime=server|cloud like every other inference route here."""
     _guard(authorization, "session")
+    texts = req.sentences()
     ledger.tag(getattr(request.state, "call", None), kind="inference",
-               provider="server", model=req.model, turns=len(req.texts))
-    try:
-        out = server_rt.embed(req.model, req.texts, req.normalize)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except Exception as e:
-        raise HTTPException(500, f"{type(e).__name__}: {e}")
+               provider=req.runtime, model=req.model, turns=len(texts))
+    out = _run_embed(req.runtime, req.model, texts, req.normalize, x_liquid_key)
     return {
         "object": "list",
         "model": req.model,
         "data": [{"object": "embedding", "index": i, "embedding": v}
                  for i, v in enumerate(out["vectors"])],
         "usage": {"prompt_tokens": None},
+        "liquidai": {"runtime": out["runtime"], "dim": out["dim"],
+                     "elapsed_sec": out["elapsed_sec"]},
     }
 
 
