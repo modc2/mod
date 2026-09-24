@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from 'react'
+import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { WalletHeader } from '@/wallet/WalletHeader'
 import { RootHash } from '@/header/RootHash'
@@ -176,6 +177,10 @@ export function TopBar() {
 
   // On a module page: always show module info + tabs
   const showModuleBar = !!activeModule
+
+  // Everywhere else the bar names where you are: MOD / <section>
+  const section = !activeModule ? (pathname?.split('/')[1] || '') : ''
+  const sectionColor = section ? text2color(section) : '#ffffff'
 
   return (
     <div
@@ -471,8 +476,37 @@ export function TopBar() {
             )}
           </div>
         ) : (
-          /* Empty spacer when not on a module page — search is in sidebar */
-          <div className="flex-1" />
+          /* Shell bar: brand + section breadcrumb — search is in sidebar */
+          <div className="flex items-center gap-2.5 flex-1 min-w-0" style={{ fontFamily: 'var(--font-digital), monospace' }}>
+            <Link
+              href="/"
+              className="font-bold flex-shrink-0"
+              style={{
+                color: 'var(--text-primary)',
+                fontSize: '16px',
+                letterSpacing: '3px',
+                textDecoration: 'none',
+              }}
+              title="Home"
+            >
+              MOD
+            </Link>
+            {section && (
+              <>
+                <span className="flex-shrink-0" style={{ color: 'var(--text-tertiary)', fontSize: '14px', opacity: 0.5 }}>/</span>
+                <code
+                  className="font-bold tracking-wide flex-shrink-0 uppercase truncate"
+                  style={{
+                    color: 'var(--text-primary)',
+                    fontSize: '15px',
+                    textShadow: `0 0 10px ${colorWithOpacity(sectionColor, 0.4)}`,
+                  }}
+                >
+                  {section}
+                </code>
+              </>
+            )}
+          </div>
         )}
       </div>
 

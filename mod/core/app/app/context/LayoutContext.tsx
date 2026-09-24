@@ -35,9 +35,10 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     if (saved === 'true') setIsTerminalMode(true)
   }, [])
 
-  // Keep header visible on module pages (module info shows in header)
+  // Restore the saved header fold on navigation instead of forcing it open —
+  // a collapse used to be undone by every route change.
   useEffect(() => {
-    setIsHeaderCollapsed(false)
+    setIsHeaderCollapsed(localStorage.getItem('header_collapsed') === 'true')
     setIsEditSidebarOpen(false)
   }, [pathname])
 
@@ -47,10 +48,15 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
 
   const setHeaderCollapsed = (collapsed: boolean) => {
     setIsHeaderCollapsed(collapsed)
+    localStorage.setItem('header_collapsed', String(collapsed))
   }
 
   const toggleHeaderCollapsed = () => {
-    setIsHeaderCollapsed(prev => !prev)
+    setIsHeaderCollapsed(prev => {
+      const next = !prev
+      localStorage.setItem('header_collapsed', String(next))
+      return next
+    })
   }
 
   const toggleEditSidebar = () => {
