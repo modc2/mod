@@ -307,13 +307,13 @@ class Client:
         return out
 
     def _note_contract(self, account_id, code_hash=None, storage_bytes=None,
-                       balance_near=None):
+                       balance_near=None, methods=None):
         """Any read that finds code feeds the scraped directory."""
         try:
             import directory
             directory.note(self.network, account_id, code_hash=code_hash,
                            storage_bytes=storage_bytes,
-                           balance_near=balance_near)
+                           balance_near=balance_near, methods=methods)
         except Exception:
             pass
 
@@ -347,7 +347,8 @@ class Client:
         methods = [m for m in _wasm_exports(code)
                    if m not in internal and not m.startswith('__')]
         self._note_contract(account_id, code_hash=r.get('hash'),
-                            storage_bytes=None, balance_near=None)
+                            storage_bytes=None, balance_near=None,
+                            methods=methods)
         return {'account_id': account_id, 'is_contract': True,
                 'code_hash': r.get('hash'), 'code_bytes': len(code),
                 'methods': methods, 'method_count': len(methods),

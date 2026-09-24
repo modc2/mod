@@ -1,6 +1,6 @@
 ---
 name: near
-description: NEAR Protocol whole — read accounts/keys/contracts/tokens/txns/validators, AND deploy + manage contracts (keystore in ~/.mod/near/, testnet faucet, signed calls, transfers, access keys). REST + console + 18 MCP tools on :50910. Non-testnet writes need confirm=true; HTTP writes need the ~/.mod/near/token.
+description: NEAR Protocol whole — read accounts/keys/contracts/tokens/txns/validators, AND deploy + manage contracts (keystore in ~/.mod/near/, testnet faucet, signed calls, transfers, access keys). Semantic search over the contract census runs locally (near_search — "stablecoin" finds USDt, no external service). REST + console + 21 MCP tools on :50910. Non-testnet writes need confirm=true; HTTP writes need the ~/.mod/near/token.
 ---
 
 # near

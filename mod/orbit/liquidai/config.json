@@ -106,6 +106,26 @@
         "/v1/models": {
             "docs": "OpenAI-shaped model list (?runtime=)",
             "method": "GET"
+        },
+        "/arena/fleet": {
+            "method": "GET",
+            "docs": "Is the arena module up, and how big it is"
+        },
+        "/arena/fleet/games": {
+            "method": "GET",
+            "docs": "The arena module's games \u2014 the ones LFMs can be seated at"
+        },
+        "/arena/fleet/match": {
+            "method": "POST",
+            "docs": "Seat up to 4 LFMs at an arena game and run the match (Elo-rated)"
+        },
+        "/arena/fleet/board": {
+            "method": "GET",
+            "docs": "The arena module's Elo board (?lfm_only=1 for model seats)"
+        },
+        "/arena/fleet/matches": {
+            "method": "GET",
+            "docs": "Recent arena matches / one match in full at /{id}"
         }
     },
     "fns": [
@@ -129,6 +149,9 @@
         "games",
         "play",
         "board",
+        "fleet_games",
+        "fleet_play",
+        "fleet_board",
         "keys",
         "set_key",
         "auth",
@@ -139,7 +162,7 @@
     "name": "liquidai",
     "port": 50460,
     "route": true,
-    "schema": "QmZdE7uiF8ck3XCucNmVfsWyn4ejGZbEGTnovefJzyP4QJ",
+    "schema": "QmZ5eLDgraPUMJRpPaAwUjaJo2N8NpBeDN45hWxNUPzYuF",
     "urls": {
         "api": "http://localhost:50460",
         "app": "http://localhost:50461/liquidai",
@@ -147,5 +170,5 @@
         "gateway_app": "http://localhost:3001/liquidai",
         "hf": "LiquidAI"
     },
-    "version": "0.2.0"
+    "version": "0.4.0"
 }

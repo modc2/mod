@@ -437,6 +437,11 @@ class TaskDraftRequest(BaseModel):
     # program against test cases. `schema` is BaseModel's own name, so the
     # field is spelled out and the wire keeps the short one
     task_schema: str = Field('agent', alias='schema')
+    # hand the drafting run to an external agent CLI instead of this loop —
+    # 'build'/'buildmod' is the build console, 'claude' is Claude Code. Same
+    # gate as any harness run: the host, or that console's own owner.
+    harness: Optional[str] = None
+    save: bool = False               # true = file a VALID draft now
     key: Optional[str] = None
 
     model_config = ConfigDict(populate_by_name=True)
@@ -451,6 +456,9 @@ class AgentVibeRequest(BaseModel):
     free: bool = False
     steps: int = 4                   # the drafting agent's own budget
     save: bool = False               # true = file it now instead of a draft
+    # hand the drafting run to an external agent CLI ('build' = the build
+    # console, 'claude' = Claude Code) — host / console-owner only
+    harness: Optional[str] = None
     key: Optional[str] = None
 
 class TaskSaveRequest(BaseModel):
@@ -1539,7 +1547,8 @@ def agent_vibe(req: AgentVibeRequest):
         return get_mod().forward('agent_vibe', key=req.key,
                                  description=req.description, name=req.name,
                                  model=req.model, provider=req.provider,
-                                 free=req.free, steps=req.steps, save=req.save)
+                                 free=req.free, steps=req.steps, save=req.save,
+                                 harness=req.harness)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except (FileExistsError, ValueError) as e:
@@ -2273,7 +2282,8 @@ def arena_task_draft(req: TaskDraftRequest):
         return get_mod().forward('arena_task_draft', key=req.key,
                                  description=req.description, model=req.model,
                                  provider=req.provider, free=req.free,
-                                 steps=req.steps, schema=req.task_schema)
+                                 steps=req.steps, schema=req.task_schema,
+                                 harness=req.harness, save=req.save)
     except PermissionError as e:
         return {"error": str(e), "code": 403}
     except ValueError as e:
@@ -2484,6 +2494,63 @@ def arena_skill_rm(skill_id: str, key: Optional[str] = None):
     if not signed_in(key):
         return {"error": "sign in to remove a skill", "code": 401}
     return get_mod().forward('arena_skill_rm', key=key, id=skill_id)
+
+@app.get("/arena/tasks/search")
+def arena_task_search(q: str = "", k: int = 20):
+    """The task pool ranked against a plain-language query, best first —
+    how a skill's task list is assembled. Scoring is the module's own local
+    BM25-lite over the whole spec (title, prompt, checks, fixture names);
+    nothing leaves the box and no sign-in is needed to look."""
+    return get_mod().forward('arena_task_search', query=q, k=k)
+
+@app.get("/arena/classes")
+def arena_classes():
+    """All classes: skills bundled one level up, each with a rolled-up
+    benchmark (task score x task weight -> skill, skill score x skill
+    weight -> class)."""
+    return get_mod().forward('arena_classes')
+
+@app.get("/arena/classes/{class_id}")
+def arena_class(class_id: str):
+    """One class's benchmark: agents by weighted skill scores rolled up,
+    the per-skill breakdown, and the best model across the class."""
+    return get_mod().forward('arena_class', id=class_id)
+
+@app.post("/arena/classes")
+def arena_class_create(req: dict):
+    """Create a class — a named bundle of skills with optional weights.
+
+    Signed in: the class is filed under the caller's address.
+    skills is a list of {id, weight} objects (weight defaults to 1.0).
+    """
+    key = req.get("key")
+    if not signed_in(key):
+        return {"error": "sign in to create a class", "code": 401}
+    try:
+        return get_mod().forward('arena_class_create', key=key,
+                                 name=req.get("name", ""),
+                                 description=req.get("description", ""),
+                                 skills=req.get("skills") or [])
+    except ValueError as e:
+        return {"error": str(e)}
+
+@app.put("/arena/classes/{class_id}")
+def arena_class_update(class_id: str, req: dict):
+    """Update a class's name, description or skill weights."""
+    key = req.get("key")
+    if not signed_in(key):
+        return {"error": "sign in to update a class", "code": 401}
+    return get_mod().forward('arena_class_update', key=key,
+                             id=class_id, name=req.get("name"),
+                             description=req.get("description"),
+                             skills=req.get("skills"))
+
+@app.delete("/arena/classes/{class_id}")
+def arena_class_rm(class_id: str, key: Optional[str] = None):
+    """Remove a class."""
+    if not signed_in(key):
+        return {"error": "sign in to remove a class", "code": 401}
+    return get_mod().forward('arena_class_rm', key=key, id=class_id)
 
 @app.post("/arena/gauntlet")
 def arena_gauntlet(req: ArenaGauntletRequest):

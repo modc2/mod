@@ -61,11 +61,6 @@
     "saved": 1789413240.8084624
   },
   {
-    "cid": "Qmb9a26UpsWoooSYod5yvVhHqcxo87iZBYT2wuVHGkUjub",
-    "name": "vibe-smoke-test-agent",
-    "saved": 1789416578.0293045
-  },
-  {
     "cid": "Qmdv2dB99gCKNGdrhKMN6kq4tcf3vUXnTH3EsttwGEzWA2",
     "name": "test-custom-agent",
     "saved": 1790087183.545003
@@ -81,8 +76,13 @@
     "saved": 1790087183.5680597
   },
   {
-    "cid": "QmRZzUitsRbDhpGYVsmTZEjqnkyS1UYSpf5eYF2uPLMcCL",
+    "cid": "QmdymP6Yfp4SC1mEW6oUSXFyKopxhLmAvHn1Y3cgcVTaGL",
+    "name": "vibe-smoke-test-agent",
+    "saved": 1790215122.4236631
+  },
+  {
+    "cid": "QmZb3Nv8DcMQ6jy4ffMVfPiUimkagF447eYHUvGprf2wHi",
     "name": "test-harness-agent",
-    "saved": 1790087243.4090624
+    "saved": 1790215164.8198056
   }
 ]

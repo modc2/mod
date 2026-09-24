@@ -12,7 +12,7 @@
 import type { TopTrader } from "./polymarket";
 
 /** The variables a formula can use, in the order they're passed in. */
-export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve", "resolveRate"] as const;
+export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve", "resolveRate", "steadiness"] as const;
 
 /** What each variable IS, in one line — rendered beside the formula box on
     the board's SCORE editor. A formula language with no vocabulary printed
@@ -32,6 +32,7 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
   decided: "How many settled positions winRate is computed over \u2014 a win rate over 4 positions is not a track record",
   curve: "The raw ~12-point cumulative PnL curve as an array (functions only \u2014 slope/drawdown math is yours)",
   resolveRate: "Share of settled buys whose token rode ALL the way to a full $1 resolution, 0\u2013100. winRate asks \u201cdid the position make money\u201d (an early profitable scalp counts); this asks \u201cdid the thing they bought finish at $1\u201d \u2014 the hit rate of copying their buys and just holding. -1 = nothing settled yet",
+  steadiness: "How consistently the window's returns accrued: mean of the PnL-curve's per-stretch changes \u00f7 their swing (a Sharpe over the period's ~12 time stretches, not per-trade). Idle stretches count against it \u2014 a flat line with one late spike scores near 0, a staircase scores high, a steady loser scores negative. Capped to \u00b110; -99 = unknown (no curve or too little movement) \u2014 gate it, don't multiply by it",
 };
 
 /** Named formulas the SCORE can be parameterized with — the first is the
@@ -84,6 +85,13 @@ export const SCORE_PRESETS = [
     formula: "sharpe",
     poolSort: "sharpe",
     hint: "Mean per-trade return ÷ its stdev over the window. Consistency, not size: it ranks the trader compounding a real edge above the whale who risked millions for 3%.",
+  },
+  {
+    key: "steady",
+    label: "STEADY",
+    formula: "steadiness",
+    poolSort: "steady",
+    hint: "Consistent returns across the PERIOD: mean of the PnL curve's per-stretch changes ÷ their swing — SHARPE over the window's time stretches instead of per-trade. A staircase of even gains scores high; the same P&L from one late spike scores near 0; a steady loser scores negative. — = no curve to judge.",
   },
 ] as const;
 
@@ -171,6 +179,7 @@ export interface ScoreInputs {
   decided: number;
   curve: number[];
   resolveRate: number;
+  steadiness: number;
 }
 
 /** How steadily the window's PnL was made, read off the ~12-point cumulative
@@ -193,6 +202,41 @@ export function curveConsistency(curve: number[] | undefined | null): number {
   return up / moved;
 }
 
+/** `steadiness` sentinel and cap. The metric is signed (a steady loser is
+    legitimately negative), so the -1 convention the other unknowns use would
+    collide with real values — -99 sits below the -10 cap and sinks on desc
+    the same way -1 does for winRate. */
+export const STEADINESS_UNKNOWN = -99;
+const STEADINESS_CAP = 10;
+
+/** How consistently the window's returns ACCRUED, read off the same
+    ~12-point cumulative curve: mean of the per-segment deltas over their
+    population stdev — a Sharpe across the period's time stretches rather
+    than per-trade. Unlike `consistency` (direction-only: share of moved
+    segments that went up), this weighs magnitude AND counts idle stretches
+    against the score, so a flat line with one lucky spike reads near 0
+    while a staircase of even gains reads high. Capped to ±10 (an arrow-
+    straight climb has ~zero swing and would otherwise print +Infinity).
+    MUST mirror `curve_steadiness` in api/src/routes.rs exactly — it is the
+    server sort behind the STEADY preset. */
+export function curveSteadiness(curve: number[] | undefined | null): number {
+  if (!curve || curve.length < 4) return STEADINESS_UNKNOWN;
+  const deltas: number[] = [];
+  let moved = 0;
+  for (let i = 1; i < curve.length; i++) {
+    const d = curve[i] - curve[i - 1];
+    deltas.push(d);
+    if (d !== 0) moved++;
+  }
+  if (moved < 3) return STEADINESS_UNKNOWN;
+  const n = deltas.length;
+  const mean = deltas.reduce((a, b) => a + b, 0) / n;
+  const variance = deltas.reduce((a, d) => a + (d - mean) * (d - mean), 0) / n;
+  const sd = Math.sqrt(variance);
+  if (sd === 0) return mean > 0 ? STEADINESS_CAP : -STEADINESS_CAP;
+  return Math.max(-STEADINESS_CAP, Math.min(STEADINESS_CAP, mean / sd));
+}
+
 export function scoreInputs(t: TopTrader): ScoreInputs {
   return {
     sharpe: t.sharpe,
@@ -208,6 +252,7 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
     decided: t.decidedPositions,
     curve: t.pnlCurve ?? [],
     resolveRate: t.resolveRate,
+    steadiness: curveSteadiness(t.pnlCurve),
   };
 }
 
@@ -218,7 +263,7 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
 export const PROBE_INPUTS: ScoreInputs = {
   sharpe: 0, pnl: 0, volume: 0, buyVolume: 0, sellVolume: 0, positions: 0,
   winRate: 0, markets: 0, exitEntry: 0, consistency: 0, decided: 0, curve: [],
-  resolveRate: 0,
+  resolveRate: 0, steadiness: 0,
 };
 
 /** A compiled score: fn returns the trader's score, or NULL when the user's
@@ -293,6 +338,7 @@ export function scoreIsUnknown(formula: string, t: ScoreInputs): boolean {
   return (preset.key === "winRate" && t.winRate < 0)
     || (preset.key === "resolveRate" && t.resolveRate < 0)
     || (preset.key === "exitEntry" && t.exitEntry < 0)
+    || (preset.key === "steady" && t.steadiness === STEADINESS_UNKNOWN)
     // The ratio presets divide by dollars — none traded means no ratio,
     // not a 0% one.
     || (preset.key === "roi" && t.volume <= 0)

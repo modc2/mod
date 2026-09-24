@@ -31,6 +31,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
+import { useDraftEngines } from './useDraftEngines'
 
 type Scorer = { type: string; path?: string; text?: string; pattern?: string; name?: string; n?: number }
 type CustomTask = {
@@ -183,6 +184,12 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
   const [describe, setDescribe] = useState('')
   const [drafting, setDrafting] = useState(false)
   const [draftNote, setDraftNote] = useState<string | null>(null)
+  // '' = the task-builder on this module's loop; a harness name hands the
+  // drafting run to that CLI — the build console, Claude Code. Only offered
+  // when this caller could actually run it (useDraftEngines checks).
+  const [engine, setEngine] = useState('')
+  const engines = useDraftEngines(token)
+  const engineLabel = engines.find(e => e.name === engine)?.label || 'task-builder'
   const [saving, setSaving] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -297,8 +304,9 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
       const r = await fetch(`${API_URL}/arena/tasks/draft`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: describe.trim(), key: token, free: !isHost,
-                               schema }),
-        signal: AbortSignal.timeout(180000),
+                               schema, harness: engine || null }),
+        // a harness CLI gets the server's own 600s budget
+        signal: AbortSignal.timeout(engine ? 620000 : 180000),
       }).then(x => x.json())
       if (r.error) { flash(false, r.error); return }
       const d = r.draft
@@ -320,7 +328,7 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
         setDirty(true)
         setDraftNote(r.invalid
           ? `drafted, but it needs a fix before it can be saved: ${r.invalid}`
-          : 'drafted by the task-builder — check every `expect` yourself. A wrong expectation fails every correct program, and the model computed these in its head.')
+          : `drafted by ${engineLabel} — check every \`expect\` yourself. A wrong expectation fails every correct program, and the model computed these in its head.`)
         return
       }
       setTask({
@@ -333,7 +341,7 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
       setDirty(true)
       setDraftNote(r.invalid
         ? `drafted, but it needs a fix before it can be saved: ${r.invalid}`
-        : 'drafted by the task-builder — read the checks before you save. Would an agent that does nothing pass them?')
+        : `drafted by ${engineLabel} — read the checks before you save. Would an agent that does nothing pass them?`)
     } catch (e: any) {
       flash(false, e?.name === 'TimeoutError' ? 'the task-builder took too long' : (e?.message || 'draft failed'))
     } finally {
@@ -658,8 +666,17 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
                   <button onClick={draft} disabled={drafting || describe.trim().length < 8}
                     className="px-3 py-1.5 rounded-md text-xs font-medium border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1.5">
                     <span>◎</span>
-                    {drafting ? 'the task-builder is writing…' : 'draft with task-builder'}
+                    {drafting ? `${engineLabel} is writing…` : `draft with ${engineLabel}`}
                   </button>
+                  {/* who drafts it — this module's loop, or a harness CLI this
+                      caller may hand a run to (the build console, Claude Code) */}
+                  {engines.length > 0 && (
+                    <Select value={engine} accent="emerald" size="sm"
+                      className="w-36 shrink-0" title="Which agent drafts it"
+                      onChange={setEngine}
+                      options={[{ value: '', label: 'task-builder' },
+                                ...engines.map(e => ({ value: e.name, label: e.label }))]} />
+                  )}
                   <span className="text-[9px] text-gray-700">
                     {drafting ? 'one agent run — it thinks about how to grade it' : '⌘↵ · fills the form below, nothing is saved'}
                   </span>

@@ -1,0 +1,88 @@
+{
+  "scores": {
+    "0": 0.2697827036468701
+  },
+  "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+  "last_epoch": {
+    "validator": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+    "network": "local",
+    "miners": 1,
+    "results": {
+      "0": {
+        "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
+        "epoch_score": 0.714,
+        "ema_score": 0.2698,
+        "samples": [
+          {
+            "score": 0.6841212375449398,
+            "task": "block_header",
+            "elapsed": 3.109,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.5544070427913346,
+            "task": "gas_price",
+            "elapsed": 3.287,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.8158965345413465,
+            "task": "account_state",
+            "elapsed": 3.218,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.8833333333333333,
+            "task": "block_header",
+            "elapsed": 0.167,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.6953933919927789,
+            "task": "gas_price",
+            "elapsed": 3.272,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.7877818161449855,
+            "task": "account_state",
+            "elapsed": 3.286,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.7296146823893578,
+            "task": "block_header",
+            "elapsed": 3.124,
+            "signature_ok": true,
+            "correct": true
+          },
+          {
+            "score": 0.5613894893026001,
+            "task": "gas_price",
+            "elapsed": 3.188,
+            "signature_ok": true,
+            "correct": true
+          }
+        ]
+      }
+    },
+    "at": 1790216032,
+    "weights": {
+      "0": 1.0
+    },
+    "set_weights": {
+      "ok": true,
+      "epoch": 4,
+      "incentive": {
+        "0": 1.0
+      }
+    }
+  },
+  "updated": 1790216090
+}

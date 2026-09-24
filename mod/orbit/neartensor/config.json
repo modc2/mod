@@ -1,8 +1,19 @@
 {
     "name": "neartensor",
-    "description": "NearTensor \u2014 Bittensor-inspired subnet protocol on NEAR Protocol. Register subnets, run validators, stake NEAR, and follow consensus/emissions.",
+    "description": "NearTensor \u2014 a dedicated Bittensor subnet for NEAR chain attestation. Miners serve verifiable NEAR state, validators re-verify at the anchored block and set weights; runs local-first or on subtensor. Includes the NEAR-side subnet contracts.",
     "port": 50180,
     "app_port": 50181,
+    "subnet": {
+        "network": "local",
+        "netuid": 0,
+        "near_network": "testnet",
+        "miner_port": 50184,
+        "epoch_seconds": 60,
+        "sample_size": 8,
+        "ema_alpha": 0.3,
+        "wallet_name": "neartensor",
+        "wallet_hotkey": "default"
+    },
     "urls": {
         "api": "http://localhost:50180",
         "app": "http://localhost:50181"
@@ -11,7 +22,7 @@
     "contracts": {
         "near_testnet": {}
     },
-    "schema": "QmezhpMhgQdwtTsPFNxvCczojkbDeyS76Y6gs927RsS85n",
+    "schema": "QmdYT23MFcVwDqpvA47WHvCJJvLU7DVzUWaTuzz1VynSFQ",
     "endpoints": {
         "GET /health": "Liveness probe",
         "GET /status": "Deployment status",
@@ -22,7 +33,14 @@
         "POST /neartensor/register_validator": "Register a validator on a subnet",
         "POST /neartensor/stake_on": "Stake NEAR on a validator",
         "POST /neartensor/checkin": "Validator checkin",
-        "POST /neartensor/produce_block": "Produce a block"
+        "POST /neartensor/produce_block": "Produce a block",
+        "POST /neartensor/sn_status": "Bittensor subnet status (chain, netuid, metagraph, validator scores)",
+        "POST /neartensor/sn_metagraph": "Full subnet metagraph (neurons, endpoints, incentive)",
+        "POST /neartensor/sn_epoch": "Run one validation epoch: query miners, verify vs NEAR, set weights",
+        "POST /neartensor/sn_task": "Send one attestation task to the local miner",
+        "POST /neartensor/sn_register": "Register this box's hotkey as miner or validator",
+        "POST /neartensor/sn_serve": "Start miner + validator neurons under pm2",
+        "POST /neartensor/sn_kill": "Stop the subnet neurons"
     },
     "fns": [
         "forward",
@@ -40,6 +58,15 @@
         "produce_block",
         "register_subnet",
         "boost_subnet",
+        "sn_status",
+        "sn_metagraph",
+        "sn_register",
+        "sn_epoch",
+        "sn_task",
+        "sn_miner",
+        "sn_validator",
+        "sn_serve",
+        "sn_kill",
         "build",
         "deploy",
         "serve",

@@ -323,6 +323,35 @@ has been played, hardest first, with the models that played it ranked
 underneath and a `spread` column — best model minus worst. A task everybody
 scores the same on ranks nobody, and that is the number that says so.
 
+## Skills and classes — the same scores, cumulated
+
+A task measures one thing. A **skill** is a named bundle of related tasks,
+each carrying a weight, and its board is the benchmark those weights cumulate
+into: an agent's skill score is the weighted mean of its last score on the
+bundle's tasks — over the tasks it actually played. Partial coverage is
+honest, not penalised: a task an agent never played is excluded from both the
+numerator and the denominator, and the board's coverage column says how much
+of the bundle the number rests on. An agent with no coverage at all is not on
+the board.
+
+A **class** is the same idea one level up: a named bundle of skills, each
+with a weight of its own, so a score rolls task → skill → class. The class
+board shows each agent's rolled-up benchmark with the per-skill breakdown
+beside it, under the same coverage rule at both levels.
+
+Both are assembled in the console (the arena's SKILLS view) and the door in
+is **semantic search over the pool**: `GET /arena/tasks/search?q=` ranks
+every task against a plain-language query — title, prompt, checks, fixture
+filenames, tags — using the module's own BM25-lite retrieval engine (the one
+the memory subsystem searches with). It is dependency-free and entirely
+local; no embedding service is involved and nothing leaves the box.
+
+Anyone signed in can create a skill or a class; it is filed under the
+caller's address, and only its author (or the host) edits or removes it.
+Weights default to 1.0. Deleting a skill does not break the classes that
+held it — the class flags the missing member and its benchmark quietly
+narrows to the skills that still exist.
+
 ## The background process
 
 `Scheduler` is one daemon thread the API starts at boot. Every tick
@@ -420,6 +449,38 @@ POST /arena/tasks/draft      signed in: {description} -> a spec, written by the
 POST /arena/tasks            signed in: {title, prompt, steps, files, scorers,
                              slug?} — save one; slug = edit that task in place
 DELETE /arena/tasks/{slug}   its author, or the host
+
+GET  /arena/tasks/search?q=&k=
+                             the pool ranked against a plain-language query,
+                             best first — how a skill's task list is put
+                             together. Scored by the module's own local
+                             BM25-lite over the whole spec (title, prompt,
+                             checks, fixture names); no service, no sign-in
+GET  /arena/skills           every skill: a named bundle of tasks, each with a
+                             weight, and the benchmark they cumulate into —
+                             best agent, best model, participants
+GET  /arena/skills/{id}      one skill's board: agents by weighted mean of
+                             their last score on the bundle's tasks, over the
+                             tasks each actually played (an unplayed task is
+                             excluded from both sides, never counted as zero),
+                             plus the models ranked the same way
+POST /arena/skills           signed in: {name, description?, tasks: [{key,
+                             weight?}]} — filed under the caller's address
+PUT  /arena/skills/{id}      its author, or the host
+DELETE /arena/skills/{id}    its author, or the host
+
+GET  /arena/classes          every class: a named bundle of skills, each with
+                             a weight of its own, so scores cumulate
+                             task -> skill -> class
+GET  /arena/classes/{id}     one class's benchmark: each agent's skill scores
+                             rolled up by the class weights, with the
+                             per-skill breakdown; same coverage honesty —
+                             a skill an agent never touched is left out of
+                             the division, and the coverage column says so
+POST /arena/classes          signed in: {name, description?, skills: [{id,
+                             weight?}]}
+PUT  /arena/classes/{id}     its author, or the host
+DELETE /arena/classes/{id}   its author, or the host
 
 GET  /arena/openarena        the bridge: is it up, its pool, who is entered
 GET  /arena/openarena/tasks/{slug}

@@ -37,13 +37,13 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 try:  # uvicorn src.api.app:app  (package) — and plain `python app.py` (script)
-    from . import (arena, auth, catalog, cloud, keys, ledger, mcp as mcp_rpc,
-                   providers, server_rt)
+    from . import (arena, auth, catalog, cloud, fleet_arena, keys, ledger,
+                   mcp as mcp_rpc, providers, server_rt)
 except ImportError:  # pragma: no cover
-    import arena, auth, catalog, cloud, keys, ledger, providers, server_rt
+    import arena, auth, catalog, cloud, fleet_arena, keys, ledger, providers, server_rt
     import mcp as mcp_rpc
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 START = time.time()
 
 app = FastAPI(
@@ -175,6 +175,9 @@ def root():
             "GET /auth/owner", "POST /embed", "POST /transcribe",
             "GET /arena/games", "POST /arena/games", "POST /arena/match",
             "GET /arena/leaderboard",
+            "GET /arena/fleet", "GET /arena/fleet/games",
+            "POST /arena/fleet/match", "GET /arena/fleet/board",
+            "GET /arena/fleet/matches", "GET /arena/fleet/matches/{id}",
             "GET /v1/models", "POST /v1/chat/completions", "POST /v1/embeddings",
             "GET /providers", "GET /providers/{id}", "GET /calls",
             "GET /calls/stats", "POST /calls/report", "GET|POST /mcp",
@@ -629,6 +632,102 @@ def arena_result(request: Request, payload: Dict[str, Any] = Body(...),
 @app.get("/arena/leaderboard")
 def arena_board(game: Optional[str] = None):
     return arena.leaderboard(game)
+
+
+# ── the fleet arena ──────────────────────────────────────────────────
+#
+# The local arena above is prompt-and-check: rounds scored by a rule, no
+# opponent. The arena *module* (:50470) is the fleet's real referee — wasm
+# and class games, seats, Elo, transcripts — and its `model` player kind
+# already answers through this module's /v1. These endpoints are the other
+# direction: browse its games, seat an LFM, run a rated match and read the
+# board without the console ever learning the arena's own REST shape.
+
+@app.get("/arena/fleet")
+def fleet_status():
+    """Is the arena module up, and how big it is. ok:false is an answer."""
+    return fleet_arena.status()
+
+
+@app.get("/arena/fleet/games")
+def fleet_games(q: Optional[str] = None):
+    """The arena's stored games — tic-tac-toe to harvested coding recons."""
+    try:
+        return {"arena": fleet_arena.BASE, "games": fleet_arena.games(q)}
+    except fleet_arena.ArenaDown as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.post("/arena/fleet/match")
+def fleet_match(request: Request, payload: Dict[str, Any] = Body(...),
+                authorization: Optional[str] = Header(None)):
+    """Seat LFMs at an arena game and run the match to the end.
+
+    Every move the arena asks a seat for comes back through this module's
+    /v1, so the match spends this box's compute — which is why it takes the
+    same sign-in /chat does. Two or more seats is rated; one is practice.
+    """
+    session = _guard(authorization, "session")
+    game = (payload.get("game") or "").strip()
+    models = [m for m in (payload.get("models") or []) if m and str(m).strip()]
+    opponents = [o for o in (payload.get("opponents") or []) if o and str(o).strip()]
+    if not game:
+        raise HTTPException(400, "no game named")
+    if not models:
+        raise HTTPException(400, "no models entered")
+    if len(models) > 4:
+        raise HTTPException(400, "four entrants a match — the box is not a cluster")
+    ledger.tag(getattr(request.state, "call", None), kind="arena",
+               provider="arena", model=", ".join(models)[:120], game=game)
+    try:
+        return fleet_arena.match(
+            game, models,
+            system=payload.get("system"),
+            seed=payload.get("seed"), turns=payload.get("turns"),
+            timeout_ms=payload.get("timeout_ms"),
+            owner=session.get("address", ""),
+            opponents=opponents)
+    except fleet_arena.ArenaDown as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/arena/fleet/board")
+def fleet_board(game: Optional[str] = None, limit: int = 50,
+                lfm_only: bool = False):
+    """The arena's Elo board. lfm_only=1 keeps just the model seats."""
+    try:
+        return fleet_arena.board(game, limit, lfm_only)
+    except fleet_arena.ArenaDown as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/arena/fleet/matches")
+def fleet_matches(game: Optional[str] = None, player: Optional[str] = None,
+                  limit: int = 20):
+    """Recent arena matches, newest first."""
+    try:
+        return fleet_arena.matches(game, player, limit)
+    except fleet_arena.ArenaDown as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/arena/fleet/matches/{match_id}")
+def fleet_match_detail(match_id: str):
+    """One arena match in full — every seat's prompt, reply and read move."""
+    try:
+        return fleet_arena.match_detail(match_id)
+    except fleet_arena.ArenaDown as e:
+        raise HTTPException(503, str(e))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 # ── providers ────────────────────────────────────────────────────────

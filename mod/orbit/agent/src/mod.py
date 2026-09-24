@@ -2147,7 +2147,10 @@ class Mod(Agent):
                                 # scored, how fast it was, what it burned
                                 'arena_models', 'arena_model', 'arena_task_board',
                                 # skills: named task bundles with composite leaderboards
+                                # classes: skills bundled one level up; search
+                                # is how the pool is read to bundle from
                                 'arena_skills', 'arena_skill',
+                                'arena_classes', 'arena_class', 'arena_task_search',
                                 'key_info', 'balance',
                                 'credits', 'credit_deposit', 'credit_price',
                                 # vaults self-scope to the caller's verified
@@ -2163,8 +2166,9 @@ class Mod(Agent):
                                 # it — each of these enforces that itself, and
                                 # a draft additionally answers to run policy
                                 'arena_task_draft', 'arena_task_add', 'arena_task_rm',
-                                # skill writes: signed-in, owner recorded
+                                # skill/class writes: signed-in, owner recorded
                                 'arena_skill_create', 'arena_skill_update', 'arena_skill_rm',
+                                'arena_class_create', 'arena_class_update', 'arena_class_rm',
                                 # vibecoding an agent enforces its own sign-in
                                 # and, being a model run, run policy — exactly
                                 # like a task draft
@@ -3011,7 +3015,8 @@ class Mod(Agent):
             recall, episodes, facts, exchanges, memory_state,
             arena, arena_tasks, arena_matches, arena_card, arena_status,
             arena_models, arena_model, arena_task_board,
-            arena_skills, arena_skill (id=),
+            arena_skills, arena_skill (id=), arena_task_search (query=),
+            arena_classes, arena_class (id=),
             openarena, openarena_task, openarena_sources,
             credits, credit_price (network=),
             credit_deposit (tx_hash=, network=base|ethereum, provider=openrouter|venice)
@@ -3051,6 +3056,12 @@ class Mod(Agent):
             arena_skill_create - Bundle tasks into a named skill (name=, tasks=, description=)
             arena_skill_update - Adjust a skill's tasks or weights (id=, tasks=, name=)
             arena_skill_rm   - Remove a skill (id=)
+            arena_task_search - The task pool ranked against a query (query=, k=)
+            arena_classes    - Every class: skills bundled one level up
+            arena_class      - One class's rolled-up benchmark (id=)
+            arena_class_create - Bundle skills into a class (name=, skills=, description=)
+            arena_class_update - Adjust a class's skills or weights (id=, skills=, name=)
+            arena_class_rm   - Remove a class (id=)
             openarena        - The openarena bridge: is it up, what it holds
             openarena_task   - One openarena task in full (slug=)
             openarena_sources- Benchmarks it can pull off the web
@@ -3185,6 +3196,15 @@ class Mod(Agent):
             'arena_skills': lambda: self.arena.forward('skills'),
             'arena_skill': lambda: self.arena.forward('skill',
                                                       id=kwargs.get('id') or kwargs.get('skill', '')),
+            # the pool ranked against a plain-language query — how a skill's
+            # task list is assembled. Local BM25, no service, no key
+            'arena_task_search': lambda: self.arena.forward(
+                'task_search', query=kwargs.get('query') or kwargs.get('q', ''),
+                k=kwargs.get('k', 20)),
+            # classes: skills bundled one level up, scores rolled up with them
+            'arena_classes': lambda: self.arena.forward('classes'),
+            'arena_class': lambda: self.arena.forward('class',
+                                                      id=kwargs.get('id', '')),
             'arena_skill_create': lambda: self.arena.forward('skill_create',
                                                               name=kwargs.get('name', ''),
                                                               description=kwargs.get('description', ''),
@@ -3202,7 +3222,10 @@ class Mod(Agent):
             'arena_task_draft': lambda: self.arena_task_draft(
                 kwargs.get('description', ''), model=kwargs.get('model'),
                 provider=kwargs.get('provider'), free=bool(kwargs.get('free')),
-                steps=kwargs.get('steps', 4), key=key),
+                steps=kwargs.get('steps', 4),
+                schema=kwargs.get('schema', 'agent'),
+                harness=kwargs.get('harness'),
+                save=bool(kwargs.get('save')), key=key),
             'arena_task_add': lambda: self.arena_task_add(
                 kwargs.get('spec') or {}, slug=kwargs.get('slug'), key=key),
             # vibecode an agent: description in, a reviewed draft (or, with
@@ -3211,7 +3234,8 @@ class Mod(Agent):
                 kwargs.get('description', ''), name=kwargs.get('name'),
                 model=kwargs.get('model'), provider=kwargs.get('provider'),
                 free=bool(kwargs.get('free')), steps=kwargs.get('steps', 4),
-                save=bool(kwargs.get('save')), key=key),
+                save=bool(kwargs.get('save')),
+                harness=kwargs.get('harness'), key=key),
             'arena_task_rm': lambda: self.arena_task_rm(kwargs.get('slug', ''), key=key),
             # the openarena schema: a statement plus graded cases, stored and
             # judged next door (see arena/openarena.py)
@@ -3364,6 +3388,19 @@ class Mod(Agent):
                                                               tasks=kwargs.get('tasks')),
             'arena_skill_rm': lambda: self.arena.forward('skill_rm',
                                                           id=kwargs.get('id') or kwargs.get('skill', '')),
+            # class writes: same contract as skills — signed-in, owner recorded
+            'arena_class_create': lambda: self.arena.forward('class_create',
+                                                              name=kwargs.get('name', ''),
+                                                              description=kwargs.get('description', ''),
+                                                              skills=kwargs.get('skills') or [],
+                                                              owner=self.identity.addr(key)),
+            'arena_class_update': lambda: self.arena.forward('class_update',
+                                                              id=kwargs.get('id', ''),
+                                                              name=kwargs.get('name'),
+                                                              description=kwargs.get('description'),
+                                                              skills=kwargs.get('skills')),
+            'arena_class_rm': lambda: self.arena.forward('class_rm',
+                                                          id=kwargs.get('id', '')),
             # openarena calls back into /run to make our entrant play, which
             # spends the host's key — so entering one is the host's call
             'openarena_enter': lambda: self.arena_oa_enter(
@@ -4142,7 +4179,7 @@ class Mod(Agent):
 
     def agent_vibe(self, description: str, name: str = None, model: str = None,
                    provider: str = None, free: bool = False, steps: int = 4,
-                   save: bool = False, key=None) -> dict:
+                   save: bool = False, harness: str = None, key=None) -> dict:
         """Vibecode an agent: a plain description in, a whole agent out.
 
         The vibe-builder agent designs it — name, icon, prompt — with the
@@ -4151,6 +4188,10 @@ class Mod(Agent):
         that catalog anyway and inventions are dropped. A caller who named
         the agent gets that name; anyone else gets one the drafter made up
         that no existing agent answers to.
+
+        `harness` hands the drafting run to an external agent CLI ('build' /
+        'buildmod' is the build console, 'claude' is Claude Code) instead of
+        this module's loop — same gate as any harness run.
 
         `save=False` returns the draft for the editor to review and file
         itself; `save=True` creates the agent under the caller's address
@@ -4177,10 +4218,10 @@ class Mod(Agent):
                  f"TOOL CATALOG (pick only these exact names):\n{tool_lines}\n\n"
                  f"TOOLBOXES (a name here in \"tools\" takes the bundle):\n"
                  f"{box_lines or '  (none)'}")
-        trace = self._run(
+        trace = self._draft_trace(
             query=query,
-            agent_type=self.VIBE_BUILDER, model=model, provider=provider,
-            steps=max(2, min(int(steps or 4), 8)), free=free, key=key,
+            agent_type=self.VIBE_BUILDER, harness=harness, model=model,
+            provider=provider, steps=steps, free=free, key=key,
             # the agent has no file tools, but a stray write must not land in
             # whatever directory the API happens to be running from
             path=str(Path.home() / '.mod' / 'agent'),
@@ -4188,17 +4229,7 @@ class Mod(Agent):
         answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
         spec = self._parse_agent_json(answer)
         if spec is None and isinstance(trace, list):
-            # a small model sometimes leaves the JSON in a think step and
-            # finishes with prose — the spec anywhere in the trace still counts
-            for s in trace:
-                if not isinstance(s, dict):
-                    continue
-                for t in [s.get('result'), *(s.get('params') or {}).values()]:
-                    spec = self._parse_agent_json(t) if isinstance(t, str) else None
-                    if spec:
-                        break
-                if spec:
-                    break
+            spec = self._spec_scan(trace, self._parse_agent_json)
         if spec is None:
             return {"error": "the vibe-builder did not return an agent spec — "
                              "try describing the agent more concretely",

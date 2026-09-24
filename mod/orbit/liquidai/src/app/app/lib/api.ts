@@ -4,6 +4,9 @@ import type {
   Catalog,
   ChatMessage,
   Embedding,
+  FleetGame,
+  FleetMatch,
+  FleetPlayer,
   Game,
   KeyStatus,
   Leaderboard,
@@ -169,6 +172,25 @@ export const postBrowserResult = (body: {
 
 export const fetchLeaderboard = (game?: string) =>
   j<Leaderboard>(`/arena/leaderboard${game ? `?game=${encodeURIComponent(game)}` : ""}`);
+
+// ── the fleet arena — the arena module's games, through our bridge ──
+
+export const fetchFleetGames = () =>
+  j<{ arena: string; games: FleetGame[] }>("/arena/fleet/games");
+
+export const runFleetMatch = (game: string, models: string[], system?: string) =>
+  j<FleetMatch>("/arena/fleet/match", {
+    method: "POST",
+    body: JSON.stringify({ game, models, ...(system ? { system } : {}) }),
+  });
+
+export const fetchFleetBoard = (game?: string, lfmOnly = false) =>
+  j<{ game: string | null; count: number; players: FleetPlayer[] }>(
+    `/arena/fleet/board?limit=50${lfmOnly ? "&lfm_only=1" : ""}${
+      game ? `&game=${encodeURIComponent(game)}` : ""}`);
+
+export const fetchFleetMatch = (id: string) =>
+  j<FleetMatch>(`/arena/fleet/matches/${encodeURIComponent(id)}`);
 
 // ── chat ────────────────────────────────────────────────────────────
 

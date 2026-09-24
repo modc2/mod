@@ -6,6 +6,7 @@ interface HeaderProps {
 }
 
 const tabs = [
+  { id: "bittensor", label: "Bittensor" },
   { id: "subnets", label: "Subnets" },
   { id: "validators", label: "Validators" },
   { id: "staking", label: "Staking" },

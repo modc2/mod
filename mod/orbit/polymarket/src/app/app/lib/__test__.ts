@@ -38,6 +38,7 @@ import {
 import {
   applySemanticQuery, compileGate, parseSemanticQuery, semanticMatch,
 } from "./semanticFilter";
+import { curveSteadiness, STEADINESS_UNKNOWN } from "./scoreFormula";
 import {
   describeSentiment, readSentiment, sentimentBreakdown, sentimentFilterActive,
   sentimentReject, type MarketSentiment, type SentimentLookup,
@@ -1239,6 +1240,27 @@ console.log("\n─ the win record: a hit rate AND where in the window it was ear
   // A resolution that paid out MORE than the leg cost is a win like any other.
   const redeemed = winRecord([], from, to, [0, 1, 2, 3, 4].map((b) => settledLeg(b, 5)));
   ok(redeemed.wins === 5 && redeemed.winRate === 1, "a $1 redemption is a win even though nothing was sold");
+}
+
+console.log("\n─ steadiness: consistent returns across the PERIOD, not one lucky spike ─");
+{
+  // Fixtures mirror routes.rs `sort_by_steady_ranks_consistent_returns` — the
+  // two implementations MUST produce the same ordering.
+  const stairs = curveSteadiness([0, 10, 21, 30, 41, 50, 61, 70]);
+  const spike = curveSteadiness([0, 0, 0, 0, 0.5, 0, -0.5, 70]);
+  const bleeder = curveSteadiness([0, -10, -20, -30, -41, -50, -61, -70]);
+  ok(stairs > 1, `even gains score high (got ${stairs.toFixed(2)})`);
+  ok(spike > 0 && spike < 0.5, `same P&L from one late jump scores near 0 (got ${spike.toFixed(2)})`);
+  ok(bleeder < -1, `a steady loser is negative (got ${bleeder.toFixed(2)})`);
+  ok(stairs > spike && spike > bleeder, "staircase > spike > bleeder — the ordering ROI can't see");
+
+  // Caps and sentinels, same cases as the Rust twin.
+  ok(curveSteadiness([0, 1, 2, 3, 4]) === 10, "an arrow-straight climb caps at +10, not Infinity");
+  ok(curveSteadiness([4, 3, 2, 1, 0]) === -10, "…and the straight bleed at -10");
+  ok(curveSteadiness([0, 0, 0, 0, 1]) === STEADINESS_UNKNOWN, "under 3 moved segments is UNKNOWN, not perfect");
+  ok(curveSteadiness([0, 1, 2]) === STEADINESS_UNKNOWN, "a 3-point curve can't be judged");
+  ok(curveSteadiness(undefined) === STEADINESS_UNKNOWN && curveSteadiness(null) === STEADINESS_UNKNOWN,
+    "no curve at all is UNKNOWN");
 }
 
 console.log("\n─ the STEADY filter: unknown is CUT, because shape is its subject ─");

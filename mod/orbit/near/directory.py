@@ -332,8 +332,10 @@ def snapshot(network=None, q=None, limit=50, offset=0):
 
 
 def note(network, account_id, code_hash=None, storage_bytes=None,
-         balance_near=None):
-    """Discovery by use: any lookup that finds code feeds the index."""
+         balance_near=None, methods=None):
+    """Discovery by use: any lookup that finds code feeds the index — and a
+    parsed interface (its WASM export names) makes the contract searchable
+    by what it can do, not just what it is called."""
     try:
         d = get(network)
         with d.lock:
@@ -347,6 +349,8 @@ def note(network, account_id, code_hash=None, storage_bytes=None,
                 c['bytes'] = storage_bytes
             if balance_near is not None:
                 c['near'] = round(balance_near, 2)
+            if methods:
+                c['fns'] = list(methods)[:64]
         d.save()
     except Exception:
         pass                      # the index is a bonus, never a failure

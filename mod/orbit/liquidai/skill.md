@@ -18,7 +18,9 @@ API `:50460` (`/api/liquidai`) · console `:50461` (`/liquidai`)
 - pulling LFM weights onto this box, or checking what's already pulled
 - asking a VLM about an image, or scoring lines against each other with an
   encoder
-- benchmarking small models against each other on a rule (ARENA)
+- benchmarking small models against each other on a rule (ARENA · LOCAL)
+- seating LFMs at the arena module's games — wasm bots, Elo, real opponents
+  (ARENA · FLEET; `fleet_play game=ttt models=LiquidAI/LFM2.5-350M vs=minimax`)
 - using LFMs as an OpenAI-compatible provider (`/v1/*`) from any client
 
 Not for: general LLM routing (that's `dev`), Claude jobs (`claude`, `agent`),
@@ -62,8 +64,9 @@ m liquidai/serve | kill | status | logs | test
 `POST /chat` (SSE) · `GET /cloud/models` · `POST /auth/nonce` ·
 `POST /auth/verify` · `GET /auth/me` · `GET /auth/owner` · `POST /embed` ·
 `POST /transcribe` (multipart) · `GET|POST /arena/games` · `POST /arena/match` ·
-`GET /arena/leaderboard` · `GET /v1/models` · `POST /v1/chat/completions` ·
-`POST /v1/embeddings`
+`GET /arena/leaderboard` · `GET /arena/fleet` · `GET /arena/fleet/games` ·
+`POST /arena/fleet/match` · `GET /arena/fleet/board` · `GET /arena/fleet/matches` ·
+`GET /v1/models` · `POST /v1/chat/completions` · `POST /v1/embeddings`
 
 ```bash
 curl -N localhost:50460/chat -H 'content-type: application/json' -d '{

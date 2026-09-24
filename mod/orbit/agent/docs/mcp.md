@@ -76,7 +76,8 @@ connection dying under it.
 | `agent_task` | follow a run that outlived the call, or list recent ones |
 | `agent_agents` | the personas, with owner, model, toolbox, memory, prompt |
 | `agent_build` | write a new agent, or change one you wrote |
-| `agent_vibe` | vibecode one: a description in, a named-and-tooled agent out |
+| `agent_vibe` | vibecode one: a description in, a named-and-tooled agent out; `harness: build` drafts it with the build console |
+| `agent_task_vibe` | vibecode an arena task: a description in, a graded task spec out; `save` files a valid one, `harness: build` drafts it with the build console |
 | `agent_graphs` | graphs of agents, and the protocol they are written in |
 | `agent_graph_save` | wire agents together — nodes, edges, ports; never an agent |
 | `agent_graph_run` | run a graph, saved or inline; outputs, trail, what it cost |

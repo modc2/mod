@@ -121,6 +121,13 @@ class Mod:
         return directory.snapshot(network=network or self._network, q=q,
                                   limit=limit, offset=offset)
 
+    def search(self, q, limit=10, network=None, **kwargs):
+        """Semantic search over the directory — "stablecoin" finds USDt,
+        "lending" finds Burrow, a method name finds contracts exporting it.
+        Ranked locally: tf-idf + concept lexicon + trigrams, no service."""
+        import search
+        return search.search(q, network=network or self._network, limit=limit)
+
     def view(self, contract, method, args=None, network=None, rpc=None):
         """Call a view method with JSON args. Free — no key, no gas."""
         return self.client(network, rpc).view(contract, method, args)

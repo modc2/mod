@@ -43,6 +43,18 @@ if (consistency < 0.6) return null; // boom-bust
 return 100 * pnl / volume;`,
   },
   {
+    id: "steady-returns",
+    name: "STEADY RETURNS",
+    description:
+      "Consistent returns across the period, magnitude included: mean of the PnL curve's per-stretch gains ÷ their swing (the STEADY preset — a Sharpe over the window's time stretches). Unlike consistency, idle stretches count against it, so a flat line with one late spike scores near 0. Gated on $500 traded; unknown curves hidden.",
+    tags: ["consistent", "steady", "period", "returns", "sharpe"],
+    builtin: true,
+    source: `// steadiness = per-period Sharpe of the PnL curve, capped ±10; -99 = unknown.
+if (volume < 500) return null;       // too small to copy
+if (steadiness <= -99) return null;  // no curve to judge
+return steadiness;`,
+  },
+  {
     id: "consistency-x-roi",
     name: "CONSISTENCY × ROI",
     description:

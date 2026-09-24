@@ -936,6 +936,41 @@ fn curve_consistency(curve: Option<&Vec<f64>>) -> f64 {
     up as f64 / moved as f64
 }
 
+/// `steadiness` sentinel and cap — the metric is signed (a steady loser is
+/// legitimately negative), so -1 would collide with real values; -99 sits
+/// below the ±10 cap and sinks on desc like the other unknown sentinels.
+const STEADINESS_UNKNOWN: f64 = -99.0;
+const STEADINESS_CAP: f64 = 10.0;
+
+/// How consistently the window's returns ACCRUED: mean of the PnL curve's
+/// per-segment deltas over their population stdev — a Sharpe across the
+/// period's ~12 time stretches rather than per-trade. Unlike
+/// `curve_consistency` (direction-only), this weighs magnitude AND counts
+/// idle stretches against the score: a flat line with one lucky spike reads
+/// near 0, a staircase of even gains reads high. Capped to ±10 (zero swing
+/// would otherwise be infinite). MUST mirror the console's `curveSteadiness`
+/// (lib/scoreFormula.ts) exactly — it is the server sort behind the STEADY
+/// preset, and the client recomputes the same number from the shipped curve.
+fn curve_steadiness(curve: Option<&Vec<f64>>) -> f64 {
+    let Some(curve) = curve else { return STEADINESS_UNKNOWN };
+    if curve.len() < 4 {
+        return STEADINESS_UNKNOWN;
+    }
+    let deltas: Vec<f64> = curve.windows(2).map(|w| w[1] - w[0]).collect();
+    let moved = deltas.iter().filter(|d| **d != 0.0).count();
+    if moved < 3 {
+        return STEADINESS_UNKNOWN;
+    }
+    let n = deltas.len() as f64;
+    let mean = deltas.iter().sum::<f64>() / n;
+    let variance = deltas.iter().map(|d| (d - mean) * (d - mean)).sum::<f64>() / n;
+    let sd = variance.sqrt();
+    if sd == 0.0 {
+        return if mean > 0.0 { STEADINESS_CAP } else { -STEADINESS_CAP };
+    }
+    (mean / sd).clamp(-STEADINESS_CAP, STEADINESS_CAP)
+}
+
 fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, source: &str) -> Value {
     let sort = q.sort.as_deref().unwrap_or("pnl");
     let order = q.order.as_deref().unwrap_or("desc");
@@ -1178,6 +1213,12 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                 };
                 roi(a).partial_cmp(&roi(b))
             }
+            // STEADY preset — consistency of returns across the period, read
+            // off the (query-scoped, when a market filter recomputed it) PnL
+            // curve. The -99 unknown sentinel sinks below every real value
+            // (capped at ±10) on desc.
+            "steady" => curve_steadiness(a.pnl_curve.as_ref())
+                .partial_cmp(&curve_steadiness(b.pnl_curve.as_ref())),
             // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
             // bottom on desc — unknown recency must not outrank known.
             "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
@@ -1877,6 +1918,48 @@ mod tests {
 
         let off = apply_pagination(&all, &paged_query(json!({})), "memory");
         assert_eq!(off["total"].as_u64(), Some(3));
+    }
+
+    /// `sort=steady` ranks consistency of returns across the period: the
+    /// staircase of even gains outranks the same P&L from one late spike,
+    /// which outranks the steady loser; no curve (unknown, -99) sinks last.
+    /// This is the failure mode ROI can't see — the 30D board's top cards
+    /// are flat lines with one jump, and this is the sort that demotes them.
+    #[test]
+    fn sort_by_steady_ranks_consistent_returns() {
+        let mut stairs = trader_with_markets("0xstairs", &[("Bitcoin above $110,000", 0.0, 1)]);
+        stairs.pnl_curve = Some(vec![0.0, 10.0, 21.0, 30.0, 41.0, 50.0, 61.0, 70.0]);
+        let mut spike = trader_with_markets("0xspike", &[("Bitcoin above $110,000", 0.0, 1)]);
+        // Same final P&L, earned in one late jump after idling all period.
+        spike.pnl_curve = Some(vec![0.0, 0.0, 0.0, 0.0, 0.5, 0.0, -0.5, 70.0]);
+        let mut bleeder = trader_with_markets("0xbleed", &[("Bitcoin above $110,000", 0.0, 1)]);
+        bleeder.pnl_curve = Some(vec![0.0, -10.0, -20.0, -30.0, -41.0, -50.0, -61.0, -70.0]);
+        let blind = trader_with_markets("0xblind", &[("Bitcoin above $110,000", 0.0, 1)]);
+        assert!(blind.pnl_curve.is_none());
+
+        let s = |t: &Trader| curve_steadiness(t.pnl_curve.as_ref());
+        assert!(s(&stairs) > 1.0, "even gains score high (got {})", s(&stairs));
+        assert!(s(&spike) > 0.0 && s(&spike) < 0.5, "one spike scores near 0 (got {})", s(&spike));
+        assert!(s(&bleeder) < -1.0, "a steady loser is negative (got {})", s(&bleeder));
+        assert_eq!(s(&blind), STEADINESS_UNKNOWN);
+
+        let result = apply_pagination(
+            &payload(vec![blind, spike, stairs, bleeder]),
+            &paged_query(json!({"sort": "steady", "order": "desc"})),
+            "memory",
+        );
+        assert_eq!(addresses(&result), vec!["0xstairs", "0xspike", "0xbleed", "0xblind"]);
+    }
+
+    /// An arrow-straight climb has zero swing — capped, not infinite; a
+    /// curve that never moves enough to judge is unknown, not perfect.
+    #[test]
+    fn steadiness_caps_and_sentinels() {
+        assert_eq!(curve_steadiness(Some(&vec![0.0, 1.0, 2.0, 3.0, 4.0])), STEADINESS_CAP);
+        assert_eq!(curve_steadiness(Some(&vec![4.0, 3.0, 2.0, 1.0, 0.0])), -STEADINESS_CAP);
+        assert_eq!(curve_steadiness(Some(&vec![0.0, 0.0, 0.0, 0.0, 1.0])), STEADINESS_UNKNOWN);
+        assert_eq!(curve_steadiness(Some(&vec![0.0, 1.0, 2.0])), STEADINESS_UNKNOWN);
+        assert_eq!(curve_steadiness(None), STEADINESS_UNKNOWN);
     }
 
     /// Match count still decides — it just decides ties now, which is what

@@ -111,9 +111,12 @@ m liquidai/pulls                             # download progress
 m liquidai/load repo=LiquidAI/LFM2.5-350M    # make it resident
 m liquidai/chat prompt="why are LFMs small?" # server-side, streamed, with stats
 m liquidai/embed texts="a cat|a kitten|a bus" # vectors + the pairwise matrix
-m liquidai/games                             # what the arena plays
+m liquidai/games                             # what the local arena plays
 m liquidai/play game=arithmetic models=LiquidAI/LFM2.5-350M
-m liquidai/board                             # the leaderboard
+m liquidai/board                             # the local leaderboard
+m liquidai/fleet_games                       # the arena module's games
+m liquidai/fleet_play game=ttt models=LiquidAI/LFM2.5-350M vs=minimax
+m liquidai/fleet_board                       # arena Elo, model seats only
 m liquidai/auth                              # who owns this box, who signed in
 m liquidai/disown                            # release the claim
 m liquidai/set_key key=sk-...                # cloud BYOK
@@ -146,6 +149,11 @@ m liquidai/status                            # services + health
 | GET`|`POST | `/arena/games` | every game / write one                                    |
 | POST   | `/arena/match`      | up to 4 models through a game, scored per round           |
 | GET    | `/arena/leaderboard`| best run per model per game                               |
+| GET    | `/arena/fleet`      | is the arena module up, and how big it is                 |
+| GET    | `/arena/fleet/games`| the arena module's stored games                           |
+| POST   | `/arena/fleet/match`| seat LFMs at an arena game, run it, Elo-rated             |
+| GET    | `/arena/fleet/board`| the arena module's Elo board (`?lfm_only=1`)              |
+| GET    | `/arena/fleet/matches` | recent arena matches / one in full at `/{id}`          |
 | GET    | `/v1/models`        | OpenAI-shaped model list                                  |
 | POST   | `/v1/chat/completions` | OpenAI chat completions                                |
 | POST   | `/v1/embeddings`    | OpenAI embeddings                                         |
@@ -196,10 +204,15 @@ same rules: nothing is round, every edge is hard, pressing moves the pixel).
   shows the key field. Those were a LOCAL tab until they moved next to the
   switch that makes them matter — you only pull weights or paste a key because
   the runtime you just chose can't run the model you just chose.
-- **ARENA** — models play scored games. A game is rounds, and a round is a
-  prompt plus a check (`contains`, `equals`, `number`, `regex`, `lines`,
-  `absent`) — no judge model, no rubric, which is what makes two runs
-  comparable. Four ship; write your own with ✚ NEW GAME, or fork a built-in.
+- **ARENA** — two boards behind one tab. LOCAL is this module's own games:
+  rounds, each a prompt plus a check (`contains`, `equals`, `number`, `regex`,
+  `lines`, `absent`) — no judge model, no rubric, which is what makes two
+  runs comparable. Four ship; write your own with ✚ NEW GAME, or fork a
+  built-in. FLEET is the arena *module's* games — wasm and class games with
+  seats, turns and Elo, refereed over there (:50470) while every move a
+  seated LFM makes is answered back through this module's /v1. The two
+  modules already trusted each other in one direction (every `model` seat in
+  the arena is an LFM); FLEET is the other one.
 - **MODEL** — one model's formats, plus the commands to run it under
   transformers, transformers.js and llama.cpp, because this board is a front
   door, not a lock-in.

@@ -1725,3 +1725,122 @@ class TestTierRound:
         # the scripted runner fails outright on 'bad', so nothing survives it
         assert rows['alpha']['retention'] == 0.0
         assert 'alpha' in matrix['carried']
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  SKILLS, CLASSES AND THE SEARCH THAT ASSEMBLES THEM
+# ═══════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def bundled(tmpdir):
+    """An arena with two skills and a class over them, plus scripted ratings."""
+    a = Arena(agents=FakeAgents(), root=os.path.join(tmpdir, 'arena'))
+    keys = [t['key'] for t in a.tasks()]
+    s1 = a.forward('skill_create', name='Coding',
+                   tasks=[{'key': keys[0], 'weight': 2.0}, keys[1]])
+    s2 = a.forward('skill_create', name='Files', tasks=[keys[2]])
+    c = a.forward('class_create', name='Engineering',
+                  skills=[{'id': s1['id'], 'weight': 3.0}, s2['id']])
+    a._state['ratings'] = {
+        'alpha': {'elo': 1250, 'matches': 4, 'score_sum': 3.2,
+                  'per_task': {keys[0]: {'last': 0.9}, keys[1]: {'last': 0.6}}},
+        'beta': {'elo': 1150, 'matches': 2, 'score_sum': 1.0,
+                 'per_task': {keys[0]: {'last': 0.5}, keys[2]: {'last': 1.0}}},
+    }
+    return a, s1, s2, c, keys
+
+
+class TestTaskSearch:
+
+    def test_search_ranks_the_pool_semantically(self, arena):
+        out = arena.forward('task_search', query='write a python function')
+        assert out['results'], 'a query about python finds the python tasks'
+        top = out['results'][0]
+        assert top['score'] > 0
+        text = ' '.join(str(v) for v in top.values()).lower()
+        assert 'python' in text
+
+    def test_an_empty_query_matches_nothing_not_everything(self, arena):
+        assert arena.forward('task_search', query='')['results'] == []
+        assert arena.forward('task_search', query='the and for')['results'] == []
+
+    def test_k_caps_the_results(self, arena):
+        out = arena.forward('task_search', query='file', k=2)
+        assert len(out['results']) <= 2
+
+    def test_a_result_is_a_summary_not_the_whole_spec(self, arena):
+        out = arena.forward('task_search', query='python')
+        for r in out['results']:
+            assert set(r) == {'score', 'key', 'suite', 'title', 'prompt',
+                              'checks', 'custom', 'owner'}
+            assert len(r['prompt']) <= 240
+
+
+class TestSkillBenchmark:
+
+    def test_weights_cumulate_into_the_benchmark(self, bundled):
+        a, s1, _, _, keys = bundled
+        lb = a.forward('skill', id=s1['id'])['leaderboard']
+        rows = {r['agent']: r for r in lb}
+        # alpha: (0.9*2 + 0.6*1) / 3
+        assert rows['alpha']['weighted_score'] == 0.8
+        # beta played only the weighted task — the unplayed one is excluded
+        # from both sides, never counted as a zero
+        assert rows['beta']['weighted_score'] == 0.5
+        assert rows['beta']['coverage'] == 0.5
+        assert rows['alpha']['rank'] == 1
+
+    def test_an_agent_with_no_coverage_is_off_the_board(self, bundled):
+        a, s1, _, _, _ = bundled
+        agents = {r['agent'] for r in a.forward('skill', id=s1['id'])['leaderboard']}
+        assert 'gamma' not in agents
+
+
+class TestClasses:
+
+    def test_crud_round_trip_and_persistence(self, bundled):
+        a, s1, _, c, _ = bundled
+        fresh = Arena(agents=FakeAgents(), root=a.root)
+        got = fresh.forward('class', id=c['id'])['class']
+        assert got['name'] == 'Engineering'
+        assert got['skills'][0] == {'id': s1['id'], 'weight': 3.0}
+        upd = fresh.forward('class_update', id=c['id'], name='Eng',
+                            skills=[s1['id']])
+        assert upd['name'] == 'Eng' and upd['skills'][0]['weight'] == 1.0
+        assert fresh.forward('class_rm', id=c['id'])['removed'] is True
+        assert 'error' in fresh.forward('class', id=c['id'])
+
+    def test_a_class_needs_a_name(self, bundled):
+        a = bundled[0]
+        assert 'error' in a.forward('class_create', name='   ')
+
+    def test_skill_scores_roll_up_by_weight(self, bundled):
+        a, _, _, c, _ = bundled
+        lb = a.forward('class', id=c['id'])['leaderboard']
+        rows = {r['agent']: r for r in lb}
+        # beta: Coding 0.5 at weight 3, Files 1.0 at weight 1 -> 0.625
+        assert rows['beta']['weighted_score'] == 0.625
+        assert rows['beta']['skills_played'] == 2
+        # alpha covers only Coding — scored over what it played, coverage says so
+        assert rows['alpha']['weighted_score'] == 0.8
+        assert rows['alpha']['coverage'] == 0.5
+        # the breakdown names each skill's contribution
+        per = {p['name']: p for p in rows['beta']['per_skill']}
+        assert per['Coding']['score'] == 0.5 and per['Coding']['weight'] == 3.0
+        assert per['Files']['score'] == 1.0
+
+    def test_the_class_list_carries_summaries(self, bundled):
+        a, _, _, _, _ = bundled
+        classes = a.forward('classes')['classes']
+        assert classes[0]['best_agent'] == 'alpha'
+        assert classes[0]['participants'] == 2
+
+    def test_a_deleted_skill_is_flagged_not_fatal(self, bundled):
+        a, s1, s2, c, _ = bundled
+        a.forward('skill_rm', id=s2['id'])
+        board = a.forward('class', id=c['id'])
+        flags = {s['id']: s['missing'] for s in board['skills']}
+        assert flags[s2['id']] is True and flags[s1['id']] is False
+        # the benchmark quietly narrows to the skills that still exist
+        rows = {r['agent']: r for r in board['leaderboard']}
+        assert rows['beta']['weighted_score'] == 0.5

@@ -75,6 +75,7 @@ try:
     from src.arena import drills as dr
     from src.arena import models as mb
     from src.arena import skills as sk
+    from src.arena import tiers as tb
 except ImportError:  # running the arena standalone
     import sys
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -85,6 +86,7 @@ except ImportError:  # running the arena standalone
     from src.arena import drills as dr
     from src.arena import models as mb
     from src.arena import skills as sk
+    from src.arena import tiers as tb
 
 
 # scoring weights — correctness dominates, but a run that errors out or burns
@@ -229,6 +231,7 @@ class Arena:
         self._running: Optional[Dict[str, Any]] = None   # the match in flight
         self.scheduler: Optional["Scheduler"] = None
         self.skills = sk.Skills(self.root)
+        self.classes = sk.Classes(self.root)
 
     # ── config ─────────────────────────────────────────────────────
 
@@ -1583,6 +1586,81 @@ class Arena:
             ],
         }
 
+    def search_tasks(self, query: str, k: int = 20) -> List[Dict[str, Any]]:
+        """The task pool ranked against a plain-language query — the door a
+        skill is assembled through. Entirely local (BM25-lite, no service)."""
+        return sk.search_tasks(query, self.tasks(), k=k)
+
+    # ── classes: skills bundled one level up ───────────────────────
+    #
+    # A class bundles skills the way a skill bundles tasks, with a weight
+    # per skill, so a score cumulates task -> skill -> class. The same
+    # coverage honesty applies at both levels.
+
+    def _skills_by_id(self) -> Dict[str, Dict[str, Any]]:
+        return {s["id"]: s for s in self.skills.list()}
+
+    def list_classes(self) -> List[Dict[str, Any]]:
+        """Every class, with a brief summary (best agent + best model)."""
+        classes = self.classes.list()
+        skills_by_id = self._skills_by_id()
+        ratings = self._state.get("ratings", {})
+        agents_meta = self._agents_meta()
+        all_matches = self.all_matches()
+        out = []
+        for cls in classes:
+            lb = sk.class_leaderboard(cls, skills_by_id, ratings, agents_meta)
+            mb_rows = sk.class_model_leaderboard(cls, skills_by_id, all_matches)
+            out.append(sk.class_summary(cls, lb, mb_rows))
+        return out
+
+    def get_class(self, class_id: str) -> Optional[Dict[str, Any]]:
+        return self.classes.get(class_id)
+
+    def create_class(self, name: str, description: str = "",
+                     skills: List[Any] = None, owner: str = "") -> Dict[str, Any]:
+        return self.classes.create(name, description=description,
+                                   skills=skills or [], owner=owner)
+
+    def update_class(self, class_id: str, name: str = None,
+                     description: str = None, skills: List[Any] = None,
+                     owner: str = None) -> Dict[str, Any]:
+        cls = self.classes.update(class_id, name=name, description=description,
+                                  skills=skills, owner=owner)
+        if not cls:
+            return {"error": f"class not found: {class_id}"}
+        return cls
+
+    def remove_class(self, class_id: str) -> Dict[str, Any]:
+        removed = self.classes.remove(class_id)
+        return {"removed": removed, "id": class_id}
+
+    def class_leaderboard(self, class_id: str) -> Dict[str, Any]:
+        """The class benchmark: agents by weighted skill scores rolled up,
+        with the per-skill breakdown and the best model across the class."""
+        cls = self.classes.get(class_id)
+        if not cls:
+            return {"error": f"class not found: {class_id}"}
+        skills_by_id = self._skills_by_id()
+        ratings = self._state.get("ratings", {})
+        agents_meta = self._agents_meta()
+        all_matches = self.all_matches()
+        lb = sk.class_leaderboard(cls, skills_by_id, ratings, agents_meta)
+        mb_rows = sk.class_model_leaderboard(cls, skills_by_id, all_matches)
+        return {
+            "class": cls,
+            "leaderboard": lb,
+            "best_model": mb_rows[0] if mb_rows else None,
+            "model_board": mb_rows,
+            "skills": [
+                {"id": m["id"], "weight": m.get("weight", 1.0),
+                 "name": (skills_by_id.get(m["id"]) or {}).get("name", m["id"]),
+                 "tasks": len((skills_by_id.get(m["id"]) or {}).get("tasks", [])),
+                 "missing": m["id"] not in skills_by_id}
+                for m in cls.get("skills", [])
+            ],
+        }
+
     def card(self, agent: str) -> Dict[str, Any]:
         """One agent's record: rating, per-task scores, recent matches."""
         r = self._rating(agent)
@@ -1710,6 +1788,14 @@ class Arena:
         forward('skill_create', name=, tasks=, description=, owner=)
         forward('skill_update', id=, name=, tasks=, description=)
         forward('skill_rm', id=)                   -> delete a skill
+        forward('task_search', query=, k=)         -> the pool ranked to bundle from
+
+        Classes — named bundles of skills, scores rolled up one more level:
+        forward('classes')                         -> all classes
+        forward('class', id=)                      -> one class + its benchmark
+        forward('class_create', name=, skills=, description=, owner=)
+        forward('class_update', id=, name=, skills=, description=)
+        forward('class_rm', id=)                   -> delete a class
 
         forward('qualify', agent=)                 -> score a newcomer
         forward('config', enabled=, free=, ...)    -> update the knobs
@@ -1761,6 +1847,22 @@ class Arena:
             return self.model_card(kwargs.get("model", ""))
         if action in ("task_board", "tasks_board"):
             return {"tasks": self.task_board()}
+        # ── tiers: the model held still, the agent moved ─────────────
+        if action == "tiers":
+            return {"tiers": self.tier_board(int(kwargs.get("min_agents", 2)))}
+        if action == "tier":
+            return self.tier_card(kwargs.get("model", ""))
+        if action == "tier_matrix":
+            return self.tier_matrix(ref=kwargs.get("ref"))
+        if action == "tier_run":
+            return self.run_tier(kwargs.get("model", ""),
+                                 provider=kwargs.get("provider"),
+                                 agents=kwargs.get("agents"),
+                                 tasks=kwargs.get("tasks"),
+                                 steps=kwargs.get("steps"),
+                                 free=bool(kwargs.get("free", False)),
+                                 reason=kwargs.get("reason"),
+                                 rate=bool(kwargs.get("rate", False)))
         # ── skills ───────────────────────────────────────────────────
         if action == "skills":
             return {"skills": self.list_skills()}
@@ -1788,6 +1890,37 @@ class Arena:
                 owner=kwargs.get("owner"))
         if action in ("skill_rm", "remove_skill", "delete_skill"):
             return self.remove_skill(kwargs.get("id") or kwargs.get("skill") or "")
+        if action in ("task_search", "search_tasks"):
+            return {"query": kwargs.get("query", ""),
+                    "results": self.search_tasks(kwargs.get("query", ""),
+                                                 k=int(kwargs.get("k", 20)))}
+        # ── classes ──────────────────────────────────────────────────
+        if action == "classes":
+            return {"classes": self.list_classes()}
+        if action == "class":
+            class_id = kwargs.get("id") or ""
+            if not class_id:
+                return {"error": "class id required"}
+            return self.class_leaderboard(class_id)
+        if action in ("class_create", "create_class"):
+            try:
+                cls = self.create_class(
+                    name=kwargs.get("name", ""),
+                    description=kwargs.get("description", ""),
+                    skills=kwargs.get("skills") or [],
+                    owner=kwargs.get("owner", ""))
+            except ValueError as e:
+                return {"error": str(e)}
+            return cls
+        if action in ("class_update", "update_class"):
+            return self.update_class(
+                class_id=kwargs.get("id") or "",
+                name=kwargs.get("name"),
+                description=kwargs.get("description"),
+                skills=kwargs.get("skills"),
+                owner=kwargs.get("owner"))
+        if action in ("class_rm", "remove_class", "delete_class"):
+            return self.remove_class(kwargs.get("id") or "")
         # ─────────────────────────────────────────────────────────────
         if action == "gauntlet":
             return self.run_gauntlet(kwargs.get("models") or [],

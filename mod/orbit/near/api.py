@@ -29,7 +29,7 @@ PORT = int(os.environ.get('PORT', 50910))
 ROUTE_TOOLS = {
     '/account': 'near_account', '/keys': 'near_keys',
     '/contract': 'near_contract', '/contracts': 'near_contracts',
-    '/directory': 'near_directory',
+    '/directory': 'near_directory', '/search': 'near_search',
     '/view': 'near_view', '/ft': 'near_ft',
     '/history': 'near_history', '/tx': 'near_tx', '/block': 'near_block',
     '/network': 'near_network', '/validators': 'near_validators',
@@ -71,6 +71,10 @@ def info():
             'GET /directory': 'every contract scraped off the chain itself — '
                               'q= filters, limit=/offset= page, status shows '
                               'how far the tail and backfill have reached',
+            'GET /search': 'q= — semantic search over the directory: '
+                           '"stablecoin" finds USDt/USDC, "lending" finds '
+                           'Burrow, a method name finds contracts that '
+                           'export it; ranked locally, matches explained',
             'GET|POST /view': 'contract=, method=, args= (JSON) — a view call',
             'GET /ft': 'contract=, account_id?= — a NEP-141 token, and a balance',
             'GET /history': 'account_id=, limit= — recent txns (indexer)',

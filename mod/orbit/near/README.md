@@ -1,7 +1,7 @@
 # near
 
-NEAR Protocol as one mod: a REST API, a browser console and twenty MCP
-tools running the same code on one port — fourteen reads, and a write half
+NEAR Protocol as one mod: a REST API, a browser console and twenty-one MCP
+tools running the same code on one port — fifteen reads, and a write half
 that deploys and manages contracts with keys from a keystore under
 `~/.mod/near/` (never the repo; no API ever returns a secret key).
 
@@ -42,6 +42,7 @@ python3 mcp.py            # the same tools over stdio
 | `near_contract` | callable methods, parsed from the WASM |
 | `near_contracts` | the contracts that are ON — curated per network + your own deploys, each verified live |
 | `near_directory` | every contract scraped off the chain itself — q= filters, limit/offset page |
+| `near_search` | the census asked in plain words — "stablecoin" finds USDt, "lending" finds Burrow, a method name finds contracts exporting it |
 | `near_view` | any view method, JSON args, free |
 | `near_ft` | a NEP-141 token, balances scaled by its decimals |
 | `near_history` | recent txns (NearBlocks indexer — RPC has no by-account query) |
@@ -82,6 +83,35 @@ re-polls the store every 15 s, so the browser never drifts from the index.
 ```bash
 m near/directory q=.near limit=20        # newest deploys matching a filter
 curl :50910/directory?network=mainnet    # same thing over REST
+```
+
+## Semantic search — the census asked in plain words
+
+`near_search` / `GET /search?q=` ranks the directory by meaning, not by
+substring, and it runs entirely locally — no model download, no embedding
+API, no third party. Three layered signals (`search.py`):
+
+- a **concept lexicon** maps what people mean onto what contracts are
+  called — `stablecoin` → USDt/USDC, `lending` → Burrow, `swap` → Ref —
+  applied to corpus and query alike, so terms meet in concept space
+- **tf-idf cosine** over everything the module knows about a contract:
+  account-id parts, curated labels and blurbs, and the WASM method names of
+  every interface it ever parsed — so `ft_transfer` finds token contracts
+- **trigrams** rescue typos: `usdcc` still lands on USDC
+
+Every result carries `matched:` — the terms that ranked it, so the answer
+explains itself. Exact and substring hits on account ids always surface
+first (the old behaviour, kept). The console's lookup bar uses it as a
+net: a query that isn't an account name, or a name the chain has never
+heard of, falls through to search instead of a dead `UNKNOWN_ACCOUNT`.
+
+The engine (`search.VectorIndex`) is deliberately generic — docs in,
+ranked matches with explanations out — so any module with a corpus to
+search can lift it whole.
+
+```bash
+m near/search q="liquid staking"         # meta-pool + linear, ranked
+curl ':50910/search?q=stablecoin'        # same thing over REST
 ```
 
 ## Writing — deploy and manage contracts

@@ -22,6 +22,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
+import { useDraftEngines } from './useDraftEngines'
 
 type ToolInfo = { description?: string; kind?: string }
 type Toolbox = { name: string; description?: string; tools: string[]; builtin?: boolean }
@@ -235,6 +236,11 @@ export default function AgentEditor({
   // lands in these fields and `create` below is still the caller's click.
   const [vibeText, setVibeText] = useState('')
   const [vibing, setVibing] = useState(false)
+  // '' = the vibe-builder on this module's loop; a harness name hands the
+  // drafting run to that CLI — the build console, Claude Code. Only offered
+  // when this caller could actually run it (useDraftEngines checks).
+  const [vibeEngine, setVibeEngine] = useState('')
+  const engines = useDraftEngines(token)
 
   const vibe = useCallback(async () => {
     const brief = vibeText.trim()
@@ -247,12 +253,14 @@ export default function AgentEditor({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // drafting is a model run — give it minutes, not the 8s a read gets
-        signal: AbortSignal.timeout(180000),
+        // (and a harness CLI gets the server's own 600s budget)
+        signal: AbortSignal.timeout(vibeEngine ? 620000 : 180000),
         body: JSON.stringify({
           description: brief,
           // a name already typed into the form is the caller's choice — the
           // drafter only mints one when the field is empty
           name: slugify(slug) || null,
+          harness: vibeEngine || null,
           key: token,
         }),
       })
@@ -273,7 +281,7 @@ export default function AgentEditor({
     } finally {
       setVibing(false)
     }
-  }, [vibeText, token, slug])
+  }, [vibeText, token, slug, vibeEngine])
 
   const save = useCallback(async (thenUse: boolean) => {
     const s = isNew ? slugify(slug) : name!
@@ -394,8 +402,17 @@ export default function AgentEditor({
               <span className="text-[9px] text-gray-600 min-w-0">
                 tools come from the live MCP catalog; leave the name blank and an untaken one is made up
               </span>
+              {/* who drafts it — this module's loop, or a harness CLI this
+                  caller may hand a run to (the build console, Claude Code) */}
+              {engines.length > 0 && (
+                <Select value={vibeEngine} accent="violet" size="sm"
+                  className="ml-auto w-36 shrink-0" title="Which agent drafts it"
+                  onChange={setVibeEngine}
+                  options={[{ value: '', label: 'vibe-builder' },
+                            ...engines.map(e => ({ value: e.name, label: e.label }))]} />
+              )}
               <button onClick={vibe} disabled={vibing || loading}
-                className="ml-auto shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-violet-400/30 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 transition">
+                className={`${engines.length ? '' : 'ml-auto '}shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-violet-400/30 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 transition`}>
                 {vibing ? 'vibing…' : '✧ vibe'}
               </button>
             </div>

@@ -13,6 +13,7 @@ neither can drift away from the other when a rule changes.
     agent_agents       the personas, and what each is built from
     agent_build        write a new one
     agent_vibe         vibecode one: a description in, a whole agent out
+    agent_task_vibe    vibecode an arena task: a description in, a graded spec out
     agent_parts        the live agent box: model, memory, toolbox, prompt
     agent_tools        the whole registry — shipped, custom, and the fleet
     agent_toolbox      the bundles, and snapping one on
@@ -417,7 +418,17 @@ def _t_vibe(a: dict, key):
                        description=a.get('description') or '',
                        name=a.get('name'), model=a.get('model'),
                        provider=a.get('provider'), free=bool(a.get('free')),
-                       steps=a.get('steps') or 4, save=bool(a.get('save'))))
+                       steps=a.get('steps') or 4, save=bool(a.get('save')),
+                       harness=a.get('harness')))
+
+
+def _t_task_vibe(a: dict, key):
+    return _clean(_fwd('arena_task_draft', key,
+                       description=a.get('description') or '',
+                       schema=a.get('schema') or 'agent',
+                       model=a.get('model'), provider=a.get('provider'),
+                       free=bool(a.get('free')), steps=a.get('steps') or 4,
+                       save=bool(a.get('save')), harness=a.get('harness')))
 
 
 def _t_parts(a: dict, key):
@@ -820,9 +831,42 @@ TOOLS: Dict[str, dict] = {
             'provider': _str('openrouter | venice | liquidai | …'),
             'free': _bool('draft on a zero-cost model'),
             'steps': _num('the drafting run\'s step budget (default 4, max 8)'),
+            'harness': _str('hand the DRAFTING run to an external agent CLI '
+                            'instead of this loop: build (the build console) | '
+                            'claude | codex | chainmod — host / console-owner '
+                            'only, like any harness run'),
             'key': _KEY,
         }, 'required': ['description']},
         'handler': _t_vibe,
+    },
+    'agent_task_vibe': {
+        'auth': True,
+        'description': 'Vibecode an arena task: describe what agents should be '
+                       'graded on and the task-builder drafts the whole spec — '
+                       'prompt, fixture files, deterministic checks (agent '
+                       'schema) or statement and graded test cases (openarena '
+                       'schema). The draft comes back for review; save=true '
+                       'files a VALID draft under your address in the same call '
+                       '(an invalid one always comes back unsaved, with what to '
+                       'fix). This is a model run, so it answers to run policy '
+                       'like agent_run does.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'description': _str('what the task should test — the whole brief'),
+            'schema': _str("'agent' grades the trace and files left behind "
+                           "(default) | 'openarena' grades a program against "
+                           "test cases"),
+            'save': _bool('file a valid draft now instead of just returning it'),
+            'model': _str("the DRAFTING run's model"),
+            'provider': _str('openrouter | venice | liquidai | …'),
+            'free': _bool('draft on a zero-cost model'),
+            'steps': _num('the drafting run\'s step budget (default 4, max 8)'),
+            'harness': _str('hand the DRAFTING run to an external agent CLI '
+                            'instead of this loop: build (the build console) | '
+                            'claude | codex | chainmod — host / console-owner '
+                            'only, like any harness run'),
+            'key': _KEY,
+        }, 'required': ['description']},
+        'handler': _t_task_vibe,
     },
     'agent_parts': {
         'description': 'The live agent box: the model it will use, the memory module '

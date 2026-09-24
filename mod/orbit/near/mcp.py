@@ -40,7 +40,9 @@ INSTRUCTIONS = (
     'network plus anything deployed from this keystore, each verified live '
     'against the chain; near_directory is the census — every contract the '
     'module has scraped off the chain itself, live tail plus archival '
-    'backfill), near_account is the first call for any single name '
+    'backfill; near_search asks that census in plain words — "stablecoin", '
+    '"lending", a method name — ranked locally, no external service), '
+    'near_account is the first call for any single name '
     '(balances: liquid, staked, storage-reserved, USD), then near_keys for '
     'its access keys and their per-contract permissions. '
     'If it is a contract, near_contract lists its callable methods '
@@ -164,6 +166,25 @@ TOOLS = {
         'handler': lambda a: __import__('directory').snapshot(
             network=a.get('network'), q=a.get('q'),
             limit=a.get('limit') or 50, offset=a.get('offset') or 0),
+    },
+    'near_search': {
+        'description': 'Semantic search over the contract directory: plain '
+                       'words in, ranked contracts out. "stablecoin" finds '
+                       'USDt and USDC, "lending" finds Burrow, "ft_transfer" '
+                       'finds every token whose interface this module has '
+                       'parsed. Ranked locally — tf-idf over account ids, '
+                       'curated labels and WASM method names, a concept '
+                       'lexicon, trigrams for typos; no external service. '
+                       'Each result says which terms matched. Use this when '
+                       'a name fails near_account, or when you know what a '
+                       'contract does but not what it is called.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'q': _str('what you mean — "stablecoin", "liquid staking", '
+                      '"swap dex", a method name, or a misspelled account'),
+            'limit': _num('results to return (default 10, max 50)'),
+            **_COMMON}, 'required': ['q']},
+        'handler': lambda a: __import__('search').search(
+            a['q'], network=a.get('network'), limit=a.get('limit') or 10),
     },
     'near_view': {
         'description': 'Call a view method on a contract with JSON args and get '

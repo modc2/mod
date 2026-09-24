@@ -21,6 +21,7 @@
 import { Fragment, useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 import TaskBuilder from './TaskBuilder'
+import SkillLab from './SkillLab'
 
 type Row = {
   rank: number; agent: string; icon: string; active: boolean
@@ -261,7 +262,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
 
   // which board the main pane is: the agents, the models underneath them, or
   // the tasks both are measured on
-  const [view, setView] = useState<'agents' | 'models' | 'tiers' | 'tasks'>('agents')
+  const [view, setView] = useState<'agents' | 'models' | 'tiers' | 'tasks' | 'skills'>('agents')
   const [mods, setMods] = useState<ModelsPayload | null>(null)
   const [pickedModel, setPickedModel] = useState<string | null>(null)
   const [modelCard, setModelCard] = useState<ModelCard | null>(null)
@@ -510,7 +511,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
           how much the design was worth at a price point, and what they were
           asked to do */}
       <div className="tab-strip gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
-        {(['agents', 'models', 'tiers', 'tasks'] as const).map(v => (
+        {(['agents', 'models', 'tiers', 'tasks', 'skills'] as const).map(v => (
           <button key={v} onClick={() => setView(v)}
             className={`tab-btn px-2.5 py-1 rounded-md uppercase tracking-wider transition ${
               view === v ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-600 hover:text-gray-300'
@@ -2143,8 +2144,13 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
           {statStrip}
           {podium}
           {view === 'agents' ? leaderboard : view === 'models' ? modelBoard
-            : view === 'tiers' ? tierBoard : taskBoard}
-          {boardFoot}
+            : view === 'tiers' ? tierBoard
+            : view === 'skills' ? (
+              // skills and classes: weighted bundles of the same tasks, read
+              // as benchmarks — assembled by semantic search over the pool
+              <SkillLab token={token} isHost={isHost} address={address} onSignIn={onSignIn} />
+            ) : taskBoard}
+          {view !== 'skills' && boardFoot}
           {view === 'agents' ? agentCard : modelCardPane}
         </div>
         {feed}

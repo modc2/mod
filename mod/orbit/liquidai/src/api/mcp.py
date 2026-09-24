@@ -21,13 +21,14 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 try:
-    from . import arena, auth, catalog, cloud, keys, ledger, providers, server_rt
+    from . import (arena, auth, catalog, cloud, fleet_arena, keys, ledger,
+                   providers, server_rt)
 except ImportError:  # pragma: no cover
-    import arena, auth, catalog, cloud, keys, ledger, providers, server_rt
+    import arena, auth, catalog, cloud, fleet_arena, keys, ledger, providers, server_rt
 
 PROTOCOL = "2025-06-18"
 SERVER = {"name": "liquidai", "title": "Liquid AI — every LFM, three runtimes",
-          "version": "0.3.0"}
+          "version": "0.4.0"}
 
 
 class ToolError(Exception):
@@ -221,6 +222,42 @@ TOOLS: List[Dict[str, Any]] = [
         "inputSchema": _schema({"game": _str("narrow to one game")}),
     },
     {
+        "name": "liquidai_fleet_games",
+        "need": "open",
+        "description": "The arena module's stored games — wasm and class games "
+                       "with seats, Elo and transcripts, tic-tac-toe to "
+                       "harvested coding recons.",
+        "inputSchema": _schema({"q": _str("filter by name or description")}),
+    },
+    {
+        "name": "liquidai_fleet_match",
+        "need": "session",
+        "description": "Seat up to four LFMs at an arena-module game and run "
+                       "the match. Every move answers through this module's "
+                       "/v1; two or more seats is Elo-rated.",
+        "inputSchema": _schema({
+            "game": _str("arena game id, prefix or name"),
+            "models": {"type": "array", "items": {"type": "string"},
+                       "description": "up to four repos, e.g. LiquidAI/LFM2.5-350M"},
+            "opponents": {"type": "array", "items": {"type": "string"},
+                          "description": "players already seated in the arena, "
+                                         "by name — e.g. the wasm minimax"},
+            "system": _str("optional system prompt for every seat"),
+            "seed": _num("replay handle"),
+            "turns": _num("cap the turns"),
+        }, ["game", "models"]),
+    },
+    {
+        "name": "liquidai_fleet_board",
+        "need": "open",
+        "description": "The arena module's Elo board. lfm_only keeps just the "
+                       "model seats.",
+        "inputSchema": _schema({
+            "game": _str("rank at one game"),
+            "lfm_only": {"type": "boolean", "default": False},
+        }),
+    },
+    {
         "name": "liquidai_whoami",
         "need": "open",
         "description": "Who this bearer is to the module, and who owns the box.",
@@ -351,6 +388,12 @@ HANDLERS: Dict[str, Callable[[Dict[str, Any], Optional[str]], Any]] = {
     "liquidai_arena_games": lambda a, t: {"games": arena.games()},
     "liquidai_arena_match": lambda a, t: _match(a),
     "liquidai_arena_leaderboard": lambda a, t: arena.leaderboard(a.get("game")),
+    "liquidai_fleet_games": lambda a, t: _fleet(
+        lambda: {"arena": fleet_arena.BASE, "games": fleet_arena.games(a.get("q"))}),
+    "liquidai_fleet_match": lambda a, t: _fleet_match(a, t),
+    "liquidai_fleet_board": lambda a, t: _fleet(
+        lambda: fleet_arena.board(a.get("game"), int(a.get("limit", 50)),
+                                  bool(a.get("lfm_only")))),
     "liquidai_whoami": lambda a, t: {**auth.me(t), "owner_state": auth.owner_state()},
 }
 
@@ -391,6 +434,30 @@ def _match(args: Dict[str, Any]) -> Dict[str, Any]:
     results = [arena.play(args["game"], model, runner) for model in models]
     return {"game": args["game"], "runtime": runtime,
             "results": sorted(results, key=lambda r: (-r["score"], r["sec_per_round"]))}
+
+
+def _fleet(fn: Callable[[], Any]) -> Any:
+    """Run an arena-module call, folding its two failure modes into ToolError."""
+    try:
+        return fn()
+    except ValueError as e:  # ArenaDown is a ValueError too
+        raise ToolError(str(e))
+
+
+def _fleet_match(args: Dict[str, Any], token: Optional[str]) -> Dict[str, Any]:
+    models = args.get("models") or []
+    if not models:
+        raise ToolError("no models entered")
+    if len(models) > 4:
+        raise ToolError("four entrants a match — the box is not a cluster")
+    try:
+        owner = auth.me(token).get("address", "")
+    except Exception:
+        owner = ""
+    return _fleet(lambda: fleet_arena.match(
+        args["game"], models, system=args.get("system"),
+        seed=args.get("seed"), turns=args.get("turns"), owner=owner,
+        opponents=args.get("opponents")))
 
 
 # ── JSON-RPC ─────────────────────────────────────────────────────────

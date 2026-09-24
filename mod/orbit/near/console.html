@@ -224,12 +224,13 @@
 <!-- ── explore ── -->
 <section id="explore" class="on">
   <div class="bar">
-    <input id="ex-q" class="wide" placeholder="an account — root.near, wrap.near, or 64 hex for an implicit account">
+    <input id="ex-q" class="wide" placeholder="an account — wrap.near — or plain words: stablecoin, lending, swap dex…">
     <button class="go" id="ex-go">LOOK UP</button>
     <span class="flash" id="ex-flash"></span>
   </div>
   <div class="note">On NEAR an account and a contract are the same object. One lookup
-    answers balances, access keys, and — if code is deployed — what it can be asked to do.</div>
+    answers balances, access keys, and — if code is deployed — what it can be asked to do.
+    Not a name? The same bar searches the directory by meaning — locally, no indexer.</div>
   <div id="ex-out"></div>
   <h2 class="t">Contracts that are ON — <span id="cd-net">mainnet</span>
     <span id="cd-count" class="dimtxt" style="text-transform:none"></span>
@@ -512,6 +513,11 @@ async function explore() {
   if (!q) return;
   $('ex-flash').textContent = ''; $('ex-go').disabled = true;
   $('ex-out').innerHTML = '<div class="empty">asking the chain…</div>';
+  // Words, spaces, anything that cannot be an account name — straight to
+  // search. A valid-looking name is tried on chain first; if the chain has
+  // never heard of it, search catches it instead of a dead error.
+  const looksLikeAccount = /^[a-z0-9][a-z0-9._-]{1,63}$/.test(q);
+  if (!looksLikeAccount) return exploreSearch(q);
   try {
     const acct = await j('/account?account_id=' + encodeURIComponent(q) + netq());
     const [keys, contract, history] = await Promise.all([
@@ -522,6 +528,37 @@ async function explore() {
       j('/history?account_id=' + encodeURIComponent(q) + netq()).catch(e => ({error:e.message})),
     ]);
     renderExplore(acct, keys, contract, history);
+  } catch (e) {
+    return exploreSearch(q, e.message);
+  } finally { $('ex-go').disabled = false; }
+}
+
+async function exploreSearch(q, lookupError) {
+  $('ex-out').innerHTML = '<div class="empty">searching the directory…</div>';
+  try {
+    const r = await j('/search?q=' + encodeURIComponent(q) + '&network=' + NET);
+    const rows = r.results || [];
+    let h = '';
+    if (lookupError) {
+      const friendly = /UNKNOWN_ACCOUNT/i.test(lookupError)
+        ? `no account named “${esc(q)}” on ${esc(NET)}` : esc(lookupError);
+      h += `<div class="note">${friendly} — closest contracts by meaning:</div>`;
+    }
+    else h += `<h2 class="t">Contracts matching “${esc(q)}” · ${rows.length}</h2>`;
+    h += rows.length ? '<div class="ccards">' + rows.map(c => `
+      <div class="ccard ${c.live === false ? 'dead' : ''}" onclick="lookup('${esc(c.account_id)}')">
+        <div class="lblrow"><span class="ondot ${c.live === false ? 'off' : ''}"></span>
+          <span class="lbl">${esc(c.label || c.account_id)}</span></div>
+        <div class="id">${esc(c.account_id)}</div>
+        <div class="meta">${c.category ? `<span class="p hot">${esc(c.category)}</span>` : ''}
+          ${c.storage_bytes != null ? `<span>${bytesFmt(c.storage_bytes)} state</span>` : ''}
+          <span class="dimtxt">matched: ${esc((c.matched || []).slice(0, 3).join(', '))}</span></div>
+      </div>`).join('') + '</div>'
+      : '<div class="empty">nothing in the directory matches — the index grows as the scraper walks the chain</div>';
+    h += '<div class="note">Ranked locally: tf-idf over account ids, curated labels and parsed ' +
+         'method names, a concept lexicon so “stablecoin” finds USDt, trigrams so typos still land. ' +
+         'Click a card to open the account.</div>';
+    $('ex-out').innerHTML = h;
   } catch (e) {
     $('ex-out').innerHTML = ''; $('ex-flash').textContent = e.message;
   } finally { $('ex-go').disabled = false; }

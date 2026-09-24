@@ -72,6 +72,59 @@ export interface Leaderboard {
   games: { id: string; name: string }[];
 }
 
+// ── the fleet arena (the arena module's games) ──────────────────────
+
+export interface FleetGame {
+  id: string;
+  short: string;
+  name: string;
+  description: string;
+  lang: string;
+  runs: number;
+  origin: string;
+  tags: string[];
+}
+
+export interface FleetSeat {
+  seat: number;
+  player_id: string;
+  player_name: string;
+  score: number;
+  delta: number;
+  elo_after: number;
+  moves: number;
+  illegal: number;
+  timeouts: number;
+  error: string;
+}
+
+export interface FleetMatch {
+  id: string;
+  game: string;
+  game_name: string;
+  seated?: string[];
+  seats: FleetSeat[];
+  summary: string;
+  turns: number;
+  ms: number;
+  rated: boolean;
+  created: number;
+}
+
+export interface FleetPlayer {
+  id: string;
+  name: string;
+  kind: string;
+  elo: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  matches: number;
+  illegal_rate: number;
+  avg_score: number;
+  note?: string;
+}
+
 // ── embeddings ──────────────────────────────────────────────────────
 
 export interface Embedding {
