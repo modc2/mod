@@ -474,6 +474,60 @@ an empty one reads as "Hyperliquid has no markets", which is never true.
 
 ---
 
+## The paper pool — fake money, a stored contract
+
+The stake pool takes dollars; the **paper pool** takes anyone — it exists so
+protocol agents (orbit/agent, or any process that can speak HTTP) can build a
+public prediction record with no money at risk. Balances are **PAPER**, minted
+from a faucet and worth nothing; what an account is really accumulating is its
+settled accuracy history.
+
+The part that makes it distributable without a blockchain is *where the rules
+live*. Every action is a message applied by a deterministic state machine
+(`src/paper_machine.py` — integer math only, the clock and the oracle price
+stamped into the message at admission), and the money-moving core — the
+largest-remainder split of each pot by stake × accuracy — is a **WebAssembly
+contract** (`src/paper_contract.wat`), executed locally by a dependency-free
+WAT interpreter (`src/watvm.py`). Accepted messages append to a hash-chained
+log at `~/.mod/prefi/paper/log.jsonl`: each record carries the hash of the one
+before it and the sha256 root of the state after it. `GET /paper/verify`
+replays the whole log through the contract and proves the chain — the audit a
+block explorer would do, done locally from a stored file. No consensus, no gas,
+no live chain; the log is portable, and anchoring its latest root somewhere
+public later is an option, not a dependency.
+
+The loop an agent runs:
+
+```bash
+api=http://localhost:50410
+curl -X POST "$api/paper/faucet?address=0xYOU"                  # 1000 PAPER, daily
+curl "$api/markets"                                             # what is listable
+curl -X POST "$api/paper/predict?address=0xYOU&asset=BTC&price=115000&stake=25"
+curl -X POST "$api/paper/resolve"        # after the round closes — permissionless
+curl "$api/paper/account/0xYOU"          # balance, profit, mean accuracy
+curl "$api/paper/leaderboard"
+```
+
+Rounds are hourly (`interval`, fixed at genesis), entries stop 5 minutes before
+the close, one call per asset and ten per round per address. Settlement is lazy
+and honest the same way the prediction layer's is: whoever asks next pays the
+oracle lookups (`_price_at` — Hyperliquid candles / CoinGecko / Bittensor / DEX
+history), the fetched price is written into the resolve message, and a pot
+whose oracle won't answer is skipped, never lost. All-wrong pots (every call
+≥100% off under the linear score) land in a visible `reserve`. Winnings move:
+`POST /paper/transfer` makes PAPER distributable between accounts.
+
+Play is **open by default** — it's play money — but any call may be signed
+exactly like a pool stake (`GET /paper/sign` builds the message, per-account
+nonces make each signature single-use), and signed entries are flagged on the
+record, so an agent that wants its history to be provably its own signs.
+`m prefi/paper_set_config` retunes the knobs (CLI only, never HTTP);
+`PREFI_PAPER_WASM=0` swaps the wasm kernel for its bit-identical Python
+reference (`paper_machine.split_weighted`) — a test holds the two equal, and
+`GET /paper` names the engine and the contract's sha256 either way.
+
+---
+
 ## Run it
 
 ```bash
@@ -526,11 +580,15 @@ The app is served under `basePath: /prefi` and talks to the API same-origin at
 | `GET /pool/round` · `/pool/rounds` · `/pool/entries` · `/pool/leaderboard` · `POST /pool/settle` | pots |
 | `POST /pool/withdraw` · `GET /pool/withdrawals` · `POST /pool/withdrawals/{id}/pay` | money out |
 | `GET /hyperevm` | RPC reachability and chain id |
+| `GET /paper` · `/paper/config` | the paper pool: engine, state root, knobs |
+| `POST /paper/faucet` · `/paper/register` · `/paper/predict` · `/paper/transfer` | fake-money play |
+| `POST /paper/resolve` · `GET /paper/round` · `/paper/rounds` · `/paper/leaderboard` · `/paper/account/{addr}` | settlement and the board |
+| `GET /paper/log` · `/paper/verify` · `/paper/sign` | the hash-chained contract log, its audit, the message to sign |
 
 Tests, from `src/`:
 
 ```bash
-python3 -m pytest tests/ -q                        # 208 cases, hermetic (no network)
+python3 -m pytest tests/ -q                        # 341 cases, hermetic (no network)
 python3 -c "from mod import Mod; Mod({}).test()"   # 86-case integration run on a temp ledger
 ```
 

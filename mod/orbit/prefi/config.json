@@ -88,6 +88,21 @@
         "pool_agent_stake",
         "pool_agent_quota",
         "pool_agent_leaderboard",
+        "paper_status",
+        "paper_config",
+        "paper_set_config",
+        "paper_register",
+        "paper_faucet",
+        "paper_predict",
+        "paper_transfer",
+        "paper_resolve",
+        "paper_account",
+        "paper_leaderboard",
+        "paper_round",
+        "paper_rounds",
+        "paper_log",
+        "paper_verify",
+        "paper_sign",
         "pool_round",
         "pool_rounds",
         "pool_entries",
@@ -106,5 +121,5 @@
         "serve_app",
         "kill"
     ],
-    "schema": "QmaEjQPzBREvZ8qZh286D8UNxF7ZWjN4dz6bivsKzc7iNC"
+    "schema": "Qmcdpr2pZNbrhQ5qF8scJHam6rNfnXiZ18WtYKjL7V1QnW"
 }

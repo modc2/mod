@@ -749,6 +749,85 @@ def hyperevm_status():
     return get_mod().hyperevm_status()
 
 
+# ── Paper pool ───────────────────────────────────────────────────
+# Fake-money play for protocol agents: faucet-minted PAPER staked on
+# price calls, settled by the local wasm contract (paper_contract.wat)
+# into a hash-chained stored log — no live blockchain. Config writes
+# stay off HTTP on purpose; they are the host operator's.
+
+@app.get("/paper")
+def paper_status():
+    return get_mod().paper_status()
+
+@app.get("/paper/config")
+def paper_config():
+    return get_mod().paper_config()
+
+@app.post("/paper/register")
+def paper_register(address: str = Query(...), name: str = Query(""),
+                   kind: str = Query("agent"),
+                   signature: Optional[str] = Query(None)):
+    return _ok(get_mod().paper_register(address, name, kind,
+                                        signature=signature))
+
+@app.post("/paper/faucet")
+def paper_faucet(address: str = Query(...),
+                 signature: Optional[str] = Query(None)):
+    return _ok(get_mod().paper_faucet(address, signature=signature))
+
+@app.post("/paper/predict")
+def paper_predict(address: str = Query(...), asset: str = Query(...),
+                  price: float = Query(..., description="Called closing price"),
+                  stake: float = Query(..., description="PAPER staked on the call"),
+                  signature: Optional[str] = Query(None)):
+    return _ok(get_mod().paper_predict(address, asset, price, stake,
+                                       signature=signature))
+
+@app.post("/paper/transfer")
+def paper_transfer(address: str = Query(...), to: str = Query(...),
+                   amount: float = Query(...),
+                   signature: Optional[str] = Query(None)):
+    return _ok(get_mod().paper_transfer(address, to, amount,
+                                        signature=signature))
+
+@app.post("/paper/resolve")
+def paper_resolve(index: Optional[int] = Query(None),
+                  asset: Optional[str] = Query(None)):
+    return _ok(get_mod().paper_resolve(index, asset))
+
+# Ahead of /paper/account/{address} — same ordering trap as /pool/free.
+@app.get("/paper/leaderboard")
+def paper_leaderboard(limit: int = Query(50)):
+    return get_mod().paper_leaderboard(limit)
+
+@app.get("/paper/account/{address}")
+def paper_account(address: str):
+    return get_mod().paper_account(address)
+
+@app.get("/paper/round")
+def paper_round(index: Optional[int] = Query(None)):
+    return get_mod().paper_round(index)
+
+@app.get("/paper/rounds")
+def paper_rounds(limit: int = Query(20)):
+    return get_mod().paper_rounds(limit)
+
+@app.get("/paper/log")
+def paper_log(limit: int = Query(100)):
+    return get_mod().paper_log(limit)
+
+@app.get("/paper/verify")
+def paper_verify():
+    return get_mod().paper_verify()
+
+@app.get("/paper/sign")
+def paper_sign(request: Request, action: str = Query(...),
+               address: str = Query(...)):
+    fields = {k: v for k, v in request.query_params.items()
+              if k not in ('action', 'address')}
+    return _ok(get_mod().paper_sign(action, address, **fields))
+
+
 # ── Deployment ───────────────────────────────────────────────────
 
 @app.get("/deployment")

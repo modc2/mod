@@ -21,11 +21,13 @@ try:
     import scoring
     import curves
     import pool as pool_mod
+    import paper as paper_mod
     import hyperevm
 except ImportError:  # imported as a package (`src.mod`) rather than from src/
     from . import scoring
     from . import curves
     from . import pool as pool_mod
+    from . import paper as paper_mod
     from . import hyperevm
 
 
@@ -90,6 +92,7 @@ class Mod:
         # Where the last DEX read (DexScreener / GeckoTerminal) came from.
         self._dex_last = None
         self._pool = None
+        self._paper = None
 
         self._load_deployment()
 
@@ -3093,6 +3096,88 @@ class Mod:
     def pool_agent_leaderboard(self, limit: int = 50) -> List[Dict]:
         """Agents ranked by fee dollars their locked time earned."""
         return self.pool.agent_leaderboard(limit)
+
+    # ── Paper pool — fake money, contract-settled ────────────────────
+    # Agents predict prices with faucet-minted PAPER; every message lands
+    # in a hash-chained log settled by the wasm contract in
+    # paper_contract.wat — a stored state machine, no live blockchain.
+
+    @property
+    def paper(self):
+        """Lazily built, like the pool — a call that never touches paper
+        play never opens its log."""
+        if self._paper is None:
+            self._paper = paper_mod.Paper(
+                self.store_dir,
+                price_at=self._price_at,
+                price_now=self._get_token_price,
+                markets=lambda: self._load_json(self.markets_path, []),
+            )
+        return self._paper
+
+    def paper_status(self) -> Dict:
+        """The paper pool: engine, state root, round, config."""
+        return self.paper.status()
+
+    def paper_config(self) -> Dict:
+        """Live paper-pool config (grants and stakes in PAPER)."""
+        return self.paper.config()
+
+    def paper_set_config(self, **patch) -> Dict:
+        """Retune the paper pool — host operator only (CLI, not HTTP)."""
+        return self.paper.set_config(**patch)
+
+    def paper_register(self, address: str, name: str = '',
+                       kind: str = 'agent', signature: str = None) -> Dict:
+        """Open (or, signed, rename) a paper account."""
+        return self.paper.register(address, name, kind, signature=signature)
+
+    def paper_faucet(self, address: str, signature: str = None) -> Dict:
+        """Mint the daily PAPER grant to an address."""
+        return self.paper.faucet(address, signature=signature)
+
+    def paper_predict(self, address: str, asset: str, price: float,
+                      stake: float, signature: str = None) -> Dict:
+        """Stake PAPER on where a listed asset closes this round."""
+        return self.paper.predict(address, asset, price, stake,
+                                  signature=signature)
+
+    def paper_transfer(self, address: str, to: str, amount: float,
+                       signature: str = None) -> Dict:
+        """Move PAPER between accounts — winnings are distributable."""
+        return self.paper.transfer(address, to, amount, signature=signature)
+
+    def paper_resolve(self, index: int = None, asset: str = None) -> Dict:
+        """Settle every due pot off the oracle. Permissionless and lazy."""
+        return self.paper.resolve(index, asset)
+
+    def paper_account(self, address: str) -> Dict:
+        """One account: balance, record, accuracy, next faucet."""
+        return self.paper.account(address)
+
+    def paper_leaderboard(self, limit: int = 50) -> List[Dict]:
+        """Accounts ranked by PAPER profit, then accuracy."""
+        return self.paper.leaderboard(limit)
+
+    def paper_round(self, index: int = None) -> Dict:
+        """One paper round's pots, entries and settlements."""
+        return self.paper.round(index)
+
+    def paper_rounds(self, limit: int = 20) -> List[Dict]:
+        """Recent paper rounds, newest first."""
+        return self.paper.rounds(limit)
+
+    def paper_log(self, limit: int = 100) -> List[Dict]:
+        """The tail of the hash-chained contract log."""
+        return self.paper.log(limit)
+
+    def paper_verify(self) -> Dict:
+        """Replay the whole log through the contract and prove the chain."""
+        return self.paper.verify()
+
+    def paper_sign(self, action: str, address: str, **fields) -> Dict:
+        """The message a wallet signs for a paper action."""
+        return self.paper.sign_request(action, address, **fields)
 
     def pool_round(self, index: int = None, address: str = None) -> Dict:
         """One round with live provisional scores — the pot table."""
