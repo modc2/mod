@@ -3879,9 +3879,73 @@ class Mod(Agent):
         return self.arena.forward('oa_enter', agent=agent, name=name,
                                   model=model, steps=steps, free=free)
 
+    # ── vibecoding shared machinery ──────────────────────────────────
+    # Both drafters (agent_vibe, arena_task_draft) are one model run that
+    # answers with a JSON spec. That run can happen on this module's own
+    # loop, or be handed to a harness CLI — the build console, Claude Code —
+    # so a host whose provider keys are empty (or who simply trusts the
+    # console's agent more) can still vibecode. The harness gets the same
+    # brief and the drafter agent's own goal as its system prompt, and its
+    # answer is parsed by the same machinery.
+
+    # friendlier engine names for callers who think in modules, not runners
+    HARNESS_ALIASES = {'build': 'buildmod', 'chain': 'chainmod'}
+
+    # a draft is one spec, not a refactor — don't hold the caller half an hour
+    DRAFT_HARNESS_TIMEOUT = 600
+
+    def _draft_harness(self, name: str) -> str:
+        """A caller's engine name resolved to a real harness, or a ValueError
+        that lists what exists."""
+        name = str(name or '').strip().lower()
+        name = self.HARNESS_ALIASES.get(name, name)
+        if not self.harness.exists(name):
+            raise ValueError(
+                f"unknown harness: {name} — pick one of "
+                f"{', '.join(self.harness.names())} (or 'build')")
+        return name
+
+    def _draft_trace(self, query: str, agent_type: str, harness: str = None,
+                     model: str = None, provider: str = None,
+                     free: bool = False, steps: int = 4, key=None,
+                     path: str = None) -> list:
+        """One drafting run: this module's loop by default, a harness CLI when
+        the caller named one. The harness path keeps _run_harness's own gate —
+        the host, or the harnessed console's own owner."""
+        if harness:
+            harness = self._draft_harness(harness)
+            try:
+                goal = self.agents.get(agent_type).get('goal') or None
+            except Exception:
+                goal = None
+            return self._run_harness(
+                harness, goal=goal, query=query, key=key, path=path,
+                agent_type=agent_type, timeout=self.DRAFT_HARNESS_TIMEOUT)
+        return self._run(
+            query=query, agent_type=agent_type, model=model,
+            provider=provider, steps=max(2, min(int(steps or 4), 8)),
+            free=free, key=key, path=path)
+
+    @staticmethod
+    def _spec_scan(trace: list, parse) -> Optional[Dict[str, Any]]:
+        """The spec anywhere in a trace. A small model (or a CLI harness)
+        sometimes leaves the JSON in a think or response step and finishes
+        with prose — the spec still counts wherever it landed."""
+        for s in (trace or []):
+            if not isinstance(s, dict):
+                continue
+            for t in [s.get('result'), *(s.get('params') or {}).values()]:
+                if isinstance(t, str):
+                    spec = parse(t)
+                    if spec:
+                        return spec
+        return None
+
     def arena_task_draft(self, description: str, model: str = None,
                          provider: str = None, free: bool = False,
-                         steps: int = 4, schema: str = 'agent', key=None) -> dict:
+                         steps: int = 4, schema: str = 'agent',
+                         harness: str = None, save: bool = False,
+                         key=None) -> dict:
         """Hand a plain description to the task-builder agent and read a task
         spec back out of its answer.
 
@@ -3889,9 +3953,16 @@ class Mod(Agent):
         and the files left behind, 'openarena' scores a program against graded
         test cases. Both come back in the shape their own form edits.
 
-        The draft is returned, not saved: a task nobody looked at is exactly the
-        kind of thing that quietly makes every round meaningless. The caller
-        reviews it in the Builder and saves it themselves.
+        `harness` hands the drafting run to an external agent CLI ('build' /
+        'buildmod' is the build console, 'claude' is Claude Code) instead of
+        this module's loop — same gate as any harness run: the host, or that
+        console's own owner.
+
+        The draft is returned, not saved, by default: a task nobody looked at
+        is exactly the kind of thing that quietly makes every round
+        meaningless. `save=True` files a VALID draft under the caller's
+        address in the same call — the one-click path an MCP client wants; an
+        invalid one still comes back for fixing, unsaved.
         """
         self.identity.require_signed_in(key, operation="draft a task")
         # a draft is a model run on somebody's key, so it answers to the same
@@ -3906,16 +3977,19 @@ class Mod(Agent):
                  f"Compute every `expect` exactly."
                  if oa_schema else
                  f"Write an arena task for this:\n\n{description}")
-        trace = self._run(
+        trace = self._draft_trace(
             query=query,
-            agent_type=self.TASK_BUILDER, model=model, provider=provider,
-            steps=max(2, min(int(steps or 4), 8)), free=free, key=key,
+            agent_type=self.TASK_BUILDER, harness=harness, model=model,
+            provider=provider, steps=steps, free=free, key=key,
             # the agent has no file tools, but a stray write must not land in
             # whatever directory the API happens to be running from
             path=str(Path.home() / '.mod' / 'agent' / 'arena'),
         )
         answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
         spec = self._parse_task_json(answer, openarena=oa_schema)
+        if spec is None and isinstance(trace, list):
+            spec = self._spec_scan(
+                trace, lambda t: self._parse_task_json(t, openarena=oa_schema))
         if spec is None:
             return {"error": "the task-builder did not return a task spec — "
                              "try describing the task more concretely",
@@ -3927,16 +4001,24 @@ class Mod(Agent):
             except ValueError as e:
                 return {"draft": spec, "answer": answer, "invalid": str(e),
                         "schema": "openarena"}
-            return {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
-                    "answer": answer, "schema": "openarena"}
+            out = {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
+                   "answer": answer, "schema": "openarena"}
+            if not save:
+                return out
+            return {**out, "task": self.arena_oa_task_add(clean, key=key),
+                    "saved": True}
         try:
             clean = self.arena.validate_task(spec)
         except ValueError as e:
             # a draft that doesn't validate is still worth showing: the form it
             # fills is editable, and the message says what to fix
             return {"draft": spec, "answer": answer, "invalid": str(e)}
-        return {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
-                "answer": answer, "schema": "agent"}
+        out = {"draft": {**clean, "slug": self.arena.slugify(clean['title'])},
+               "answer": answer, "schema": "agent"}
+        if not save:
+            return out
+        return {**out, "task": self.arena_task_add(clean, key=key),
+                "saved": True}
 
     @staticmethod
     def _parse_task_json(text: str, openarena: bool = False) -> Optional[Dict[str, Any]]:
