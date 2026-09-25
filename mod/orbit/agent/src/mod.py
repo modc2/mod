@@ -2149,7 +2149,7 @@ class Mod(Agent):
                                 # skills: named task bundles with composite leaderboards
                                 # classes: skills bundled one level up; search
                                 # is how the pool is read to bundle from
-                                'arena_skills', 'arena_skill',
+                                'arena_skills', 'arena_skill', 'arena_skill_results',
                                 'arena_classes', 'arena_class', 'arena_task_search',
                                 'key_info', 'balance',
                                 'credits', 'credit_deposit', 'credit_price',
@@ -3015,7 +3015,8 @@ class Mod(Agent):
             recall, episodes, facts, exchanges, memory_state,
             arena, arena_tasks, arena_matches, arena_card, arena_status,
             arena_models, arena_model, arena_task_board,
-            arena_skills, arena_skill (id=), arena_task_search (query=),
+            arena_skills, arena_skill (id=), arena_skill_results (id=),
+            arena_task_search (query=),
             arena_classes, arena_class (id=),
             openarena, openarena_task, openarena_sources,
             credits, credit_price (network=),
@@ -3196,6 +3197,10 @@ class Mod(Agent):
             'arena_skills': lambda: self.arena.forward('skills'),
             'arena_skill': lambda: self.arena.forward('skill',
                                                       id=kwargs.get('id') or kwargs.get('skill', '')),
+            # a skill opened all the way up: each task's prompt, and every
+            # agent's score with the answer it actually gave
+            'arena_skill_results': lambda: self.arena.forward('skill_results',
+                                                              id=kwargs.get('id') or kwargs.get('skill', '')),
             # the pool ranked against a plain-language query — how a skill's
             # task list is assembled. Local BM25, no service, no key
             'arena_task_search': lambda: self.arena.forward(

@@ -143,6 +143,10 @@ pub struct Rating {
     pub losses: u64,
     #[serde(default)]
     pub score_sum: f64,
+    /// The hi-score — the arcade number. `None` until a run lands, because a
+    /// game whose scores go negative must not read as "best: 0".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best: Option<f64>,
 }
 
 impl Default for Rating {
@@ -154,6 +158,7 @@ impl Default for Rating {
             draws: 0,
             losses: 0,
             score_sum: 0.0,
+            best: None,
         }
     }
 }
@@ -166,6 +171,7 @@ impl Rating {
             "matches": self.matches, "wins": self.wins, "draws": self.draws, "losses": self.losses,
             "win_rate": if self.matches == 0 { 0.0 } else { round3(self.wins as f64 / n) },
             "avg_score": if self.matches == 0 { 0.0 } else { round3(self.score_sum / n) },
+            "best": self.best.map(round1),
         })
     }
 }

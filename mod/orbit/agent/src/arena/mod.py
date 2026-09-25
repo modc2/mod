@@ -160,6 +160,14 @@ RATE_LIMIT_COOLDOWN = 3600.0
 
 MAX_MATCH_LINES = 5000
 
+# what a match record keeps of the answer itself. The scratch dir is deleted
+# after scoring, so the terminal step's text and the files the run left behind
+# are copied onto the record first — clipped, because matches.jsonl is a log
+# and not a filesystem
+MAX_ANSWER_CHARS = 3000
+MAX_ARTIFACTS = 6          # files kept per match
+MAX_ARTIFACT_CHARS = 3000  # characters kept per file
+
 # hand-written tasks: the suite they play under, and the ceilings that keep one
 # author's task from turning every round into an expensive one
 CUSTOM_SUITE = "custom"
@@ -203,6 +211,67 @@ def _tokens_of(usage: Dict[str, Any]) -> int:
         except (TypeError, ValueError):
             pass
     return total
+
+
+def _clip(text: str, limit: int) -> str:
+    text = str(text)
+    return text if len(text) <= limit else text[:limit] + "\n… [clipped]"
+
+
+def _answer_of(trace) -> str:
+    """What the agent said its answer was: the last terminal step's text.
+
+    The loop's finish/review/response steps carry the answer in params, not
+    result (see scorers.TERMINAL_TOOLS); a run that never reached a terminal
+    step falls back to its last step's string result, which is at least what
+    the agent last saw.
+    """
+    answer = ""
+    fallback = ""
+    for s in steps_of(trace):
+        params = s.get("params") or {}
+        if s.get("tool") in ("finish", "review", "response"):
+            for f in ("summary", "text", "answer", "content"):
+                v = params.get(f)
+                if isinstance(v, str) and v.strip():
+                    answer = v.strip()
+        elif isinstance(s.get("result"), str) and s["result"].strip():
+            fallback = s["result"].strip()
+    return _clip(answer or fallback, MAX_ANSWER_CHARS)
+
+
+def _artifacts_of(workdir: Path, spec: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The files a run left behind, diffed against the task's own fixtures.
+
+    A file task's real answer is the disk, and the scratch dir is deleted
+    right after scoring — so what the agent created or edited is copied onto
+    the match record, clipped. Untouched fixtures and binaries are skipped.
+    """
+    fixtures = (spec.get("setup") or {}).get("files") or {}
+    out: List[Dict[str, Any]] = []
+    try:
+        paths = sorted(p for p in Path(workdir).rglob("*") if p.is_file())
+    except Exception:
+        return out
+    for p in paths:
+        if len(out) >= MAX_ARTIFACTS:
+            out.append({"path": "…", "note": "more files not kept"})
+            break
+        rel = str(p.relative_to(workdir))
+        if any(part.startswith(".") or part in ("node_modules", "__pycache__")
+               for part in Path(rel).parts):
+            continue
+        try:
+            body = p.read_text()
+        except Exception:
+            continue  # binary or unreadable — not worth a log line
+        if rel in fixtures and fixtures[rel] == body:
+            continue  # the fixture handed back untouched is not an answer
+        out.append({"path": rel,
+                    "kind": "edited" if rel in fixtures else "new",
+                    "chars": len(body),
+                    "content": _clip(body, MAX_ARTIFACT_CHARS)})
+    return out
 
 
 class Arena:
@@ -915,6 +984,11 @@ class Arena:
                          ("cases", c.get("cases")))
                         if v is not None}
                        for c in scored["checks"]],
+            # the answer itself, kept before the scratch dir goes: a board row
+            # you can't open to "what did it actually say / write" ranks
+            # agents but teaches nothing
+            "answer": _answer_of(trace),
+            "files": _artifacts_of(workdir, spec),
         }
         # a run that never reached the model competed in name only
         match["void_reason"] = error or scored["void_reason"]
@@ -1586,6 +1660,76 @@ class Arena:
             ],
         }
 
+    def skill_results(self, skill_id: str) -> Dict[str, Any]:
+        """One skill opened all the way up: each member task's full prompt,
+        and per agent its standing score plus the latest recorded answer.
+
+        Standing scores come off the rating table (they outlive log pruning);
+        the answer text and files come off the newest non-void match on the
+        log — a pruned match keeps its score but honestly loses its answer.
+        """
+        skill = self.skills.get(skill_id)
+        if not skill:
+            return {"error": f"skill not found: {skill_id}"}
+        pool = {t["key"]: t for t in self.tasks()}
+        members = skill.get("tasks", [])
+        weights = {m["key"]: float(m.get("weight", 1.0)) for m in members}
+
+        # newest non-void match per (agent, task) — the log is newest-first
+        latest: Dict[tuple, Dict[str, Any]] = {}
+        for rec in self.all_matches():
+            key = rec.get("task")
+            if key not in weights or rec.get("void"):
+                continue
+            pair = (rec.get("agent"), key)
+            if pair not in latest:
+                latest[pair] = rec
+
+        ratings = self._state.get("ratings", {})
+        tasks_out = []
+        for m in members:
+            key = m["key"]
+            spec = pool.get(key)
+            agents = set(ratings) | {a for a, k in latest if k == key}
+            rows = []
+            for agent in agents:
+                per = ((ratings.get(agent) or {}).get("per_task") or {}).get(key)
+                match = latest.get((agent, key))
+                if per is None and match is None:
+                    continue
+                row = {
+                    "agent": agent,
+                    "icon": self.icon(agent),
+                    "n": int((per or {}).get("n", 0)),
+                    "best": round(float((per or {}).get(
+                        "best", (match or {}).get("score", 0.0))), 4),
+                    "last": round(float((per or {}).get(
+                        "last", (match or {}).get("score", 0.0))), 4),
+                    "ts": (per or {}).get("ts") or (match or {}).get("ts", 0),
+                }
+                if match:
+                    row.update({k: match.get(k) for k in (
+                        "id", "model", "provider", "score", "correct",
+                        "reliable", "efficient", "passed", "steps", "seconds",
+                        "answer", "checks")})
+                    row["files"] = match.get("files") or []
+                rows.append(row)
+            rows.sort(key=lambda x: (-x["last"], -x["best"], x["agent"]))
+            tasks_out.append({
+                "key": key,
+                "weight": weights[key],
+                "missing": spec is None,
+                "title": (spec or {}).get("title", key),
+                "suite": (spec or {}).get("suite", ""),
+                "prompt": (spec or {}).get("prompt", ""),
+                "checks": len((spec or {}).get("scorers") or []),
+                "results": rows,
+            })
+        return {"skill": {"id": skill["id"], "name": skill["name"],
+                          "description": skill.get("description", ""),
+                          "owner": skill.get("owner", "")},
+                "tasks": tasks_out}
+
     def search_tasks(self, query: str, k: int = 20) -> List[Dict[str, Any]]:
         """The task pool ranked against a plain-language query — the door a
         skill is assembled through. Entirely local (BM25-lite, no service)."""
@@ -1785,6 +1929,7 @@ class Arena:
         Skills — named bundles of tasks with a composite leaderboard:
         forward('skills')                          -> all skills
         forward('skill', id=)                      -> one skill + its leaderboard
+        forward('skill_results', id=)              -> its tasks + every agent's answer
         forward('skill_create', name=, tasks=, description=, owner=)
         forward('skill_update', id=, name=, tasks=, description=)
         forward('skill_rm', id=)                   -> delete a skill
@@ -1871,6 +2016,11 @@ class Arena:
             if not skill_id:
                 return {"error": "skill id required"}
             return self.skill_leaderboard(skill_id)
+        if action in ("skill_results", "skill_answers"):
+            skill_id = kwargs.get("id") or kwargs.get("skill") or ""
+            if not skill_id:
+                return {"error": "skill id required"}
+            return self.skill_results(skill_id)
         if action in ("skill_create", "create_skill"):
             try:
                 skill = self.create_skill(

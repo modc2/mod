@@ -392,6 +392,30 @@ def test_skill_is_kept_per_game_as_well_as_overall(arena, bots):
     assert board['players'][0]['elo'] >= board['players'][-1]['elo']
 
 
+def test_the_arcade_ranks_by_raw_score_and_a_solo_run_counts(arena, bots):
+    """The arcade board is the game's own number — no elo in it anywhere, and
+    playing alone posts a score exactly like a seated final."""
+    post(arena, '/players', {'name': 'coinop', 'kind': 'wasm',
+                             'config': {'module': 'bot-random'}})
+    mcp(arena, 'record_match', {
+        'game': 'ttt', 'runtime': 'node',
+        'seats': [{'player_id': 'coinop', 'score': 9000.0, 'moves': 3}],
+    })
+
+    _, board = get(arena, '/arcade', game='ttt')
+    assert board['scope'] == 'ttt'
+    top = board['players'][0]
+    assert top['name'] == 'coinop' and top['best'] == 9000.0
+    assert 'elo' not in top
+    bests = [p['best'] for p in board['players']]
+    assert bests == sorted(bests, reverse=True)
+
+    # The marquee names every game and crowns the hi-score holder.
+    _, marquee = get(arena, '/arcade')
+    ttt = next(g for g in marquee['games'] if g['name'] == 'ttt')
+    assert ttt['top']['name'] == 'coinop'
+
+
 # ── classes ──────────────────────────────────────────────────────────────
 # The second container. Everything below is the same registry, the same match
 # loop and the same leaderboard as the wasm above — which is the claim worth

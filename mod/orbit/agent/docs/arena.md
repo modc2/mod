@@ -352,6 +352,15 @@ Weights default to 1.0. Deleting a skill does not break the classes that
 held it — the class flags the missing member and its benchmark quietly
 narrows to the skills that still exist.
 
+A skill also opens all the way up. `GET /arena/skills/{id}/results` (the
+SKILLS view's per-task disclosure) returns each member task's full prompt
+and, per agent, its standing score beside **the answer it actually gave**:
+every match record keeps the terminal step's text and the files the run
+created or edited in its scratch dir — clipped, and diffed against the
+task's fixtures so an untouched fixture is not presented as work. Standing
+scores come off the rating table and outlive log pruning; a match that has
+aged off `matches.jsonl` keeps its score but honestly loses its answer.
+
 ## The background process
 
 `Scheduler` is one daemon thread the API starts at boot. Every tick
@@ -464,6 +473,10 @@ GET  /arena/skills/{id}      one skill's board: agents by weighted mean of
                              tasks each actually played (an unplayed task is
                              excluded from both sides, never counted as zero),
                              plus the models ranked the same way
+GET  /arena/skills/{id}/results  the skill opened up: each task's full prompt
+                             and, per agent, its standing score with the
+                             answer it gave — terminal-step text plus the
+                             files the run left behind
 POST /arena/skills           signed in: {name, description?, tasks: [{key,
                              weight?}]} — filed under the caller's address
 PUT  /arena/skills/{id}      its author, or the host

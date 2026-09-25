@@ -368,6 +368,17 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "arcade",
+            "description": "The arcade board: players ranked by raw game score, per game — no Elo anywhere. Name a game for its hi-score table (best · avg · runs per player; solo practice runs count). Without a game, the marquee: every game with its current hi-score holder, most-played first.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "game": { "type": "string" },
+                    "limit": { "type": "integer", "default": 20 }
+                }
+            }
+        },
+        {
             "name": "plant_examples",
             "description": "Re-read the example pack from disk and store anything new. Idempotent — ids are content, so nothing is duplicated.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -1041,6 +1052,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             arena::get_match(&id)
         }
         "leaderboard" => arena::leaderboard(args),
+        "arcade" => arena::arcade(args),
         "plant_examples" => Ok(arena::plant_examples()),
 
         "module_tool" => {

@@ -87,6 +87,7 @@ Endpoints:
                                that played it, and the pool tasks not yet played
     GET  /arena/skills - all skills: named task bundles with composite boards
     GET  /arena/skills/{id} - one skill's leaderboard (best agent, model, prompt)
+    GET  /arena/skills/{id}/results - its tasks + every agent's answer and files
     POST /arena/skills - signed in: create a skill (name=, tasks=, description=)
     PUT  /arena/skills/{id} - signed in: update tasks or weights
     DELETE /arena/skills/{id} - signed in: remove a skill
@@ -2458,6 +2459,13 @@ def arena_skill(skill_id: str):
     """One skill's composite leaderboard: agents by weighted avg score,
     best model, and best agent design (prompt + toolbox + model)."""
     return get_mod().forward('arena_skill', id=skill_id)
+
+@app.get("/arena/skills/{skill_id}/results")
+def arena_skill_results(skill_id: str):
+    """The skill opened all the way up: each member task's full prompt, and
+    per agent its standing score plus the answer it actually gave — the
+    terminal step's text and the files the run left behind."""
+    return get_mod().forward('arena_skill_results', id=skill_id)
 
 @app.post("/arena/skills")
 def arena_skill_create(req: dict):

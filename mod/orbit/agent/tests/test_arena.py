@@ -484,6 +484,52 @@ class TestMatches:
         assert len(arena.matches(task='agentic/files')) == 2   # suite name works too
 
 
+class TestAnswersOnTheRecord:
+    """The scratch dir dies after scoring, so the answer must live on the
+    match record: the terminal step's text and the files the run left."""
+
+    def test_a_match_keeps_the_answer_text(self, arena):
+        m = arena.run_match('alpha', 'agentic/files#0')
+        assert '3 python files' in m['answer']
+
+    def test_a_match_keeps_the_files_the_run_wrote(self, arena):
+        m = arena.run_match('alpha', 'agentic/files#0')
+        by_path = {f['path']: f for f in m['files']}
+        assert by_path['count.txt']['content'] == '7'
+        assert by_path['count.txt']['kind'] == 'new'
+        # the fixture handed back untouched is not an answer
+        assert 'notes.txt' not in by_path
+
+    def test_a_talker_records_no_files(self, arena):
+        m = arena.run_match('beta', 'agentic/files#0')
+        assert m['answer'] == 'probably four'
+        assert m['files'] == []
+
+    def test_skill_results_show_every_agent_answer_per_task(self, arena):
+        arena.run_match('alpha', 'agentic/files#0')
+        arena.run_match('beta', 'agentic/files#0')
+        skill = arena.create_skill('Files', tasks=['agentic/files#0'])
+        res = arena.skill_results(skill['id'])
+        assert res['skill']['name'] == 'Files'
+        task = res['tasks'][0]
+        assert task['key'] == 'agentic/files#0'
+        assert task['prompt']                       # the task itself is readable
+        rows = {r['agent']: r for r in task['results']}
+        assert '3 python files' in rows['alpha']['answer']
+        assert rows['beta']['answer'] == 'probably four'
+        # sorted by standing score, best first
+        assert task['results'][0]['agent'] == 'alpha'
+
+    def test_skill_results_for_a_missing_skill(self, arena):
+        assert 'error' in arena.skill_results('nope')
+
+    def test_forward_skill_results(self, arena):
+        arena.run_match('alpha', 'agentic/files#0')
+        skill = arena.create_skill('Files', tasks=['agentic/files#0'])
+        res = arena.forward('skill_results', id=skill['id'])
+        assert res['tasks'][0]['results'][0]['agent'] == 'alpha'
+
+
 class TestVoids:
     """A rate-limited free endpoint is not an agent that can't code."""
 

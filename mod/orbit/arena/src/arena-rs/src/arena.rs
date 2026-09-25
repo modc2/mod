@@ -11,7 +11,7 @@ use crate::rating;
 use crate::rsklass;
 use crate::rustc;
 use crate::storelink;
-use crate::store::{self, round3, Match, Player, Rating, Seat, Turn, WasmModule};
+use crate::store::{self, round1, round3, Match, Player, Rating, Seat, Turn, WasmModule};
 use std::collections::HashMap;
 use crate::wasm;
 use serde_json::{json, Value};
@@ -902,6 +902,7 @@ pub async fn play(key: &str, view: &str, seat: usize, answer: &str) -> Result<Va
 fn bump(r: &mut Rating, score: f64, result: &str, delta: f64) {
     r.matches += 1;
     r.score_sum += score;
+    r.best = Some(r.best.map_or(score, |b| b.max(score)));
     match result {
         "win" => r.wins += 1,
         "draw" => r.draws += 1,
@@ -1100,4 +1101,225 @@ pub fn leaderboard(args: &Value) -> Result<Value, String> {
         "scope": m.name, "game": m.id, "count": rows.len().min(limit),
         "players": rows.into_iter().take(limit).map(|(_, v)| v).collect::<Vec<_>>(),
     }))
+}
+
+// ── the arcade ───────────────────────────────────────────────────────────
+
+/// One arcade row in the making: what a player has posted at one game.
+#[derive(Clone, Default)]
+struct ArcadeRow {
+    name: String,
+    kind: String,
+    best: Option<f64>,
+    runs: u64,
+    score_sum: f64,
+    last: u64,
+}
+
+/// Fold ratings and the recent match window into hi-score rows for one game.
+///
+/// The rating is the durable record (`best` survives matches scrolling off);
+/// the match window fills in `best` for ratings written before hi-scores
+/// existed, carries `last` (a rating has no clock), and keeps a name on the
+/// board even after its player was deleted — an arcade cabinet remembers.
+fn arcade_rows(players: &HashMap<String, Player>, matches: &[Match], game_id: &str) -> Vec<(f64, Value)> {
+    let mut rows: HashMap<String, ArcadeRow> = HashMap::new();
+
+    for p in players.values() {
+        if let Some(r) = p.by_game.get(game_id) {
+            rows.insert(
+                p.id.clone(),
+                ArcadeRow {
+                    name: p.name.clone(),
+                    kind: p.kind.clone(),
+                    best: r.best,
+                    runs: r.matches,
+                    score_sum: r.score_sum,
+                    last: 0,
+                },
+            );
+        }
+    }
+
+    for m in matches.iter().filter(|m| m.game == game_id) {
+        for s in &m.seats {
+            let row = rows.entry(s.player_id.clone()).or_default();
+            if row.name.is_empty() {
+                row.name = s.player_name.clone();
+                row.kind = "gone".into();
+                // No rating to lean on — count what the window still holds.
+                row.runs += 1;
+                row.score_sum += s.score;
+            }
+            row.best = Some(row.best.map_or(s.score, |b| b.max(s.score)));
+            row.last = row.last.max(m.created);
+        }
+    }
+
+    let mut out: Vec<(f64, Value)> = rows
+        .into_iter()
+        .filter_map(|(id, r)| {
+            let best = r.best?;
+            let runs = r.runs.max(1) as f64;
+            Some((
+                best,
+                json!({
+                    "id": id, "name": r.name, "kind": r.kind,
+                    "best": round1(best), "runs": r.runs,
+                    "avg_score": round3(r.score_sum / runs),
+                    "last": r.last,
+                }),
+            ))
+        })
+        .collect();
+    out.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
+/// The arcade board: raw game score, per game, and nothing else. No elo in
+/// it anywhere — the number here is the number the game itself printed, and
+/// a solo practice run counts exactly like a seated final, because the
+/// cabinet does not care whether anyone was standing next to you.
+///
+/// With `game`: that game's hi-score table. Without: the marquee — every
+/// game with its current hi-score holder, most-played first.
+pub fn arcade(args: &Value) -> Result<Value, String> {
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 200) as usize;
+    let game = args.get("game").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+
+    if game.is_empty() {
+        let mut games = store::read(|s| {
+            s.modules
+                .values()
+                .filter(|m| m.role == "game")
+                .map(|m| {
+                    let rows = arcade_rows(&s.players, &s.matches, &m.id);
+                    let mut v = json!({ "id": m.id, "name": m.name, "runs": m.runs, "players": rows.len() });
+                    if let Some((_, top)) = rows.first() {
+                        v["top"] = top.clone();
+                    }
+                    (m.runs, v)
+                })
+                .collect::<Vec<_>>()
+        });
+        games.sort_by(|a, b| b.0.cmp(&a.0));
+        let games: Vec<Value> = games.into_iter().map(|(_, v)| v).collect();
+        return Ok(json!({ "scope": "marquee", "count": games.len(), "games": games }));
+    }
+
+    let m = store::read(|s| s.module(&game).cloned()).ok_or_else(|| format!("no game `{game}`"))?;
+    let rows = store::read(|s| arcade_rows(&s.players, &s.matches, &m.id));
+    Ok(json!({
+        "scope": m.name, "game": m.id, "runs": m.runs, "count": rows.len().min(limit),
+        "players": rows.into_iter().take(limit).map(|(_, v)| v).collect::<Vec<_>>(),
+    }))
+}
+
+#[cfg(test)]
+mod arcade_tests {
+    use super::*;
+
+    fn player(id: &str, game: &str, best: Option<f64>, matches: u64, score_sum: f64) -> Player {
+        let mut p = Player {
+            id: id.into(),
+            name: id.to_uppercase(),
+            kind: "wasm".into(),
+            owner: String::new(),
+            note: String::new(),
+            config: json!({}),
+            overall: Rating::default(),
+            by_game: HashMap::new(),
+            moves: 0,
+            illegal: 0,
+            timeouts: 0,
+            mcp: 0,
+            move_ms_sum: 0,
+            created: 0,
+        };
+        p.by_game.insert(game.into(), Rating { best, matches, score_sum, ..Rating::default() });
+        p
+    }
+
+    fn seat(pid: &str, score: f64) -> Seat {
+        Seat {
+            seat: 0,
+            player_id: pid.into(),
+            player_name: pid.to_uppercase(),
+            score,
+            moves: 0,
+            illegal: 0,
+            timeouts: 0,
+            ms: 0,
+            mcp: 0,
+            elo_before: 0.0,
+            elo_after: 0.0,
+            error: String::new(),
+        }
+    }
+
+    fn a_match(game: &str, created: u64, seats: Vec<Seat>) -> Match {
+        Match {
+            id: format!("m{created}"),
+            game: game.into(),
+            game_name: game.into(),
+            seed: 0,
+            seats,
+            turns: vec![],
+            summary: String::new(),
+            runtime: "node".into(),
+            rated: false,
+            ms: 0,
+            created,
+        }
+    }
+
+    #[test]
+    fn ranks_by_raw_score_not_elo() {
+        let mut players = HashMap::new();
+        // b has fewer wins but the higher single score — the arcade crowns b.
+        players.insert("a".into(), player("a", "g1", Some(10.0), 5, 40.0));
+        players.insert("b".into(), player("b", "g1", Some(99.0), 1, 99.0));
+        let rows = arcade_rows(&players, &[], "g1");
+        assert_eq!(rows[0].1["name"], "B");
+        assert_eq!(rows[0].1["best"], 99.0);
+        assert_eq!(rows[1].1["best"], 10.0);
+    }
+
+    #[test]
+    fn the_match_window_fills_in_a_rating_without_a_best() {
+        let mut players = HashMap::new();
+        players.insert("a".into(), player("a", "g1", None, 2, 7.0));
+        let matches = vec![a_match("g1", 100, vec![seat("a", 5.0)]), a_match("g1", 200, vec![seat("a", 2.0)])];
+        let rows = arcade_rows(&players, &matches, "g1");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1["best"], 5.0);
+        assert_eq!(rows[0].1["last"], 200);
+        assert_eq!(rows[0].1["runs"], 2);
+    }
+
+    #[test]
+    fn a_deleted_player_keeps_their_place_on_the_board() {
+        let players = HashMap::new();
+        let matches = vec![a_match("g1", 100, vec![seat("ghost", 42.0)])];
+        let rows = arcade_rows(&players, &matches, "g1");
+        assert_eq!(rows[0].1["name"], "GHOST");
+        assert_eq!(rows[0].1["kind"], "gone");
+        assert_eq!(rows[0].1["best"], 42.0);
+    }
+
+    #[test]
+    fn negative_hi_scores_stay_negative() {
+        let mut players = HashMap::new();
+        players.insert("a".into(), player("a", "g1", Some(-3.0), 1, -3.0));
+        let rows = arcade_rows(&players, &[], "g1");
+        assert_eq!(rows[0].1["best"], -3.0);
+    }
+
+    #[test]
+    fn other_games_do_not_leak_onto_the_board() {
+        let mut players = HashMap::new();
+        players.insert("a".into(), player("a", "g2", Some(50.0), 1, 50.0));
+        let matches = vec![a_match("g2", 100, vec![seat("a", 50.0)])];
+        assert!(arcade_rows(&players, &matches, "g1").is_empty());
+    }
 }

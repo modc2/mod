@@ -59,10 +59,34 @@ type ClsBoard = {
                  matches: number; coverage: number }[]
   skills: { id: string; weight: number; name: string; tasks: number; missing: boolean }[]
 }
+// GET /arena/skills/{id}/results — the skill opened all the way up: each
+// task's full prompt, and per agent its standing score plus the answer it
+// actually gave (terminal-step text + the files the run left behind)
+type ResultRow = {
+  agent: string; icon: string; n: number; best: number; last: number; ts: number
+  id?: string; model?: string | null; provider?: string | null
+  score?: number; correct?: number; reliable?: number; efficient?: number
+  passed?: boolean; steps?: number; seconds?: number
+  answer?: string
+  files?: { path: string; kind?: string; chars?: number; content?: string; note?: string }[]
+  checks?: { type?: string; passed?: boolean; reason?: string; score?: number }[]
+}
+type ResultTask = {
+  key: string; weight: number; missing: boolean; title: string; suite: string
+  prompt: string; checks: number; results: ResultRow[]
+}
+type SkillResults = { skill: { id: string; name: string }; tasks: ResultTask[] }
 
 const pct = (x: number) => `${Math.round(x * 100)}%`
 const sc = (x: number | null | undefined) =>
   x === null || x === undefined ? '—' : x.toFixed(3)
+const ago = (ts?: number) => {
+  if (!ts) return ''
+  const s = Math.max(0, Date.now() / 1000 - ts)
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`
+  return `${Math.round(s / 86400)}d ago`
+}
 
 export default function SkillLab({ token, isHost, address, onSignIn }: {
   token?: string | null
@@ -75,6 +99,10 @@ export default function SkillLab({ token, isHost, address, onSignIn }: {
   const [sel, setSel] = useState<{ kind: 'skill' | 'class'; id: string } | null>(null)
   const [skillBoard, setSkillBoard] = useState<SkillBoard | null>(null)
   const [clsBoard, setClsBoard] = useState<ClsBoard | null>(null)
+  // the open skill's tasks + answers, and which of them are unfolded
+  const [results, setResults] = useState<SkillResults | null>(null)
+  const [openTask, setOpenTask] = useState<string | null>(null)
+  const [openAns, setOpenAns] = useState<string | null>(null)   // `${task}|${agent}`
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -100,6 +128,7 @@ export default function SkillLab({ token, isHost, address, onSignIn }: {
   // one detail board at a time, for whichever bundle is open
   useEffect(() => {
     setSkillBoard(null); setClsBoard(null)
+    setResults(null); setOpenTask(null); setOpenAns(null)
     if (!sel) return
     const path = sel.kind === 'skill' ? 'skills' : 'classes'
     fetch(`${API_URL}/arena/${path}/${encodeURIComponent(sel.id)}`)
@@ -109,6 +138,11 @@ export default function SkillLab({ token, isHost, address, onSignIn }: {
         if (sel.kind === 'skill') setSkillBoard(d)
         else setClsBoard(d)
       }).catch(() => {})
+    if (sel.kind === 'skill')
+      fetch(`${API_URL}/arena/skills/${encodeURIComponent(sel.id)}/results`)
+        .then(r => r.json())
+        .then(d => { if (!d?.error) setResults(d) })
+        .catch(() => {})
   }, [sel])
 
   // the search that assembles a bundle — debounced, read off the ref so a
@@ -249,15 +283,115 @@ export default function SkillLab({ token, isHost, address, onSignIn }: {
         <div className="ml-auto shrink-0">{ownerRow('skill', skillBoard.skill)}</div>
       </div>
 
-      {/* the bundle itself: every task and the weight it carries */}
-      <div className="flex flex-wrap gap-1.5">
-        {skillBoard.tasks.map(t => (
-          <span key={t.key} title={t.key}
-            className="text-[9px] px-1.5 py-0.5 rounded border border-white/[0.08] text-gray-400">
+      {/* the bundle opened up: every task, its full prompt, and what each
+          agent actually answered — text and the files the run left behind */}
+      <div className="space-y-1.5">
+        <div className="text-[9px] uppercase tracking-wider text-gray-600">
+          tasks · open one to read it and every agent&apos;s answer
+        </div>
+        {!results && skillBoard.tasks.map(t => (
+          <div key={t.key} title={t.key}
+            className="rounded-lg border border-white/[0.06] px-2.5 py-2 text-[10px] text-gray-500">
             {t.title || t.key}
             <span className="text-gray-600 ml-1">×{t.weight}</span>
-          </span>
+            <span className="text-gray-700 ml-2">loading results…</span>
+          </div>
         ))}
+        {results?.tasks.map(t => {
+          const open = openTask === t.key
+          return (
+            <div key={t.key}
+              className={`rounded-lg border ${open ? 'border-emerald-500/30 bg-white/[0.01]' : 'border-white/[0.06]'}`}>
+              <button onClick={() => setOpenTask(open ? null : t.key)}
+                title={t.key} className="w-full text-left px-2.5 py-2 flex items-center gap-2">
+                <span className="text-[9px] text-gray-600 shrink-0">{open ? '▾' : '▸'}</span>
+                <span className="text-[10px] text-gray-300 truncate">{t.title || t.key}</span>
+                {t.missing && <span className="text-[9px] text-red-400/80 shrink-0">(task deleted)</span>}
+                <span className="ml-auto shrink-0 text-[9px] text-gray-600 tabular-nums">
+                  ×{t.weight} · {t.checks} checks · {t.results.length
+                    ? `${t.results.length} agent${t.results.length === 1 ? '' : 's'} played`
+                    : 'unplayed'}
+                </span>
+              </button>
+              {open && (
+                <div className="px-2.5 pb-2.5 space-y-2">
+                  {t.prompt && (
+                    <div>
+                      <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-1">the task</div>
+                      <pre className="whitespace-pre-wrap font-sans text-[10px] leading-relaxed text-gray-400 bg-white/[0.02] border border-white/[0.05] rounded p-2 max-h-44 overflow-y-auto">{t.prompt}</pre>
+                    </div>
+                  )}
+                  {t.results.length === 0 && (
+                    <div className="text-[10px] text-gray-600">
+                      no agent has played this task yet — results land here after a round
+                    </div>
+                  )}
+                  {t.results.map(r => {
+                    const akey = `${t.key}|${r.agent}`
+                    const aopen = openAns === akey
+                    return (
+                      <div key={r.agent}
+                        className={`rounded border ${aopen ? 'border-emerald-500/25' : 'border-white/[0.05]'}`}>
+                        <button onClick={() => setOpenAns(aopen ? null : akey)}
+                          className="w-full text-left px-2 py-1.5 flex items-center gap-2">
+                          <span className="shrink-0">{r.icon}</span>
+                          <span className="text-[10px] text-gray-200 truncate">{r.agent}</span>
+                          {r.passed !== undefined && (
+                            <span className={`text-[9px] shrink-0 ${r.passed ? 'text-emerald-300/80' : 'text-red-400/70'}`}>
+                              {r.passed ? '✓ passed' : '✗ failed'}
+                            </span>
+                          )}
+                          <span className="flex-1" />
+                          {benchBar(r.last)}
+                          <span className="text-[9px] text-gray-600 shrink-0 tabular-nums">
+                            best {sc(r.best)} · {r.n || 1} run{(r.n || 1) === 1 ? '' : 's'}
+                            {r.ts ? ` · ${ago(r.ts)}` : ''}
+                          </span>
+                          <span className="text-[9px] text-gray-600 shrink-0">{aopen ? '▾' : '▸'}</span>
+                        </button>
+                        {aopen && (
+                          <div className="px-2 pb-2 space-y-1.5">
+                            <div className="text-[9px] text-gray-600">
+                              correct {sc(r.correct)} · reliable {sc(r.reliable)} · efficient {sc(r.efficient)}
+                              {r.steps !== undefined && ` · ${r.steps} steps`}
+                              {r.seconds !== undefined && ` · ${r.seconds}s`}
+                              {r.model && <span className="text-gray-500"> · ⌁ {r.model.split('/').pop()}</span>}
+                            </div>
+                            {r.answer ? (
+                              <div>
+                                <div className="text-[9px] uppercase tracking-wider text-gray-600 mb-1">answer</div>
+                                <pre className="whitespace-pre-wrap font-sans text-[10px] leading-relaxed text-gray-300 bg-white/[0.02] border border-white/[0.05] rounded p-2 max-h-52 overflow-y-auto">{r.answer}</pre>
+                              </div>
+                            ) : (
+                              <div className="text-[10px] text-gray-600">
+                                the score is on record, but no answer was kept for it — the
+                                match either predates answer capture or has aged off the log.
+                                replay the task (TASKS board ▸ play) and the answer lands here.
+                              </div>
+                            )}
+                            {(r.files || []).map(f => (
+                              <div key={f.path}>
+                                <div className="text-[9px] text-gray-600 mb-0.5">
+                                  ⎘ {f.path}
+                                  {f.kind && <span className="text-gray-700"> · {f.kind}</span>}
+                                  {typeof f.chars === 'number' && <span className="text-gray-700"> · {f.chars} chars</span>}
+                                  {f.note && <span className="text-gray-700"> · {f.note}</span>}
+                                </div>
+                                {f.content && (
+                                  <pre className="whitespace-pre-wrap text-[10px] leading-relaxed text-gray-400 bg-white/[0.02] border border-white/[0.05] rounded p-2 max-h-40 overflow-y-auto">{f.content}</pre>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {skillBoard.leaderboard.length ? (
@@ -313,13 +447,15 @@ export default function SkillLab({ token, isHost, address, onSignIn }: {
 
       <div className="flex flex-wrap gap-1.5">
         {clsBoard.skills.map(s => (
-          <span key={s.id}
-            className={`text-[9px] px-1.5 py-0.5 rounded border ${
+          <button key={s.id} disabled={s.missing}
+            onClick={() => setSel({ kind: 'skill', id: s.id })}
+            title={s.missing ? undefined : 'open this skill — its tasks and every agent’s answers'}
+            className={`text-[9px] px-1.5 py-0.5 rounded border transition ${
               s.missing ? 'border-red-500/30 text-red-400/80'
-                        : 'border-white/[0.08] text-gray-400'}`}>
+                        : 'border-white/[0.08] text-gray-400 hover:border-emerald-500/40 hover:text-emerald-300'}`}>
             {s.name}{s.missing && ' (deleted)'}
             <span className="text-gray-600 ml-1">×{s.weight}</span>
-          </span>
+          </button>
         ))}
       </div>
 
@@ -345,12 +481,13 @@ export default function SkillLab({ token, isHost, address, onSignIn }: {
                 <td className="py-1.5 pr-2">
                   <div className="flex flex-wrap gap-1">
                     {r.per_skill.map(p => (
-                      <span key={p.id} title={`${p.name} · weight ${p.weight}`}
-                        className={`text-[9px] px-1 py-0.5 rounded border tabular-nums ${
-                          p.score === null ? 'border-white/[0.05] text-gray-700'
-                                           : 'border-white/[0.08] text-gray-400'}`}>
+                      <button key={p.id} title={`${p.name} · weight ${p.weight} — open the skill`}
+                        onClick={() => setSel({ kind: 'skill', id: p.id })}
+                        className={`text-[9px] px-1 py-0.5 rounded border tabular-nums transition ${
+                          p.score === null ? 'border-white/[0.05] text-gray-700 hover:border-white/15'
+                                           : 'border-white/[0.08] text-gray-400 hover:border-emerald-500/40 hover:text-emerald-300'}`}>
                         {p.name.slice(0, 12)} {sc(p.score)}
-                      </span>
+                      </button>
                     ))}
                   </div>
                 </td>

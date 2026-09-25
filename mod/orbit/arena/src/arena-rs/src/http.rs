@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use tower_http::cors::CorsLayer;
 
 const CONSOLE_HTML: &str = include_str!("console.html");
+const ARCADE_HTML: &str = include_str!("arcade.html");
 
 /// The execution layer, served to the browser from the same binary that
 /// stores the modules — so a tab needs nothing but this port. `pyhost.mjs` and
@@ -60,6 +61,7 @@ fn info() -> Value {
         "run": "POST /run {game, players[]} — play one headlessly via the node runner",
         "ab": "POST /ab {a, b, games?, count?} — A/B test two agents head to head, seats swapped | GET /ab | GET /ab/:id | DELETE /ab/:id",
         "leaderboard": "GET /leaderboard?game=",
+        "arcade": "GET /arcade?game= — score-per-game hi-score tables, no Elo; without a game, the marquee",
         "abi": "GET /abi?role=game&lang=wasm|class — the contract a module implements",
         "docs": "GET /docs — the contents | GET /docs/:slug (?format=md) | GET /docs/search?q=",
         "runtime": "GET /runtime/host.mjs — the execution layer itself, host.py included",
@@ -68,7 +70,7 @@ fn info() -> Value {
         "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
         "fleet": "GET /fleet — every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
         "trades": "GET /trades?days=&hours= — the trader board joined onto the tape, every trade scored for potential ROI",
-        "console": "GET /arena (browser, the trades view) | GET /arena/classic (the games/agents console)"
+        "console": "GET /arena (browser, the trades view) | GET /arena/classic (the games/agents console) | GET /arena/arcade (hi-score boards)"
     });
     v["stdio"] = json!("arena-api --stdio");
     v
@@ -96,6 +98,10 @@ async fn console() -> Html<&'static str> {
 
 async fn classic() -> Html<&'static str> {
     Html(CONSOLE_HTML)
+}
+
+async fn arcade_page() -> Html<&'static str> {
+    Html(ARCADE_HTML)
 }
 
 async fn mcp_endpoint(Json(msg): Json<Value>) -> Response {
@@ -305,6 +311,14 @@ async fn leaderboard(Query(q): Query<HashMap<String, String>>) -> Response {
         args["limit"] = json!(l);
     }
     via_tool("leaderboard", args).await
+}
+
+async fn arcade(Query(q): Query<HashMap<String, String>>) -> Response {
+    let mut args = json!(q);
+    if let Some(l) = q.get("limit").and_then(|v| v.parse::<u64>().ok()) {
+        args["limit"] = json!(l);
+    }
+    via_tool("arcade", args).await
 }
 
 async fn abi(Query(q): Query<HashMap<String, String>>) -> Response {
@@ -561,6 +575,7 @@ fn api_routes() -> Router {
         .route("/ab", get(ab_list).post(ab_start))
         .route("/ab/:id", get(ab_get).delete(ab_delete))
         .route("/leaderboard", get(leaderboard))
+        .route("/arcade", get(arcade))
         .route("/abi", get(abi))
         .route("/examples", post(plant))
         .route("/runtime/:name", get(runtime_file))
@@ -593,6 +608,7 @@ pub async fn serve(port: u16) {
         .route("/arena", get(console))
         .route("/arena/", get(console))
         .route("/arena/classic", get(classic))
+        .route("/arena/arcade", get(arcade_page))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls
         // /arena/api (canonical; /api/arena is the permanently supported
