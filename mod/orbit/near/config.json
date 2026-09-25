@@ -121,5 +121,5 @@
         "NEAR_HOME": "keystore + token directory (default ~/.mod/near)",
         "NEAR_SEARCH_TTL": "seconds the search index is reused before rebuilding from the store (default 60)"
     },
-    "schema": "QmZcEneazg9R1dwP1QAZZgMACBmVdpoopL86HU3FUq1HKt"
+    "schema": "QmaKpd7edeJ4QZ9BYCZZ92w4KCHam2qaLMJcC5h24g39qY"
 }
