@@ -760,6 +760,11 @@ class Mod:
         """Ranked by Elo. Name a game for the ranking that means something."""
         return self._get('/leaderboard', game=game, limit=limit)
 
+    def arcade(self, game: str = None, limit: int = 20):
+        """Hi-scores: raw game score per game, no Elo. A solo run counts.
+        Without a game, the marquee — every game and its hi-score holder."""
+        return self._get('/arcade', game=game, limit=limit)
+
     # ── one MCP server per module ────────────────────────────────
     #
     # /mcp is the arena. /m/<name>/mcp is one module — a game you can open a

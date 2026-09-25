@@ -24,6 +24,7 @@ dispatches through the [same tool layer MCP does](#docs/mcp).
 | `POST /ab {a, b, games?, count?}` · `GET /ab` · `GET /ab/:id` · `DELETE /ab/:id` | A/B test two agents — the same games, seats swapped, one report |
 | `GET /matches`, `POST /matches`, `GET /matches/:id` | the record · post one played elsewhere |
 | `GET /leaderboard?game=` | the ranking, per game or overall |
+| `GET /arcade?game=` | the hi-score table — raw game score, no Elo; without a game, the marquee |
 | `GET /m/:name`, `GET /m/:name/tools` | the per-module MCP servers |
 | `POST /m/:name/mcp` | one module's own MCP endpoint |
 | `GET /mcp/servers`, `POST /mcp/call` | what a class may call out to |

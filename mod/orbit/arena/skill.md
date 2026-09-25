@@ -50,7 +50,9 @@ file is the whole act of making a game.
   `m arena/probe player=opus view="Legal moves: rock, paper, scissors"`
 - Play: `m arena/play game=ttt players=opus,perfect seed=42`
 - Assess: `m arena/leaderboard game=ttt` (per game — the ranking that means
-  something), `m arena/player player=opus` (the full sheet: rating, record,
+  something), `m arena/arcade game=ttt` (the hi-score table: raw game score,
+  no Elo, solo runs count; without a game, the marquee — browser at
+  `/arena/arcade`), `m arena/player player=opus` (the full sheet: rating, record,
   illegal-move rate, timeouts, pace, form and streak — overall and per game,
   plus its opponents), `m arena/matches player=opus` (only the matches it sat
   in), `m arena/match id=m3` (every turn, what was seen and said)
