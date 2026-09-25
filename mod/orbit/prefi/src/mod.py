@@ -978,6 +978,17 @@ class Mod:
     # our own snapshots — taken every time a price is read — when it can't.
 
     DEX_CHAINS = {'solana': 'Solana', 'base': 'Base'}
+    # A venue is one DEX on one chain — a browsable, seedable subset of that
+    # chain's pools. Everything downstream of listing (pricing, snapshots,
+    # settlement, the liquidity floor) is the chain kernels, untouched: a
+    # Raydium market is a Solana market pinned to a Raydium pool. `gecko_ids`
+    # is the fallback when GeckoTerminal's dex directory is unreachable;
+    # `prefix` matches every program the venue quotes under on either feed
+    # (raydium / raydium-clmm / raydium-cpmm …).
+    DEX_VENUES = {
+        'raydium': {'chain': 'solana', 'label': 'Raydium', 'prefix': 'raydium',
+                    'gecko_ids': ('raydium', 'raydium-clmm', 'raydium-cpmm')},
+    }
     DEX_API = os.environ.get('PREFI_DEX_API', 'https://api.dexscreener.com')
     GECKO_API = os.environ.get('PREFI_GECKO_API', 'https://api.geckoterminal.com/api/v2')
     DEX_UNIVERSE_TTL = 900       # the ranked list moves slowly
@@ -998,6 +1009,40 @@ class Mod:
         want = str(chain or '').strip().lower()
         aliases = {'sol': 'solana', 'solana': 'solana', 'base': 'base'}
         return aliases.get(want)
+
+    def _dex_venue(self, venue) -> Optional[Dict]:
+        want = str(venue or '').strip().lower()
+        spec = self.DEX_VENUES.get(want)
+        return {**spec, 'key': want} if spec else None
+
+    @staticmethod
+    def _on_venue(row: Dict, venue: Dict) -> bool:
+        return bool(row) and str(row.get('dex') or '').startswith(venue['prefix'])
+
+    def _venue_dex_ids(self, venue: Dict) -> List[str]:
+        """Every GeckoTerminal dex id on the venue's chain that belongs to the
+        venue. Discovered from the chain's dex directory so a new program
+        (a raydium-v5) shows up on its own; the registry's ids are the
+        fallback when discovery is down."""
+        chain, prefix = venue['chain'], venue['prefix']
+        ckey = f'_dex_ids_{chain}_{prefix}'
+        cached = self._price_cache.get(ckey)
+        if cached and (time.time() - cached['ts']) < self.DEX_UNIVERSE_TTL:
+            return cached['ids']
+        found: List[str] = []
+        for page in (1, 2):
+            data = self._gecko_get(f'/networks/{chain}/dexes', {'page': page})
+            if not data:
+                break
+            rows = data.get('data') or []
+            found.extend(str(d.get('id') or '') for d in rows if isinstance(d, dict))
+            if len(rows) < 20:
+                break
+        ids = [i for i in found if i.startswith(prefix)]
+        if not ids:
+            return list(venue['gecko_ids'])
+        self._price_cache[ckey] = {'ids': ids, 'ts': time.time()}
+        return ids
 
     def _dex_get(self, path: str, params: Dict = None, timeout: int = 10):
         """GET from DexScreener. None if it isn't reachable — never an
@@ -1113,18 +1158,22 @@ class Mod:
                 best[k] = r
         return list(best.values())
 
-    def _dex_build_universe(self, chain: str) -> List[Dict]:
-        """A chain's default list: its busiest pools by 24h volume, from
-        GeckoTerminal, deduped to one pool per token."""
+    def _dex_build_universe(self, chain: str, dex_ids: List[str] = None) -> List[Dict]:
+        """A chain's default list — or one venue's, when `dex_ids` names its
+        GeckoTerminal dexes: the busiest pools by 24h volume, deduped to one
+        pool per token."""
         rows = []
-        for page in range(1, self.DEX_UNIVERSE_PAGES + 1):
-            data = self._gecko_get(f'/networks/{chain}/pools', {'page': page})
-            if not data:
-                break
-            got = [self._gecko_row(p, chain) for p in (data.get('data') or [])]
-            rows.extend(r for r in got if r)
-            if len(got) < 20:
-                break
+        paths = ([f'/networks/{chain}/dexes/{d}/pools' for d in dex_ids]
+                 if dex_ids else [f'/networks/{chain}/pools'])
+        for path in paths:
+            for page in range(1, self.DEX_UNIVERSE_PAGES + 1):
+                data = self._gecko_get(path, {'page': page})
+                if not data:
+                    break
+                got = [self._gecko_row(p, chain) for p in (data.get('data') or [])]
+                rows.extend(r for r in got if r)
+                if len(got) < 20:
+                    break
         rows = self._dex_best(rows)
         # Stables and wrapped gas are in every top-pools list and are not a
         # price call anyone would make.
@@ -1135,34 +1184,37 @@ class Mod:
         rows.sort(key=lambda r: -(r['volume_24h'] or 0))
         return rows
 
-    def _dex_universe(self, chain: str, force: bool = False) -> List[Dict]:
-        """The default list per chain, cached 15 minutes in memory and on disk
-        — a stale list beats an empty one, same as the HL universe."""
+    def _dex_universe(self, chain: str, force: bool = False,
+                      venue: Dict = None) -> List[Dict]:
+        """The default list per chain — or per venue — cached 15 minutes in
+        memory and on disk: a stale list beats an empty one, same as the HL
+        universe."""
         chain = self._dex_chain(chain)
         if not chain:
             return []
-        ckey = f'_dex_universe_{chain}'
+        scope = venue['key'] if venue else chain
+        ckey = f'_dex_universe_{scope}'
         cached = self._price_cache.get(ckey)
         if not force:
             if cached and (time.time() - cached['ts']) < self.DEX_UNIVERSE_TTL:
                 return cached['assets']
-            disk = self._load_json(self.dex_universe_path(chain), {})
+            disk = self._load_json(self.dex_universe_path(scope), {})
             if disk.get('assets') and (time.time() - disk.get('ts', 0)) < self.DEX_UNIVERSE_TTL:
                 self._price_cache[ckey] = disk
                 return disk['assets']
 
-        assets = self._dex_build_universe(chain)
+        assets = self._dex_build_universe(chain, self._venue_dex_ids(venue) if venue else None)
         if assets:
             entry = {'assets': assets, 'ts': time.time()}
             self._price_cache[ckey] = entry
             try:
-                self._save_json(self.dex_universe_path(chain), entry)
+                self._save_json(self.dex_universe_path(scope), entry)
             except OSError:
                 pass
             return assets
         if cached:
             return cached['assets']
-        disk = self._load_json(self.dex_universe_path(chain), {})
+        disk = self._load_json(self.dex_universe_path(scope), {})
         return disk.get('assets') or []
 
     def dex_search(self, chain: str, query: str) -> List[Dict]:
