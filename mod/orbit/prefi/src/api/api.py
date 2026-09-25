@@ -160,29 +160,33 @@ def dex_assets(
     chain: str = Query("solana", description="solana | base"),
     search: str = Query("", description="Symbol, name or address — empty for the busiest pools"),
     limit: int = Query(50, description="Max results — 0 for everything"),
+    dex: str = Query("", description="Narrow to one venue: raydium"),
 ):
-    return get_mod().dex_assets(chain, search, limit)
+    return get_mod().dex_assets(chain, search, limit, dex or None)
 
 @app.get("/dex/stats")
-def dex_stats(chain: str = Query("solana", description="solana | base")):
+def dex_stats(chain: str = Query("solana", description="solana | base"),
+              dex: str = Query("", description="Narrow to one venue: raydium")):
     """Pools ranked, how many clear the owner's floor, how many are listed,
     and the floor itself."""
-    return _ok(get_mod().dex_stats(chain))
+    return _ok(get_mod().dex_stats(chain, dex or None))
 
 @app.post("/dex/seed")
 def seed_dex_markets(
     chain: str = Query("solana", description="solana | base"),
     limit: int = Query(20, description="How many of the busiest eligible tokens to list"),
     min_volume: float = Query(0, description="Skip pools under this 24h volume (USD)"),
+    dex: str = Query("", description="Narrow to one venue: raydium"),
 ):
-    return _ok(get_mod().seed_dex(chain, limit, min_volume))
+    return _ok(get_mod().seed_dex(chain, limit, min_volume, dex or None))
 
 @app.post("/dex/add")
 def add_dex_market(
     chain: str = Query(..., description="solana | base"),
     address: str = Query(..., description="A pool address, a token address, or a symbol"),
+    dex: str = Query("", description="Pin the listing to one venue: raydium"),
 ):
-    result = get_mod().add_dex_market(chain, address)
+    result = get_mod().add_dex_market(chain, address, dex or None)
     if 'error' in result:
         raise HTTPException(status_code=400, detail=result['error'])
     return result

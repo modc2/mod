@@ -933,6 +933,31 @@ class Mod:
         the simulator always gets an answer, marked by `source`."""
         return self._fx_mod().rates(self.fx_cache_path, refresh=refresh)
 
+    # ━━ Demo seeding (testnet) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _demo_mod(self):
+        """Load demo.py by path, same reasoning as _peers_mod."""
+        if getattr(self, '_demo_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_demo', self.module_dir / 'demo.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._demo_cache = mod_
+        return self._demo_cache
+
+    def seed(self, force: bool = False) -> dict:
+        """Fill the testnet store with a labelled fake example scenario —
+        a fictional property, hash-derived addresses, sixty days of rent,
+        shareholders and a dividend, all recorded through the real code
+        paths. Refuses to overwrite data it didn't write unless force=True.
+        unseed() removes everything it wrote."""
+        return self._demo_mod().seed(self, force=force)
+
+    def unseed(self) -> dict:
+        """Remove the seeded demo scenario — and only that."""
+        return self._demo_mod().unseed(self)
+
     # ━━ Health & Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def health(self):
@@ -1510,6 +1535,8 @@ class Mod:
             peers              - Other on-chain housing projects (refresh=)
             compare            - OpenHouse against the field (refresh=)
             fx                 - ETH in fiat currencies for display (refresh=)
+            seed               - Fill the testnet store with fake example data (force=)
+            unseed             - Remove the seeded demo data
             property           - Property details
             shareholders       - All shareholders
             shareholder        - Shareholder info (address=)
@@ -1574,6 +1601,8 @@ class Mod:
             'peers': lambda: self.peers(refresh=bool(kwargs.get('refresh'))),
             'compare': lambda: self.compare(refresh=bool(kwargs.get('refresh'))),
             'fx': lambda: self.fx(refresh=bool(kwargs.get('refresh'))),
+            'seed': lambda: self.seed(force=bool(kwargs.get('force'))),
+            'unseed': lambda: self.unseed(),
             'property': lambda: self.property(),
             'shareholders': lambda: self.shareholders(),
             'shareholder': lambda: self.shareholder(kwargs.get('address', '')),

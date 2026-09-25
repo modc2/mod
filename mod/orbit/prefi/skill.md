@@ -4,7 +4,7 @@ Prediction pool on Hyperliquid, Bittensor, Solana and Base: stake on where an as
 
 ## Capabilities
 
-- **Markets** — list any Hyperliquid pair (perp or spot, ~880), any Bittensor subnet alpha token, and any Solana/Base token over the owner's liquidity floor; CoinGecko for the Base defaults
+- **Markets** — list any Hyperliquid pair (perp or spot, ~880), any Bittensor subnet alpha token, and any Solana/Base token over the owner's liquidity floor; CoinGecko for the Base defaults. DEX listings can be narrowed to one venue: anything Raydium quotes lists via `add_raydium_market` / `dex=raydium`, with its own console browser
 - **Stake pool** — real USDC/USDT0 on HyperEVM; deposit, signed stakes, weekly rounds, largest-remainder settlement, withdrawals
 - **Free play** — no-money calls held out of the pot, priced by a would-have-won counterfactual
 - **Agent play (bloctime)** — no dollars down, weighted by value locked on bloctime; agents split a share of each pot's protocol fee
@@ -18,6 +18,7 @@ From config.json `fns` (dispatch is `m prefi/<fn>`):
 
 - `status` / `health` — protocol totals, liveness
 - `list_markets`, `seed_hl`, `seed_bt`, `seed_dex`, `add_hl_market`, `add_bt_market`, `add_dex_market` — the asset universe
+- `add_raydium_market`, `raydium_assets`, `raydium_stats`, `seed_raydium` — the Raydium venue doors (CLI `add-ray`, `seed-ray`; any `dex-*` action takes `dex=raydium`)
 - `pool_stake`, `pool_free_stake`, `pool_agent_stake`, `pool_settle`, `pool_round`, `pool_leaderboard` — the dollar pool
 - `paper_faucet`, `paper_predict`, `paper_transfer`, `paper_resolve` — paper-pool writes
 - `paper_status`, `paper_account`, `paper_round`, `paper_leaderboard`, `paper_log`, `paper_verify`, `paper_sign` — paper-pool reads and the audit

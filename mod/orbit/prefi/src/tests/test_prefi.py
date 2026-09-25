@@ -1160,17 +1160,27 @@ class DexTestBase(PrefiTestBase):
                 hits = [p for p in self.pairs if p['chainId'] == chain
                         and q in p['baseToken']['symbol'].upper()]
                 return {'data': [self._gecko_pool(p, chain) for p in hits]}
-            if path.endswith('/pools'):
+            if path.endswith('/dexes'):
                 chain = path.split('/')[2]
+                if self.dexes_down or params.get('page', 1) > 1:
+                    return {'data': []}
+                ids = sorted({p['dexId'] for p in self.pairs if p['chainId'] == chain})
+                return {'data': [{'id': d} for d in ids]}
+            if path.endswith('/pools'):
+                parts = path.split('/')
+                chain = parts[2]
+                dex = parts[4] if '/dexes/' in path else None
                 if params.get('page', 1) > 1:
                     return {'data': []}
                 return {'data': [self._gecko_pool(p, chain)
-                                 for p in self.pairs if p['chainId'] == chain]}
+                                 for p in self.pairs if p['chainId'] == chain
+                                 and (dex is None or p['dexId'] == dex)]}
             if '/ohlcv/hour' in path:
                 return {'data': {'attributes': {'ohlcv_list': self.candles}}}
             raise AssertionError(f'unexpected GeckoTerminal call {path}')
 
         self.dex_down = False
+        self.dexes_down = False       # just the GeckoTerminal dex directory
         for target, fake in (('_dex_get', dex_get), ('_gecko_get', gecko_get)):
             p = patch.object(Mod, target, fake)
             p.start()
@@ -1419,3 +1429,92 @@ class TestDexCLI(DexTestBase):
         self.assertEqual(self.prefi.forward('dex-stats', chain='base')['listed'], 1)
         self.assertEqual(len(self.prefi.forward('dex-assets', chain='solana', limit=1)), 1)
         self.assertEqual(self.prefi.forward('pool-set', min_liquidity_usd=1)['min_liquidity_usd'], 1.0)
+
+
+SOL_PAIR_ORCA, SOL_MINT_ORCA = _sol('PAIRORCA'), _sol('MINTORCA')
+SOL_PAIR_JUP_O, SOL_PAIR_JUP_R = _sol('PAIRJUPO'), _sol('PAIRJUPR')
+SOL_MINT_JUP = _sol('MINTJUP')
+
+
+class TestRaydium(DexTestBase):
+    """The venue layer: anything Raydium quotes is listable, and only what
+    Raydium quotes shows in the Raydium browser. Pools on other Solana DEXes
+    stay reachable through the plain Solana browser — a venue narrows, it
+    does not gate the chain."""
+
+    def setUp(self):
+        super().setUp()
+        # An Orca-only token, and a token whose deepest pool is on Orca but
+        # which also has a real Raydium CLMM pool — the venue must pin the
+        # Raydium one, not lose the token to the per-token dedupe.
+        self.pairs.append(_pair('solana', SOL_PAIR_ORCA, 'ORC', SOL_MINT_ORCA,
+                                2_000_000, 1.0, 500_000, dex='orca'))
+        self.pairs.append(_pair('solana', SOL_PAIR_JUP_O, 'JUP', SOL_MINT_JUP,
+                                3_000_000, 0.8, 900_000, dex='orca'))
+        self.pairs.append(_pair('solana', SOL_PAIR_JUP_R, 'JUP', SOL_MINT_JUP,
+                                1_000_000, 0.8, 400_000, dex='raydium-clmm'))
+
+    def test_the_raydium_browser_shows_only_raydium_pools(self):
+        rows = self.prefi.raydium_assets()
+        self.assertTrue(rows)
+        self.assertTrue(all(r['dex'].startswith('raydium') for r in rows))
+        keys = {r['key'] for r in rows}
+        self.assertIn(SOL_PAIR_WIF, keys)
+        self.assertIn(SOL_PAIR_JUP_R, keys)                # its Raydium pool, kept
+        self.assertNotIn(SOL_PAIR_JUP_O, keys)
+        self.assertNotIn(SOL_PAIR_ORCA, keys)
+
+    def test_a_symbol_pins_the_deepest_raydium_pool_not_the_deepest_pool(self):
+        out = self.prefi.add_raydium_market('JUP')
+        self.assertEqual(out['status'], 'added', out)
+        self.assertEqual(out['market']['dex_pair'], SOL_PAIR_JUP_R)
+        self.assertEqual(out['market']['dex_id'], 'raydium-clmm')
+        self.assertEqual(out['market']['symbol'], 'JUP.sol')
+        # the chain-wide add would have taken the Orca pool
+        self.assertEqual(self.prefi._dex_lookup('solana', 'JUP')['key'], SOL_PAIR_JUP_O)
+
+    def test_a_token_mint_resolves_to_its_raydium_pool(self):
+        out = self.prefi.add_raydium_market(SOL_MINT_JUP)
+        self.assertEqual(out['status'], 'added', out)
+        self.assertEqual(out['market']['dex_pair'], SOL_PAIR_JUP_R)
+
+    def test_a_pool_on_another_dex_is_refused_by_name(self):
+        out = self.prefi.add_raydium_market(SOL_PAIR_ORCA)
+        self.assertIn('Raydium pool', out['error'])
+        # …but the plain Solana door still takes it
+        self.assertEqual(self.prefi.add_dex_market('solana', SOL_PAIR_ORCA)['status'], 'added')
+
+    def test_search_in_the_raydium_browser_stays_on_raydium(self):
+        rows = self.prefi.raydium_assets(search='JUP')
+        self.assertEqual([r['key'] for r in rows], [SOL_PAIR_JUP_R])
+        self.assertEqual(self.prefi.raydium_assets(search='ORC'), [])
+
+    def test_seed_and_stats_count_only_raydium(self):
+        out = self.prefi.seed_raydium()
+        self.assertIn('WIF', out['added'])
+        self.assertIn('JUP', out['added'])
+        self.assertNotIn('ORC', out['added'])              # Orca-only: not this venue's
+        markets = self.prefi._load_json(self.prefi.markets_path, [])
+        self.assertTrue(all(m['dex_id'].startswith('raydium')
+                            for m in markets if m.get('source') == 'dex'))
+        st = self.prefi.raydium_stats()
+        self.assertEqual(st['dex'], 'raydium')
+        self.assertEqual(st['label'], 'Raydium')
+        self.assertEqual(st['listed'], len(out['added']))
+        self.prefi.add_dex_market('solana', SOL_PAIR_ORCA)
+        self.assertEqual(self.prefi.raydium_stats()['listed'], len(out['added']))
+
+    def test_the_dex_directory_going_down_falls_back_to_the_known_programs(self):
+        self.dexes_down = True
+        rows = self.prefi.raydium_assets()
+        keys = {r['key'] for r in rows}
+        self.assertIn(SOL_PAIR_WIF, keys)                  # 'raydium' is a registry fallback id
+        self.assertIn(SOL_PAIR_JUP_R, keys)                # so is 'raydium-clmm'
+        self.assertNotIn(SOL_PAIR_ORCA, keys)
+
+    def test_add_ray_through_the_cli(self):
+        self.assertEqual(self.prefi.forward('add-ray', address='WIF')['status'], 'added')
+        self.assertIn('error', self.prefi.forward('add-ray', address='ORC'))
+        self.assertEqual(self.prefi.forward('add-dex', dex='raydium',
+                                            address='JUP')['market']['dex_pair'], SOL_PAIR_JUP_R)
+        self.assertEqual(self.prefi.forward('dex-stats', dex='raydium')['label'], 'Raydium')

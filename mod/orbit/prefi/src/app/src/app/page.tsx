@@ -252,10 +252,10 @@ const sourceKey = (m: any): SourceFilter =>
 function Markets({ status, markets, treasury, poolPrices, onMarkets }: any) {
   const s = status || {}
   const t = treasury || {}
-  const [addOpen, setAddOpen] = useState<'' | 'hl' | 'bt' | 'solana' | 'base'>('')
+  const [addOpen, setAddOpen] = useState<'' | 'hl' | 'bt' | 'solana' | 'raydium' | 'base'>('')
   const [filter, setFilter] = useState<SourceFilter>('all')
   const [q, setQ] = useState('')
-  const toggle = (which: 'hl' | 'bt' | 'solana' | 'base') => setAddOpen(o => (o === which ? '' : which))
+  const toggle = (which: 'hl' | 'bt' | 'solana' | 'raydium' | 'base') => setAddOpen(o => (o === which ? '' : which))
 
   const counts = useMemo(() => {
     const c = { all: markets.length, hyperliquid: 0, bittensor: 0, solana: 0, base: 0 } as Record<SourceFilter, number>
@@ -294,6 +294,9 @@ function Markets({ status, markets, treasury, poolPrices, onMarkets }: any) {
           <button onClick={() => toggle('solana')} className={`btn btn-sm ${addOpen === 'solana' ? 'btn-primary' : 'btn-ghost'}`}>
             {addOpen === 'solana' ? 'Close' : '+ Solana'}
           </button>
+          <button onClick={() => toggle('raydium')} className={`btn btn-sm ${addOpen === 'raydium' ? 'btn-primary' : 'btn-ghost'}`}>
+            {addOpen === 'raydium' ? 'Close' : '+ Raydium'}
+          </button>
           <button onClick={() => toggle('base')} className={`btn btn-sm ${addOpen === 'base' ? 'btn-primary' : 'btn-ghost'}`}>
             {addOpen === 'base' ? 'Close' : '+ Base'}
           </button>
@@ -301,8 +304,9 @@ function Markets({ status, markets, treasury, poolPrices, onMarkets }: any) {
       }>
         {addOpen === 'hl' && <HyperliquidAdd onAdded={() => { onMarkets?.(); }} />}
         {addOpen === 'bt' && <BittensorAdd onAdded={() => { onMarkets?.(); }} />}
-        {(addOpen === 'solana' || addOpen === 'base') && (
-          <DexAdd key={addOpen} chain={addOpen} onAdded={() => { onMarkets?.(); }} />
+        {(addOpen === 'solana' || addOpen === 'raydium' || addOpen === 'base') && (
+          <DexAdd key={addOpen} chain={addOpen === 'raydium' ? 'solana' : addOpen}
+            dex={addOpen === 'raydium' ? 'raydium' : undefined} onAdded={() => { onMarkets?.(); }} />
         )}
 
         <div className="px-[18px] py-3 border-b border-white/[0.06] flex flex-wrap items-center gap-2">
@@ -355,6 +359,7 @@ function Markets({ status, markets, treasury, poolPrices, onMarkets }: any) {
               <button onClick={() => toggle('hl')} className="btn btn-primary btn-sm">+ Hyperliquid</button>
               <button onClick={() => toggle('bt')} className="btn btn-secondary btn-sm">+ Bittensor</button>
               <button onClick={() => toggle('solana')} className="btn btn-secondary btn-sm">+ Solana</button>
+              <button onClick={() => toggle('raydium')} className="btn btn-secondary btn-sm">+ Raydium</button>
               <button onClick={() => toggle('base')} className="btn btn-secondary btn-sm">+ Base</button>
             </div>
           </Empty>
@@ -606,33 +611,35 @@ function HyperliquidAdd({ onAdded }: { onAdded: () => void }) {
 // floor decides which of them can be listed at all: those under it are shown,
 // greyed, with the number, rather than hidden.
 
-function DexAdd({ chain, onAdded }: { chain: 'solana' | 'base'; onAdded: () => void }) {
+function DexAdd({ chain, dex, onAdded }: { chain: 'solana' | 'base'; dex?: 'raydium'; onAdded: () => void }) {
   const [search, setSearch] = useState('')
   const [assets, setAssets] = useState<any[]>([])
   const [stats, setStats] = useState<any>(null)
   const [shown, setShown] = useState(PAGE)
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState('')
-  const label = chain === 'solana' ? 'Solana' : 'Base'
+  // A venue (Raydium) browses one DEX's pools; the chain browsers see them all.
+  const label = dex === 'raydium' ? 'Raydium' : chain === 'solana' ? 'Solana' : 'Base'
+  const venueQ = dex ? `&dex=${dex}` : ''
 
   useEffect(() => {
     let live = true
     setLoading(true)
     const t = setTimeout(async () => {
       const [d, st] = await Promise.all([
-        get(`${API}/dex/assets?chain=${chain}&search=${encodeURIComponent(search)}&limit=0`),
-        get(`${API}/dex/stats?chain=${chain}`),
+        get(`${API}/dex/assets?chain=${chain}&search=${encodeURIComponent(search)}&limit=0${venueQ}`),
+        get(`${API}/dex/stats?chain=${chain}${venueQ}`),
       ])
       if (!live) return
       setAssets(d || []); setStats(st); setShown(PAGE); setLoading(false)
     }, 300)
     return () => { live = false; clearTimeout(t) }
-  }, [search, chain])
+  }, [search, chain, dex])
 
   const add = async (a: any) => {
     setAdding(a.key)
     try {
-      const r = await fetch(`${API}/dex/add?chain=${chain}&address=${encodeURIComponent(a.key)}`, { method: 'POST' })
+      const r = await fetch(`${API}/dex/add?chain=${chain}&address=${encodeURIComponent(a.key)}${venueQ}`, { method: 'POST' })
       const d = await r.json()
       if (r.ok) {
         toast.success(`${d.market?.symbol || a.coin} listed — priced from its ${a.dex} pool on ${label}`)
@@ -646,7 +653,7 @@ function DexAdd({ chain, onAdded }: { chain: 'solana' | 'base'; onAdded: () => v
   const seed = async () => {
     setAdding('seed')
     try {
-      const r = await fetch(`${API}/dex/seed?chain=${chain}&limit=20`, { method: 'POST' })
+      const r = await fetch(`${API}/dex/seed?chain=${chain}&limit=20${venueQ}`, { method: 'POST' })
       const d = await r.json()
       if (!r.ok) throw new Error(d.detail || 'Failed')
       toast.success(d.added?.length ? `Listed ${d.added.length}: ${d.added.slice(0, 6).join(', ')}${
@@ -664,9 +671,11 @@ function DexAdd({ chain, onAdded }: { chain: 'solana' | 'base'; onAdded: () => v
   return (
     <Browser
       search={search} setSearch={setSearch}
-      placeholder={chain === 'solana'
-        ? 'Search any Solana token — WIF, BONK, a mint address, a pool…'
-        : 'Search any Base token — BRETT, DEGEN, a 0x token or pool address…'}
+      placeholder={dex === 'raydium'
+        ? 'Search anything on Raydium — WIF, BONK, a mint address, a pool…'
+        : chain === 'solana'
+          ? 'Search any Solana token — WIF, BONK, a mint address, a pool…'
+          : 'Search any Base token — BRETT, DEGEN, a 0x token or pool address…'}
       controls={
         <button onClick={seed} disabled={adding === 'seed'} className="btn btn-secondary btn-sm"
           title={`List the 20 busiest ${label} tokens that clear the liquidity floor`}>

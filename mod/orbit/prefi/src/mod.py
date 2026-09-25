@@ -1217,7 +1217,7 @@ class Mod:
         disk = self._load_json(self.dex_universe_path(scope), {})
         return disk.get('assets') or []
 
-    def dex_search(self, chain: str, query: str) -> List[Dict]:
+    def dex_search(self, chain: str, query: str, dex: str = None) -> List[Dict]:
         """Search one chain for a token — by symbol, name or address.
 
         Symbols go to GeckoTerminal: its search ranks the real `$WIF` first,
@@ -1226,19 +1226,24 @@ class Mod:
         pool or a token address exactly. One row per token (its deepest
         pool); exact ticker matches first, then by 24h volume — volume is
         the one number a fake pool can't fabricate by parking tokens in it.
+
+        `dex` narrows to one venue (raydium): venue pools are kept before
+        the per-token dedupe, so a token's deepest *venue* pool wins rather
+        than being dropped for a deeper pool somewhere else.
         """
         chain = self._dex_chain(chain)
+        venue = self._dex_venue(dex) if dex else None
         q = (query or '').strip()
         if not chain or not q:
             return []
-        ckey = f'_dex_search_{chain}_{q.lower()}'
+        ckey = f"_dex_search_{venue['key'] if venue else chain}_{q.lower()}"
         cached = self._price_cache.get(ckey)
         if cached and (time.time() - cached['ts']) < self.DEX_SEARCH_TTL:
             return cached['rows']
 
         rows: List[Dict] = []
         if self._looks_like_address(q):
-            hit = self._dex_lookup_address(chain, q)
+            hit = self._dex_lookup_address(chain, q, venue)
             rows = [hit] if hit else []
         else:
             data = self._gecko_get('/search/pools', {'query': q, 'network': chain, 'page': 1})
@@ -1249,7 +1254,10 @@ class Mod:
                 if data is None:
                     return cached['rows'] if cached else []
                 rows = [self._dex_row(p) for p in (data.get('pairs') or [])]
-            rows = self._dex_best([r for r in rows if r and r['chain'] == chain])
+            rows = [r for r in rows if r and r['chain'] == chain]
+            if venue:
+                rows = [r for r in rows if self._on_venue(r, venue)]
+            rows = self._dex_best(rows)
             want = q.upper()
             rows.sort(key=lambda r: (r['coin'].upper() != want, -(r['volume_24h'] or 0),
                                      -(r['liquidity_usd'] or 0)))
@@ -1263,33 +1271,39 @@ class Mod:
             return len(t) == 42 and all(c in '0123456789abcdefABCDEF' for c in t[2:])
         return 32 <= len(t) <= 44 and t.isalnum()          # base58 pubkey
 
-    def _dex_lookup_address(self, chain: str, address: str) -> Optional[Dict]:
+    def _dex_lookup_address(self, chain: str, address: str,
+                            venue: Dict = None) -> Optional[Dict]:
         """A pool address answers directly; a token address answers with its
-        deepest pool. Both through DexScreener, which is exact on addresses."""
+        deepest pool — the deepest pool *on the venue* when one is given.
+        Both through DexScreener, which is exact on addresses."""
         data = self._dex_get(f'/latest/dex/pairs/{chain}/{address}')
         rows = [self._dex_row(p) for p in ((data or {}).get('pairs') or [])]
         rows = [r for r in rows if r and r['chain'] == chain]
         if rows:
-            return rows[0]
+            return rows[0] if not venue or self._on_venue(rows[0], venue) else None
         data = self._dex_get(f'/token-pairs/v1/{chain}/{address}')
         rows = [self._dex_row(p) for p in (data if isinstance(data, list) else [])]
-        rows = self._dex_best([r for r in rows if r and r['chain'] == chain])
+        rows = [r for r in rows if r and r['chain'] == chain]
+        if venue:
+            rows = [r for r in rows if self._on_venue(r, venue)]
+        rows = self._dex_best(rows)
         return max(rows, key=lambda r: r['liquidity_usd'] or 0) if rows else None
 
-    def _dex_lookup(self, chain: str, address: str) -> Optional[Dict]:
+    def _dex_lookup(self, chain: str, address: str, dex: str = None) -> Optional[Dict]:
         """Resolve what a caller typed to one pool on one chain.
 
         An address is exact. A plain symbol takes the busiest pool whose
         ticker matches exactly — the response says which pool was picked,
         and the console never sends a symbol, only the row's pool address.
+        `dex` restricts both paths to that venue's pools.
         """
         chain = self._dex_chain(chain)
         want = (address or '').strip()
         if not chain or not want:
             return None
         if self._looks_like_address(want):
-            return self._dex_lookup_address(chain, want)
-        rows = self.dex_search(chain, want)
+            return self._dex_lookup_address(chain, want, self._dex_venue(dex) if dex else None)
+        rows = self.dex_search(chain, want, dex)
         exact = [r for r in rows if r['coin'].upper() == want.upper()]
         return (exact or [None])[0]
 
@@ -1318,9 +1332,11 @@ class Mod:
             sym = f"{row['coin']}.{suffix}.{row['token'][:4]}"
         return sym
 
-    def add_dex_market(self, chain: str, address: str) -> Dict:
+    def add_dex_market(self, chain: str, address: str, dex: str = None) -> Dict:
         """List a Solana or Base token as a market, by pool address, token
-        address or symbol.
+        address or symbol. `dex` pins the listing to one venue (raydium):
+        the pool has to be that venue's, and a symbol resolves to its
+        deepest pool there.
 
         Two checks, both refusable. The pool has to exist on DexScreener —
         that is what makes it priceable — and it has to hold at least
@@ -1328,18 +1344,25 @@ class Mod:
         records the pool, not the token: every later price and settlement
         reads that one pool.
         """
-        chain_id = self._dex_chain(chain)
+        venue = self._dex_venue(dex) if dex else None
+        if dex and not venue:
+            return {'error': f"dex must be one of {sorted(self.DEX_VENUES)} — got '{dex}'"}
+        chain_id = self._dex_chain(chain) or (venue['chain'] if venue else None)
         if not chain_id:
             return {'error': f"chain must be one of {sorted(self.DEX_CHAINS)} — got '{chain}'"}
+        if venue and chain_id != venue['chain']:
+            return {'error': f"{venue['label']} is a {self.DEX_CHAINS[venue['chain']]} venue "
+                             f"— got chain '{chain}'"}
         want = (address or '').strip()
         if not want:
             return {'error': 'address required — a pool address, a token address or a symbol'}
 
-        row = self._dex_lookup(chain_id, want)
+        row = self._dex_lookup(chain_id, want, dex)
         if row is None:
             if self._dex_last is None and self._dex_get('/latest/dex/search', {'q': 'SOL'}) is None:
                 return {'error': 'DexScreener unreachable — nothing to verify the token against'}
-            return {'error': f"{want} is not a token with a pool on {self.DEX_CHAINS[chain_id]}"}
+            where = f"a {venue['label']} pool" if venue else 'a pool'
+            return {'error': f"{want} is not a token with {where} on {self.DEX_CHAINS[chain_id]}"}
 
         floor = self.dex_min_liquidity()
         if row['liquidity_usd'] < floor:
@@ -1365,10 +1388,15 @@ class Mod:
             self._dex_snapshot({symbol.upper(): {'price': row['price']}})
         return out
 
-    def seed_dex(self, chain: str, limit: int = 20, min_volume: float = 0) -> Dict:
-        """List a chain's busiest tokens that clear the liquidity floor, in
-        one call (idempotent — `limit` is the top of the ranking)."""
-        chain_id = self._dex_chain(chain)
+    def seed_dex(self, chain: str, limit: int = 20, min_volume: float = 0,
+                 dex: str = None) -> Dict:
+        """List a chain's — or one venue's — busiest tokens that clear the
+        liquidity floor, in one call (idempotent — `limit` is the top of
+        the ranking)."""
+        venue = self._dex_venue(dex) if dex else None
+        if dex and not venue:
+            return {'error': f"dex must be one of {sorted(self.DEX_VENUES)} — got '{dex}'"}
+        chain_id = self._dex_chain(chain) or (venue['chain'] if venue else None)
         if not chain_id:
             return {'error': f"chain must be one of {sorted(self.DEX_CHAINS)} — got '{chain}'"}
         limit = max(1, int(limit or 1))
@@ -1376,31 +1404,37 @@ class Mod:
             vol_floor = float(min_volume or 0)
         except (TypeError, ValueError):
             vol_floor = 0.0
-        assets = [a for a in self.dex_assets(chain_id, limit=0)
+        assets = [a for a in self.dex_assets(chain_id, limit=0, dex=dex)
                   if a['eligible'] and (a.get('volume_24h') or 0) >= vol_floor]
         if not assets:
-            return {'error': f'no {self.DEX_CHAINS[chain_id]} token clears the floor — or the '
+            label = venue['label'] if venue else self.DEX_CHAINS[chain_id]
+            return {'error': f'no {label} token clears the floor — or the '
                              'feed is unreachable', 'added': [], 'existing': []}
         added, existing = [], []
         for a in assets[:limit]:
             if a['listed']:
                 existing.append(a['coin'])
                 continue
-            result = self.add_dex_market(chain_id, a['key'])
+            result = self.add_dex_market(chain_id, a['key'], dex)
             (added if result.get('status') == 'added' else existing).append(a['coin'])
         return {'added': added, 'existing': existing,
                 'markets': len(self._load_json(self.markets_path, []))}
 
-    def dex_assets(self, chain: str = 'solana', search: str = '', limit: int = 50) -> List[Dict]:
+    def dex_assets(self, chain: str = 'solana', search: str = '', limit: int = 50,
+                   dex: str = None) -> List[Dict]:
         """Browse tokens on one chain — the busiest pools by default, a
-        DexScreener search when `search` is given. Rows carry `listed`, and
-        `eligible` against the owner's liquidity floor, so a picker can grey
-        out what cannot be listed rather than let someone find out on click."""
-        chain_id = self._dex_chain(chain)
-        if not chain_id:
+        DexScreener search when `search` is given, one venue's pools when
+        `dex` is (raydium). Rows carry `listed`, and `eligible` against the
+        owner's liquidity floor, so a picker can grey out what cannot be
+        listed rather than let someone find out on click."""
+        venue = self._dex_venue(dex) if dex else None
+        if dex and not venue:
             return []
-        rows = self.dex_search(chain_id, search) if (search or '').strip() \
-            else self._dex_universe(chain_id)
+        chain_id = self._dex_chain(chain) or (venue['chain'] if venue else None)
+        if not chain_id or (venue and chain_id != venue['chain']):
+            return []
+        rows = self.dex_search(chain_id, search, dex) if (search or '').strip() \
+            else self._dex_universe(chain_id, venue=venue)
         floor = self.dex_min_liquidity()
         listed = self._dex_listed()
         out = []
@@ -1417,19 +1451,25 @@ class Mod:
         limit = int(limit or 0)
         return out[:limit] if limit > 0 else out
 
-    def dex_stats(self, chain: str = 'solana') -> Dict:
+    def dex_stats(self, chain: str = 'solana', dex: str = None) -> Dict:
         """How many pools the default list ranks, how many clear the floor,
-        how many are listed here, and how old the list is."""
-        chain_id = self._dex_chain(chain)
+        how many are listed here, and how old the list is — for a chain, or
+        for one venue on it."""
+        venue = self._dex_venue(dex) if dex else None
+        if dex and not venue:
+            return {'error': f"dex must be one of {sorted(self.DEX_VENUES)}"}
+        chain_id = self._dex_chain(chain) or (venue['chain'] if venue else None)
         if not chain_id:
             return {'error': f"chain must be one of {sorted(self.DEX_CHAINS)}"}
-        assets = self.dex_assets(chain_id, limit=0)
-        cached = self._price_cache.get(f'_dex_universe_{chain_id}', {})
+        assets = self.dex_assets(chain_id, limit=0, dex=dex)
+        cached = self._price_cache.get(f"_dex_universe_{venue['key'] if venue else chain_id}", {})
         age = time.time() - cached['ts'] if cached.get('ts') else None
-        listed = [m for m in self._dex_listed().values() if m.get('chain') == chain_id]
+        listed = [m for m in self._dex_listed().values() if m.get('chain') == chain_id
+                  and (not venue or str(m.get('dex_id') or '').startswith(venue['prefix']))]
         return {
             'chain': chain_id,
-            'label': self.DEX_CHAINS[chain_id],
+            **({'dex': venue['key']} if venue else {}),
+            'label': venue['label'] if venue else self.DEX_CHAINS[chain_id],
             'pools': len(assets),
             'eligible': sum(1 for a in assets if a['eligible']),
             'listed': len(listed),
@@ -1438,6 +1478,27 @@ class Mod:
             'age_seconds': round(age) if age is not None else None,
             'reachable': bool(assets),
         }
+
+    # ── Raydium, by name ─────────────────────────────────────────────
+    # Thin doors over the venue layer, so `m prefi/add_raydium_market WIF`
+    # and /raydium/* read the way people ask for them. Anything Raydium
+    # quotes — any pool id, token mint or ticker — lists through here.
+
+    def add_raydium_market(self, address: str) -> Dict:
+        """List anything trading on Raydium — a pool id, a token mint or a
+        symbol. Same liquidity floor, same settlement as every DEX market."""
+        return self.add_dex_market('solana', address, dex='raydium')
+
+    def raydium_assets(self, search: str = '', limit: int = 50) -> List[Dict]:
+        """Browse Raydium — its busiest pools by default, any token by search."""
+        return self.dex_assets('solana', search, limit, dex='raydium')
+
+    def raydium_stats(self) -> Dict:
+        return self.dex_stats('solana', dex='raydium')
+
+    def seed_raydium(self, limit: int = 20, min_volume: float = 0) -> Dict:
+        """List Raydium's busiest eligible tokens in one idempotent call."""
+        return self.seed_dex('solana', limit, min_volume, dex='raydium')
 
     def _dex_prices(self) -> Dict[str, Dict]:
         """Every listed DEX market's pool, priced in one DexScreener read per
@@ -3822,13 +3883,17 @@ class Mod:
             bt-stats    - How many subnets are quoted, and how fresh the list is
             seed-bt     - List the busiest subnets at once (limit=, min_volume=)
             add-bt      - List a Bittensor subnet as a market (subnet=)
-            dex-assets  - Browse tokens on Solana or Base (chain=, search=, limit=)
-            dex-stats   - Pools ranked, eligible under the floor, listed
-            seed-dex    - List a chain's busiest eligible tokens (chain=, limit=)
+            dex-assets  - Browse tokens on Solana or Base (chain=, search=,
+                          limit=, dex= to narrow to one venue e.g. raydium)
+            dex-stats   - Pools ranked, eligible under the floor, listed (dex=)
+            seed-dex    - List a chain's busiest eligible tokens (chain=,
+                          limit=, dex=)
             add-dex     - List a Solana/Base token (chain=, address= pool,
-                          token or symbol) — must clear min_liquidity_usd
+                          token or symbol, dex=) — must clear min_liquidity_usd
             add-sol     - add-dex chain=solana
             add-base    - add-dex chain=base
+            add-ray     - add-dex dex=raydium — anything Raydium quotes
+            seed-ray    - seed-dex dex=raydium (limit=, min_volume=)
 
             open        - Open position (asset=, amount=, address=)
             close       - Close position (id=, address=)
@@ -3961,19 +4026,27 @@ class Mod:
                 kwargs.get('chain', 'solana'),
                 kwargs.get('search', ''),
                 int(kwargs.get('limit', 50)),
+                kwargs.get('dex') or None,
             ),
-            'dex-stats': lambda: self.dex_stats(kwargs.get('chain', 'solana')),
+            'dex-stats': lambda: self.dex_stats(kwargs.get('chain', 'solana'),
+                                                kwargs.get('dex') or None),
             'seed-dex': lambda: self.seed_dex(
                 kwargs.get('chain', 'solana'),
                 int(kwargs.get('limit', 20)),
                 float(kwargs.get('min_volume', 0)),
+                kwargs.get('dex') or None,
             ),
             'add-dex': lambda: self.add_dex_market(
-                kwargs.get('chain', ''), kwargs.get('address', kwargs.get('token', ''))),
+                kwargs.get('chain', ''), kwargs.get('address', kwargs.get('token', '')),
+                kwargs.get('dex') or None),
             'add-sol': lambda: self.add_dex_market(
                 'solana', kwargs.get('address', kwargs.get('token', ''))),
             'add-base': lambda: self.add_dex_market(
                 'base', kwargs.get('address', kwargs.get('token', ''))),
+            'add-ray': lambda: self.add_raydium_market(
+                kwargs.get('address', kwargs.get('token', ''))),
+            'seed-ray': lambda: self.seed_raydium(
+                int(kwargs.get('limit', 20)), float(kwargs.get('min_volume', 0))),
 
             'open': lambda: self.open_position(
                 kwargs.get('asset', ''),
