@@ -22,7 +22,7 @@
     "contracts": {
         "near_testnet": {}
     },
-    "schema": "QmdYT23MFcVwDqpvA47WHvCJJvLU7DVzUWaTuzz1VynSFQ",
+    "schema": "QmavbHqxpLk4UT3jicN2vP6oKvUxgQRRug7kK9VLLhikK6",
     "endpoints": {
         "GET /health": "Liveness probe",
         "GET /status": "Deployment status",
