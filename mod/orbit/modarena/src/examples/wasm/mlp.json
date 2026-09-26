@@ -1,0 +1,9 @@
+{
+  "name": "mlp",
+  "description": "A 2-2-1 neural network computing XOR, weights and all, nine parameters. A model is just another module here.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "model"
+  ]
+}

@@ -3,62 +3,105 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>MUSICA — decks, mixer, sequencer</title>
-<!-- The gateway serves this at /musica with the prefix kept, so every asset and
-     every API call below is relative to it. Do not make these absolute. -->
-<base href="./">
+<title>MUSICA — decks, mixer, sequencer, crate</title>
+<!-- The gateway serves this at /musica (no trailing slash) with the prefix
+     kept. A relative base ("./") resolves against the gateway ROOT there, so
+     css/ and js/ 404 and the page paints unstyled. serve.py strips the prefix
+     when running alone, so the absolute prefix works in both places. Keep
+     every asset and API path below relative to this base. -->
+<base href="/musica/">
+<link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/app.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>%F0%9F%8E%9B%EF%B8%8F</text></svg>">
+<meta name="theme-color" content="#0a0b0e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23101114'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23c8ff2e' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%23c8ff2e'/%3E%3C/svg%3E">
 </head>
 <body>
 
+<!-- inline icon sprite: no icon font, no emoji (the host has no emoji font) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 16 16"><path d="M4 2.5v11l9-5.5z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 16 16"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 16 16"><path d="M3 3h10v10H3z"/></symbol>
+  <symbol id="i-rec" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 16 16"><path d="M11 2.5v11L3.5 8z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 16 16"><path d="M5 2.5v11L12.5 8z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 16 16"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 16 16"><path d="M9 2.5h4.5V7M13.5 2.5L7 9M6 3.5H3.5v9h9V10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><path d="M3 8.5l3.5 3.5L13 4.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-left" viewBox="0 0 16 16"><path d="M12 8H4M7.5 4.5L4 8l3.5 3.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-right" viewBox="0 0 16 16"><path d="M4 8h8M8.5 4.5L12 8l-3.5 3.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4a1 1 0 011-1h3.2l1.5 1.5H13a1 1 0 011 1V12a1 1 0 01-1 1H3a1 1 0 01-1-1z" stroke="currentColor" stroke-width="1.4" fill="none"/></symbol>
+  <symbol id="i-link" viewBox="0 0 16 16"><path d="M6.5 9.5l3-3M5 11a2.5 2.5 0 01-3.5-3.5l2-2A2.5 2.5 0 017 5M9 5a2.5 2.5 0 013.5 3.5l-2 2A2.5 2.5 0 017 11" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-list" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-disc" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="8" cy="8" r="1.6"/></symbol>
+  <symbol id="i-keys" viewBox="0 0 16 16"><path d="M9.5 2.5a4 4 0 100 8 4 4 0 000-8zM7 8.5L2.5 13l1.5 1.5M4.5 11l1.5 1.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-up" viewBox="0 0 16 16"><path d="M8 12V4M4.5 7.5L8 4l3.5 3.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-down" viewBox="0 0 16 16"><path d="M8 4v8M4.5 8.5L8 12l3.5-3.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 16 16"><path d="M13 7A5 5 0 004 4.5M3 9a5 5 0 009 2.5M12.5 2v3h-3M3.5 14v-3h3" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
 <div id="boot" class="boot">
   <div class="boot-card">
+    <div class="boot-logo"><span class="ring"></span><span class="ring r2"></span></div>
     <h1>MUSICA</h1>
-    <p>Two decks, a mixer, and a pattern studio. Everything is decoded and mixed
-       in this tab — nothing you load leaves your machine.</p>
+    <p>Two decks, a mixer, a pattern studio — and a crate that digs Spotify,
+       Bandcamp, SoundCloud, YouTube and the Internet Archive at once.
+       Everything is decoded and mixed in this tab; nothing you load leaves
+       your machine.</p>
+    <ul class="boot-feats"><li>2 DECKS</li><li>3-BAND EQ</li><li>KEY MATCH</li><li>SEQUENCER</li><li>PIANO ROLL</li><li>CRATE</li></ul>
     <button id="boot-go" class="big">OPEN THE BOOTH</button>
-    <small>Browsers only start audio after a click.</small>
+    <small>Browsers only start audio after a click. Enter works too.</small>
+    <div class="boot-platforms"><span class="sp">Spotify</span><span class="bc">Bandcamp</span><span class="sc">SoundCloud</span><span class="yt">YouTube</span><span class="ia">Archive</span></div>
   </div>
 </div>
 
 <header class="topbar">
-  <div class="brand"><b>MUSICA</b><span id="ver">0.1.0</span></div>
+  <div class="brand"><span class="logo"></span><b>MUSICA</b><span id="ver">0.2.0</span></div>
 
   <nav class="tabs" role="tablist">
-    <button class="tab on" data-tab="booth" role="tab">BOOTH</button>
-    <button class="tab" data-tab="studio" role="tab">STUDIO</button>
-    <button class="tab" data-tab="crate" role="tab">CRATE</button>
+    <button class="tab on" data-tab="booth" role="tab"><span class="k">1</span>BOOTH</button>
+    <button class="tab" data-tab="studio" role="tab"><span class="k">2</span>STUDIO</button>
+    <button class="tab" data-tab="crate" role="tab"><span class="k">3</span>CRATE<i id="crate-count" class="count"></i></button>
   </nav>
 
   <div class="transport">
-    <button id="seq-play" class="tp" title="Play / stop the sequencer (space)">▶</button>
+    <button id="seq-play" class="tp" title="Play / stop the sequencer (space)"><svg><use href="#i-play"/></svg></button>
     <div class="bpm">
       <label>BPM</label>
       <input id="bpm" type="number" min="40" max="220" step="0.01" value="126">
       <button id="tap" class="mini" title="Tap four beats">TAP</button>
     </div>
-    <div class="pos"><span id="bars">1</span>.<span id="beats">1</span></div>
+    <div class="pos"><span id="bars">1</span><em>.</em><span id="beats">1</span></div>
   </div>
 
   <div class="master">
-    <button id="rec" class="tp rec" title="Record the master bus">●</button>
+    <button id="rec" class="tp rec" title="Record the master bus"><svg><use href="#i-rec"/></svg></button>
     <span id="rec-time" class="rec-time"></span>
     <div class="meter"><i id="meter-l"></i><i id="meter-r"></i></div>
-    <div class="knob" data-param="master" data-min="0" data-max="1.4" data-value="0.9"
-         data-label="MASTER"></div>
+    <div class="knob sm" data-param="master" data-min="0" data-max="1.4" data-value="0.9" data-label="MASTER"></div>
+    <button id="platforms-btn" class="mini icon" title="Platforms and keys"><svg><use href="#i-keys"/></svg></button>
   </div>
 </header>
 
 <!-- ── BOOTH ─────────────────────────────────────────────────────────── -->
 <main id="booth" class="pane on">
 
+  <!-- MY SET across the top of the booth: the next track is always one click away -->
+  <section class="booth-set" id="booth-set">
+    <div class="bs-head"><b>UP NEXT</b><span class="hint">MY SET, in order — a key lights up when it mixes into the playing deck</span><button class="mini" data-goto="crate">OPEN THE CRATE</button></div>
+    <div class="bs-rows" id="booth-set-rows"></div>
+  </section>
+
   <section class="deck" data-deck="A">
     <div class="deck-head">
       <span class="tag">A</span>
+      <div class="art"><img alt="" hidden><svg><use href="#i-disc"/></svg></div>
       <div class="meta">
-        <b class="title">— drop a file —</b>
-        <span class="sub">drag audio here, or load one from the CRATE</span>
+        <b class="title">Drop a track here</b>
+        <span class="sub">drag audio in, or send one from the crate</span>
       </div>
       <div class="detected">
         <span class="bpm-read">--.-</span>
@@ -66,8 +109,12 @@
       </div>
     </div>
 
-    <canvas class="wave-full" height="46"></canvas>
-    <canvas class="wave-zoom" height="96"></canvas>
+    <div class="waves">
+      <canvas class="wave-full" height="52"></canvas>
+      <canvas class="wave-zoom" height="96"></canvas>
+      <div class="wave-empty"><div><svg><use href="#i-disc"/></svg><b>Nothing loaded</b>drop an audio file here, or send one from the crate <kbd>3</kbd></div></div>
+    </div>
+    <div class="time-row"><span class="elapsed">0:00</span><span class="src-badge"></span><span class="remain">-0:00</span></div>
 
     <div class="deck-controls">
       <div class="cues">
@@ -82,20 +129,20 @@
         <button class="loop-btn" data-beats="2">2</button>
         <button class="loop-btn" data-beats="4">4</button>
         <button class="loop-btn" data-beats="8">8</button>
-        <button class="loop-off">✕</button>
+        <button class="loop-off" title="Loop off"><svg><use href="#i-x"/></svg></button>
       </div>
       <div class="play-row">
         <button class="cue-hold" title="Hold to preview from the cue point">CUE</button>
-        <button class="play" title="Play / pause">▶</button>
-        <button class="sync" title="Match the other deck's tempo and downbeat">SYNC</button>
+        <button class="play" title="Play / pause"><svg><use href="#i-play"/></svg></button>
+        <button class="sync" title="Match the other deck's tempo and downbeat"><svg><use href="#i-sync"/></svg>SYNC</button>
       </div>
       <div class="pitch">
         <label>PITCH <span class="pitch-read">0.0%</span></label>
         <input class="pitch-fader" type="range" min="-16" max="16" step="0.02" value="0">
         <div class="nudge">
-          <button data-nudge="-1">◀</button>
+          <button data-nudge="-1" title="Nudge slower"><svg><use href="#i-prev"/></svg></button>
           <button class="pitch-reset">0</button>
-          <button data-nudge="1">▶</button>
+          <button data-nudge="1" title="Nudge faster"><svg><use href="#i-next"/></svg></button>
         </div>
       </div>
     </div>
@@ -115,6 +162,9 @@
 
     <div class="strip mid-strip">
       <div class="knob" data-param="fx" data-min="0" data-max="1" data-value="0" data-label="ECHO"></div>
+      <div class="keymatch" id="keymatch" title="Harmonic relationship between the two decks">
+        <span class="km-a">--</span><span class="km-rel">·</span><span class="km-b">--</span>
+      </div>
       <div class="xfade-wrap">
         <input id="xfade" type="range" min="0" max="1" step="0.001" value="0.5">
         <div class="xf-labels"><span>A</span><span>B</span></div>
@@ -136,9 +186,10 @@
   <section class="deck" data-deck="B">
     <div class="deck-head">
       <span class="tag">B</span>
+      <div class="art"><img alt="" hidden><svg><use href="#i-disc"/></svg></div>
       <div class="meta">
-        <b class="title">— drop a file —</b>
-        <span class="sub">drag audio here, or load one from the CRATE</span>
+        <b class="title">Drop a track here</b>
+        <span class="sub">drag audio in, or send one from the crate</span>
       </div>
       <div class="detected">
         <span class="bpm-read">--.-</span>
@@ -146,8 +197,12 @@
       </div>
     </div>
 
-    <canvas class="wave-full" height="46"></canvas>
-    <canvas class="wave-zoom" height="96"></canvas>
+    <div class="waves">
+      <canvas class="wave-full" height="52"></canvas>
+      <canvas class="wave-zoom" height="96"></canvas>
+      <div class="wave-empty"><div><svg><use href="#i-disc"/></svg><b>Nothing loaded</b>drop an audio file here, or send one from the crate <kbd>3</kbd></div></div>
+    </div>
+    <div class="time-row"><span class="elapsed">0:00</span><span class="src-badge"></span><span class="remain">-0:00</span></div>
 
     <div class="deck-controls">
       <div class="cues">
@@ -162,20 +217,20 @@
         <button class="loop-btn" data-beats="2">2</button>
         <button class="loop-btn" data-beats="4">4</button>
         <button class="loop-btn" data-beats="8">8</button>
-        <button class="loop-off">✕</button>
+        <button class="loop-off" title="Loop off"><svg><use href="#i-x"/></svg></button>
       </div>
       <div class="play-row">
         <button class="cue-hold" title="Hold to preview from the cue point">CUE</button>
-        <button class="play" title="Play / pause">▶</button>
-        <button class="sync" title="Match the other deck's tempo and downbeat">SYNC</button>
+        <button class="play" title="Play / pause"><svg><use href="#i-play"/></svg></button>
+        <button class="sync" title="Match the other deck's tempo and downbeat"><svg><use href="#i-sync"/></svg>SYNC</button>
       </div>
       <div class="pitch">
         <label>PITCH <span class="pitch-read">0.0%</span></label>
         <input class="pitch-fader" type="range" min="-16" max="16" step="0.02" value="0">
         <div class="nudge">
-          <button data-nudge="-1">◀</button>
+          <button data-nudge="-1" title="Nudge slower"><svg><use href="#i-prev"/></svg></button>
           <button class="pitch-reset">0</button>
-          <button data-nudge="1">▶</button>
+          <button data-nudge="1" title="Nudge faster"><svg><use href="#i-next"/></svg></button>
         </div>
       </div>
     </div>
@@ -196,7 +251,7 @@
     </label>
     <button id="seq-clear" class="mini">CLEAR</button>
     <button id="seq-rand" class="mini" title="Seed a beat you can edit">SEED</button>
-    <span class="hint">click a step · right-click for accent · drag a file onto a
+    <span class="hint">click a step · right-click for accent · drop a file on a
       channel name to make it a sampler</span>
   </div>
 
@@ -216,30 +271,93 @@
 <!-- ── CRATE ─────────────────────────────────────────────────────────── -->
 <main id="crate" class="pane">
   <div class="crate-bar">
-    <input id="q" type="search" placeholder="search Spotify — artist, track, playlist">
-    <select id="kind">
+    <div class="search-wrap">
+      <svg class="s-icon"><use href="#i-search"/></svg>
+      <input id="q" type="search" autocomplete="off" spellcheck="false"
+             placeholder="search everywhere — or paste a Spotify, Bandcamp, SoundCloud, YouTube or archive.org link">
+      <span id="q-link" class="q-link" hidden><svg><use href="#i-link"/></svg><span></span></span>
+    </div>
+    <div class="chips" id="sources">
+      <button class="chip on" data-source="all">ALL</button>
+      <button class="chip sp" data-source="spotify">SPOTIFY</button>
+      <button class="chip bc" data-source="bandcamp">BANDCAMP</button>
+      <button class="chip sc" data-source="soundcloud">SOUNDCLOUD</button>
+      <button class="chip yt" data-source="youtube">YOUTUBE</button>
+      <button class="chip ia" data-source="archive">ARCHIVE</button>
+    </div>
+    <select id="kind" title="What to search for">
       <option value="track">tracks</option>
       <option value="album">albums</option>
       <option value="artist">artists</option>
       <option value="playlist">playlists</option>
     </select>
-    <button id="go" class="mini">SEARCH</button>
-    <label class="filebtn">LOAD FILES<input id="files" type="file" accept="audio/*" multiple hidden></label>
+    <label class="filebtn" title="Load audio files from disk"><svg><use href="#i-folder"/></svg>FILES<input id="files" type="file" accept="audio/*" multiple hidden></label>
   </div>
 
-  <div id="sp-note" class="note"></div>
+  <!-- everything you picked, at the top, always in view -->
+  <section id="picks" class="picks empty">
+    <div class="picks-head">
+      <b>MY SET</b>
+      <i id="picks-count" class="count">0</i>
+      <span class="hint" id="set-hint">press <svg class="inl"><use href="#i-plus"/></svg> on any track below and it lands here</span>
+      <button class="mini" id="picks-booth" data-goto="booth">OPEN THE BOOTH</button>
+      <button class="mini" id="set-clear">CLEAR</button>
+    </div>
+    <div id="picks-rows" class="picks-rows"></div>
+  </section>
 
-  <div class="crate-cols">
-    <div>
-      <h3>LOCAL <span class="hint">the only thing that can actually be mixed</span></h3>
-      <ul id="local" class="rows"></ul>
-    </div>
-    <div>
-      <h3>SPOTIFY <span class="hint">metadata — for planning the set</span></h3>
-      <ul id="results" class="rows"></ul>
-    </div>
+  <div class="crate-grid">
+    <!-- left: results -->
+    <section class="results-col">
+      <div class="col-head">
+        <b id="results-title">DIG</b>
+        <span id="results-note" class="hint">Bandcamp, SoundCloud, YouTube and Internet Archive tracks load straight onto a deck. Spotify is for planning — preview, then find the file.</span>
+        <div class="tag-row" id="discover-tags">
+          <span class="hint">discover</span>
+          <button class="tagbtn" data-tag="techno">techno</button>
+          <button class="tagbtn" data-tag="house">house</button>
+          <button class="tagbtn" data-tag="ambient">ambient</button>
+          <button class="tagbtn" data-tag="drum-and-bass">dnb</button>
+          <button class="tagbtn" data-tag="hip-hop-rap">hip-hop</button>
+          <button class="tagbtn" data-tag="jazz">jazz</button>
+          <button class="tagbtn" data-tag="disco">disco</button>
+        </div>
+      </div>
+      <div id="source-notes" class="source-notes"></div>
+      <ul id="results" class="rows" data-empty="Search above, paste a link, or pick a genre to dig through Bandcamp's discover feed."></ul>
+    </section>
+
+    <!-- middle: preview -->
+    <section class="preview-col">
+      <div class="col-head"><b>PREVIEW</b><span class="hint">the platform's own player</span></div>
+      <div id="preview" class="preview empty">
+        <div class="preview-empty">
+          <svg><use href="#i-disc"/></svg>
+          <p>Pick anything on the left to hear it here. Spotify previews need a
+             Spotify login in the embed; Bandcamp, SoundCloud, YouTube and the
+             Internet Archive play as-is.</p>
+        </div>
+      </div>
+      <div id="preview-meta" class="preview-meta"></div>
+    </section>
+
+    <!-- right: everything decoded and ready to mix -->
+    <section class="set-col">
+      <div class="col-head">
+        <b>READY TO MIX</b>
+        <span class="hint">decoded in this tab — drop files here too</span>
+      </div>
+      <ul id="local" class="rows compact" data-empty="Nothing decoded yet — drop files anywhere, or send a track from the crate to a deck."></ul>
+    </section>
   </div>
 </main>
+
+<!-- ── platforms drawer ─────────────────────────────────────────────── -->
+<aside id="drawer" class="drawer">
+  <div class="drawer-head"><b>PLATFORMS</b><button class="mini icon" id="drawer-close"><svg><use href="#i-x"/></svg></button></div>
+  <div id="drawer-body" class="drawer-body">loading…</div>
+</aside>
+<div id="drawer-veil" class="veil"></div>
 
 <div id="toast" class="toast"></div>
 
@@ -247,7 +365,7 @@
 <script src="js/analyze.js"></script>
 <script src="js/synth.js"></script>
 <script src="js/sequencer.js"></script>
-<script src="js/spotify.js"></script>
+<script src="js/crate.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/app.js"></script>
 </body>

@@ -1,0 +1,221 @@
+{
+    "name": "mcpscan",
+    "title": "MCP Scan",
+    "version": "1.0.0",
+    "description": "An index of every MCP server on the internet. Crawls the public directories on a loop (the official registry, Smithery, Docker's MCP registry, GitHub, plus PulseMCP/Glama when a key is set), probes every endpoint it finds forever, hunts for endpoints nobody published, and re-exposes the whole thing as one MCP server: search 20k servers, read any one's real schemas, call any tool on any of them.",
+    "icon": "\u25c8",
+    "color": "#4ea8ff",
+    "port": 50700,
+    "app_port": 50701,
+    "route": true,
+    "backend": "scan-rs (Rust: axum REST index + crawler/prober loops + JSON-RPC 2.0 Streamable HTTP + stdio)",
+    "urls": {
+        "api": "http://localhost:50700",
+        "app": "http://localhost:50701",
+        "mcp": "http://localhost:50700/mcp"
+    },
+    "app": {
+        "framework": "static",
+        "served_by": "the API binary (single-page console compiled into it)",
+        "port": 50701
+    },
+    "api": {
+        "runtime": "rust",
+        "dir": "scan-rs",
+        "bin": "scan-rs/target/release/mcpscan-api",
+        "port": 50700,
+        "stdio": "mcpscan-api --stdio",
+        "oneshot": "mcpscan-api --crawl"
+    },
+    "fns": [
+        "info",
+        "stats",
+        "search",
+        "server",
+        "sources",
+        "crawl",
+        "hunt",
+        "probe",
+        "call",
+        "recent",
+        "export",
+        "client_config"
+    ],
+    "endpoints": {
+        "catalog": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Search the index: ?q= matches names, descriptions and tool names; ?status=live|auth|down|error|unknown; ?source=official|smithery|docker|github|pulsemcp|glama|hunt|probe; ?sort=relevance|tools|fast|recent|name; ?limit=&offset=; ?tools=1 returns each server's tool list"
+        },
+        "catalog/:id": {
+            "method": "GET",
+            "auth": false,
+            "docs": "One indexed server: endpoint, every directory that lists it, install packages, last probe and its tools"
+        },
+        "catalog/:id/probe": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Re-probe one indexed server right now"
+        },
+        "stats": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Index size, live/auth/down/unprobed split, per-directory counts, and the scraper's telemetry (probes, batches, hunts, last crawl)"
+        },
+        "recent": {
+            "method": "GET",
+            "auth": false,
+            "docs": "The scraper's live feed \u2014 servers whose status just changed, newest first"
+        },
+        "sources": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Per-directory crawl reports: rows found, new, updated, duration, error or the key it still needs"
+        },
+        "crawl": {
+            "method": "POST",
+            "auth": "gated when ~/.mod/mcpscan/server.secret exists",
+            "docs": "{source?, wait?} \u2014 re-read every directory now (or one). Returns immediately unless wait:true"
+        },
+        "hunt": {
+            "method": "POST",
+            "auth": "gated when ~/.mod/mcpscan/server.secret exists",
+            "docs": "{budget?} \u2014 knock on /mcp, /sse, /api/mcp \u2026 at the domains of servers that never published an endpoint; hits are added to the index"
+        },
+        "probe": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{url, headers?} \u2014 handshake with any MCP endpoint, index the result, return protocolVersion, serverInfo and the full tool list"
+        },
+        "call": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{server, tool, args, headers?} \u2014 call a tool on any indexed server (server = index id or endpoint URL). A fresh session per call; nothing has to be registered first"
+        },
+        "export": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?status=live&format=json|ndjson|mcp \u2014 the index as data, or a paste-ready mcpServers config of every live server"
+        },
+        "client_config": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?client=claude|cursor|vscode|json \u2014 paste-ready config pointing a client at this index"
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": false,
+            "docs": "The index as an MCP server (JSON-RPC 2.0 Streamable HTTP; also `mcpscan-api --stdio`). Tools: mcp_find, mcp_server, mcp_tools, mcp_call, mcp_probe, mcp_stats"
+        }
+    },
+    "mcp": {
+        "protocolVersion": "2025-06-18",
+        "tools": [
+            "mcp_find",
+            "mcp_server",
+            "mcp_tools",
+            "mcp_call",
+            "mcp_probe",
+            "mcp_stats"
+        ],
+        "transports": [
+            "streamable-http",
+            "stdio"
+        ],
+        "note": "Twenty thousand servers is ~200k tools, which no client can list. So the aggregation is search + call rather than a flat union: mcp_find locates a server, mcp_tools reads its live schemas, mcp_call runs the tool."
+    },
+    "sources": {
+        "official": "registry.modelcontextprotocol.io \u2014 the MCP project's own registry, cursor-paginated, version=latest (keyless)",
+        "smithery": "registry.smithery.ai \u2014 the largest third-party directory; deployed servers are reachable at server.smithery.ai/{name}/mcp (keyless to list)",
+        "docker": "github.com/docker/mcp-registry \u2014 containerised servers (keyless)",
+        "github": "GitHub repo search on a rotating set of queries and pages, so the long tail gets covered over time (keyless; a token raises the rate limit)",
+        "pulsemcp": "api.pulsemcp.com v0.1 \u2014 needs PULSEMCP_API_KEY (v0beta is being sunset)",
+        "glama": "glama.ai/api/mcp/v1 \u2014 needs GLAMA_API_KEY",
+        "hunt": "not a directory: endpoints this module found by knocking on the domain of a server nobody published an endpoint for"
+    },
+    "scraper": {
+        "crawl": "every MCPSCAN_CRAWL_SECS (default 6h): re-read every directory, merge by id and by endpoint URL",
+        "probe": "continuous: batches of MCPSCAN_BATCH endpoints whose re-check clock is due, forever",
+        "reprobe_clocks": "live 6h \u00b7 auth 12h \u00b7 error 12h \u00b7 down 6h, doubling per consecutive failure up to 14 days",
+        "hunt": "every MCPSCAN_HUNT_SECS (default 120s): MCPSCAN_HUNT_BATCH domains, one knock per domain per 30 days, code hosts and package registries skipped"
+    },
+    "types": {
+        "Entry": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Index id \u2014 slug of the server's canonical name"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Streamable HTTP/SSE endpoint; empty for a package-only (stdio) server, which is still indexed"
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Every directory that lists it \u2014 one server in three directories is one row"
+                },
+                "packages": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "How to run it locally, e.g. npm:@foo/bar, docker:mcp/foo"
+                },
+                "status": {
+                    "enum": [
+                        "live",
+                        "auth",
+                        "error",
+                        "down",
+                        "unknown"
+                    ],
+                    "description": "live = shook hands anonymously; auth = the endpoint is there and wants a credential; error = something answered and it wasn't MCP; down = nothing answered; unknown = not probed yet (or no endpoint to probe)"
+                },
+                "tools": {
+                    "type": "array",
+                    "description": "Tool names + short descriptions from the last successful probe \u2014 searchable"
+                },
+                "fails": {
+                    "type": "integer",
+                    "description": "Consecutive failed probes; drives the re-check backoff"
+                }
+            }
+        }
+    },
+    "auth": {
+        "reads": "open",
+        "writes": "crawl and hunt need Bearer ~/.mod/mcpscan/server.secret when that file exists; open otherwise. ACCESS_OPEN=1 forces open",
+        "note": "call/probe reach third-party servers with only the headers the caller supplies \u2014 this module holds no credentials for anyone else's server"
+    },
+    "env": {
+        "MCPSCAN_PORT": "API port (default 50700)",
+        "MCPSCAN_APP_PORT": "Console port (default 50701)",
+        "MCPSCAN_DIR": "Off-tree state: catalog.json, sources.json, server.secret (default ~/.mod/mcpscan)",
+        "MCPSCAN_PUBLIC_URL": "Public base URL used in client_config (default http://localhost:50700)",
+        "MCPSCAN_CRAWL_SECS": "Directory crawl cadence (default 21600)",
+        "MCPSCAN_BATCH": "Endpoints probed per batch (default 64)",
+        "MCPSCAN_PROBE_GAP": "Seconds between probe batches (default 2)",
+        "MCPSCAN_PROBE_TIMEOUT": "Per-probe timeout in seconds (default 8)",
+        "MCPSCAN_HUNT_SECS": "Endpoint-hunt cadence (default 120)",
+        "MCPSCAN_HUNT_BATCH": "Domains knocked on per hunt (default 8)",
+        "MCPSCAN_HUNT_COOLDOWN": "Seconds before a domain may be knocked on again (default 2592000)",
+        "MCPSCAN_MAX_PAGES": "Page cap per directory (default 400)",
+        "MCPSCAN_GITHUB_PAGES": "GitHub search pages per crawl (default 3)",
+        "MCPSCAN_GITHUB_TOKEN": "GitHub token \u2014 raises the search rate limit",
+        "SMITHERY_API_KEY": "Optional; listing is keyless, a key raises limits",
+        "PULSEMCP_API_KEY": "Enables the pulsemcp source",
+        "GLAMA_API_KEY": "Enables the glama source",
+        "ACCESS_OPEN": "1 disables the write gate"
+    },
+    "related": {
+        "mcp": "orbit/mcp is the hub that aggregates servers you have chosen \u2014 register this module there and one client reaches both the fleet and the whole internet"
+    },
+    "schema": "QmadCNYZx3MfwSBf1fjAkoWXoFEWUwKtyVNBk5TjQbvQUG"
+}

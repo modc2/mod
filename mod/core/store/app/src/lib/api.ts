@@ -1,4 +1,4 @@
-const BASE = "/api/store";
+const BASE = "/store/api";
 
 function authHeaders(token: string | null): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};

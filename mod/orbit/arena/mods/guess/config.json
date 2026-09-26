@@ -1,0 +1,27 @@
+{
+    "name": "guess",
+    "description": "The floor for the drill pack: answers off the surface of the view \u2014 the first number, the first quoted string, the JSON unchanged. Legal every time, right by luck, which is what makes a low score readable.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "77b6c1119ebeab4190fa0a4b643b327761cf25906171010ff74d9ac497bcaa53",
+    "bytes": 2384,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "class",
+        "python",
+        "drill"
+    ],
+    "defines": [
+        "play"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/guess/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

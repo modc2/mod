@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voice — local audio to text</title>
+<style>
+  :root {
+    --bg: #0d0d16; --panel: #14141f; --edge: #2a2a3e;
+    --ink: #d8d8e8; --dim: #7a7a94; --hot: #5ef2d0; --warn: #f2b65e;
+    --err: #f25e7a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: ui-monospace, "DejaVu Sans Mono", Menlo, monospace;
+    font-size: 14px; line-height: 1.5;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 18px; letter-spacing: 2px; margin: 0 0 4px; }
+  h1 b { color: var(--hot); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 12px; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 6px; padding: 14px 16px; margin-bottom: 14px;
+  }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  label { color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+  select, button {
+    background: var(--bg); color: var(--ink); border: 1px solid var(--edge);
+    border-radius: 4px; padding: 7px 12px; font: inherit; font-size: 13px;
+  }
+  select:focus, button:focus { outline: 1px solid var(--hot); }
+  button { cursor: pointer; }
+  button.hot { border-color: var(--hot); color: var(--hot); }
+  button.rec { border-color: var(--err); color: var(--err); }
+  button:disabled { opacity: .4; cursor: default; }
+  #drop {
+    border: 1px dashed var(--edge); border-radius: 6px; padding: 18px;
+    text-align: center; color: var(--dim); margin-top: 12px;
+  }
+  #drop.over { border-color: var(--hot); color: var(--hot); }
+  #status { color: var(--dim); font-size: 12px; min-height: 18px; }
+  #status.busy { color: var(--warn); }
+  #status.err { color: var(--err); }
+  #bar {
+    height: 3px; background: var(--edge); border-radius: 2px;
+    overflow: hidden; margin-top: 6px; display: none;
+  }
+  #bar.on { display: block; }
+  #bar > div { height: 100%; width: 0; background: var(--hot);
+               transition: width .2s; }
+  #out {
+    white-space: pre-wrap; min-height: 80px; font-size: 15px;
+  }
+  #out .ghost { color: var(--dim); }
+  #trans { white-space: pre-wrap; color: var(--hot); }
+  .tag { font-size: 10px; letter-spacing: 1px; color: var(--dim);
+         border: 1px solid var(--edge); border-radius: 3px;
+         padding: 1px 6px; }
+  .foot { color: var(--dim); font-size: 11px; margin-top: 24px; }
+  .foot a { color: var(--hot); text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VOICE <b>·</b> AUDIO → TEXT, IN THIS TAB</h1>
+  <p class="sub">Models download into the browser and run on WebGPU (or WASM).
+     No audio, no transcript, nothing leaves this page.</p>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label>ENGINE</label><br>
+        <select id="engine">
+          <option value="whisper-base" selected>WHISPER BASE · 80 MB</option>
+          <option value="whisper-tiny">WHISPER TINY · 40 MB</option>
+          <option value="whisper-small">WHISPER SMALL · 250 MB</option>
+          <option value="lfm-audio">LFM2.5 AUDIO 1.5B · 1.9 GB · WebGPU</option>
+        </select>
+      </div>
+      <div>
+        <label>OUTPUT</label><br>
+        <select id="target">
+          <option value="" selected>TRANSCRIPT (source language)</option>
+          <option value="en">ENGLISH (whisper translate)</option>
+          <option value="Spanish">SPANISH (LFM2.5 350M post-pass)</option>
+          <option value="French">FRENCH (LFM2.5 350M post-pass)</option>
+          <option value="German">GERMAN (LFM2.5 350M post-pass)</option>
+          <option value="Japanese">JAPANESE (LFM2.5 350M post-pass)</option>
+          <option value="Chinese">CHINESE (LFM2.5 350M post-pass)</option>
+          <option value="Portuguese">PORTUGUESE (LFM2.5 350M post-pass)</option>
+        </select>
+      </div>
+      <div style="margin-left:auto">
+        <label>&nbsp;</label><br>
+        <button id="record" class="hot">● RECORD</button>
+      </div>
+    </div>
+    <div id="drop">drop an audio file here — or click to pick one
+      <input id="file" type="file" accept="audio/*,video/*" hidden>
+    </div>
+    <div style="margin-top:10px">
+      <span id="status">pick an engine, then record or drop a file</span>
+      <div id="bar"><div></div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <span class="tag">TRANSCRIPT</span>
+    <div id="out"><span class="ghost">…</span></div>
+  </div>
+
+  <div class="panel" id="transPanel" hidden>
+    <span class="tag">TRANSLATION</span>
+    <div id="trans"></div>
+  </div>
+
+  <p class="foot">
+    engines: whisper via transformers.js · LFM2.5-Audio-1.5B-ONNX via
+    onnxruntime-web (from the <a href="../liquidai/" target="_blank">liquidai</a>
+    catalog) · translation via LFM2.5-350M-ONNX in-tab ·
+    MCP at <code>/api/voice/mcp</code>
+  </p>
+</main>
+<script type="module" src="voice.js"></script>
+</body>
+</html>

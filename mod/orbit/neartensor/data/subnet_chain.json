@@ -1,0 +1,32 @@
+{
+  "netuid": 0,
+  "block": 8,
+  "neurons": {
+    "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck": {
+      "uid": 0,
+      "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
+      "role": "miner",
+      "stake": 1.0,
+      "url": "http://127.0.0.1:50184",
+      "registered_at": 1790215534
+    },
+    "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq": {
+      "uid": 1,
+      "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
+      "role": "validator",
+      "stake": 1.0,
+      "url": null,
+      "registered_at": 1790215552
+    }
+  },
+  "weights": {
+    "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq": {
+      "0": 1.0
+    }
+  },
+  "incentive": {
+    "0": 1.0
+  },
+  "epochs": 8,
+  "updated": 1790412263
+}

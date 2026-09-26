@@ -3,8 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/dev";
-const CRED_URL = `${BASE_PATH}/api/credentials`;
-const OAUTH_URL = `${BASE_PATH}/api/credentials/oauth`;
+const CRED_URL = `${BASE_PATH}/_api/credentials`;
+const OAUTH_URL = `${BASE_PATH}/_api/credentials/oauth`;
 
 interface Status {
   loggedIn: boolean;

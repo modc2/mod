@@ -38,12 +38,15 @@ const STORAGE_KEY = 'openplay.world'
 const themeOf = (id: string) => THEMES.find(t => t.id === id)
 const baseOf = (id: string): 'dark' | 'light' => themeOf(id)?.base ?? 'light'
 
-// Carto basemaps, matched to the world so a dark level isn't lit by a
-// white city and an ice world isn't drawn on soot.
+// Basemaps, matched to the world so a dark level isn't lit by a white city.
+// Esri's Gray Canvas tiles are keyless and clean — CARTO's free raster tiles
+// now burn an "API KEY REQUIRED" watermark into the imagery, so we're off them.
+// (Esri caps at native zoom 16; the map layer upscales past that.)
+const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas'
 const TILE_URLS: Record<string, string> = {
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  voyager: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+  dark: `${ESRI}/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+  light: `${ESRI}/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
+  voyager: `${ESRI}/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}`,
 }
 export function tileUrlFor(theme: string): string {
   return TILE_URLS[themeOf(theme)?.tiles ?? 'voyager'] || TILE_URLS.voyager

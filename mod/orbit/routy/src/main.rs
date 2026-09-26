@@ -53,7 +53,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/_api/sync", post(sync_websites))
         .route("/_api/websites", get(list_websites))
         .route("/_api/stats", get(get_stats))
-        // API proxy: /api/{name}/... → strip prefix, forward to API server
+        // API proxy (legacy alias): /api/{name}/... → strip prefix, forward to
+        // API server. The canonical /{name}/api/... form is dispatched inside
+        // app_proxy_handler.
         .route("/api/:name/*path", any(api_proxy_handler))
         .route("/api/:name", any(api_proxy_root))
         .route("/api/:name/", any(api_proxy_root))
@@ -107,7 +109,7 @@ async fn root_handler(State(state): State<AppState>) -> impl IntoResponse {
                 let storage = w.storage_type.as_deref().unwrap_or("-");
                 let cid_short = w.cid.as_deref().map(|c| if c.len() > 12 { &c[..12] } else { c }).unwrap_or("-");
                 format!(
-                    "<tr><td><a href=\"/api/{}/\">{}</a></td><td><code>{}</code></td><td>{}</td><td><code>{}</code></td><td><code>{}</code></td></tr>",
+                    "<tr><td><a href=\"/{}/api/\">{}</a></td><td><code>{}</code></td><td>{}</td><td><code>{}</code></td><td><code>{}</code></td></tr>",
                     w.name, w.name, w.target_url,
                     w.description.as_deref().unwrap_or(""),
                     storage, cid_short
@@ -167,7 +169,7 @@ async fn root_handler(State(state): State<AppState>) -> impl IntoResponse {
     </table>
 
     <div class="api-section">
-        <h2>APIs &mdash; /api/{{name}}/*</h2>
+        <h2>APIs &mdash; /{{name}}/api/*</h2>
         <table>
             <tr><th>name</th><th>target</th><th>description</th><th>storage</th><th>cid</th></tr>
             {}
@@ -251,6 +253,19 @@ async fn app_proxy_handler(
     uri: Uri,
     body: axum::body::Body,
 ) -> Result<Response, AppError> {
+    // Canonical API form: /{name}/api/* → the module's API, prefix stripped.
+    // (The legacy /api/{name}/* routes still match before this handler.)
+    let trimmed = path.trim_start_matches('/');
+    if trimmed == "api" || trimmed.starts_with("api/") {
+        if let Some(api) = state.registry.get_api(&website_name).await {
+            let rest = trimmed
+                .strip_prefix("api")
+                .unwrap_or("")
+                .trim_start_matches('/');
+            return proxy::proxy_request(api, rest, method, headers, uri, body).await;
+        }
+    }
+
     let website = state
         .registry
         .get_app(&website_name)

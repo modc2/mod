@@ -1,0 +1,6 @@
+{
+  "name": "nim-rs",
+  "description": "Nim with twenty-one stones, take one to three, last one loses. A Rust class: no ABI, no pointers, compiled to wasm on upload.",
+  "author": "arena",
+  "tags": ["example", "game", "rust"]
+}

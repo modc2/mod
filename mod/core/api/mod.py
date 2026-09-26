@@ -369,6 +369,25 @@ class Api:
     def get_root(self, decrypt=True, **kwargs) -> Dict[str, Any]:
         return self._reg.get_root(decrypt=decrypt, **kwargs)
 
+    def root_hash(self, update=False, max_age=3600, **kwargs) -> Dict[str, Any]:
+        """Source root hash of every module on this node (cached, public read).
+
+        `owners` lets a client tell whether it may call commit_root_hash, which
+        the gate restricts to the owner role.
+        """
+        result = self._reg.root_hash(update=update, max_age=int(max_age))
+        result['owners'] = self.owner_keys()
+        return result
+
+    def commit_root_hash(self, comment=None, **kwargs) -> Dict[str, Any]:
+        """Pin the current root hash as the committed one. Owner only (gate)."""
+        return self._reg.commit_root_hash(comment=comment)
+
+    def owner_keys(self) -> List[str]:
+        """Addresses in the server's owner role."""
+        data = m.get(m.abspath('~/.mod/server/roles/owner'), {}) or {}
+        return [str(u).lower() for u in data.get('users', []) if u]
+
     def content(self, mod, key=None, expand=False, depth=None, h=False) -> Dict[str, Any]:
         return self._reg.content(mod, key=key, expand=expand, depth=depth, h=h)
 

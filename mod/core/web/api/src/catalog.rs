@@ -43,7 +43,8 @@ pub struct Module {
     /// Public mount path under the gateway, e.g. "/venice".
     pub mount: String,
     /// True when the gateway serves this module on the public web — i.e. the
-    /// caddy-generated site file routes `/{name}` or `/api/{name}` to it. A
+    /// caddy-generated site file routes `/{name}`, `/{name}/api` or the
+    /// legacy `/api/{name}` to it. A
     /// routed module counts even while the activator has it asleep, since it
     /// wakes on access.
     pub on_web: bool,
@@ -522,6 +523,7 @@ fn web_routed_names(site_file: &Path) -> std::collections::HashSet<String> {
                 .trim_end_matches("/*")
                 .trim_matches('/');
             let name = p.strip_prefix("api/").unwrap_or(p);
+            let name = name.strip_suffix("/api").unwrap_or(name);
             if !name.is_empty() && !name.contains('/') {
                 names.insert(name.to_lowercase());
             }

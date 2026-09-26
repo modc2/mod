@@ -1,0 +1,60 @@
+{
+    "name": "memes",
+    "version": "0.1.0",
+    "description": "A meme search engine over the sites that actually have the memes. One query fans out to Reddit's meme subreddits (public JSON), Imgflip's template list, Know Your Meme's encyclopedia (scraped) and 9GAG, comes back as one deduplicated, score-ranked list, and lands in a console that is a search box and a wall of memes. Trending, random and template lookup on top. No API keys anywhere; a source that blocks this box reports itself in `errors` and the rest still answer.",
+    "icon": "\ud83d\udc38",
+    "color": "#ff5c39",
+    "anchor": "mod.py",
+    "network": "testnet",
+    "port": 50900,
+    "app_port": 50900,
+    "gateway_port": 50900,
+    "base_path": "/memes",
+    "route": true,
+    "urls": {
+        "app": "http://localhost:50900/memes/",
+        "api": "http://localhost:50900"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "sources",
+        "search",
+        "trending",
+        "random",
+        "templates",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "sources",
+        "search",
+        "trending",
+        "random",
+        "templates"
+    ],
+    "endpoints": {
+        "/info": "Null call \u2014 what this module is and what it exposes",
+        "/health": "Liveness \u2014 no network calls, answers even when every source is down",
+        "/sources": "The sites this engine reaches and how it reaches each one",
+        "/search": "Search every meme site at once, or one (q, source=all|reddit|imgflip|knowyourmeme|ninegag, limit, nsfw)",
+        "/trending": "What is hot right now \u2014 Reddit's and 9GAG's hot feeds, merged (limit, nsfw)",
+        "/random": "One meme, at random, off the top of the hot feeds",
+        "/templates": "Imgflip's blank canvases \u2014 the templates memes get captioned from (q, limit)",
+        "/readme": "The project README"
+    },
+    "sources": {
+        "reddit": "public JSON \u2014 search + hot across r/memes, r/dankmemes, r/me_irl and five more",
+        "imgflip": "api.imgflip.com/get_memes \u2014 the ~100 most-captioned templates, cached an hour",
+        "knowyourmeme": "search page HTML, scraped \u2014 the encyclopedia, not the firehose",
+        "ninegag": "the undocumented search-posts JSON"
+    },
+    "key": "memes",
+    "schema": "QmXf9eYGBKNaYZwRSmf1Dcwa5QAJcC7RUdZKQ1eTssi5Ge"
+}

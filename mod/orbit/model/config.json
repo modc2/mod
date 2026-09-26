@@ -4,6 +4,7 @@
     "description": "Unified BYOK model gateway \u2014 chat any model from openrouter / chutes / targon / venice in one app.",
     "port": 50110,
     "app_port": 50110,
+    "route": true,
     "urls": {
         "api": "http://localhost:50110",
         "app": "http://localhost:50110"

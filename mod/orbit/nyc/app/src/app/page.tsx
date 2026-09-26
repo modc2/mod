@@ -12,6 +12,7 @@ import HousingControls from './components/HousingControls'
 import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
 import Legend, { hasLegend } from './components/Legend'
+import MapFrame from './components/MapFrame'
 import SearchBar from './components/SearchBar'
 import Section from './components/Section'
 import { Coin, Mushroom, QuestionBlock } from './components/Sprites'
@@ -124,6 +125,27 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active])
 
+  // ── live layers re-poll themselves ──────────────────────────────────────
+  // The fetch effect above deliberately fetches each layer once and keeps it.
+  // That is right for a park boundary and wrong for a speed sensor: a layer
+  // that declares `refresh_seconds` is a live reading, and left alone it would
+  // sit on screen showing whatever traffic was doing when it was switched on.
+  useEffect(() => {
+    const live = (catalog?.layers ?? []).filter(
+      (l) => active.includes(l.id) && l.refresh_seconds)
+    if (!live.length) return
+    const timers = live.map((l) =>
+      setInterval(() => {
+        api.layer(l.id)
+          .then((fc) => setLayerData((d) => ({ ...d, [l.id]: fc })))
+          // A failed refresh keeps the last good reading on the map rather
+          // than blanking the layer; the timestamp in the inspector is what
+          // tells the viewer how old it is.
+          .catch(() => {})
+      }, l.refresh_seconds! * 1000))
+    return () => timers.forEach(clearInterval)
+  }, [catalog, active])
+
   // The sales layer depends on the housing window, so drop it when that moves.
   useEffect(() => {
     setLayerData((d) => omit(d, 'sales'))
@@ -179,21 +201,25 @@ export default function Page() {
     // out as you scroll, and `100vh` is the *tallest* case — the bottom of the
     // map, where the sheet and the key live, would sit under the address bar.
     <main className="relative h-[100dvh] w-full overflow-hidden bg-nes-void">
-      <MapView
-        catalog={catalog}
-        active={active}
-        opacity={opacity}
-        housing={housing}
-        housingMetric={query.metric}
-        layerData={layerData}
-        basemap={basemap}
-        flyTo={flyTo}
-        // Touching the map is the end of whatever the HUD was doing: the
-        // phone's search field is over the map, so it stands down here rather
-        // than staying up in front of the feature just tapped.
-        onFeatureClick={(s) => { setSelection(s); setSearchOpen(false) }}
-        onMapReady={() => {}}
-      />
+      {/* The map is the only part of this page that needs a GPU, so it is the
+          only part allowed to fail on a browser without one. */}
+      <MapFrame>
+        <MapView
+          catalog={catalog}
+          active={active}
+          opacity={opacity}
+          housing={housing}
+          housingMetric={query.metric}
+          layerData={layerData}
+          basemap={basemap}
+          flyTo={flyTo}
+          // Touching the map is the end of whatever the HUD was doing: the
+          // phone's search field is over the map, so it stands down here rather
+          // than staying up in front of the feature just tapped.
+          onFeatureClick={(s) => { setSelection(s); setSearchOpen(false) }}
+          onMapReady={() => {}}
+        />
+      </MapFrame>
 
       {/* ── HUD ─────────────────────────────────────────────────────── */}
       <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-3 pb-3">
@@ -258,6 +284,16 @@ export default function Page() {
             >
               ASK
             </button>
+            {/* The map is one of three ways to read this data; the docs are
+                where the other two (MCP, HTTP) are written down. Wide screens
+                only — a phone's HUD has no room to spare, and nobody wires up
+                an MCP client on one. */}
+            <a
+              href="/nyc/docs"
+              className="btn pixel tap hidden px-3 py-3 text-[8px] md:block"
+            >
+              DOCS
+            </a>
             <button
               onClick={() => setSearchOpen(true)}
               aria-label="Search an address or place"

@@ -37,7 +37,9 @@ export default function BuildBadge() {
     "text-pixel-gray bg-pixel-black hover:text-green-400 hover:border-green-400";
 
   return (
-    <div className="fixed bottom-2 right-2 z-40 flex flex-col items-end gap-1">
+    // Faded until you seek it out — a fixed badge otherwise sits opaque on
+    // top of whatever card scrolls under the corner.
+    <div className="fixed bottom-2 right-2 z-40 flex flex-col items-end gap-1 opacity-40 hover:opacity-100 focus-within:opacity-100">
       <button onClick={handleCopy} title={tooltip} className={btnCls}>
         {copied ? "COPIED" : display}
       </button>

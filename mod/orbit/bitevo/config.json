@@ -1,7 +1,7 @@
 {
     "name": "bitevo",
-    "version": "1.0.0",
-    "description": "Bittensor subnet \u2014 miners generate YC-style startup ideas, validators judge them",
+    "version": "2.0.0",
+    "description": "Bittensor subnet \u2014 miners pitch YC-style startups judged by validators; evolutionary genome populations fit multivariate predictions of the future",
     "port": 50120,
     "app_port": 50121,
     "urls": {
@@ -18,6 +18,10 @@
         "add_miner",
         "challenge",
         "score_idea",
+        "evolve",
+        "forecast",
+        "population",
+        "datasets",
         "backends",
         "whitepaper",
         "test",
@@ -61,6 +65,22 @@
             "method": "POST",
             "docs": "Score a single startup idea"
         },
+        "/evolve": {
+            "method": "POST",
+            "docs": "Evolve multivariate forecaster genomes against the held-out future window"
+        },
+        "/forecast": {
+            "method": "GET",
+            "docs": "Best genome's multivariate forecast (query ?horizon=N)"
+        },
+        "/population": {
+            "method": "GET",
+            "docs": "Genome leaderboard and fitness history"
+        },
+        "/datasets": {
+            "method": "GET",
+            "docs": "Built-in multivariate datasets for evolution"
+        },
         "/backends": {
             "method": "GET",
             "docs": "Supported LLM backends"
@@ -70,6 +90,6 @@
             "docs": "Bitevo whitepaper (markdown)"
         }
     },
-    "schema": "QmaRsaUNzEEw7h3tEpSFm3hnsKPaG4fWenXDit4ZqL9B1P",
+    "schema": "Qmcd1M6e7QkGTPj7dAp9Cq4uY4PMp5XS14UHjBuHhZyaG9",
     "gateway_port": 50121
 }

@@ -16,6 +16,8 @@ export type Option = {
   icon?: string    // glyph in the left gutter
   hint?: string    // dim trailing text — a description, a model family, …
   badge?: string   // small pill, e.g. "built-in"
+  meter?: number   // 0-1 proportional cost bar shown below the label
+  cost?: string    // cost label rendered beside the meter, e.g. "$0.14/1M"
 }
 
 export type Accent = 'emerald' | 'amber' | 'sky' | 'violet' | 'gray'
@@ -177,17 +179,34 @@ export default function Select({
                 data-cursor={i === cursor ? '1' : undefined}
                 onClick={() => commit(o.value)}
                 onPointerEnter={() => setCursor(i)}
-                className={`w-full flex items-center gap-2 text-left rounded-md border transition ${sz.item} ${
+                className={`w-full flex flex-col gap-0.5 text-left rounded-md border transition ${sz.item} ${
                   active ? a.item : i === cursor ? 'bg-white/[0.05] border-transparent text-gray-200' : 'border-transparent text-gray-400'
                 }`}
               >
-                <span className="w-4 text-center shrink-0 opacity-80">{o.icon || ''}</span>
-                <span className="truncate">{o.label}</span>
-                {o.badge && (
-                  <span className="text-[9px] px-1 py-0.5 rounded bg-white/[0.06] text-gray-500 shrink-0 font-mono">{o.badge}</span>
+                <div className="flex items-center gap-2 w-full">
+                  <span className="w-4 text-center shrink-0 opacity-80">{o.icon || ''}</span>
+                  <span className="truncate">{o.label}</span>
+                  {o.badge && (
+                    <span className="text-[9px] px-1 py-0.5 rounded bg-white/[0.06] text-gray-500 shrink-0 font-mono">{o.badge}</span>
+                  )}
+                  {o.hint && <span className="text-[10px] text-gray-600 truncate ml-auto pl-2">{o.hint}</span>}
+                  {active && <span className={`ml-auto shrink-0 text-[10px] ${a.check}`}>✓</span>}
+                </div>
+                {o.meter != null && (
+                  <div className="flex items-center gap-1.5 pl-6 w-full">
+                    <div className="flex-1 h-[3px] rounded-full bg-white/[0.06] overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          o.meter > 0.6 ? 'bg-red-400/70' : o.meter > 0.25 ? 'bg-amber-400/70' : 'bg-emerald-400/70'
+                        }`}
+                        style={{ width: `${Math.max(2, Math.round(o.meter * 100))}%` }}
+                      />
+                    </div>
+                    {o.cost && (
+                      <span className="text-[9px] text-gray-500 shrink-0 font-mono">{o.cost}</span>
+                    )}
+                  </div>
                 )}
-                {o.hint && <span className="text-[10px] text-gray-600 truncate ml-auto pl-2">{o.hint}</span>}
-                {active && <span className={`ml-auto shrink-0 text-[10px] ${a.check}`}>✓</span>}
               </button>
             )
           })}

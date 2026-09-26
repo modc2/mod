@@ -8,6 +8,7 @@ import {
   fetchCopies, pauseCopy, resumeCopy, deleteCopy, syncCopy, shortSs58,
   fetchHubStrats, cloneStrat,
 } from "../lib/api";
+import AllocationBook from "../components/AllocationBook";
 import CopyForm from "../components/CopyForm";
 import PageHeader from "../components/PageHeader";
 import { useSidebar } from "../context/SidebarContext";
@@ -81,9 +82,9 @@ function StratsBody() {
           </>
         }
       >
-        Mirror a weighted basket of traders, or run a single-target copy —
-        with safety limits, pause/resume and force-sync. Don&rsquo;t know who
-        to pick?{" "}
+        Copy any set of traders and decide the TAO behind each one. Their
+        books give the shape, your allocations give the size, and the engine
+        blends them into a single portfolio. Don&rsquo;t know who to pick?{" "}
         <Link href="/agent" className="text-cyan-400">
           ask the agent
         </Link>{" "}
@@ -102,8 +103,8 @@ function StratsBody() {
             </h2>
             <p className="arcade-prose arcade-prose-sm">
               Tick any set of traders — the whole board, your watchlist, a
-              subnet’s validators or a list of pasted addresses — weight them,
-              and start one copy per trader.
+              subnet’s validators or a list of pasted addresses — then split a
+              pot between them or type the τ behind each one.
             </p>
           </div>
           <button
@@ -116,6 +117,11 @@ function StratsBody() {
       )}
 
       {mode === "hub" && <HubStrats />}
+
+      {/* Every live sleeve and the one book they blend into. It sits above
+          the per-copy list because the allocation is the thing you actually
+          steer — the list below is the plumbing under it. */}
+      <AllocationBook />
 
       <section>
         <h2 className="font-display text-lg font-bold mb-3">Active copies</h2>
@@ -153,8 +159,9 @@ function StratsBody() {
                   </span>
                 </div>
                 <p className="text-[11px] text-pixel-gray font-mono mt-1">
+                  <span className="text-pixel-white">{c.alloc_tao}τ allocated</span>
+                  {" · "}
                   {c.id.slice(0, 8)}… · max {c.config?.max_tao_per_tx}τ/tx ·{" "}
-                  {c.config?.daily_limit_tao}τ daily ·{" "}
                   {c.last_sync_block ? `synced #${c.last_sync_block}` : "never synced"}
                 </p>
                 <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-pixel-white/10">
@@ -179,8 +186,9 @@ function StratsBody() {
                     className="pixel-btn text-[11px] px-3 py-1 flex-1"
                     onClick={() => runOp(c.id, () => syncCopy(c.id))}
                     disabled={busyId === c.id}
+                    title="Rebalances the whole book — sleeves only add up when they're applied together"
                   >
-                    SYNC
+                    SYNC ALL
                   </button>
                   <button
                     className="pixel-btn text-[11px] px-3 py-1 flex-1 border-red-400/50 text-red-400"
@@ -204,8 +212,10 @@ function StratsBody() {
                   <th>Target</th>
                   <th>Status</th>
                   <th>Last sync</th>
+                  <th className="num" title="The TAO behind this trader">
+                    Allocated
+                  </th>
                   <th className="num">Max/tx</th>
-                  <th className="num">Daily</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -239,8 +249,10 @@ function StratsBody() {
                     <td className="text-pixel-gray text-xs font-mono">
                       {c.last_sync_block ? `#${c.last_sync_block}` : "—"}
                     </td>
+                    <td className="num font-mono text-pixel-white">
+                      {c.alloc_tao}τ
+                    </td>
                     <td className="num font-mono">{c.config?.max_tao_per_tx}τ</td>
-                    <td className="num font-mono">{c.config?.daily_limit_tao}τ</td>
                     <td>
                       <div className="flex flex-wrap gap-1">
                         {c.status === "active" ? (
@@ -264,8 +276,9 @@ function StratsBody() {
                           className="pixel-btn text-[10px] px-2 py-0.5"
                           onClick={() => runOp(c.id, () => syncCopy(c.id))}
                           disabled={busyId === c.id}
+                          title="Rebalances the whole book — sleeves only add up when they're applied together"
                         >
-                          SYNC
+                          SYNC ALL
                         </button>
                         <button
                           className="pixel-btn text-[10px] px-2 py-0.5 border-red-400/50 text-red-400"

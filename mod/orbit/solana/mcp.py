@@ -42,6 +42,10 @@ INSTRUCTIONS = (
     'net SOL and token movement per owner, not raw account indexes). '
     'sol_price and sol_quote answer "what is it worth" and "what would I '
     'actually get" — quotes come from Jupiter and include price impact. '
+    'For the market as a whole: sol_tokens ranks every routable mint by '
+    'liquidity, sol_liquidity opens one up and MEASURES what could actually be '
+    'sold rather than repeating what an index claims, sol_pools says which '
+    'venues hold it and sol_venues says where the chain\'s depth sits. '
     'sol_network, sol_validators and sol_stake cover the chain itself. '
     'Writing: sol_wallet manages an off-tree keystore and sol_transfer signs '
     f'locally; anything over ${SPEND_USD:,.0f} returns needs_confirm until you '
@@ -49,6 +53,12 @@ INSTRUCTIONS = (
     '(default mainnet) and an optional rpc= override. sol_rpc is the escape '
     'hatch for any JSON-RPC method not wrapped here.'
 )
+
+
+def tokens_lists():
+    """The token universes, named where they are defined rather than here."""
+    import tokens
+    return list(tokens.LISTS)
 
 
 def _str(desc, **extra):
@@ -115,6 +125,40 @@ def _t_quote(a):
     return c.quote(a.get('input') or a.get('input_mint'),
                    a.get('output') or a.get('output_mint'),
                    a['amount'], slippage_bps=a.get('slippage_bps', 50))
+
+
+def _book(a):
+    import tokens
+    return tokens.Book(client=_client(a))
+
+
+def _t_tokens(a):
+    return _book(a).universe(
+        kind=a.get('list') or a.get('kind') or 'verified',
+        sort=a.get('sort') or 'liquidity', limit=a.get('limit', 50),
+        offset=a.get('offset', 0), min_liquidity=a.get('min_liquidity'),
+        max_liquidity=a.get('max_liquidity'), query=a.get('query'),
+        tag=a.get('tag'), desc=not a.get('ascending'),
+        safe_only=bool(a.get('safe_only')), exclude=a.get('exclude'))
+
+
+def _t_liquidity(a):
+    sizes = a.get('sizes')
+    if isinstance(sizes, str):
+        sizes = [float(x) for x in sizes.replace(' ', '').split(',') if x]
+    return _book(a).liquidity(
+        a.get('mint') or a.get('token'), depth=a.get('depth', True), sizes=sizes,
+        cost_limit_pct=a.get('cost_limit_pct', 1.0),
+        pool_limit=a.get('pool_limit', 50))
+
+
+def _t_pools(a):
+    return _book(a).pools_for(a.get('mint') or a.get('token'),
+                              limit=a.get('limit', 50))
+
+
+def _t_venues(a):
+    return _book(a).venues(tokens=a.get('tokens', 10), pages=a.get('pages', 1))
 
 
 def _t_network(a):
@@ -345,6 +389,106 @@ TOOLS = {
             'ids': _str('mints or symbols, comma-separated — e.g. "SOL,JUP" or a mint'),
             **_COMMON}, 'required': ['ids']},
         'handler': _t_price,
+    },
+    'sol_tokens': {
+        'description': 'Every token on Solana, ranked by the liquidity behind it. '
+                       'This is the "show me all of them" tool: ~3,000 mints any '
+                       'aggregator will route, each with price, 24h volume, market '
+                       'cap, holders, and the ratios that decide whether the '
+                       'liquidity number means anything — turnover (volume ÷ '
+                       'liquidity; above ~20x is bots, not demand), liquidity as a '
+                       'percentage of market cap (under 1% means the cap is notional '
+                       'and holders cannot get out), and a flag list naming every '
+                       'reason to be careful in plain words. Filter with query=, '
+                       'min_liquidity=, tag=, safe_only=; sort by liquidity, volume, '
+                       'mcap, holders, turnover, change, organic or age. The number '
+                       'here is what an aggregator says it can ROUTE — for what a '
+                       'given token could actually be sold for, open it with '
+                       'sol_liquidity, which measures that instead of reporting it.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'list': _str('which universe to rank — verified (default, everything '
+                         'routable), top, traded, trending, new, lst, meme, defi, '
+                         'major, equities, launchpad',
+                         enum=list(tokens_lists())),
+            'sort': _str('liquidity (default), volume, mcap, fdv, holders, turnover, '
+                         'change, organic, depth_ratio, age, symbol'),
+            'limit': _num('rows to return (default 50, max 2000)'),
+            'offset': _num('skip this many — page through the whole universe'),
+            'query': _str('substring match on symbol, name or mint'),
+            'tag': _str('only tokens carrying this tag — lst, meme, defi, major, …'),
+            'min_liquidity': _num('hide anything thinner than this many USD'),
+            'max_liquidity': _num('hide anything deeper than this many USD'),
+            'safe_only': _bool('drop every token whose mint or freeze authority is '
+                               'still live'),
+            'exclude': _str('drop tokens carrying any of these flags, comma-'
+                            'separated — e.g. "redeemable" to leave out staked-SOL '
+                            'wrappers, whose reported liquidity is their own supply '
+                            'and which otherwise fill the top of the ranking'),
+            'ascending': _bool('smallest first'),
+            **_COMMON}},
+        'handler': _t_tokens,
+    },
+    'sol_liquidity': {
+        'description': 'How much liquidity one token really has — all three answers, '
+                       'because they disagree and the disagreement is the finding. '
+                       'quotable_usd is what the aggregator claims it can route; '
+                       'pool_reserves_usd is the USD sitting in every pool the token '
+                       'trades in (both sides, so always the biggest number); and '
+                       'executable_usd is MEASURED here by quoting real sells at '
+                       'increasing size and bisecting for the largest one that still '
+                       'clears under a 1% all-in cost. That last number is routinely '
+                       'an order of magnitude below the headline, and it is the one '
+                       'that answers "can I get out". Comes with every pool holding '
+                       'the token, deduped across sources and screened for pools '
+                       'claiming impossible reserves, the DEX breakdown, an HHI '
+                       'saying whether one pool IS the market, and the risk flags. '
+                       'Set depth=false to skip the measurement and answer instantly.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'mint': _str('mint address, or a symbol — symbols resolve to the '
+                         'deepest-liquidity match and the mint comes back with it'),
+            'depth': _bool('measure executable size by quoting real sells (default '
+                           'true; costs a few seconds and ~8 route quotes)'),
+            'sizes': _str('USD sizes to price, comma-separated — default '
+                          '1000,10000,100000,1000000'),
+            'cost_limit_pct': _num('the all-in cost that counts as "too expensive" '
+                                   '(default 1.0%)'),
+            'pool_limit': _num('maximum pools to fetch per source (default 50)'),
+            **_COMMON}, 'required': ['mint']},
+        'handler': _t_liquidity,
+    },
+    'sol_pools': {
+        'description': 'Every pool holding one token, deduped across indexes and '
+                       'sorted by depth: which DEX, which pair, how much is in it, '
+                       'what share of the token\'s total that pool is, and how old '
+                       'it is. Pools claiming more reserves than the token has market '
+                       'cap are kept in the list but excluded from the totals with '
+                       'the reason attached — fake depth is a normal thing for a '
+                       'screener to be told. Use this when the question is WHERE the '
+                       'liquidity sits; use sol_liquidity when it is how much.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'mint': _str('mint address or symbol'),
+            'limit': _num('maximum pools per source (default 50)'),
+            **_COMMON}, 'required': ['mint']},
+        'handler': _t_pools,
+    },
+    'sol_venues': {
+        'description': 'Where Solana\'s liquidity actually sits, by DEX — built from '
+                       'pools, not from any venue\'s self-reported TVL. No index '
+                       'sorts pools by reserves, so the deep end is reached through '
+                       'the tokens: the N deepest tokens are looked up, every pool '
+                       'holding them is fetched and aggregated per venue, and the '
+                       'answer states what fraction of the chain\'s quotable '
+                       'liquidity that sample covers. The busiest pools by 24h volume '
+                       'come back separately and deliberately unmixed — most of them '
+                       'hold almost no reserves, and averaging the two is how a '
+                       'bonding-curve launchpad ends up looking like the deepest '
+                       'venue on the chain.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'tokens': _num('how many of the deepest tokens to sample (default 10, '
+                           'max 25) — more is more accurate and slower'),
+            'pages': _num('pages of busiest-by-volume pools to fetch (default 1)'),
+            **_COMMON}},
+        'handler': _t_venues,
     },
     'sol_history': {
         'description': 'Recent transactions for an address, newest first: signature, '

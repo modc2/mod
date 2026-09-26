@@ -1,0 +1,96 @@
+{
+    "name": "embed",
+    "version": "1.0.0",
+    "description": "Small models and what it costs to shrink them. Builds two tiny ONNX models on the spot \u2014 a hashing bag-of-words embedder and a sentiment classifier trained here in numpy \u2014 reads and writes .onnx from raw protobuf with no onnx package, runs the graphs in a 200-line numpy interpreter, and compresses the weights to float16, int8 (per-tensor and per-channel) and 4 bits. Every compression is scored twice: the error it put into the weights, and what it did to the model's actual answers, including the share of answers that changed while accuracy stayed still. The compressed files are ordinary ONNX \u2014 DequantizeLinear and Cast nodes, nothing invented here \u2014 and when onnxruntime is installed the module runs every file through it as an independent check that its own protobuf writer and interpreter are right.",
+    "icon": "\u25a4",
+    "anchor": "mod.py",
+    "protocol": "embed/1.0",
+    "port": 50620,
+    "app_port": 50621,
+    "gateway_port": 50620,
+    "base_path": "/embed",
+    "route": false,
+    "urls": {
+        "api": "http://localhost:50620",
+        "app": "http://localhost:50621/embed",
+        "same_origin_api": "http://localhost:50621/embed/_api"
+    },
+    "backend": "src/api.py (FastAPI \u2014 the API, :50620)",
+    "frontend": "src/app.py (stdlib \u2014 the console at /embed on :50621; proxies /embed/_api)",
+    "state": "~/.mod/embed/models \u2014 built models and the ledger of what they were built from; nothing else is kept",
+    "deps": [],
+    "models": {
+        "bow-64": "hashing bag-of-words \u2192 64-d random projection, built from a seed, 2.0 MB",
+        "sent-mlp": "4096-bucket bag \u2192 64 hidden \u2192 2 classes, trained here in ~2s, 1.0 MB",
+        "minilm": "sentence-transformers/all-MiniLM-L6-v2 ONNX, ~90 MB, downloaded on request"
+    },
+    "methods": {
+        "float32": "the baseline \u2014 no change, so the table has a control row",
+        "float16": "half the bytes, ~0.02% weight error, no answer changed on either model",
+        "int8": "a quarter of the bytes via DequantizeLinear, ~1% weight error, no answer changed",
+        "int8-per-channel": "one scale per channel \u2014 half the error of int8, and larger than it on bow-64",
+        "int4-sim": "four bits in an int8 container (ONNX has no 4-bit tensor before opset 21) \u2014 measures the accuracy of 4 bits, not the size"
+    },
+    "measures": {
+        "rel_rmse": "per-tensor error relative to the weights' own magnitude",
+        "task": "retrieval top-1 for the embedder, held-out accuracy for the classifier",
+        "agreement_with_float": "share of answers identical to the float32 model's \u2014 the strict metric, and the one that moves first"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "models": "GET /models | GET /models/{name}",
+        "build": "POST /build?name= | POST /pull?name=",
+        "embed": "GET /embed?text=",
+        "search": "GET /search?query=&method=",
+        "classify": "GET /classify?text=&method=",
+        "corpus": "GET /corpus | GET /collisions?vocab=",
+        "compare": "GET /compare?name=&tensor=",
+        "compress": "POST /compress?name=&method=",
+        "sweep": "GET /sweep?name=",
+        "check": "GET /check?name=&all=",
+        "examples": "GET /examples",
+        "console": "GET /embed (app service)"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "readme",
+        "health",
+        "models",
+        "build",
+        "pull",
+        "inspect",
+        "embed",
+        "search",
+        "classify",
+        "collisions",
+        "compare",
+        "compress",
+        "sweep",
+        "check",
+        "examples",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "env": {
+        "EMBED_DIR": "where built models live (default: ~/.mod/embed)",
+        "EMBED_PORT": "API port (default 50620)",
+        "EMBED_APP_PORT": "console port (default 50621)",
+        "EMBED_API": "where the console proxies to (default http://127.0.0.1:50620)"
+    },
+    "toolchain": {
+        "python": [
+            "numpy",
+            "fastapi",
+            "uvicorn"
+        ],
+        "optional": "onnxruntime \u2014 only to cross-check this module's own runtime and files; nothing imports it otherwise"
+    },
+    "services": [
+        "embed-api",
+        "embed-app"
+    ],
+    "schema": "QmUqibgUeb77LYztszqSNks2VvLgZpHXGgBhjYoNBvRMAN"
+}

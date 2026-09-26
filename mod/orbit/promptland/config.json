@@ -1,0 +1,109 @@
+{
+    "name": "promptland",
+    "title": "Promptland \u270e prompt library",
+    "description": "Store and share prompts. Build-style wallet auth (browser MetaMask, local in-browser seed wallet, or password-derived key \u2014 challenge/verify + HMAC bearer sessions); each wallet keeps a private library, and shared prompts are CID-pinned to localfs so anyone can browse the gallery or import by CID.",
+    "version": "0.1.0",
+    "port": 50580,
+    "app_port": 50581,
+    "base_path": "/promptland",
+    "route": true,
+    "icon": "\u270e",
+    "color": "#b48ead",
+    "deps": [
+        "localfs"
+    ],
+    "fns": [
+        "forward",
+        "info",
+        "readme",
+        "health",
+        "prompts",
+        "get_prompt",
+        "save_prompt",
+        "delete_prompt",
+        "share_prompt",
+        "shared",
+        "get_shared",
+        "import_prompt",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "urls": {
+        "api": "http://localhost:50580",
+        "app": "http://localhost:50581/promptland"
+    },
+    "endpoints": {
+        "/": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Module info (mod protocol null call)"
+        },
+        "/health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Health check"
+        },
+        "/owner": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Owner address and whether one is claimed yet"
+        },
+        "/auth/challenge": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Sign-in challenge for ?address= \u2014 returns the message the wallet must sign"
+        },
+        "/auth/verify": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{address, signature, message} \u2192 {token, address, role}. First signer ever claims ownership (~/.mod/promptland/owner.json); everyone else signs in as a user with their own library"
+        },
+        "/auth/session": {
+            "method": "GET",
+            "auth": true,
+            "docs": "Validate the bearer token \u2192 {address, role}"
+        },
+        "/prompts": {
+            "method": [
+                "GET",
+                "POST"
+            ],
+            "auth": true,
+            "docs": "List the caller's prompts, or upsert one: {id?, name, description?, tags?, body}"
+        },
+        "/prompts/{id}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": true,
+            "docs": "Read or delete one of the caller's prompts"
+        },
+        "/prompts/{id}/share": {
+            "method": "POST",
+            "auth": true,
+            "docs": "Pin the prompt to localfs \u2192 CID, and list it in the public gallery"
+        },
+        "/shared": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Public gallery of shared prompts (CID + metadata)"
+        },
+        "/shared/{cid}": {
+            "method": [
+                "GET",
+                "DELETE"
+            ],
+            "auth": "GET: false, DELETE: author or owner",
+            "docs": "Read a shared prompt by CID (public), or delist it from the gallery"
+        },
+        "/import": {
+            "method": "POST",
+            "auth": true,
+            "docs": "{cid} \u2192 copy a shared prompt into the caller's library"
+        }
+    },
+    "schema": "QmcE1tM3TmKY6bZAzHRWK73K8Jh14TNsVLsTWtXtrFeiDE"
+}

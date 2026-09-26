@@ -23,7 +23,7 @@ done
 # ── Start Next.js (internal) ──
 cd /app/src/app
 TAOX_API_URL="http://localhost:$API_PORT" \
-NEXT_PUBLIC_API_URL="/api/taox" \
+NEXT_PUBLIC_API_URL="/taox/api" \
 NEXT_PUBLIC_BASE_PATH="/taox" \
 PORT=$APP_INTERNAL_PORT \
 HOSTNAME="0.0.0.0" \

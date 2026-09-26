@@ -80,11 +80,26 @@ def test_read_only_runs_deny_every_write_tool():
 
 
 def test_local_host_tools_are_always_denied():
-    # The agent reasons over Hyperliquid, not over this host.
+    # The agent reasons over Hyperliquid and this module's own code — nothing
+    # else on this host. Shell, writes, web and unscoped search stay denied;
+    # Read is allowed only through the module-directory-scoped rule.
     for tools, act in ((READS, False), (READS + WRITES, True)):
         cmd = agent.build_cmd("q", tools, agent.LOCAL_TOOLS, act, API_URL, "tok")
         denied = cmd[cmd.index("--disallowedTools") + 1].split(",")
-        assert {"Bash", "Write", "Read"} <= set(denied)
+        assert {"Bash", "Write", "Edit", "WebFetch", "Grep", "Glob"} <= set(denied)
+        assert "Read" not in denied
+
+
+def test_code_read_is_scoped_to_the_module_directory():
+    assert agent.CODE_READ == f"Read(/{agent.ROOT_DIR}/**)"
+    assert agent.ROOT_DIR.endswith("/hyperliquid")
+
+
+def test_system_prompt_carries_a_source_map():
+    cmd = agent.build_cmd("q", READS, [], False, API_URL, "")
+    prompt = cmd[cmd.index("--append-system-prompt") + 1]
+    assert "CODE QUESTIONS" in prompt
+    assert "api/src/traders.rs" in prompt and "agent.py" in prompt
 
 
 def test_act_mode_gets_the_action_briefing():

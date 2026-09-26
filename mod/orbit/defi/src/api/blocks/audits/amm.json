@@ -1,0 +1,99 @@
+{
+  "block": "amm",
+  "contract": "ModAMM",
+  "file": "amm.sol",
+  "audited_at": "2026-08-30",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "high",
+  "summary": "ModAMM is a 117-line constant-product pair (x*y=k, bps fee retained by LPs, 18-decimal LP share, spot price() read) with reserves tracked as internal accounting rather than token balances. The arithmetic itself is sound: quote() rounds in the pool's favour, an output can never reach the full reserve, division-by-zero states are unreachable, and the owner cannot touch funds. The worst findings are structural: swap() moves tokens before it writes reserves and has no reentrancy guard, so any token with transfer hooks lets a caller drain the pool by re-buying at the stale quote; the first-LP path burns no minimum liquidity and addLiquidity()/removeLiquidity() take no slippage minimums, so an early LP can make later depositors' shares round down (or revert) and any LP transaction is sandwichable; and price() is a raw spot ratio that is advertised as an `oracle` port, which turns any lending/cdp/perps/bonding block wired to it into a one-transaction bad-debt machine using the catalog's own flash lender. Fee-on-transfer and rebasing tokens quietly make the pool insolvent because there is no sync()/skim(). It is acceptable as-is for a testnet pair of plain, hook-free, fixed-supply tokens seeded with real liquidity in the deploy transaction and never used as an oracle; it is not safe to deploy with value behind it, or as a price feed, without the fixes below.",
+  "counts": {
+    "critical": 0,
+    "high": 3,
+    "medium": 2,
+    "low": 2,
+    "info": 1
+  },
+  "findings": [
+    {
+      "id": "AMM-1",
+      "severity": "high",
+      "title": "swap() is reentrant: tokens move before reserves update, so a hooked token re-buys at the stale price and drains LPs",
+      "where": "swap() L90-L105 (quote at L91, pull/push at L94-L95 and L99-L100, reserve writes at L96-L97 and L101-L102)",
+      "detail": "swap() computes amountOut from reserve0/reserve1 (L91), then calls out to token0/token1 via pull and push (L94-L95, L99-L100) and only afterwards writes the new reserves (L96-L97, L101-L102). There is no reentrancy guard anywhere in the contract. If either token runs code on transfer (ERC-777 tokensToSend on the sender during pull, tokensReceived on `to` during push, or any composable token that calls a hook), the callee can re-enter swap() while reserves are still the pre-trade values and receive the same undiscounted quote again and again. Every nested trade is priced as if it were the first one, so the constant product is never charged for the cumulative size; the difference is taken from LPs. The same window allows cross-function reentrancy into removeLiquidity() (L71-L81), which reads reserve1 before the outer swap has subtracted amountOut and so pays the reentrant LP a pro-rata share of tokens that have already been sent out, leaving reserves > balances and the last LPs unable to withdraw. Because `erc20` ports accept any address, a deployer pasting an ERC-777 or a hooked token (imBTC-style, the exact Uniswap V1 incident) turns this into a pool drain; wiring the AMM to plain ERC20Base catalog tokens (token, vault, lst, flashlender shares) does not trigger it.",
+      "exploit": "Pool token0/token1 = (1000e18, 1000e18), fee 30 bps, token1 is ERC-777 (or token0 is; the pull hook works the same way). Attacker contract A calls swap(true, 100e18, 0, A). quote() returns 90.66e18 at reserves (1000,1000). Inside token1.push(A, 90.66e18) the tokensReceived hook fires before L96-L97 run; A re-enters swap(true, 100e18, 0, A) and is quoted 90.66e18 again because reserves are unchanged; repeat 10 levels deep. On unwind reserve0 = 2000e18, reserve1 = 93.4e18 and A holds 906.6e18 token1 for 1000e18 token0 (the honest constant-product output for 1000e18 in one go is 498e18). A then swaps 906.6e18 token1 back and receives about 1812e18 token0: net +812e18 token0 extracted from LPs in one transaction, repeatable until the pool is empty.",
+      "recommendation": "Add a nonReentrant guard to swap(), addLiquidity() and removeLiquidity(), and follow checks-effects-interactions in swap(): update reserve0/reserve1 before calling push/pull (pull first, then write reserves, then push). Optionally enforce the k invariant after the transfers (reserve0Post * reserve1Post >= reserve0Pre * reserve1Pre) as a belt-and-braces check."
+    },
+    {
+      "id": "AMM-2",
+      "severity": "high",
+      "title": "First-LP share-ratio inflation: no minimum-liquidity lock and no minShares, so an early LP can make later deposits round down to almost nothing",
+      "where": "addLiquidity() L52-L69 (first mint L57-L58, proportional mint L60-L62, no min-shares check L64)",
+      "detail": "The first depositor is minted sqrt(amount0*amount1) shares with no MINIMUM_LIQUIDITY burned to address(0) (Uniswap V2 burns 1000), so totalSupply can legitimately be 1. Subsequent mints are min(amount0*TS/reserve0, amount1*TS/reserve1) rounded down (L60-L62), and whatever exceeds the minted proportion is silently donated to existing LPs. Reserves are internal accounting so a direct token donation does not work here, but an asymmetric addLiquidity() does: the attacker deposits large amounts against a 1-share supply, is minted exactly 1 share each time, and ends up with a pool where each share is worth a huge slice of reserves. A victim who deposits less than reserves/TS per side reverts with ZERO_SHARES (DoS for everyone smaller than the attacker) and one who deposits more is minted a floor-rounded share count that is worth far less than what they put in; the shortfall goes to the attacker. There is no minShares / amountMin argument for the victim to protect themselves, and the pool returns to this state every time totalSupply goes back to 0, so it is not only a launch-time concern.",
+      "exploit": "Attacker A, fresh pool. 1) A.addLiquidity(1, 1) -> 1 share, reserves (1,1). 2) A.addLiquidity(1, 3e18) -> s0=1, s1=3e18, mints 1 share; reserves (2, 3e18+1), TS=2. 3) A.addLiquidity(3e18, 2e18) -> s0=3e18, s1=floor(2e18*2/(3e18+1))=1, mints 1 share; reserves (3e18+2, 5e18+1), TS=3, all held by A. Victim V.addLiquidity(1.9e18, 1.9e18): s0=floor(1.9e18*3/3e18)=1, s1=floor(1.9e18*3/5e18)=1 -> 1 share of 4. V now owns 25% of (4.9e18, 6.9e18) = (1.225e18, 1.725e18) after depositing (1.9e18, 1.9e18); A's 3 shares are worth (3.675e18, 5.175e18) versus the (3e18, 5e18) A deposited. Any victim depositing under (1e18, 1.67e18) reverts ZERO_SHARES. A removes liquidity at will; the whole attack is capital-only with no cost beyond gas.",
+      "recommendation": "On the first mint burn a MINIMUM_LIQUIDITY (e.g. 1000 shares) to address(0) so totalSupply can never be tiny; add `minShares` to addLiquidity() and `minAmount0/minAmount1` to removeLiquidity() and revert if unmet. Consider computing the optimal counterpart amount and refunding (or not pulling) the excess instead of donating it. Deployers using the block as-is must seed meaningful liquidity in the same transaction as deployment."
+    },
+    {
+      "id": "AMM-3",
+      "severity": "medium",
+      "title": "addLiquidity()/removeLiquidity() have no slippage or deadline parameters and are sandwichable",
+      "where": "addLiquidity() L52-L69, removeLiquidity() L71-L81",
+      "detail": "Neither liquidity function accepts minimum outputs or a deadline. addLiquidity() mints min(s0, s1) at whatever ratio the reserves hold when the transaction lands and donates the excess of the other token to the pool (L60-L63). removeLiquidity() pays a pro-rata slice of the current reserves (L73-L74). A searcher can move the reserve ratio with a swap in front of the victim's transaction and move it back behind it. On adds, the victim's surplus is donated to the pool and collected pro rata by every LP, the sandwicher included; on removes, the victim receives an imbalanced basket priced at the manipulated ratio while the sandwicher's back-run swap captures the difference. No deadline means a transaction that sits in the mempool is executed at a ratio the user never saw.",
+      "exploit": "Pool (10000e18, 10000e18), TS=10000e18, attacker holds 50% of shares. Victim broadcasts addLiquidity(1000e18, 1000e18). Attacker front-runs swap(true, 2000e18, 0) -> reserves about (12000e18, 8340e18). Victim's mint: s0 = 1000*10000/12000 = 833 shares, s1 = 1000*10000/8340 = 1199 shares -> 833 shares minted; the victim's shares are backed by (1000e18, 695e18) and 305e18 token1 is donated to the pool. Attacker back-runs by swapping token1 back to token0, then holds LP shares worth roughly 150e18 token1 more than before (50% of the donation) minus two swap fees. Victim's position is worth 1695e18 instead of 2000e18 at the true price.",
+      "recommendation": "Add `minShares` and `deadline` to addLiquidity() and `amount0Min`, `amount1Min`, `deadline` to removeLiquidity(); revert if block.timestamp > deadline or the outputs are below the minimums. Front-ends should compute these from a quote taken off-chain."
+    },
+    {
+      "id": "AMM-4",
+      "severity": "high",
+      "title": "price() is a spot reserve ratio: wired to lending/cdp/perps/bonding it is manipulable in one transaction with the catalog's own flash lender",
+      "where": "price() L107-L111; composition with lending.sol L61/L129, cdp.sol L78/L161, perps.sol L144/L193/L249, bonding.sol L73",
+      "detail": "The block advertises `oracle` on its provides list and price() simply returns reserve1*1e18/reserve0. The lending, cdp, perps and bonding blocks all consume oracle.price() as the value of one unit of collateral in the debt asset, so a single large swap (or a flash loan from the catalog's flashlender block, which lends its whole reserve to anyone within one call) moves the price by an arbitrary amount for the duration of a transaction. Because reserves are internal accounting the number cannot be nudged by donation, but a swap moves it at the cost of a fee only, and the swap can be unwound in the same transaction. The catalog docs call this out as 'convenient on a testnet', but the wire is offered to every oracle-consuming block and lending.sol's own header suggests it. Additional semantic traps for consumers: price() is token0 quoted in token1 only (wire it the other way round and the lender values collateral at the inverse); it returns 0 while the pool is empty (collateral worth 0, or a borrow that can never be liquidated depending on the consumer); and it is unaffected by feeBps.",
+      "exploit": "Canvas: AMM(token0=COL, token1=USD), lending(collateral=COL, debtAsset=USD, oracle=AMM, ltv 80%), flashlender(asset=USD). AMM reserves (1000e18 COL, 1000e18 USD), lending pool holds 5000e18 USD supplied by lenders. Attacker contract: 1) flash-borrow 9000e18 USD; 2) AMM.swap(false, 9000e18, 0) -> reserves about (100e18 COL, 10000e18 USD), price() = 100e18 (was 1e18), attacker holds about 900e18 COL; 3) lending.supply(900e18 COL) -> collateralValue = 90000e18 USD, borrow the entire 5000e18 USD lender balance; 4) swap 4100e18 USD back into COL, repay the flash loan plus fee; 5) walk away. Once price() reverts to about 1e18 the position is 900e18 COL (~900e18 USD) backing 5000e18 USD of debt: 4100e18 USD of bad debt that liquidators cannot recover, i.e. lenders lose 82% of the pool.",
+      "recommendation": "Do not wire ModAMM's oracle port to anything that liquidates or mints against collateral. If an on-chain feed is needed, implement a cumulative-price TWAP (Uniswap V2 style price0CumulativeLast with a minimum window) or use a dedicated ModFixedOracle / external feed, and have consumers sanity-check against a reference. At minimum remove `oracle` from the catalog provides list or require an explicit acknowledgement on the wire."
+    },
+    {
+      "id": "AMM-5",
+      "severity": "medium",
+      "title": "Internal reserve accounting has no sync()/skim(): fee-on-transfer or rebasing tokens make the pool insolvent and direct transfers are lost forever",
+      "where": "addLiquidity() L54-L55 & L66-L67, swap() L94-L102, removeLiquidity() L76-L79",
+      "detail": "reserve0/reserve1 are credited with the amount the contract asked for (amountIn / amount0 / amount1), never with the amount actually received. A token that takes a transfer fee (PAXG, STA-style, many meme tokens with tax) or rebases downward leaves the contract holding less than reserves say, so the last LPs to leave hit PUSH_FAILED and their shares become unredeemable, and swaps are quoted against reserves that do not exist. Upward rebases and any token accidentally transferred straight to the contract are unreachable by anyone (no skim) and permanently stuck. Separately, the SafeTransfer library requires a `bool` return, so tokens that return nothing (USDT, BNB, OMG on mainnet) revert on the ABI decode and simply cannot be pooled; that is a usability failure rather than a loss, but deployers should know the pair will be dead on arrival.",
+      "exploit": "token1 has a 1% transfer tax. LP1 adds (100e18, 100e18): contract receives 100e18 token0 and 99e18 token1 but reserves are (100e18, 100e18). Ten traders each swap 10e18 token0 in; each pull credits reserve0 by the full amount and each push of token1 to the trader is taxed on the way out but reserve1 is debited the full quote, so the shortfall grows with every trade. LP1 calls removeLiquidity(all shares): amount1 = reserve1 > balance -> token1.transfer reverts PUSH_FAILED, and because _burn/reserve writes precede the push (L75-L79) the whole call reverts; LP1 can only exit in slices until the residual reserve exceeds the true balance, at which point the remainder of their liquidity is locked forever. With a negative-rebase token the same insolvency appears without any trades.",
+      "recommendation": "Measure balances instead of trusting amounts: after each pull compute received = balanceOf(this) - before and credit reserves with that; or switch to Uniswap-style balance-derived reserves with a sync()/skim() pair. Use a safeTransfer that tolerates empty return data. Document that fee-on-transfer and rebasing tokens are unsupported."
+    },
+    {
+      "id": "AMM-6",
+      "severity": "low",
+      "title": "swap() has no deadline; stale transactions execute at whatever price the pool has later",
+      "where": "swap() L90-L105",
+      "detail": "minOut protects the absolute floor but not the moment of execution. A swap that sits in the mempool through a price move (or that a builder holds back) still executes as long as amountOut >= minOut, which is typically set with a few percent of slack, so the user reliably pays the whole slack to whoever ordered the block. Every major router takes a deadline for this reason.",
+      "exploit": "User submits swap(true, 100e18, 95e18, user) with gas price below the market; the transaction is not mined for 20 minutes while token1 appreciates 4%. A searcher sees the pending order, includes it in a block after moving the price so that amountOut is exactly 95e18 and back-runs it, pocketing the 4% the user would otherwise have received.",
+      "recommendation": "Add a `deadline` argument to swap() (and to the liquidity functions per AMM-3) and `require(block.timestamp <= deadline, \"EXPIRED\")`."
+    },
+    {
+      "id": "AMM-7",
+      "severity": "low",
+      "title": "Owner can set the fee to 10% instantly, with no timelock or notice",
+      "where": "setFee() L113-L116, feeBps cap at L33/L114",
+      "detail": "The owner (whatever is wired to the governor port, or the deployer EOA) can move feeBps anywhere in 0..1000 in one transaction. The owner cannot withdraw reserves, pause, or upgrade, and swappers are shielded by minOut, so the blast radius is bounded: traders who submitted with loose minOut pay up to 10% instead of 0.3%, and LPs cannot be robbed but can have their pool made uncompetitive. If the governor is a ModGovernor/ModTimelock this is mitigated; if it is an EOA it is a trust assumption users should see.",
+      "exploit": "Owner watches the mempool for a large swap with minOut at 5% slack, front-runs setFee(1000), the swap executes taking 10% instead of 0.3%, owner (holding LP shares) collects the fee as an LP and resets the fee. Repeatable on every loosely-protected trade.",
+      "recommendation": "Wire the governor port to a ModTimelock, or bound fee changes (e.g. max 0.3% step with a delay). Emit an event on setFee so front-ends can warn."
+    },
+    {
+      "id": "AMM-8",
+      "severity": "info",
+      "title": "Small usability hazards: dust shares burn for zero output, `to` unchecked, LP decimals hard-coded to 18",
+      "where": "removeLiquidity() L72-L75, addLiquidity() L65, swap() L95/L100, constructor L30",
+      "detail": "removeLiquidity() rounds both amounts down and burns the shares even when one or both amounts round to 0, so tiny redemptions forfeit value to remaining LPs. `to` is never validated: addLiquidity(..., address(0)) mints unrecoverable shares, and swap(..., address(this)) sends the output back into the pool where it is unaccounted (see AMM-5) and lost. The LP token is always 18 decimals regardless of the underlying pair, so LP-share value maths in consumers (staking reward rates, vault pricing) must not assume parity with either token. None of these are attacker-exploitable against third parties.",
+      "exploit": "LP holds 1 share of a pool with TS=1e21 and reserves (1e21, 1e21): removeLiquidity(1) computes amount0 = amount1 = 1 wei (fine), but with TS=1e21 and reserve0 = 5e20, amount0 = 0 and the share is burned for 0 token0. A user who passes to=address(0) by mistake in addLiquidity loses their deposit permanently.",
+      "recommendation": "require(to != address(0) && to != address(this)); in removeLiquidity require(amount0 > 0 && amount1 > 0) or accept min-amount arguments per AMM-3; document the 18-decimal LP share."
+    }
+  ],
+  "safe_use": [
+    "Only pair tokens with no transfer hooks (no ERC-777, no callback-on-transfer tokens); the catalog's own ERC20Base tokens are fine. A hooked token makes swap() drainable (AMM-1).",
+    "Only pair fixed-supply, no-fee-on-transfer, non-rebasing tokens that return a bool from transfer/transferFrom; USDT-style no-return tokens revert and tax/rebase tokens strand LP funds (AMM-5).",
+    "Seed meaningful liquidity on both sides in the same transaction as deployment and never let totalSupply return to 0; a 1-wei first deposit lets an attacker inflate the share ratio against later LPs (AMM-2).",
+    "Do not wire the AMM's oracle port to lending, cdp, perps or bonding. Use ModFixedOracle or an external feed for anything that liquidates or mints against collateral (AMM-4).",
+    "Front-ends should quote off-chain and refuse to submit addLiquidity/removeLiquidity when the pool ratio has moved from the quote, and should submit swaps with a tight minOut, since the contract has no deadline or LP slippage arguments (AMM-3, AMM-6).",
+    "Wire the governor port to a ModTimelock or ModGovernor rather than an EOA so fee changes are visible in advance (AMM-7).",
+    "Never send tokens directly to the pool address and never use the pool address as a swap/liquidity recipient; there is no skim() to recover them (AMM-5, AMM-8)."
+  ]
+}

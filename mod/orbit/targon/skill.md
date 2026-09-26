@@ -11,7 +11,7 @@ subnet 4: miners supply the GPUs, the Hub rents them out as workloads. 49 tools,
 `POST /mcp` (JSON-RPC 2.0, Streamable HTTP) and over stdio (`targon-api --stdio`).
 
 Port **50440** — API, MCP and console share it. Browser console at `/targon`
-(`/targon/_api` and `/api/targon` are the same API behind the fleet gateway).
+(`/targon/api` and `/targon/_api` are the same API behind the fleet gateway).
 
 ## Money rule
 

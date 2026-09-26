@@ -10,7 +10,9 @@ Signed out, the agent can only read what the public routes already serve.
 Two modes:
     ask   — read-only. Only GET-backed tools are on the allowlist; anything
             that signs, spends or mutates stored state is explicitly denied,
-            so a question can never place an order.
+            so a question can never place an order. The Read tool is allowed,
+            scoped to this module's own directory, so the agent can also
+            answer questions about the module's code and design.
     act   — the full tool surface. Requires a token, and the caller has to opt
             in per run (`act=True` / `HL_AGENT_ACT=1`).
 
@@ -18,7 +20,8 @@ The allow/deny split is derived from the live `GET /mcp/schema` — the same
 table `mcp.rs` publishes — so there is no second tool list to drift.
 
 Auth for the model resolves in order: ANTHROPIC_API_KEY env →
-~/.mod/hyperliquid/anthropic.key → Claude CLI OAuth (~/.claude/.credentials.json).
+~/.mod/hyperliquid/anthropic.key → ~/.mod/hyperliquid/claude_oauth_token
+(long-lived setup token) → Claude CLI OAuth (~/.claude/.credentials.json).
 If none exist the key file is created empty (0600) and status()/ask() say so.
 
 CLI (this is what the Rust `/ask` route drives):
@@ -40,20 +43,31 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(SRC_DIR)
 API_DIR = os.path.join(SRC_DIR, "api")
 
-CLAUDE_BIN = os.environ.get("HL_AGENT_BIN", "claude")
+# Pin the system CLI by absolute path: apps launched via npx get ancestor
+# node_modules/.bin shims prepended to PATH, and the fleet carries a stale one.
+_SYSTEM_CLAUDE = "/usr/local/bin/claude"
+CLAUDE_BIN = os.environ.get("HL_AGENT_BIN") or (
+    _SYSTEM_CLAUDE if os.path.exists(_SYSTEM_CLAUDE) else "claude")
 MODEL = os.environ.get("HL_AGENT_MODEL", "sonnet")
 MAX_TURNS = int(os.environ.get("HL_AGENT_MAX_TURNS", "16"))
 TIMEOUT_SEC = int(os.environ.get("HL_AGENT_TIMEOUT", "300"))
 
 KEY_FILE = os.path.expanduser("~/.mod/hyperliquid/anthropic.key")
+# Long-lived setup token (sk-ant-oat01…) — outlives the interactive login in
+# ~/.claude/.credentials.json, which expires and strands pm2-spawned children.
+OAUTH_TOKEN_FILE = os.path.expanduser("~/.mod/hyperliquid/claude_oauth_token")
 OAUTH_FILE = os.path.expanduser("~/.claude/.credentials.json")
 
 MCP_SERVER = "hyperliquid"
 TOOL_PREFIX = f"mcp__{MCP_SERVER}__"
 
-# The agent reasons over Hyperliquid, not over this host. Local file and shell
-# tools are denied outright — its only reach is the MCP server.
-LOCAL_TOOLS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task"]
+# The agent reasons over Hyperliquid and over this module's own code — nothing
+# else on this host. Shell, writes and the open web are denied outright; its
+# reach is the MCP server plus read-only access to the module directory (no
+# secrets live there — wallet keys are under ~/.mod), so "how does the board
+# cache work?" is answerable with file:line receipts.
+LOCAL_TOOLS = ["Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Grep", "Glob"]
+CODE_READ = f"Read(/{ROOT_DIR}/**)"  # permission rule: // prefix = absolute path
 
 SYSTEM_PROMPT = (
     "You are the Hyperliquid module's desk analyst. Every fact you state must "
@@ -74,6 +88,39 @@ ACT_PROMPT = (
     "calling one, never place an order the user did not ask for, and after any "
     "write report exactly what came back. Prefer one order over several."
 )
+
+
+def source_map(cap: int = 220) -> str:
+    """Compact file listing for the system prompt, so the model can Read the
+    right file without needing a Glob or Grep tool."""
+    skip = {"target", "node_modules", ".next", "__pycache__", ".git", "out",
+            ".pytest_cache"}
+    out: List[str] = []
+    for base, dirs, files in os.walk(ROOT_DIR):
+        dirs[:] = sorted(d for d in dirs if d not in skip)
+        rel = os.path.relpath(base, ROOT_DIR)
+        for f in sorted(files):
+            if f.endswith((".pyc", ".lock", ".tsbuildinfo", ".log")):
+                continue
+            out.append(f if rel == "." else os.path.join(rel, f))
+            if len(out) >= cap:
+                out.append("…")
+                return "\n".join(out)
+    return "\n".join(out)
+
+
+def code_prompt() -> str:
+    return (
+        "\n\nCODE QUESTIONS: you may also explain this module itself — its "
+        "features, design and behavior. The Read tool is enabled, read-only, "
+        f"for the module directory ({ROOT_DIR}); cite answers as path:line. "
+        "Map: src/api/src/*.rs is the Rust REST API (traders.rs = leaderboard "
+        "board + cache, sync.rs = background refresher, live_engine.rs = "
+        "copy-trade engine, mcp.rs = this tool server), src/app/app is the "
+        "Next.js console, src/mod.py the orchestrator, src/agent.py this "
+        "agent, src/strats the strat classes, docs/ the guides. Files:\n"
+        + source_map()
+    )
 
 
 # ─── tool policy — derived from the module's own MCP schema ──────────────
@@ -138,6 +185,12 @@ def ensure_auth() -> Tuple[bool, Optional[str], Optional[str], Dict[str, str]]:
         key = ""
     if key:
         return True, "api-key-file", None, {"ANTHROPIC_API_KEY": key}
+    try:
+        tok = open(OAUTH_TOKEN_FILE).read().strip()
+    except OSError:
+        tok = ""
+    if tok:
+        return True, "oauth-token-file", None, {"CLAUDE_CODE_OAUTH_TOKEN": tok}
     if os.path.exists(OAUTH_FILE):
         return True, "claude-cli", None, {}
     os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)
@@ -180,7 +233,8 @@ def build_cmd(question: str, allowed: List[str], denied: List[str], act: bool,
         "--strict-mcp-config", "--mcp-config", json.dumps(mcp_config(api_url, token)),
         "--allowedTools", ",".join(allowed),
         "--disallowedTools", ",".join(denied),
-        "--append-system-prompt", SYSTEM_PROMPT + (ACT_PROMPT if act else ""),
+        "--append-system-prompt",
+        SYSTEM_PROMPT + code_prompt() + (ACT_PROMPT if act else ""),
     ]
 
 
@@ -236,7 +290,7 @@ def ask(question: str, api_url: str = "", token: str = "",
         yield {"type": "error", "error": f"MCP schema unreachable at {api_url}: {e}"}
         return
 
-    allowed = reads + writes if act else reads
+    allowed = (reads + writes if act else reads) + [CODE_READ]
     denied = LOCAL_TOOLS + ([] if act else writes)
     yield {"type": "ready", "tools": len(allowed), "act": act,
            "signed_in": bool(token)}

@@ -312,7 +312,7 @@ class Mod:
             'api': f'http://localhost:{port}',
             'mcp': f'http://localhost:{port}/mcp',
             'console': f'http://localhost:{port}/targon',
-            'gateway': '/targon (console) · /api/targon and /targon/_api (API)',
+            'gateway': '/targon (console) · /targon/api and /targon/_api (API)',
             'processes': ['targon-api'],
         }
 

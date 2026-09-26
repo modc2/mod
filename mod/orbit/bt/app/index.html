@@ -84,8 +84,8 @@
     animation: rbslide 6s linear infinite;
   }
   @keyframes rbslide { to { background-position: 200% 0; } }
-  .nav-logo::before { content: "🍄 "; }
-  html[data-theme="dark"] .nav-logo::before { content: "⭐ "; }
+  /* text glyphs, not emoji — this host has no emoji font and tofu is not Mario */
+  .nav-logo::before { content: "★ "; color: var(--star); text-shadow: 1px 1px 0 var(--block); }
   .card {
     border: 3px solid var(--block) !important;
     box-shadow: 0 5px 0 color-mix(in srgb, var(--shadow) 55%, transparent) !important;
@@ -218,11 +218,43 @@
     box-shadow: 0 6px 0 var(--shadow), 0 20px 60px rgba(0,0,0,.28); padding: 16px;
   }
   .wpop .wlocal { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  .wpop .wlocal button {
+  .wpop .wext { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .wpop .wlocal button, .wpop .wext button {
     font-family: var(--mono); font-size: 12px; padding: 6px 12px; border-radius: 999px;
     border: 2px solid var(--line); background: transparent; color: var(--ink); cursor: pointer;
   }
-  .wpop .wlocal button:hover { border-color: var(--accent); }
+  .wpop .wlocal button:hover, .wpop .wext button:hover { border-color: var(--accent); }
+  .wpop .wext button.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+  .wpop .wext button.off { color: var(--ink3); }
+  .wpop .wext button .dot {
+    width: 6px; height: 6px; border-radius: 999px; display: inline-block;
+    margin-right: 7px; vertical-align: 1px; background: var(--good);
+  }
+  .wpop .wext button.off .dot { background: color-mix(in srgb, var(--ink) 24%, transparent); }
+  .wpop .wacct { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .wpop .wacct[hidden], .wpop .wmsg[hidden] { display: none; }
+  .wpop .wacct button {
+    font-family: var(--mono); font-size: 12px; text-align: left; padding: 8px 11px;
+    border-radius: 10px; border: 2px solid var(--line); background: transparent;
+    color: var(--ink); cursor: pointer; line-height: 1.35;
+  }
+  .wpop .wacct button:hover { border-color: var(--accent); }
+  .wpop .wacct button .a { display: block; color: var(--ink3); font-size: 11px; }
+  .wpop .wmsg { margin-top: 10px; font-size: 11.5px; color: var(--ink3); line-height: 1.5; }
+  .wpop .wmsg a { color: var(--accent); }
+  .wpop .wsep {
+    margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--line);
+    font-size: 11.5px; color: var(--ink3); text-transform: none; letter-spacing: .01em;
+  }
+
+  /* ---------- identicons + wallet hero ---------- */
+  svg.ident { display: inline-block; vertical-align: middle; flex: none; }
+  .wpop .wlocal button svg.ident { margin-right: 4px; vertical-align: -3px; }
+  .whero { padding: 18px; margin-bottom: 18px; }
+  .whead { display: flex; gap: 14px; align-items: center; }
+  .wcurve { margin-top: 4px; overflow-x: auto; }
+  .wcurve .spark { width: 100%; max-width: 720px; height: 90px; }
+  .wcurve .spark .l { stroke-width: 2; }
 
   /* ---------- rail (the sidebar) ---------- */
   .rail {
@@ -238,6 +270,36 @@
     padding: 9px 12px; border-radius: 10px; font-size: 13.5px; color: var(--ink2);
     border: 2px solid transparent; transition: color .18s, background .18s;
   }
+  /* the brand block at the top of the rail — a ?-block that goes home */
+  .rail-brand {
+    display: flex; align-items: center; gap: 11px;
+    padding: 4px 6px 12px; margin-bottom: 4px;
+    border-bottom: 3px solid color-mix(in srgb, var(--block) 45%, transparent);
+  }
+  .rail a.rail-brand { border-radius: 10px 10px 0 0; }
+  .rail a.rail-brand:hover, .rail a.rail-brand.active { background: transparent; box-shadow: none; border-color: transparent transparent color-mix(in srgb, var(--block) 45%, transparent); }
+  .rb-mark {
+    width: 32px; height: 32px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--pixel); font-size: 15px; color: #7a5a00;
+    background: var(--star); border: 3px solid var(--block); border-radius: 8px;
+    box-shadow: inset -3px -3px 0 rgba(0,0,0,.22), inset 3px 3px 0 rgba(255,255,255,.45), 0 3px 0 var(--shadow);
+  }
+  .rail-brand:hover .rb-mark { animation: qbob 1s ease-in-out infinite; }
+  .rb-text { display: flex; flex-direction: column; gap: 4px; line-height: 1; }
+  .rb-text b { font-family: var(--pixel); font-weight: 400; font-size: 13px; color: var(--ink); }
+  .rb-text em { font-family: var(--pixel); font-style: normal; font-size: 7px; color: var(--ink3); letter-spacing: .1em; }
+  .rail-label {
+    font-family: var(--pixel); font-size: 7px; text-transform: uppercase;
+    letter-spacing: .18em; color: var(--ink3); padding: 12px 12px 5px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .rail-label::after { content: ""; flex: 1; height: 2px; background: color-mix(in srgb, var(--ink3) 30%, transparent); }
+  .rbadge {
+    margin-left: auto; font-family: var(--pixel); font-style: normal;
+    font-size: 8px; color: var(--ink3); letter-spacing: 0;
+  }
+  .rail a.active .rbadge { color: #7a5a00; }
   /* each tab gets its own little block; the active one turns into a coin */
   .rail a i {
     width: 11px; height: 11px; flex: none; border-radius: 3px;
@@ -245,16 +307,16 @@
     box-shadow: inset -2px -2px 0 rgba(0,0,0,.2);
     transition: transform .18s, border-radius .18s;
   }
-  .rail a:nth-child(1) { --dot: #fbd000; }
-  .rail a:nth-child(2) { --dot: #049cd8; }
-  .rail a:nth-child(3) { --dot: #e52521; }
-  .rail a:nth-child(4) { --dot: #8f7bff; }
-  .rail a:nth-child(5) { --dot: #43b047; }
-  .rail a:nth-child(6) { --dot: #ff8c1a; }
-  .rail a:nth-child(7) { --dot: #64d2ff; }
-  .rail a:nth-child(8) { --dot: #b07a3c; }
-  .rail a:nth-child(9) { --dot: #ff5a9e; }
-  .rail a:nth-child(10) { --dot: #9aa3e8; }
+  .rail a:nth-of-type(2) { --dot: #fbd000; }
+  .rail a:nth-of-type(3) { --dot: #049cd8; }
+  .rail a:nth-of-type(4) { --dot: #e52521; }
+  .rail a:nth-of-type(5) { --dot: #43b047; }
+  .rail a:nth-of-type(6) { --dot: #ff8c1a; }
+  .rail a:nth-of-type(7) { --dot: #8f7bff; }
+  .rail a:nth-of-type(8) { --dot: #64d2ff; }
+  .rail a:nth-of-type(9) { --dot: #b07a3c; }
+  .rail a:nth-of-type(10) { --dot: #ff5a9e; }
+  .rail a:nth-of-type(11) { --dot: #9aa3e8; }
   .rail a:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 8%, transparent); }
   .rail a:hover i { transform: translateY(-2px); }
   .rail a.active {
@@ -262,10 +324,29 @@
     box-shadow: 0 3px 0 var(--shadow);
   }
   .rail a.active i { border-radius: 50%; background: #fff6dd; opacity: 1; }
+  /* the wallet card that lives above the foot */
+  .rail-wallet { margin-top: auto; padding-top: 14px; }
+  .rail-wallet .rw {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    padding: 10px 11px; cursor: pointer; font-family: var(--mono);
+    background: var(--card); color: var(--ink);
+    border: 3px solid var(--block); border-radius: 10px;
+    box-shadow: 0 4px 0 color-mix(in srgb, var(--shadow) 55%, transparent);
+    transition: transform .15s, box-shadow .15s;
+  }
+  .rail-wallet .rw:hover { transform: translateY(-2px); box-shadow: 0 6px 0 color-mix(in srgb, var(--shadow) 55%, transparent); }
+  .rail-wallet .rw:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--shadow); }
+  .rail-wallet .rw .ident { flex: none; }
+  .rail-wallet .rw .rw-t { display: flex; flex-direction: column; gap: 3px; line-height: 1.2; min-width: 0; }
+  .rail-wallet .rw .rw-t b { font-weight: 400; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+  .rail-wallet .rw .rw-t i { font-style: normal; font-size: 11px; color: var(--good); }
+  .rail-wallet .rw .rw-t i.zero { color: var(--ink3); }
+  .rail-wallet .rw.connect { justify-content: center; background: var(--star); color: #5b4200; font-family: var(--pixel); font-size: 9px; text-transform: uppercase; }
   .rail .rail-foot {
-    margin-top: auto; padding: 12px 12px 4px; font-size: 11px; color: var(--ink3);
+    padding: 12px 12px 4px; font-size: 11px; color: var(--ink3);
     font-family: var(--mono); display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
   }
+  #rail-block { margin-left: auto; }
   .rail .rail-foot button {
     border: none; background: transparent; color: var(--ink3); cursor: pointer;
     font: inherit; padding: 2px 0; text-decoration: underline;
@@ -278,7 +359,9 @@
       flex-direction: row; gap: 4px; overflow-x: auto; padding: 8px 12px;
       border-right: none; border-bottom: 1px solid var(--line);
     }
-    .rail .rail-foot { display: none; }
+    .rail .rail-foot, .rail .rail-label, .rail-wallet, .rbadge { display: none; }
+    /* the brand stays as the row's first chip — but loses its underline */
+    .rail a.rail-brand { border-bottom: none; padding: 4px 8px 4px 4px; margin: 0; }
     .nav-logo { display: none; }
   }
 
@@ -477,40 +560,111 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .muted { color: var(--ink2); font-size: 13px; }
 
-  /* ---------- ask (agent) ---------- */
-  .ask-sugg { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-  .ask-sugg button {
-    font-family: inherit; font-size: 12.5px; cursor: pointer;
-    padding: 7px 12px; border-radius: 8px;
-    border: 2px solid var(--line); background: var(--bg); color: var(--ink2);
+  /* ---------- chat (agent) ---------- */
+  .chat-wrap { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 900px) { .chat-wrap { grid-template-columns: 1fr; } .chat-side { order: 2; } }
+  .chat-side { display: flex; flex-direction: column; gap: 8px; }
+  .chat-side .newbtn { width: 100%; }
+  .chat-hist { display: flex; flex-direction: column; gap: 4px; max-height: 460px; overflow: auto; }
+  .chat-item {
+    display: flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 9px 10px; border-radius: 8px; border: 2px solid transparent;
+    font-size: 12.5px; line-height: 1.35; color: var(--ink2);
   }
-  .ask-sugg button:hover { color: var(--ink); border-color: var(--accent); }
-  #ask-log { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
-  .ask-turn { border-top: 2px dashed var(--line); padding-top: 14px; }
-  .ask-you {
-    font-family: var(--pixel); font-size: 10px; line-height: 1.8; color: var(--ink);
+  .chat-item:hover { border-color: var(--line); color: var(--ink); }
+  .chat-item.sel { border-color: var(--accent); color: var(--ink); background: var(--bg); }
+  .chat-item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-item .x { opacity: 0; font-size: 12px; padding: 0 3px; color: var(--ink3); }
+  .chat-item:hover .x { opacity: 1; }
+  .chat-item .x:hover { color: var(--bad); }
+  .chat-thread {
+    display: flex; flex-direction: column; gap: 18px;
+    min-height: 220px; max-height: 62vh; overflow: auto; padding: 4px 2px 10px;
   }
-  .ask-you::before { content: "🧑‍🔧 "; }
-  .ask-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
-  .ask-tool {
+  .chat-thread:empty { min-height: 0; padding: 0; }   /* no blank slab */
+  .msg { display: flex; flex-direction: column; gap: 8px; max-width: 100%; }
+  .msg.you { align-items: flex-end; }
+  .msg.you .bub {
+    background: var(--star); color: #5b4200; border: 3px solid var(--block);
+    box-shadow: 0 3px 0 var(--shadow); border-radius: 10px;
+    padding: 10px 14px; font-size: 14px; line-height: 1.5; max-width: 80%;
+    word-break: break-word; white-space: pre-wrap;
+  }
+  html[data-theme="dark"] .msg.you .bub { color: #241c00; }
+  .msg.bot .bub { font-size: 14.5px; line-height: 1.7; word-break: break-word; }
+  .msg.bot .bub::before {
+    content: "★"; font-family: var(--pixel); font-size: 9px; color: var(--star);
+    margin-right: 8px; vertical-align: 2px;
+  }
+  .md p { margin: 0 0 10px; }
+  .md p:last-child { margin-bottom: 0; }
+  .md h3, .md h4 { font-size: 14px; font-weight: 600; margin: 14px 0 6px; }
+  .md ul, .md ol { margin: 0 0 10px 20px; }
+  .md li { margin: 3px 0; }
+  .md code {
+    font-family: var(--mono); font-size: 12.5px;
+    background: color-mix(in srgb, var(--ink) 7%, transparent);
+    padding: 1px 5px; border-radius: 5px;
+  }
+  .md pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.55; margin: 0 0 10px;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; overflow: auto;
+  }
+  .md pre code { background: none; padding: 0; }
+  .md table { border-collapse: collapse; margin: 0 0 12px; font-size: 13px; width: auto; }
+  .md th, .md td { border: 1px solid var(--line); padding: 5px 10px; text-align: left; }
+  .md th { font-weight: 600; background: var(--bg); }
+  .md td.num, .md th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .md hr { border: none; border-top: 1px dashed var(--line); margin: 12px 0; }
+  .chat-tools { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
     font-family: var(--pixel); font-size: 8px; line-height: 1.6;
     display: inline-flex; align-items: center; gap: 7px;
     padding: 6px 10px; border: 3px solid var(--block); border-radius: 6px;
-    background: var(--star); color: #5b4200;
+    background: var(--star); color: #5b4200; cursor: pointer;
     box-shadow: inset -2px -2px 0 rgba(0,0,0,.18), inset 2px 2px 0 rgba(255,255,255,.4);
-    cursor: default;
   }
-  .ask-tool.pending { animation: qbob 1s ease-in-out infinite; }
-  .ask-tool.done { background: var(--card); color: var(--ink2); box-shadow: none; }
-  .ask-tool.err { background: var(--bad); color: #fff; }
-  .ask-text { font-size: 14.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
-  .ask-text code { font-family: var(--mono); font-size: 12.5px;
-    background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 1px 5px; border-radius: 5px; }
-  .ask-flag {
-    margin-top: 10px; font-family: var(--pixel); font-size: 8px; color: var(--ink3);
-    line-height: 1.8;
+  .chip.pending { animation: qbob 1s ease-in-out infinite; }
+  .chip.done { background: var(--card); color: var(--ink2); box-shadow: none; }
+  .chip.err { background: var(--bad); color: #fff; }
+  .chip.view { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
+  .chip.plumb { background: none; border-style: dashed; border-width: 2px;
+    border-color: var(--line); color: var(--ink3); box-shadow: none; }
+  .chip .ms { opacity: .65; font-size: 7px; }
+  .chip-detail {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink2);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 11px; white-space: pre-wrap; word-break: break-word;
   }
-  .ask-err { color: var(--bad); font-size: 13.5px; margin-top: 8px; }
+  .chat-status { font-family: var(--pixel); font-size: 8px; color: var(--ink3); line-height: 1.8; }
+  .chat-foot { font-family: var(--pixel); font-size: 8px; color: var(--ink3); line-height: 1.8; }
+  .chat-err { color: var(--bad); font-size: 13.5px; }
+  .chat-form { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
+  .chat-form textarea {
+    flex: 1; font-family: inherit; font-size: 14.5px; line-height: 1.5;
+    padding: 12px 14px; border-radius: 10px; resize: none; overflow: hidden;
+    border: 2px solid var(--line); background: var(--card); color: var(--ink);
+    min-height: 48px; max-height: 200px;
+  }
+  .chat-form textarea:focus { outline: none; border-color: var(--accent); }
+  .chat-sugg { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .chat-sugg button {
+    font-family: inherit; font-size: 12.5px; cursor: pointer; text-align: left;
+    padding: 7px 12px; border-radius: 8px;
+    border: 2px solid var(--line); background: var(--bg); color: var(--ink2);
+  }
+  .chat-sugg button:hover { color: var(--ink); border-color: var(--accent); }
+  .chat-empty { color: var(--ink2); font-size: 14px; line-height: 1.7; }
+  #chat-back {
+    position: fixed; right: 22px; bottom: 22px; z-index: 60; display: none;
+    font-family: var(--pixel); font-size: 9px; cursor: pointer;
+    padding: 12px 14px; border-radius: 8px;
+    background: var(--accent); color: var(--accent-ink);
+    border: 3px solid var(--block); box-shadow: 0 4px 0 var(--shadow);
+  }
+  #chat-back.on { display: block; }
+  #chat-back:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--shadow); }
   .coin {
     display: inline-block; width: 14px; height: 14px; border-radius: 50%;
     background: var(--star); border: 2px solid #7a5a00;
@@ -570,43 +724,57 @@
         <button class="iconbtn" onclick="hideWbar()" title="Hide wallet bar" aria-label="Hide wallet bar">✕</button>
       </div>
     </div>
-    <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">🌙</button>
+    <button id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme">☾</button>
   </div>
   <div class="wpop" id="wpop" hidden>
-    <label style="margin-top:0">Watch any ss58 address</label>
+    <label style="margin-top:0">Connect a browser wallet</label>
+    <div class="wext" id="wpop-ext"></div>
+    <div class="wmsg" id="wpop-msg" hidden></div>
+    <div class="wacct" id="wpop-acct" hidden></div>
+    <div class="wlocal" id="wpop-local"></div>
+    <div class="wsep">or watch any ss58 address</div>
     <input id="wpop-addr" placeholder="5Grw…" spellcheck="false" onkeydown="if(event.key==='Enter')watchFromInput()">
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
       <button class="pill primary" onclick="watchFromInput()">Watch</button>
       <button class="iconbtn" onclick="closeWpop()">Cancel</button>
     </div>
-    <div class="wlocal" id="wpop-local"></div>
   </div>
 </nav>
 
+<button id="chat-back" onclick="location.hash='#ask'">← back to chat</button>
+
 <aside class="rail">
-  <a href="#markets"><i></i>Markets</a>
-  <a href="#ask"><i></i>Ask</a>
-  <a href="#traders"><i></i>Traders</a>
+  <a class="rail-brand" href="#top">
+    <span class="rb-mark">τ</span>
+    <span class="rb-text"><b>bt</b><em>WORLD τ-1</em></span>
+  </a>
+  <span class="rail-label">Explore</span>
+  <a href="#markets"><i></i>Markets<em class="rbadge" id="rb-subnets"></em></a>
+  <a href="#traders"><i></i>Traders<em class="rbadge" id="rb-traders"></em></a>
   <a href="#account"><i></i>Account</a>
+  <span class="rail-label">You</span>
   <a href="#wallet"><i></i>Wallet</a>
   <a href="#trade"><i></i>Trade</a>
+  <span class="rail-label">Tools</span>
+  <a href="#ask"><i></i>Chat</a>
   <a href="#console"><i></i>Console</a>
   <a href="#docs"><i></i>Docs</a>
   <a href="#open"><i></i>Open</a>
   <a href="#mcp"><i></i>MCP</a>
+  <div class="rail-wallet" id="rail-wallet"></div>
   <div class="rail-foot">
-    <span id="netdot"></span><span id="rail-net">finney</span>
+    <span id="netdot"></span><span id="rail-net">finney</span><span id="rail-block"></span>
     <button id="wshow" onclick="showWbar()" hidden>show wallet</button>
   </div>
 </aside>
 
 <div class="hero page" id="top">
-  <span class="world">WORLD τ-1 &nbsp;·&nbsp; <span class="coin">🪙</span>×<span id="hud-coins">∞</span> &nbsp;·&nbsp; 1UP</span>
+  <span class="world">WORLD τ-1 &nbsp;·&nbsp; <span class="coin">★</span>×<span id="hud-coins">∞</span> &nbsp;·&nbsp; 1UP</span>
   <h1>The <span class="tao">open</span> Bittensor explorer.</h1>
   <p class="sub">Every subnet, price, validator and account — indexed locally, served instantly.<br>No closed backend. No API key. The whole stack is open source. Let's-a go.</p>
   <div class="cta">
     <button class="pill primary" onclick="location.hash='#markets'">Explore markets</button>
-    <button class="pill ghost" onclick="location.hash='#ask'">Ask the network</button>
+    <button class="pill ghost" onclick="location.hash='#ask'">Chat with the network</button>
   </div>
   <div class="stats">
     <div class="stat"><b id="stat-subnets">—</b><span>Subnets</span></div>
@@ -656,21 +824,26 @@
   </div>
 </div>
 
-<!-- ================= ASK ================= -->
-<section id="ask" class="page reveal narrow">
-  <h2>Ask.</h2>
-  <p class="lead">Ask the network anything. A Claude agent answers by playing the same MCP tools this console runs on — every question becomes a run of ?-blocks. Read-only: it sees everything, it signs nothing.</p>
-  <div class="card">
-    <p class="ask-err" id="ask-auth" style="display:none;margin-bottom:12px"></p>
-    <div class="row">
-      <div style="flex:3">
-        <input id="ask-q" placeholder="Which subnet pumped hardest today, and who runs it?" spellcheck="false">
-      </div>
-      <div style="flex:0"><button class="pill primary" id="ask-btn" onclick="askNetwork()">Ask ▶</button></div>
+<!-- ================= CHAT ================= -->
+<section id="ask" class="page reveal">
+  <h2>Chat.</h2>
+  <p class="lead">Talk to the network. A Claude agent answers by playing the same tools this console runs on — and opens what it is talking about, right here on your screen. Conversations keep going and are kept; it is read-only, so it sees everything and signs nothing.</p>
+  <div class="chat-wrap">
+    <div class="chat-side">
+      <button class="pill primary newbtn" onclick="newChat()">+ New chat</button>
+      <div class="chat-hist" id="chat-hist"></div>
     </div>
-    <div class="ask-sugg" id="ask-sugg"></div>
-    <div id="ask-log"></div>
-    <p class="muted" id="ask-meta" style="margin-top:14px"></p>
+    <div class="card">
+      <p class="chat-err" id="chat-auth" style="display:none;margin-bottom:12px"></p>
+      <div class="chat-thread" id="chat-thread"></div>
+      <div class="chat-sugg" id="chat-sugg"></div>
+      <div class="chat-form">
+        <textarea id="chat-input" rows="1" spellcheck="false"
+          placeholder="Which subnet pumped hardest today, and who runs it?"></textarea>
+        <button class="pill primary" id="chat-send" onclick="sendChat()">Send ▶</button>
+      </div>
+      <p class="muted" id="chat-meta" style="margin-top:12px"></p>
+    </div>
   </div>
 </section>
 
@@ -744,7 +917,8 @@
 <!-- ================= WALLET ================= -->
 <section id="wallet" class="page reveal">
   <h2>Wallet.</h2>
-  <p class="lead">Local wallets, balances, and transfers.</p>
+  <p class="lead">Your account, live from the chain — connect a browser wallet, pick a local one, or just watch an address.</p>
+  <div class="card whero" id="wallet-hero"><span class="muted">Loading…</span></div>
   <div class="grid cols2">
     <div class="card">
       <h3 style="font-size:17px;margin-bottom:8px">Local wallets</h3>
@@ -886,7 +1060,7 @@
 function applyThemeIcon() {
   /* light = overworld, dark = underground; button shows where the pipe goes */
   document.getElementById('themeBtn').textContent =
-    document.documentElement.dataset.theme === 'dark' ? '🍄' : '⭐';
+    document.documentElement.dataset.theme === 'dark' ? '☀' : '☾';
 }
 function toggleTheme() {
   const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -946,6 +1120,7 @@ function sparkSVG(pts, dir, w=110, h=30) {
     const info = await (await fetch(api(''))).json();
     document.getElementById('foot-net').textContent = info.network;
     document.getElementById('rail-net').textContent = info.network;
+    if (info.block) document.getElementById('rail-block').textContent = '#' + compact(info.block);
     document.getElementById('netdot').className = 'on';
   } catch (e) { document.getElementById('netdot').className = 'off'; }
   try {
@@ -1083,6 +1258,8 @@ async function loadScreener() {
       return;
     }
     SCREEN = res.rows || [];
+    const rbs = document.getElementById('rb-subnets');
+    if (rbs && SCREEN.length) rbs.textContent = SCREEN.length;
     const age = res.age_sec;
     if (res.updated_at) { SYNC_AT = res.updated_at; SYNC_BLOCK = res.block || null; renderSync(); }
     document.getElementById('scr-updated').textContent =
@@ -1295,6 +1472,8 @@ async function loadTraders() {
   try {
     const j = await call('bt_traders', {sort_by: 'total_tao'});
     TRADERS = j.result.rows || [];
+    const rbt = document.getElementById('rb-traders');
+    if (rbt && TRADERS.length) rbt.textContent = TRADERS.length;
     renderTraders();
   } catch (e) {
     tb.innerHTML = `<tr><td colspan="10" class="muted">${esc(e.message)}</td></tr>`;
@@ -1589,31 +1768,135 @@ async function trackFromAccount(addr) {
    otherwise any address you paste. Value is the account total (free + staked),
    cached so the bar paints before the chain answers. */
 const WKEY = 'bt.wallet', WBAR_KEY = 'bt.wbar';
-let WALLET = null;   // {addr, name, local, tao}
+let WALLET = null;   // {addr, name, local, ext, tao}
+
+/* Browser extensions we speak to, via the standard window.injectedWeb3 bridge.
+   Both hand back generic-substrate (ss58 prefix 42) addresses, which is exactly
+   what Bittensor uses — so an account is usable here the moment it is picked. */
+const EXTS = [
+  {id: 'subwallet-js', name: 'SubWallet', url: 'https://www.subwallet.app/download.html'},
+  {id: 'talisman',     name: 'Talisman',  url: 'https://talisman.xyz/download'},
+];
+const DAPP = 'bt · Bittensor explorer';
+let EXT_ACCTS = [];   // accounts offered by the last extension we enabled
+function pickExtAccount(i) {
+  const a = EXT_ACCTS[i];
+  if (a) connectWallet(a.addr, a.name, false, a.ext);
+}
+
+function extOf(id) { return (window.injectedWeb3 || {})[id]; }
+/* extensions inject shortly after load — give them a beat before calling them missing */
+async function waitForExts(ms = 1200) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    if (EXTS.some(e => extOf(e.id))) return true;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return EXTS.some(e => extOf(e.id));
+}
+function wmsg(html) {
+  const el = document.getElementById('wpop-msg');
+  el.hidden = !html; el.innerHTML = html || '';
+}
+function renderExts() {
+  const box = document.getElementById('wpop-ext');
+  box.innerHTML = EXTS.map(e => {
+    const on = !!extOf(e.id);
+    return `<button class="${on ? 'on' : 'off'}" onclick="extConnect('${e.id}')" title="${on ? 'Connect ' + e.name : e.name + ' not detected — install it'}"><span class="dot"></span>${esc(e.name)}${on ? '' : ' ↗'}</button>`;
+  }).join('');
+}
+async function extConnect(id) {
+  const meta = EXTS.find(e => e.id === id);
+  const ext = extOf(id);
+  if (!ext) { window.open(meta.url, '_blank', 'noopener'); return; }
+  wmsg(`Approve <b>${esc(meta.name)}</b> in the extension…`);
+  document.getElementById('wpop-acct').hidden = true;
+  try {
+    const inj = await ext.enable(DAPP);
+    let accs = [];
+    if (inj.accounts && inj.accounts.get) accs = await inj.accounts.get();
+    else accs = await new Promise((res, rej) => {
+      const un = inj.accounts.subscribe(a => { res(a); try { un && un(); } catch (e) {} });
+      setTimeout(() => rej(new Error('no answer from the extension')), 8000);
+    });
+    accs = (accs || []).filter(a => a && a.address && !a.address.startsWith('0x'));
+    if (!accs.length) {
+      wmsg(`No substrate accounts shared. Open ${esc(meta.name)} and allow this site to see an account.`);
+      return;
+    }
+    if (accs.length === 1) { connectWallet(accs[0].address, accs[0].name || meta.name, false, meta.name); return; }
+    wmsg(`${esc(meta.name)} · pick an account`);
+    EXT_ACCTS = accs.map(a => ({addr: a.address, name: a.name || meta.name, ext: meta.name}));
+    const box = document.getElementById('wpop-acct');
+    box.hidden = false;
+    box.innerHTML = EXT_ACCTS.map((a, i) =>
+      `<button onclick="pickExtAccount(${i})">${esc(a.name)}<span class="a">${esc(short(a.addr))}</span></button>`
+    ).join('');
+  } catch (e) {
+    wmsg(`${esc(meta.name)}: ${esc(e.message || 'connection rejected')}`);
+  }
+}
 
 function saveWallet() {
   try { WALLET ? localStorage.setItem(WKEY, JSON.stringify(WALLET)) : localStorage.removeItem(WKEY); } catch (e) {}
 }
+/* a deterministic identicon so an address is a face, not just a hash —
+   drawn from an FNV hash of the ss58 string, no library, no network */
+function identSVG(addr, size = 22) {
+  let h = 2166136261;
+  for (const c of String(addr || '')) { h = Math.imul(h ^ c.charCodeAt(0), 16777619) >>> 0; }
+  const c1 = `hsl(${h % 360},72%,58%)`, c2 = `hsl(${(h >>> 9) % 360},70%,44%)`, c3 = `hsl(${(h >>> 18) % 360},85%,68%)`;
+  const gid = 'idg' + h.toString(36);
+  return `<svg class="ident" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
+    <rect x="1" y="1" width="22" height="22" rx="6" fill="url(#${gid})" stroke="rgba(0,0,20,.4)" stroke-width="1.5"/>
+    <circle cx="${7 + (h % 9)}" cy="${7 + ((h >>> 5) % 9)}" r="3.4" fill="${c3}"/>
+    <circle cx="${17 - ((h >>> 11) % 8)}" cy="${16 - ((h >>> 7) % 7)}" r="2" fill="rgba(255,255,255,.8)"/>
+  </svg>`;
+}
+const WKIND = w => w.local ? '▣' : w.ext ? '◈' : '◎';   /* local box · extension · watch-only */
 function renderWbar() {
   const badge = document.getElementById('w-badge');
   const addr = document.getElementById('w-addr');
   const val = document.getElementById('w-val');
+  const rail = document.getElementById('rail-wallet');
   if (!WALLET) {
     badge.textContent = 'τ'; badge.title = 'Pick a wallet';
     addr.textContent = 'Connect a wallet';
-    val.textContent = 'τ —'; val.className = 'wchip val zero';
+    val.textContent = 'τ —'; val.className = 'wchip val zero'; val.title = '';
+    if (rail) rail.innerHTML = '<button class="rw connect" onclick="toggleWpop()">★ Connect wallet</button>';
     return;
   }
-  badge.textContent = WALLET.local ? '👑' : '👁';
-  badge.title = WALLET.local ? `Local wallet · ${WALLET.name}` : 'Watch-only';
-  addr.innerHTML = `${WALLET.local ? `<span class="sub">${esc(WALLET.name)}</span>` : ''}${esc(short(WALLET.addr))} <span class="cp">⧉</span>`;
+  badge.innerHTML = identSVG(WALLET.addr, 20);
+  badge.title = WALLET.local ? `Local wallet · ${WALLET.name}`
+    : WALLET.ext ? `${WALLET.ext} · ${WALLET.name || 'connected'}` : 'Watch-only';
+  const tag = WALLET.local ? WALLET.name : WALLET.ext ? (WALLET.name || WALLET.ext) : '';
+  addr.innerHTML = `<span class="sub">${WKIND(WALLET)}${tag ? ' ' + esc(tag) : ''}</span>${esc(short(WALLET.addr))} <span class="cp">⧉</span>`;
   addr.title = WALLET.addr + ' — click to copy';
   val.textContent = WALLET.tao == null ? 'τ —' : `τ ${fmt(WALLET.tao, 3)}`;
+  val.title = WALLET.free != null ? `free τ ${fmt(WALLET.free, 4)} · staked τ ${fmt(WALLET.staked, 4)}` : '';
   val.className = 'wchip val' + (WALLET.tao ? '' : ' zero');
+  if (rail) rail.innerHTML = `
+    <button class="rw" onclick="location.hash='#wallet'" title="${esc(WALLET.addr)} — open your wallet">
+      ${identSVG(WALLET.addr, 26)}
+      <span class="rw-t"><b>${esc(WALLET.name || short(WALLET.addr))}</b>
+      <i class="${WALLET.tao ? '' : 'zero'}">${WALLET.tao == null ? 'τ —' : 'τ ' + fmt(WALLET.tao, 3)}</i></span>
+    </button>`;
 }
-function connectWallet(addr, name, local) {
-  WALLET = {addr, name: name || null, local: !!local, tao: null};
-  saveWallet(); renderWbar(); closeWpop(); refreshWallet();
+function rememberAddr(addr) {
+  try {
+    const r = JSON.parse(localStorage.getItem('bt.recent') || '[]').filter(a => a !== addr);
+    r.unshift(addr); localStorage.setItem('bt.recent', JSON.stringify(r.slice(0, 5)));
+  } catch (e) {}
+}
+function connectWallet(addr, name, local, ext) {
+  WALLET = {addr, name: name || null, local: !!local, ext: ext || null, tao: null};
+  if (!local && !ext) rememberAddr(addr);
+  saveWallet(); renderWbar(); closeWpop();
+  /* the wallet page does its own chain read and repaints the bar — don't queue
+     a second bt_account behind the same websocket lock */
+  if ((location.hash || '') === '#wallet') loadWalletPage(); else refreshWallet();
 }
 async function refreshWallet() {
   if (!WALLET) { toggleWpop(); return; }
@@ -1622,6 +1905,8 @@ async function refreshWallet() {
   try {
     const j = await call('bt_account', {address: WALLET.addr});
     WALLET.tao = j.result.total_value_tao ?? j.result.free_tao ?? null;
+    WALLET.free = j.result.free_tao ?? null;
+    WALLET.staked = j.result.staked_value_tao ?? null;
     saveWallet();
   } catch (e) { /* keep the cached number rather than blanking the bar */ }
   btn.classList.remove('spin');
@@ -1646,16 +1931,27 @@ async function toggleWpop() {
   if (!pop.hidden) return closeWpop();
   pop.hidden = false;
   document.getElementById('wpop-addr').value = WALLET ? WALLET.addr : '';
-  document.getElementById('wpop-addr').focus();
+  document.getElementById('wpop-acct').hidden = true;
+  wmsg('');
+  renderExts();
+  waitForExts().then(() => { if (!pop.hidden) renderExts(); });
   const box = document.getElementById('wpop-local');
-  box.innerHTML = '';
+  let recent = [];
+  try { recent = JSON.parse(localStorage.getItem('bt.recent') || '[]'); } catch (e) {}
+  const recentHTML = recent.map(a =>
+    `<button onclick="connectWallet('${esc(a)}', null, false)" title="${esc(a)}">${identSVG(a, 14)} ${esc(short(a))}</button>`).join('');
+  box.innerHTML = recentHTML;
   try {
     const ws = (await call('bt_wallets', {})).result || [];
     box.innerHTML = ws.filter(w => w.coldkey).map(w =>
-      `<button onclick="connectWallet('${esc(w.coldkey)}', '${esc(w.name)}', true)">👑 ${esc(w.name)}</button>`).join('');
+      `<button onclick="connectWallet('${esc(w.coldkey)}', '${esc(w.name)}', true)">▣ ${esc(w.name)}</button>`).join('') + recentHTML;
   } catch (e) {}
 }
-function closeWpop() { document.getElementById('wpop').hidden = true; }
+function closeWpop() {
+  document.getElementById('wpop').hidden = true;
+  document.getElementById('wpop-acct').hidden = true;
+  wmsg('');
+}
 function watchFromInput() {
   const a = document.getElementById('wpop-addr').value.trim();
   if (a) connectWallet(a, null, false);
@@ -1675,6 +1971,8 @@ async function initWbar() {
   try { if (localStorage.getItem(WBAR_KEY) === 'off') hideWbar(); } catch (e) {}
   try { WALLET = JSON.parse(localStorage.getItem(WKEY) || 'null'); } catch (e) {}
   renderWbar();
+  /* a deep link to #wallet routed before the saved wallet was restored */
+  if ((location.hash || '') === '#wallet') loadWalletPage();
   if (WALLET) return refreshWallet();
   /* no pick yet — adopt the first local coldkey if the node has one */
   try {
@@ -1686,6 +1984,118 @@ addEventListener('click', e => {
   const pop = document.getElementById('wpop');
   if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('#w-badge, #w-addr, #w-val')) closeWpop();
 });
+
+/* ---------- wallet page ----------
+   The Wallet tab is the connected wallet's home: balance + positions live from
+   the chain, and — because this module carries its own trader index — a
+   one-click "track" that turns the address into an equity curve over time. */
+let WPAGE_FOR = null;   // address the hero currently shows, so stale loads drop
+async function loadWalletPage() {
+  const host = document.getElementById('wallet-hero');
+  if (!host) return;
+  if (!WALLET) {
+    WPAGE_FOR = null;
+    host.innerHTML = `
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <span style="font-family:var(--pixel);font-size:13px">No wallet yet.</span>
+        <button class="pill primary" onclick="toggleWpop()">Connect a wallet</button>
+      </div>
+      <p class="muted" style="margin-top:12px">Connect SubWallet or Talisman, pick a local coldkey, or just watch any ss58 address — the whole console then follows it: balance in the bar, this page, and the trader index.</p>`;
+    return;
+  }
+  const a = WALLET.addr;
+  WPAGE_FOR = a;
+  const head = `
+    <div class="whead">
+      ${identSVG(a, 42)}
+      <div style="min-width:0">
+        <b class="num" style="font-size:13px;word-break:break-all">${esc(a)}</b>
+        <div class="muted" style="margin-top:4px">${WKIND(WALLET)} ${esc(WALLET.local ? 'local wallet · ' + WALLET.name : WALLET.ext ? WALLET.ext + (WALLET.name ? ' · ' + WALLET.name : '') : 'watch-only')}
+          <button class="iconbtn" style="font-size:12px;padding:2px 6px" title="Copy address" onclick="navigator.clipboard.writeText('${esc(a)}')">⧉</button>
+        </div>
+      </div>
+    </div>`;
+  /* the local trader index answers in milliseconds; the chain in seconds-to-
+     a-minute when the indexer holds the lock. So: paint from the index when
+     the address is tracked, and only wait on the chain when it is not. */
+  let t = null;
+  try { t = (await call('bt_trader', {address: a, hours: 24 * 30})).result; } catch (e) {}
+  if (WPAGE_FOR !== a) return;   // user switched wallets mid-flight
+
+  const posTable = (positions) => positions.length
+    ? `<div style="overflow:auto;margin-top:14px"><table><thead><tr><th>Subnet</th>
+       <th class="num">Alpha</th><th class="num">Price τ</th><th class="num">Value τ</th></tr></thead><tbody>` +
+      positions.map(p => `<tr>
+        <td>${esc(p.name || '')} <span class="sn-sym">#${p.netuid}</span></td>
+        <td class="num">${fmt(p.alpha, 4)}</td>
+        <td class="num">${fmtPrice(p.price)}</td>
+        <td class="num">${p.value_tao != null ? fmt(p.value_tao, 4) : '—'}</td></tr>`).join('') +
+      '</tbody></table></div>'
+    : '<p class="muted" style="margin-top:14px">No alpha positions — free TAO only.</p>';
+  const statsRow = (free, staked, total, n) => `
+    <div class="stats" style="margin:16px 0 4px;justify-content:flex-start">
+      <div class="stat" style="text-align:left;padding-left:0"><b>τ ${fmt(free, 4)}</b><span>Free</span></div>
+      <div class="stat" style="text-align:left"><b>τ ${fmt(staked, 4)}</b><span>Staked</span></div>
+      <div class="stat" style="text-align:left"><b>τ ${fmt(total, 4)}</b><span>Total</span></div>
+      <div class="stat" style="text-align:left"><b>${n}</b><span>Positions</span></div>
+    </div>`;
+
+  if (t && t.tracked && !t.warming) {
+    WALLET.tao = t.total_tao; WALLET.free = t.free_tao; WALLET.staked = t.staked_tao;
+    saveWallet(); renderWbar();
+    const pts = (t.series || []).map(p => p.total_tao).filter(v => v != null);
+    let curve = '';
+    if (pts.length >= 2) {
+      const d0 = pts[0], d1 = pts[pts.length - 1];
+      const pct = d0 ? (d1 - d0) / d0 * 100 : null;
+      const spanH = (t.series[t.series.length - 1].t - t.series[0].t) / 3600;
+      const spanTxt = spanH >= 48 ? Math.round(spanH / 24) + 'd' : Math.max(1, Math.round(spanH)) + 'h';
+      curve = `
+        <h3 style="font-size:14px;margin:18px 0 6px">Equity — tracked by the local index</h3>
+        <div class="wcurve">${sparkSVG(pts, d1 - d0, 620, 90)}</div>
+        <p class="muted" style="margin-top:6px">${fmtPct(pct)} over ${spanTxt} · ${t.snapshots || pts.length} snapshots · <a href="#traders">see it among the traders</a></p>`;
+    } else {
+      curve = '<p class="muted" style="margin-top:14px">Tracked — first snapshots are landing, the equity curve appears shortly.</p>';
+    }
+    const age = t.snapshot_ts ? Math.max(0, Math.round((Date.now() / 1000 - t.snapshot_ts) / 60)) : null;
+    host.innerHTML = head + statsRow(t.free_tao, t.staked_tao, t.total_tao, t.positions.length) + curve +
+      posTable(t.positions) +
+      (age != null ? `<p class="muted" style="margin-top:10px">from the local index, snapshot ${age}m ago — <button class="iconbtn" style="font-size:12px;text-decoration:underline;padding:0" onclick="trackSelf()">snapshot now</button></p>` : '');
+    return;
+  }
+
+  /* not tracked — the chain is the only source, and it can be slow */
+  host.innerHTML = head + '<p class="muted" style="margin-top:14px"><span class="spinner"></span> reading the chain — can take a minute while the indexer is busy…</p>';
+  let acct = null;
+  try {
+    acct = (await call('bt_account', {address: a})).result;
+  } catch (e) {
+    if (WPAGE_FOR === a) host.innerHTML = head + `<p class="muted" style="margin-top:14px">${esc(e.message)}</p>`;
+    return;
+  }
+  if (WPAGE_FOR !== a) return;
+  WALLET.tao = acct.total_value_tao ?? acct.free_tao ?? null;
+  WALLET.free = acct.free_tao ?? null;
+  WALLET.staked = acct.staked_value_tao ?? null;
+  saveWallet(); renderWbar();
+  const names = Object.fromEntries(SCREEN.map(r => [r.netuid, r.name]));
+  const track = `
+    <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="pill ghost" onclick="trackSelf()">Track this wallet</button>
+      <span class="muted">The local indexer will snapshot it every 15 min: equity curve, PnL, inferred trade tape — and this page turns instant.</span>
+    </div>`;
+  host.innerHTML = head + statsRow(acct.free_tao, acct.staked_value_tao, acct.total_value_tao, acct.positions.length) + track +
+    posTable(acct.positions.map(p => ({...p, name: names[p.netuid]})));
+}
+async function trackSelf() {
+  if (!WALLET) return;
+  try {
+    const args = {address: WALLET.addr};
+    if (WALLET.name) args.label = WALLET.name;
+    await call('bt_track', args);
+    loadWalletPage(); loadTraders();
+  } catch (e) { alert(e.message); }
+}
 
 /* ---------- wallet ---------- */
 async function loadWallets() {
@@ -1740,90 +2150,317 @@ async function placeTrade() {
   } catch (e) { out.textContent = e.message; }
 }
 
-/* ---------- ask (agent) ---------- */
-const SUGGESTIONS = [
-  'Which subnet pumped hardest in the last 24h, and why might that be?',
-  'Summarize the whole alpha market right now in three sentences.',
-  'Who are the top validators on the biggest subnet by market cap?',
-  'Did any tracked trader make a big move this week?',
-];
-let ASKING = false;
+/* ---------- chat (agent) ---------- */
+const CHAT = {id: null, running: false, ctl: null, ready: false,
+              starters: [], touched: false};
+const CHAT_KEY = 'bt.chat.id';
+const el = id => document.getElementById(id);
 
-async function loadAgent() {
-  const sug = document.getElementById('ask-sugg');
-  sug.innerHTML = SUGGESTIONS.map(s =>
-    `<button onclick="document.getElementById('ask-q').value=this.textContent;askNetwork()">${esc(s)}</button>`).join('');
-  try {
-    const a = await (await fetch(api('agent'))).json();
-    document.getElementById('ask-meta').textContent =
-      a.ready ? `Agent ready — ${a.model} · ${a.tools} tools allowed, ${a.denied} on-chain tools denied · auth: ${a.method}`
-              : '';
-    if (!a.ready) {
-      const el = document.getElementById('ask-auth');
-      el.style.display = 'block';
-      el.textContent = '⚠ ' + (a.hint || 'Agent auth not configured on this host.');
+/* --- a small markdown renderer: enough for numbers, tables and links --- */
+function mdInline(t) {
+  return esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|\s)(https?:\/\/[^\s<]+)/g,
+             '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+}
+function md(src) {
+  const lines = String(src || '').split('\n');
+  let out = '', para = [], list = null;
+  const flushPara = () => { if (para.length) { out += `<p>${mdInline(para.join(' '))}</p>`; para = []; } };
+  const flushList = () => { if (list) { out += `</${list}>`; list = null; } };
+  const flush = () => { flushPara(); flushList(); };
+  const isSep = l => /^\s*\|?[\s:-]*-[-\s|:]*\|?\s*$/.test(l) && l.includes('-');
+  const cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i], t = line.trim();
+    if (t.startsWith('```')) {                                  /* fenced code */
+      flush();
+      const code = [];
+      while (++i < lines.length && !lines[i].trim().startsWith('```')) code.push(lines[i]);
+      out += `<pre><code>${esc(code.join('\n'))}</code></pre>`;
+      continue;
     }
-  } catch (e) {}
+    if (t.includes('|') && lines[i + 1] !== undefined && isSep(lines[i + 1])) {  /* table */
+      flush();
+      const head = cells(t); i++;
+      const body = [];
+      while (i + 1 < lines.length && lines[i + 1].includes('|') && lines[i + 1].trim()) body.push(cells(lines[++i]));
+      const numCol = head.map((_, c) => body.length &&
+        body.every(r => r[c] === undefined || r[c] === '' || /^[-+τ$]?[\d.,%\s]+[%τ]?$/.test(r[c])));
+      out += '<table><thead><tr>' + head.map((h, c) =>
+        `<th class="${numCol[c] ? 'num' : ''}">${mdInline(h)}</th>`).join('') + '</tr></thead><tbody>' +
+        body.map(r => '<tr>' + head.map((_, c) =>
+          `<td class="${numCol[c] ? 'num' : ''}">${mdInline(r[c] || '')}</td>`).join('') + '</tr>').join('') +
+        '</tbody></table>';
+      continue;
+    }
+    if (!t) { flush(); continue; }
+    if (/^(-{3,}|\*{3,})$/.test(t)) { flush(); out += '<hr>'; continue; }
+    let m;
+    if ((m = t.match(/^(#{1,6})\s+(.*)$/))) {
+      flush(); out += `<h${Math.min(m[1].length + 2, 4)}>${mdInline(m[2])}</h${Math.min(m[1].length + 2, 4)}>`;
+      continue;
+    }
+    if ((m = t.match(/^[-*•]\s+(.*)$/))) {
+      flushPara(); if (list !== 'ul') { flushList(); out += '<ul>'; list = 'ul'; }
+      out += `<li>${mdInline(m[1])}</li>`; continue;
+    }
+    if ((m = t.match(/^\d+[.)]\s+(.*)$/))) {
+      flushPara(); if (list !== 'ol') { flushList(); out += '<ol>'; list = 'ol'; }
+      out += `<li>${mdInline(m[1])}</li>`; continue;
+    }
+    flushList(); para.push(t);
+  }
+  flush();
+  return out;
 }
 
-async function askNetwork() {
-  if (ASKING) return;
-  const q = document.getElementById('ask-q').value.trim();
-  if (!q) return;
-  ASKING = true;
-  const btn = document.getElementById('ask-btn');
-  btn.textContent = '…'; btn.disabled = true;
-  const log = document.getElementById('ask-log');
-  const turn = document.createElement('div');
-  turn.className = 'ask-turn';
-  const you = document.createElement('div'); you.className = 'ask-you'; you.textContent = q;
-  const tools = document.createElement('div'); tools.className = 'ask-tools';
-  const coin = document.createElement('span'); coin.className = 'coin';
-  tools.appendChild(coin);
-  turn.append(you, tools);
-  log.prepend(turn);
-  let gotText = false;
-  const addText = t => {
-    const d = document.createElement('div'); d.className = 'ask-text';
-    /* escape first, then allow only **bold** and `code` back through */
-    d.innerHTML = esc(t)
-      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>');
-    turn.appendChild(d); gotText = true;
+/* --- what the person is looking at, so the agent can answer in context --- */
+function chatContext() {
+  const ctx = {view: (location.hash || '#top').slice(1) || 'top'};
+  if (DETAIL) ctx.netuid = DETAIL.netuid;
+  if (typeof TRADER !== 'undefined' && TRADER) ctx.address = TRADER.ss58;
+  return ctx;
+}
+
+/* --- the agent driving the console --- */
+async function applyView(a) {
+  if (!a || !a.view) return;
+  const needScreen = ['subnet', 'markets'].includes(a.view);
+  if (needScreen && !SCREEN.length) { try { await loadScreener(); } catch (e) {} }
+  if (a.view === 'subnet') { openDetail(+a.netuid); return; }          /* overlays stay */
+  if (a.view === 'trader') { openTrader(a.address); return; }
+  if (a.view === 'markets') {
+    if (a.search !== undefined) el('scr-search').value = a.search || '';
+    if (a.sort_by) SORT = {key: a.sort_by, dir: -1};
+    renderScreener();
+  } else if (a.view === 'account' && a.address) {
+    el('acct-addr').value = a.address;
+    location.hash = '#account'; loadAccount(); showBack(); return;
+  } else if (a.view === 'traders') { loadTraders(); }
+  location.hash = '#' + (a.view === 'markets' ? 'markets' : a.view);
+  showBack();
+}
+function showBack() {
+  if (CHAT.id) el('chat-back').classList.add('on');
+}
+addEventListener('hashchange', () => {
+  if ((location.hash || '') === '#ask') el('chat-back').classList.remove('on');
+});
+function viewLabel(a) {
+  if (a.view === 'subnet') return `open subnet ${a.netuid}`;
+  if (a.view === 'trader') return `open trader ${short(a.address)}`;
+  if (a.view === 'account') return `open account ${short(a.address)}`;
+  if (a.view === 'markets') return 'open markets' + (a.sort_by ? ' by ' + a.sort_by : '') +
+    (a.search ? ` "${a.search}"` : '');
+  return 'open ' + a.view;
+}
+
+/* --- transcript rendering --- */
+function threadEl() { return el('chat-thread'); }
+function scrollThread() { const t = threadEl(); t.scrollTop = t.scrollHeight; }
+
+function addUser(text) {
+  const d = document.createElement('div');
+  d.className = 'msg you';
+  d.innerHTML = `<div class="bub"></div>`;
+  d.firstChild.textContent = text;
+  threadEl().appendChild(d); scrollThread();
+}
+
+/* One assistant message, live or replayed. Returns the handles a run drives. */
+function addBot() {
+  const d = document.createElement('div');
+  d.className = 'msg bot';
+  const tools = document.createElement('div'); tools.className = 'chat-tools';
+  const detail = document.createElement('div'); detail.className = 'chip-detail'; detail.hidden = true;
+  const bub = document.createElement('div'); bub.className = 'bub md';
+  const status = document.createElement('div'); status.className = 'chat-status';
+  const foot = document.createElement('div'); foot.className = 'chat-foot'; foot.hidden = true;
+  d.append(tools, detail, bub, status, foot);
+  threadEl().appendChild(d); scrollThread();
+
+  let raw = '', pending = null, painting = false;
+  const showDetail = txt => {
+    if (detail.textContent === txt && !detail.hidden) { detail.hidden = true; return; }
+    detail.textContent = txt; detail.hidden = false;
   };
-  const handle = ev => {
-    if (ev.type === 'tool') {
+  const paint = () => {
+    if (painting) return;
+    painting = true;
+    requestAnimationFrame(() => { painting = false; bub.innerHTML = md(raw); scrollThread(); });
+  };
+  return {
+    node: d,
+    status(text) { status.textContent = text ? '● ' + text : ''; scrollThread(); },
+    append(t) { raw += t; paint(); },
+    set(t) { raw = t; bub.innerHTML = md(raw); scrollThread(); },
+    tool(ev) {
       const c = document.createElement('span');
-      c.className = 'ask-tool pending';
-      const args = Object.entries(ev.args || {}).map(([k, v]) => `${k}:${v}`).join(' ');
-      c.textContent = `? ${ev.name}${args ? ' · ' + args : ''}`;
-      c.title = JSON.stringify(ev.args || {});
-      tools.insertBefore(c, coin);
-    } else if (ev.type === 'tool_done') {
-      const p = tools.querySelector('.ask-tool.pending');
-      if (p) { p.className = 'ask-tool ' + (ev.error ? 'err' : 'done');
-               p.textContent = (ev.error ? '✗ ' : '🪙 ') + p.textContent.slice(2); }
-    } else if (ev.type === 'text') {
-      addText(ev.text);
-    } else if (ev.type === 'done') {
-      coin.remove();
-      tools.querySelectorAll('.ask-tool.pending').forEach(p => p.classList.replace('pending', 'done'));
-      if (!gotText && ev.answer) addText(ev.answer);
-      const f = document.createElement('div'); f.className = 'ask-flag';
+      c.className = 'chip pending';
+      c.dataset.id = ev.id || '';
+      const args = ev.builtin ? '' :
+        Object.entries(ev.args || {}).map(([k, v]) => `${k}:${v}`).join(' ');
+      if (ev.builtin) c.classList.add('plumb');   /* the CLI's own plumbing */
+      c.innerHTML = `? ${esc(ev.name)}${args ? ' · ' + esc(args) : ''} <span class="ms"></span>`;
+      c.onclick = () => showDetail(`${ev.name}(${JSON.stringify(ev.args || {})})` +
+        (c.dataset.preview ? '\n→ ' + c.dataset.preview : ''));
+      tools.appendChild(c); scrollThread();
+      pending = c;
+    },
+    toolDone(ev) {
+      const c = tools.querySelector(`.chip[data-id="${ev.id}"]`) ||
+                tools.querySelector('.chip.pending') || pending;
+      if (!c) return;
+      c.className = 'chip ' + (ev.error ? 'err' : 'done') +
+                    (c.classList.contains('plumb') ? ' plumb' : '');
+      c.firstChild.textContent = (ev.error ? '✗ ' : '🪙 ') + c.firstChild.textContent.slice(2);
+      c.dataset.preview = ev.preview || '';
+      c.querySelector('.ms').textContent = ev.ms != null ? (ev.ms / 1000).toFixed(1) + 's' : '';
+    },
+    view(a) {
+      const c = document.createElement('span');
+      c.className = 'chip view';
+      c.textContent = '▶ ' + viewLabel(a);
+      c.title = 'Show me this again';
+      c.onclick = () => applyView(a);
+      tools.appendChild(c); scrollThread();
+    },
+    done(ev) {
+      status.textContent = '';
+      tools.querySelectorAll('.chip.pending').forEach(c => c.className = 'chip done');
+      if (!raw.trim() && ev.answer) this.set(ev.answer);
       const secs = ev.ms != null ? (ev.ms / 1000).toFixed(1) + 's' : '';
-      f.textContent = `🏁 COURSE CLEAR · ${ev.turns ?? '?'} turns · ${secs}` +
+      foot.hidden = false;
+      foot.textContent = `🏁 COURSE CLEAR · ${ev.turns ?? '?'} turns · ${secs}` +
         (ev.cost_usd != null ? ` · $${(+ev.cost_usd).toFixed(4)}` : '');
-      turn.appendChild(f);
-    } else if (ev.type === 'error') {
-      coin.remove();
-      const d = document.createElement('div'); d.className = 'ask-err';
-      d.textContent = '💀 ' + ev.error; turn.appendChild(d);
+    },
+    error(msg) {
+      status.textContent = '';
+      tools.querySelectorAll('.chip.pending').forEach(c => c.className = 'chip done');
+      const e = document.createElement('div'); e.className = 'chat-err';
+      e.textContent = msg === 'stopped' ? '⏹ stopped' : '💀 ' + msg;
+      d.appendChild(e); scrollThread();
+    },
+  };
+}
+
+/* replay a stored message */
+function renderStored(m) {
+  if (m.role === 'user') { addUser(m.text); return; }
+  const bot = addBot();
+  (m.tools || []).forEach(t => {
+    bot.tool({name: t.name, args: t.args, id: '', builtin: t.builtin});
+    bot.toolDone({id: '', error: !t.ok, ms: t.ms, preview: ''});
+  });
+  ((m.meta || {}).views || []).forEach(a => bot.view(a));
+  bot.set(m.text || '');
+  const meta = m.meta || {};
+  if (meta.turns) bot.done({turns: meta.turns, ms: meta.ms, cost_usd: meta.cost_usd, answer: m.text});
+}
+
+/* --- conversations --- */
+function renderStarters() {
+  const box = el('chat-sugg');
+  if (threadEl().children.length || !CHAT.starters.length) { box.innerHTML = ''; return; }
+  box.innerHTML =
+    '<p class="chat-empty" style="width:100%">Ask about a subnet, a trader, or the whole ' +
+    'market — the answer opens on your screen. Try:</p>' +
+    CHAT.starters.map(sg =>
+      `<button onclick="sendChat(this.textContent)">${esc(sg)}</button>`).join('');
+}
+async function loadChats(select) {
+  try {
+    const j = await (await fetch(api('agent/chats?limit=40'))).json();
+    el('chat-hist').innerHTML = (j.chats || []).map(c => `
+      <div class="chat-item ${c.id === (select || CHAT.id) ? 'sel' : ''}" onclick="openChat('${c.id}')">
+        <span class="t" title="${esc(c.title)}">${esc(c.title)}</span>
+        <span class="x" title="Delete" onclick="event.stopPropagation();deleteChat('${c.id}')">✕</span>
+      </div>`).join('') ||
+      '<span class="muted">No conversations yet.</span>';
+  } catch (e) {}
+}
+async function openChat(id, nav = true) {
+  if (CHAT.running) return;
+  if (nav) CHAT.touched = true;
+  try {
+    const c = await (await fetch(api('agent/chats/' + id))).json();
+    if (!c || !c.id) return;
+    CHAT.id = c.id;
+    try { localStorage.setItem(CHAT_KEY, c.id); } catch (e) {}
+    threadEl().innerHTML = '';
+    (c.messages || []).forEach(renderStored);
+    renderStarters(); loadChats(); scrollThread();
+    if (nav && (location.hash || '') !== '#ask') location.hash = '#ask';
+  } catch (e) {}
+}
+function newChat() {
+  if (CHAT.running) return;
+  CHAT.id = null; CHAT.touched = true;
+  try { localStorage.removeItem(CHAT_KEY); } catch (e) {}
+  threadEl().innerHTML = '';
+  el('chat-back').classList.remove('on');
+  renderStarters(); loadChats();
+  el('chat-input').focus();
+}
+async function deleteChat(id) {
+  await fetch(api('agent/chats/' + id), {method: 'DELETE'}).catch(() => {});
+  if (CHAT.id === id) newChat(); else loadChats();
+}
+
+/* --- one turn --- */
+function setSending(on) {
+  const b = el('chat-send');
+  b.textContent = on ? 'Stop ■' : 'Send ▶';
+  b.onclick = on ? stopChat : () => sendChat();
+}
+async function stopChat() {
+  if (!CHAT.running) return;
+  if (CHAT.id) await fetch(api('agent/stop'), {
+    method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({chat: CHAT.id})}).catch(() => {});
+  if (CHAT.ctl) CHAT.ctl.abort();
+}
+
+async function sendChat(text) {
+  if (CHAT.running) return;
+  const box = el('chat-input');
+  const q = String(text !== undefined ? text : box.value).trim();
+  if (!q) return;
+  CHAT.touched = true;
+  box.value = ''; growInput();
+  addUser(q);
+  el('chat-sugg').innerHTML = '';
+  const bot = addBot();
+  bot.status('thinking');
+  CHAT.running = true; setSending(true);
+  const ctl = new AbortController(); CHAT.ctl = ctl;
+  const handle = ev => {
+    if (ev.chat && ev.chat !== CHAT.id) {
+      CHAT.id = ev.chat;
+      try { localStorage.setItem(CHAT_KEY, ev.chat); } catch (e) {}
+    }
+    switch (ev.type) {
+      case 'start':      bot.status(`${ev.model || ''} · ${ev.tools || 0} tools`); break;
+      case 'status':     bot.status(ev.status); break;
+      case 'text_delta': bot.append(ev.delta); bot.status(''); break;
+      case 'text':       bot.append(ev.text); bot.status(''); break;
+      case 'tool':       bot.tool(ev); bot.status('reading the chain'); break;
+      case 'tool_done':  bot.toolDone(ev); break;
+      case 'view':       bot.view(ev.action); applyView(ev.action); break;
+      case 'done':       bot.done(ev); break;
+      case 'error':      bot.error(ev.error); break;
     }
   };
   try {
-    const r = await fetch(api('ask'), {
+    const r = await fetch(api('agent/chat'), {
       method: 'POST', headers: {'content-type': 'application/json'},
-      body: JSON.stringify({question: q}),
+      signal: ctl.signal,
+      body: JSON.stringify({message: q, chat: CHAT.id, context: chatContext()}),
     });
     if (!r.ok || !r.body) {
       handle({type: 'error', error: (await r.json().catch(() => ({}))).error || `HTTP ${r.status}`});
@@ -1842,16 +2479,48 @@ async function askNetwork() {
           }
         }
       }
-      coin.remove();
     }
-  } catch (e) { handle({type: 'error', error: e.message}); }
-  document.getElementById('ask-q').value = '';
-  btn.textContent = 'Ask ▶'; btn.disabled = false;
-  ASKING = false;
+  } catch (e) {
+    handle({type: 'error', error: e.name === 'AbortError' ? 'stopped' : e.message});
+  }
+  CHAT.running = false; CHAT.ctl = null; setSending(false);
+  loadChats();
+  el('chat-input').focus();
 }
-document.getElementById('ask-q').addEventListener('keydown', e => {
-  if (e.key === 'Enter') askNetwork();
+
+function growInput() {
+  const t = el('chat-input');
+  t.style.height = 'auto';
+  t.style.height = Math.min(t.scrollHeight, 200) + 'px';
+}
+
+async function loadAgent() {
+  try {
+    const a = await (await fetch(api('agent/status'))).json();
+    CHAT.ready = !!a.ready;
+    CHAT.starters = a.starters || [];
+    renderStarters();               /* don't wait on the restore below */
+    el('chat-meta').textContent = a.ready
+      ? `${a.model} · ${a.tools} tools · ${a.denied} on-chain tools denied · auth: ${a.method}`
+      : '';
+    if (!a.ready) {
+      const w = el('chat-auth');
+      w.style.display = 'block';
+      w.textContent = '⚠ ' + (a.hint || 'Agent auth not configured on this host.');
+    }
+  } catch (e) {}
+  let last = null;
+  try { last = localStorage.getItem(CHAT_KEY); } catch (e) {}
+  /* restore the last conversation — unless the person already started one */
+  if (last && !CHAT.touched) await openChat(last, false);
+  renderStarters();
+  await loadChats();
+}
+
+el('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
+el('chat-input').addEventListener('input', growInput);
 
 /* ---------- console ---------- */
 function renderToolForm() {
@@ -1930,6 +2599,7 @@ function route() {
   /* double rAF so display:block lands before .in, letting the reveal transition play */
   requestAnimationFrame(() => requestAnimationFrame(() => cur.classList.add('in')));
   links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+  if (id === 'wallet') loadWalletPage();
   scrollTo(0, 0);
 }
 addEventListener('hashchange', route);

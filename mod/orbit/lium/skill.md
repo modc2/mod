@@ -36,7 +36,7 @@ Public reads (nodes, templates, stats, subnet weights) work with no key.
 ## Endpoints
 
 One port: `:50430` serves the API, `/mcp` and the console.
-Gateway: `/lium` (console), `/api/lium` and `/lium/_api` (API).
+Gateway: `/lium` (console), `/lium/api` and `/lium/_api` (API).
 `m lium/serve` builds if needed and starts it under pm2 (`lium-api`).
 
 MCP: `POST /mcp`, or `lium-api --stdio` for MCP clients

@@ -843,6 +843,30 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('Apartment Building Evaluation', 'apartment-building-evaluation'),
     },
     {
+        'id': 'housing_lots',
+        'title': 'Lots for affordable housing',
+        'category': 'Housing',
+        'kind': 'polygon',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': ('City-owned land affordable housing could actually be '
+                        'built on — vacant lots, surface parking and land '
+                        'declared surplus, at least 450 m², never parks. Each '
+                        'full lot boundary is highlighted and scored on size, '
+                        'transit and how ready the city is to part with it. '
+                        'In 3-D the lots rise to the scale of housing they '
+                        'could carry.'),
+        # `highlight` asks the map for the full-lot glow treatment;
+        # `extrude_by` is the massing height the 3-D view uses.
+        'style': {'color_by': 'tier',
+                  'classes': {'PRIME': 'good', 'STRONG': 'live',
+                              'POSSIBLE': 'muted'},
+                  'highlight': True, 'extrude_by': 'massing_m'},
+        'endpoint': '/layers/housing_lots',
+        'source': _src('Real Estate Asset Inventory (land)',
+                       'real-estate-asset-inventory'),
+    },
+    {
         'id': 'predicted_scores',
         'title': 'Predicted vs actual score',
         'category': 'Housing',
@@ -920,9 +944,16 @@ LAYERS: List[Dict[str, Any]] = [
 
 # id → loader for every layer served straight from a source (crime and
 # incidents are parameterised, so they're handled by the API rather than here).
+def _lots():
+    """Late import like the score model — nothing else needs it at boot."""
+    from . import lots
+    return lots.candidates()
+
+
 LOADERS: Dict[str, Callable[[], dict]] = {
     'prices': N.choropleth,
     'predicted_scores': lambda: _score().predictions(),
+    'housing_lots': _lots,
     'ttc_lines': ttc_lines,
     'streetcars': streetcars,
     'subway_stations': subway_stations,

@@ -1,0 +1,6 @@
+{
+  "name": "times",
+  "description": "A drill: six products, more digits each round, with two rounds of three small factors. Multiplication fails all at once, so this one separates a confident answerer from a correct one.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "arithmetic"]
+}

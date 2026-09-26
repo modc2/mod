@@ -1,0 +1,82 @@
+{
+  "block": "airdrop",
+  "contract": "ModMerkleAirdrop",
+  "file": "airdrop.sol",
+  "audited_at": "2026-09-10",
+  "auditor": "claude-fable-5 agent audit",
+  "risk": "low",
+  "summary": "ModMerkleAirdrop is a standard Merkle distributor: the owner publishes one 32-byte root, each claimant proves (index, account, amount) membership and pays their own gas, claims are tracked one bit each, and the owner sweeps leftovers after the deadline. The code itself is sound — checks-effects-interactions is respected (the bitmap is set before token.push, so an ERC-777-style reentry hits ALREADY_CLAIMED), the leaf preimage is 84 fixed-width bytes so it cannot collide with a 64-byte internal node, and setRoot is blocked the moment claimCount is nonzero, so a root swap can never double-pay an already-used bitmap. What remains is operational, not code: a wrong root becomes irrevocable the moment the first claim lands (there is no pause and no early sweep, so an over-generous root drains until the deadline), and a zero deadline turns the contract into a one-way street where WINDOW_OPEN makes sweep() unreachable forever and anything a valid proof does not cover is stuck. Deploy as-is with a verified root and a nonzero deadline and it does what it says.",
+  "counts": { "critical": 0, "high": 0, "medium": 2, "low": 3, "info": 2 },
+  "findings": [
+    {
+      "id": "AIRDROP-1",
+      "severity": "medium",
+      "title": "A bad root cannot be revoked once one claim lands — the deadline is the only brake",
+      "where": "claim() L53-L62; setRoot() L71-L76",
+      "detail": "setRoot requires claimCount == 0 (correctly, because the bitmap is never cleared), which also means the owner has no way to stop payouts against a root that turns out to be wrong: no pause, no root revocation, and sweep() is gated behind the deadline. If the published tree over-allocates, every excess claim is valid until the window closes.",
+      "exploit": "Owner publishes a root generated from a flawed snapshot (say, amounts in wrong decimals, 1000x too large). One legitimate user claims. From that moment setRoot reverts with CLAIMS_STARTED; everyone in the flawed tree can claim their inflated amount until block.timestamp > deadline, and the owner can only watch.",
+      "recommendation": "Rehearse the full tree on a testnet first, and set a short deadline you can extend (redeploying is cheap) rather than a long one you cannot cut. If revocation matters to you, add an owner pause that claim() checks — at the cost of the trust-minimization a fixed root buys."
+    },
+    {
+      "id": "AIRDROP-2",
+      "severity": "medium",
+      "title": "deadline = 0 makes unclaimed funds unrecoverable forever",
+      "where": "claim() L54 (deadline == 0 means the window never closes); sweep() L78-L84 (require deadline != 0)",
+      "detail": "A zero deadline is treated as 'no deadline' by claim() but as 'never sweepable' by sweep(): WINDOW_OPEN can never pass, so any balance not covered by a valid proof — funding overshoot, dust from rounding, tokens sent directly — is stuck in the contract permanently.",
+      "exploit": "Deploy with deadline_ = 0, fund() 1,000,000 tokens against a tree whose leaves sum to 900,000. The remaining 100,000 can never leave: no leaf proves them and sweep() always reverts.",
+      "recommendation": "Treat deadline as required: constructor-validate deadline_ != 0, or fund exactly the tree total and nothing more."
+    },
+    {
+      "id": "AIRDROP-3",
+      "severity": "low",
+      "title": "Fee-on-transfer and rebasing tokens break the tree's arithmetic",
+      "where": "fund() L66-L68; claim() L59 token.push",
+      "detail": "Amounts in the tree are nominal. A token that takes a transfer fee delivers less than fund() pulled, so the last claimants revert on insufficient balance; a negative-rebase token strands the shortfall the same way. totalClaimed counts what was promised, not what arrived.",
+      "exploit": "Fund 100,000 of a 1%-fee token: the contract holds 99,000 against a 100,000 tree; the final ~1% of claims revert until someone tops the contract up out of pocket.",
+      "recommendation": "Use plain ERC-20s, or over-fund by the fee margin and accept that the surplus needs a nonzero deadline to sweep back (see AIRDROP-2)."
+    },
+    {
+      "id": "AIRDROP-4",
+      "severity": "low",
+      "title": "Anyone can trigger anyone else's claim",
+      "where": "claim() L53 — account is a parameter, not msg.sender",
+      "detail": "Claims are permissionless on behalf of the leaf's account. The tokens always go to the rightful address, but a third party can force-deliver them at a moment of their choosing — a tax-timing or airdrop-farming-detection nuisance, not a theft.",
+      "exploit": "Watching the mempool, a griefer front-runs a claimant's own transaction with an identical claim; the claimant's tx reverts ALREADY_CLAIMED (gas lost, tokens received).",
+      "recommendation": "This is the standard distributor trade-off (it enables claim-for-gasless-users flows); document it rather than change it."
+    },
+    {
+      "id": "AIRDROP-5",
+      "severity": "low",
+      "title": "sweep() takes everything after the deadline, including amounts still unclaimed by legitimate leaves",
+      "where": "sweep() L78-L84",
+      "detail": "After the window closes, the owner sweeps the full balance — latecomers with valid proofs get nothing and their claim() reverts on transfer. That is what a deadline means, but claimants must be told the date, because on-chain nothing warns them.",
+      "exploit": "None — by design. The risk is reputational: an owner who sweeps early relative to announced dates has silently changed the terms.",
+      "recommendation": "Publish the deadline alongside the root, and consider sweeping to a timelock or the treasury block rather than an EOA."
+    },
+    {
+      "id": "AIRDROP-6",
+      "severity": "info",
+      "title": "Sorted-pair (commutative) Merkle hashing is safe here because leaves are 84 bytes",
+      "where": "leaf() L38-L40; verify() L42-L51",
+      "detail": "verify() hashes sibling pairs in sorted order, the OpenZeppelin convention. Second-preimage attacks that promote a 64-byte internal node to a leaf do not apply: the leaf preimage is abi.encodePacked(uint256, address, uint256) = 84 bytes, which no internal node (64 bytes) can imitate. Trees must be built with the same sorted-pair convention or every proof fails.",
+      "exploit": "n/a",
+      "recommendation": "Generate trees with a library that uses sorted pairs (e.g. OpenZeppelin merkle-tree) and the exact leaf encoding of leaf()."
+    },
+    {
+      "id": "AIRDROP-7",
+      "severity": "info",
+      "title": "One contract is one campaign",
+      "where": "setRoot() L71-L76; claimedBitmap L19",
+      "detail": "Because the bitmap survives root changes, setRoot is (correctly) refused after the first claim — so a second airdrop round needs a fresh deployment, not a new root in the old one.",
+      "exploit": "n/a",
+      "recommendation": "Deploy a new instance per round; the constructor takes the root, so rounds are one transaction each."
+    }
+  ],
+  "safe_use": [
+    "Always set a nonzero deadline — with deadline = 0, sweep() is unreachable and any uncovered balance is stuck forever.",
+    "Verify the tree before publishing: sum the leaves, spot-check proofs against leaf()'s exact encoding (uint256 index, address, uint256 amount, packed), and rehearse a claim on a testnet — the root is irrevocable after the first claim.",
+    "Fund exactly the tree total with a plain ERC-20; fee-on-transfer and rebasing tokens strand the last claimants.",
+    "Announce the deadline with the root; after it passes the owner sweeps everything, valid proofs included.",
+    "For a second round, deploy a fresh instance — this contract refuses new roots once claiming has started."
+  ]
+}

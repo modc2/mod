@@ -8,13 +8,19 @@ const nextConfig = {
   reactStrictMode: false,
   ...(basePath ? { basePath } : {}),
   env: {
-    NEXT_PUBLIC_API_URL: "/api/model",
+    NEXT_PUBLIC_API_URL: "/model/api",
     NEXT_PUBLIC_BASE_PATH: basePath,
     NEXT_PUBLIC_MODEL_GATE_ADDRESS: gateAddress,
     NEXT_PUBLIC_MODEL_GATE_CHAIN_ID: chainId,
   },
   async rewrites() {
     return [
+      {
+        // Canonical fleet form; legacy /api/model alias kept below.
+        source: "/model/api/:path*",
+        destination: `${apiUrl}/:path*`,
+        basePath: false,
+      },
       {
         source: "/api/model/:path*",
         destination: `${apiUrl}/:path*`,

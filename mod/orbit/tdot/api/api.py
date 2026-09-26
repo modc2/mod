@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 import mod as m
 from tdotgis import agent as A
+from tdotgis import mcp_server as MCP
 from tdotgis import registry as R
 from tdotgis import tools as T
 
@@ -348,6 +349,74 @@ def agent_chat(body: dict = Body(...)):
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no',                  # let the gateway pass it through
     })
+
+
+# ── mcp ─────────────────────────────────────────────────────────────────────
+#
+# The same tools the chat panel plays, offered to any MCP client. The protocol
+# itself lives in tdotgis/mcp_server.py and is shared with the stdio transport,
+# so the two can't drift; these routes are only the HTTP envelope around it.
+
+MODULE_DIR = str(Path(__file__).parent.parent)
+
+
+def _public_base() -> str:
+    """Where a client outside this box should point. Behind the gateway every
+    module is served under /{name}/api, which is also where /mcp then lives."""
+    return os.environ.get('TDOT_PUBLIC_URL', 'http://localhost:50320')
+
+
+@app.post('/mcp')
+def mcp_http(body: dict = Body(...)):
+    """
+    Streamable-HTTP MCP endpoint: one JSON-RPC request, one JSON-RPC reply.
+
+    Notifications (no ``id``) get 202 with an empty body, which is what the
+    transport expects when there is nothing to return.
+    """
+    reply = MCP.rpc(body or {})
+    if reply is None:
+        return JSONResponse(None, status_code=202)
+    return JSONResponse(json.loads(json.dumps(reply, default=str)))
+
+
+@app.get('/mcp')
+def mcp_info():
+    """A GET on the endpoint describes the server rather than 405-ing, so
+    pasting the URL into a browser tells you what you found."""
+    return {
+        'server': MCP.SERVER_INFO,
+        'protocolVersion': MCP.PROTOCOL_VERSION,
+        'instructions': MCP.INSTRUCTIONS,
+        'transports': {'http': f'{_public_base()}/mcp',
+                       'stdio': 'python3 -m tdotgis.mcp_server'},
+        'tools': len(T.TOOLS),
+    }
+
+
+@app.get('/mcp/schema')
+def mcp_schema():
+    """Every tool as MCP publishes it — name, description, JSON Schema — plus
+    the console's grouping and which tools move the map."""
+    drives = {t.name: t.drives_map for t in T.TOOLS}
+    groups = {t.name: t.group for t in T.TOOLS}
+    return {
+        'server': MCP.SERVER_INFO,
+        'count': len(T.TOOLS),
+        'tools': [{**t, 'group': groups.get(t['name']),
+                   'drives_map': drives.get(t['name'], False)}
+                  for t in T.list_tools()],
+    }
+
+
+@app.get('/mcp/config')
+def mcp_config(name: str = Query('tdot')):
+    """A ready-to-paste ``mcpServers`` block for both transports."""
+    return {'mcpServers': {
+        name: {'command': 'python3', 'args': ['-m', 'tdotgis.mcp_server'],
+               'cwd': MODULE_DIR},
+        f'{name}-http': {'type': 'http', 'url': f'{_public_base()}/mcp'},
+    }}
 
 
 if __name__ == '__main__':

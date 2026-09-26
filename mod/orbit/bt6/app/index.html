@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BT6 // ARSENAL</title>
+<style>
+  :root {
+    --bg: #07080a;
+    --panel: #0d0f13;
+    --line: #1c2027;
+    --ink: #e6e8ea;
+    --dim: #7d8590;
+    --red: #ff2b3e;
+    --red-soft: rgba(255,43,62,.14);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); }
+  body {
+    background-image:
+      radial-gradient(circle at 20% -10%, rgba(255,43,62,.10), transparent 45%),
+      linear-gradient(transparent 95%, rgba(255,43,62,.05) 100%);
+    background-size: auto, 100% 3px;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 22px; }
+  .logo { font-size: 42px; font-weight: 800; letter-spacing: 4px; }
+  .logo b { color: var(--red); }
+  .tag { color: var(--dim); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; margin-top: 6px; }
+  .love { color: var(--red); }
+  .sub { color: var(--dim); font-size: 13px; margin-top: 14px; line-height: 1.6; max-width: 640px; }
+  .sub a { color: var(--ink); text-decoration: none; border-bottom: 1px dotted var(--dim); }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 26px 0 20px; }
+  .chip {
+    font: inherit; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--dim); background: var(--panel); border: 1px solid var(--line);
+    padding: 6px 12px; border-radius: 999px; cursor: pointer; transition: .12s;
+  }
+  .chip:hover { color: var(--ink); border-color: var(--red); }
+  .chip.on { color: var(--bg); background: var(--red); border-color: var(--red); font-weight: 700; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .card {
+    display: flex; flex-direction: column; gap: 10px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 18px; text-decoration: none; color: inherit; position: relative; overflow: hidden;
+    transition: .14s;
+  }
+  .card::before {
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--red);
+    opacity: 0; transition: .14s;
+  }
+  .card:hover { border-color: var(--red); transform: translateY(-2px); }
+  .card:hover::before { opacity: 1; }
+  .card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .name { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+  .badge { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--red); background: var(--red-soft); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .blurb { color: var(--dim); font-size: 13px; line-height: 1.55; }
+  .host { color: var(--dim); font-size: 11px; margin-top: auto; opacity: .8; }
+  .host::before { content: "↳ "; color: var(--red); }
+
+  footer { margin-top: 44px; color: var(--dim); font-size: 12px; text-align: center; letter-spacing: 1px; }
+  footer .love { font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">BT<b>6</b> // ARSENAL</div>
+    <div class="tag">The Independent Frontier AI Red Team</div>
+    <p class="sub">
+      One console for every public app in the <a href="https://bt6.gg/#arsenal" target="_blank" rel="noopener">bt6.gg</a>
+      arsenal — the open red-teaming, transparency and prompt-engineering tools stewarded by
+      Pliny the Liberator. This is a launcher: pick a tool, it opens in a new tab.
+    </p>
+  </header>
+
+  <div class="filters" id="filters"></div>
+  <div class="grid" id="grid"></div>
+
+  <footer><span id="count">—</span> operators · a missed exploit is measured in trust, market cap, or national security · made with <span class="love">♥ pliny</span></footer>
+</div>
+
+<script>
+let ALL = [];
+let active = "all";
+
+function host(url) {
+  try { return new URL(url).host.replace(/^www\./, ""); } catch { return url; }
+}
+
+function render() {
+  const grid = document.getElementById("grid");
+  const items = active === "all" ? ALL : ALL.filter(a => a.tag === active);
+  grid.innerHTML = items.map(a => `
+    <a class="card" href="${a.url}" target="_blank" rel="noopener">
+      <div class="top">
+        <span class="name">${a.name}</span>
+        <span class="badge">${a.tag}</span>
+      </div>
+      <div class="blurb">${a.blurb}</div>
+      <div class="host">${host(a.url)}</div>
+    </a>`).join("");
+}
+
+function renderFilters() {
+  const tags = ["all", ...Array.from(new Set(ALL.map(a => a.tag)))];
+  const box = document.getElementById("filters");
+  box.innerHTML = tags.map(t =>
+    `<button class="chip${t === active ? " on" : ""}" data-tag="${t}">${t}</button>`).join("");
+  box.querySelectorAll(".chip").forEach(c =>
+    c.addEventListener("click", () => { active = c.dataset.tag; renderFilters(); render(); }));
+}
+
+fetch("arsenal.json")
+  .then(r => r.json())
+  .then(d => { ALL = d.items || []; document.getElementById("count").textContent = ALL.length; renderFilters(); render(); })
+  .catch(() => {
+    document.getElementById("grid").innerHTML =
+      '<div class="blurb">Could not load the arsenal catalog.</div>';
+  });
+</script>
+</body>
+</html>

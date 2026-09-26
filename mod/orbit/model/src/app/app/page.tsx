@@ -14,7 +14,7 @@ import {
   type GateSession,
 } from "./lib/gate";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "/api/model";
+const API = process.env.NEXT_PUBLIC_API_URL || "/model/api";
 const KEY_PREFIX = "modelgw_key_";
 const LAST_PROVIDER = "modelgw_last_provider";
 const LAST_MODEL = "modelgw_last_model_";

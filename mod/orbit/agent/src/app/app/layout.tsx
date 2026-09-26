@@ -18,7 +18,7 @@ export const viewport: Viewport = {
  * blocking script corrects it from localStorage — so keep the table below in
  * step with THEMES in components/Theme.tsx. */
 const THEME_BOOT = `try{
-var T={arcade:["pixel","dark"],matrix:["pixel","dark"],win95:["pixel","light"],
+var T={arcade:["pixel","dark"],matrix:["pixel","dark"],mario:["pixel","dark"],win95:["pixel","light"],
 midnight:["soft","dark"],abyss:["soft","dark"],ember:["soft","dark"],neon:["soft","dark"],
 paper:["soft","light"],daylight:["soft","light"]};
 var t=localStorage.getItem("agent_theme");

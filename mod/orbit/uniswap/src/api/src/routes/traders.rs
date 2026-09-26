@@ -6,10 +6,9 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 
 use crate::models::chain::Chain;
-use crate::pipeline::{self, PipelineEvent};
+use crate::pipeline;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -20,18 +19,23 @@ pub struct TraderListParams {
     min_swaps: Option<u32>,
     sort: Option<String>,
     pool: Option<u32>,
+    refresh: Option<bool>,
 }
 
 #[derive(Deserialize)]
 pub struct TraderDetailParams {
     chain: Option<String>,
     days: Option<u32>,
+    pool: Option<u32>,
 }
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
+        // matchit 0.7 (axum 0.7) spells a path parameter `:name`. Written as
+        // `{address}` it is a literal path segment, so every trader profile
+        // request 404'd.
+        .route("/traders/:address", get(get_trader))
         .route("/traders", get(list_traders))
-        .route("/traders/{address}", get(get_trader))
 }
 
 async fn list_traders(
@@ -39,49 +43,35 @@ async fn list_traders(
     Query(params): Query<TraderListParams>,
 ) -> Json<Value> {
     let chain_str = params.chain.unwrap_or_else(|| "base".to_string());
-    let chain = match Chain::from_str(&chain_str) {
-        Some(c) => c,
-        None => return Json(json!({ "error": "Invalid chain" })),
+    let Some(chain) = Chain::from_str(&chain_str) else {
+        return Json(json!({
+            "error": format!("unknown chain '{chain_str}'"),
+            "chains": Chain::all().iter().map(|c| c.name()).collect::<Vec<_>>(),
+        }));
     };
 
-    let days = params.days.unwrap_or(7);
-    let limit = params.limit.unwrap_or(50);
+    let days = params.days.unwrap_or(7).clamp(1, 30);
+    let limit = params.limit.unwrap_or(50).clamp(1, 500);
     let min_swaps = params.min_swaps.unwrap_or(5);
-    let pool = params.pool.unwrap_or(2000);
+    let pool = params.pool.unwrap_or(2000).clamp(100, 20_000);
     let sort = params.sort.unwrap_or_else(|| "score".to_string());
 
-    // Check cache
-    let cache_key = AppState::cache_key(chain.name(), days, pool);
-    let traders = if let Some(cached) = state.get_cached(&cache_key) {
-        cached
-    } else {
-        // Run pipeline synchronously
-        let (tx, mut rx) = mpsc::channel(100);
-        let state_clone = state.clone();
+    let scrape = pipeline::collect(
+        state,
+        chain,
+        days,
+        pool,
+        min_swaps,
+        params.refresh.unwrap_or(false),
+    )
+    .await;
 
-        tokio::spawn(async move {
-            pipeline::run_pipeline(state_clone, chain, days, pool, min_swaps, tx).await;
-        });
-
-        let mut result = Vec::new();
-        while let Some(event) = rx.recv().await {
-            if let PipelineEvent::Result { traders, .. } = event {
-                result = traders;
-                break;
-            }
-        }
-        result
-    };
-
-    // Sort
-    let mut sorted = traders;
-    match sort.as_str() {
-        "volume" => sorted.sort_by(|a, b| b.total_volume_usd.partial_cmp(&a.total_volume_usd).unwrap()),
-        "pnl" => sorted.sort_by(|a, b| b.realized_pnl_usd.partial_cmp(&a.realized_pnl_usd).unwrap()),
-        "winrate" => sorted.sort_by(|a, b| b.win_rate.partial_cmp(&a.win_rate).unwrap()),
-        "swaps" => sorted.sort_by(|a, b| b.swap_count.cmp(&a.swap_count)),
-        _ => sorted.sort_by(|a, b| b.composite_score.partial_cmp(&a.composite_score).unwrap()),
+    if let Some(err) = scrape.error {
+        return Json(json!({ "error": err, "chain": chain.name(), "days": days }));
     }
+
+    let mut sorted = scrape.traders;
+    pipeline::sort_traders(&mut sorted, &sort);
 
     let total = sorted.len();
     sorted.truncate(limit);
@@ -89,8 +79,13 @@ async fn list_traders(
     Json(json!({
         "traders": sorted,
         "total": total,
+        "returned": sorted.len(),
         "chain": chain.name(),
         "days": days,
+        "sort": sort,
+        "min_swaps": min_swaps,
+        "source": scrape.source,
+        "coverage": scrape.coverage,
     }))
 }
 
@@ -100,39 +95,47 @@ async fn get_trader(
     Query(params): Query<TraderDetailParams>,
 ) -> Json<Value> {
     let chain_str = params.chain.unwrap_or_else(|| "base".to_string());
-    let chain = match Chain::from_str(&chain_str) {
-        Some(c) => c,
-        None => return Json(json!({ "error": "Invalid chain" })),
+    let Some(chain) = Chain::from_str(&chain_str) else {
+        return Json(json!({
+            "error": format!("unknown chain '{chain_str}'"),
+            "chains": Chain::all().iter().map(|c| c.name()).collect::<Vec<_>>(),
+        }));
     };
 
-    let days = params.days.unwrap_or(30);
+    let days = params.days.unwrap_or(7).clamp(1, 30);
+    let pool = params.pool.unwrap_or(2000).clamp(100, 20_000);
     let addr = address.to_lowercase();
 
-    // Check cache for this trader
-    let cache_key = AppState::cache_key(chain.name(), days, 5000);
-    let traders = if let Some(cached) = state.get_cached(&cache_key) {
-        cached
-    } else {
-        // Run pipeline with larger pool to find the specific trader
-        let (tx, mut rx) = mpsc::channel(100);
-        let state_clone = state.clone();
+    // A profile is one row of the same leaderboard, so run the same scrape the
+    // leaderboard runs. Widening the sample here (the old code forced pool
+    // 5000, min_swaps 1) only guaranteed a second cache key and a second full
+    // scrape for every profile click.
+    let scrape = pipeline::collect(state, chain, days, pool, 1, false).await;
 
-        tokio::spawn(async move {
-            pipeline::run_pipeline(state_clone, chain, days, 5000, 1, tx).await;
-        });
+    if let Some(err) = scrape.error {
+        return Json(json!({ "error": err, "address": addr, "chain": chain.name() }));
+    }
 
-        let mut result = Vec::new();
-        while let Some(event) = rx.recv().await {
-            if let PipelineEvent::Result { traders, .. } = event {
-                result = traders;
-                break;
-            }
-        }
-        result
-    };
-
-    match traders.iter().find(|t| t.address == addr) {
-        Some(trader) => Json(json!({ "trader": trader })),
-        None => Json(json!({ "error": "Trader not found", "address": addr })),
+    match scrape.traders.iter().find(|t| t.address == addr) {
+        Some(trader) => Json(json!({
+            "trader": trader,
+            "chain": chain.name(),
+            "days": days,
+            "source": scrape.source,
+            "coverage": scrape.coverage,
+        })),
+        None => Json(json!({
+            "error": "trader not in this sample",
+            "detail": format!(
+                "{} did not appear in the {}d {} sample of {} traders. The scrape reads a sample \
+                 of the top pools, not every swap on the chain.",
+                addr, days, chain.name(), scrape.traders.len()
+            ),
+            "address": addr,
+            "chain": chain.name(),
+            "days": days,
+            "sampled_traders": scrape.traders.len(),
+            "coverage": scrape.coverage,
+        })),
     }
 }

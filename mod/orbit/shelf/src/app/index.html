@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/shelf/">
+<title>shelf — the fleet's state</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">▤</span>
+    <div>
+      <h1>shelf</h1>
+      <p class="sub">every module's state, on one shelf</p>
+    </div>
+  </div>
+  <div class="top-right">
+    <span id="health" class="pill pill-idle" role="status">
+      <span class="pill-icon" aria-hidden="true">◌</span><span class="pill-text">checking</span>
+    </span>
+    <span id="bound" class="bound" title="where the API is listening"></span>
+    <button id="refresh" class="btn" type="button">refresh</button>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="sections">
+    <button class="rail-btn is-on" data-view="space" type="button"><span aria-hidden="true">▦</span> space</button>
+    <button class="rail-btn" data-view="store" type="button"><span aria-hidden="true">▤</span> store</button>
+    <button class="rail-btn" data-view="integrity" type="button"><span aria-hidden="true">◈</span> integrity</button>
+    <button class="rail-btn" data-view="snapshots" type="button"><span aria-hidden="true">◵</span> snapshots</button>
+    <div class="rail-foot">
+      <span class="rail-note">reads<br><code id="reads">~/.mod</code></span>
+    </div>
+  </nav>
+
+  <main class="stage">
+
+    <!-- ── SPACE ─────────────────────────────────────────────── -->
+    <section class="view is-on" id="view-space">
+      <div class="kpis" id="space-kpis"></div>
+
+      <figure class="card chart">
+        <figcaption>
+          <h2>State by module</h2>
+          <p class="cap">Bytes under <code>~/.mod/&lt;module&gt;</code>, largest first. Click a row to break it down.</p>
+        </figcaption>
+        <div class="legend" id="space-legend" hidden>
+          <span class="key"><i class="swatch swatch-1"></i> written by the module</span>
+          <span class="key"><i class="swatch swatch-2"></i> vendored cache</span>
+        </div>
+        <div class="bars" id="space-bars"><p class="loading">reading the disk…</p></div>
+      </figure>
+
+      <div class="split">
+        <section class="card" id="drill">
+          <h2>Breakdown</h2>
+          <p class="cap" id="drill-cap">Pick a module above.</p>
+          <div id="drill-body"></div>
+        </section>
+        <section class="card">
+          <h2>Largest single files</h2>
+          <p class="cap">A directory can be big because of one huge file or a million small ones. The fix differs.</p>
+          <div id="big-body"><p class="loading">…</p></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ── STORE ─────────────────────────────────────────────── -->
+    <section class="view" id="view-store">
+      <div class="toolbar">
+        <label>root
+          <select id="root-pick"></select>
+        </label>
+        <label class="grow">search keys
+          <input id="key-search" type="search" placeholder="substring of a key" autocomplete="off">
+        </label>
+        <label class="grow">grep contents
+          <input id="grep-q" type="search" placeholder="an address, an id, a word" autocomplete="off">
+        </label>
+        <button class="btn" id="grep-go" type="button">grep</button>
+      </div>
+
+      <div class="split store-split">
+        <section class="card">
+          <h2>Namespaces</h2>
+          <div id="prefix-body"><p class="loading">…</p></div>
+        </section>
+        <section class="card">
+          <h2>Keys <span class="count" id="key-count"></span></h2>
+          <div class="scroll" id="key-body"><p class="loading">…</p></div>
+        </section>
+      </div>
+
+      <section class="card" id="value-card">
+        <h2>Value <span class="count" id="value-key"></span></h2>
+        <p class="cap">Secret files are never opened. Secret fields come back as a fingerprint — enough to tell whether two modules share a key, not enough to use one.</p>
+        <div id="value-body"><p class="muted">Pick a key.</p></div>
+      </section>
+    </section>
+
+    <!-- ── INTEGRITY ─────────────────────────────────────────── -->
+    <section class="view" id="view-integrity">
+      <div class="kpis" id="int-kpis"></div>
+
+      <section class="card">
+        <h2>Content addressing</h2>
+        <p class="cap">A store that files bytes under their own hash is making a promise that nothing enforces. This rehashes them.</p>
+        <div id="verify-body"><p class="loading">…</p></div>
+      </section>
+
+      <div class="split">
+        <section class="card">
+          <h2>Strays</h2>
+          <p class="cap">The same bytes filed in two places. Content addressing makes this safe to fix: identical names mean identical bytes.</p>
+          <div id="stray-body"><p class="loading">…</p></div>
+        </section>
+        <section class="card">
+          <h2>Orphans <span class="count" id="orphan-count"></span></h2>
+          <p class="cap">Blobs no record mentions. Young ones are skipped — a blob can legitimately precede the record that will cite it.</p>
+          <div id="orphan-body"><p class="loading">…</p></div>
+          <div class="actions">
+            <button class="btn" id="gc-plan" type="button">plan a sweep</button>
+            <button class="btn btn-danger" id="gc-go" type="button" disabled>delete them</button>
+          </div>
+          <pre class="out" id="gc-out" hidden></pre>
+        </section>
+      </div>
+    </section>
+
+    <!-- ── SNAPSHOTS ─────────────────────────────────────────── -->
+    <section class="view" id="view-snapshots">
+      <section class="card">
+        <h2>Freeze a root</h2>
+        <p class="cap">A deterministic tar, pinned to localfs. Same tree, same bytes, same CID — so an unchanged snapshot does not consume a second pin. Secret files are excluded rather than redacted, because these bytes leave the box.</p>
+        <div class="toolbar flat">
+          <label>root <select id="snap-root"></select></label>
+          <button class="btn" id="snap-go" type="button">snapshot</button>
+        </div>
+        <pre class="out" id="snap-out" hidden></pre>
+      </section>
+
+      <section class="card">
+        <h2>Open one</h2>
+        <p class="cap">Inspect lists what is inside without writing any of it. Restore is a dry run until you confirm, and never overwrites unless told to.</p>
+        <div class="toolbar flat">
+          <label class="grow">cid <input id="snap-cid" type="text" placeholder="Qm…" autocomplete="off"></label>
+          <button class="btn" id="snap-inspect" type="button">inspect</button>
+          <button class="btn" id="snap-restore" type="button">plan restore</button>
+        </div>
+        <pre class="out" id="restore-out" hidden></pre>
+      </section>
+    </section>
+
+  </main>
+</div>
+
+<div id="tip" class="tip" role="tooltip" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

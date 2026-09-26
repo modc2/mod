@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { TopTrader, CATEGORIES, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug, MAX_ACTIVITY_ROWS } from "../lib/polymarket";
+import { TopTrader, ClosedPosition, CATEGORIES, formatVolume, formatPnl, timeAgo, matchMarketCategory, CategorySlug, MAX_ACTIVITY_ROWS } from "../lib/polymarket";
 import { shortAddress } from "@/lib/auth";
 import { PolymarketTrade, PolymarketPosition, TradeFilters } from "../lib/types";
 import { tradeMatchesFilters, describeTradeFilters } from "../lib/tradeFilters";
@@ -13,12 +13,18 @@ import CopySimPanel from "./CopySimPanel";
 import type { AllocationParams } from "../lib/identityStrat";
 import PnlChart from "./PnlChart";
 import type { CurvePoint } from "./PnlChart";
+import TradeShape, { isSettledWin } from "./TradeShape";
 // No recharts — pure SVG charts for reliability with any version.
 
 interface Props {
   trader: TopTrader;
   trades: PolymarketTrade[];
   positions: PolymarketPosition[];
+  /** The settled book — every position the market has finished deciding,
+      with realized P&L. `null` = not loaded or the fetch failed, which must
+      render as unknown: the trade feed alone cannot answer win rate, because
+      a position that expires worthless leaves no sell and no redeem in it. */
+  settled?: ClosedPosition[] | null;
   loading: boolean;
   watching: boolean;
   onToggleWatch: () => void;
@@ -47,6 +53,11 @@ interface Props {
   // Supplied ⇒ the FILTERS bar renders the global category buckets and can
   // set them from here (same shared filter TRADERS/MARKETS/TRADES use).
   onCategoryChange?: (c: CategorySlug) => void;
+  // Supplied ⇒ the rail can SET `searchFilter`, not just receive it. The
+  // board's keyword is what its row stats were scored on, so it has to stay
+  // applied here — and a filter that narrows the page has to be one you can
+  // see and turn. Same shared FiltersContext `search` / ?q= the board uses.
+  onSearchChange?: (q: string) => void;
   // Strat trade-filter handoff: when set, every trade on this page is gated
   // through the copy engine's own tradeMatchesFilters — you see only the
   // trades the originating strat would mirror. Cleared via the chip's ✕.
@@ -159,6 +170,7 @@ export default function TraderProfile({
   trader,
   trades,
   positions,
+  settled = null,
   loading,
   watching,
   onToggleWatch,
@@ -173,6 +185,7 @@ export default function TraderProfile({
   onClearMarketQuery,
   onMarketQueryChange,
   onCategoryChange,
+  onSearchChange,
   stratFilters = null,
   stratFilterName = "",
   onClearStratFilters,
@@ -459,9 +472,58 @@ export default function TraderProfile({
     const avgTrade = scoredSells.length ? totalPnl / scoredSells.length : 0;
     const biggestWin = scoredSells.length ? Math.max(...scoredSells.map((t) => t.realized)) : 0;
     const biggestLoss = scoredSells.length ? Math.min(...scoredSells.map((t) => t.realized)) : 0;
-    const winRate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : -1;
-    return { wins, losses, totalPnl, avgTrade, biggestWin, biggestLoss, winRate };
+    // `wins`/`losses` count SCORED SELLS and are rendered as exactly that.
+    // They are deliberately not turned into a rate here: a position that
+    // expired worthless was never sold, so it is in neither counter, and a
+    // percentage built from them can only read high. The WIN RATE tile uses
+    // `settledStats` below instead.
+    return { wins, losses, totalPnl, avgTrade, biggestWin, biggestLoss };
   }, [filteredTrades]);
+
+  /// Win rate off the SETTLED book: of the positions this market has finished
+  /// deciding inside the window, the share that returned more than they cost.
+  ///
+  /// This is the number the leaderboard shows. Counting exits instead — which
+  /// is all the trade feed can support — drops every loser that expired
+  /// worthless and only ever reads high; on the live board that put traders
+  /// at a flat 100%.
+  ///
+  /// Scoped by the same market-title filter as `filteredTrades`, so a
+  /// filtered profile and a filtered board agree about the record.
+  ///
+  /// The scoped book itself, oldest-first — the WIN RATE tile and the
+  /// win-rate curve in TradeShape both read it, so a tile saying 100% and a
+  /// line ending anywhere else is not expressible.
+  const settledScoped = useMemo(() => {
+    if (!settled) return null;
+    const titles = filterActive
+      ? new Set(filteredTrades.map((t) => t.market.toLowerCase()))
+      : null;
+    return settled
+      .filter((p) => {
+        if (p.timestamp < cutoffMs) return false;
+        if (titles && !titles.has(p.market.toLowerCase())) return false;
+        // Never bought and never booked anything — nothing was decided.
+        if (p.totalBought <= 0 && p.realizedPnl === 0) return false;
+        return true;
+      })
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }, [settled, filteredTrades, filterActive, cutoffMs]);
+
+  const settledStats = useMemo(() => {
+    if (!settledScoped) return { rate: -1, wins: 0, decided: 0, known: false };
+    let wins = 0;
+    // Money decides, not the outcome: a position bought at 97¢ that
+    // resolves YES and exits at 96¢ resolved your way and still lost.
+    for (const p of settledScoped) if (isSettledWin(p)) wins += 1;
+    const decided = settledScoped.length;
+    return {
+      rate: decided > 0 ? Math.round((wins / decided) * 100) : -1,
+      wins,
+      decided,
+      known: true,
+    };
+  }, [settledScoped]);
 
   // Per-market realized results inside the window.
   // "Closed in window" = market had SELL activity in the window AND
@@ -782,6 +844,8 @@ export default function TraderProfile({
       <ProfileFilters
         marketQuery={marketQuery}
         onMarketQueryChange={onMarketQueryChange}
+        search={searchFilter}
+        onSearchChange={onSearchChange}
         category={categoryFilter}
         onCategoryChange={onCategoryChange}
         bar={bar}
@@ -852,6 +916,15 @@ export default function TraderProfile({
             </div>
           )}
 
+          {/* The curve leads — "does this trader make money?" is the question
+              this page is open to answer, so it draws before the banners,
+              stat tiles and simulator. */}
+          {pnlCurve.length > 0 && (
+            <div className="pixel-panel overflow-hidden">
+              <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={filterActive} />
+            </div>
+          )}
+
           {/* Not a failure — a ceiling. Polymarket's activity feed refuses to
               page past 5,500 rows for any wallet, and the traders worth
               copying are exactly the ones who blow through that inside the
@@ -874,7 +947,18 @@ export default function TraderProfile({
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {([
               { label: `${dayLabel} P&L`, value: formatPnl(stats.totalPnl), tone: stats.totalPnl > 0 ? "good" : stats.totalPnl < 0 ? "bad" : "neutral" },
-              { label: "WIN RATE", value: stats.winRate < 0 ? "—" : `${stats.winRate}%`, tone: stats.winRate < 0 ? "neutral" : stats.winRate >= 50 ? "good" : "bad" },
+              {
+                label: settledStats.decided > 0 ? `WIN RATE · ${settledStats.decided}` : "WIN RATE",
+                value: settledStats.rate < 0 ? "—" : `${settledStats.rate}%`,
+                tone: settledStats.rate < 0 ? "neutral" : settledStats.rate >= 50 ? "good" : "bad",
+                hint: !settledStats.known
+                  ? "Settled book not loaded — a rate off the trade feed alone would only count winners, so this stays blank."
+                  : settledStats.decided === 0
+                    ? "Nothing this trader bought has settled inside the window yet."
+                    : `${settledStats.wins} of ${settledStats.decided} settled position(s) returned more than they cost. Includes positions that expired worthless — those leave no sell and no redeem in the trade feed.${
+                        settledStats.decided < 10 ? " Thin sample — treat as noise." : ""
+                      }`,
+              },
               { label: "TRADES", value: filterActive ? `${filteredTrades.length}/${tradesInWindow.length}` : filteredTrades.length.toString(), tone: "neutral" },
               { label: "VOLUME", value: formatVolume(filteredTrades.reduce((s, t) => s + t.size * t.price, 0)), tone: "neutral" },
               { label: "AVG TRADE", value: formatPnl(stats.avgTrade), tone: stats.avgTrade > 0 ? "good" : stats.avgTrade < 0 ? "bad" : "neutral" },
@@ -885,7 +969,11 @@ export default function TraderProfile({
                 stat.tone === "bad" ? "text-red-400" :
                 "text-pixel-white glow-green";
               return (
-                <div key={stat.label} className="pixel-panel px-3 py-2 text-center">
+                <div
+                  key={stat.label}
+                  className="pixel-panel px-3 py-2 text-center"
+                  title={"hint" in stat ? stat.hint : undefined}
+                >
                   <div className="text-[14px] text-pixel-gray tracking-wider mb-1">
                     {stat.label}
                   </div>
@@ -896,6 +984,25 @@ export default function TraderProfile({
               );
             })}
           </div>
+
+          {/* ── TRADE SHAPE ──
+              The tiles above are six averages; this is the shape underneath
+              them. Left: every fill's size on a time axis with the running
+              win rate (right axis, pinned 0–100) drawn over it. Right below:
+              the distribution — what the tape is actually made of by size,
+              entry price or realized exit. An "AVG TRADE $1.30" over a
+              hundred 70¢ fills and one whale is the number that decides
+              whether this trader is copyable, and only the histogram says so.
+              It sits above the simulator because it is still the TRADER's
+              record, like the tiles it follows. */}
+          {filteredTrades.length > 0 && (
+            <TradeShape
+              trades={filteredTrades}
+              settled={settledScoped}
+              dayLabel={dayLabel}
+              filtered={filterActive}
+            />
+          )}
 
           {/* ── SIMULATE THE COPY ──
               The stats above are the TRADER's record. This is YOURS: the same
@@ -1244,26 +1351,25 @@ export default function TraderProfile({
                 )}
               </>
             ) : profileTab === "pnl" ? (
-              <div className="p-0">
-                {pnlCurve.length > 0 ? (
-                  <PnlChart points={pnlCurve} dayLabel={dayLabel} tradesInWindow={filteredTrades} filtered={filterActive} />
-                ) : (
-                  <div className="p-8 text-center">
-                    <div className="text-[16px] text-pixel-gray-light tracking-wider mb-2">
-                      {`${dayLabel} P&L CURVE`}
-                    </div>
-                    <div className="text-[15px] text-pixel-gray">
-                      {tradesError
-                        ? "TRADE FEED UNAVAILABLE — RETRY SYNC ABOVE"
-                        : filterActive
-                        ? "NO MATCHING TRADES — TRY A DIFFERENT FILTER"
-                        : positions.length > 0
-                        ? "NO TRADES IN WINDOW — CHECK POSITIONS TAB"
-                        : "NO TRADE DATA"}
-                    </div>
+              /* The curve itself lives at the top of the page now — this tab
+                 holds the breakdowns (activity, extremes, per-market results)
+                 rendered below the panel. */
+              pnlCurve.length > 0 ? null : (
+                <div className="p-8 text-center">
+                  <div className="text-[16px] text-pixel-gray-light tracking-wider mb-2">
+                    {`${dayLabel} P&L CURVE`}
                   </div>
-                )}
-              </div>
+                  <div className="text-[15px] text-pixel-gray">
+                    {tradesError
+                      ? "TRADE FEED UNAVAILABLE — RETRY SYNC ABOVE"
+                      : filterActive
+                      ? "NO MATCHING TRADES — TRY A DIFFERENT FILTER"
+                      : positions.length > 0
+                      ? "NO TRADES IN WINDOW — CHECK POSITIONS TAB"
+                      : "NO TRADE DATA"}
+                  </div>
+                </div>
+              )
             ) : (
               /* ── INFO — who this trader is, and how the numbers above
                  were built. Everything here honors the same filters. ── */

@@ -1,0 +1,35 @@
+{
+  "name": "fleet-check",
+  "title": "Four modules asked at once",
+  "description": "Nothing here depends on anything else, so all four calls leave together and the run costs the slowest one. This is the shape most useful graphs start as.",
+  "steps": [
+    {
+      "id": "servers",
+      "tool": "hub_servers"
+    },
+    {
+      "id": "modules",
+      "tool": "docs__docs_modules"
+    },
+    {
+      "id": "chain",
+      "tool": "solana__sol_network",
+      "pick": "slot"
+    },
+    {
+      "id": "subnets",
+      "tool": "bt__bt_stats",
+      "continue_on_error": true
+    },
+    {
+      "id": "summary",
+      "use": "expr",
+      "value": {
+        "mcp_servers": "${servers.servers.id}",
+        "documented_modules": "${modules.count?}",
+        "solana_slot": "${chain}"
+      }
+    }
+  ],
+  "output": "${summary}"
+}

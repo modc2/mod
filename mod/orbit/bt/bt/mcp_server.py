@@ -20,7 +20,7 @@ import traceback
 
 from . import tools
 
-SERVER_INFO = {'name': 'bittensor', 'version': '2.2.0'}
+SERVER_INFO = {'name': 'bittensor', 'version': '2.4.0'}
 PROTOCOL_VERSION = '2025-06-18'
 
 
@@ -55,7 +55,10 @@ def handle(msg: dict):
                 'bt_trader and bt_trader_flows serve its equity curve, PnL '
                 'and inferred trades from the same local index. Tools '
                 'marked as real on-chain trades move real TAO — confirm '
-                'with the user before calling them.'),
+                'with the user before calling them. bt_view is the one tool '
+                'that touches no chain: it opens a view in the bt console '
+                'the caller is looking at, so an answer about a subnet or a '
+                'trader lands on their screen.'),
         })
     elif method == 'ping':
         _reply(id_, {})

@@ -52,7 +52,7 @@ Four rules make modules interoperable (full detail in [Protocol](protocol)):
 1. **Anatomy** — an anchor class in a directory under an orbit; `config.json` declares ports and metadata.
 2. **Serving** — `m serve <name>` exposes functions as `POST /{fn}` and `POST /mod/{name}/{fn}`; PM2 supervises processes.
 3. **Null-call discovery** — `POST /mod/{name}` with no function returns the module's info (functions, schema, description). Any module can be introspected by hitting its bare URL.
-4. **One URL rule** — every gateway routes `/{mod}` to the module's app and `/api/{mod}` (prefix stripped) to its API. Three interchangeable implementations exist: the production Caddy gateway (routes auto-generated from module configs), the `routy` Rust gateway, and the core Next.js middleware.
+4. **One URL rule** — every gateway routes `/{mod}` to the module's app and `/{mod}/api` (prefix stripped; legacy `/api/{mod}` kept as an alias) to its API. Three interchangeable implementations exist: the production Caddy gateway (routes auto-generated from module configs), the `routy` Rust gateway, and the core Next.js middleware.
 
 ## 4. Identity, Keys, and Auth
 

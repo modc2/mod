@@ -5,7 +5,7 @@ import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import { NARROW } from '@/lib/layout'
 import {
-  DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL, ZONE_COLOR,
+  DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL, SPEED_BAND, ZONE_COLOR,
   divergingExpression, stepExpression,
 } from '@/lib/palette'
 
@@ -390,6 +390,59 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
             10, ['case', ['==', ['get', 'cls'], 'I'], 1.2, 0.6],
             15, ['case', ['==', ['get', 'cls'], 'I'], 3.4, 1.6]],
           'line-opacity': 0.85 * alpha,
+        },
+      })
+      return ids
+
+    case 'traffic_speeds': {
+      // Casing under the line: a 2px red thread over a dark basemap beside an
+      // amber one is hard to tell apart, and the jams are the whole point.
+      const band: any[] = ['match', ['get', 'band']]
+      Object.entries(SPEED_BAND).forEach(([k, c]) => band.push(k, c))
+      band.push('#8b93a7')
+      add({
+        id: `${def.id}--case`, type: 'line', source: src,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#000000',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 3.2, 13, 6, 16, 10],
+          'line-opacity': 0.55 * alpha,
+        },
+      })
+      add({
+        id: `${def.id}--line`, type: 'line', source: src,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': band as any,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 9, 1.8, 13, 3.6, 16, 6.5],
+          'line-opacity': 0.95 * alpha,
+        },
+      })
+      return [`${def.id}--line`]
+    }
+
+    case 'traffic_volume':
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        paint: {
+          // √-scaled like the other graduated circles, against a 100k/day
+          // reference — the busiest locations in the file are the parkways
+          // and the East River bridges at roughly that.
+          //
+          // Floored, unlike the others: DOT's counts run over three orders of
+          // magnitude, so a pure √ scale drew the quiet two-thirds of them at
+          // under 2px — invisible, and below the map's own hit tolerance, so
+          // they could not be clicked open at all. The floor costs the low end
+          // its proportionality and buys back its existence.
+          'circle-radius': ['interpolate', ['linear'], ['zoom'],
+            10, ['max', 2.6,
+              ['*', 5.5, ['sqrt', ['/', ['coalesce', ['get', 'daily'], 1], 100000]]]],
+            15, ['max', 4.5,
+              ['*', 16, ['sqrt', ['/', ['coalesce', ['get', 'daily'], 1], 100000]]]]],
+          'circle-color': color,
+          'circle-opacity': 0.72 * alpha,
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#000000',
         },
       })
       return ids

@@ -1,6 +1,6 @@
 // Thin client over the freetune Rust API. All calls go through /api/freetune,
 // which Caddy (prod) or next rewrites (dev) proxy to the backend.
-const API = process.env.NEXT_PUBLIC_API_URL || "/api/freetune";
+const API = process.env.NEXT_PUBLIC_API_URL || "/freetune/api";
 
 // Set by AuthContext once the owner wallet has signed in. Gated endpoints
 // (train, infer, bench, stop, delete, worker evict) attach it as the `token`

@@ -5,7 +5,7 @@ import { CopyEngine, CopyEngineState, CopyEngineConfig, GateTally } from "../lib
 import { getOwnerAddress } from "../lib/access";
 import { stopLiveSession } from "../lib/liveSessions";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "/api/polymarket";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "/polymarket/api";
 
 interface CopyEngineContextValue {
   engineState: CopyEngineState | null;

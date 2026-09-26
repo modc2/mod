@@ -1,0 +1,6 @@
+{
+  "name": "connect4",
+  "description": "Connect Four as a Python class: view, step, done, result. Drop a disc down a column, four in a row wins.",
+  "author": "modarena",
+  "tags": ["example", "game", "class", "python"]
+}

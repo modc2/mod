@@ -126,6 +126,8 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
+    // Behind the fleet gateway the app lives at /model but the API at /api/model
+    const API = location.pathname.startsWith('/model') ? '/model/api' : '';
     const KEY_PREFIX = 'modelgw_key_';
     const SEL_KEY = 'modelgw_last_provider';
     const MODEL_KEY = 'modelgw_last_model_';
@@ -158,7 +160,7 @@
     }
 
     async function loadProviders() {
-      const res = await fetch('/providers');
+      const res = await fetch(`${API}/providers`);
       state.providers = await res.json();
       const sel = $('provider');
       sel.innerHTML = '';
@@ -189,7 +191,7 @@
         return;
       }
       try {
-        const res = await fetch(`/models?provider=${encodeURIComponent(pid)}`, {
+        const res = await fetch(`${API}/models?provider=${encodeURIComponent(pid)}`, {
           headers: { 'X-API-Key': key },
         });
         if (!res.ok) {
@@ -269,7 +271,7 @@
       state.streaming = true; $('send').disabled = true;
 
       try {
-        const res = await fetch('/chat', {
+        const res = await fetch(API + '/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
           body: JSON.stringify({

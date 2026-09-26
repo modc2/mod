@@ -84,7 +84,8 @@ m copytensor/create_copy target_ss58=... our_hotkey=...
 | GET | `/market` | Network totals (alpha mcap, 24h volume, block, TAO/USD) + top gainers/losers |
 | GET | `/subnets/{netuid}` | Pool state + on-chain identity + validator rankings |
 | GET | `/subnets/{netuid}/history?hours=168` | Indexed price / mcap / volume series |
-| GET | `/leaderboard?days=7&top=50` | Top performers by alpha PnL |
+| GET | `/leaderboard?days=7&top=50` | Top performers by alpha PnL (`days=0` = all history) |
+| GET | `/coverage` | How deep the index is: `depth_days`, `oldest_ts`, per-horizon `covered`/`pct` |
 | GET | `/account/{ss58}?days=7` | Allocations + PnL |
 | GET | `/account/{ss58}/pnl?days=7` | Detailed per-subnet PnL |
 | GET | `/account/{ss58}/curve?days=7` | Equity/PnL curve from local snapshots + the trades on it |
@@ -126,7 +127,7 @@ mod/orbit/copytensor/
     ├── mod.py                   # Mod orchestrator (Copytensor)
     ├── agent/
     │   ├── tools.py             # The strat agent's toolbox (trimmed reads + propose_strat)
-    │   ├── mcp_server.py        # Zero-dep MCP stdio server over that toolbox
+    │   ├── mcp_server.py        # MCP dispatcher: stdio server + the POST /mcp mount in api/app.py
     │   └── agent.py             # Claude CLI driver: SSE events, session resume
     ├── api/
     │   ├── app.py               # FastAPI app
@@ -135,6 +136,13 @@ mod/orbit/copytensor/
     │   ├── client.py            # SubtensorClient with round-robin RPC failover
     │   ├── bt_source.py         # BtSource + BtBackedClient — reads via the bt module
     │   └── snapshot.py          # Periodic snapshot capture
+    ├── strats/
+    │   ├── base.py              # Canonical Strat schema (shared with polymarket + hyperliquid) + sleeve bridge
+    │   ├── copy_coldkeys.py     # Mirror a fixed list of coldkeys
+    │   ├── top_n.py             # Top N by window PnL, PnL-weighted
+    │   ├── whales.py            # Biggest books by staked τ, √value-weighted
+    │   ├── steady.py            # Market-PnL earners (deposit-driven "returns" filtered)
+    │   └── README.md            # The contract + three-venue diff table
     ├── engine/
     │   ├── bt_board.py          # The leaderboard, ranked by bt's index (the default path)
     │   ├── leaderboard.py       # Fallback board: rank watched accounts by walking the chain
@@ -146,16 +154,18 @@ mod/orbit/copytensor/
     └── app/                     # Next.js frontend (pixel theme, CRT shell)
 ```
 
-## The strat agent
+## The desk agent
 
-A conversation whose output is a basket. `/agent` in the console, `ct.ask()` from
-Python, `m copytensor/ask` from a shell — all three drive the same run.
+A conversation whose output is a basket — and, when you say so, a change to the
+book. `/agent` in the console, `ct.ask()` from Python, `m copytensor/ask` from a
+shell — all three drive the same run.
 
 **The shape.** `src/agent/agent.py` runs the Claude CLI headless
 (`claude -p --output-format stream-json`) with `src/agent/mcp_server.py` as its only
 toolbox, and translates the CLI's stream into console events:
-`start | text | tool | tool_done | strat | done | error`. `strat` is the event that
-matters — it carries the validated basket, which the UI renders as a card.
+`start | text | tool | tool_done | strat | approval | approval_done | ping | done |
+error`. `strat` carries the validated basket the UI renders as a card; `approval`
+carries a write the agent wants to make and has *not* made.
 
 **The toolbox reads this module's own API**, not the chain. `ct_traders` (the tracked
 board, and the pool a basket is picked from), `ct_trader`, `ct_trader_flows`,
@@ -172,12 +182,57 @@ every pick off the live board — so the card renders without a second round-tri
 the agent gets told what it actually picked (a coldkey with no index history comes
 back flagged `tracked: false` in `warning`).
 
-**It cannot trade.** There is no write tool in the registry at all, so no prompt can
-reach `/copy` or a wallet. A proposal lands in the console as a card; SAVE writes it
-into the same localStorage strat library the strat maker uses (`copytensor:indexes:v1`,
-with `thesis` alongside the weights), and OPEN IN STRAT MAKER saves then loads it into
-the drawer's builder for the hotkey and the ACTIVATE click. Going live stays exactly
-where it was.
+A proposal lands in the console as a card; SAVE writes it into the strat library, and
+OPEN IN STRAT MAKER loads it into the drawer's builder for the hotkey and the ACTIVATE
+click.
+
+### It can act — and it asks first, every time
+
+Since v0.12.0 the agent holds the **whole** toolbox, ops included: it can start a
+copy, re-size one, pause or delete one, watch a coldkey, and sync the book to the
+chain. What makes that safe is not a short tool list, it is that every *write* stops
+for a human.
+
+**The gate is `src/agent/approvals.py`, and it lives below the agent.** A gated call
+never reaches the API route. The MCP dispatcher parks it (`POST /agent/approvals`),
+blocks on `GET /agent/approvals/{id}/wait`, and only calls the tool if the answer is
+yes. The agent cannot route around it, a resumed session cannot, and neither can
+another MCP client — Claude Code connected over `POST /mcp` parks its writes in the
+same queue, and you answer them from the same console.
+
+| | |
+|---|---|
+| Free | every read, `propose_strat`, and `ct_sync(dry_run=true)` — a preview signs nothing, so the agent is *encouraged* to show you the plan before it asks |
+| Gated | `ct_create_copy`, `ct_resize_copy`, `ct_delete_copy`, `ct_pause_copy`, `ct_resume_copy`, `ct_watch`, `ct_unwatch`, and a live `ct_sync` |
+
+The set is `tools.WRITE_TOOLS` — named explicitly, never derived, so a new tool has to
+opt *in* to being free.
+
+**A decline is a turn of the conversation, not an error.** The reason you type comes
+back as the tool RESULT (`isError: false`), so "too much TAO, halve it" makes the
+agent halve it rather than retry or apologise. `tools.describe()` writes the one line
+on the card — "Start copying 5Gsb…pZX9 with 40 τ behind it" — with the raw arguments
+under it.
+
+**Failure modes all close.** Nobody answers → the request expires into a decline after
+`agent_approval_ttl_sec` (600s). The approval queue is unreachable → decline. The
+console closes mid-run → `ask()` declines everything still parked for that run.
+
+**A human is not a hang.** While a write is parked the CLI prints nothing, so `ask()`
+pumps stdout on a thread and keeps ticking: the cards reach the console on the same
+SSE stream, the timeout watchdog stops counting, and `ping` frames hold the socket
+open for as long as you take.
+
+```bash
+m copytensor/ask question="start a 20 TAO copy of the best 7d name" # prompts [y/N]
+m copytensor/ask question="..." approve=never                      # research only
+m copytensor/approvals                                             # what is waiting
+m copytensor/approve <id>  /  m copytensor/decline <id> note="..."
+```
+
+A non-TTY caller (cron, a pipe) auto-declines: a write nobody watched is exactly what
+the gate is for. `COPYTENSOR_MCP_APPROVAL=0` runs an MCP client ungated — the module's
+own agent always sets it to its run id and cannot turn it off.
 
 **Talking, not asking.** Every event carries the CLI's `session_id`; sending it back
 with the next question resumes that conversation (`--resume`), so "cut it to the best
@@ -187,13 +242,54 @@ is shared by every module on this host).
 
 **Auth** cascades `ANTHROPIC_API_KEY` → `~/.mod/copytensor/anthropic.key` (created
 empty at 0600 if nothing exists) → Claude CLI OAuth. `GET /agent` reports which one
-answered, and `m copytensor/test` fails the `agent` check when none do.
+answered, and `m copytensor/test` fails the `agent` check when none do. It also
+returns `auth_note`: the OAuth file existing is not the same as the login working, and
+without that note a stale `claude login` shows a green READY badge and then answers
+"OAuth session expired" only after you have asked it something.
 
-The MCP server also stands alone, for any client:
+## MCP — sync the book from any client
+
+The API **is** the MCP server: `POST /mcp` on the API port speaks streamable
+HTTP (JSON-RPC 2.0, batches ok), and the gateway forwards it as
+`/copytensor/api/mcp`. `GET /mcp/schema` (or `m copytensor/mcp`) lists the
+transports and every tool before you connect.
 
 ```bash
+claude mcp add --transport http copytensor http://localhost:50150/mcp
+# through the gateway / from another box:
+claude mcp add --transport http copytensor https://<host>/copytensor/api/mcp
+# stdio, if you would rather not go over the network (same dispatcher):
 claude mcp add copytensor -- python3 -m src.agent.mcp_server   # from the module dir
 ```
+
+25 tools in two scopes (`src/agent/tools.py`):
+
+| scope | tools | who sees it |
+|---|---|---|
+| `agent` (read-only) | `ct_status ct_market ct_subnets ct_traders ct_trader ct_trader_flows ct_flows ct_leaderboard ct_copies propose_strat` | the strat agent — `agent.py` launches the stdio server with `COPYTENSOR_MCP_SCOPE=agent`, so it can't even list the ops set |
+| `ops` | `ct_wallet ct_copy ct_create_copy ct_resize_copy ct_pause_copy ct_resume_copy ct_delete_copy ct_portfolio ct_sync ct_trades ct_watch ct_unwatch ct_watches ct_strats ct_backtest` | any MCP client on `/mcp` (default scope `all` = both) |
+
+The sync flow an MCP client runs:
+
+1. `ct_wallet` — is a signer loaded? (Loading one is `POST /wallet/set` /
+   `m copytensor/set_wallet`; a mnemonic is never an MCP argument.)
+2. `ct_create_copy {target_ss58, alloc_tao}` — `our_hotkey` defaults to the
+   loaded wallet. Or `ct_resize_copy` / `ct_pause_copy` on an existing one.
+3. `ct_sync {dry_run: true}` — the plan, unsigned. Same object the live pass
+   executes, so the preview cannot drift.
+4. `ct_sync` — signs the stake/unstake extrinsics that close the gap. Always the
+   **whole** portfolio (sleeves only add up diffed together); a `copy_id` just
+   names the reason and routes via `POST /copy/{id}/sync`. Long timeout
+   (`COPYTENSOR_MCP_SYNC_TIMEOUT`, 600 s) — a wide book signs one tx per subnet.
+5. `ct_trades` — what landed.
+
+Every tool is a loopback call to a REST route above, so REST, `m copytensor/*`
+and MCP can never disagree. That loopback is also why the `/mcp` handler
+dispatches in the threadpool (`run_in_threadpool`): a blocking `requests` call
+to ourselves from the event loop would wait on the loop it is blocking.
+`ct_strats` reads private strats only with the browser's owner key
+(`owner_key` arg or `COPYTENSOR_OWNER_KEY`). Pinned by `tests/test_mcp.py`
+(fake API, no chain, no bt).
 
 ## UI — the 8-bit console
 
@@ -237,22 +333,55 @@ Two things worth knowing before editing:
   copy). Put the class on a `<p>`, not on a panel, or the 72ch measure caps the panel.
 
 Two shared components carry the page furniture, and both replaced per-page copies
-that had already drifted apart: `PageHeader.tsx` (the marquee band — title, optional
-controls on the right, standfirst below) and `StatTile.tsx` (a scoreboard readout;
-`tone` paints the lit strip across its top and the value). Use them rather than
-hand-rolling another header or tile.
+that had already drifted apart: `PageHeader.tsx` (title, one quiet VT323 line under
+it, optional controls on the right — it used to be a boxed marquee band that ate a
+third of the first screen) and `StatTile.tsx` (a scoreboard readout; `tone` paints
+the lit strip across its top and the value). Use them rather than hand-rolling
+another header or tile.
 
-The top bar is two honest rows at every width — marquee + status on top, nav + search
-under it. It used to collapse onto one line on wide screens, but logo + tabs +
-search + 4 controls only ever fitted by shrinking the tabs and the search field into
-each other. The nav is five doors — SUBNETS, TRADERS, STRATS, AGENT, PORTFOLIO — and
-`/` lands on SUBNETS. There was a sixth, LEADERBOARD, which rendered the *same*
-`Leaderboard.tsx` as TRADERS under a different standfirst; the tab is gone and
-`/leaderboard` redirects to `/traders` so old links still land. The board no longer
-carries a "top subnet" column either — and with it went the whole `/subnets` fetch
-the table did only to name that one cell. Under `lg` the status cluster (rpc, skin,
-both drawer doors, search) folds into a `☰` sheet and the nav becomes a scrolling
-rail that auto-centres the active tab.
+### The front door
+
+`/` is a plain-language landing page (`components/Home.tsx`), built for someone who
+has never seen a coldkey: a one-line pitch, the top nine traders of the last 7 days
+as **cards** (rank, name, one big return %, "holds N τ · M subnets", COPY / DETAILS),
+the copies you already run, and a three-step "how it works". Cards are filtered
+harder than the board — priced, ≥25 τ held, ≥2 subnets, market % < 500 — because a
+wallet that emptied itself over the window reads as +150 % market on −100 % total
+and used to top the raw ranking. (The board itself now hides dust books < 1 τ too,
+unless you're searching for one.)
+
+COPY on a card opens `SimpleCopy.tsx`: one dialog, one number. If no wallet is set
+it asks for the recovery phrase first (`POST /wallet/set`), then amount → START
+(`POST /copy` with `alloc_tao`; hotkey, per-tx cap and rebalance band take the
+server defaults). Every dial the dialog hides is still on the strat maker in the
+drawer. `/portfolio` is now MY COPIES — `MyCopies.tsx` cards with PAUSE / SYNC /
+STOP over the activity tape; the blended book with per-subnet drift stays on
+`/strats` (`AllocationBook`).
+
+The top bar is one row on desktop: logo, four doors — HOME, TRADERS, SUBNETS,
+MY COPIES — search, the τ/$ toggle, and MORE. MORE is a drop holding everything a
+first-timer doesn't need: STRATS, AGENT, the two drawer caps (WATCHLIST, STRAT
+MAKER), the skin picker and the RPC readout. Under `lg` the rail scrolls under the
+logo and MORE's contents become the `☰` sheet. `/leaderboard` still redirects to
+`/traders`.
+
+**The window is a first-class control, and it says how deep the index is
+(v0.11.0).** `WindowRail.tsx` is the one horizon picker — 24H · 3D · 7D · 14D ·
+30D · ALL — rendered on the front page, the board and the trader profile, all
+driven by the single `days` in `FiltersContext`. `days = 0` is the all-history
+window: `/leaderboard`, `/account/*` and `/trader/*` all map it through
+`_win()` onto the server's `ALL_DAYS` (365) horizon, so the cache key stays put
+while the real depth grows a day a day. `GET /coverage` derives, from one deep
+board's per-row `window_days`, how far back the index actually reaches
+(`depth_days`, `oldest_ts`) and how many traders clear each offered horizon;
+`lib/useCoverage.ts` fetches it once per tab and every rail labels itself with
+it — ALL carries the depth, a horizon only part of the index can answer is
+marked amber with its percentage, and one that nothing can answer is disabled.
+This existed because the console happily offered 30 days over a 12-day index
+and the rows came back silently measured over less. `BoardFilters.tsx` adds the
+other two knobs the front page used to hide in a constant: RANK BY
+(return / total % / size / spread) and the τ book floor (`minStake`, default
+25 τ), both shared with the board through the same context.
 
 Charts are plotted on the pixel lattice, not drawn: `Sparkline.tsx` snaps vertices to
 a 2px grid and emits an axis-aligned staircase, and the Recharts areas use
@@ -372,5 +501,5 @@ Check at least one light skin and one dark before shipping a visual change.
 - **Default entry**: `forward()` returns module info; `forward(fn="leaderboard")` dispatches
 - **Logs**: `/tmp/copytensor/api.log`, `/tmp/copytensor/app.log` (local mode), `docker logs copytensor` (docker mode)
 - **Ports**: api 50150, app 3150
-- **Gateway**: registered in `server.namespace.app_namespace` on first `serve()`. Accessible via the mod-protocol gateway on :3001 (`/copytensor` for app, `/api/copytensor/*` for API) and the caddy edge on :3000. Use `m.copytensor.gateway()` (or `m copytensor/gateway`) to print live URLs.
+- **Gateway**: registered in `server.namespace.app_namespace` on first `serve()`. Accessible via the mod-protocol gateway on :3001 (`/copytensor` for app, `/copytensor/api/*` for API) and the caddy edge on :3000. Use `m.copytensor.gateway()` (or `m copytensor/gateway`) to print live URLs.
 - **Docker**: `docker compose up -d --build` from the module dir, or `m copytensor/serve` (auto-picks docker when available, falls back to local with the prebuilt arm64 binary). Image: `copytensor-copytensor:latest`. Rust 1.93+ required (older base images choke on `ar_archive_writer`/`constant_time_eq` edition2024 features).

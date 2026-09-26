@@ -1,0 +1,15 @@
+{
+  "name": "center",
+  "kind": "player",
+  "lang": "python",
+  "anchor": "mod.py",
+  "description": "A Connect Four bot in one method: take the win, block theirs, else play towards the middle.",
+  "author": "modarena",
+  "tags": [
+    "example",
+    "player",
+    "class",
+    "python"
+  ],
+  "protocol": "modarena/1.0"
+}

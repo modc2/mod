@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sui — one mod, the whole chain</title>
+<style>
+  :root{
+    --bg:#060a10; --panel:#0b1220; --line:#17243a; --ink:#d8e4f2; --dim:#5f7593; --hot:#4da2ff; --hot2:#6fbcf0; --ink2:#b3c7de;
+    --good:#3fd68c; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:baseline;gap:14px;padding:13px 18px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);
+         z-index:9;flex-wrap:wrap}
+  h1{font-size:15px;margin:0;letter-spacing:.14em}
+  h1 b{background:linear-gradient(90deg,var(--hot),var(--hot2));
+       -webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{color:var(--dim);font-size:11px}
+  nav{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+  nav button{background:none;border:1px solid var(--line);color:var(--dim);
+             padding:5px 12px;cursor:pointer;font:inherit;font-size:11px;
+             letter-spacing:.1em}
+  nav button.on{color:#04121f;background:var(--hot);border-color:var(--hot)}
+  main{padding:16px 18px;max-width:1440px}
+  section{display:none} section.on{display:block}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select,textarea{background:var(--panel);border:1px solid var(--line);
+               color:var(--ink);padding:6px 9px;font:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--hot)}
+  input.wide{min-width:min(500px,72vw)}
+  label.chk{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:4px;
+            cursor:pointer}
+  button.go{background:var(--hot);color:#04121f;border:none;padding:7px 16px;
+            cursor:pointer;font:inherit;font-weight:600;letter-spacing:.08em}
+  button.go.danger{background:var(--bad);color:#180707}
+  button.go:disabled{opacity:.5;cursor:wait}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
+               padding:3px 9px;cursor:pointer;font:inherit;font-size:11px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
+     padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #0f1726;vertical-align:top}
+  tr:hover td{background:#0b1320}
+  td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+  .p{display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:2px;
+     font-size:10px;color:var(--dim);margin-right:3px}
+  .p.hot{color:var(--hot);border-color:#1d3f63}
+  .p.grn{color:var(--good);border-color:#164a33}
+  .p.bad{color:var(--bad);border-color:#4a1d1d}
+  .p.wrn{color:var(--warn);border-color:#4a3c14}
+  .up{color:var(--good)} .down{color:var(--bad)} .dimtxt{color:var(--dim)}
+  .addr{color:var(--hot2);cursor:pointer;word-break:break-all}
+  .addr:hover{text-decoration:underline}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
+      font-size:11px;max-height:65vh;white-space:pre-wrap;word-break:break-word;margin:0}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;
+         margin-bottom:14px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:12px}
+  .card h3{margin:0 0 6px;font-size:10px;letter-spacing:.12em;color:var(--dim);
+           text-transform:uppercase}
+  .card .big{font-size:19px;color:var(--ink2);font-variant-numeric:tabular-nums;
+             overflow-wrap:anywhere}
+  .card .big.grn{color:var(--hot)}
+  .card .sm{font-size:11px;color:var(--dim);overflow-wrap:break-word}
+  .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  @media(max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+  h2.t{font-size:11px;letter-spacing:.14em;color:var(--dim);text-transform:uppercase;
+       margin:18px 0 8px;border-bottom:1px solid var(--line);padding-bottom:5px}
+  .empty{color:var(--dim);padding:18px 0;font-size:12px}
+  .warnbox{border:1px solid #4a3c14;color:var(--warn);padding:8px 10px;font-size:11px;
+           margin:10px 0;background:#12100a}
+  img.thumb{width:38px;height:38px;object-fit:cover;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header>
+  <h1>◈ <b>SUI</b></h1>
+  <span class="sub" id="tagline">connecting…</span>
+  <nav>
+    <button data-tab="explore" class="on">EXPLORE</button>
+    <button data-tab="tx">TX</button>
+    <button data-tab="coins">COINS</button>
+    <button data-tab="chain">CHAIN</button>
+    <button data-tab="move">MOVE</button>
+    <button data-tab="wallet">WALLET</button>
+    <button data-tab="mcp">MCP</button>
+  </nav>
+</header>
+<main>
+
+<!-- ── explore ── -->
+<section id="explore" class="on">
+  <div class="bar">
+    <input id="ex-q" class="wide" placeholder="an address, object ID, coin type, tx digest, or a name like bob.sui">
+    <select id="ex-net"><option>mainnet</option><option>testnet</option><option>devnet</option></select>
+    <button class="go" id="ex-go">IDENTIFY</button>
+    <span class="flash" id="ex-flash"></span>
+  </div>
+  <div class="note">On Sui an account address and an object ID are both 32 bytes of hex,
+    and nothing tells them apart. This asks the chain which one it turned out to be.</div>
+  <div id="ex-out"></div>
+</section>
+
+<!-- ── tx ── -->
+<section id="tx">
+  <div class="split">
+    <div>
+      <h2 class="t">History</h2>
+      <div class="bar">
+        <input id="h-addr" class="wide" placeholder="address">
+        <select id="h-dir"><option value="both">both</option><option value="from">sent</option><option value="to">received</option></select>
+        <button class="go" id="h-go">LOAD</button>
+      </div>
+      <div class="flash" id="h-flash"></div>
+      <div id="h-out"></div>
+    </div>
+    <div>
+      <h2 class="t">Decode one transaction</h2>
+      <div class="bar">
+        <input id="tx-d" class="wide" placeholder="transaction digest (base58, never 0x)">
+        <label class="chk"><input type="checkbox" id="tx-ev"> events</label>
+        <button class="go" id="tx-go">DECODE</button>
+      </div>
+      <div class="flash" id="tx-flash"></div>
+      <div id="tx-out"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── coins ── -->
+<section id="coins">
+  <div class="split">
+    <div>
+      <h2 class="t">Price</h2>
+      <div class="bar">
+        <input id="pr-ids" value="SUI,DEEP,CETUS,WAL" placeholder="coin types or symbols, comma-separated">
+        <button class="go" id="pr-go">PRICE</button>
+      </div>
+      <div class="flash" id="pr-flash"></div>
+      <div id="pr-out"></div>
+    </div>
+    <div>
+      <h2 class="t">One coin</h2>
+      <div class="bar">
+        <input id="c-type" value="SUI" class="wide" placeholder="coin type or symbol">
+        <button class="go" id="c-go">LOOK UP</button>
+      </div>
+      <div class="flash" id="c-flash"></div>
+      <div id="c-out"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── chain ── -->
+<section id="chain">
+  <div class="bar">
+    <select id="ch-net"><option>mainnet</option><option>testnet</option><option>devnet</option></select>
+    <button class="go" id="ch-go">REFRESH</button>
+    <span class="flash" id="ch-flash"></span>
+  </div>
+  <div id="ch-out"></div>
+  <h2 class="t">Validators by stake</h2>
+  <div id="ch-val"></div>
+</section>
+
+<!-- ── move ── -->
+<section id="move">
+  <div class="bar">
+    <input id="pk-id" class="wide" value="0x2" placeholder="package ID — 0x2 is the Sui framework">
+    <input id="pk-mod" placeholder="module (optional)" size="14">
+    <button class="go" id="pk-go">READ</button>
+    <span class="flash" id="pk-flash"></span>
+  </div>
+  <div class="note">Move keeps its interface on chain. Unlike EVM bytecode, you can read
+    exactly what a package offers before you call it.</div>
+  <div id="pk-out"></div>
+</section>
+
+<!-- ── wallet ── -->
+<section id="wallet">
+  <div class="bar">
+    <input id="t-token" class="wide" placeholder="bearer token — the contents of ~/.mod/sui/server.secret">
+    <span class="dimtxt">needed unless you reached this over loopback</span>
+  </div>
+  <h2 class="t">Keystore</h2>
+  <div class="bar">
+    <button class="go" id="w-refresh">WALLETS</button>
+    <input id="w-name" placeholder="name" size="10">
+    <button class="ghost" id="w-create">create</button>
+    <input id="w-secret" placeholder="secret to import (suiprivkey1… / base64 / path)" size="38">
+    <button class="ghost" id="w-import">import</button>
+    <span class="flash" id="w-flash"></span>
+  </div>
+  <div id="w-out"></div>
+  <h2 class="t">Send</h2>
+  <div class="bar">
+    <input id="s-to" placeholder="recipient address or name.sui" size="34">
+    <input id="s-amt" placeholder="amount" size="8">
+    <input id="s-coin" value="SUI" placeholder="coin" size="10">
+    <select id="s-net"><option>mainnet</option><option>testnet</option><option>devnet</option></select>
+    <select id="s-from"><option value="">default wallet</option></select>
+    <button class="go" id="s-dry">DRY RUN</button>
+    <button class="go danger" id="s-go">SEND</button>
+    <span class="flash" id="s-flash"></span>
+  </div>
+  <div class="note">Every transfer is simulated first — that is how the gas budget is set
+    and how a doomed transfer is caught before it costs anything. A landed transfer
+    cannot be undone; rehearse on testnet.</div>
+  <div id="s-out"></div>
+</section>
+
+<!-- ── mcp ── -->
+<section id="mcp">
+  <div id="m-out"></div>
+</section>
+
+</main>
+<script>
+const API = location.pathname.replace(/\/$/, '') + '/_api';
+const $ = s => document.querySelector(s);
+const el = (t, c, h) => { const n = document.createElement(t); if (c) n.className = c;
+                          if (h !== undefined) n.innerHTML = h; return n; };
+const esc = s => String(s === null || s === undefined ? '' : s)
+  .replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const num = (v, d = 4) => v === null || v === undefined ? '—'
+  : Number(v).toLocaleString(undefined, {maximumFractionDigits: d});
+// Sui coins are routinely worth fractions of a cent, and pool liquidity is
+// routinely seven figures. Two decimals is wrong at both ends.
+const usd = v => {
+  if (v === null || v === undefined) return '—';
+  const n = Number(v), a = Math.abs(n);
+  const d = a >= 1000 ? 0 : a >= 1 ? 2 : 6;
+  // sign goes outside the $, and min must never exceed max or toLocaleString throws
+  return (n < 0 ? '-$' : '$') + a.toLocaleString(undefined,
+    {minimumFractionDigits: Math.min(a >= 1 ? 2 : 0, d), maximumFractionDigits: d});
+};
+const cut = (s, n = 10) => !s ? '—' : (s.length > n * 2 + 3
+  ? s.slice(0, n) + '…' + s.slice(-4) : s);
+
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({error: 'the server did not return JSON'}));
+  if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+  return body;
+}
+function auth(extra) {
+  const token = $('#t-token').value.trim();
+  return Object.assign({'content-type': 'application/json'},
+                       token ? {authorization: 'Bearer ' + token} : {}, extra || {});
+}
+async function run(button, flash, fn) {
+  const node = $(flash); const b = $(button);
+  b.disabled = true; node.textContent = 'working…'; node.style.color = '';
+  try { await fn(); node.textContent = ''; }
+  catch (e) { node.textContent = e.message; node.style.color = 'var(--bad)'; }
+  finally { b.disabled = false; }
+}
+function warnings(data) {
+  if (!data.warnings || !data.warnings.length) return '';
+  return `<div class="warnbox">${data.warnings.map(esc).join('<br>')}</div>`;
+}
+function cards(rows) {
+  return `<div class="cards">${rows.filter(Boolean).map(([label, value, sub, cls]) =>
+    `<div class="card"><h3>${esc(label)}</h3>
+     <div class="big ${cls || ''}">${value}</div>
+     ${sub ? `<div class="sm">${sub}</div>` : ''}</div>`).join('')}</div>`;
+}
+function table(head, rows) {
+  if (!rows.length) return '<div class="empty">nothing here</div>';
+  return `<table><thead><tr>${head.map(h =>
+    `<th class="${h[1] || ''}">${esc(h[0])}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map((c, i) =>
+      `<td class="${head[i][1] || ''}">${c}</td>`).join('')}</tr>`).join('')}
+    </tbody></table>`;
+}
+const link = (v, tab) => `<span class="addr" data-jump="${esc(v)}"
+  data-tab="${tab || 'explore'}">${esc(cut(v, 8))}</span>`;
+const chg = v => v === null || v === undefined ? '—'
+  : `<span class="${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '+' : ''}${num(v, 2)}%</span>`;
+
+document.addEventListener('click', e => {
+  const jump = e.target.dataset && e.target.dataset.jump;
+  if (!jump) return;
+  const tab = e.target.dataset.tab || 'explore';
+  if (tab === 'tx') { $('#tx-d').value = jump; show('tx'); decodeTx(); }
+  else { $('#ex-q').value = jump; show('explore'); identify(); }
+});
+
+function show(name) {
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('on', b.dataset.tab === name));
+  document.querySelectorAll('section').forEach(s =>
+    s.classList.toggle('on', s.id === name));
+}
+document.querySelectorAll('nav button').forEach(b =>
+  b.onclick = () => { show(b.dataset.tab);
+                      if (b.dataset.tab === 'chain' && !$('#ch-out').innerHTML) loadChain();
+                      if (b.dataset.tab === 'mcp' && !$('#m-out').innerHTML) loadMcp(); });
+
+// ── explore ──────────────────────────────────────────────────────
+function identify() {
+  return run('#ex-go', '#ex-flash', async () => {
+    const q = $('#ex-q').value.trim();
+    if (!q) throw new Error('paste something first');
+    const net = $('#ex-net').value;
+    const d = await api(`/what?query=${encodeURIComponent(q)}&network=${net}`);
+    if (d.digest && d.commands) return renderTx(d, '#ex-out');
+    if (d.coin_type && d.total_supply !== undefined) return renderCoin(d, '#ex-out');
+    renderWhat(d, net);
+  });
+}
+$('#ex-go').onclick = identify;
+$('#ex-q').onkeydown = e => { if (e.key === 'Enter') identify(); };
+
+function renderWhat(d, net) {
+  const out = $('#ex-out');
+  const kind = d.kind || (d.account ? 'address' : 'unknown');
+  let html = warnings(d) + cards([
+    ['what it is', esc(kind).toUpperCase(), d.known_as ? esc(d.known_as) : '', 'grn'],
+    d.ownership ? ['ownership', esc(d.ownership),
+                   d.owner ? link(d.owner) : ''] : null,
+    d.account ? ['holdings', usd(d.account.total_usd),
+                 `${d.account.coin_types} coin type(s) · ${d.account.objects} objects`] : null,
+    d.version ? ['version', esc(d.version), d.digest ? esc(cut(d.digest, 8)) : ''] : null,
+    d.balance !== undefined && d.balance !== null
+      ? ['coin balance', num(d.balance, 6), esc(d.coin_type || '')] : null,
+  ]);
+  if (d.note) html += `<div class="note">${esc(d.note)}</div>`;
+  html += `<div class="note">${esc(d.address || d.object_id || '')}
+    ${d.explorer ? `· <a class="addr" href="${esc(d.explorer)}" target="_blank">explorer</a>` : ''}</div>`;
+
+  if (d.type) html += `<h2 class="t">Type</h2><pre>${esc(d.type)}</pre>`;
+  if (d.display) {
+    html += '<h2 class="t">Display</h2>' + table([['field'], ['value']],
+      Object.entries(d.display).map(([k, v]) => [esc(k),
+        /^https?:/.test(v) ? `<a class="addr" href="${esc(v)}" target="_blank">${esc(v)}</a>` : esc(v)]));
+  }
+  if (d.account) {
+    html += '<h2 class="t">Holdings</h2>' + table(
+      [['coin'], ['amount', 'n'], ['usd', 'n'], ['objects', 'n'], ['type']],
+      d.account.holdings.map(h => [esc(h.symbol), num(h.amount, 6), usd(h.usd),
+                                   h.coin_objects, link(h.coin_type, 'explore')]));
+    html += `<div class="bar" style="margin-top:10px">
+      <button class="ghost" id="ex-port">FULL PORTFOLIO</button>
+      <button class="ghost" id="ex-obj">OBJECTS</button>
+      <button class="ghost" id="ex-hist">HISTORY</button>
+      <button class="ghost" id="ex-stake">STAKE</button></div>
+      <div id="ex-more"></div>`;
+  }
+  if (d.fields) html += `<h2 class="t">Fields</h2><pre>${esc(JSON.stringify(d.fields, null, 2))}</pre>`;
+  out.innerHTML = html;
+
+  const addr = d.address;
+  const more = (label, path, render) => async () => {
+    $('#ex-more').innerHTML = '<div class="empty">loading…</div>';
+    try { render(await api(path)); }
+    catch (e) { $('#ex-more').innerHTML = `<div class="warnbox">${esc(e.message)}</div>`; }
+  };
+  if (d.account) {
+    $('#ex-port').onclick = more('portfolio',
+      `/portfolio?address=${addr}&network=${net}`, p => {
+        $('#ex-more').innerHTML = '<h2 class="t">Portfolio</h2>' + warnings(p) + cards([
+          ['liquid', usd(p.liquid_usd), `${p.coin_types} coin types`],
+          ['staked', num(p.staked_sui, 4) + ' SUI', usd(p.staked_usd)],
+          ['total', usd(p.total_usd), 'what could be sold', 'grn'],
+          ['hidden dust', p.dust_hidden, usd(p.dust_usd)],
+        ]) + table([['coin'], ['amount', 'n'], ['price', 'n'], ['24h', 'n'],
+                    ['usd', 'n'], ['type']],
+          p.coins.map(c => [esc(c.symbol), num(c.amount, 6),
+            c.price_usd === null ? '<span class="p wrn">no market</span>' : usd(c.price_usd),
+            chg(c.change_24h), usd(c.usd), link(c.coin_type)]));
+      });
+    $('#ex-obj').onclick = more('objects', `/objects?address=${addr}&network=${net}`, o => {
+      $('#ex-more').innerHTML = '<h2 class="t">Objects</h2>' + table(
+        [[''], ['kind'], ['name'], ['type'], ['id']],
+        o.objects.map(x => [x.image ? `<img class="thumb" src="${esc(x.image)}">` : '',
+          `<span class="p ${x.kind === 'nft' ? 'hot' : ''}">${esc(x.kind)}</span>`,
+          esc(x.name || '—'), esc(cut(x.type, 26)), link(x.object_id)]));
+    });
+    $('#ex-hist').onclick = more('history', `/history?address=${addr}&network=${net}&limit=15`, h => {
+      $('#ex-more').innerHTML = '<h2 class="t">History</h2>' + historyTable(h);
+    });
+    $('#ex-stake').onclick = more('stake', `/stake?address=${addr}&network=${net}`, s => {
+      $('#ex-more').innerHTML = '<h2 class="t">Stake</h2>' + cards([
+        ['principal', num(s.principal_sui, 4) + ' SUI'],
+        ['rewards', num(s.rewards_sui, 6) + ' SUI'],
+        ['value', usd(s.total_usd), `${s.positions} position(s)`, 'grn'],
+      ]) + table([['validator'], ['principal', 'n'], ['reward', 'n'], ['status']],
+        s.stakes.map(x => [link(x.validator), num(x.principal, 4),
+                           num(x.estimated_reward, 6), esc(x.status)]));
+    });
+  }
+}
+
+// ── tx ───────────────────────────────────────────────────────────
+function historyTable(h) {
+  return warnings(h) + table(
+    [['when'], ['digest'], ['status'], ['net change'], ['gas', 'n']],
+    h.transactions.map(t => [esc(t.age),
+      `<span class="addr" data-jump="${esc(t.digest)}" data-tab="tx">${esc(cut(t.digest, 8))}</span>`,
+      t.success ? '<span class="p grn">ok</span>' : '<span class="p bad">failed</span>',
+      (t.net_changes || []).map(c =>
+        `<span class="${c.amount >= 0 ? 'up' : 'down'}">${num(c.amount, 4)} ${esc(c.symbol)}</span>`)
+        .join(' ') || '<span class="dimtxt">—</span>',
+      num(t.gas_sui, 6)]));
+}
+$('#h-go').onclick = () => run('#h-go', '#h-flash', async () => {
+  const a = $('#h-addr').value.trim();
+  if (!a) throw new Error('an address, please');
+  $('#h-out').innerHTML = historyTable(
+    await api(`/history?address=${encodeURIComponent(a)}&direction=${$('#h-dir').value}&limit=25`));
+});
+function decodeTx() {
+  return run('#tx-go', '#tx-flash', async () => {
+    const d = $('#tx-d').value.trim();
+    if (!d) throw new Error('a digest, please');
+    renderTx(await api(`/tx?digest=${encodeURIComponent(d)}&events=${$('#tx-ev').checked}`),
+             '#tx-out');
+  });
+}
+$('#tx-go').onclick = decodeTx;
+function renderTx(t, target) {
+  let html = warnings(t) + cards([
+    ['status', t.success ? '<span class="up">SUCCESS</span>'
+                         : '<span class="down">FAILED</span>', esc(t.error || ''), ''],
+    ['sender', link(t.sender)],
+    ['gas paid', num(t.gas_sui, 6) + ' SUI', `budget ${num(t.gas_budget_sui, 4)}`],
+    ['when', esc(t.age || '—'), `epoch ${esc(t.epoch)} · checkpoint ${esc(t.checkpoint)}`],
+  ]);
+  html += '<h2 class="t">Balance changes</h2>' + table(
+    [['owner'], ['amount', 'n'], ['coin'], ['usd', 'n']],
+    (t.balance_changes || []).map(c => [link(c.owner),
+      `<span class="${c.amount >= 0 ? 'up' : 'down'}">${num(c.amount, 6)}</span>`,
+      esc(c.symbol), usd(c.usd)]));
+  html += '<h2 class="t">Commands</h2>' + table([['#'], ['command'], ['target']],
+    (t.commands || []).map((c, i) => [i, `<span class="p hot">${esc(c.command)}</span>`,
+                                      esc(c.target || '—')]));
+  const changes = Object.entries(t.object_changes || {});
+  if (changes.length) {
+    html += '<h2 class="t">Objects</h2><div class="note">' +
+      changes.map(([k, v]) => `<span class="p">${esc(k)} ${v}</span>`).join(' ') + '</div>';
+    if ((t.notable_objects || []).length) {
+      html += table([['change'], ['object'], ['type']], t.notable_objects.map(o =>
+        [`<span class="p grn">${esc(o.change)}</span>`, link(o.object_id),
+         esc(cut(o.type, 30))]));
+    }
+  }
+  if (t.events && t.events.length) {
+    html += '<h2 class="t">Events</h2><pre>' + esc(JSON.stringify(t.events, null, 2)) + '</pre>';
+  }
+  if (t.explorer) html += `<div class="note"><a class="addr" href="${esc(t.explorer)}" target="_blank">open in explorer</a></div>`;
+  $(target).innerHTML = html;
+}
+
+// ── coins ────────────────────────────────────────────────────────
+$('#pr-go').onclick = () => run('#pr-go', '#pr-flash', async () => {
+  const d = await api(`/price?ids=${encodeURIComponent($('#pr-ids').value.trim())}`);
+  $('#pr-out').innerHTML = warnings(d) + table(
+    [['asked'], ['symbol'], ['usd', 'n'], ['24h', 'n'], ['liquidity', 'n'], ['dex']],
+    d.prices.map(p => [esc(p.query), esc(p.symbol || '—'),
+      p.priced ? usd(p.usd) : '<span class="p wrn">no market</span>',
+      chg(p.change_24h), usd(p.liquidity_usd), esc(p.dex || '—')]));
+});
+$('#c-go').onclick = () => run('#c-go', '#c-flash', async () => {
+  renderCoin(await api(`/coin?coin_type=${encodeURIComponent($('#c-type').value.trim())}`),
+             '#c-out');
+});
+function renderCoin(c, target) {
+  $(target).innerHTML = warnings(c) + cards([
+    ['coin', esc(c.symbol || '—'), esc(c.name || '')],
+    ['price', c.price_usd === null ? '<span class="p wrn">no market</span>' : usd(c.price_usd),
+     chg(c.change_24h), 'grn'],
+    ['supply', num(c.total_supply, 0), `${c.decimals} decimals`],
+    ['market cap', usd(c.market_cap_usd), `liquidity ${usd(c.liquidity_usd)}`],
+    ['resolved by', esc(c.resolved_by || '—'), esc(c.top_dex || '')],
+  ]) + `<div class="note">${esc(c.coin_type)}</div>
+        <div class="note">${esc(c.note || '')}</div>` +
+    (c.description ? `<div class="note">${esc(c.description)}</div>` : '');
+}
+
+// ── chain ────────────────────────────────────────────────────────
+function loadChain() {
+  return run('#ch-go', '#ch-flash', async () => {
+    const net = $('#ch-net').value;
+    const [n, v] = await Promise.all([api('/network?network=' + net),
+                                      api('/validators?network=' + net + '&limit=25')]);
+    $('#ch-out').innerHTML = warnings(n) + cards([
+      ['epoch', esc(n.epoch), `${Math.round((n.epoch_progress || 0) * 100)}% · ends in ${esc(n.epoch_ends_in)}`],
+      ['checkpoint', num(n.checkpoint, 0), `${num(n.total_transactions, 0)} txs`],
+      ['tps', num(n.tps, 1), 'measured over 200 checkpoints', 'grn'],
+      ['gas price', esc(n.reference_gas_price_mist) + ' mist', 'reference'],
+      ['sui', usd(n.sui_price_usd), `stake ${num(n.total_stake_sui, 0)}`],
+      ['validators', esc(n.validators), `nakamoto ${v.nakamoto_coefficient}`],
+      ['rpc', esc((n.rpc || '').replace(/^https?:\/\//, '')), `chain ${esc(n.chain_id)}`],
+    ]);
+    $('#ch-val').innerHTML = `<div class="note">${esc(v.note)}</div>` + table(
+      [['validator'], ['stake', 'n'], ['share', 'n'], ['apy', 'n'], ['commission', 'n'], ['address']],
+      v.validators.map(x => [esc(x.name), num(x.stake_sui, 0),
+        (x.share * 100).toFixed(2) + '%', num(x.apy, 2) + '%',
+        num(x.commission_rate, 2) + '%', link(x.address)]));
+  });
+}
+$('#ch-go').onclick = loadChain;
+
+// ── move ─────────────────────────────────────────────────────────
+function loadPackage() {
+  return run('#pk-go', '#pk-flash', async () => {
+    const id = $('#pk-id').value.trim(), mod = $('#pk-mod').value.trim();
+    const d = await api(`/package?package=${encodeURIComponent(id)}` +
+                        (mod ? `&module=${encodeURIComponent(mod)}` : ''));
+    if (d.functions) {
+      $('#pk-out').innerHTML = `<h2 class="t">${esc(d.module)} — ${d.functions.length} callable</h2>` +
+        table([['function'], ['visibility'], ['parameters'], ['returns']],
+          d.functions.map(f => [`<b>${esc(f.function)}</b>`,
+            `<span class="p ${f.entry ? 'grn' : 'hot'}">${esc(f.visibility)}${f.entry ? ' entry' : ''}</span>`,
+            esc((f.parameters || []).join(', ') || '—'),
+            esc((f.returns || []).join(', ') || '—')])) +
+        (d.structs.length ? `<h2 class="t">Structs</h2><div class="note">${
+          d.structs.map(s => `<span class="p">${esc(s)}</span>`).join(' ')}</div>` : '');
+    } else {
+      $('#pk-out').innerHTML = cards([
+        ['package', esc(d.known_as || 'published code'), esc(cut(d.package, 10))],
+        ['modules', d.module_count, 'click one to read it', 'grn'],
+      ]) + table([['module'], ['callable', 'n'], ['functions', 'n'], ['structs', 'n']],
+        d.modules.map(m => [
+          `<span class="addr" data-mod="${esc(m.module)}">${esc(m.module)}</span>`,
+          m.callable, m.functions, m.structs]));
+      $('#pk-out').querySelectorAll('[data-mod]').forEach(n => n.onclick = () => {
+        $('#pk-mod').value = n.dataset.mod; loadPackage();
+      });
+    }
+  });
+}
+$('#pk-go').onclick = loadPackage;
+
+// ── wallet ───────────────────────────────────────────────────────
+function loadWallets() {
+  return run('#w-refresh', '#w-flash', async () => {
+    const d = await api('/wallet?action=list', {headers: auth()});
+    $('#w-out').innerHTML = table([['name'], ['address'], ['default'], ['created']],
+      d.wallets.map(w => [esc(w.name), link(w.address),
+        w.default ? '<span class="p grn">default</span>' : '', esc(w.created || '—')]))
+      + `<div class="note">${esc(d.keystore)} · signer ${esc(d.signer)} · ed25519</div>`;
+    $('#s-from').innerHTML = '<option value="">default wallet</option>' +
+      d.wallets.map(w => `<option value="${esc(w.name)}">${esc(w.name)}</option>`).join('');
+  });
+}
+$('#w-refresh').onclick = loadWallets;
+const walletPost = body => api('/wallet', {method: 'POST', headers: auth(),
+                                           body: JSON.stringify(body)});
+$('#w-create').onclick = () => run('#w-create', '#w-flash', async () => {
+  await walletPost({action: 'create', name: $('#w-name').value.trim() || 'default'});
+  await loadWallets();
+});
+$('#w-import').onclick = () => run('#w-import', '#w-flash', async () => {
+  const secret = $('#w-secret').value.trim();
+  if (!secret) throw new Error('paste a secret to import');
+  await walletPost({action: 'import', name: $('#w-name').value.trim() || 'imported',
+                    secret});
+  $('#w-secret').value = '';
+  await loadWallets();
+});
+
+function send(dry, confirm) {
+  return run(dry ? '#s-dry' : '#s-go', '#s-flash', async () => {
+    const body = {to: $('#s-to').value.trim(), amount: Number($('#s-amt').value),
+                  coin_type: $('#s-coin').value.trim() || 'SUI',
+                  network: $('#s-net').value, dry_run: dry, confirm: !!confirm};
+    if ($('#s-from').value) body.wallet = $('#s-from').value;
+    if (!body.to || !body.amount) throw new Error('recipient and amount, please');
+    const d = await api('/transfer', {method: 'POST', headers: auth(),
+                                      body: JSON.stringify(body)});
+    let html = warnings(d) + cards([
+      ['amount', num(d.amount, 6) + ' ' + esc(d.symbol), usd(d.usd)],
+      ['to', link(d.to), esc(d.suins || '')],
+      ['gas', num(d.estimated_gas_sui, 6) + ' SUI', `budget ${num(d.gas_budget_sui, 6)}`],
+      ['simulated', esc(d.simulated || '—'),
+       d.executed ? esc(d.status) : 'not sent', d.executed ? 'grn' : ''],
+    ]);
+    if (d.needs_confirm) {
+      html += `<div class="warnbox">${esc(d.note)}</div>
+               <button class="go danger" id="s-confirm">CONFIRM AND SEND</button>`;
+    }
+    if (d.executed) {
+      html += `<div class="note">digest <span class="addr" data-jump="${esc(d.digest)}"
+        data-tab="tx">${esc(d.digest)}</span>
+        ${d.explorer ? `· <a class="addr" href="${esc(d.explorer)}" target="_blank">explorer</a>` : ''}</div>`;
+    } else if (!d.needs_confirm) {
+      html += `<div class="note">${esc(d.note || '')}</div>`;
+    }
+    $('#s-out').innerHTML = html;
+    const btn = $('#s-confirm');
+    if (btn) btn.onclick = () => send(false, true);
+  });
+}
+$('#s-dry').onclick = () => send(true, false);
+$('#s-go').onclick = () => send(false, false);
+
+// ── mcp ──────────────────────────────────────────────────────────
+async function loadMcp() {
+  const d = await api('/tools');
+  $('#m-out').innerHTML = `<div class="note">${esc(d.instructions)}</div>
+    <h2 class="t">${d.count} tools</h2>` +
+    table([['tool'], ['what it does']], d.tools.map(t =>
+      [`<b>${esc(t.name)}</b>`, esc(t.description)])) +
+    `<h2 class="t">Connect an agent</h2><pre>${esc(JSON.stringify(
+      {mcpServers: {sui: {type: 'http', url: location.origin + '/mcp'}}}, null, 2))}</pre>`;
+}
+
+// ── boot ─────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const h = await api('/health');
+    $('#tagline').textContent =
+      `${h.network} · epoch ${h.epoch} · ${h.tools} mcp tools · signer ${h.signer}`;
+  } catch (e) { $('#tagline').textContent = 'offline — ' + e.message; }
+})();
+</script>
+</body>
+</html>

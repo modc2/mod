@@ -149,6 +149,25 @@ def _t_pools(args, auth):
     return store_api.pool_list(authorization=auth)
 
 
+def _t_register(args, auth):
+    body = store_api.RegisterBody(
+        cid=_req(args, 'cid'),
+        scheme=args.get('scheme'),
+        backend=str(args.get('backend') or 'external'),
+        url=args.get('url'),
+        key=args.get('key'),
+        size=int(args.get('size') or 0),
+        public=bool(args.get('public')),
+        pool=args.get('pool'),
+    )
+    return store_api.register(body, authorization=auth)
+
+
+def _t_delete(args, auth):
+    return store_api.rm(cid=_req(args, 'cid'), reason=args.get('reason'),
+                        authorization=auth)
+
+
 TOOLS = {
     'store_status': {
         'description': 'Store service status: configured backends and index '
@@ -286,6 +305,34 @@ TOOLS = {
                        '(mutual-access shared spaces). Requires auth.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_pools,
+    },
+    'store_register': {
+        'description': 'Register a CID from ANY external system (arweave, IPFS '
+                       'on another node, lighthouse, hippius, s3, …) as a '
+                       'first-class store object — without re-uploading bytes. '
+                       'The store is CID-agnostic; this is the interop bridge. '
+                       'Pass url for systems that need a gateway to fetch bytes. '
+                       'Requires an authorized caller who has sign-accepted the terms.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'cid': {'type': 'string', 'description': 'the CID from the external system'},
+            'scheme': {'type': 'string', 'description': 'cid namespace: ipfs | arweave | filecoin | hippius | lighthouse | s3 | custom (auto-inferred if omitted)'},
+            'backend': {'type': 'string', 'description': 'backend label (default: external)'},
+            'url': {'type': 'string', 'description': 'gateway url to fetch the bytes (required for opaque external systems)'},
+            'key': {'type': 'string', 'description': 'human-readable filename / key for the object'},
+            'size': {'type': 'integer', 'description': 'byte size of the content if known'},
+            'public': {'type': 'boolean', 'description': 'true = world-readable (default false)'},
+            'pool': {'type': 'string', 'description': 'pool id to add the object to'},
+        }, 'required': ['cid']},
+        'handler': _t_register,
+    },
+    'store_delete': {
+        'description': 'Delete an object you own. The module admin may delete '
+                       'ANY object (logged as a takedown). Requires auth.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'cid': {'type': 'string', 'description': 'CID to delete'},
+            'reason': {'type': 'string', 'description': 'reason (recorded in the takedown log when admin removes others\' content)'},
+        }, 'required': ['cid']},
+        'handler': _t_delete,
     },
 }
 

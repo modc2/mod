@@ -1,0 +1,32 @@
+{
+  "app/page.tsx -> ../components/Desk": {
+    "id": "app/page.tsx -> ../components/Desk",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_Desk_tsx.js"
+    ]
+  },
+  "app/page.tsx -> ../components/FileGraph": {
+    "id": "app/page.tsx -> ../components/FileGraph",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_FileGraph_tsx.js"
+    ]
+  },
+  "app/page.tsx -> ../components/SudoModal": {
+    "id": "app/page.tsx -> ../components/SudoModal",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_SudoModal_tsx.js"
+    ]
+  },
+  "app/page.tsx -> ../components/WalletModal": {
+    "id": "app/page.tsx -> ../components/WalletModal",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_WalletModal_tsx.js"
+    ]
+  },
+  "app/page.tsx -> ethers": {
+    "id": "app/page.tsx -> ethers",
+    "files": [
+      "static/chunks/_app-pages-browser_node_modules_ethers_lib_esm_index_js.js"
+    ]
+  }
+}

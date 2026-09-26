@@ -15,7 +15,7 @@ path = "src/main.rs"
 # Web framework
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip", "compression-br"] }
 tokio-stream = "0.1"
 
 # Serialization
@@ -47,6 +47,9 @@ rand = "0.8"
 # heap (multi-GB of parsed trade JSON) in its arenas forever, pinning RSS
 # at the high-water mark.
 libc = "0.2"
+
+# Scan-history archives — each warmup cycle's leaderboards, gzipped (scans.rs)
+flate2 = "1"
 
 # Concurrency
 dashmap = "6"

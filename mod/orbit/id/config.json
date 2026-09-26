@@ -1,6 +1,129 @@
 {
     "name": "id",
-    "description": "id",
-    "version": "0.1.0",
-    "schema": "QmUoeSrj9x4MxFaSwjRkaHJwDyb9bQW6ngthbo3rC31XVj"
+    "version": "1.0.0",
+    "description": "One identity made of many accounts. An Ethereum wallet, a Solana wallet, a Bitcoin address, a Cosmos key, a GitHub login \u2014 each proves itself by signing a statement that names the identity it is joining, and the set of them becomes a single id. There is no account table and no password: the identity IS the append-only log of signatures, and `audit` replays it and re-checks every one of them offline. Joining is deliberately two-signature \u2014 the account proves it holds its key, and a member proves it consents \u2014 because a signature alone would let anyone attach their wallet to somebody else's identity; the consenting signature is copied into the event it authorises, so the log holds a complete chain of who let whom in. Two identities that both already exist become one only when a member of each signs the same pair. Leaving is one-sided: your own signature always removes you. Eleven chains across four signing schemes (EIP-191, Bitcoin's signed-message format, Cosmos ADR-036, raw Ed25519), verified with Keccak-256, RIPEMD-160, secp256k1 recovery, Ed25519, Base58 and Bech32 all implemented in this module \u2014 so an identity exported from here can be re-verified on any host with a Python interpreter, no network, and nothing installed, years after the wallet that signed it is gone.",
+    "icon": "\u25ce",
+    "color": "#67e8f9",
+    "anchor": "mod.py",
+    "protocol": "mod:id/v1",
+    "port": 50650,
+    "app_port": 50651,
+    "gateway_port": 50650,
+    "base_path": "/id",
+    "route": false,
+    "urls": {
+        "api": "http://localhost:50650",
+        "app": "http://localhost:50651/id",
+        "same_origin_api": "http://localhost:50651/id/_api"
+    },
+    "backend": "src/api.py (FastAPI \u2014 the API, :50650)",
+    "frontend": "src/app.py (stdlib \u2014 the console at /id on :50651; proxies /id/_api and drives MetaMask and Phantom directly)",
+    "state": "~/.mod/id \u2014 ids/<id>.jsonl is the identity; index.json, sessions.json and merges.json are caches of it. Public keys, addresses, statements and signatures only. No private key is ever held, asked for, or storable.",
+    "deps": [
+        "fastapi",
+        "uvicorn"
+    ],
+    "idea": {
+        "identity": "a set of accounts, held together by signatures rather than by a row in a table",
+        "log": "append-only; every membership claim is a signed event that can be re-checked by anyone",
+        "index": "a cache \u2014 `m id/rebuild` regenerates it from the logs, which is the proof that it is one",
+        "portability": "`export` gives a document with every proof and no secret; `load` re-verifies all of it before writing a byte"
+    },
+    "rules": {
+        "join": "two signatures \u2014 the joining account, and a member consenting (the consenting proof is stored in the event)",
+        "genesis": "one signature, because the first account of a new identity has nobody to ask",
+        "merge": "two signatures \u2014 one member from each side, on the same canonically ordered pair",
+        "leave": "your own signature is always enough to remove yourself",
+        "evict": "only the root account (the one that created the identity) removes somebody else",
+        "replay": "a statement names the protocol, the operation, the identity, the account, an expiry and a nonce; the nonce is burned on use, and a failed attempt does not burn it"
+    },
+    "chains": {
+        "ethereum": "EIP-191 personal_sign, key recovered from the signature \u2014 covers Base, Arbitrum, Optimism, Polygon, BNB, Avalanche and every other EVM network as ONE account, because it is one key",
+        "bitcoin": "the Bitcoin signed-message format; legacy (1\u2026), nested segwit (3\u2026) and native segwit (bc1q\u2026) all verify. Taproot is refused with a reason \u2014 BIP-322 is not widely shipped",
+        "litecoin": "same scheme, its own magic string and version bytes",
+        "dogecoin": "same scheme, no segwit",
+        "solana": "raw Ed25519 over the statement; the address is the public key",
+        "cosmos": "ADR-036 Amino JSON sign document; needs the public key sent alongside, because the signature is not recoverable. One key prints under every chain prefix and the equivalents are reported",
+        "tron": "TIP-191, base58check address",
+        "sui": "Ed25519 over blake2b256(intent \u2016 bcs(message)) \u2014 signPersonalMessage",
+        "aptos": "Ed25519; address is sha3_256(key \u2016 0x00)",
+        "near": "implicit (64-hex) accounts verify completely; a named account proves the key only, and says so",
+        "substrate": "Polkadot / Kusama / Bittensor SS58, Ed25519 accounts. sr25519 is NOT verified \u2014 it needs Schnorrkel, and the module says so rather than pretending"
+    },
+    "services": {
+        "note": "accounts with no key prove control by publishing a token. Labelled `publication` everywhere, because the proof lasts only as long as the page does",
+        "github": "a public gist \u2014 the owner login is taken from GitHub's answer, not from what was typed",
+        "x": "a public post, read through the public embed endpoint",
+        "dns": "a TXT record at _mod-id.<domain>, resolved over DoH so the host needs no resolver",
+        "web": "any URL you can publish to \u2014 proves that page, not the whole domain, and says so"
+    },
+    "crypto": {
+        "written_here": [
+            "keccak-256",
+            "ripemd-160",
+            "secp256k1 (recover, verify, sign)",
+            "ed25519",
+            "base58/base58check",
+            "bech32/bech32m",
+            "ss58"
+        ],
+        "why": "verification is the one thing this module cannot be wrong about, and a proof that needs a package installed is a proof that expires when the package does",
+        "pinned_against": "eth_hash, eth_keys, eth_account, pynacl and the published BIP-173/BIP-350/RFC-8032 vectors, wherever those are present"
+    },
+    "endpoints": {
+        "info": "GET /",
+        "health": "GET /health",
+        "chains": "GET /chains | GET /services",
+        "address": "GET /address?chain=&address=",
+        "challenge": "POST /challenge {chain, address, op, id, other, name, ttl}",
+        "submit": "POST /submit {nonce, signature, pubkey, source, session}",
+        "verify": "POST /verify {chain, address, message, signature} \u2014 one-shot, stores nothing",
+        "whois": "GET /whois?account=solana:9xQe\u2026 | ?chain=eth&address=0x\u2026",
+        "identity": "GET /id/{id} | /id/{id}/log | /id/{id}/audit?live=",
+        "list": "GET /ids",
+        "merge": "GET /merge?id=&other=",
+        "session": "GET /session | DELETE /session (Bearer)",
+        "move": "GET /export/{id} | POST /import (loopback)",
+        "rebuild": "POST /rebuild (loopback)",
+        "demo": "GET /demo"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "readme",
+        "health",
+        "chains",
+        "services",
+        "address",
+        "challenge",
+        "submit",
+        "verify",
+        "claim",
+        "whois",
+        "show",
+        "ids",
+        "log",
+        "audit",
+        "merge",
+        "unlink",
+        "name",
+        "export",
+        "load",
+        "rebuild",
+        "demo",
+        "serve",
+        "kill",
+        "test"
+    ],
+    "env": {
+        "ID_DIR": "state directory (default ~/.mod/id)",
+        "ID_PORT": "API port (default 50650)",
+        "ID_APP_PORT": "console port (default 50651)",
+        "ID_HOST": "the host name written into every statement (default the machine's)"
+    },
+    "services_run": [
+        "id-api",
+        "id-app"
+    ],
+    "schema": "Qmehe7FMv85Uqdf5hQNfAukXwQutbc544VCDfjhwUiWpU3"
 }

@@ -24,17 +24,82 @@ async function deploy() {
   const NativeToken = await ethers.getContractFactory("NativeToken");
   const token = await NativeToken.deploy(ethers.parseEther("1000000"));
   const BlocTime = await ethers.getContractFactory("BlocTime");
-  const bt = await BlocTime.deploy(await token.getAddress(), 100000, 5000);
+  // maxLockSeconds 100000, price $1.00 (1e6 micro-USD per token).
+  const bt = await BlocTime.deploy(await token.getAddress(), 100000, 1_000_000);
 
-  // Alice and Bob each stake, unlocked, so BLOC == staked amount.
+  // Alice and Bob each stake for 1 second at $1: BLOC == usd × seconds ==
+  // staked amount, and the lock expires by the next block.
   for (const [who, amount] of [[alice, "300"], [bob, "100"]]) {
     const wei = ethers.parseEther(amount);
     await token.transfer(who.address, wei);
     await token.connect(who).approve(await bt.getAddress(), wei);
-    await bt.connect(who).stake(wei, 0);
+    await bt.connect(who).stake(wei, 1);
   }
   return { bt, token, owner, alice, bob };
 }
+
+describe("BlocTime linear USD × seconds model", function () {
+  async function fund(bt, token, who, amount) {
+    await token.transfer(who.address, amount);
+    await token.connect(who).approve(await bt.getAddress(), amount);
+  }
+
+  it("mints usd value × seconds locked, flat by default", async function () {
+    const { bt, token, alice } = await deploy();
+    const wei = ethers.parseEther("2");
+    // $1/token, 1000s lock: 2 × 1 × 1000 = 2000 BLOC.
+    expect(await bt.quoteBloc(wei, 1000)).to.equal(ethers.parseEther("2000"));
+    await fund(bt, token, alice, wei);
+    const before = await bt.balanceOf(alice.address);
+    await bt.connect(alice).stake(wei, 1000);
+    expect((await bt.balanceOf(alice.address)) - before).to.equal(ethers.parseEther("2000"));
+  });
+
+  it("scales with the owner-set USD price", async function () {
+    const { bt, token, alice } = await deploy();
+    await bt.setPriceUsd(2_500_000); // $2.50
+    const wei = ethers.parseEther("4");
+    // 4 × $2.50 × 10s = 100 BLOC.
+    expect(await bt.quoteBloc(wei, 10)).to.equal(ethers.parseEther("100"));
+    await expect(bt.connect(alice).setPriceUsd(1)).to.be.reverted; // owner only
+  });
+
+  it("locks by wall-clock seconds, not blocks", async function () {
+    const { bt, token, alice } = await deploy();
+    const wei = ethers.parseEther("1");
+    await fund(bt, token, alice, wei);
+    await bt.connect(alice).stake(wei, 5000);
+    const ids = await bt.getUserStakeIds(alice.address);
+    const sid = ids[ids.length - 1];
+
+    await expect(bt.connect(alice).unstake(sid)).to.be.revertedWith("Still locked");
+    const pos = await bt.getStakePosition(alice.address, sid);
+    expect(pos.lockSeconds).to.equal(5000n);
+    expect(pos.secondsRemaining).to.be.greaterThan(0n);
+
+    await warpTo((await now()) + 5000);
+    await bt.connect(alice).unstake(sid);
+  });
+
+  it("rejects locks that round to zero BLOC or exceed the cap", async function () {
+    const { bt, token, alice } = await deploy();
+    const wei = ethers.parseEther("1");
+    await fund(bt, token, alice, wei);
+    await expect(bt.connect(alice).stake(wei, 0)).to.be.revertedWith("Lock too short");
+    await expect(bt.connect(alice).stake(wei, 100001)).to.be.revertedWith("Exceeds max lock");
+  });
+
+  it("exposes secondsPerBlock for the blocks toggle", async function () {
+    const { bt } = await deploy();
+    const p = await bt.params();
+    expect(p.maxLockSeconds).to.equal(100000n);
+    expect(p.secondsPerBlock).to.equal(2n);
+    await bt.setParams(200000, 12);
+    const p2 = await bt.params();
+    expect(p2.maxLockSeconds).to.equal(200000n);
+    expect(p2.secondsPerBlock).to.equal(12n);
+  });
+});
 
 describe("BlocTime weekly pot", function () {
   it("schedules the next payout on a Friday at 12:00 EST", async function () {
@@ -119,9 +184,9 @@ describe("BlocTime weekly pot", function () {
 
   it("mints the epochs owed into the pot before sweeping it", async function () {
     const { bt, alice } = await deploy();
-    await bt.setInflationParams(ethers.parseEther("50"), 1460, 0, 10); // 10 blocks/epoch
+    await bt.setInflationParams(ethers.parseEther("50"), 1460, 0, 10); // 10-second epochs
 
-    for (let i = 0; i < 30; i++) await network.provider.send("evm_mine");
+    await warpTo((await now()) + 300);
     const epoch = await bt.currentEpoch();
     expect(epoch).to.be.greaterThan(0n);
 
@@ -167,5 +232,20 @@ describe("BlocTime weekly pot", function () {
     const owed = (await bt.earned(alice.address)) + (await bt.earned(bob.address));
     const held = await bt.balanceOf(await bt.getAddress());
     expect(held - (await bt.rewardPot())).to.be.greaterThanOrEqual(owed);
+  });
+
+  it("does not double-count voting power on self-delegation", async function () {
+    const { bt, alice, bob } = await deploy();
+    const aliceBal = await bt.balanceOf(alice.address); // 300
+
+    expect(await bt.getVotingPower(alice.address)).to.equal(aliceBal);
+    await bt.connect(alice).delegate(alice.address);
+    expect(await bt.getVotingPower(alice.address)).to.equal(aliceBal);
+
+    // Bob delegates in on top: alice holds her own weight plus his, once each.
+    await bt.connect(bob).delegate(alice.address);
+    const bobBal = await bt.balanceOf(bob.address); // 100
+    expect(await bt.getVotingPower(alice.address)).to.equal(aliceBal + bobBal);
+    expect(await bt.getVotingPower(bob.address)).to.equal(0n);
   });
 });

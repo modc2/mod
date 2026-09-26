@@ -14,7 +14,6 @@
   --warn: #e8b465;
   --bad: #e56b6b;
   --claim: #7aa7e8;
-  --rail: 208px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
@@ -27,39 +26,9 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-#shell { display: flex; height: 100%; }
-
-/* ── rail ─────────────────────────────────────────────────────── */
-
-#sidebar {
-  width: var(--rail); flex: 0 0 var(--rail);
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  display: flex; flex-direction: column;
-  padding: 14px 10px;
-  transition: margin-left .18s ease, opacity .18s ease;
-}
-body.rail-closed #sidebar { margin-left: calc(var(--rail) * -1); opacity: 0; }
-
-#sidebar nav { display: flex; flex-direction: column; gap: 2px; }
-
-.nav {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 11px; border: 0; border-radius: 9px;
-  background: transparent; color: var(--dim);
-  font: inherit; text-align: left; cursor: pointer;
-  transition: background .12s, color .12s;
-}
-.nav:hover { background: var(--panel-2); color: var(--ink); }
-.nav[aria-current="true"] { background: var(--acc-dim); color: var(--acc); }
-.nav .ic { width: 16px; text-align: center; opacity: .9; }
-
-.rail-foot { margin-top: auto; padding: 10px 6px 2px; }
-.venue { font: 11px/1.45 var(--mono); color: var(--faint); }
-
 /* ── main ─────────────────────────────────────────────────────── */
 
-#main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#main { height: 100%; min-width: 0; display: flex; flex-direction: column; }
 
 header {
   display: flex; align-items: center; gap: 10px;
@@ -67,6 +36,26 @@ header {
   background: var(--panel);
 }
 .grow { flex: 1; }
+
+/* ── tabs ─────────────────────────────────────────────────────── */
+
+#tabs {
+  display: flex; align-items: center; gap: 2px;
+  margin-left: 8px; min-width: 0;
+  overflow-x: auto; scrollbar-width: none;
+}
+#tabs::-webkit-scrollbar { display: none; }
+
+.nav {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 11px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--dim);
+  font: inherit; white-space: nowrap; cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.nav:hover { background: var(--panel-2); color: var(--ink); }
+.nav[aria-current="true"] { background: var(--acc-dim); color: var(--acc); }
+.nav .ic { width: 16px; text-align: center; opacity: .9; }
 
 #logo {
   display: flex; align-items: center; gap: 9px;
@@ -86,7 +75,7 @@ header {
 .pill {
   font: 12px var(--mono); color: var(--dim);
   padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px;
-  background: var(--panel-2); cursor: default;
+  background: var(--panel-2); cursor: default; white-space: nowrap;
 }
 .pill.act { cursor: pointer; color: var(--ink); }
 .pill.act:hover { border-color: var(--acc); color: var(--acc); }
@@ -182,13 +171,12 @@ td.mono { font: 11.5px var(--mono); color: var(--dim); }
 /* ── narrow ───────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
-  /* The rail floats over the content instead of squeezing it, and starts
-     closed — which is what makes the logo the way back to it. */
-  #sidebar {
-    position: fixed; inset: 0 auto 0 0; z-index: 30;
-    box-shadow: 0 0 0 100vmax rgba(0,0,0,.5);
-  }
-  body.rail-closed #sidebar { box-shadow: none; }
+  /* Tabs collapse to their icons; the active one keeps its word. */
+  header { padding: 10px 12px; gap: 6px; }
+  .nav { padding: 7px 9px; }
+  .nav span:not(.ic) { display: none; }
+  .nav[aria-current="true"] span { display: inline; }
+  #chain { display: none; }
   main { padding: 16px 14px 60px; }
   #logo .word { display: none; }
 }

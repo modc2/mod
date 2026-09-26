@@ -30,9 +30,14 @@ export POLYMARKET_DATA_DIR="${POLYMARKET_DATA_DIR:-$HOME/.mod/polymarket}"
 mkdir -p "$POLYMARKET_DATA_DIR"
 
 # ── Scheduled liquidation ("flatten everything") ──
-# How often the backend sells EVERY held position, in hours. Override by
-# exporting POLYMARKET_LIQUIDATE_EVERY_HOURS before launch; 0 disables it.
-export POLYMARKET_LIQUIDATE_EVERY_HOURS="${POLYMARKET_LIQUIDATE_EVERY_HOURS:-6}"
+# How often the backend sells EVERY position held in the deposit wallet, in
+# hours. OFF (0) by default and deliberately opt-in: a pass sells the whole
+# on-chain book at best bid, including positions the copy engine never bought,
+# so it must never be something a stock deployment does to a real wallet on a
+# timer. Set POLYMARKET_LIQUIDATE_EVERY_HOURS=6 before launch to enable it.
+# Even then it only touches wallets with a RUNNING session that has
+# auto_execute on (see EngineRegistry::persisted_eoas).
+export POLYMARKET_LIQUIDATE_EVERY_HOURS="${POLYMARKET_LIQUIDATE_EVERY_HOURS:-0}"
 
 # ── API log ──
 # The backend logs via `tracing` to stdout; without a redirect those lines
@@ -41,5 +46,17 @@ export POLYMARKET_LIQUIDATE_EVERY_HOURS="${POLYMARKET_LIQUIDATE_EVERY_HOURS:-6}"
 # fact (`tail -f src/api/api.log`). RUST_LOG can override the level, e.g.
 # `RUST_LOG=polymarket_api=debug bash start.sh`.
 LOG="$DIR/api.log"
+# Rotate on start once the log passes 64MB, keeping ONE previous generation.
+# Appending forever grew this file to 222MB inside the module tree — a
+# deployment's whole trading history (and the operator's EOA) shipped in every
+# snapshot. It is gitignored; this keeps it bounded on disk too.
+LOG_MAX_BYTES="${POLYMARKET_LOG_MAX_BYTES:-67108864}"
+if [ -f "$LOG" ]; then
+    SIZE=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+    if [ "$SIZE" -gt "$LOG_MAX_BYTES" ]; then
+        mv -f "$LOG" "$LOG.1"
+        echo "rotated api.log ($SIZE bytes) to api.log.1"
+    fi
+fi
 echo "API logging to $LOG"
 exec "$BIN" >> "$LOG" 2>&1

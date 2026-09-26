@@ -1,0 +1,29 @@
+{
+    "name": "bot-ttt",
+    "description": "Perfect tic-tac-toe by full minimax. The reference opponent \u2014 it never loses.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "player",
+    "engine": "wasm",
+    "lang": "wasm",
+    "anchor": "mod.py",
+    "artifact": "85447ac572c76e6f3d270a4048059f4879188680c2768ab5f3fb143bb71a445b",
+    "bytes": 13227,
+    "author": "arena",
+    "tags": [
+        "example",
+        "player",
+        "baseline"
+    ],
+    "defines": [
+        "memory",
+        "alloc",
+        "play",
+        "__data_end",
+        "__heap_base"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/bot-ttt/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

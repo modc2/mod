@@ -29,7 +29,7 @@ if [ "$DEV" = "1" ]; then
     python3 -m uvicorn api:app --host 0.0.0.0 --port "${API_PORT}" --app-dir "${DIR}/api" --reload &
     cd "${DIR}/app" && npx next dev -p "${APP_PORT}" &
 else
-    export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://modc2.com/api/bridge}"
+    export NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL:-https://modc2.com/bridge/api}"
     export NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-https://modc2.com/bridge}"
 
     python3 -m uvicorn api:app --host 0.0.0.0 --port "${API_PORT}" --app-dir "${DIR}/api" &

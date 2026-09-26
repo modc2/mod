@@ -10,13 +10,15 @@ const nextConfig = {
   reactStrictMode: false,
   ...(basePath ? { basePath } : {}),
   env: {
-    NEXT_PUBLIC_API_URL: "/api/venice",
+    NEXT_PUBLIC_API_URL: "/venice/api",
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   async rewrites() {
     return [
-      // Client fetches /api/venice/* (at the domain root, NOT under basePath)
-      // → proxy to the Rust gateway. basePath:false mirrors the Caddy block.
+      // Client fetches /venice/api/* (canonical; at the domain root, NOT under
+      // basePath) → proxy to the Rust gateway. basePath:false mirrors the
+      // Caddy block. Legacy /api/venice alias kept below.
+      { source: "/venice/api/:path*", destination: `${apiUrl}/:path*`, basePath: false },
       { source: "/api/venice/:path*", destination: `${apiUrl}/:path*`, basePath: false },
     ];
   },

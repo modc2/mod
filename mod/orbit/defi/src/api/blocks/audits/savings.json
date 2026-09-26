@@ -1,0 +1,99 @@
+{
+ "block": "savings",
+ "contract": "ModSavingsRate",
+ "file": "savings.sol",
+ "audited_at": "2026-08-30",
+ "auditor": "claude-fable-5 agent audit",
+ "risk": "high",
+ "summary": "ModSavingsRate is a DSR/sDAI-shaped accrual-index vault: deposit the unit, receive 18-decimal shares, and chi (assets per share) grows at an owner-set rate capped at 5000 bps/yr, compounding on every public drip(). It never mints the stablecoin, so the yield is honest only if someone funds the buffer via fund() or by wiring it as the CDP's fee sink. The worst finding is that nothing ties accrual to funding: interest is paid out of the shared balance, which is other depositors' principal, so an unfunded deployment is a first-come-first-served run in which the last withdrawer loses principal, and withdraw() then burns all their shares for whatever is left, possibly zero, with no minimum-out. The owner can turn this lever to 50%/yr instantly with no timelock. The index math itself is sound (no overflow, chi-based shares immune to donation/first-depositor inflation, CEI ordering, rounding favours the contract). Deployable as-is only by an operator who keeps shortfall() at zero continuously and governs setRate through a timelock; not safe for anonymous depositors otherwise.",
+ "counts": {
+  "critical": 0,
+  "high": 1,
+  "medium": 2,
+  "low": 3,
+  "info": 2
+ },
+ "findings": [
+  {
+   "id": "SAVINGS-1",
+   "severity": "high",
+   "title": "Unfunded interest is paid out of other depositors' principal: last withdrawer eats the shortfall",
+   "where": "withdraw() L85-L97, currentChi() L40-L44, fund() L103-L105",
+   "detail": "The contract has no mint rights and no separately tracked buffer. `held` (L89) is the whole asset balance, principal included, and withdraw() pays `shares * chi / 1e18` out of it until it is empty. chi grows unconditionally from block one (L43) whether or not anyone ever called fund(). So when the buffer is not funded, the rate is not 'promised but unpaid' as the docs suggest: early withdrawers are paid their full nominal interest out of the principal that later depositors still hold, and whoever withdraws last receives whatever is left, which can be less than their principal and can be zero. shortfall() (L53-L57) reports this but nothing enforces it. New deposits are minted at the inflated chi and immediately back earlier holders' interest, which is a first-come-first-served run dynamic.",
+   "exploit": "1) Deploy with rateBps_=5000 (or the default 500; only the timescale changes). 2) Alice deposit(1000e18) -> 1000e18 shares. 3) Bob deposit(1000e18) -> 1000e18 shares. Nobody calls fund(). 4) One year passes; drip() gives chi = 1.5e18, totalAssets() = 3000e18, held = 2000e18, shortfall() = 1000e18. 5) Alice withdraw(1000e18 shares): assets = 1500e18 <= held, she is paid 1500e18. 6) Bob withdraw(1000e18 shares): assets = 1500e18 > held = 500e18, so assets is capped to 500e18 (L92); he burns all his shares and loses 500e18 of principal. Alice's 500e18 of 'interest' was Bob's money.",
+   "recommendation": "Track principal separately from the interest buffer and only pay interest that is actually backed: keep `principal` (sum of deposits minus principal-portion of withdrawals) and treat `buffer = held - principal` as the only source of interest, paying each withdrawer `principalShare + min(interestShare, buffer * shares / totalSupply)`. Alternatively, when `held < totalAssets()` pay pro-rata `shares * held / totalSupply` so a shortfall is socialised across all holders instead of dumped on the last one, and freeze chi growth (skip accrual in drip()) whenever shortfall() > 0 so unbacked interest is never promised."
+  },
+  {
+   "id": "SAVINGS-2",
+   "severity": "medium",
+   "title": "withdraw() burns every share requested but pays a silently capped amount, down to zero, with no minimum-out",
+   "where": "withdraw() L88-L95",
+   "detail": "When `assets > held` the payout is clamped to `held` (L92) but `_burn(msg.sender, shares)` (L93) still burns the full share amount. There is no `minAssets` argument and no `require(assets > 0)`, so the caller gets no revert and no signal. If held == 0 (after a run, or any time all principal has been withdrawn by others) a call burns the user's shares for nothing; a later fund() would have made those shares whole. The clamp is also front-runnable: any withdrawal that lands ahead of the victim's shrinks `held` and turns the victim's transaction into a haircut instead of a revert.",
+   "exploit": "1) Alice and Bob each hold 1000e18 shares; after two years at 5000 bps chi = 2e18, held = 2000e18 (unfunded). 2) Alice withdraw(1000e18) takes all 2000e18. 3) Bob sees held == 0 but calls withdraw(1000e18) anyway (or his transaction was already in the mempool): assets = 2000e18 clamped to 0, his 1000e18 shares are burned, he receives 0 tokens and the Withdrawn event reports assets = 0. 4) The deployer later calls fund(2000e18) meaning to make Bob whole; Bob no longer holds any shares, so the buffer accrues to whoever deposits next.",
+   "recommendation": "When clamping, burn only the shares actually paid for: `sharesBurned = ceil(assets * 1e18 / chi)` and refund the rest; add `require(assets > 0, \"EMPTY\")`; add a `minAssets` parameter (or a `withdraw(uint256 shares, uint256 minAssets)` overload) and revert on `assets < minAssets`."
+  },
+  {
+   "id": "SAVINGS-3",
+   "severity": "medium",
+   "title": "Owner can set a 50%/yr rate instantly with no timelock and no funding requirement",
+   "where": "setRate() L107-L111, constructor L33",
+   "detail": "The only guard on the rate is `<= 5_000` bps. setRate() takes effect in the same block (drip() first, so it is not retroactive, which is correct) and nothing requires the buffer to cover the new promise. Because interest is paid out of the shared balance (SAVINGS-1), a high rate is a lever to move principal from late withdrawers to early ones, and the owner is the actor best placed to be early. The owner cannot sweep tokens directly (no rescue/sweep function, no mint), which is good, but rate control is enough.",
+   "exploit": "1) Owner deploys with rateBps_=500 to look conservative; users deposit 100k. 2) Owner deposit(50k) then setRate(5000) in the same block. 3) A keeper drips each block, so chi grows at ~64.9% effective (see SAVINGS-4). 4) After a year owner withdraw(all shares) is paid ~82k from a balance of 150k that nobody funded; the ~32k above principal is users' money. 5) Users discover shortfall() only when their own withdrawals come up short.",
+   "recommendation": "Wire the `governor` input to the timelock/governor block rather than an EOA so rate changes are announced; lower the hard cap (2_000 bps is plenty for a savings product); and/or require `shortfall() == 0` after a rate increase, or make accrual conditional on the buffer (SAVINGS-1 fix) so a rate is only ever a ceiling on funded yield."
+  },
+  {
+   "id": "SAVINGS-4",
+   "severity": "low",
+   "title": "Effective yield depends on how often anyone calls drip(): simple interest per gap, compounded on every drip",
+   "where": "currentChi() L40-L44, drip() L67-L72",
+   "detail": "Between drips chi grows linearly (`chi * rateBps * elapsed / (10_000 * 365 days)`), and each drip() folds that into chi, so the growth compounds at whatever cadence callers choose. drip() is public and is also invoked by every deposit/withdraw/setRate. The nominal `rateBps` is therefore a floor, not the rate: at 500 bps the effective APY ranges 5.00%-5.13%; at 5000 bps it ranges 50%-64.9% (e^0.5 - 1) if dripped every block. Overflow is not a concern (chi ~1e18 * 5e3 * elapsed needs elapsed > 1e50 s) and long idle gaps are safe, but the promise the deployer must fund is larger than the number in the inspector.",
+   "exploit": "1) rateBps = 5000, deployer funds the buffer to cover exactly 50% of principal for the year. 2) A bot calls drip() every block. 3) At year end totalAssets() has grown ~64.9%, the buffer is ~15 points short, and the last withdrawers absorb it (SAVINGS-1).",
+   "recommendation": "Either compute chi with a per-second compounding factor (Maker's `dsr` as a ray with `rpow`) so the cadence of drip() is irrelevant, or document the rate as continuously compounded and size the buffer for e^r - 1."
+  },
+  {
+   "id": "SAVINGS-5",
+   "severity": "low",
+   "title": "Share token hardcodes 18 decimals regardless of the asset; shares are denominated in the asset's raw units",
+   "where": "constructor L28-L29, deposit() L77, previewDeposit() L59-L61",
+   "detail": "ERC20Base is constructed with `decimals = 18` (L29) but shares are `assets * 1e18 / chi` where `assets` is in the underlying's raw units. With a 6-decimal asset, 1 USDC (1e6) mints 1e6 shares that the token reports as 0.000000000001 sMUSD. Any downstream block or front end that scales by `decimals()` (an AMM quoting the share, an oracle, a gauge) misprices it by 1e12. The catalog's intended unit is the CDP's 18-decimal coin, where this is harmless.",
+   "exploit": "1) Deploy with asset = a 6-decimal stablecoin. 2) User deposits 1_000 USDC and receives 1e9 share units, displayed as 1e-9 tokens. 3) An AMM pair created against an 18-decimal quote reads decimals() = 18 and quotes the share at a price 1e12 too low; arbitrageurs drain the pool at the mispriced rate.",
+   "recommendation": "Pass `IERC20(asset_).decimals()` to ERC20Base (with a try/catch fallback to 18), or normalise shares to 18 decimals by scaling `assets` by `10 ** (18 - assetDecimals)`."
+  },
+  {
+   "id": "SAVINGS-6",
+   "severity": "low",
+   "title": "Fee-on-transfer or rebasing assets create a permanent shortfall charged to the last withdrawer",
+   "where": "deposit() L77-L81, fund() L103-L105",
+   "detail": "deposit() mints shares for the `assets` argument and increments totalDeposited by it before checking what actually arrived; SafeTransfer.pull only checks the boolean. A transfer fee makes every deposit under-collateralised by the fee, and a negatively rebasing asset shrinks `held` under existing claims. Because withdraw() clamps to `held` (SAVINGS-1/2), the accumulated deficit lands on whoever withdraws last. The catalog's unit is the CDP coin (plain ERC20Base, no fee), so this only bites a deployer who wires a foreign stablecoin.",
+   "exploit": "1) Deploy against a token with a 1% transfer fee. 2) 100 users each deposit 1000 -> 100_000 shares minted, held = 99_000. 3) Rate is 0 and the buffer is funded generously, still the 100th withdrawer receives at most 0 after the first 99 take 99_000 (less again after the 1% fee on each push).",
+   "recommendation": "Measure `balanceOf` before and after pull() and mint shares for the difference; document that rebasing/fee-on-transfer assets are unsupported."
+  },
+  {
+   "id": "SAVINGS-7",
+   "severity": "info",
+   "title": "totalDeposited is not principal and fund() emits no event, so the buffer cannot be read on-chain",
+   "where": "withdraw() L94, fund() L103-L105, deposit() L80",
+   "detail": "totalDeposited is reduced by the full payout including interest (L94) and floored at zero, so after any interest is paid `held - totalDeposited` overstates the buffer and eventually totalDeposited hits zero while principal is still outstanding. fund() has no event and no counter, so funding and plain donations (including a CDP surplus minted straight to this address) are indistinguishable in logs. Nothing on-chain depends on totalDeposited, so this is a monitoring hazard only; shortfall() remains the correct meter.",
+   "exploit": "1) Alice deposits 1000, one year at 500 bps, withdraws 1050: totalDeposited becomes 0 while Bob's 1000 is still deposited. 2) A dashboard computing buffer = held - totalDeposited shows Bob's principal as free interest reserve and the deployer stops funding.",
+   "recommendation": "Track `principal` explicitly (increase on deposit; decrease by `min(payout, shares * 1e18 / chiAtDeposit)` or simply by the share fraction of principal), emit `Funded(from, amount)` in fund(), and expose `buffer()`."
+  },
+  {
+   "id": "SAVINGS-8",
+   "severity": "info",
+   "title": "Advertised as `vault` but not an IStrategy: withdraw(uint256) takes shares, deposit has a different selector",
+   "where": "deposit() L74, withdraw() L85; catalog `provides: [\"erc20\",\"vault\"]`",
+   "detail": "IStrategy (common.sol L26-L31) is `deposit(uint256)` / `withdraw(uint256 assets)`. This block exposes `deposit(uint256,address)` and `withdraw(uint256 shares)`. No catalog block has a `vault`-typed input and ModVault's `strategy` port is typed `strategy`, so the planner cannot miswire it, but a user who manually calls ModVault.setStrategy(savings) will pass the asset() check and then have every vault deposit revert (unknown selector, no fallback) while strategy.withdraw(n) burns n shares instead of paying n assets. Also note: this block never mints the stablecoin and has no privileged role on the CDP/PSM, so composing it beside them adds no mint surface; the only thing that funds it is fund() or the CDP's drawSurplus() minting to this address when wired as the CDP feeSink.",
+   "exploit": "1) ModVault.setStrategy(address(savings)) succeeds. 2) ModVault.deposit(...) calls strategy.deposit(amount) -> reverts, vault is unusable until setStrategy(0). 3) If the vault is later set to withdraw(assets - idle) the call burns that many shares and returns shares * chi, over-withdrawing by the factor chi.",
+   "recommendation": "Either implement IStrategy properly (asset-denominated withdraw, single-arg deposit) or drop `vault` from `provides`; document that withdraw() is share-denominated."
+  }
+ ],
+ "safe_use": [
+  "Fund before the first deposit and keep shortfall() == 0 at all times: interest accrues from deployment whether or not it is backed, and every unbacked unit is taken from whoever withdraws last.",
+  "Wire the CDP's feeSink (or a fee-splitter leg) to this block's address: drawSurplus() mints stability fees straight into the buffer without needing fund(), and it is the only yield in the composer that is backed by borrower debt rather than by a spreadsheet.",
+  "Size the buffer for continuous compounding (e^rate - 1), not the nominal bps: anyone can drip() every block.",
+  "Give the `governor` input to the timelock/governor block, never an EOA, and set a rate you can actually fund; 5000 bps is the hard cap, not a suggestion.",
+  "Depositors: read shortfall() and asset.balanceOf(savings) before withdrawing; withdraw no more than balanceOf(savings) / chi shares, and never call withdraw() when the balance is zero, because shares are burned regardless of what is paid.",
+  "Use only a plain 18-decimal ERC20 as the unit (the composer's CDP coin). Fee-on-transfer, rebasing or 6-decimal assets create shortfalls and mispriced shares.",
+  "Do not wire this block as a ModVault strategy: withdraw() is share-denominated and deposit() has the wrong selector."
+ ]
+}

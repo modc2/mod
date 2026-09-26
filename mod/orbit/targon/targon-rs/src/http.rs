@@ -2,8 +2,9 @@
 //! through the same MCP tool layer, and an embedded console page.
 //!
 //! Two ways in, one behaviour. Behind the fleet router the API is reachable at
-//! /api/targon (prefix stripped) and the console at /targon (prefix kept), so
-//! both paths are served here and one console works in either place.
+//! /targon/api (legacy alias /api/targon; prefix stripped) and the console at
+//! /targon (prefix kept), so both paths are served here and one console works
+//! in either place.
 
 use crate::{chain, mcp, targon};
 use axum::{
@@ -382,6 +383,8 @@ pub async fn serve(port: u16) {
         .route("/targon", get(console))
         .route("/targon/", get(console))
         .merge(api_routes())
+        // Canonical fleet form; legacy /api/targon alias kept below.
+        .nest("/targon/api", api_routes())
         .nest("/api/targon", api_routes())
         // Gateway alias, matching the fleet convention for app-served APIs.
         .nest("/targon/_api", api_routes())

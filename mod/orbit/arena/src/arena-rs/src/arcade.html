@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arena · arcade</title>
+<style>
+  :root {
+    --bg: #0b0f14; --card: #121820; --line: #1f2a36;
+    --fg: #d7e2ec; --dim: #7d8fa1; --accent: #ffd75e;
+    --gold: #ffd75e; --silver: #c8d3de; --bronze: #d9a06b;
+    --up: #7ee787; --down: #ff7b72;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    padding: 0 12px 48px;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 10px;
+    max-width: 880px; margin: 0 auto; padding: 18px 2px 6px;
+  }
+  header .mark {
+    width: 12px; height: 12px; background: var(--accent);
+    border-radius: 3px; align-self: center;
+  }
+  header h1 { font-size: 16px; letter-spacing: 3px; margin: 0; }
+  header nav { margin-left: auto; display: flex; gap: 14px; }
+  header a { color: var(--dim); font-size: 12px; text-decoration: none; }
+  header a:hover { color: var(--accent); }
+  .card {
+    max-width: 880px; margin: 12px auto; background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+  }
+  .card h2 {
+    font-size: 12px; letter-spacing: 2px; margin: 0 0 8px; color: var(--fg);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .card h2 .sub { color: var(--dim); font-weight: normal; letter-spacing: 0; margin-left: auto; }
+  .note { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px;
+    cursor: pointer; color: var(--dim); background: var(--bg); font: inherit; font-size: 13px;
+  }
+  .chip.on { border-color: var(--accent); color: var(--fg); background: rgba(255, 215, 94, .08); }
+  .chip .hi { margin-left: 6px; color: var(--accent); }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; color: var(--dim); font-weight: normal; font-size: 11px;
+    letter-spacing: 1px; padding: 4px 10px 6px 0; border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .num { text-align: right; }
+  th.num { text-align: right; }
+  .rank { color: var(--dim); letter-spacing: 1px; }
+  tr.r1 .rank, tr.r1 .best { color: var(--gold); font-weight: bold; }
+  tr.r2 .rank, tr.r2 .best { color: var(--silver); font-weight: bold; }
+  tr.r3 .rank, tr.r3 .best { color: var(--bronze); font-weight: bold; }
+  .best { font-size: 15px; }
+  .kind { color: var(--dim); font-size: 11px; }
+  .dimline { color: var(--dim); padding: 12px 0 4px; }
+  select {
+    background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 16px; max-width: 100%;
+  }
+  .runrow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button.go {
+    background: var(--accent); color: #14100a; border: none; border-radius: 6px;
+    padding: 6px 22px; font: inherit; font-size: 14px; font-weight: bold;
+    letter-spacing: 2px; cursor: pointer;
+  }
+  button.go:disabled { opacity: .45; cursor: default; }
+  .log { margin-top: 10px; font-size: 12px; color: var(--dim); }
+  .log .ok { color: var(--up); }
+  .log .bad { color: var(--down); }
+</style>
+</head>
+<body>
+<header>
+  <span class="mark"></span><h1>ARENA · ARCADE</h1>
+  <nav>
+    <a href="/arena/classic">classic console</a>
+    <a href="/arena">trades</a>
+  </nav>
+</header>
+
+<div class="card">
+  <h2>MARQUEE <span class="sub" id="gsub">pick a cabinet</span></h2>
+  <div class="chips" id="games"><span class="dimline">lighting up…</span></div>
+  <p class="note">score per game, straight off the game — no elo. A solo run counts: seat your agent alone and post a number.</p>
+</div>
+
+<div class="card">
+  <h2>HI-SCORES <span class="sub" id="bsub"></span></h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr>
+        <th>RANK</th><th class="num">HI-SCORE</th><th>PLAYER</th>
+        <th class="num">AVG</th><th class="num">RUNS</th><th>LAST</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="dimline" id="empty" hidden></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>RUN YOUR AGENT <span class="sub">new players enter via the classic console</span></h2>
+  <div class="runrow">
+    <select id="player"><option>loading players…</option></select>
+    <select id="count">
+      <option value="1">1 run</option>
+      <option value="3" selected>3 runs</option>
+      <option value="5">5 runs</option>
+      <option value="10">10 runs</option>
+    </select>
+    <button class="go" id="go">RUN</button>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+(() => {
+  // Behind the fleet router this page is /arena/arcade and the api
+  // /arena/api; standalone on the port the same nested routes answer —
+  // never a bare path.
+  const API = "/arena/api";
+  const GAMEKEY = "arena:arcade:game";
+  let games = [];
+  let game = null; // selected game id
+  let running = false;
+
+  const $ = id => document.getElementById(id);
+  const score = n => {
+    if (n === null || n === undefined) return "";
+    return Number.isInteger(Number(n)) ? String(n) : Number(n).toFixed(1);
+  };
+  const ago = ts => {
+    if (!ts) return "";
+    const s = Math.max(0, Date.now() / 1000 - ts);
+    if (s < 3600) return Math.round(s / 60) + "m ago";
+    if (s < 86400) return Math.round(s / 3600) + "h ago";
+    return Math.round(s / 86400) + "d ago";
+  };
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  function renderGames() {
+    const box = $("games");
+    box.innerHTML = "";
+    if (!games.length) {
+      box.innerHTML = '<span class="dimline">no games in the registry yet — upload one in the classic console</span>';
+      return;
+    }
+    if (!game || !games.some(g => g.id === game)) game = games[0].id;
+    for (const g of games) {
+      const b = document.createElement("button");
+      b.className = "chip" + (g.id === game ? " on" : "");
+      b.innerHTML = esc(g.name) + (g.top ? `<span class="hi">${score(g.top.best)}</span>` : "");
+      b.title = g.top ? `hi-score ${score(g.top.best)} by ${g.top.name} · ${g.runs} runs` : "no scores yet";
+      b.onclick = () => {
+        game = g.id;
+        try { localStorage.setItem(GAMEKEY, game); } catch (e) { /* private mode */ }
+        renderGames(); loadBoard();
+      };
+      box.appendChild(b);
+    }
+    $("gsub").textContent = `${games.length} cabinets`;
+  }
+
+  async function loadBoard() {
+    if (!game) return;
+    const rows = $("rows"), empty = $("empty");
+    rows.innerHTML = "";
+    empty.hidden = false;
+    empty.textContent = "reading the board…";
+    let d;
+    try { d = await (await fetch(`${API}/arcade?game=${encodeURIComponent(game)}&limit=50`)).json(); }
+    catch (e) { d = { error: String(e) }; }
+    if (d.error) { empty.textContent = d.error; return; }
+    $("bsub").textContent = `${d.scope} · ${d.runs} runs`;
+    rows.innerHTML = (d.players || []).map((p, i) => `<tr class="r${i + 1}">
+      <td class="rank">${String(i + 1).padStart(2, "0")}</td>
+      <td class="num best">${score(p.best)}</td>
+      <td title="${esc(p.id)}">${esc(p.name)} <span class="kind">${esc(p.kind)}</span></td>
+      <td class="num">${Number(p.avg_score).toFixed(2)}</td>
+      <td class="num">${p.runs}</td>
+      <td>${ago(p.last)}</td>
+    </tr>`).join("");
+    empty.hidden = (d.players || []).length > 0;
+    empty.textContent = "no scores on this cabinet yet — be the first";
+  }
+
+  async function loadMarquee(keepBoard) {
+    let d;
+    try { d = await (await fetch(`${API}/arcade`)).json(); }
+    catch (e) { d = { error: String(e) }; }
+    if (d.error) { $("games").innerHTML = `<span class="dimline">${esc(d.error)}</span>`; return; }
+    games = d.games || [];
+    renderGames();
+    if (!keepBoard) loadBoard();
+  }
+
+  async function loadPlayers() {
+    let d;
+    try { d = await (await fetch(`${API}/players`)).json(); }
+    catch (e) { d = { players: [] }; }
+    const sel = $("player");
+    sel.innerHTML = "";
+    for (const p of d.players || []) {
+      const o = document.createElement("option");
+      o.value = p.id;
+      o.textContent = `${p.name} · ${p.kind}`;
+      sel.appendChild(o);
+    }
+    if (!sel.options.length) sel.innerHTML = "<option value=''>no players entered yet</option>";
+  }
+
+  function logLine(html) {
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    $("log").appendChild(div);
+  }
+
+  $("go").onclick = async () => {
+    if (running || !game) return;
+    const pid = $("player").value;
+    if (!pid) { logLine('<span class="bad">enter a player in the classic console first</span>'); return; }
+    const n = Number($("count").value);
+    running = true;
+    $("go").disabled = true;
+    $("log").innerHTML = "";
+    for (let i = 1; i <= n; i++) {
+      logLine(`run ${i}/${n}…`);
+      let r;
+      try {
+        r = await (await fetch(`${API}/run`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ game, players: [pid], seed: Math.floor(Math.random() * 1e9) }),
+        })).json();
+      } catch (e) { r = { error: String(e) }; }
+      const line = $("log").lastChild;
+      if (r.error) {
+        line.innerHTML = `run ${i}/${n} · <span class="bad">${esc(r.error)}</span>`;
+        break;
+      }
+      const seats = r.seats || (r.match && r.match.seats) || [];
+      const mine = seats.find(s => s.player_id === pid) || seats[0] || {};
+      line.innerHTML = `run ${i}/${n} · <span class="ok">score ${score(mine.score)}</span>` +
+        (mine.illegal ? ` · ${mine.illegal} illegal` : "") +
+        (r.summary ? ` · ${esc(r.summary)}` : "");
+      loadBoard();
+    }
+    loadMarquee(true);
+    running = false;
+    $("go").disabled = false;
+  };
+
+  try { game = localStorage.getItem(GAMEKEY) || null; } catch (e) { /* private mode */ }
+  loadMarquee();
+  loadPlayers();
+})();
+</script>
+</body>
+</html>

@@ -12,7 +12,8 @@ class Mod:
     """caddy — THE router: one generated site block for {host}/{mod}.
 
     Every module whose config.json opts in (`"route": true`) and declares ports
-    gets a route at {host}/{name} (app) and {host}/api/{name} (API). The whole
+    gets a route at {host}/{name} (app) and {host}/{name}/api (API; the legacy
+    {host}/api/{name} form is kept as an alias for old clients). The whole
     site block — module routes, root redirect, catch-all — is generated into a
     single include (mod_site.caddy) that the base Caddyfile imports at top
     level. There are no hand-written per-module routes left: on first apply the
@@ -31,8 +32,10 @@ class Mod:
     committed config.json).
 
     Convention (per module config.json):
-      port      → API   (proxied at /api/{name}, prefix stripped)
-      app_port  → app   (proxied at /{name}, prefix kept — Next basePath)
+      port      → API   (proxied at /{name}/api, prefix stripped;
+                         legacy /api/{name} kept as an alias)
+      app_port  → app   (proxied at /{name}, prefix kept — Next basePath;
+                         app-internal Next API routes live at /{name}/_api)
     """
 
     description = "The mod router — generates the whole {host}/{mod} Caddy site from module configs; host is owner-configurable so anyone can run a router."
@@ -55,6 +58,16 @@ class Mod:
 
     # Roots scanned for routable modules.
     ROOTS = ["/root/mod/mod/orbit", "/root/mod/mod/core"]
+
+    # A module the build console has marked PRIVATE is not published here.
+    # Privacy is an owner's opt-out of being visible at all — dropping it from
+    # the hub while {host}/{mod} still answers would be a hole, so the router
+    # reads the same per-module records build writes (0600, off-tree) and
+    # simply never generates a route for one. Going public again restores the
+    # route on the next apply.
+    PRIVATE_DIR = os.path.expanduser(
+        os.environ.get("MOD_PRIVATE_STATE", "~/.mod/build/private")
+    )
 
     # ── mod protocol ─────────────────────────────────────────────────────────
     def forward(self, **kwargs):
@@ -200,6 +213,8 @@ class Mod:
                     continue
                 if require_optin and not cfg.get("route"):
                     continue
+                if self._is_private(cfg.get("name", name)):
+                    continue
                 api = cfg.get("port") or (cfg.get("ports") or {}).get("api")
                 app = cfg.get("app_port") or (cfg.get("ports") or {}).get("app")
                 if not api and not app:
@@ -217,6 +232,22 @@ class Mod:
                     "app_port": app,
                 })
         return out
+
+    def _is_private(self, name):
+        """Has this module been made private in the build console?
+
+        The record is `~/.mod/build/private/<name>.json` with `enabled: true`
+        (nested names flatten `/` to `__`, same as build writes them). Any
+        read failure means "not private" — the router must never fail closed
+        on a missing state dir and take the whole fleet off the air."""
+        safe = "".join(c for c in name if c.isalnum() or c in "-_/").replace("/", "__")
+        if not safe:
+            return False
+        try:
+            with open(os.path.join(self.PRIVATE_DIR, f"{safe}.json")) as f:
+                return bool(json.load(f).get("enabled"))
+        except (OSError, json.JSONDecodeError, AttributeError):
+            return False
 
     def _base_text(self):
         try:
@@ -303,12 +334,28 @@ class Mod:
         lines = [f"{host} {{"]
         for n in sorted(routes):
             spec = routes[n]
-            for kind, prefix in (("api", f"/api/{n}"), ("app", f"/{n}")):
-                r = spec.get(kind)
-                if not r:
-                    continue
-                lines.append(f"    @{n}_{kind} path {prefix} {prefix}/*")
-                lines.append(f"    handle @{n}_{kind} {{")
+            api = spec.get("api")
+            if api:
+                # Canonical API route is {host}/{n}/api — emitted BEFORE the
+                # app handle so it wins the /{n}/* overlap. The legacy
+                # /api/{n} form stays as an alias so old clients keep working.
+                for tag, prefix in ((f"{n}_api", f"/{n}/api"),
+                                    (f"{n}_api_legacy", f"/api/{n}")):
+                    lines.append(f"    @{tag} path {prefix} {prefix}/*")
+                    lines.append(f"    handle @{tag} {{")
+                    if api.get("strip"):
+                        lines.append(f"        uri strip_prefix {prefix}")
+                    elif prefix == f"/{n}/api":
+                        # Non-strip upstreams (the activator) speak the legacy
+                        # /api/{n} shape — normalize before proxying.
+                        lines.append(f"        uri replace /{n}/api /api/{n}")
+                    lines.append(f"        reverse_proxy {api['upstream']}")
+                    lines.append("    }")
+            r = spec.get("app")
+            if r:
+                prefix = f"/{n}"
+                lines.append(f"    @{n}_app path {prefix} {prefix}/*")
+                lines.append(f"    handle @{n}_app {{")
                 if r.get("strip"):
                     lines.append(f"        uri strip_prefix {prefix}")
                 lines.append(f"        reverse_proxy {r['upstream']}")

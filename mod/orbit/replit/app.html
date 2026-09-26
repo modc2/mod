@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>replit · the mod ⇄ Repl bridge</title>
+<style>
+  :root{
+    --bg:#0d0f11; --panel:#15181c; --panel2:#1c2026; --line:#252a31; --line2:#333a44;
+    --text:#f2f4f7; --muted:#98a2b3; --faint:#667085;
+    --accent:#f26207; --accent2:#ff8a3d; --green:#32d583; --amber:#fdb022; --err:#f97066;
+    --r:12px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;color:var(--text);background:
+      radial-gradient(1000px 500px at 8% -10%, rgba(242,98,7,.13), transparent 60%),
+      radial-gradient(800px 420px at 100% 0%, rgba(50,213,131,.06), transparent 55%),
+      var(--bg);background-attachment:fixed;
+    font:14px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial}
+  ::selection{background:rgba(242,98,7,.4)}
+  header{position:sticky;top:0;z-index:20;padding:12px 20px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(13,15,17,.96),rgba(13,15,17,.78));backdrop-filter:blur(14px)}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:9px;font-weight:800;font-size:17px}
+  .brand .play{color:var(--accent)}
+  .sub{color:var(--muted);font-size:12px}
+  .grow{flex:1}
+  .seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);
+    border-radius:999px;padding:3px;gap:2px}
+  .seg button{all:unset;cursor:pointer;padding:6px 14px;border-radius:999px;font-size:12px;
+    font-weight:700;letter-spacing:.05em;color:var(--muted);transition:.15s}
+  .seg button.on{background:var(--accent);color:#150a02}
+  main{max-width:1200px;margin:0 auto;padding:20px}
+  .hide{display:none!important}
+  .split{display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start}
+  @media(max-width:880px){.split{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+  .phead{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:13px 16px;
+    border-bottom:1px solid var(--line)}
+  .phead .ttl{font-weight:800;font-size:14px;letter-spacing:.02em}
+  .pbody{padding:16px}
+  .rail{position:sticky;top:74px;max-height:calc(100vh - 96px);display:flex;flex-direction:column}
+  .rail input.search{all:unset;padding:11px 14px;border-bottom:1px solid var(--line);
+    font-size:13px;color:var(--text);width:100%}
+  .rail input.search::placeholder{color:var(--faint)}
+  .list{overflow-y:auto;padding:6px}
+  .item{display:flex;gap:9px;align-items:center;padding:7px 10px;border-radius:9px;cursor:pointer;font-size:13px}
+  .item:hover{background:var(--panel2)}
+  .item.on{background:var(--panel2);outline:1px solid var(--line2)}
+  .item .ic{width:18px;text-align:center;color:var(--faint)}
+  .item .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .tag{margin-left:auto;font:10px var(--mono);color:var(--faint)}
+  .chip{font:11.5px var(--mono);color:var(--muted);background:var(--panel2);
+    border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap}
+  .chip b{color:var(--accent2);font-weight:600}
+  .chip.ok{color:var(--green);border-color:rgba(50,213,131,.35)}
+  .chip.bad{color:var(--err);border-color:rgba(249,112,102,.35)}
+  button.btn{all:unset;cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);
+    border:1px solid var(--line);border-radius:8px;padding:6px 13px;transition:.15s}
+  button.btn:hover{color:var(--text);border-color:var(--line2);background:var(--panel2)}
+  button.btn.pri{background:var(--accent);color:#150a02;border-color:var(--accent)}
+  button.btn.pri:hover{background:var(--accent2);border-color:var(--accent2);color:#150a02}
+  button.btn[disabled]{opacity:.4;cursor:not-allowed}
+  input.tf,textarea.tf,select.tf{all:unset;box-sizing:border-box;width:100%;background:var(--panel2);
+    border:1px solid var(--line);border-radius:9px;padding:9px 12px;color:var(--text);
+    font:13px var(--mono)}
+  input.tf:focus,textarea.tf:focus{border-color:var(--line2)}
+  textarea.tf{min-height:90px;resize:vertical}
+  label.lb{display:block;font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--faint);
+    margin:0 0 6px;text-transform:uppercase}
+  .fld{margin-bottom:12px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:700px){.grid2{grid-template-columns:1fr}}
+  pre.out{font:12px/1.6 var(--mono);margin:0;padding:14px 16px;overflow-x:auto;color:#cfe0ff;
+    background:#0b0d10;border-top:1px solid var(--line);max-height:460px;overflow-y:auto}
+  pre.out.err{color:var(--err)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10.5px;letter-spacing:.12em;color:var(--faint);font-weight:700;
+    padding:8px 12px;border-bottom:1px solid var(--line)}
+  td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  td.mono{font:12px var(--mono);color:var(--muted)}
+  tr:last-child td{border-bottom:none}
+  .banner{display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;
+    background:rgba(253,176,34,.1);border:1px solid rgba(253,176,34,.3);color:var(--amber);
+    font-size:12.5px;margin-bottom:16px}
+  .note{color:var(--muted);font-size:12.5px;line-height:1.6}
+  .note code,code{font:12px var(--mono);background:var(--panel2);border:1px solid var(--line);
+    border-radius:5px;padding:1px 5px;color:var(--accent2)}
+  a{color:var(--accent2)}
+  .warn{color:var(--amber);font-size:12px;line-height:1.6;margin:2px 0}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+  .card h4{margin:0 0 6px;font-size:13px}
+  .card .k{font:11px var(--mono);color:var(--faint)}
+  .empty{padding:34px;text-align:center;color:var(--faint);font-size:13px}
+  #toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(90px);
+    background:var(--accent);color:#150a02;font-weight:700;font-size:13px;padding:9px 18px;
+    border-radius:999px;transition:.25s;z-index:60;max-width:80vw}
+  #toast.on{transform:translateX(-50%) translateY(0)}
+  #toast.bad{background:var(--err);color:#1a0605}
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <div class="brand"><span class="play">▶</span><span>replit</span>
+      <span class="sub">the mod&nbsp;⇄&nbsp;Repl bridge</span></div>
+    <div class="grow"></div>
+    <span class="chip" id="c-mode">…</span>
+    <span class="chip" id="c-stats">…</span>
+    <div class="seg" id="tabs">
+      <button data-t="bundle" class="on">BUNDLE</button>
+      <button data-t="remotes">MODS</button>
+      <button data-t="mcp">MCP</button>
+      <button data-t="db">DB</button>
+      <button data-t="import">IMPORT</button>
+      <button data-t="about">ABOUT</button>
+    </div>
+  </div>
+</header>
+<main>
+
+  <div id="ro" class="banner hide">READ-ONLY — writes are local-only (loopback, unproxied).
+    Run <code>m replit/bundle &lt;module&gt;</code> on the box instead.</div>
+
+  <!-- BUNDLE -->
+  <section id="t-bundle" class="split">
+    <aside class="panel rail">
+      <input class="search" id="q-mod" placeholder="search modules…" autocomplete="off"/>
+      <div class="list" id="mods"><div class="empty">loading…</div></div>
+    </aside>
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <div class="phead"><span class="ttl" id="b-title">pick a module</span>
+          <span class="grow"></span>
+          <button class="btn pri" id="b-build" disabled>BUILD BUNDLE</button>
+          <button class="btn" id="b-zip" disabled>DOWNLOAD .ZIP</button>
+        </div>
+        <div class="pbody">
+          <div class="note" id="b-desc">Turn any fleet module into a Replit project:
+            its own files plus <code>.replit</code>, <code>replit.nix</code>,
+            <code>requirements.txt</code> and a stdlib <code>main.py</code> that serves it
+            the way <code>m serve</code> does.</div>
+          <div id="b-warn" style="margin-top:10px"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="phead"><span class="ttl">BUNDLE FILES</span>
+          <span class="chip" id="b-count">—</span><span class="grow"></span>
+          <select class="tf" id="b-pick" style="width:auto;font-size:12px;padding:5px 10px"></select>
+        </div>
+        <div id="b-files"><div class="empty">no bundle yet</div></div>
+        <pre class="out hide" id="b-view"></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- REMOTES -->
+  <section id="t-remotes" class="hide">
+    <div class="panel" style="margin-bottom:16px">
+      <div class="phead"><span class="ttl">LINK A DEPLOYED REPL</span><span class="grow"></span>
+        <span class="chip">it answers like a module</span></div>
+      <div class="pbody">
+        <div class="grid2">
+          <div class="fld"><label class="lb">name</label>
+            <input class="tf" id="r-name" placeholder="demo"/></div>
+          <div class="fld"><label class="lb">repl url</label>
+            <input class="tf" id="r-url" placeholder="https://my-repl.replit.dev"/></div>
+        </div>
+        <div class="row"><button class="btn pri wr" id="r-link">LINK</button>
+          <span class="note">Deploy the Repl first — a dev URL sleeps and the first call wakes it.</span></div>
+      </div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
+      <div class="phead"><span class="ttl">MODS ON REPLIT</span>
+        <span class="chip" id="r-count">0</span><span class="grow"></span>
+        <button class="btn wr" id="r-refresh">RE-DISCOVER ALL</button></div>
+      <div id="r-list" class="pbody"><div class="empty">nothing linked yet</div></div>
+    </div>
+    <div class="panel">
+      <div class="phead"><span class="ttl">CALL</span><span class="grow"></span>
+        <span class="chip">POST <b>{url}/{fn}</b> · empty fn = null call</span></div>
+      <div class="pbody">
+        <div class="grid2">
+          <div class="fld"><label class="lb">remote</label>
+            <select class="tf" id="c-remote"></select></div>
+          <div class="fld"><label class="lb">fn</label>
+            <input class="tf" id="c-fn" placeholder="info"/></div>
+        </div>
+        <div class="fld"><label class="lb">args (json)</label>
+          <textarea class="tf" id="c-args">{}</textarea></div>
+        <button class="btn pri wr" id="c-go">CALL</button>
+      </div>
+      <pre class="out hide" id="c-out"></pre>
+    </div>
+  </section>
+
+  <!-- MCP -->
+  <section id="t-mcp" class="hide">
+    <div class="cards" style="margin-bottom:16px">
+      <div class="card"><h4>One endpoint, two layers</h4><div class="note">The bridge's own
+        tools, plus <b>one tool per function per linked Repl</b> —
+        <code>repl_{remote}_{fn}</code>, typed from the signatures the Repl reports on its
+        null call. An agent does not drive this module; it calls the mods on Replit.</div></div>
+      <div class="card"><h4>No second process</h4><div class="note">This console answers
+        <code>POST /mcp</code> with the same dispatcher, so <code id="m-url">…</code> is a
+        live MCP endpoint. <code>mcp.py</code> also runs standalone over stdio.</div></div>
+      <div class="card"><h4>Reads open, writes local</h4><div class="note">Through the gateway
+        the tool list and the catalog are readable; anything that writes state or reaches a
+        Repl is loopback-only, and says so in the tool result.</div></div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
+      <div class="phead"><span class="ttl">CONNECT A CLIENT</span><span class="grow"></span>
+        <span class="chip" id="m-count">…</span></div>
+      <pre class="out" style="border-top:none" id="m-snip">…</pre>
+    </div>
+    <div class="panel">
+      <div class="phead"><span class="ttl">TOOLS</span><span class="grow"></span>
+        <input class="tf" id="m-q" placeholder="filter tools…" style="width:220px"/></div>
+      <div id="m-tools"><div class="empty">loading…</div></div>
+    </div>
+  </section>
+
+  <!-- DB -->
+  <section id="t-db" class="hide">
+    <div class="panel" style="margin-bottom:16px">
+      <div class="phead"><span class="ttl">REPLIT DB</span><span class="grow"></span>
+        <span class="chip" id="d-conn">—</span></div>
+      <div class="pbody">
+        <div class="note" style="margin-bottom:12px">In any Repl's shell run
+          <code>echo $REPLIT_DB_URL</code> and paste it here. The URL embeds a rotating
+          token, so it is stored <code>0600</code> under <code>~/.mod/replit</code> — never
+          in config.json. This is the one documented Replit API that is actually reachable.</div>
+        <div class="grid2">
+          <div class="fld"><label class="lb">REPLIT_DB_URL</label>
+            <input class="tf" id="d-url" placeholder="https://kv.replit.com/v0/…" type="password"/></div>
+          <div class="fld"><label class="lb">account (label only)</label>
+            <input class="tf" id="d-acct" placeholder="@you"/></div>
+        </div>
+        <div class="row"><button class="btn pri wr" id="d-connect">CONNECT</button>
+          <button class="btn wr" id="d-disconnect">FORGET</button></div>
+      </div>
+    </div>
+    <div class="split">
+      <div class="panel rail">
+        <input class="search" id="d-prefix" placeholder="key prefix…"/>
+        <div class="list" id="d-keys"><div class="empty">not connected</div></div>
+      </div>
+      <div class="panel">
+        <div class="phead"><span class="ttl" id="d-title">no key selected</span><span class="grow"></span>
+          <button class="btn wr" id="d-save">SET</button>
+          <button class="btn wr" id="d-del">DELETE</button></div>
+        <div class="pbody">
+          <div class="fld"><label class="lb">key</label><input class="tf" id="d-key"/></div>
+          <div class="fld"><label class="lb">value</label><textarea class="tf" id="d-val"></textarea></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- IMPORT -->
+  <section id="t-import" class="hide">
+    <div class="panel" style="margin-bottom:16px">
+      <div class="phead"><span class="ttl">IMPORT A REPL INTO THE FLEET</span></div>
+      <div class="pbody">
+        <div class="note" style="margin-bottom:12px">Replit blocks anonymous Repl export
+          (<code>403</code>), so import goes through the repo behind the Repl: in the Repl open
+          <b>Git → connect a GitHub repo</b>, then paste that repo here. The clone lands in
+          <code>mod/orbit/&lt;name&gt;</code> and gets a <code>config.json</code> + anchor if it
+          has none.</div>
+        <div class="grid2">
+          <div class="fld"><label class="lb">github repo</label>
+            <input class="tf" id="i-repo" placeholder="owner/name or a github.com URL"/></div>
+          <div class="fld"><label class="lb">module name (optional)</label>
+            <input class="tf" id="i-name" placeholder="defaults to the repo name"/></div>
+        </div>
+        <div class="row"><button class="btn pri wr" id="i-go">IMPORT</button>
+          <button class="btn" id="i-url">RUN-ON-REPLIT URL</button></div>
+      </div>
+      <pre class="out hide" id="i-out"></pre>
+    </div>
+  </section>
+
+  <!-- ABOUT -->
+  <section id="t-about" class="hide">
+    <div class="cards" style="margin-bottom:16px">
+      <div class="card"><h4>What this is</h4><div class="note">A two-way bridge, not a Replit
+        client. It does the things that actually cross the boundary: bundle a module into a
+        Repl, address the mods already running on Repls (catalog + call + MCP), browse Replit
+        DB, import a Repl's repo.</div></div>
+      <div class="card"><h4>The URL rule</h4><div class="note">App at <code>/replit</code>,
+        API at <code>/api/replit</code>, and a null <code>POST</code> returns this module's
+        info — the same three rules every module follows.</div></div>
+      <div class="card"><h4>Writes are local</h4><div class="note">Bundling, linking, importing
+        and DB writes require a loopback request with no <code>X-Forwarded-For</code>. Through
+        the gateway this console is read-only.</div></div>
+    </div>
+    <div class="panel" style="margin-bottom:16px">
+      <div class="phead"><span class="ttl">WHAT REPLIT LEAVES OPEN — measured</span></div>
+      <table><thead><tr><th>endpoint</th><th>status</th><th>what it means</th></tr></thead>
+        <tbody id="a-table"></tbody></table>
+    </div>
+    <div class="panel">
+      <div class="phead"><span class="ttl">CLI</span></div>
+      <pre class="out" style="border-top:none">m replit                          # status
+m replit/modules                  # what can be bundled
+m replit/bundle git               # package orbit/git for Replit
+m replit/zip git                  # …and zip it
+m replit/run_url owner/repo       # one-click import URL
+m replit/link demo https://x.replit.dev
+m replit/catalog                  # the mods on Replit + their fns
+m replit/repl demo refresh=1      # one Repl, re-discovered
+m replit/call demo info           # call a fn on the Repl
+m replit/mcp_tools                # the MCP tool surface
+m replit/mcp tools/list           # one JSON-RPC message
+m replit/db_set hello world
+m replit/import_repl owner/repo
+m replit/serve                    # this console + MCP on :50530</pre>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const BASE = location.pathname.replace(/\/+$/,'').startsWith('/replit') ? '/replit/api' : '/api';
+const $ = s => document.querySelector(s);
+const el = (t,c,x) => { const e=document.createElement(t); if(c)e.className=c;
+  if(x!==undefined)e.textContent=x; return e; };
+let LOCAL=false, MODS=[], SEL=null, BUNDLES=[], CUR=null, REMOTES=[], TOOLS=[];
+
+function toast(msg, bad){ const t=$('#toast'); t.textContent=msg; t.className='on'+(bad?' bad':'');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.className='',3200); }
+
+async function api(path, body){
+  const opt = body ? {method:'POST', headers:{'Content-Type':'application/json'},
+                      body:JSON.stringify(body)} : {};
+  const r = await fetch(BASE+path, opt);
+  const j = await r.json().catch(()=>({error:'bad response'}));
+  if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+
+/* tabs */
+$('#tabs').addEventListener('click', e => {
+  const b = e.target.closest('button'); if(!b) return;
+  [...$('#tabs').children].forEach(x=>x.classList.toggle('on', x===b));
+  ['bundle','remotes','mcp','db','import','about'].forEach(t =>
+    $('#t-'+t).classList.toggle('hide', t!==b.dataset.t));
+  if(b.dataset.t==='mcp' && !TOOLS.length) loadTools();
+});
+
+/* ---------- status ---------- */
+async function loadStatus(){
+  const s = await api('/status');
+  LOCAL = !!s.local;
+  $('#c-mode').textContent = LOCAL ? 'LOCAL · writes on' : 'REMOTE · read-only';
+  $('#c-mode').className = 'chip ' + (LOCAL ? 'ok' : 'bad');
+  $('#c-stats').innerHTML = `<b>${s.remotes}</b> mods on replit · <b>${s.repl_fns}</b> fns · ` +
+    `<b>${s.mcp_tools}</b> mcp tools · <b>${s.bundles}</b> bundles`;
+  $('#ro').classList.toggle('hide', LOCAL);
+  document.querySelectorAll('.wr').forEach(b => b.disabled = !LOCAL);
+  $('#d-conn').textContent = s.account.connected
+    ? ('connected ' + (s.account.account||'')) : 'not connected';
+  $('#d-conn').className = 'chip ' + (s.account.connected ? 'ok':'');
+  const tb = $('#a-table'); tb.innerHTML='';
+  const rows = [
+    ['replit.com/github/{owner}/{repo}', '200', 'the import path — one-click Run on Replit'],
+    ['kv.replit.com (Replit DB)', 'token', 'works with your own REPLIT_DB_URL'],
+    ['replit.com/graphql', '400', 'persisted query hash required — no ad-hoc queries'],
+    ['replit.com/@user/slug.zip', '403', 'anonymous Repl export is blocked'],
+    ['replit.com/data/repls/@user/slug', '404', 'the old public repl API is gone'],
+  ];
+  rows.forEach(r => { const tr=el('tr');
+    tr.appendChild(el('td','mono',r[0]));
+    const td=el('td'); const c=el('span','chip'+(r[1]==='200'?' ok':(r[1]==='token'?'':' bad')),r[1]);
+    td.appendChild(c); tr.appendChild(td);
+    tr.appendChild(el('td',null,r[2])); tb.appendChild(tr); });
+}
+
+/* ---------- bundle ---------- */
+async function loadMods(){
+  const j = await api('/modules');
+  MODS = j.modules; renderMods();
+}
+function renderMods(){
+  const q = $('#q-mod').value.trim().toLowerCase();
+  const list = $('#mods'); list.innerHTML='';
+  const rows = MODS.filter(m => !q || m.id.toLowerCase().includes(q)
+                             || (m.description||'').toLowerCase().includes(q));
+  if(!rows.length){ list.appendChild(el('div','empty','no match')); return; }
+  rows.forEach(m => {
+    const d = el('div','item'+(SEL&&SEL.id===m.id?' on':''));
+    d.appendChild(el('span','ic', m.icon || '·'));
+    d.appendChild(el('span','nm', m.id));
+    if(!m.anchor) d.appendChild(el('span','tag','no anchor'));
+    d.onclick = () => { SEL = m; renderMods(); showModule(m); };
+    list.appendChild(d);
+  });
+}
+function showModule(m){
+  $('#b-title').textContent = m.id;
+  $('#b-desc').textContent = m.description || 'no description';
+  $('#b-build').disabled = !LOCAL;
+  $('#b-warn').innerHTML = '';
+}
+$('#q-mod').addEventListener('input', renderMods);
+
+$('#b-build').onclick = async () => {
+  if(!SEL) return;
+  $('#b-build').disabled = true; toast('bundling '+SEL.id+'…');
+  try{
+    const man = await api('/bundle', {module: SEL.id});
+    toast(`built ${man.name} — ${man.files} files`);
+    $('#b-warn').innerHTML = '';
+    (man.warnings||[]).forEach(w => $('#b-warn').appendChild(el('div','warn','⚠ '+w)));
+    await loadBundles(man.name);
+  }catch(e){ toast(e.message, true); }
+  $('#b-build').disabled = !LOCAL;
+};
+async function loadBundles(pick){
+  const j = await api('/bundles'); BUNDLES = j.bundles;
+  const sel = $('#b-pick'); sel.innerHTML='';
+  BUNDLES.forEach(b => { const o=el('option',null,`${b.name} · ${b.files} files`);
+    o.value=b.name; sel.appendChild(o); });
+  if(BUNDLES.length){ sel.value = pick || BUNDLES[0].name; await showBundle(sel.value); }
+  await loadStatus();
+}
+$('#b-pick').onchange = e => showBundle(e.target.value);
+async function showBundle(name){
+  CUR = name; $('#b-zip').disabled = false;
+  const j = await api('/bundle/files?name='+encodeURIComponent(name));
+  $('#b-count').textContent = `${j.n} files`;
+  const box = $('#b-files'); box.innerHTML='';
+  const t = el('table'); const tb = el('tbody');
+  t.innerHTML = '<thead><tr><th>file</th><th>bytes</th></tr></thead>';
+  j.files.forEach(f => { const tr=el('tr'); tr.style.cursor='pointer';
+    tr.appendChild(el('td','mono',f.file)); tr.appendChild(el('td','mono',f.bytes));
+    tr.onclick = () => viewFile(name, f.file); tb.appendChild(tr); });
+  t.appendChild(tb); box.appendChild(t);
+  viewFile(name, '.replit');
+}
+async function viewFile(name, file){
+  try{
+    const j = await api(`/bundle/file?name=${encodeURIComponent(name)}&file=${encodeURIComponent(file)}`);
+    const v = $('#b-view'); v.className='out'; v.textContent = `── ${file} ──\n\n` + j.text;
+  }catch(e){ const v=$('#b-view'); v.className='out err'; v.textContent = e.message; }
+}
+$('#b-zip').onclick = () => { if(CUR) location.href = BASE+'/bundle/zip?name='+encodeURIComponent(CUR); };
+
+/* ---------- remotes ---------- */
+async function loadRemotes(refresh){
+  const j = await api('/catalog' + (refresh ? '?refresh=1' : '')); REMOTES = j.mods;
+  $('#r-count').innerHTML = `<b>${j.n}</b> mods · <b>${j.fns}</b> fns`;
+  const box = $('#r-list'); box.innerHTML='';
+  const sel = $('#c-remote'); sel.innerHTML='';
+  if(!j.n){ box.appendChild(el('div','empty','nothing linked yet')); return; }
+  j.mods.forEach(r => {
+    const card = el('div','card'); card.style.marginBottom='12px';
+    const head = el('div','row');
+    head.appendChild(el('h4',null, r.mod ? `${r.name} · ${r.mod}` : r.name));
+    const chip = el('span','chip'+(r.ok?' ok':(r.ok===false?' bad':'')),
+      r.ok ? `up ${r.ms||0}ms` : (r.error ? 'unreachable' : 'not discovered'));
+    head.appendChild(chip);
+    head.appendChild(el('span','grow'));
+    const bp = el('button','btn','PING');
+    bp.onclick = async () => { chip.textContent='…';
+      try{ const p = await api('/ping?name='+encodeURIComponent(r.name));
+        chip.textContent = (p.ok?'up ':'down ')+p.ms+'ms';
+        chip.className = 'chip '+(p.ok?'ok':'bad');
+      }catch(e){ chip.textContent='err'; chip.className='chip bad'; } };
+    const bd = el('button','btn wr','DISCOVER'); bd.disabled = !LOCAL;
+    bd.onclick = async () => { try{ await api('/discover',{name:r.name});
+      toast('discovered '+r.name); loadRemotes(); loadTools(); }catch(e){ toast(e.message,true);} };
+    const bu = el('button','btn wr','UNLINK'); bu.disabled = !LOCAL;
+    bu.onclick = async () => { try{ await api('/unlink',{name:r.name});
+      toast('unlinked '+r.name); loadRemotes(); loadTools(); loadStatus();
+    }catch(e){ toast(e.message,true);} };
+    [bp,bd,bu].forEach(b => { head.appendChild(b); head.appendChild(document.createTextNode(' ')); });
+    card.appendChild(head);
+    const a = el('a','k',r.url); a.href=r.url; a.target='_blank';
+    const urow = el('div','k'); urow.appendChild(a); card.appendChild(urow);
+    if(r.description) card.appendChild(el('div','note',r.description));
+    if(r.error) card.appendChild(el('div','warn','⚠ '+r.error));
+    const fns = el('div','row'); fns.style.marginTop='8px';
+    if(!(r.fns||[]).length){
+      fns.appendChild(el('span','note','no functions cached — hit DISCOVER'));
+    } else (r.fns||[]).forEach(fn => {
+      const c = el('span','chip',fn); c.style.cursor='pointer';
+      c.title = (r.docs&&r.docs[fn]) || `call ${fn}() on ${r.name}`;
+      c.onclick = () => setCall(r, fn);
+      fns.appendChild(c);
+    });
+    card.appendChild(fns);
+    box.appendChild(card);
+    const o = el('option',null,r.name); o.value = r.name; sel.appendChild(o);
+  });
+}
+/* clicking a function prefills the call form with its parameters */
+function setCall(r, fn){
+  $('#c-remote').value = r.name; $('#c-fn').value = fn;
+  const args = {};
+  ((r.params||{})[fn]||[]).forEach(p => { args[p.name] = p.default === undefined ? null : p.default; });
+  $('#c-args').value = JSON.stringify(args, null, 2);
+  $('#c-go').scrollIntoView({behavior:'smooth', block:'center'});
+}
+$('#r-refresh').onclick = async () => {
+  toast('re-discovering…');
+  try{ await loadRemotes(true); await loadTools(); await loadStatus(); toast('catalog refreshed'); }
+  catch(e){ toast(e.message, true); }
+};
+
+/* ---------- mcp ---------- */
+async function loadTools(){
+  const j = await api('/mcp/tools'); TOOLS = j.tools;
+  $('#m-count').innerHTML = `<b>${j.static}</b> bridge · <b>${j.dynamic}</b> repl-hosted`;
+  const url = location.origin + BASE.replace(/\/api$/,'') + '/mcp';
+  $('#m-url').textContent = url;
+  $('#m-snip').textContent =
+`# stdio — the usual way to attach an agent
+claude mcp add replit -- ${j.stdio}
+
+# or over HTTP, no second process: this console answers JSON-RPC at /mcp
+curl -s ${url} \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+
+# a mod that lives on a Repl, called as a tool
+{"method":"tools/call","params":{"name":"repl_<remote>_<fn>","arguments":{}}}`;
+  renderTools();
+}
+function renderTools(){
+  const q = ($('#m-q').value||'').trim().toLowerCase();
+  const box = $('#m-tools'); box.innerHTML='';
+  const rows = TOOLS.filter(t => !q || t.name.toLowerCase().includes(q)
+                              || (t.description||'').toLowerCase().includes(q));
+  if(!rows.length){ box.appendChild(el('div','empty','no match')); return; }
+  const t = el('table'); const tb = el('tbody');
+  t.innerHTML = '<thead><tr><th>tool</th><th>args</th><th>what it does</th></tr></thead>';
+  rows.forEach(r => {
+    const tr = el('tr');
+    const nc = el('td','mono'); nc.appendChild(el('span',null,r.name));
+    if(r.name.startsWith('repl_')) nc.appendChild(el('span','chip','repl'));
+    if(r.write) nc.appendChild(el('span','chip','local'));
+    tr.appendChild(nc);
+    const keys = Object.keys((r.inputSchema||{}).properties||{});
+    tr.appendChild(el('td','mono', keys.join(', ') || '—'));
+    tr.appendChild(el('td',null,r.description));
+    tb.appendChild(tr);
+  });
+  t.appendChild(tb); box.appendChild(t);
+}
+$('#m-q').addEventListener('input', renderTools);
+$('#r-link').onclick = async () => {
+  try{
+    const r = await api('/link', {name: $('#r-name').value.trim(), url: $('#r-url').value.trim()});
+    toast(r.ok ? `linked — ${(r.fns||[]).length} fns discovered`
+               : 'linked, but the Repl did not answer: ' + (r.error||'?'));
+    $('#r-name').value=''; $('#r-url').value='';
+    loadRemotes(); loadTools(); loadStatus();
+  }catch(e){ toast(e.message, true); }
+};
+$('#c-go').onclick = async () => {
+  const out = $('#c-out'); out.classList.remove('hide'); out.className='out';
+  out.textContent = 'calling…';
+  let args = {};
+  try{ args = JSON.parse($('#c-args').value || '{}'); }
+  catch(e){ out.className='out err'; out.textContent='args must be JSON: '+e.message; return; }
+  try{
+    const j = await api('/call', {name: $('#c-remote').value, fn: $('#c-fn').value.trim(), args});
+    out.textContent = JSON.stringify(j, null, 2);
+  }catch(e){ out.className='out err'; out.textContent = e.message; }
+};
+
+/* ---------- db ---------- */
+$('#d-connect').onclick = async () => {
+  try{ await api('/connect', {db_url: $('#d-url').value.trim(), account: $('#d-acct').value.trim()});
+    $('#d-url').value=''; toast('connected'); loadStatus(); loadKeys();
+  }catch(e){ toast(e.message, true); }
+};
+$('#d-disconnect').onclick = async () => {
+  try{ await api('/disconnect', {}); toast('forgotten'); loadStatus(); loadKeys(); }
+  catch(e){ toast(e.message, true); }
+};
+async function loadKeys(){
+  const box = $('#d-keys'); box.innerHTML='';
+  try{
+    const j = await api('/db/keys?prefix='+encodeURIComponent($('#d-prefix').value||''));
+    if(!j.n){ box.appendChild(el('div','empty','no keys')); return; }
+    j.keys.forEach(k => { const d=el('div','item'); d.appendChild(el('span','nm',k));
+      d.onclick = async () => {
+        $('#d-title').textContent = k; $('#d-key').value = k;
+        try{ const v = await api('/db/get?key='+encodeURIComponent(k));
+          $('#d-val').value = typeof v.value === 'string' ? v.value : JSON.stringify(v.value,null,2);
+        }catch(e){ toast(e.message, true); } };
+      box.appendChild(d); });
+  }catch(e){ box.appendChild(el('div','empty', e.message)); }
+}
+$('#d-prefix').addEventListener('change', loadKeys);
+$('#d-save').onclick = async () => {
+  try{ await api('/db/set', {key:$('#d-key').value, value:$('#d-val').value});
+    toast('set'); loadKeys(); }catch(e){ toast(e.message, true); }
+};
+$('#d-del').onclick = async () => {
+  try{ await api('/db/del', {key:$('#d-key').value}); toast('deleted');
+    $('#d-val').value=''; loadKeys(); }catch(e){ toast(e.message, true); }
+};
+
+/* ---------- import ---------- */
+$('#i-url').onclick = async () => {
+  const out = $('#i-out'); out.classList.remove('hide'); out.className='out';
+  try{ const j = await api('/run_url?repo='+encodeURIComponent($('#i-repo').value.trim()));
+    out.innerHTML=''; const a = el('a',null,j.url); a.href=j.url; a.target='_blank';
+    out.appendChild(document.createTextNode('open on Replit → ')); out.appendChild(a);
+  }catch(e){ out.className='out err'; out.textContent = e.message; }
+};
+$('#i-go').onclick = async () => {
+  const out = $('#i-out'); out.classList.remove('hide'); out.className='out';
+  out.textContent = 'cloning…';
+  try{ const j = await api('/import', {repo:$('#i-repo').value.trim(),
+                                       name:$('#i-name').value.trim() || undefined});
+    out.textContent = JSON.stringify(j, null, 2); toast('imported '+j.module); loadMods();
+  }catch(e){ out.className='out err'; out.textContent = e.message; }
+};
+
+/* boot */
+(async () => {
+  try{ await loadStatus(); await loadMods(); await loadBundles(); await loadRemotes();
+    await loadTools();
+    if($('#d-conn').textContent.startsWith('connected')) loadKeys();
+  }catch(e){ toast(e.message, true); }
+})();
+</script>
+</body>
+</html>

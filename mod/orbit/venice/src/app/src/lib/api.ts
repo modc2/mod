@@ -1,7 +1,7 @@
 // Typed client for the Venice gateway. All calls go through /api/venice/*,
 // proxied to the Rust backend (see next.config.mjs).
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/venice";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/venice/api";
 
 function authHeaders(token: string | null): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -58,6 +58,11 @@ export function mediaUrl(url: string): string {
 export const api = {
   async health() {
     return json<{ ok: boolean; service: string }>(await fetch(`${BASE}/health`));
+  },
+  // Unauthenticated: the landing copy needs to know whether the paid path
+  // exists on this deployment before anyone has signed in.
+  async info() {
+    return json<{ paid_available: boolean }>(await fetch(`${BASE}/`));
   },
   async models() {
     const r = await json<{ data: VeniceModel[] }>(await fetch(`${BASE}/models`));

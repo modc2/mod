@@ -14,7 +14,7 @@ type Health = {
   error?: string;
 };
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/copytensor";
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/copytensor/api";
 
 // Compact status chip showing the active Bittensor RPC endpoint. Green =
 // connected, red = down. Polls every 30s. Pressing it drops the full pool:

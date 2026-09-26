@@ -7,11 +7,12 @@ import ValidatorTable from "@/components/ValidatorTable";
 import ConsensusPanel from "@/components/ConsensusPanel";
 import StakingPanel from "@/components/StakingPanel";
 import RegistryPanel from "@/components/RegistryPanel";
+import BittensorPanel from "@/components/BittensorPanel";
 import { api } from "@/lib/api";
 import type { SubnetInfo, ValidatorEntry, ConsensusState } from "@/lib/types";
 
 export default function Home() {
-  const [tab, setTab] = useState("subnets");
+  const [tab, setTab] = useState("bittensor");
   const [subnets, setSubnets] = useState<SubnetInfo[]>([]);
   const [selectedSubnet, setSelectedSubnet] = useState(0);
   const [validators, setValidators] = useState<ValidatorEntry[]>([]);
@@ -85,6 +86,9 @@ export default function Home() {
           </div>
         ) : (
           <div className="space-y-6">
+            {/* Bittensor Subnet Tab */}
+            {tab === "bittensor" && <BittensorPanel />}
+
             {/* Subnets Tab */}
             {tab === "subnets" && (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

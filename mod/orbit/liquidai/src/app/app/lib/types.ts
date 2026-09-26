@@ -72,6 +72,59 @@ export interface Leaderboard {
   games: { id: string; name: string }[];
 }
 
+// ── the fleet arena (the arena module's games) ──────────────────────
+
+export interface FleetGame {
+  id: string;
+  short: string;
+  name: string;
+  description: string;
+  lang: string;
+  runs: number;
+  origin: string;
+  tags: string[];
+}
+
+export interface FleetSeat {
+  seat: number;
+  player_id: string;
+  player_name: string;
+  score: number;
+  delta: number;
+  elo_after: number;
+  moves: number;
+  illegal: number;
+  timeouts: number;
+  error: string;
+}
+
+export interface FleetMatch {
+  id: string;
+  game: string;
+  game_name: string;
+  seated?: string[];
+  seats: FleetSeat[];
+  summary: string;
+  turns: number;
+  ms: number;
+  rated: boolean;
+  created: number;
+}
+
+export interface FleetPlayer {
+  id: string;
+  name: string;
+  kind: string;
+  elo: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  matches: number;
+  illegal_rate: number;
+  avg_score: number;
+  note?: string;
+}
+
 // ── embeddings ──────────────────────────────────────────────────────
 
 export interface Embedding {
@@ -209,4 +262,117 @@ export interface RunStats {
   chunks_per_sec?: number;
   usage?: Record<string, number>;
   device?: string;
+}
+
+// ── the backend board ───────────────────────────────────────────────
+
+export type ProviderId = "browser" | "server" | "cloud" | "huggingface" | "liquidai";
+
+export interface Traffic {
+  calls: number;
+  inference: number;
+  errors: number;
+  error_rate: number;
+  tokens_out: number;
+  tokens_in: number;
+  p50_ms: number | null;
+  p95_ms: number | null;
+  last_at: number | null;
+}
+
+export interface Provider {
+  id: ProviderId;
+  label: string;
+  where: string;
+  engine: string;
+  base: string | null;
+  ok: boolean;
+  state: string;                 // ready | no key | unavailable | serving cache
+  detail: string;
+  cost: string;
+  auth: {
+    needed: boolean;
+    kind?: string;
+    set?: boolean;
+    masked?: string | null;
+    source?: string | null;
+    note?: string;
+    hint?: string;
+  };
+  measured_here: boolean;        // false for the tab — it reports, we don't watch
+  models?: number;
+  model_ids?: string[];
+  resident?: { repo: string } | null;
+  device?: string;
+  gpu?: string | null;
+  latency_ms?: number;
+  disk?: { repos: number; bytes: number; cache: string };
+  traffic: Traffic;
+}
+
+export interface ProvidersTable {
+  providers: Provider[];
+  self: { id: string; label: string; where: string; traffic: Partial<Traffic> };
+  window_hours: number;
+  total: Traffic;
+  via: Record<string, Traffic>;
+}
+
+export interface Call {
+  id: string;
+  at: number;
+  route: string;
+  path: string;
+  via: string;                   // console | mcp | openai | cli | api
+  provider: ProviderId;
+  model?: string;
+  tool?: string;
+  caller: string;
+  caller_kind: string;
+  owner?: boolean;
+  kind?: "inference";
+  reported?: boolean;            // the tab told us; we didn't measure it
+  ms: number;
+  status: number;
+  ok: boolean;
+  error?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  chunks?: number;
+  tok_per_sec?: number;
+  ttft_sec?: number;
+  gen_sec?: number;
+  setup_sec?: number;
+  turns?: number;
+  engine?: string;
+  modality?: string;
+  cache?: boolean;
+}
+
+export interface CallPage {
+  count: number;
+  held: number;
+  path: string;
+  calls: Call[];
+}
+
+export interface CallStats {
+  window_hours: number;
+  total: Traffic;
+  providers: Partial<Record<ProviderId, Traffic>>;
+  models: (Traffic & { model: string; provider: ProviderId })[];
+  via: Record<string, Traffic>;
+  callers: (Traffic & { caller: string; kind: string })[];
+  series: { hour: number; calls: number; errors: number; tokens: number }[];
+  path: string;
+}
+
+export interface McpDescriptor {
+  server: { name: string; title: string; version: string };
+  protocol: string;
+  transport: string;
+  endpoint: string;
+  auth: string;
+  tools: { name: string; need: string; description: string }[];
+  client_config: Record<string, unknown>;
 }
