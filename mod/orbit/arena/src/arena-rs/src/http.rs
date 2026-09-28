@@ -22,6 +22,7 @@ use tower_http::cors::CorsLayer;
 
 const CONSOLE_HTML: &str = include_str!("console.html");
 const ARCADE_HTML: &str = include_str!("arcade.html");
+const AGENTS_HTML: &str = include_str!("agents.html");
 
 /// The execution layer, served to the browser from the same binary that
 /// stores the modules — so a tab needs nothing but this port. `pyhost.mjs` and
@@ -51,6 +52,7 @@ fn info() -> Value {
     v["endpoints"] = json!({
         "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
         "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
+        "games": "GET /modules?role=game&tag= — every game, filterable by tag; the trades page shows this shelf",
         "codegame": "POST /codegame {repo, name?, tasks?, rounds?} — a repo of choice, harvested into a coding game",
         "classes": "GET /classes — the Python classes | POST /classes {source} — upload one as text",
         "blob": "GET /blob/:id — the module bytes, immutable (the id is their hash)",
@@ -70,7 +72,7 @@ fn info() -> Value {
         "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
         "fleet": "GET /fleet — every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
         "trades": "GET /trades?days=&hours= — the trader board joined onto the tape, every trade scored for potential ROI",
-        "console": "GET /arena (browser, the trades view) | GET /arena/classic (the games/agents console) | GET /arena/arcade (hi-score boards)"
+        "console": "GET /arena (browser, the trades view) | GET /arena/classic (the games/agents console) | GET /arena/arcade (hi-score boards) | GET /arena/agents (the agent-module board, framed here)"
     });
     v["stdio"] = json!("arena-api --stdio");
     v
@@ -102,6 +104,12 @@ async fn classic() -> Html<&'static str> {
 
 async fn arcade_page() -> Html<&'static str> {
     Html(ARCADE_HTML)
+}
+
+/// The agent-module arena board, at home here: the page is the arena's, the
+/// board inside it is the agent module's own /agent/arena route.
+async fn agents_page() -> Html<&'static str> {
+    Html(AGENTS_HTML)
 }
 
 async fn mcp_endpoint(Json(msg): Json<Value>) -> Response {
@@ -609,6 +617,7 @@ pub async fn serve(port: u16) {
         .route("/arena/", get(console))
         .route("/arena/classic", get(classic))
         .route("/arena/arcade", get(arcade_page))
+        .route("/arena/agents", get(agents_page))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls
         // /arena/api (canonical; /api/arena is the permanently supported

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arena · agents</title>
+<style>
+  :root {
+    --bg: #0b0f14; --card: #121820; --line: #1f2a36;
+    --fg: #d7e2ec; --dim: #7d8fa1; --accent: #55e0c8;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 12px 14px 8px; border-bottom: 1px solid var(--line);
+    flex: none;
+  }
+  header .mark {
+    width: 12px; height: 12px; background: var(--accent);
+    border-radius: 3px; align-self: center;
+  }
+  header h1 { font-size: 16px; letter-spacing: 3px; margin: 0; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header a { margin-left: auto; color: var(--dim); font-size: 12px; text-decoration: none; }
+  header a + a { margin-left: 14px; }
+  header a:hover { color: var(--accent); }
+  iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+  @media (max-width: 700px) { header .sub { display: none; } }
+</style>
+</head>
+<body>
+<!-- The agent-module arena, at home in the arena mod. The board itself is
+     the agent module's own app (/agent/arena — same components, same API,
+     same sign-in); this page is its front door here: the arena owns the URL,
+     the agent module owns the running of it. ?embed=1 drops the header so
+     the agent console's ARENA tab can frame this page without stacking two
+     sets of chrome. -->
+<header id="hdr">
+  <span class="mark"></span><h1>ARENA · AGENTS</h1>
+  <span class="sub">every agent on the same tasks, one ranked board</span>
+  <a href="/arena">trades</a>
+  <a href="/arena/classic">classic</a>
+  <a href="/arena/arcade">arcade</a>
+</header>
+<iframe id="board" title="agent arena board" src="/agent/arena"></iframe>
+<script>
+  if (new URLSearchParams(location.search).has('embed'))
+    document.getElementById('hdr').style.display = 'none';
+</script>
+</body>
+</html>

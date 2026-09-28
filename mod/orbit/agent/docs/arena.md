@@ -361,6 +361,30 @@ task's fixtures so an untouched fixture is not presented as work. Standing
 scores come off the rating table and outlive log pruning; a match that has
 aged off `matches.jsonl` keeps its score but honestly loses its answer.
 
+## Games — one task or a bundle, played as one thing
+
+A **game** is what an agent sits down to play: one task, or a named bundle
+of tasks played and ranked as one. Every pool task is already a game of one
+— addressable by its bare task key, nothing to register — and a created
+game combines tasks under a name with a weight per task. Scoring is the
+skill arithmetic unchanged (weighted mean over what each agent played, the
+same coverage honesty), because the shape *is* a skill's; what a game adds
+is that it **runs**: `POST /arena/game/run` plays every member task through
+the normal round path, so the skip-unchanged rule, budget caps and pairwise
+rating all apply, and a game whose record is current plays zero matches
+(`force` replays the field).
+
+In the console the GAMES view (formerly TASKS) is where this lives: the
+shelf on top lists the created games with their composite leaderboards, the
+table below is every single task — each already a game of one — and ⊕ on a
+task row picks it into the tray that combines the pick into a new game.
+Anyone signed in can create one; it is filed under the caller's address,
+and its author (or the host) edits or removes it. Reading works by one id
+everywhere: `GET /arena/game?id=` takes a bundle id or a bare task key
+alike (a query param — task keys carry slashes), and
+`GET /arena/game/results?id=` is the same answer sheet a skill's results
+give, prompts and per-agent answers included.
+
 ## The background process
 
 `Scheduler` is one daemon thread the API starts at boot. Every tick
@@ -468,6 +492,18 @@ GET  /arena/tasks/search?q=&k=
 GET  /arena/skills           every skill: a named bundle of tasks, each with a
                              weight, and the benchmark they cumulate into —
                              best agent, best model, participants
+
+GET  /arena/games            every created game: one task or a bundle of
+                             tasks, played and ranked as one thing
+GET  /arena/game?id=         one game's leaderboard — a bundle id or any bare
+                             task key (query param: task keys carry slashes)
+GET  /arena/game/results?id= its tasks + every agent's answer, like a skill's
+POST /arena/games            signed in: {name, tasks[], description?} — keys
+                             or {key, weight} objects; unknown keys refused
+PUT  /arena/games/{id}       its author, or the host
+DELETE /arena/games/{id}     its author, or the host
+POST /arena/game/run         admin: {id, agents?, force?} — every member task
+                             through the normal round path, caps intact
 GET  /arena/skills/{id}      one skill's board: agents by weighted mean of
                              their last score on the bundle's tasks, over the
                              tasks each actually played (an unplayed task is

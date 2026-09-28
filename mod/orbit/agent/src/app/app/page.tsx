@@ -11,7 +11,6 @@ import CreditsSidebar, { CreditsInfo } from './components/Credits'
 import AuthGate, { type AuthNeed } from './components/AuthGate'
 import Select from './components/Select'
 import Tools from './components/Tools'
-import Arena from './components/Arena'
 import MemoryPanel from './components/Memory'
 import AgentParts, { agentPartsInvalidate } from './components/AgentParts'
 import { ThemePicker, useTheme } from './components/Theme'
@@ -4017,7 +4016,11 @@ export default function Home() {
       <div className="border-b border-white/[0.06] shrink-0 min-w-0">
       <div className="px-2 flex flex-wrap items-center gap-x-2 gap-y-1 py-1 min-w-0">
         <div className="tab-strip shrink-0 max-w-full">
-          {(['output', 'tools', 'memory', 'agents'] as Tab[]).map(tab => (
+          {/* the run's own three faces — the transcript, its tool trace, and
+              what the agent remembers (its notes, its durable facts, what it
+              would recall). agents moved up to the top bar as the hub door;
+              memory stays here because it is scoped to this run's agent. */}
+          {(['output', 'tools', 'memory'] as Tab[]).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -4036,9 +4039,6 @@ export default function Home() {
               ) : null)}
               {tab === 'memory' && memSel.length > 0 && (
                 <span className="tab-badge ml-1 text-sky-400/80 normal-case">{memSel.length}</span>
-              )}
-              {tab === 'agents' && agentOptions.length > 0 && (
-                <span className="tab-badge ml-1 text-gray-600 normal-case">{agentOptions.length}</span>
               )}
               {activeTab === tab && (
                 <span className="absolute bottom-0 left-1 right-1 h-[1.5px] bg-emerald-500 rounded-full" />
@@ -4459,9 +4459,9 @@ export default function Home() {
 
   return (
     <main className="h-screen flex flex-col bg-surface-0">
-      {/* top bar — the three views and who you are. Everything else lives where
-          it's used: the rails carry their own collapse, the dock its own size,
-          the key and the tool count sit in the rail's foot. */}
+      {/* top bar — a chat icon, AGENTS, ARENA, and who you are. Everything
+          else lives where it's used: the rails carry their own collapse, the
+          dock its own size, the key and the tool count sit in the rail's foot. */}
       {/* The view switcher stays in the top row at every width — it IS the
           top of the app, never a second line. When the bar runs out of room
           the .tab-strip scrolls sideways instead of squashing or wrapping,
@@ -4477,40 +4477,45 @@ export default function Home() {
         </div>
 
         <nav className="tab-strip min-w-0 gap-px">
-          {(['chat', 'hub', 'arena', 'tasks'] as const).map(v => {
-            // TASKS is the hub's runs shelf given its own door on the top bar
-            // — the runs (and the files they're editing right now) are one
-            // press away instead of two. The two entries split the hub's
-            // light: TASKS owns the runs shelf, HUB owns the rest.
-            const onTasks = view === 'hub' && hubPane === 'tasks'
-            const lit = v === 'tasks' ? onTasks
-              : v === 'hub' ? view === 'hub' && !onTasks
-              : view === v
+          {/* Two named tabs — AGENTS and ARENA — plus chat as an icon. AGENTS
+              is the door into the hub (roster shelf first); the library and
+              the runs stay one press further via the hub's own shelf strip.
+              The chat icon owns the transcript. */}
+          {(['chat', 'agents', 'arena'] as const).map(v => {
+            const lit = v === 'chat' ? view === 'chat'
+              : v === 'agents' ? view === 'hub'
+              : view === 'arena'
             return (
               <button key={v}
                 onClick={() => {
                   // entering the hub from the top bar shows the agents, not a
                   // canvas someone left up — "show agents" is the shelf's job
-                  if (v === 'tasks') openHub('tasks')
-                  else if (v === 'hub') { setBuilderMode('browse'); openHub(hubPane === 'tasks' ? 'agents' : hubPane) }
-                  else setView(v)
+                  if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
+                  else if (v === 'chat') {
+                    setView('chat')
+                    // CHAT reopens on the transcript, its tools, or memory —
+                    // all three are live workspace tabs. Only the agents pane
+                    // is dormant now (its door is the top-bar AGENTS), so step
+                    // off it so the tab never looks dead.
+                    if (activeTab === 'agents') setActiveTab('output')
+                  }
+                  else setView('arena')
                 }}
+                aria-label={v === 'chat' ? 'chat' : undefined}
                 className={`nav-tab tab-btn relative flex items-center gap-1.5 px-3 py-2 font-medium uppercase tracking-wider transition-colors ${
                   lit ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
                 }`}
-                title={v === 'hub' ? 'Agents and the library'
-                  : v === 'chat' ? 'The console — talk to an agent'
-                  : v === 'tasks'
-                    ? runningCount > 0
-                      ? `${runningCount} running — open one to watch its edits land`
-                      : 'Every run, live — what each agent is doing right now'
+                title={v === 'chat' ? 'The console — talk to an agent'
+                  : v === 'agents' ? 'Agents, the library and the runs'
                   : 'Every agent on the same tasks, one ranked board'}>
-                {v}
-                {v === 'tasks' && runningCount > 0 && (
-                  <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    {runningCount}
-                  </span>
+                {v === 'chat' ? (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  </svg>
+                ) : v}
+                {v === 'agents' && agentOptions.length > 0 && (
+                  <span className="font-mono text-[10px] text-gray-500">{agentOptions.length}</span>
                 )}
               </button>
             )
@@ -4518,6 +4523,16 @@ export default function Home() {
         </nav>
 
         <div className="flex items-center gap-3 ml-auto shrink-0">
+          {/* live runs kept one press away even without a TASKS tab — the
+              chip only appears while something is actually running */}
+          {runningCount > 0 && (
+            <button onClick={() => openHub('tasks')}
+              title={`${runningCount} running — open one to watch its edits land`}
+              className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md hover:bg-emerald-500/20 transition-colors">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              {runningCount}
+            </button>
+          )}
           {loading && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-300">
               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
@@ -4588,12 +4603,22 @@ export default function Home() {
           </div>
         )}
 
-        {/* arena — every agent on the same tasks, one ranked board */}
+        {/* arena — migrated to the arena mod. The board itself is the
+            standalone /agent/arena route (components/Arena mounted with its
+            own auth bootstrap); its front door is the arena mod's
+            /arena/agents page, and this tab is a window onto that door.
+            Same origin end to end, so the sign-in in this console reaches
+            the framed board through shared localStorage. In dev there is no
+            gateway (no /arena route on :3117), so the tab frames the local
+            route directly. */}
         {view === 'arena' && (
           <div className="flex-1 min-h-0 flex">
-            <Arena token={auth?.token} isHost={isHost} address={auth?.address}
-              onSignIn={signIn}
-              onNewAgent={() => openHub('agents', { create: true })} />
+            <iframe
+              src={process.env.NODE_ENV === 'development'
+                ? `${process.env.NEXT_PUBLIC_BASE_PATH ?? '/agent'}/arena`
+                : '/arena/agents?embed=1'}
+              title="arena — every agent on the same tasks, one ranked board"
+              className="flex-1 w-full h-full border-0 bg-surface-0" />
           </div>
         )}
 

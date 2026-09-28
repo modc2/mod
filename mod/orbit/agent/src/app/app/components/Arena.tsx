@@ -261,13 +261,21 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
   const [showConfig, setShowConfig] = useState(false)
 
   // which board the main pane is: the agents, the models underneath them, or
-  // the tasks both are measured on
-  const [view, setView] = useState<'agents' | 'models' | 'tiers' | 'tasks' | 'skills'>('agents')
+  // the games both are measured on — a game being one task or a bundle
+  const [view, setView] = useState<'agents' | 'models' | 'tiers' | 'games' | 'skills'>('agents')
   const [mods, setMods] = useState<ModelsPayload | null>(null)
   const [pickedModel, setPickedModel] = useState<string | null>(null)
   const [modelCard, setModelCard] = useState<ModelCard | null>(null)
   const [taskRows, setTaskRows] = useState<TaskRow[]>([])
   const [openTask, setOpenTask] = useState<string | null>(null)
+  // games: the created bundles above the single-task table. `pickedTasks`
+  // is the ⊕ selection being combined into the next one, `openGame` the
+  // card expanded into its composite leaderboard
+  const [games, setGames] = useState<any[]>([])
+  const [openGame, setOpenGame] = useState<string | null>(null)
+  const [gameCard, setGameCard] = useState<any | null>(null)
+  const [pickedTasks, setPickedTasks] = useState<Set<string>>(new Set())
+  const [gameName, setGameName] = useState('')
   // the task pool, read rather than counted: `spec` is the task open in the
   // reader — its prompt, its fixture and the checks it is scored by — and
   // `compose` is the task form open over the board (slug null = a new one)
@@ -318,9 +326,13 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
     }
     // the rail's task pane wears each task's leader too, and so does the
     // open task sheet — the board is fetched for any surface that shows it
-    if (view === 'tasks' || pane === 'tasks' || spec) {
+    if (view === 'games' || pane === 'tasks' || spec) {
       fetch(`${API_URL}/arena/board/tasks`, { signal }).then(r => r.json())
         .then(d => setTaskRows(d.tasks || [])).catch(() => {})
+    }
+    if (view === 'games') {
+      fetch(`${API_URL}/arena/games`, { signal }).then(r => r.json())
+        .then(d => setGames(d.games || [])).catch(() => {})
     }
   }, [view, pane, spec])
 
@@ -351,6 +363,14 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
     fetch(`${API_URL}/arena/tier?model=${encodeURIComponent(openTier)}`)
       .then(r => r.json()).then(d => setTierField(d?.error ? null : d)).catch(() => {})
   }, [openTier, matches.length])
+
+  // a game opens the same way — into its member tasks and the composite
+  // leaderboard over them (a query param: a game id can be a bare task key)
+  useEffect(() => {
+    if (!openGame) { setGameCard(null); return }
+    fetch(`${API_URL}/arena/game?id=${encodeURIComponent(openGame)}`)
+      .then(r => r.json()).then(d => setGameCard(d?.error ? null : d)).catch(() => {})
+  }, [openGame, matches.length])
 
   const post = async (path: string, body: any) => {
     setBusy(true); setErr(null)
@@ -447,6 +467,45 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
     !!t?.custom && (isHost || (!!t.owner && !!address
                                && t.owner.toLowerCase() === address.toLowerCase()))
 
+  // ── games: combining tasks ────────────────────────────────────────
+  //
+  // ⊕ on a task row picks it; the tray under the board names the pick and
+  // files it as a game. A game is deletable by its author and the host,
+  // same contract as a hand-written task.
+  const togglePick = (key: string) => setPickedTasks(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    return next
+  })
+  const gameMine = (g: any) =>
+    isHost || (!!g?.owner && !!address
+               && g.owner.toLowerCase() === address.toLowerCase())
+  const createGame = async () => {
+    if (!canWrite) { onSignIn?.(); return }
+    const name = gameName.trim()
+    if (!name || pickedTasks.size === 0) return
+    const r = await post('games', { name, tasks: Array.from(pickedTasks) })
+    if (!r?.error) { setPickedTasks(new Set()); setGameName(''); loadBoards() }
+  }
+  const playGame = async (id: string) => {
+    if (!canWrite) { onSignIn?.(); return }
+    await post('game/run', { id })
+    loadBoards()
+  }
+  const deleteGame = async (g: any) => {
+    if (!confirm(`Delete "${g.name}"? Scores on its tasks stay on the record.`)) return
+    setErr(null)
+    try {
+      const r = await fetch(
+        `${API_URL}/arena/games/${encodeURIComponent(g.id)}` +
+        (token ? `?key=${encodeURIComponent(token)}` : ''),
+        { method: 'DELETE' }).then(x => x.json())
+      if (r?.error) { setErr(r.error); return }
+      if (openGame === g.id) setOpenGame(null)
+      loadBoards()
+    } catch (e: any) { setErr(e?.message || 'delete failed') }
+  }
+
   // one check, in words. The form writes these specs; this reads them back,
   // because a task nobody can read is a task nobody can argue with.
   const checkLine = (c: Scorer): string => {
@@ -511,7 +570,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
           how much the design was worth at a price point, and what they were
           asked to do */}
       <div className="tab-strip gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5">
-        {(['agents', 'models', 'tiers', 'tasks', 'skills'] as const).map(v => (
+        {(['agents', 'models', 'tiers', 'games', 'skills'] as const).map(v => (
           <button key={v} onClick={() => setView(v)}
             className={`tab-btn px-2.5 py-1 rounded-md uppercase tracking-wider transition ${
               view === v ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-600 hover:text-gray-300'
@@ -1109,6 +1168,16 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
                   className={`row-pick ${openTask === t.task ? 'row-on' : ''}`}>
                   <td className="max-w-[300px]">
                     <div className="flex items-center gap-2 min-w-0">
+                      <button onClick={e => { e.stopPropagation(); togglePick(t.task) }}
+                        title={pickedTasks.has(t.task)
+                          ? 'picked — in the game being combined'
+                          : 'pick this task to combine into a game'}
+                        className={`shrink-0 w-4 h-4 rounded border text-[10px] leading-none flex items-center justify-center transition ${
+                          pickedTasks.has(t.task)
+                            ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200'
+                            : 'border-white/10 text-gray-600 hover:border-emerald-400/40 hover:text-emerald-300'}`}>
+                        {pickedTasks.has(t.task) ? '✓' : '+'}
+                      </button>
                       <span className={`text-gray-600 transition-transform shrink-0 ${
                         openTask === t.task ? 'rotate-90' : ''}`}>›</span>
                       <div className="min-w-0">
@@ -1211,6 +1280,137 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
     </div>
   )
 
+  // ── games: one task or a bundle, played as one thing ──────────────
+  //
+  // The shelf above the task table lists the CREATED games — named bundles
+  // of pool tasks, scored like a skill (weighted mean over what each agent
+  // played) and runnable in one go. Every single task below is already a
+  // game of one; ⊕ on its row is how tasks combine into a bigger game.
+  const gamesShelf = (
+    <div className="shrink-0 border-b border-white/[0.06] px-3 py-2 max-h-[38%] overflow-y-auto no-scrollbar">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-[9px] uppercase tracking-wider text-gray-500">games</span>
+        <span className="text-[9px] text-gray-700">
+          a game is one task, or a bundle of tasks played and ranked as one — ⊕ rows below to combine
+        </span>
+      </div>
+      {games.length === 0 ? (
+        <div className="text-[10px] text-gray-600 py-1.5">
+          none combined yet — every task below already plays as a game of one
+        </div>
+      ) : (
+        <div className="mt-1.5 space-y-1">
+          {games.map(g => (
+            <div key={g.id} className="rounded border border-white/[0.06] bg-white/[0.02]">
+              <div onClick={() => setOpenGame(openGame === g.id ? null : g.id)}
+                className="px-2.5 py-1.5 flex items-center gap-2 cursor-pointer text-[11px] min-w-0">
+                <span className={`text-gray-600 transition-transform shrink-0 ${
+                  openGame === g.id ? 'rotate-90' : ''}`}>›</span>
+                <span className="text-gray-100 truncate">{g.name}</span>
+                <span className="shrink-0 text-[9px] uppercase tracking-wider text-emerald-300/70 border border-emerald-500/20 rounded px-1">
+                  {(g.tasks?.length ?? 0)} task{(g.tasks?.length ?? 0) === 1 ? '' : 's'}
+                </span>
+                <span className="text-[9px] text-gray-600 truncate hidden md:block">
+                  {(g.task_titles || []).join(' · ')}
+                </span>
+                <span className="ml-auto shrink-0 flex items-center gap-2">
+                  {g.best_agent ? (
+                    <span className="flex items-center gap-1.5 text-[10px]"
+                      title={`${g.best_agent} leads this game at ${pct(g.best_agent_score)}`}>
+                      <span className="text-emerald-200">{g.best_agent}</span>
+                      <span className="text-gray-500 tabular-nums">{pct(g.best_agent_score)}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[9px] uppercase tracking-wider text-gray-700">not played yet</span>
+                  )}
+                  <button onClick={e => { e.stopPropagation(); playGame(g.id) }}
+                    disabled={busy}
+                    title="play every task in this game — skips pairs whose record is current"
+                    className="uppercase tracking-wider text-[9px] text-emerald-300/80 hover:text-emerald-200 transition disabled:opacity-40">
+                    play
+                  </button>
+                  {gameMine(g) && (
+                    <button onClick={e => { e.stopPropagation(); deleteGame(g) }}
+                      title="delete this game — scores on its tasks stay on the record"
+                      className="text-gray-600 hover:text-red-300 transition text-[10px]">✕</button>
+                  )}
+                </span>
+              </div>
+              {openGame === g.id && gameCard?.game?.id === g.id && (
+                <div className="px-2.5 pb-2 pt-0.5 border-t border-white/[0.04] text-[10px] space-y-1.5">
+                  <div className="flex flex-wrap gap-1 pt-1.5">
+                    {(gameCard.tasks || []).map((t: any) => (
+                      <button key={t.key} onClick={() => setSpec(t.key)}
+                        title={`open the task · weight ×${t.weight}`}
+                        className="px-1.5 py-0.5 rounded border border-white/[0.08] text-gray-400 hover:text-gray-200 hover:border-emerald-400/30 transition truncate max-w-[220px]">
+                        {t.title}{t.weight !== 1 ? ` ×${t.weight}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                  {(gameCard.leaderboard || []).length === 0 ? (
+                    <div className="text-gray-600">
+                      no agent has played any of its tasks yet — PLAY runs the field
+                    </div>
+                  ) : (gameCard.leaderboard || []).slice(0, 6).map((r: any) => (
+                    <div key={r.agent} className="flex items-center gap-2 min-w-0">
+                      <span className="text-gray-600 tabular-nums w-4 shrink-0">{r.rank}</span>
+                      <Glyph icon={r.icon} />
+                      <span className={`truncate ${r.rank === 1 ? 'text-emerald-200' : 'text-gray-300'}`}>{r.agent}</span>
+                      <span className="ml-auto shrink-0 flex items-center gap-3 tabular-nums">
+                        <span title="weighted mean over the tasks this agent played"><Score value={r.weighted_score} /></span>
+                        <span className="text-gray-600"
+                          title={`coverage: played ${r.tasks_played} of ${r.tasks_total} tasks`}>
+                          {r.tasks_played}/{r.tasks_total}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  // the pick, named and filed — a game needs a name and at least one task
+  const combineTray = pickedTasks.size > 0 && (
+    <div className="shrink-0 border-t border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2 flex items-center gap-2 flex-wrap">
+      <span className="text-[10px] uppercase tracking-wider text-emerald-200">
+        {pickedTasks.size} task{pickedTasks.size === 1 ? '' : 's'} picked
+      </span>
+      <span className="text-[9px] text-gray-500 truncate max-w-[320px]">
+        {Array.from(pickedTasks).join(' · ')}
+      </span>
+      <input value={gameName} onChange={e => setGameName(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') createGame() }}
+        placeholder="name the game"
+        className="bg-black/30 border border-white/10 rounded px-2 py-1 text-[11px] text-gray-200 w-44 focus:outline-none focus:border-emerald-400/40" />
+      <button onClick={createGame} disabled={busy || !gameName.trim()}
+        className="lit-btn px-2.5 py-1 rounded uppercase tracking-wider text-[9px] disabled:opacity-40">
+        combine into a game
+      </button>
+      <button onClick={() => setPickedTasks(new Set())}
+        className="uppercase tracking-wider text-[9px] text-gray-500 hover:text-gray-300 transition">
+        clear
+      </button>
+      {!canWrite && (
+        <span className="text-[9px] text-amber-300/80">sign in to save it under your address</span>
+      )}
+    </div>
+  )
+
+  // the GAMES board: created bundles on the shelf, every single task —
+  // already a game of one — in the table, the combine tray underneath
+  const gamesBoard = (
+    <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+      {gamesShelf}
+      {taskBoard}
+      {combineTray}
+    </div>
+  )
+
   // ── what the numbers mean ─────────────────────────────────────────
   //
   // A board of bare percentages invites the wrong reading, and the right one
@@ -1243,7 +1443,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
         </span>
       ) : (
         <span className="ml-auto">
-          leader = the agent holding the best score on that task. spread is best minus worst — the column that says whether a task ranks anybody.
+          every task is a game of one — ⊕ combines several into a bigger game, scored as a weighted bundle. leader = the agent holding the best score; spread says whether it ranks anybody.
         </span>
       )}
     </div>
@@ -2149,7 +2349,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
               // skills and classes: weighted bundles of the same tasks, read
               // as benchmarks — assembled by semantic search over the pool
               <SkillLab token={token} isHost={isHost} address={address} onSignIn={onSignIn} />
-            ) : taskBoard}
+            ) : gamesBoard}
           {view !== 'skills' && boardFoot}
           {view === 'agents' ? agentCard : modelCardPane}
         </div>

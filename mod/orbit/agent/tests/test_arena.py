@@ -1890,3 +1890,80 @@ class TestClasses:
         # the benchmark quietly narrows to the skills that still exist
         rows = {r['agent']: r for r in board['leaderboard']}
         assert rows['beta']['weighted_score'] == 0.5
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  GAMES — one task or a bundle of tasks, played as one thing
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestGames:
+
+    def test_a_single_key_is_a_game_of_one(self, bundled):
+        a, _, _, _, keys = bundled
+        g = a.forward('game_create', name='Solo', tasks=keys[0])
+        assert g['tasks'] == [{'key': keys[0], 'weight': 1.0}]
+        assert a.forward('games')['games'][-1]['kind'] == 'single'
+
+    def test_a_bundle_ranks_like_a_skill(self, bundled):
+        a, _, _, _, keys = bundled
+        g = a.forward('game_create', name='Combo',
+                      tasks=[{'key': keys[0], 'weight': 2.0}, keys[1]])
+        lb = a.forward('game', id=g['id'])['leaderboard']
+        rows = {r['agent']: r for r in lb}
+        # alpha: (0.9*2 + 0.6*1) / 3 — the skill arithmetic, unchanged
+        assert rows['alpha']['weighted_score'] == 0.8
+        card = a.forward('games')['games'][-1]
+        assert card['kind'] == 'bundle' and len(card['task_titles']) == 2
+
+    def test_a_bare_task_key_reads_as_an_implicit_game(self, bundled):
+        a, _, _, _, keys = bundled
+        view = a.forward('game', id=keys[0])
+        assert view['game']['kind'] == 'task'
+        assert view['game']['tasks'] == [{'key': keys[0], 'weight': 1.0}]
+        rows = {r['agent']: r for r in view['leaderboard']}
+        assert rows['alpha']['weighted_score'] == 0.9
+        # ...but it is not repeated in the created-games list
+        assert keys[0] not in {g['id'] for g in a.forward('games')['games']}
+
+    def test_unknown_tasks_are_refused_at_the_door(self, bundled):
+        a = bundled[0]
+        assert 'error' in a.forward('game_create', name='Ghost',
+                                    tasks=['no/such#9'])
+        assert 'error' in a.forward('game_create', name='Empty', tasks=[])
+
+    def test_crud_round_trip_and_persistence(self, bundled):
+        a, _, _, _, keys = bundled
+        g = a.forward('game_create', name='Keep', tasks=[keys[0]])
+        fresh = Arena(agents=FakeAgents(), root=a.root)
+        got = fresh.forward('game', id=g['id'])['game']
+        assert got['name'] == 'Keep'
+        upd = fresh.forward('game_update', id=g['id'], name='Kept',
+                            tasks=[{'key': keys[1], 'weight': 3.0}])
+        assert upd['name'] == 'Kept' and upd['tasks'][0]['weight'] == 3.0
+        assert fresh.forward('game_rm', id=g['id'])['removed'] is True
+        assert 'error' in fresh.forward('game', id=g['id'])
+
+    def test_results_wear_the_game_noun(self, bundled):
+        a, _, _, _, keys = bundled
+        g = a.forward('game_create', name='Sheet', tasks=[keys[0]])
+        out = a.forward('game_results', id=g['id'])
+        assert out['game']['name'] == 'Sheet'
+        assert out['tasks'][0]['key'] == keys[0]
+
+    def test_run_game_plays_every_member_task(self, arena):
+        keys = [t['key'] for t in arena.tasks()][:2]
+        g = arena.forward('game_create', name='Playable', tasks=keys)
+        out = arena.forward('game_run', id=g['id'])
+        assert out['game'] == {'id': g['id'], 'name': 'Playable',
+                               'kind': 'bundle'}
+        played = {m['task'] for m in arena.all_matches()}
+        assert set(keys) <= played
+
+    def test_run_game_by_bare_task_key(self, arena):
+        key = arena.tasks()[0]['key']
+        out = arena.forward('game_run', id=key)
+        assert out['game']['kind'] == 'task'
+        assert key in {m['task'] for m in arena.all_matches()}
+
+    def test_an_unknown_game_cannot_run(self, arena):
+        assert 'error' in arena.forward('game_run', id='nope')

@@ -167,6 +167,21 @@ class Skills(Bundles):
                               members=tasks, owner=owner)
 
 
+class Games(Skills):
+    """Persistent game registry — what an agent sits down to play.
+
+    A game is one task or a bundle of tasks, played and ranked as one
+    thing. The shape is exactly a skill's (weighted member tasks), so the
+    registry and every scoring function are inherited — what a game adds
+    is that it RUNS: the arena plays every member task through the normal
+    round path in one go. A single pool task never needs registering: it
+    is already a game of one, addressable by its task key.
+    """
+
+    filename = "games.json"
+    noun = "game"
+
+
 class Classes(Bundles):
     """Persistent class registry — bundles of skills, in classes.json."""
 

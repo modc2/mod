@@ -301,6 +301,7 @@ class Arena:
         self.scheduler: Optional["Scheduler"] = None
         self.skills = sk.Skills(self.root)
         self.classes = sk.Classes(self.root)
+        self.games = sk.Games(self.root)
 
     # ── config ─────────────────────────────────────────────────────
 
@@ -1671,8 +1672,13 @@ class Arena:
         skill = self.skills.get(skill_id)
         if not skill:
             return {"error": f"skill not found: {skill_id}"}
+        return self._bundle_results(skill)
+
+    def _bundle_results(self, bundle: Dict[str, Any],
+                        noun: str = "skill") -> Dict[str, Any]:
+        """The answer sheet for any task bundle — skills and games share it."""
         pool = {t["key"]: t for t in self.tasks()}
-        members = skill.get("tasks", [])
+        members = bundle.get("tasks", [])
         weights = {m["key"]: float(m.get("weight", 1.0)) for m in members}
 
         # newest non-void match per (agent, task) — the log is newest-first
@@ -1725,15 +1731,142 @@ class Arena:
                 "checks": len((spec or {}).get("scorers") or []),
                 "results": rows,
             })
-        return {"skill": {"id": skill["id"], "name": skill["name"],
-                          "description": skill.get("description", ""),
-                          "owner": skill.get("owner", "")},
+        return {noun: {"id": bundle["id"], "name": bundle["name"],
+                       "description": bundle.get("description", ""),
+                       "owner": bundle.get("owner", "")},
                 "tasks": tasks_out}
 
     def search_tasks(self, query: str, k: int = 20) -> List[Dict[str, Any]]:
         """The task pool ranked against a plain-language query — the door a
         skill is assembled through. Entirely local (BM25-lite, no service)."""
         return sk.search_tasks(query, self.tasks(), k=k)
+
+    # ── games ──────────────────────────────────────────────────────
+    #
+    # A game is what an agent sits down to play: ONE task, or a named
+    # bundle of tasks played and ranked as one thing. Every pool task is
+    # already a game of one — addressable by its task key, nothing to
+    # register — and a created game combines tasks under a name with a
+    # weight per task. Scoring is the skill machinery unchanged (the
+    # shape is identical); what a game adds is that it RUNS: run_game
+    # plays every member task through the normal round path, with the
+    # same skip, budget and rating rules a round has.
+
+    def _game_of(self, game_id: str) -> Optional[Dict[str, Any]]:
+        """Resolve an id to a playable game: a registered bundle by id, or
+        any pool task as the implicit single-task game it already is."""
+        game = self.games.get(game_id)
+        if game:
+            game = dict(game)
+            game["kind"] = "bundle" if len(game.get("tasks", [])) > 1 else "single"
+            return game
+        spec = next((t for t in self.tasks() if t["key"] == game_id), None)
+        if spec:
+            return {"id": spec["key"], "name": spec.get("title", spec["key"]),
+                    "description": (spec.get("prompt") or "")[:240],
+                    "owner": spec.get("owner", ""),
+                    "tasks": [{"key": spec["key"], "weight": 1.0}],
+                    "kind": "task"}
+        return None
+
+    def list_games(self) -> List[Dict[str, Any]]:
+        """Every created game, with the same summary card a skill gets
+        (best agent, best model) plus its kind and member titles. Single
+        pool tasks are not repeated here — the task board already lists
+        every one of them, and each is a game by key."""
+        ratings = self._state.get("ratings", {})
+        agents_meta = self._agents_meta()
+        all_matches = self.all_matches()
+        titles = {t["key"]: t["title"] for t in self.tasks()}
+        out = []
+        for game in self.games.list():
+            lb = sk.skill_leaderboard(game, ratings, agents_meta)
+            mb_rows = sk.skill_model_leaderboard(game, all_matches)
+            card = sk.skill_summary(game, lb, mb_rows)
+            members = game.get("tasks", [])
+            card["kind"] = "bundle" if len(members) > 1 else "single"
+            card["task_titles"] = [titles.get(m["key"], m["key"]) for m in members]
+            out.append(card)
+        return out
+
+    def game_view(self, game_id: str) -> Dict[str, Any]:
+        """One game's leaderboard — bundle id or bare task key alike."""
+        game = self._game_of(game_id)
+        if not game:
+            return {"error": f"game not found: {game_id}"}
+        ratings = self._state.get("ratings", {})
+        agents_meta = self._agents_meta()
+        all_matches = self.all_matches()
+        lb = sk.skill_leaderboard(game, ratings, agents_meta)
+        mb_rows = sk.skill_model_leaderboard(game, all_matches)
+        titles = {t["key"]: t["title"] for t in self.tasks()}
+        return {
+            "game": game,
+            "leaderboard": lb,
+            "best_model": mb_rows[0] if mb_rows else None,
+            "model_board": mb_rows,
+            "tasks": [{"key": t["key"], "weight": t.get("weight", 1.0),
+                       "title": titles.get(t["key"], t["key"])}
+                      for t in game.get("tasks", [])],
+        }
+
+    def game_results(self, game_id: str) -> Dict[str, Any]:
+        """The game's answer sheet: prompts, per-agent scores and answers."""
+        game = self._game_of(game_id)
+        if not game:
+            return {"error": f"game not found: {game_id}"}
+        return self._bundle_results(game, noun="game")
+
+    def create_game(self, name: str, description: str = "",
+                    tasks: List[Any] = None, owner: str = "") -> Dict[str, Any]:
+        """A single key or a list both work — a game of one is still a game.
+
+        Member keys are checked against the pool: a game exists to be
+        played, so a key nothing can play is refused at the door."""
+        if isinstance(tasks, str):
+            tasks = [tasks]
+        members = sk.Games._normalize(tasks or [])
+        if not members:
+            raise ValueError("a game needs at least one task")
+        pool = {t["key"] for t in self.tasks()}
+        unknown = [m["key"] for m in members if m["key"] not in pool]
+        if unknown:
+            raise ValueError(f"unknown tasks: {', '.join(unknown)}")
+        return self.games.create(name, description=description,
+                                 tasks=members, owner=owner)
+
+    def update_game(self, game_id: str, name: str = None,
+                    description: str = None, tasks: List[Any] = None,
+                    owner: str = None) -> Dict[str, Any]:
+        if isinstance(tasks, str):
+            tasks = [tasks]
+        game = self.games.update(game_id, name=name, description=description,
+                                 tasks=tasks, owner=owner)
+        if not game:
+            return {"error": f"game not found: {game_id}"}
+        return game
+
+    def remove_game(self, game_id: str) -> Dict[str, Any]:
+        removed = self.games.remove(game_id)
+        return {"removed": removed, "id": game_id}
+
+    def run_game(self, game_id: str, agents: List[str] = None,
+                 force: bool = False, reason: str = None) -> Dict[str, Any]:
+        """Play a game: every member task through the normal round path —
+        the skip-unchanged rule, budget caps and pairwise rating all
+        apply, so a game whose record is current plays zero matches
+        (force=True replays the field)."""
+        game = self._game_of(game_id)
+        if not game:
+            return {"error": f"game not found: {game_id}"}
+        keys = [m["key"] for m in game.get("tasks", [])]
+        summary = self.run_round(agents=agents, tasks=keys,
+                                 reason=reason or f"game:{game['id']}",
+                                 force=force)
+        if isinstance(summary, dict) and "error" not in summary:
+            summary["game"] = {"id": game["id"], "name": game["name"],
+                               "kind": game.get("kind")}
+        return summary
 
     # ── classes: skills bundled one level up ───────────────────────
     #
@@ -1935,6 +2068,16 @@ class Arena:
         forward('skill_rm', id=)                   -> delete a skill
         forward('task_search', query=, k=)         -> the pool ranked to bundle from
 
+        Games — what an agent sits down to play: one task or a bundle,
+        readable and runnable by one id (a bundle id, or any bare task key):
+        forward('games')                           -> every created game
+        forward('game', id=)                       -> one game + its leaderboard
+        forward('game_results', id=)               -> its tasks + every agent's answer
+        forward('game_create', name=, tasks=, description=, owner=)
+        forward('game_update', id=, name=, tasks=, description=)
+        forward('game_rm', id=)                    -> delete a game
+        forward('game_run', id=, agents=, force=)  -> play every member task
+
         Classes — named bundles of skills, scores rolled up one more level:
         forward('classes')                         -> all classes
         forward('class', id=)                      -> one class + its benchmark
@@ -2044,6 +2187,42 @@ class Arena:
             return {"query": kwargs.get("query", ""),
                     "results": self.search_tasks(kwargs.get("query", ""),
                                                  k=int(kwargs.get("k", 20)))}
+        # ── games ────────────────────────────────────────────────────
+        if action == "games":
+            return {"games": self.list_games()}
+        if action == "game":
+            game_id = kwargs.get("id") or kwargs.get("game") or ""
+            if not game_id:
+                return {"error": "game id required"}
+            return self.game_view(game_id)
+        if action in ("game_results", "game_answers"):
+            game_id = kwargs.get("id") or kwargs.get("game") or ""
+            if not game_id:
+                return {"error": "game id required"}
+            return self.game_results(game_id)
+        if action in ("game_create", "create_game"):
+            try:
+                return self.create_game(
+                    name=kwargs.get("name", ""),
+                    description=kwargs.get("description", ""),
+                    tasks=kwargs.get("tasks") or [],
+                    owner=kwargs.get("owner", ""))
+            except ValueError as e:
+                return {"error": str(e)}
+        if action in ("game_update", "update_game"):
+            return self.update_game(
+                game_id=kwargs.get("id") or kwargs.get("game") or "",
+                name=kwargs.get("name"),
+                description=kwargs.get("description"),
+                tasks=kwargs.get("tasks"),
+                owner=kwargs.get("owner"))
+        if action in ("game_rm", "remove_game", "delete_game"):
+            return self.remove_game(kwargs.get("id") or kwargs.get("game") or "")
+        if action in ("game_run", "run_game"):
+            return self.run_game(kwargs.get("id") or kwargs.get("game") or "",
+                                 agents=kwargs.get("agents"),
+                                 force=bool(kwargs.get("force", False)),
+                                 reason=kwargs.get("reason"))
         # ── classes ──────────────────────────────────────────────────
         if action == "classes":
             return {"classes": self.list_classes()}

@@ -1,0 +1,6 @@
+{
+  "name": "trades",
+  "description": "The front door, played back: two proposed trades a round, pick the one the arena's own score function ranks higher. The page at /arena is this game's subject.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "trades", "trading", "scoring", "front-door"]
+}

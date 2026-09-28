@@ -1111,6 +1111,9 @@ async function openGamePage(id) {
   const g = await call(`/modules/${id}`);
   openGame = g;
   show("game");
+  // Deep-linkable, the way a docs page is — the trades front door links
+  // straight to a board with #game/<id>.
+  history.replaceState(null, "", `#game/${g.id}`);
   $("g-name").textContent = g.name;
   $("g-lang").textContent = langLabel(g.lang);
   $("g-desc").textContent = g.description || "";
@@ -2420,6 +2423,8 @@ $("doc-q").oninput = () => {
 
 window.addEventListener("hashchange", () => {
   if (location.hash.startsWith("#docs/")) show("docs");
+  if (location.hash.startsWith("#game/"))
+    openGamePage(decodeURIComponent(location.hash.slice(6))).catch((e) => toast(e.message, true));
 });
 
 const slugify = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -2497,6 +2502,8 @@ try {
   loadFleet().catch(() => {});
   loadAbPast();
   if (location.hash.startsWith("#docs/")) show("docs");
+  else if (location.hash.startsWith("#game/"))
+    await openGamePage(decodeURIComponent(location.hash.slice(6))).catch((e) => toast(e.message, true));
 } catch (e) {
   $("banner").textContent = `cannot reach the server: ${e.message}`;
   $("banner").className = "counts bad";

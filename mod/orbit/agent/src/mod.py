@@ -2151,6 +2151,8 @@ class Mod(Agent):
                                 # is how the pool is read to bundle from
                                 'arena_skills', 'arena_skill', 'arena_skill_results',
                                 'arena_classes', 'arena_class', 'arena_task_search',
+                                # games: one task or a bundle, read by one id
+                                'arena_games', 'arena_game', 'arena_game_results',
                                 'key_info', 'balance',
                                 'credits', 'credit_deposit', 'credit_price',
                                 # vaults self-scope to the caller's verified
@@ -2169,6 +2171,7 @@ class Mod(Agent):
                                 # skill/class writes: signed-in, owner recorded
                                 'arena_skill_create', 'arena_skill_update', 'arena_skill_rm',
                                 'arena_class_create', 'arena_class_update', 'arena_class_rm',
+                                'arena_game_create', 'arena_game_update', 'arena_game_rm',
                                 # vibecoding an agent enforces its own sign-in
                                 # and, being a model run, run policy — exactly
                                 # like a task draft
@@ -2194,7 +2197,9 @@ class Mod(Agent):
                                'tool_add', 'tool_rm', 'tool_run',
                                'remember', 'forget', 'memory_serve', 'memory_kill',
                                # a round spends real steps on a provider key
-                               'arena_run', 'arena_qualify', 'arena_config',
+                               # (a game run is a round over the game's tasks)
+                               'arena_run', 'arena_game_run',
+                               'arena_qualify', 'arena_config',
                                'arena_scheduler',
                                # ...and a gauntlet spends them on a named model,
                                # which is the one place the board runs paid ones
@@ -3018,6 +3023,7 @@ class Mod(Agent):
             arena_skills, arena_skill (id=), arena_skill_results (id=),
             arena_task_search (query=),
             arena_classes, arena_class (id=),
+            arena_games, arena_game (id=), arena_game_results (id=),
             openarena, openarena_task, openarena_sources,
             credits, credit_price (network=),
             credit_deposit (tx_hash=, network=base|ethereum, provider=openrouter|venice)
@@ -3058,6 +3064,13 @@ class Mod(Agent):
             arena_skill_update - Adjust a skill's tasks or weights (id=, tasks=, name=)
             arena_skill_rm   - Remove a skill (id=)
             arena_task_search - The task pool ranked against a query (query=, k=)
+            arena_games      - Every game: one task or a bundle, played as one
+            arena_game       - One game's leaderboard (id= bundle id or task key)
+            arena_game_results - Its tasks + every agent's answer (id=)
+            arena_game_create - Combine tasks into a game (name=, tasks=)
+            arena_game_update - Adjust a game's tasks or weights (id=, tasks=)
+            arena_game_rm    - Remove a game (id=)
+            arena_game_run   - Play every member task (id=, force=)
             arena_classes    - Every class: skills bundled one level up
             arena_class      - One class's rolled-up benchmark (id=)
             arena_class_create - Bundle skills into a class (name=, skills=, description=)
@@ -3210,6 +3223,13 @@ class Mod(Agent):
             'arena_classes': lambda: self.arena.forward('classes'),
             'arena_class': lambda: self.arena.forward('class',
                                                       id=kwargs.get('id', '')),
+            # games: one task or a bundle of tasks, played as one thing —
+            # the id is a bundle id or any bare task key
+            'arena_games': lambda: self.arena.forward('games'),
+            'arena_game': lambda: self.arena.forward('game',
+                                                     id=kwargs.get('id') or kwargs.get('game', '')),
+            'arena_game_results': lambda: self.arena.forward('game_results',
+                                                             id=kwargs.get('id') or kwargs.get('game', '')),
             'arena_skill_create': lambda: self.arena.forward('skill_create',
                                                               name=kwargs.get('name', ''),
                                                               description=kwargs.get('description', ''),
@@ -3393,6 +3413,26 @@ class Mod(Agent):
                                                               tasks=kwargs.get('tasks')),
             'arena_skill_rm': lambda: self.arena.forward('skill_rm',
                                                           id=kwargs.get('id') or kwargs.get('skill', '')),
+            # game writes: same contract as skills — signed-in, owner recorded.
+            # game_run spends steps like a round, so it sits with arena_run
+            # in the admin set rather than the public one
+            'arena_game_create': lambda: self.arena.forward('game_create',
+                                                             name=kwargs.get('name', ''),
+                                                             description=kwargs.get('description', ''),
+                                                             tasks=kwargs.get('tasks') or [],
+                                                             owner=self.identity.addr(key)),
+            'arena_game_update': lambda: self.arena.forward('game_update',
+                                                             id=kwargs.get('id') or kwargs.get('game', ''),
+                                                             name=kwargs.get('name'),
+                                                             description=kwargs.get('description'),
+                                                             tasks=kwargs.get('tasks')),
+            'arena_game_rm': lambda: self.arena.forward('game_rm',
+                                                         id=kwargs.get('id') or kwargs.get('game', '')),
+            'arena_game_run': lambda: self.arena.forward('game_run',
+                                                          id=kwargs.get('id') or kwargs.get('game', ''),
+                                                          agents=kwargs.get('agents'),
+                                                          force=bool(kwargs.get('force', False)),
+                                                          reason=kwargs.get('reason')),
             # class writes: same contract as skills — signed-in, owner recorded
             'arena_class_create': lambda: self.arena.forward('class_create',
                                                               name=kwargs.get('name', ''),
