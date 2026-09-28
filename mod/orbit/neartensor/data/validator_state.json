@@ -1,6 +1,6 @@
 {
   "scores": {
-    "0": 0.5941729774585581
+    "0": 0.29098815530840966
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -10,79 +10,61 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.6995,
-        "ema_score": 0.5942,
+        "epoch_score": 0.1502,
+        "ema_score": 0.291,
         "samples": [
           {
-            "score": 0.6967623940967447,
+            "score": 0.6771519688123725,
             "task": "block_header",
-            "elapsed": 3.253,
+            "elapsed": 3.2,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.577109292460059,
+            "score": 0.5242365198431153,
             "task": "gas_price",
-            "elapsed": 3.296,
+            "elapsed": 3.393,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6963286607450055,
-            "task": "account_state",
-            "elapsed": 3.259,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
           },
           {
-            "score": 0.8833333333333333,
-            "task": "block_header",
-            "elapsed": 0.159,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
-            "score": 0.6723159446684108,
-            "task": "gas_price",
-            "elapsed": 3.269,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
-            "score": 0.8108346458603395,
-            "task": "account_state",
-            "elapsed": 3.29,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
-            "score": 0.6794380751535899,
-            "task": "block_header",
-            "elapsed": 3.17,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
-            "score": 0.5800345907157931,
-            "task": "gas_price",
-            "elapsed": 3.253,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           }
         ]
       }
     },
-    "at": 1790519589,
+    "at": 1790606144,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 15,
+      "epoch": 19,
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1790519648
+  "updated": 1790606164
 }
