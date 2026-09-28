@@ -521,12 +521,15 @@ class Polymarket(m.Mod):
         only winners. `-1` means nothing settled in the window (or the
         settled book was unreachable): unknown, not zero.
 
-        `sort` parameterizes the ranking metric: winRate (default), resolveRate
-        (share of settled buys that rode to a full $1 resolution — the
-        buy-and-hold hit rate; winRate is the made-money rate, so an early
-        profitable scalp counts there but not here), exitEntry (avg exit÷entry
-        price over closed trades), sharpe, pnl, volume, history (longest track
-        record first).
+        `sort` parameterizes the ranking metric: winRate (default), best (the
+        all-round composite — ROI per $100 discounted while activity is thin,
+        plus bonuses for steady accrual and a proven win rate; unknown parts
+        count 0), roi (pnl/volume), steady (per-period Sharpe of the PnL
+        curve), resolveRate (share of settled buys that rode to a full $1
+        resolution — the buy-and-hold hit rate; winRate is the made-money
+        rate, so an early profitable scalp counts there but not here),
+        exitEntry (avg exit÷entry price over closed trades), sharpe, pnl,
+        volume, history (longest track record first).
 
         `min_history_days` is a TRACK-RECORD floor, not a recency one: it drops
         traders whose first-ever trade is more recent than N days. Worth setting
@@ -547,7 +550,7 @@ class Polymarket(m.Mod):
         # way — it answers `cold` rather than aggregating — and lets the
         # recency filter and the row cap run server-side over the cached
         # payload. A trader who hasn't traded in 6h isn't one to copy.
-        if sort not in ("winRate", "resolveRate", "exitEntry", "sharpe", "pnl", "volume", "history"):
+        if sort not in ("winRate", "best", "roi", "steady", "resolveRate", "exitEntry", "sharpe", "pnl", "volume", "history"):
             sort = "winRate"
         params = {"days": str(days), "pool": str(pool), "paged": "1",
                   "pageSize": str(max(1, min(int(limit), 100))), "page": "0",

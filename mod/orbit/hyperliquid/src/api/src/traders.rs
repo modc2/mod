@@ -769,6 +769,76 @@ impl ScoreFilter {
     }
 }
 
+// ─── The leaderboard score ──────────────────────────────────────────────
+//
+// One canonical number per trader, defined HERE so the board, the score
+// market and the UI preset cannot drift apart:
+//
+//     score = roi × (win_rate_lo / 100) × sharpe
+//
+// Read it as "the window return, discounted twice": once by the win rate the
+// sample size can actually defend (the Wilson lower bound, 0..1 — a 3-for-3
+// wallet is discounted hard, a 180-of-200 one barely), and once by
+// consistency (the annualised daily-PnL Sharpe — a return earned in one
+// coin-flip day is worth less than the same return earned steadily).
+//
+// A score exists only when the evidence does: the row must be fill-measured,
+// with at least `stats::MIN_CLOSES` realised closes behind the win rate and
+// `stats::MIN_SHARPE_DAYS` days behind the Sharpe. Anything less is `None` —
+// unscored, never zero — exactly like `rec_score` on the strats board.
+//
+// Sign quirk, accepted like rec_score's: with three signed factors, two
+// negatives multiply positive. The MARKET closes that hole by admitting only
+// rows where every factor is positive; the raw score keeps its algebra and
+// the UI shows the factors beside the product so nothing hides.
+
+/// The formula, as the API self-describes it — one string, quoted everywhere.
+pub const SCORE_FORMULA: &str = "roi × winRateLo/100 × sharpe";
+
+/// The canonical leaderboard score for one row, `None` when the evidence
+/// floors aren't met.
+pub fn leaderboard_score(t: &TopTrader) -> Option<f64> {
+    if !t.has_stats() { return None; }
+    if t.closes < crate::stats::MIN_CLOSES { return None; }
+    if t.sharpe_days < crate::stats::MIN_SHARPE_DAYS { return None; }
+    Some(t.roi * (t.win_rate_lo / 100.0) * t.sharpe)
+}
+
+/// The score market's admission rule: scored, AND every factor positive —
+/// in the window the wallet made money, defends a real win rate, and did it
+/// consistently. Returns the score for rows that are in.
+pub fn market_score(t: &TopTrader) -> Option<f64> {
+    let s = leaderboard_score(t)?;
+    (t.roi > 0.0 && t.win_rate_lo > 0.0 && t.sharpe > 0.0).then_some(s)
+}
+
+/// One market row: the score up front, the whole evidence row behind it.
+#[derive(Debug, Clone, Serialize)]
+pub struct MarketRow {
+    pub score: f64,
+    #[serde(flatten)]
+    pub trader: TopTrader,
+}
+
+/// Build the score market from a computed board: admit by [`market_score`],
+/// apply any extra floors, rank by score, keep the top `limit`.
+pub fn score_market(
+    rows: &[TopTrader],
+    min_score: f64,
+    filter: &ScoreFilter,
+    limit: usize,
+) -> Vec<MarketRow> {
+    let mut out: Vec<MarketRow> = rows.iter()
+        .filter(|t| filter.is_empty() || filter.keeps(t))
+        .filter_map(|t| market_score(t)
+            .filter(|s| *s >= min_score)
+            .map(|score| MarketRow { score, trader: t.clone() }))
+        .collect();
+    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    out.truncate(limit.max(1));
+    out
+}
+
 /// Column a board can be ordered by. The leaderboard-priced ones (`roi`,
 /// `pnl`, `volume`, `equity`) rank every row; the fill-derived ones
 /// (`sharpe`, `win_rate`, `trades`) sink rows without stats to the bottom
@@ -1241,6 +1311,92 @@ mod tests {
         f = ScoreFilter { min_win: Some(50.0), min_trades: Some(50), ..Default::default() };
         let mut r = rows.clone(); f.apply(&mut r); assert!(r.is_empty());
         assert_eq!(enriched_count(&rows), 2);
+    }
+
+    #[test]
+    fn the_score_is_the_discounted_return_and_needs_evidence() {
+        // Measured, strong: roi 50%, win 60% over 40 closes, sharpe 1.8.
+        let t = tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40)));
+        let s = leaderboard_score(&t).expect("measured row scores");
+        assert!((s - 50.0 * (t.win_rate_lo / 100.0) * 1.8).abs() < 1e-9);
+        // The Wilson discount bites: the factor is the LOWER bound, not the
+        // headline rate.
+        assert!(t.win_rate_lo < 60.0);
+
+        // Unmeasured rows never score — no fabricated factors.
+        assert_eq!(leaderboard_score(&tt(80.0, 800.0, 1_500.0, None)), None);
+
+        // Too few closes ⇒ the win rate is anecdote ⇒ no score.
+        let mut few = tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40)));
+        few.closes = crate::stats::MIN_CLOSES - 1;
+        assert_eq!(leaderboard_score(&few), None);
+
+        // A Sharpe from three days is not a Sharpe ⇒ no score.
+        let mut young = tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40)));
+        young.sharpe_days = crate::stats::MIN_SHARPE_DAYS - 1;
+        assert_eq!(leaderboard_score(&young), None);
+    }
+
+    #[test]
+    fn the_market_admits_only_all_positive_factors() {
+        // Losing trader: scored (evidence is there), but two negative factors
+        // multiply positive — exactly the row the market must NOT admit.
+        let losing = tt(-10.0, -900.0, 90_000.0, Some((30.0, -0.5, 12)));
+        let s = leaderboard_score(&losing).expect("evidence exists, so it scores");
+        assert!(s > 0.0, "the sign quirk is real: {s}");
+        assert_eq!(market_score(&losing), None, "…and the market gate closes it");
+
+        // Positive everything: in.
+        let good = tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40)));
+        assert!(market_score(&good).is_some());
+
+        // Positive roi but negative sharpe: out.
+        let choppy = tt(20.0, 2000.0, 20_000.0, Some((55.0, -0.3, 40)));
+        assert_eq!(market_score(&choppy), None);
+
+        // Unmeasured: out, however good the roi looks.
+        assert_eq!(market_score(&tt(300.0, 800.0, 1_500.0, None)), None);
+    }
+
+    #[test]
+    fn the_score_market_ranks_filters_and_truncates() {
+        let rows = vec![
+            tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40))),   // in, big score
+            tt(10.0, 400.0, 5_000.0, Some((55.0, 0.4, 30))),     // in, small score
+            tt(80.0, 800.0, 1_500.0, None),                      // unmeasured → out
+            tt(-10.0, -900.0, 90_000.0, Some((30.0, -0.5, 12))), // losing → out
+        ];
+        let m = score_market(&rows, 0.0, &ScoreFilter::default(), 50);
+        assert_eq!(m.len(), 2);
+        assert!(m[0].score > m[1].score, "score desc");
+        assert_eq!(m[0].trader.roi, 50.0);
+
+        // min_score is a floor on the product itself.
+        let floor = m[0].score;
+        let m2 = score_market(&rows, floor, &ScoreFilter::default(), 50);
+        assert_eq!(m2.len(), 1);
+
+        // Extra floors ride the existing ScoreFilter.
+        let f = ScoreFilter { min_equity: Some(10_000.0), ..Default::default() };
+        let m3 = score_market(&rows, 0.0, &f, 50);
+        assert_eq!(m3.len(), 1);
+        assert_eq!(m3[0].trader.account_value, 20_000.0);
+
+        // limit truncates after ranking.
+        let m4 = score_market(&rows, 0.0, &ScoreFilter::default(), 1);
+        assert_eq!(m4.len(), 1);
+        assert_eq!(m4[0].trader.roi, 50.0);
+    }
+
+    #[test]
+    fn a_market_row_serialises_flat_with_the_score_in_front() {
+        let m = score_market(&[tt(50.0, 5000.0, 20_000.0, Some((60.0, 1.8, 40)))],
+                             0.0, &ScoreFilter::default(), 10);
+        let v = serde_json::to_value(&m[0]).unwrap();
+        assert!(v.get("score").unwrap().as_f64().unwrap() > 0.0);
+        // Flattened: the trader's fields sit beside the score, not nested.
+        assert_eq!(v.get("roi").unwrap().as_f64().unwrap(), 50.0);
+        assert!(v.get("trader").is_none());
     }
 
     #[test]

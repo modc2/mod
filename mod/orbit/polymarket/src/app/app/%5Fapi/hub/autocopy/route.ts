@@ -2,13 +2,18 @@
 //
 //   GET                       current settings, last pass status, one card per
 //                             top-PnL trader (train window vs test window)
-//   POST {trainDays, testDays, count, enabled}
-//                             update the settings. Values are clamped into a
+//   POST {trainDays, testDays, count, enabled,
+//         rankBy, minHistoryDays, minTrades, minConsistency}
+//                             update the settings. Windows are clamped into a
 //                             valid non-overlapping split (both ≥ 1 day,
-//                             train + test ≤ 30 — the feed's own ceiling) and
-//                             the CLAMPED settings are returned, so the UI
-//                             shows what will actually run. A changed split
-//                             wipes stale cards and queues a fresh pass.
+//                             train + test ≤ 30 — the feed's own ceiling);
+//                             the vetting floors decide which traders enter
+//                             the test at all (history/trades/consistency,
+//                             0 = off) and rankBy picks the leaderboard the
+//                             roster comes off ("steady" | "pnl"). The
+//                             CLAMPED settings are returned, so the UI shows
+//                             what will actually run. Any change wipes stale
+//                             cards and queues a fresh pass.
 //   POST ?run=1               replay now, out of the cached feeds
 //
 // Owner-gated like /_api/hub — same token, same reasoning.
@@ -68,9 +73,9 @@ export async function POST(req: Request) {
 
   const prev = readAutoCopySettings();
   const saved = writeAutoCopySettings({ ...prev, ...body });
-  const changed =
-    saved.trainDays !== prev.trainDays || saved.testDays !== prev.testDays ||
-    saved.count !== prev.count || saved.enabled !== prev.enabled;
+  // Any field change re-queues: windows and roster size relabel the cards,
+  // and the vetting floors / rank change WHICH traders get tested at all.
+  const changed = JSON.stringify(saved) !== JSON.stringify(prev);
   if (changed && saved.enabled) {
     // New roster/windows may name traders the store has never seen — start
     // fetching now, and let the next pass (also queued) fill the cards in.

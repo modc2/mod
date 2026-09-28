@@ -1,6 +1,6 @@
 {
   "scores": {
-    "0": 0.29098815530840966
+    "0": 0.2640799142569854
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -10,26 +10,26 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.1502,
-        "ema_score": 0.291,
+        "epoch_score": 0.1565,
+        "ema_score": 0.2641,
         "samples": [
           {
-            "score": 0.6771519688123725,
+            "score": 0.6515169891696908,
             "task": "block_header",
-            "elapsed": 3.2,
+            "elapsed": 3.232,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.5242365198431153,
+            "score": 0.6003418823774334,
             "task": "gas_price",
-            "elapsed": 3.393,
+            "elapsed": 3.298,
             "signature_ok": true,
             "correct": true
           },
           {
             "score": 0.0,
-            "error": "unreachable: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
             "score": 0.0,
@@ -54,17 +54,17 @@
         ]
       }
     },
-    "at": 1790606144,
+    "at": 1790614903,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 19,
+      "epoch": 22,
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1790606164
+  "updated": 1790614919
 }

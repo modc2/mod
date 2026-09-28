@@ -309,7 +309,7 @@
       "legit": [
         "the largest decentralized AI network — live since 2021, root pool alone holds millions of TAO",
         "open-source (Opentensor), fixed 21m supply with a Bitcoin-style halving schedule",
-        "this desk reads and stakes it through the bt module directly against the chain — every number on this card is bt_subnets, live"
+        "this desk reads and stakes it through the bt module directly against the chain — every number on this card is live off the bt module's open indexer (bt_screener)"
       ],
       "risks": [
         "not USD: you carry TAO's price on top of everything else, and a subnet's alpha floats on top of TAO",

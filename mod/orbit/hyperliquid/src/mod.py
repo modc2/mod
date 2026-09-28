@@ -84,7 +84,8 @@ class Hyperliquid(m.Mod):
         # identity
         "whoami",
         # data passthroughs
-        "top_traders", "analyze_trader", "trader_curve", "leaderboard",
+        "top_traders", "score_market", "analyze_trader", "trader_curve",
+        "backtest_trader", "leaderboard",
         # indexes / strats
         "strats_board",
         "list_indexes", "get_index", "create_index", "update_index",
@@ -578,6 +579,29 @@ class Hyperliquid(m.Mod):
         if with_stats: params["with_stats"] = "true"
         return self._get("/traders/top", **params)
 
+    def score_market(self, days: int = 7, limit: int = 50,
+                     min_score: Optional[float] = None,
+                     min_equity: Optional[float] = None,
+                     min_win: Optional[float] = None,
+                     min_sharpe: Optional[float] = None,
+                     min_trades: Optional[int] = None) -> Any:
+        """The score market: traders admitted by the canonical leaderboard
+        score, ranked by it.
+
+        score = roi × winRateLo/100 × sharpe — the window return, discounted
+        by the win rate the sample size can defend (Wilson 95% lower bound)
+        and by consistency (annualised daily-PnL Sharpe). A row is in the
+        market only when it is fill-measured with ≥10 realised closes and ≥7
+        Sharpe days AND every factor is positive; anything less is unscored,
+        never zero. Pure cache read — 1/7/30d windows are kept warm; others
+        answer `warming: true` with no rows until a board exists."""
+        params: Dict[str, Any] = {"days": days, "limit": limit}
+        for k, v in (("min_score", min_score), ("min_equity", min_equity),
+                     ("min_win", min_win), ("min_sharpe", min_sharpe),
+                     ("min_trades", min_trades)):
+            if v is not None: params[k] = v
+        return self._get("/traders/market", **params)
+
     def analyze_trader(self, address: str, days: int = 7) -> Any:
         return self._get(f"/trader/{address}/analyze", days=days)
 
@@ -592,6 +616,22 @@ class Hyperliquid(m.Mod):
         trouble: `available` comes back false with a `note`.
         """
         return self._get(f"/trader/{address}/curve", days=days)
+
+    def backtest_trader(self, address: str, capital: float = 1000.0,
+                        days: int = 30) -> Any:
+        """What would `capital` dollars on this trader have done over `days`?
+
+        Two models per result: the equity curve (`points`/`final_value`/
+        `roi_pct`/`max_drawdown` — your $N riding the trader's perp-book ROI
+        proportionally, realised and unrealised) and the realised fills
+        `mirror` (closedPnl and fees scaled by capital / trader equity, the
+        live engine's convention). Read `checks` before the numbers: each is
+        a pass/warn/fail verdict on history coverage, equity basis, fills
+        truncation, freshness, and whether $N outsizes the trader's book.
+        `ok` is false when any check failed. Never raises on upstream
+        trouble: `available` comes back false with a `note`.
+        """
+        return self._get(f"/trader/{address}/backtest", capital=capital, days=days)
 
     def leaderboard(self) -> Any: return self._get("/leaderboard")
 

@@ -948,7 +948,12 @@ export const WARMED_CANDIDATE_POOL = 2000;
 // the window, not an idle market — fall back to the unfiltered top N rather
 // than hand the caller an empty roster.
 export async function fetchTopTraderAddresses(
-  opts: { days?: number; minPerDay?: number; category?: string; marketQuery?: string; sort?: string },
+  opts: {
+    days?: number; minPerDay?: number; category?: string; marketQuery?: string; sort?: string;
+    /** Vetting floors — same semantics as fetchTradersPage: history keeps
+        unknown ages, consistency cuts unknown curves. */
+    minHistoryDays?: number; minTrades?: number; minConsistency?: number;
+  },
   n = 10,
 ): Promise<string[]> {
   const query = {
@@ -958,9 +963,13 @@ export async function fetchTopTraderAddresses(
     category: opts.category || undefined,
     marketQuery: opts.marketQuery || undefined,
     // Any server sort key (routes.rs) — "resolveRate" seeds the buy-and-hold
-    // pickers; the default stays PnL, the roster sort this has always used.
+    // pickers, "steady" ranks by consistent returns; the default stays PnL,
+    // the roster sort this has always used.
     sort: opts.sort || "pnl",
     order: "desc",
+    minHistoryDays: opts.minHistoryDays,
+    minTrades: opts.minTrades,
+    minConsistency: opts.minConsistency,
     pageSize: n,
     page: 0,
   };

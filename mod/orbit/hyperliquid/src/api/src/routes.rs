@@ -75,8 +75,12 @@ pub fn router() -> Router<AppState> {
         // ── trader analytics ──
         .route("/leaderboard", get(leaderboard))
         .route("/traders/top", get(top_traders))
+        // The score market: the slice of the board that clears the canonical
+        // score's evidence gates with every factor positive, ranked by score.
+        .route("/traders/market", get(score_market))
         .route("/trader/:addr/analyze", get(analyze_trader))
         .route("/trader/:addr/curve", get(trader_curve))
+        .route("/trader/:addr/backtest", get(backtest_trader))
         .route("/traders/curves", get(trader_curves))
         .route("/scan/progress", get(scan_progress))
 
@@ -365,7 +369,7 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
         "endpoints": {
             // `crate::auth::is_public` is the authority; mcp::tools() carries
             // the same flag per tool and a test holds the two in agreement.
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/trader/:addr/analyze", "/user/:addr/*", "/vaults", "/strats/board", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/traders/market", "/trader/:addr/analyze", "/trader/:addr/backtest", "/user/:addr/*", "/vaults", "/strats/board", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
             "gated": ["/auth/me", "/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote", "POST /indexes", "PATCH|DELETE /indexes/:id"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
@@ -665,6 +669,66 @@ async fn scan_progress(State(s): State<AppState>) -> Json<Value> {
     Json(json!(s.progress.snapshot()))
 }
 
+// ── the score market ──
+
+#[derive(Deserialize)]
+struct MarketQ {
+    days: Option<u32>,
+    limit: Option<usize>,       // rows to return (default 50, max 400)
+    min_score: Option<f64>,     // floor on the canonical score itself
+    // Extra floors, riding traders::ScoreFilter.
+    min_equity: Option<f64>,
+    min_win: Option<f64>,       // Wilson lower bound, percent
+    min_sharpe: Option<f64>,
+    min_trades: Option<usize>,
+}
+
+/// The score market: the slice of the cached default board that the canonical
+/// leaderboard score admits — measured rows with `closes ≥ MIN_CLOSES`,
+/// `sharpe_days ≥ MIN_SHARPE_DAYS`, and every factor positive — ranked by
+/// `score = roi × winRateLo/100 × sharpe`. A pure cache read: the prewarm
+/// loop keeps the 1/7/30d boards warm, so this never triggers a scan; an
+/// uncached window answers `warming: true` with no rows rather than lying.
+async fn score_market(State(s): State<AppState>, Query(q): Query<MarketQ>) -> Json<Value> {
+    use crate::traders::{Active, Rank, ScoreFilter};
+    let days = q.days.unwrap_or(7).clamp(1, 90);
+    let limit = q.limit.unwrap_or(50).clamp(1, 400);
+    let min_score = q.min_score.unwrap_or(0.0);
+    let filter = ScoreFilter {
+        min_equity: q.min_equity, min_win: q.min_win, min_sharpe: q.min_sharpe,
+        min_trades: q.min_trades, ..Default::default()
+    };
+    let entry = s.boards.get(days, Rank::Roi, Active::Day);
+    let (rows, updated_at, priced, measured) = match &entry {
+        Some(e) => (
+            crate::traders::score_market(&e.traders, min_score, &filter, limit),
+            e.updated_at,
+            e.traders.len(),
+            crate::traders::enriched_count(&e.traders),
+        ),
+        None => (vec![], 0, 0, 0),
+    };
+    Json(json!({
+        "days": days, "limit": limit, "min_score": min_score,
+        // The market self-describes its arithmetic and its gate, so clients
+        // print the server's promise instead of hardcoding their own copy.
+        "score": crate::traders::SCORE_FORMULA,
+        "gate": {
+            "measured": true,
+            "min_closes": crate::stats::MIN_CLOSES,
+            "min_sharpe_days": crate::stats::MIN_SHARPE_DAYS,
+            "factors_positive": ["roi", "winRateLo", "sharpe"],
+        },
+        "filter": filter, "filtered": !filter.is_empty(),
+        // The candidate funnel: rows priced from the leaderboard, rows whose
+        // fills were actually measured (only those CAN score), rows admitted.
+        "priced": priced, "measured": measured, "matched": rows.len(),
+        "updated_at": updated_at,
+        "warming": entry.is_none(),
+        "rows": rows,
+    }))
+}
+
 #[derive(Deserialize)]
 struct AnalyzeQ { days: Option<u32> }
 async fn analyze_trader(State(s): State<AppState>, Path(a): Path<String>, Query(q): Query<AnalyzeQ>)
@@ -672,6 +736,23 @@ async fn analyze_trader(State(s): State<AppState>, Path(a): Path<String>, Query(
 {
     let days = q.days.unwrap_or(7).clamp(1, 90);
     crate::traders::analyze(s.hl.clone(), &a, days).await.map(Json).map_err(err500)
+}
+
+#[derive(Deserialize)]
+struct BacktestQ { days: Option<u32>, capital: Option<f64> }
+
+/// "$N on this trader for D days" — capital-scaled replay plus the data
+/// checks that say whether the answer deserves trust. Public read, same
+/// cached upstream calls as the trader page, infallible by the same logic
+/// as the curve route: bad data comes back as `available: false` with a
+/// sentence and a failed check, never a status code.
+async fn backtest_trader(State(s): State<AppState>, Path(a): Path<String>, Query(q): Query<BacktestQ>)
+    -> Json<Value>
+{
+    let days = q.days.unwrap_or(30).clamp(1, 90);
+    let capital = q.capital.unwrap_or(1_000.0);
+    let b = crate::backtest::run(s.hl.clone(), &a, days, capital).await;
+    Json(serde_json::to_value(b).unwrap_or_else(|_| json!({"available": false})))
 }
 
 /// One wallet's PnL curve for one window — the shape behind the row's number.

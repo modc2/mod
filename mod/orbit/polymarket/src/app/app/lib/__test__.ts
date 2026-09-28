@@ -27,6 +27,7 @@ import {
   MIN_ACTIVE_BUCKETS, MIN_DECIDED_FOR_CONSISTENCY, WIN_BUCKETS,
   type HubBacktest,
 } from "./hubReplay";
+import { normalizeAutoCopy } from "./server/autoCopy";
 import { Strat } from "./strats/strat";
 import { legKey } from "./leg";
 import { computeFifoTrades } from "./pnlEngine";
@@ -38,7 +39,7 @@ import {
 import {
   applySemanticQuery, compileGate, parseSemanticQuery, semanticMatch,
 } from "./semanticFilter";
-import { curveSteadiness, STEADINESS_UNKNOWN } from "./scoreFormula";
+import { BEST_UNKNOWN, bestScore, curveSteadiness, STEADINESS_UNKNOWN } from "./scoreFormula";
 import {
   describeSentiment, readSentiment, sentimentBreakdown, sentimentFilterActive,
   sentimentReject, type MarketSentiment, type SentimentLookup,
@@ -1263,6 +1264,38 @@ console.log("\n─ steadiness: consistent returns across the PERIOD, not one luc
     "no curve at all is UNKNOWN");
 }
 
+console.log("\n─ best: the all-round rank — ROI × evidence + steadiness + win rate ─");
+{
+  // Fixtures mirror routes.rs `sort_by_best_ranks_all_round_quality` — the
+  // two implementations MUST produce the same numbers.
+  const proven = bestScore({
+    pnl: 5000, volume: 10000, positions: 40, winRate: 70, decided: 20,
+    steadiness: curveSteadiness([0, 10, 21, 30, 41, 50, 61, 70]), // caps +10
+  });
+  ok(proven === 74, `roi 50 × evidence 1 + steadiness 10×2 + (70−50)/5 = 74 (got ${proven})`);
+
+  const lucky = bestScore({
+    pnl: 5000, volume: 10000, positions: 2, winRate: -1, decided: 0,
+    steadiness: curveSteadiness([0, 0, 0, 0, 0.5, 0, -0.5, 70]), // one spike
+  });
+  ok(lucky > 5 && lucky < 6, `same ROI on two lucky trades is discounted hard (got ${lucky.toFixed(2)})`);
+
+  const bleeder = bestScore({
+    pnl: -5000, volume: 10000, positions: 40, winRate: 20, decided: 20,
+    steadiness: curveSteadiness([0, -10, -20, -30, -41, -50, -61, -70]), // caps -10
+  });
+  ok(bleeder === -76, `a confident loser is confidently ranked: -76 (got ${bleeder})`);
+  ok(proven > lucky && lucky > bleeder, "proven > lucky > bleeder — the all-round ordering");
+
+  // Sentinels and neutrality: unknowns contribute 0, only no-volume is unknowable.
+  ok(bestScore({ pnl: 0, volume: 0, positions: 0, winRate: -1, decided: 0, steadiness: STEADINESS_UNKNOWN }) === BEST_UNKNOWN,
+    "no volume at all is UNKNOWN (-999), not zero");
+  const fresh = bestScore({ pnl: 500, volume: 1000, positions: 10, winRate: -1, decided: 0, steadiness: STEADINESS_UNKNOWN });
+  ok(fresh === 25, `a fresh wallet with real ROI still ranks — unknowns are neutral, never fatal (got ${fresh})`);
+  const capped = bestScore({ pnl: 50000, volume: 1000, positions: 40, winRate: 100, decided: 100, steadiness: 10 });
+  ok(capped === 130, `the ceiling: 100 ROI cap + 20 steadiness + 10 win rate = 130 (got ${capped})`);
+}
+
 console.log("\n─ the STEADY filter: unknown is CUT, because shape is its subject ─");
 {
   const card = (consistency: number): HubBacktest => ({
@@ -1283,6 +1316,29 @@ console.log("\n─ the STEADY filter: unknown is CUT, because shape is its subje
   ok(!steadyEnough({ ...card(0.9), wins: undefined } as HubBacktest, DEFAULT_STEADY_FLOOR),
     "an OLD snapshot with no win record is cut, not grandfathered in");
   ok(steadyEnough(card(-1), 0), "floor 0 = filter off: everything passes, including UNRATED");
+}
+
+console.log("\n─ AUTO COPY vetting: consistency + history gate WHO gets tested at all ─");
+{
+  const d = normalizeAutoCopy({});
+  ok(d.rankBy === "steady", "default roster rank is STEADY — consistent returns, not raw PnL");
+  ok(d.minHistoryDays === 30 && d.minTrades === 20 && d.minConsistency === 0.6,
+    "the vetting floors default ON: 30d record, 20 trades in-window, 0.6 curve consistency");
+  ok(d.trainDays === 20 && d.testDays === 10, "the 20/10 split default is untouched");
+
+  // 0 is a VALID floor value — "off" — and must survive normalization. The
+  // window fields' num() helper treats 0 as garbage; the floors must not.
+  const off = normalizeAutoCopy({ minHistoryDays: 0, minTrades: 0, minConsistency: 0 });
+  ok(off.minHistoryDays === 0 && off.minTrades === 0 && off.minConsistency === 0,
+    "explicit 0 floors mean OFF, not “fall back to the default”");
+
+  const clamped = normalizeAutoCopy({ minConsistency: 7 });
+  ok(clamped.minConsistency === 1, "consistency is a share — clamped into [0, 1]");
+  ok(normalizeAutoCopy({ rankBy: "pnl" }).rankBy === "pnl", "raw top-PnL rank is still choosable");
+  ok((normalizeAutoCopy({ rankBy: "roi" as never }).rankBy) === "steady",
+    "an unknown rank key falls back to STEADY, never to a raw string");
+  ok(normalizeAutoCopy({ minTrades: "junk" as never }).minTrades === 20,
+    "a non-numeric floor falls back to its default, not to off");
 }
 
 activityCeilingChecks().then(() => {

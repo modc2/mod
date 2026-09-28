@@ -3,6 +3,7 @@ mod auth;
 mod deposit;
 mod hl;
 mod curve;
+mod backtest;
 mod stats;
 mod traders;
 mod vaults;

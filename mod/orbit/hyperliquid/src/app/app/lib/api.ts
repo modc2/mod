@@ -359,6 +359,40 @@ export const fetchBoard = (o: {
     (o.coins?.length ? `&coins=${encodeURIComponent(o.coins.join(","))}` : "")
   );
 
+// ── the score market ──
+//
+// The slice of the board admitted by the CANONICAL leaderboard score —
+// score = roi × winRateLo/100 × sharpe, defined server-side (traders.rs) so
+// this client and the ƒ SCORE preset quote it, never re-derive it.
+
+/** One market row: the score up front, the whole evidence row flattened
+ *  beside it (same fields as TopTrader). */
+export type MarketRow = TopTrader & { score: number };
+
+export type ScoreMarket = {
+  days: number; limit: number; min_score: number;
+  /** The formula, as the server states it — print this, don't hardcode it. */
+  score: string;
+  /** The admission rule the server applied (evidence floors + positive factors). */
+  gate: { measured: boolean; min_closes: number; min_sharpe_days: number; factors_positive: string[] };
+  /** The candidate funnel: rows priced from the leaderboard, rows with fill
+   *  stats (only those CAN score), rows admitted to the market. */
+  priced: number; measured: number; matched: number;
+  updated_at: number;
+  /** True when no board exists for this window yet — rows are empty, not zero. */
+  warming: boolean;
+  rows: MarketRow[];
+};
+
+export const fetchScoreMarket = (o: {
+  days?: number; limit?: number; minScore?: number; minEquity?: number;
+} = {}) =>
+  j<ScoreMarket>(
+    `/traders/market?days=${o.days ?? 7}&limit=${o.limit ?? 50}` +
+    (o.minScore != null ? `&min_score=${o.minScore}` : "") +
+    (o.minEquity != null ? `&min_equity=${o.minEquity}` : "")
+  );
+
 export const analyzeTrader = (addr: string, days: number) =>
   j<any>(`/trader/${addr}/analyze?days=${days}`);
 
@@ -385,6 +419,49 @@ export type TraderCurve = {
 };
 export const fetchTraderCurve = (addr: string, days: number) =>
   j<TraderCurve>(`/trader/${addr}/curve?days=${days}`);
+
+// "$N on this trader" — a capital-scaled replay with its data checks
+// attached. `checks` is the point: every result says how good the data
+// behind it is (coverage, equity basis, fills truncation, freshness, scale)
+// before anyone reads the number. `ok: false` = at least one check failed;
+// `available: false` = nothing to replay, `note` says why.
+export type BacktestCheck = {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+};
+export type TraderBacktest = {
+  address: string;
+  days: number;
+  capital: number;
+  source: "perp" | "combined" | string;
+  points: [number, number][]; // [ms epoch, your equity in USD]
+  start_ms: number;
+  end_ms: number;
+  final_value: number;
+  pnl: number;                // final_value − capital
+  roi_pct: number;
+  max_drawdown: number;       // of YOUR equity, USD
+  max_drawdown_pct: number;
+  trader_window_pnl: number;  // the trader's own window pnl the curve scaled
+  basis_equity: number;       // trader equity at window start — the divisor
+  wiped: boolean;
+  mirror?: {
+    ratio: number;
+    fills: number;
+    realized_pnl: number;
+    fees: number;
+    net_pnl: number;
+    roi_pct: number;
+    truncated: boolean;
+  };
+  checks: BacktestCheck[];
+  ok: boolean;
+  available: boolean;
+  note?: string;
+};
+export const backtestTrader = (addr: string, capital: number, days: number) =>
+  j<TraderBacktest>(`/trader/${addr}/backtest?capital=${capital}&days=${days}`);
 
 // A page of curves in one request. The board draws a curve on every card, so
 // a screenful is thirty-odd of them: one round trip instead of thirty. The

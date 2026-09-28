@@ -34,6 +34,12 @@ hl.kill()                      # stop both
 - **Top Traders** — paginate the HL leaderboard, hydrate each candidate's
   fills inside an N-day window, score by pnl / volume / win-rate / Sharpe.
   Mirrors the same activity-based scoring used by `polymarket/active-traders`.
+- **Score market** — the canonical leaderboard score, `score = roi ×
+  winRateLo/100 × sharpe` (the window return, discounted by the win rate the
+  sample size can defend and by consistency), and the market it defines:
+  `/traders/market` lists only fill-measured traders with ≥10 realised
+  closes, ≥7 Sharpe days and every factor positive, ranked by score. The
+  board's ƒ SCORE preset is the same formula, quoted not re-derived.
 - **Copy follows** — register a `follower → leader` relationship with
   size-pct, per-trade caps, allow/deny coin lists. The Rust engine polls
   each leader and emits scaled "signals" you can sign + submit.
@@ -56,7 +62,16 @@ hl.top_traders(days=7, pool='all', enrich=250, min_sharpe=1.0, sort='sharpe')
 # `coins` is a requirement, not a filter: the scan walks the ranked leaderboard
 # until it holds `pool` active wallets that traded one of them (see `depth`).
 hl.top_traders(days=7, pool=50, coins=['ZEC', 'ENA'])
+# The score market: traders admitted by the canonical score (roi ×
+# winRateLo/100 × sharpe, evidence-gated, every factor positive), score desc.
+hl.score_market(days=7, limit=50, min_equity=10_000)
 hl.analyze_trader('0xabc…', days=14)
+# "$2.5k on this trader for 30d" — capital-scaled replay with data checks
+# attached: `checks` grades history coverage, equity basis, fills truncation,
+# freshness and scale (pass/warn/fail); `ok` is false when any check failed.
+# Two models per result: the equity curve (unrealised included, what a copy
+# feels) and the realised fills `mirror` (the live engine's convention).
+hl.backtest_trader('0xabc…', capital=2500, days=30)
 
 hl.create_index(name='Top10', owner='0x…', legs=[
     {'address': '0x…', 'weight': 0.3},

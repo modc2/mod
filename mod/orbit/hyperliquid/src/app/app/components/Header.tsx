@@ -9,13 +9,14 @@ import { useSession } from "../lib/auth";
 import ThemePicker from "./ThemePicker";
 import { useDock } from "../lib/dock";
 
-// The console is five nouns: three places to find something to back, one book
+// The console is six nouns: four places to find something to back, one book
 // of what you've backed, and the desk agent. Everything else — the money
 // plumbing and the two older copy engines the invest book superseded — lives
 // under MORE, which also holds the primary links when they're hidden on a
 // narrow viewport, so no page is ever unreachable.
 const NAV = [
   { href: "/", label: "Traders" },
+  { href: "/market", label: "Market" },
   { href: "/invest", label: "Invest" },
   { href: "/strats", label: "Strats" },
   { href: "/vaults", label: "Vaults" },

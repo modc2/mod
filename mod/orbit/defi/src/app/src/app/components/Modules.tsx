@@ -56,9 +56,19 @@ function exitLabel(liq: any): string {
   return base;
 }
 
-/// A single-series sparkline — the module's rate over the last year. One
+/// A single-series sparkline — by default the module's rate over the last
+/// year, but a caller can rename and reformat it (a TAO subnet charts its
+/// alpha price over 24h instead — nothing there is a percentage). One
 /// series, so the title names it and there is no legend; hover reads a point.
-function Spark({ points }: { points: { t: any; apy: number | null }[] }) {
+function Spark({
+  points,
+  label,
+  fmt = (v: number) => pct(v),
+}: {
+  points: { t: any; apy: number | null }[];
+  label?: string;
+  fmt?: (v: number) => string;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const clean = points.filter((p) => p.apy !== null && isFinite(Number(p.apy)));
   if (clean.length < 2) return null;
@@ -76,9 +86,9 @@ function Spark({ points }: { points: { t: any; apy: number | null }[] }) {
   return (
     <div style={{ marginTop: 8 }}>
       <div className="label" style={{ display: "flex", justifyContent: "space-between" }}>
-        <span>APY, last {clean.length} days</span>
+        <span>{label ?? `APY, last ${clean.length} days`}</span>
         <span style={{ color: "var(--muted)", textTransform: "none", letterSpacing: 0 }}>
-          {pct(values[at])}
+          {fmt(values[at])}
           {when && !isNaN(when.getTime()) ? ` · ${when.toISOString().slice(0, 10)}` : ""}
         </span>
       </div>
@@ -104,6 +114,26 @@ function Spark({ points }: { points: { t: any; apy: number | null }[] }) {
         )}
       </svg>
     </div>
+  );
+}
+
+/// An alpha price in TAO, at a precision its magnitude earns — root sits at
+/// 1.0 while a small subnet trades at 0.000x.
+function taoPrice(v: number) {
+  const n = Number(v);
+  return n >= 1 ? n.toFixed(3) : n.toFixed(6);
+}
+
+/// A signed price change — green up, red down, dash when the indexer has not
+/// said. TAO subnet rows carry these off bt's open indexer; nothing else does.
+export function Chg({ v, title }: { v: number | null | undefined; title?: string }) {
+  if (v === null || v === undefined) return <span className="dim">—</span>;
+  const n = Number(v);
+  return (
+    <span style={{ color: n > 0 ? "var(--accent)" : n < 0 ? "var(--danger)" : "var(--muted)" }} title={title}>
+      {n > 0 ? "+" : ""}
+      {n.toFixed(1)}%
+    </span>
   );
 }
 
@@ -448,6 +478,8 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                       </span>
                       <span className="dim">{pct(r.apy_base, 1)}</span>
                     </>
+                  ) : r.price_change_24h_pct !== null && r.price_change_24h_pct !== undefined ? (
+                    <Chg v={r.price_change_24h_pct} title="alpha price, last 24h — from bt's open indexer" />
                   ) : (
                     <span className="dim">{r.emission_tao_per_block !== undefined ? "emission" : "—"}</span>
                   )}
@@ -503,14 +535,47 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                 </span>
               </div>
 
-              <div className="kv-grid">
-                <div className="kv"><span>fees</span><b>{pct(detail.returns?.apy_base)}</b></div>
-                <div className="kv"><span>emissions</span><b>{pct(detail.returns?.apy_reward)}</b></div>
-                <div className="kv"><span>30d mean</span><b>{pct(detail.returns?.apy_mean_30d)}</b></div>
-                <div className="kv"><span>7d change</span><b>{detail.returns?.apy_change_7d == null ? "—" : `${Number(detail.returns.apy_change_7d) > 0 ? "+" : ""}${Number(detail.returns.apy_change_7d).toFixed(1)}%`}</b></div>
-              </div>
+              {detail.chain === "tao" ? (
+                /* A subnet quotes no APY — say what the market is doing
+                   instead, straight off bt's open indexer. */
+                <div className="kv-grid">
+                  <div className="kv"><span>alpha price</span><b>{detail.returns?.alpha_price_tao != null ? `${taoPrice(detail.returns.alpha_price_tao)} τ` : "—"}</b></div>
+                  <div className="kv"><span>24h</span><b><Chg v={detail.returns?.price_change_24h_pct} /></b></div>
+                  <div className="kv"><span>7d</span><b><Chg v={detail.returns?.price_change_7d_pct} /></b></div>
+                  <div className="kv"><span>24h volume</span><b>{detail.liquidity?.volume_24h_tao != null ? `${Math.round(detail.liquidity.volume_24h_tao).toLocaleString()} τ` : "—"}</b></div>
+                </div>
+              ) : (
+                <div className="kv-grid">
+                  <div className="kv"><span>fees</span><b>{pct(detail.returns?.apy_base)}</b></div>
+                  <div className="kv"><span>emissions</span><b>{pct(detail.returns?.apy_reward)}</b></div>
+                  <div className="kv"><span>30d mean</span><b>{pct(detail.returns?.apy_mean_30d)}</b></div>
+                  <div className="kv"><span>7d change</span><b>{detail.returns?.apy_change_7d == null ? "—" : `${Number(detail.returns.apy_change_7d) > 0 ? "+" : ""}${Number(detail.returns.apy_change_7d).toFixed(1)}%`}</b></div>
+                </div>
+              )}
               <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }}>{detail.returns?.basis}</div>
+              {detail.identity && (
+                <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  {detail.identity.url && (
+                    <a href={/^https?:/.test(detail.identity.url) ? detail.identity.url : `https://${detail.identity.url}`} target="_blank" rel="noreferrer" className="mono-small" style={{ color: "var(--accent)" }}>
+                      site ↗
+                    </a>
+                  )}
+                  {detail.identity.github && (
+                    <a href={detail.identity.github} target="_blank" rel="noreferrer" className="mono-small" style={{ color: "var(--accent)" }}>
+                      github ↗
+                    </a>
+                  )}
+                  {detail.identity.description && <span className="dim" style={{ fontSize: 10 }}>{detail.identity.description}</span>}
+                </div>
+              )}
               {detail.chart?.points && <Spark points={detail.chart.points} />}
+              {detail.spark?.series && (
+                <Spark
+                  points={detail.spark.series.map((v: number) => ({ t: null, apy: v }))}
+                  label="alpha price in TAO, last 24h"
+                  fmt={(v) => `${taoPrice(v)} τ`}
+                />
+              )}
 
               <div className="label" style={{ marginTop: 16 }}>Liquidity</div>
               <div className="kv-grid" style={{ marginTop: 6 }}>

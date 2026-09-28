@@ -12,7 +12,7 @@
 // This is the same contract as polymarket's score box (lib/scoreFormula.ts
 // there) with the variable set swapped for Hyperliquid's TopTrader row.
 
-import { MIN_SHARPE_DAYS, type TopTrader } from "./api";
+import { MIN_CLOSES, MIN_SHARPE_DAYS, type TopTrader } from "./api";
 
 /** The variables a formula can use, in the order they're passed in. */
 export const FORMULA_VARS = [
@@ -52,6 +52,17 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
     is nothing more than a named formula, so picking one and hand-editing it
     are the same mechanism. */
 export const SCORE_PRESETS = [
+  {
+    key: "score",
+    label: "SCORE",
+    // Mirrors the SERVER's canonical leaderboard score (traders.rs
+    // leaderboard_score) exactly — evidence gates included. A JS function on
+    // purpose: unscorable rows are FILTERED (null), same as the score market.
+    formula: `// the canonical score — same formula the MARKET page ranks on
+if (!measured || closes < ${MIN_CLOSES} || sharpeDays < ${MIN_SHARPE_DAYS}) return null;
+return roi * winRateLo / 100 * sharpe;`,
+    hint: "The canonical leaderboard score: roi × winRateLo/100 × sharpe — the window return, discounted by the win rate the sample can defend and by consistency. Hides rows without the evidence to score.",
+  },
   {
     key: "roi",
     label: "ROI",

@@ -207,6 +207,28 @@ pub fn tools() -> &'static [Tool] {
                 ("min_per_day", p("number", "minimum trades per day to qualify (default 1)")),
                 ("seed", arr("string", "extra wallet addresses to force into the board")),
             ], &[]),
+        tool("hl_score_market", "score_market", "GET", "/traders/market", true,
+            "The score market: the slice of the trader board admitted by the \
+             canonical leaderboard score — score = roi × winRateLo/100 × \
+             sharpe, the window return discounted by the win rate the sample \
+             size can defend (Wilson 95% lower bound) and by consistency \
+             (annualised daily-PnL Sharpe). A row is in the market only when \
+             it is fill-measured with ≥10 realised closes and ≥7 Sharpe days \
+             AND every factor is positive; anything less is unscored, never \
+             zero. Rows come back score-descending with the full evidence row \
+             flattened beside each score. Pure cache read (1/7/30d are kept \
+             warm) — an uncached window answers `warming: true` with no rows. \
+             The funnel: `priced` rows existed, `measured` had fill stats \
+             (only those CAN score), `matched` were admitted.",
+            vec![
+                ("days", p("integer", "window in days, 1-90 (default 7); 1/7/30 are precomputed — others answer `warming` until a board exists")),
+                ("limit", p("integer", "rows to return, 1-400 (default 50)")),
+                ("min_score", p("number", "floor on the score itself (default 0 — every admitted row already has a positive score)")),
+                ("min_equity", p("number", "keep rows with account value ≥ this (USD)")),
+                ("min_win", p("number", "keep rows whose Wilson lower-bound win rate ≥ this (percent)")),
+                ("min_sharpe", p("number", "keep rows with sharpe ≥ this")),
+                ("min_trades", p("integer", "keep rows with at least this many fills in the window")),
+            ], &[]),
         tool("hl_analyze_trader", "analyze_trader", "GET", "/trader/{address}/analyze", true,
             "Deep analysis of one wallet over `days`: PnL, ROI, win rate, sharpe, \
              volume, per-coin breakdown, open positions, raw fills and the \
@@ -237,6 +259,25 @@ pub fn tools() -> &'static [Tool] {
             vec![
                 ("address", p("string", "0x wallet address")),
                 ("days", p("integer", "window in days, 1-90 (default 7); maps to hyperliquid's day/week/month/allTime period")),
+            ], &["address"]),
+        tool("hl_backtest_trader", "backtest_trader", "GET", "/trader/{address}/backtest", true,
+            "What would $N on this trader have done over the window? Two \
+             honest models with data checks attached: the equity curve (your \
+             capital riding the trader's perp-book ROI proportionally — \
+             realised AND unrealised, the way a copy or vault deposit feels \
+             it) and the realised fills mirror (closedPnl and fees scaled by \
+             capital / trader-equity, the live engine's convention). Read \
+             `checks` BEFORE the numbers: each is pass/warn/fail on history \
+             coverage, equity basis, fills truncation (HL caps a tape at \
+             ~2000 rows), sample freshness, and whether $N outsizes the \
+             trader's own book. `ok:false` means at least one check failed \
+             and the result should not be trusted; `available:false` means \
+             there was nothing to replay and `note` says why. Past \
+             performance is not a forecast — this is a replay, not a promise.",
+            vec![
+                ("address", p("string", "0x wallet address of the trader to replay")),
+                ("capital", p("number", "your hypothetical deposit in USD (default 1000)")),
+                ("days", p("integer", "replay window in days, 1-90 (default 30); maps to hyperliquid's day/week/month/allTime portfolio period")),
             ], &["address"]),
         tool("hl_leaderboard", "leaderboard", "GET", "/leaderboard", true,
             "Raw Hyperliquid leaderboard scrape (~39k accounts) with per-window \

@@ -371,6 +371,13 @@ impl Finance {
     /// The subnets, from the module that owns Bittensor. Held five minutes.
     /// Public because the hub joins its curated Bittensor entry against this
     /// same list — one cache, one knock on the bt module.
+    ///
+    /// The knock is `bt_screener`, bt's open indexer: answered from its local
+    /// SQLite in ~150ms without touching the chain websocket, and it carries
+    /// what a raw metagraph row cannot — 1h/24h/7d price change, real 24h
+    /// volume, identity and a 24h sparkline. `bt_subnets` (a 20-40s scan that
+    /// serializes behind bt's one chain socket) remains only as the fallback
+    /// for an indexer that is still warming.
     pub async fn subnets(&self, dex: &Dex) -> Result<Arc<Vec<Value>>, String> {
         let now = crate::auth::now();
         {
@@ -381,12 +388,18 @@ impl Finance {
                 }
             }
         }
-        let out = dex.peer("bt", "bt_subnets", json!({ "n": 256 }), None).await?;
-        let list: Vec<Value> = out
-            .as_array()
-            .cloned()
-            .or_else(|| out.get("subnets").and_then(|s| s.as_array()).cloned())
-            .unwrap_or_default();
+        let mut list: Vec<Value> = match dex.peer("bt", "bt_screener", json!({ "limit": 0, "sparks": true }), None).await {
+            Ok(out) => out.get("rows").and_then(|r| r.as_array()).cloned().unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        if list.is_empty() {
+            let out = dex.peer("bt", "bt_subnets", json!({ "n": 256 }), None).await?;
+            list = out
+                .as_array()
+                .cloned()
+                .or_else(|| out.get("subnets").and_then(|s| s.as_array()).cloned())
+                .unwrap_or_default();
+        }
         let value = Arc::new(list);
         *self.subnets.write().await = Some(Cached { fetched: now, value: value.clone() });
         Ok(value)
@@ -637,8 +650,27 @@ impl Finance {
         let tao_in = subnet.get("tao_in").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let alpha_in = subnet.get("alpha_in").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let price = subnet.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let volume = subnet.get("subnet_volume").and_then(|v| v.as_f64());
+        // Cumulative pool volume is `subnet_volume` on a raw metagraph row and
+        // `volume` on a screener row — same figure, two spellings.
+        let volume = subnet
+            .get("subnet_volume")
+            .or_else(|| subnet.get("volume"))
+            .and_then(|v| v.as_f64());
         let emission = subnet.get("emission").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        // Screener-only extras; a fallback bt_subnets row simply lacks them,
+        // and every consumer treats their absence as "not known right now".
+        let chg = |k: &str| subnet.get(k).and_then(|v| v.as_f64()).map(round2);
+        let vol_24h = subnet.get("vol_24h").and_then(|v| v.as_f64());
+        let market_cap = subnet.get("market_cap").and_then(|v| v.as_f64());
+        let spark = subnet.get("spark").filter(|s| s.is_array()).cloned();
+        let ident_str = |k: &str| subnet.get(k).and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let identity: Vec<(&str, Option<String>)> = vec![
+            ("github", ident_str("github")),
+            ("url", ident_str("url")),
+            ("discord", ident_str("discord")),
+            ("logo", ident_str("logo")),
+            ("description", ident_str("description")),
+        ];
         let mut conditions = vec![
             json!({ "level": "risk", "text": "the return is alpha emission on top of a floating alpha/TAO price — no APY is quoted because none is promised" }),
             json!({ "level": "note", "text": format!("pool depth {:.0} TAO — a buy of X TAO moves the price by roughly X/{:.0}", tao_in, tao_in.max(1.0)) }),
@@ -650,7 +682,7 @@ impl Finance {
         if tao_usd.is_none() {
             conditions.push(json!({ "level": "note", "text": "TAO/USD is unavailable right now — dollar figures are omitted, not guessed" }));
         }
-        Some(json!({
+        let mut m = json!({
             "id": format!("tao:sn{netuid}"),
             "source": "bittensor",
             "chain": "tao",
@@ -666,7 +698,10 @@ impl Finance {
                 "emissions_share": 100.0,
                 "emission_tao_per_block": emission,
                 "alpha_price_tao": price,
-                "basis": "bt_subnets — alpha emission accrues to stakers; the TAO value of alpha floats with the pool",
+                "price_change_1h_pct": chg("change_1h"),
+                "price_change_24h_pct": chg("change_24h"),
+                "price_change_7d_pct": chg("change_7d"),
+                "basis": "bt_screener — bt's open indexer; alpha emission accrues to stakers, and the TAO value of alpha floats with the pool",
             },
             "liquidity": {
                 // Dollar figures only when a real price is in hand; without
@@ -675,6 +710,9 @@ impl Finance {
                 "tvl_tao": round2(tao_in),
                 "tao_usd": tao_usd.map(round2),
                 "alpha_in_pool": round2(alpha_in),
+                "market_cap_tao": market_cap.map(round2),
+                "market_cap_usd": market_cap.and_then(|mc| tao_usd.map(|p| round2(mc * p))),
+                "volume_24h_tao": vol_24h.map(round2),
                 "volume_tao": volume.map(round2),
                 "depth": depth_word(tao_in * tao_usd.unwrap_or(0.0)),
                 "entry": "instant",
@@ -698,7 +736,20 @@ impl Finance {
             "addable": true,
             "gated": false,
             "score": 0.0,
-        }))
+        });
+        // Who runs it, when the screener knows — github/site/discord straight
+        // off the chain's subnet_identity, so a card can say more than "SN64".
+        let known: serde_json::Map<String, Value> = identity
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|s| (k.to_string(), json!(s))))
+            .collect();
+        if !known.is_empty() {
+            m["identity"] = Value::Object(known);
+        }
+        if let Some(s) = spark {
+            m["spark"] = json!({ "series": s, "window": "24h", "unit": "alpha price in TAO" });
+        }
+        Some(m)
     }
 
     /// One Hyperliquid vault as a finance module. The APR is the leader's
@@ -1072,7 +1123,7 @@ impl Finance {
                             n += 1;
                         }
                     }
-                    sources.insert("bittensor".into(), json!({ "subnets": n, "via": "bt_subnets", "tao_usd": tao_usd, "note": "no APY is quoted for a subnet — the return is emission on a floating price" }));
+                    sources.insert("bittensor".into(), json!({ "subnets": n, "via": "bt_screener (bt's open indexer)", "tao_usd": tao_usd, "note": "no APY is quoted for a subnet — the return is emission on a floating price" }));
                 }
                 Err(e) => {
                     sources.insert("bittensor".into(), json!({ "subnets": 0, "error": e }));

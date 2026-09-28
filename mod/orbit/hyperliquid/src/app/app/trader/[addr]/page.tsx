@@ -9,6 +9,7 @@ import {
 } from "../../lib/api";
 import { buildRoundTrips, fmtDuration } from "../../lib/trips";
 import PnlChart from "../../components/PnlChart";
+import BacktestPanel from "../../components/BacktestPanel";
 
 export default function TraderPage() {
   const { addr } = useParams<{ addr: string }>();
@@ -139,6 +140,11 @@ export default function TraderPage() {
       <Panel title={`pnl over time (${days}d)`}>
         <PnlChart portfolio={data.pnl_history} days={days} windowPnl={s.pnl} />
       </Panel>
+
+      {/* "$N on this trader" — server-side replay with its data checks
+          attached. Renders its own panel chrome so the header can carry the
+          checks verdict. */}
+      <BacktestPanel addr={addr} days={days} />
 
       {/* Open positions — perps only. `clearinghouseState` does not carry spot
           balances, so "none" here means no perp exposure, not a flat account. */}

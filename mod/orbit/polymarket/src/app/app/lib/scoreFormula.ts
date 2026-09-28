@@ -12,7 +12,7 @@
 import type { TopTrader } from "./polymarket";
 
 /** The variables a formula can use, in the order they're passed in. */
-export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve", "resolveRate", "steadiness"] as const;
+export const FORMULA_VARS = ["sharpe", "pnl", "volume", "buyVolume", "sellVolume", "positions", "winRate", "markets", "exitEntry", "consistency", "decided", "curve", "resolveRate", "steadiness", "best"] as const;
 
 /** What each variable IS, in one line — rendered beside the formula box on
     the board's SCORE editor. A formula language with no vocabulary printed
@@ -33,6 +33,7 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
   curve: "The raw ~12-point cumulative PnL curve as an array (functions only \u2014 slope/drawdown math is yours)",
   resolveRate: "Share of settled buys whose token rode ALL the way to a full $1 resolution, 0\u2013100. winRate asks \u201cdid the position make money\u201d (an early profitable scalp counts); this asks \u201cdid the thing they bought finish at $1\u201d \u2014 the hit rate of copying their buys and just holding. -1 = nothing settled yet",
   steadiness: "How consistently the window's returns accrued: mean of the PnL-curve's per-stretch changes \u00f7 their swing (a Sharpe over the period's ~12 time stretches, not per-trade). Idle stretches count against it \u2014 a flat line with one late spike scores near 0, a staircase scores high, a steady loser scores negative. Capped to \u00b110; -99 = unknown (no curve or too little movement) \u2014 gate it, don't multiply by it",
+  best: "The all-round rank, one number: ROI per $100 traded (clamped \u00b1100) discounted while activity is thin (full weight at 20 positions), plus up to \u00b120 for how steadily the returns accrued and \u00b110 for a proven win rate (thin settled samples count less). Parts that can't be judged yet count 0 \u2014 they never disqualify. -999 = unknown (no volume at all) \u2014 gate it, don't multiply by it",
 };
 
 /** Named formulas the SCORE can be parameterized with — the first is the
@@ -44,6 +45,13 @@ export const SCORE_VAR_HINTS: Record<(typeof FORMULA_VARS)[number], string> = {
     (pnl/buyVolume) names its closest server-side proxy instead, and the
     client re-ranks the pool exactly. */
 export const SCORE_PRESETS = [
+  {
+    key: "best",
+    label: "BEST",
+    formula: "best",
+    poolSort: "best",
+    hint: "The all-round rank — who is actually best to copy, in one number. ROI per $100 traded, discounted while there are few positions to judge on, plus a bonus for returns that accrued steadily (not one lucky spike) and for a proven win rate. Anything unknown counts 0, never disqualifies. — = no volume yet.",
+  },
   {
     key: "roi",
     label: "ROI",
@@ -125,10 +133,11 @@ export function scorePoolSortLabel(formula: string): string {
 export const FORMULA_STORAGE_KEY = "poly8bit_score_formula_v2";
 const LEGACY_STORAGE_KEY = "poly8bit_score_formula";
 const LEGACY_IMPLICIT_DEFAULTS = ["pnl / volume", "sharpe"];
-// "winRate" was the v2 default until ROI took over — and the save-effect
-// wrote it on mount, so a stored "winRate" is overwhelmingly the old implicit
+// "winRate" was the v2 default until ROI took over, and "100 * pnl / volume"
+// was ROI's reign until BEST took over — and the save-effect wrote each on
+// mount, so a stored copy of either is overwhelmingly the old implicit
 // default rather than a deliberate pick. Same treatment as the legacy ones.
-const V2_IMPLICIT_DEFAULT = "winRate";
+const V2_IMPLICIT_DEFAULTS = ["winRate", "100 * pnl / volume"];
 
 // ── Score LANGUAGES ──
 //
@@ -180,6 +189,7 @@ export interface ScoreInputs {
   curve: number[];
   resolveRate: number;
   steadiness: number;
+  best: number;
 }
 
 /** How steadily the window's PnL was made, read off the ~12-point cumulative
@@ -237,7 +247,44 @@ export function curveSteadiness(curve: number[] | undefined | null): number {
   return Math.max(-STEADINESS_CAP, Math.min(STEADINESS_CAP, mean / sd));
 }
 
+/** `best` sentinel. Like steadiness the metric is signed (a confident loser
+    is legitimately deep negative, roughly bounded ±130), so -1 would collide;
+    -999 sits below any real value and sinks on desc. */
+export const BEST_UNKNOWN = -999;
+
+/** The all-round composite behind the BEST preset — "who should top the
+    board" as one number, from stats every cached row already carries:
+
+      ROI per $100 (clamped ±100) × evidence          … the core claim,
+        evidence = min(positions, 20) / 20               discounted while thin
+      + clamp(steadiness, ±10) × 2   when known       … ±20 for steady accrual
+      + (winRate − 50) / 5 × min(decided, 20) / 20    … ±10 for a proven
+        when winRate is known                            win rate, sample-scaled
+
+    Unknown components contribute 0 — neutral, never fatal (a fresh wallet
+    with real ROI still ranks; it just can't ride bonuses it hasn't earned).
+    Only "no volume at all" is unknowable and returns BEST_UNKNOWN.
+    MUST mirror `best_score` in api/src/routes.rs exactly — it is the server
+    sort behind the BEST preset. */
+export function bestScore(t: {
+  pnl: number; volume: number; positions: number;
+  winRate: number; decided: number; steadiness: number;
+}): number {
+  if (t.volume <= 0) return BEST_UNKNOWN;
+  const roi = Math.max(-100, Math.min(100, 100 * t.pnl / t.volume));
+  const evidence = Math.min(t.positions, 20) / 20;
+  let score = roi * evidence;
+  if (t.steadiness !== STEADINESS_UNKNOWN) {
+    score += Math.max(-10, Math.min(10, t.steadiness)) * 2;
+  }
+  if (t.winRate >= 0) {
+    score += (t.winRate - 50) / 5 * (Math.min(t.decided, 20) / 20);
+  }
+  return score;
+}
+
 export function scoreInputs(t: TopTrader): ScoreInputs {
+  const steadiness = curveSteadiness(t.pnlCurve);
   return {
     sharpe: t.sharpe,
     pnl: t.pnl,
@@ -252,7 +299,11 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
     decided: t.decidedPositions,
     curve: t.pnlCurve ?? [],
     resolveRate: t.resolveRate,
-    steadiness: curveSteadiness(t.pnlCurve),
+    steadiness,
+    best: bestScore({
+      pnl: t.pnl, volume: t.volume, positions: t.positions,
+      winRate: t.winRate, decided: t.decidedPositions, steadiness,
+    }),
   };
 }
 
@@ -263,7 +314,7 @@ export function scoreInputs(t: TopTrader): ScoreInputs {
 export const PROBE_INPUTS: ScoreInputs = {
   sharpe: 0, pnl: 0, volume: 0, buyVolume: 0, sellVolume: 0, positions: 0,
   winRate: 0, markets: 0, exitEntry: 0, consistency: 0, decided: 0, curve: [],
-  resolveRate: 0, steadiness: 0,
+  resolveRate: 0, steadiness: 0, best: 0,
 };
 
 /** A compiled score: fn returns the trader's score, or NULL when the user's
@@ -339,6 +390,7 @@ export function scoreIsUnknown(formula: string, t: ScoreInputs): boolean {
     || (preset.key === "resolveRate" && t.resolveRate < 0)
     || (preset.key === "exitEntry" && t.exitEntry < 0)
     || (preset.key === "steady" && t.steadiness === STEADINESS_UNKNOWN)
+    || (preset.key === "best" && t.best === BEST_UNKNOWN)
     // The ratio presets divide by dollars — none traded means no ratio,
     // not a 0% one.
     || (preset.key === "roi" && t.volume <= 0)
@@ -456,7 +508,7 @@ export function suggestRatioName(formula: string): string {
 export function loadSavedFormula(): string {
   try {
     const saved = sessionStorage.getItem(FORMULA_STORAGE_KEY);
-    if (saved && saved.trim() && saved.trim() !== V2_IMPLICIT_DEFAULT) return saved;
+    if (saved && saved.trim() && !V2_IMPLICIT_DEFAULTS.includes(saved.trim())) return saved;
     const legacy = sessionStorage.getItem(LEGACY_STORAGE_KEY);
     if (legacy && legacy.trim() && !LEGACY_IMPLICIT_DEFAULTS.includes(legacy.trim())) return legacy;
   } catch {}

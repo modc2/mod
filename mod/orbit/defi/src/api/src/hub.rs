@@ -412,6 +412,11 @@ fn tao_row(
             "tvl_tao": round2(depth),
             "tvl_usd": tao_usd.map(|p| round2(depth * p)),
             "alpha_price_tao": s.get("price").and_then(|v| v.as_f64()),
+            // From bt's open indexer when the row came off bt_screener; a
+            // fallback bt_subnets row leaves them null and the card says less.
+            "change_24h_pct": s.get("change_24h").and_then(|v| v.as_f64()).map(round2),
+            "change_7d_pct": s.get("change_7d").and_then(|v| v.as_f64()).map(round2),
+            "vol_24h_tao": s.get("vol_24h").and_then(|v| v.as_f64()).map(round2),
             "enterable": true,
         });
         // Trusted stake, when it has been read for this subnet: the summary in

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../lib/api";
-import { money, pct } from "./Modules";
+import { Chg, money, pct } from "./Modules";
 
 /// What EXPLORE hands to the MODULES room: a prefilled filter, and optionally
 /// the exact module to open.
@@ -385,6 +385,12 @@ export default function Hub({ say, onExplore }: Props) {
                             ? "· no promised rate ·"
                             : `${pct(c.best.apy)} (${pct(c.best.apy_base, 1)} fees) ·`}{" "}
                           {money(c.best.tvl_usd)}
+                          {c.best.change_24h_pct != null && (
+                            <>
+                              {" · "}
+                              <Chg v={c.best.change_24h_pct} title="alpha price, last 24h" />
+                            </>
+                          )}
                         </span>
                         <button
                           className="ghost"
@@ -398,6 +404,35 @@ export default function Hub({ say, onExplore }: Props) {
                   </div>
                 ))}
               </div>
+
+              {/* Bittensor's one chain row holds a dozen subnets — the rail
+                  lists the deepest with live 24h moves off bt's open indexer,
+                  where a USD protocol's chains already say everything. */}
+              {detail.source === "bittensor" && (detail.chains?.[0]?.usd_pools?.length ?? 0) > 0 && (
+                <>
+                  <div className="label" style={{ marginTop: 14 }}>Deepest subnets</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+                    {detail.chains[0].usd_pools.slice(0, 8).map((s: any) => (
+                      <div key={s.module_id} className="mono-small" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {s.symbol}
+                        </span>
+                        <Chg v={s.change_24h_pct} title="alpha price, last 24h" />
+                        <span className="dim" style={{ marginLeft: "auto", flexShrink: 0 }}>
+                          {s.tvl_usd != null ? money(s.tvl_usd) : `${Math.round(s.tvl_tao ?? 0).toLocaleString()} τ`}
+                        </span>
+                        <button
+                          className="ghost"
+                          style={{ padding: "1px 8px", fontSize: 10, flexShrink: 0 }}
+                          onClick={() => explore(detail, s)}
+                        >
+                          open →
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <button
                 className={detail.enterable_from_desk ? "primary" : ""}

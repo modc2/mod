@@ -50,6 +50,16 @@ under `~/.hyperliquid/signer-store/`.
 - **Indexes** — weight N traders into a basket, backtest windowed PnL,
   auto-build by performance, and back an index you own with a private vault
   (`vault_intent` returns the `createVault` payload for you to sign).
+- **Backtest with data checks** — "what would $N on this trader have done
+  over D days": `GET /trader/{address}/backtest?capital=1000&days=30` (also
+  `hl.backtest_trader(...)` / MCP `hl_backtest_trader`). Your capital rides
+  the trader's perp-book ROI proportionally (equity curve, unrealised
+  included) next to a realised fills mirror scaled by capital ÷ trader
+  equity. Every result carries `checks` — pass/warn/fail verdicts on
+  history coverage, the equity basis, fills truncation (HL caps a tape at
+  ~2000 rows), sample freshness and whether $N outsizes the trader's own
+  book — and `ok: false` whenever any check fails. The trader page renders
+  it as the "backtest · your money on this trader" panel.
 - **Deposits** — fund the HL perps account from twelve EVM chains in one
   transaction, routed by LI.FI; balances are scanned via Multicall3.
   Full guide: [`DEPOSITS.md`](DEPOSITS.md).
@@ -82,6 +92,7 @@ Useful REST reads (public, no token):
 GET /leaderboard
 GET /traders/top?days=7&pool=all&rank=roi&enrich=120&sort=sharpe
 GET /trader/{address}/curve?days=7
+GET /trader/{address}/backtest?capital=1000&days=30
 GET /orderbook/{coin}         GET /candles/{coin}?interval=1h
 GET /vaults                   GET /indexes
 GET /deposit/chains           GET /deposit/balances?eoa=0x…

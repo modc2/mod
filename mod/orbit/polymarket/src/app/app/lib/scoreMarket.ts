@@ -30,6 +30,18 @@ export interface ScoreFnListing {
     through, and winRate is used as the 0–100 percent it actually is. */
 export const SCORE_FN_LIBRARY: ScoreFnListing[] = [
   {
+    id: "all-round-best",
+    name: "BEST",
+    description:
+      "The BEST preset with a copyability floor: the all-round composite (ROI per $100 discounted while activity is thin, plus bonuses for steady accrual and a proven win rate — unknowns count 0, never disqualify), but anyone under $500 traded or with nothing to judge at all is hidden rather than ranked.",
+    tags: ["best", "all-round", "composite", "roi", "steady", "winrate"],
+    builtin: true,
+    source: `// best = ROI × evidence + steadiness + win-rate bonuses; -999 = unknown.
+if (volume < 500) return null;   // too small to copy
+if (best <= -999) return null;   // nothing to judge at all
+return best;`,
+  },
+  {
     id: "steady-roi",
     name: "STEADY ROI",
     description:

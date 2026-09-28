@@ -41,6 +41,14 @@ interface Settings {
   count: number;
   trainDays: number;
   testDays: number;
+  /** What ranks the roster — "steady" (consistent returns) or raw "pnl". */
+  rankBy: "steady" | "pnl";
+  /** Vetting floors the worker applies BEFORE a trader enters the test —
+      0 = off. Unlike the ◈ STEADY view filter these are saved settings:
+      they decide who gets replayed at all. */
+  minHistoryDays: number;
+  minTrades: number;
+  minConsistency: number;
 }
 
 interface Card {
@@ -157,6 +165,9 @@ export default function AutoCopyBoard() {
   // fight the poll. null field = "follow the server".
   const [draftTrain, setDraftTrain] = useState<string | null>(null);
   const [draftTest, setDraftTest] = useState<string | null>(null);
+  const [draftHistory, setDraftHistory] = useState<string | null>(null);
+  const [draftTrades, setDraftTrades] = useState<string | null>(null);
+  const [draftConsistency, setDraftConsistency] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [rerunning, setRerunning] = useState(false);
   // STEADY floor — 0 = off. When on, a card must have won the majority of its
@@ -188,10 +199,21 @@ export default function AutoCopyBoard() {
   const { settings, maxLookbackDays, status } = snap;
   const trainDays = draftTrain === null ? settings.trainDays : Number(draftTrain);
   const testDays = draftTest === null ? settings.testDays : Number(draftTest);
+  const minHistoryDays = draftHistory === null ? settings.minHistoryDays : Number(draftHistory);
+  const minTrades = draftTrades === null ? settings.minTrades : Number(draftTrades);
+  const minConsistency =
+    draftConsistency === null ? settings.minConsistency : Number(draftConsistency);
   const validNums =
     Number.isFinite(trainDays) && Number.isFinite(testDays) && trainDays >= 1 && testDays >= 1;
+  const validVetting =
+    Number.isFinite(minHistoryDays) && minHistoryDays >= 0 &&
+    Number.isFinite(minTrades) && minTrades >= 0 &&
+    Number.isFinite(minConsistency) && minConsistency >= 0 && minConsistency <= 1;
   const overCap = validNums && trainDays + testDays > maxLookbackDays;
-  const dirty = trainDays !== settings.trainDays || testDays !== settings.testDays;
+  const dirty =
+    trainDays !== settings.trainDays || testDays !== settings.testDays ||
+    minHistoryDays !== settings.minHistoryDays || minTrades !== settings.minTrades ||
+    minConsistency !== settings.minConsistency;
 
   // The STEADY cut, applied to the TEST window — the out-of-sample half. A
   // steady TRAIN record is what put a trader on the board in the first place;
@@ -220,6 +242,9 @@ export default function AutoCopyBoard() {
         setSnap((await res.json()) as Snapshot);
         setDraftTrain(null);
         setDraftTest(null);
+        setDraftHistory(null);
+        setDraftTrades(null);
+        setDraftConsistency(null);
       }
     } catch {
       // Leave the draft in place — the user can retry SAVE.
@@ -259,13 +284,17 @@ export default function AutoCopyBoard() {
       {/* ── Header ── */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[11px] font-mono font-bold tracking-[0.18em] text-pixel-white">
-          AUTO COPY · TOP PNL
+          AUTO COPY · {settings.rankBy === "steady" ? "STEADY" : "TOP PNL"} · VETTED
         </span>
         <span
           className="text-[10px] font-mono text-pixel-gray"
           title="The background worker replays this board on every pass — one identity copy-strat per top-PnL trader, over the cached feeds. No forking, nothing to publish."
         >
-          {status.roster.length > 0 ? `${status.roster.length} traders` : "warming up"}
+          {status.roster.length > 0
+            ? `${status.roster.length} vetted`
+            : status.at > 0
+              ? "0 cleared vetting"
+              : "warming up"}
           {status.at > 0 && ` · pass ${fmtDay(status.at)} ${new Date(status.at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`}
           {status.running && " · running…"}
           {status.error && <span className="text-red-400"> · {status.error}</span>}
@@ -349,13 +378,88 @@ export default function AutoCopyBoard() {
           </span>
           {dirty && (
             <button
-              onClick={() => void post({ trainDays, testDays })}
-              disabled={saving || !validNums}
+              onClick={() => void post({ trainDays, testDays, minHistoryDays, minTrades, minConsistency })}
+              disabled={saving || !validNums || !validVetting}
               className="px-2 py-0.5 rounded-[var(--radius-sm)] border border-green-400/50 text-[9.5px] font-mono font-semibold tracking-[0.1em] text-green-400 hover:bg-green-400/10 transition-colors disabled:opacity-40"
-              title="Save the split — old cards are cleared and the worker re-replays the board on the new windows"
+              title="Save — old cards are cleared and the worker re-vets the roster and re-replays the board"
             >
               {saving ? "SAVING…" : "APPLY"}
             </button>
+          )}
+        </div>
+        {/* ── The vetting row — who gets INTO the test at all. Saved worker
+            settings (unlike the ◈ STEADY view filter above, which only hides
+            finished cards): a trader failing any floor is never replayed,
+            never carded, never a copy candidate. ── */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <span
+            className="text-[9.5px] tracking-[0.14em] text-pixel-gray"
+            title="Floors a trader must clear BEFORE entering the train/test replay. They cut the roster server-side, so a spike-lucky or week-old wallet never gets tested, let alone copied. 0 = floor off."
+          >
+            VETTING
+          </span>
+          <button
+            onClick={() => void post({ rankBy: settings.rankBy === "steady" ? "pnl" : "steady" })}
+            disabled={saving}
+            className={`px-2 py-0.5 rounded-[var(--radius-sm)] border text-[9.5px] font-mono font-semibold tracking-[0.1em] transition-colors ${
+              settings.rankBy === "steady"
+                ? "text-green-400 border-green-400/50"
+                : "text-pixel-gray border-pixel-border hover:text-pixel-white"
+            }`}
+            title={
+              settings.rankBy === "steady"
+                ? "Roster ranked by STEADY — the per-period Sharpe of each trader's PnL curve over the full lookback (consistent returns, not one lucky spike). Click for raw top PnL."
+                : "Roster ranked by raw PnL — the classic top-PnL board. Click to rank by STEADY (consistent returns) instead."
+            }
+          >
+            RANK {settings.rankBy === "steady" ? "◈ STEADY" : "$ PNL"}
+          </button>
+          <label
+            className="flex items-center gap-1.5"
+            title="Track-record floor — the trader's FIRST-EVER trade must be at least this many days old, so a curve that's flat because the account didn't exist can't top the board. Unknown age is KEPT (a data gap must not empty the roster). 0 = off."
+          >
+            <span className="text-[9.5px] tracking-[0.14em] text-pixel-gray">HISTORY ≥</span>
+            <input
+              type="number"
+              min={0}
+              value={Number.isFinite(minHistoryDays) ? minHistoryDays : ""}
+              onChange={(e) => setDraftHistory(e.target.value)}
+              className="w-[52px] bg-transparent border border-pixel-border rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[12px] font-mono text-pixel-white tabular-nums outline-none focus:border-green-400/60"
+            />
+            <span className="text-[9.5px] text-pixel-gray">D</span>
+          </label>
+          <label
+            className="flex items-center gap-1.5"
+            title="Trade-history floor — minimum trades inside the full lookback window. A two-trade wallet has no record to judge, however good those two trades were. 0 = off."
+          >
+            <span className="text-[9.5px] tracking-[0.14em] text-pixel-gray">TRADES ≥</span>
+            <input
+              type="number"
+              min={0}
+              value={Number.isFinite(minTrades) ? minTrades : ""}
+              onChange={(e) => setDraftTrades(e.target.value)}
+              className="w-[52px] bg-transparent border border-pixel-border rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[12px] font-mono text-pixel-white tabular-nums outline-none focus:border-green-400/60"
+            />
+          </label>
+          <label
+            className="flex items-center gap-1.5"
+            title="Consistency floor, 0–1 — minimum share of the trader's PnL-curve moved segments that climbed. 0.6 keeps staircases and cuts one-spike curves. A curve too short to judge is CUT while this is on (shape IS the subject). 0 = off."
+          >
+            <span className="text-[9.5px] tracking-[0.14em] text-pixel-gray">CONSISTENCY ≥</span>
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              value={Number.isFinite(minConsistency) ? minConsistency : ""}
+              onChange={(e) => setDraftConsistency(e.target.value)}
+              className="w-[52px] bg-transparent border border-pixel-border rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[12px] font-mono text-pixel-white tabular-nums outline-none focus:border-green-400/60"
+            />
+          </label>
+          {!validVetting && (
+            <span className="text-[9.5px] font-mono text-red-400">
+              floors must be ≥ 0 · consistency ≤ 1
+            </span>
           )}
         </div>
         {/* Non-overlap, drawn: train ends at the tick where test begins. */}
@@ -386,9 +490,11 @@ export default function AutoCopyBoard() {
       {/* ── The cards ── */}
       {snap.cards.length === 0 ? (
         <div className="text-[10.5px] font-mono text-pixel-gray leading-relaxed">
-          {settings.enabled
-            ? "No cards yet — the worker builds them on its next pass (it fetches each trader's 30-day feed first, so a cold start takes a cycle or two)."
-            : "Auto copy is off. Turn it on and the worker will replay the top-PnL board in the background."}
+          {!settings.enabled
+            ? "Auto copy is off. Turn it on and the worker will vet the leaderboard and replay the survivors in the background."
+            : status.at > 0 && status.roster.length === 0
+              ? "The last pass found no trader clearing every vetting floor — that is the filter working, not a broken board. Lower HISTORY / TRADES / CONSISTENCY to widen the funnel."
+              : "No cards yet — the worker builds them on its next pass (it fetches each trader's 30-day feed first, so a cold start takes a cycle or two)."}
         </div>
       ) : shown.length === 0 ? (
         /* An empty STEADY shelf is an answer, and a common one — say it in

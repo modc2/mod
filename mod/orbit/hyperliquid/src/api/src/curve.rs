@@ -103,7 +103,7 @@ pub fn period_for_days(days: u32) -> &'static str {
 }
 
 /// `[[name, body], …]` → the body named `name`.
-fn slot<'a>(portfolio: &'a Value, name: &str) -> Option<&'a Value> {
+pub(crate) fn slot<'a>(portfolio: &'a Value, name: &str) -> Option<&'a Value> {
     portfolio.as_array()?.iter().find_map(|row| {
         let pair = row.as_array()?;
         (pair.len() == 2 && pair[0].as_str() == Some(name)).then(|| &pair[1])
@@ -112,7 +112,7 @@ fn slot<'a>(portfolio: &'a Value, name: &str) -> Option<&'a Value> {
 
 /// HL writes history values as strings (`[1788207360033, "-4691.65"]`) and
 /// occasionally as numbers. Take either, drop anything that is neither.
-fn parse_history(v: Option<&Value>) -> Vec<(i64, f64)> {
+pub(crate) fn parse_history(v: Option<&Value>) -> Vec<(i64, f64)> {
     let Some(arr) = v.and_then(|x| x.as_array()) else { return Vec::new() };
     let mut out: Vec<(i64, f64)> = arr
         .iter()
@@ -133,7 +133,7 @@ fn parse_history(v: Option<&Value>) -> Vec<(i64, f64)> {
 /// Thin a series to at most `max` points, always keeping the first and the
 /// last. Even stride: the shape survives, the endpoints are exact, and the
 /// last point stays the one the caller prints as `pnl`.
-fn downsample(pts: Vec<(i64, f64)>, max: usize) -> Vec<(i64, f64)> {
+pub(crate) fn downsample(pts: Vec<(i64, f64)>, max: usize) -> Vec<(i64, f64)> {
     if pts.len() <= max || max < 2 {
         return pts;
     }
@@ -149,7 +149,7 @@ fn downsample(pts: Vec<(i64, f64)>, max: usize) -> Vec<(i64, f64)> {
 
 /// Round to cents. A curve is drawn, not audited — 15 significant digits of
 /// float noise per point is payload nobody can see.
-fn cents(v: f64) -> f64 {
+pub(crate) fn cents(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
@@ -225,7 +225,7 @@ pub fn shape(address: &str, days: u32, portfolio: &Value, now_ms: i64) -> Curve 
 /// because Hyperliquid answers a malformed address with an error that would
 /// otherwise be reported to the user as "rate-limited" — blaming the exchange
 /// for a typo is how a five-second fix becomes a support thread.
-fn is_wallet(addr: &str) -> bool {
+pub(crate) fn is_wallet(addr: &str) -> bool {
     addr.len() == 42
         && addr.starts_with("0x")
         && addr[2..].chars().all(|c| c.is_ascii_hexdigit())

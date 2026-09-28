@@ -253,7 +253,7 @@ DEFAULT_ACTIVE_HOURS = 6
 
 # The ranking metric is parameterized; winRate is the default, matching the
 # console's SCORE preset. Keys are the server's sort keys verbatim.
-TRADER_SORTS = ('winRate', 'resolveRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
+TRADER_SORTS = ('winRate', 'best', 'roi', 'steady', 'resolveRate', 'exitEntry', 'sharpe', 'pnl', 'volume', 'history')
 
 
 def _t_top_traders(args):
@@ -958,7 +958,8 @@ TOOLS = {
     },
     'pm_top_traders': {
         'description': 'The leaderboard: best active traders over a window, ranked by win rate '
-                       'by default (sort parameterizes it: winRate, exitEntry = avg exit÷entry '
+                       'by default (sort parameterizes it: winRate, best = the all-round '
+                       'composite, roi, steady, exitEntry = avg exit÷entry '
                        'price on closed trades, sharpe, pnl, volume). `winRate` is the share of '
                        'positions the market SETTLED in the window that returned more than they '
                        'cost, and `decidedPositions` is its denominator; `-1` means nothing '
@@ -983,7 +984,12 @@ TOOLS = {
             'sort': {'type': 'string', 'description': 'ranking metric: winRate (default; share '
                                                       'of SETTLED positions that made money — read '
                                                       'it with decidedPositions, a rate off five '
-                                                      'legs is noise) | resolveRate (share of settled '
+                                                      'legs is noise) | best (the all-round composite '
+                                                      '— ROI per $100 discounted while activity is '
+                                                      'thin, plus bonuses for steady accrual and a '
+                                                      'proven win rate; unknowns count 0) | roi '
+                                                      '(pnl/volume) | steady (per-period Sharpe of '
+                                                      'the PnL curve) | resolveRate (share of settled '
                                                       'buys that rode to a full $1 resolution — the '
                                                       'buy-and-hold hit rate; a profitable early scalp '
                                                       'counts for winRate but not here) | exitEntry | '

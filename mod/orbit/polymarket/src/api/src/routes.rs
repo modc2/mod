@@ -971,6 +971,37 @@ fn curve_steadiness(curve: Option<&Vec<f64>>) -> f64 {
     (mean / sd).clamp(-STEADINESS_CAP, STEADINESS_CAP)
 }
 
+/// `best` sentinel. Like steadiness the metric is signed (a confident loser
+/// is legitimately deep negative, roughly bounded ±130), so -1 would collide;
+/// -999 sits below any real value and sinks on desc.
+const BEST_UNKNOWN: f64 = -999.0;
+
+/// The all-round composite behind the BEST preset — "who should top the
+/// board" as one number: ROI per $100 (clamped ±100) scaled by activity
+/// evidence (full weight at 20 positions), plus ±20 for steady accrual and
+/// ±10 for a proven, sample-scaled win rate. Unknown components contribute
+/// 0 — neutral, never fatal; only "no volume at all" is unknowable and
+/// returns BEST_UNKNOWN. Reads the fields as they stand HERE, i.e. the
+/// query-scoped recomputes when a market filter ran, so BEST under a topic
+/// board is "best at this topic". MUST mirror the console's `bestScore`
+/// (lib/scoreFormula.ts) exactly — the client recomputes the same number.
+fn best_score(t: &crate::types::Trader) -> f64 {
+    if t.volume <= 0.0 {
+        return BEST_UNKNOWN;
+    }
+    let roi = (100.0 * t.pnl / t.volume).clamp(-100.0, 100.0);
+    let evidence = t.positions.min(20) as f64 / 20.0;
+    let mut score = roi * evidence;
+    let steadiness = curve_steadiness(t.pnl_curve.as_ref());
+    if steadiness != STEADINESS_UNKNOWN {
+        score += steadiness.clamp(-10.0, 10.0) * 2.0;
+    }
+    if t.win_rate >= 0.0 {
+        score += (t.win_rate - 50.0) / 5.0 * (t.decided_positions.min(20) as f64 / 20.0);
+    }
+    score
+}
+
 fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, source: &str) -> Value {
     let sort = q.sort.as_deref().unwrap_or("pnl");
     let order = q.order.as_deref().unwrap_or("desc");
@@ -1029,6 +1060,10 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
                     t.resolve_rate = if total_decided > 0 {
                         (total_resolved as f64 / total_decided as f64 * 100.0).round().min(100.0)
                     } else { -1.0 };
+                    // The denominator the two rates above were just computed
+                    // over — the row must SHOW the sample its rate came from,
+                    // and `best_score` scales its win-rate bonus by it.
+                    t.decided_positions = total_decided;
                     // Sharpe + exit/entry scoped to the matching markets'
                     // closed-trade returns — same query-scoped recompute the
                     // other stats get, via the ONE `stats_from_returns`
@@ -1219,6 +1254,10 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
             // (capped at ±10) on desc.
             "steady" => curve_steadiness(a.pnl_curve.as_ref())
                 .partial_cmp(&curve_steadiness(b.pnl_curve.as_ref())),
+            // BEST preset — the all-round composite (ROI × evidence +
+            // steadiness + win-rate bonuses). The -999 unknown sentinel
+            // (no volume) sinks below every real value on desc.
+            "best" => best_score(a).partial_cmp(&best_score(b)),
             // Missing timestamp (pre-lastTradeTs disk cache) sinks to the
             // bottom on desc — unknown recency must not outrank known.
             "last" => Some(a.last_trade_ts.unwrap_or(0).cmp(&b.last_trade_ts.unwrap_or(0))),
@@ -1949,6 +1988,56 @@ mod tests {
             "memory",
         );
         assert_eq!(addresses(&result), vec!["0xstairs", "0xspike", "0xbleed", "0xblind"]);
+    }
+
+    /// `sort=best` ranks the all-round composite: the proven trader (real
+    /// ROI, deep sample, staircase curve, settled winners) outranks the same
+    /// ROI on two lucky trades, which outranks the confident loser; no
+    /// volume (unknown, -999) sinks last. Fixture values are pinned exactly
+    /// in the console's __test__.ts "best" section — the two implementations
+    /// MUST produce the same numbers.
+    #[test]
+    fn sort_by_best_ranks_all_round_quality() {
+        let mut proven = trader_with_markets("0xproven", &[("Bitcoin above $110,000", 0.0, 1)]);
+        proven.volume = 10_000.0;
+        proven.pnl = 5_000.0; // 50% ROI
+        proven.positions = 40;
+        proven.pnl_curve = Some(vec![0.0, 10.0, 21.0, 30.0, 41.0, 50.0, 61.0, 70.0]); // caps +10
+        proven.win_rate = 70.0;
+        proven.decided_positions = 20;
+        // roi 50 × evidence 1 + steadiness 10×2 + (70−50)/5 × 1 = 74
+        assert_eq!(best_score(&proven), 74.0);
+
+        let mut lucky = trader_with_markets("0xlucky", &[("Bitcoin above $110,000", 0.0, 1)]);
+        lucky.volume = 10_000.0;
+        lucky.pnl = 5_000.0; // same 50% ROI…
+        lucky.positions = 2; // …on two trades
+        lucky.pnl_curve = Some(vec![0.0, 0.0, 0.0, 0.0, 0.5, 0.0, -0.5, 70.0]); // one spike
+        lucky.win_rate = -1.0; // nothing settled — neutral, not fatal
+        let l = best_score(&lucky);
+        assert!(l > 5.0 && l < 6.0, "thin evidence discounts the same ROI (got {l})");
+
+        let mut bleeder = trader_with_markets("0xbleed", &[("Bitcoin above $110,000", 0.0, 1)]);
+        bleeder.volume = 10_000.0;
+        bleeder.pnl = -5_000.0; // -50% ROI
+        bleeder.positions = 40;
+        bleeder.pnl_curve = Some(vec![0.0, -10.0, -20.0, -30.0, -41.0, -50.0, -61.0, -70.0]);
+        bleeder.win_rate = 20.0;
+        bleeder.decided_positions = 20;
+        // roi -50 × 1 + steadiness -10×2 + (20−50)/5 × 1 = -76
+        assert_eq!(best_score(&bleeder), -76.0);
+
+        let mut ghost = trader_with_markets("0xghost", &[("Bitcoin above $110,000", 0.0, 1)]);
+        ghost.volume = 0.0;
+        ghost.pnl = 0.0;
+        assert_eq!(best_score(&ghost), BEST_UNKNOWN);
+
+        let result = apply_pagination(
+            &payload(vec![ghost, bleeder, lucky, proven]),
+            &paged_query(json!({"sort": "best", "order": "desc"})),
+            "memory",
+        );
+        assert_eq!(addresses(&result), vec!["0xproven", "0xlucky", "0xbleed", "0xghost"]);
     }
 
     /// An arrow-straight climb has zero swing — capped, not infinite; a
