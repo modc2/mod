@@ -73,3 +73,26 @@ GET /hub            # the viewer          GET /hub/_wp?v=simple|full
 GET /hub/_mods      # catalog JSON        GET /hub/health
 GET /hub/_doc/{name}
 ```
+
+## Tests (test/)
+
+```
+pytest core/hub/test
+```
+
+Hermetic by default — every test runs against a throwaway module tree built
+under a temp `HOME` (`test/conftest.py`), never the real repo or a live
+service:
+
+- `test_catalog.py` — `mod.py` catalog fns (groups, both config.json
+  locations, doc/search/info, the socket probe).
+- `test_api.py` — `api.py` helpers and the full catalog scan: the
+  sorted-owner registry-CID rule, anchor clamping, mtime skip lists, nested
+  `src/` elision, privacy-record reads, `/probe` validation. Asserts the api
+  serves the RAW catalog (private modules present) — that's its contract.
+- `test_app.py` — boots the real `app/server.js` on a free port against the
+  fake tree and asserts the PUBLIC contract: private modules absent from
+  `/_mods` and `/_doc`, traversal-safe names, whitepaper variants + fallback.
+- `test_live.py` — read-only smoke against the running :50520/:50521
+  services; skips entirely when they're down. Includes a leak check: no
+  module with an enabled private record may appear in `/hub/_mods`.

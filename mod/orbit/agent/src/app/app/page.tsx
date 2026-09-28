@@ -18,6 +18,7 @@ import { ThemePicker, useTheme } from './components/Theme'
 import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localSign,
   identityFromSecret, useIdentity, sessionIdentity, clearSessionIdentity } from './lib/localWallet'
 import PasswordWallet from './components/PasswordWallet'
+import Users from './components/Users'
 import { BrowserModel, serveModelRequest, type BrowserState } from './lib/browserModel'
 
 type ToolSchema = { description: string; params: Record<string, any> }
@@ -464,6 +465,9 @@ export default function Home() {
   const [showPwWallet, setShowPwWallet] = useState(false)
   // the recovery phrase, revealed on request from the account menu
   const [showPhrase, setShowPhrase] = useState(false)
+  // user management — the owner's roster (co-owners + access grants),
+  // folded into the account drawer rather than a screen of its own
+  const [showUsers, setShowUsers] = useState(false)
   // an action waiting on identity: the AuthGate modal is open and whoever
   // called requireAuth() is awaiting the promise held in authAskResolve
   const [authAsk, setAuthAsk] = useState<AuthNeed | null>(null)
@@ -1305,6 +1309,7 @@ export default function Home() {
     setShowUserMenu(false)
     setShowPwWallet(false)
     setShowPhrase(false)
+    setShowUsers(false)
     clearSessionIdentity() // a typed wallet is gone until it is typed again
     persistAuth(null)
   }
@@ -2839,7 +2844,25 @@ export default function Home() {
                   </span>
                 </span>
               </button>
+              {/* the other thing an owner administers from here: who else is
+                  anybody. Co-owners and access grants, inline — the roster is
+                  short, so it folds open rather than opening another drawer */}
+              {auth.isOwner && (
+                <button
+                  role="menuitem"
+                  aria-expanded={showUsers}
+                  onClick={() => setShowUsers(v => !v)}
+                  className="pop__item">
+                  <span className="pop__i text-[13px] leading-none">◎</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="pop__t">Users</span>
+                    <span className="pop__s">co-owners and access grants</span>
+                  </span>
+                  <span className="pop__go">{showUsers ? '▾' : '▸'}</span>
+                </button>
+              )}
             </div>
+            {showUsers && auth.isOwner && <Users auth={auth} />}
             <div className="px-1.5 pb-1.5 flex flex-col gap-px">
               <button
                 role="menuitem"
