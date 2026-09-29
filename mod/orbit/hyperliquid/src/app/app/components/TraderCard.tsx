@@ -19,18 +19,27 @@
 //   proof → win rate, closes, sharpe, volume, equity — the ranked one lit
 //   act   → copy it, or open it
 //
-// Nothing here fetches. The curve arrives as a prop from `lib/curves`, which
-// pages the whole visible grid through one request per screenful, so a card
-// can never become a request of its own.
+// The card fetches nothing at the board's window. The curve arrives as a
+// prop from `lib/curves`, which pages the whole visible grid through one
+// request per screenful. The one exception is the card's own window toggle:
+// re-windowing a single card borrows the hover path (`loadCurve` — deduped,
+// cached, three in flight), so a click costs at most one request and a
+// re-click costs none.
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   TopTrader, TraderCurve, fmtPnl, fmtUsd, fmtPct, shortAddr, ago,
   defensibleWin, sharpeMeasured, MIN_CLOSES,
 } from "../lib/api";
 import { Identicon, Medal, Spark } from "./BoardBits";
 import { isCoreCoin } from "./TraderCell";
+import { fresh, loadCurve } from "../lib/curves";
+
+// The windows a single card can re-view itself at — HL's official ones.
+// A custom board window (say 14d) joins the row so the board's own view
+// is always one of the choices.
+const CARD_WINDOWS = [1, 7, 30];
 
 /** Which stat the board is currently ranked by, so the card can light it. */
 export type CardStat = "roi" | "pnl" | "volume" | "account_value" | "win_rate" | "trades" | "sharpe";
@@ -67,11 +76,47 @@ export default function TraderCard({
   /** Why an unmeasured row has no win rate, in the board's own words. */
   enrichNote: string;
 }) {
-  const roiUp = (t.roi ?? 0) >= 0;
   const measured = t.win_rate >= 0;
   const win = defensibleWin(t);
   const core = t.coins.filter(isCoreCoin);
   const dexOnly = core.length === 0 && t.coins.length > 0;
+
+  // ── the card's own window ──
+  // `null` = follow the board. Picking another window re-draws THIS card's
+  // headline + curve at that window without touching the board's order or
+  // any other card. The board's window changing folds every card back onto
+  // it — an override is a glance, not a setting.
+  const [ownDays, setOwnDays] = useState<number | null>(null);
+  useEffect(() => { setOwnDays(null); }, [days]);
+  const wDays = ownDays ?? days;
+  const overridden = wDays !== days;
+
+  const [ownCurve, setOwnCurve] = useState<TraderCurve | null>(null);
+  useEffect(() => {
+    if (!overridden) { setOwnCurve(null); return; }
+    const hit = fresh(t.address, wDays);
+    setOwnCurve(hit);
+    if (hit) return;
+    let alive = true;
+    loadCurve(t.address, wDays).then((c) => { if (alive) setOwnCurve(c); });
+    return () => { alive = false; };
+  }, [overridden, wDays, t.address]);
+
+  // What the card draws and headlines: the board's curve normally, its own
+  // window's curve when overridden (undefined = skeleton while in flight).
+  const c = overridden ? (ownCurve ?? undefined) : curve;
+  // The leaderboard only prices ROI at the board's window, so an overridden
+  // headline is derived from the curve instead: window pnl over the equity
+  // the window opened on (current equity minus what the window made). Same
+  // basis the backtest uses; deposits and withdrawals can bend it, hence ≈.
+  const ownBasis = overridden && c?.available ? t.account_value - c.pnl : 0;
+  const roiShown = overridden
+    ? (c?.available && ownBasis > 0 ? (c.pnl / ownBasis) * 100 : null)
+    : t.roi;
+  const pnlShown = overridden ? (c?.available ? c.pnl : null) : t.pnl;
+  const roiUp = (roiShown ?? 0) >= 0;
+  const windows = CARD_WINDOWS.includes(days)
+    ? CARD_WINDOWS : [...CARD_WINDOWS, days].sort((a, b) => a - b);
 
   return (
     <div className={`group panel panel-hover relative flex flex-col p-4
@@ -79,7 +124,7 @@ export default function TraderCard({
       {/* ── who ── */}
       <div className="flex items-start gap-2.5">
         <Medal rank={rank} />
-        <Link href={`/trader/${t.address}?days=${days}`} title={t.address}
+        <Link href={`/trader/${t.address}?days=${wDays}`} title={t.address}
           className="min-w-0 flex items-center gap-2 text-ink/90 hover:text-accent transition-colors">
           <Identicon address={t.address} size={20} />
           <span className="min-w-0">
@@ -96,20 +141,40 @@ export default function TraderCard({
         </label>
       </div>
 
-      {/* ── what ── the window's number, and the dollars behind it */}
+      {/* ── what ── the window's number, and the dollars behind it. The
+          window itself is the toggle: each `d` re-views this one card. */}
       <div className="mt-4 flex items-end justify-between gap-3">
         <div className="min-w-0">
           <div className={`text-[26px] leading-none font-semibold tracking-tight ${roiUp ? "text-win" : "text-loss"}`}
-            title={t.account_value > 0 ? `return on ${fmtUsd(t.account_value)} of equity` : undefined}>
-            {t.roi == null ? "—" : `${t.roi >= 0 ? "+" : ""}${fmtPct(t.roi, 1)}`}
+            title={
+              overridden
+                ? `≈ derived from the ${wDays}d curve: window pnl ÷ the equity the window opened on` +
+                  ` (${fmtUsd(t.account_value)} now − ${fmtPnl(c?.available ? c.pnl : 0)} made).` +
+                  ` Deposits/withdrawals can bend it. The proof stats below still score the board's ${days}d window.`
+                : t.account_value > 0 ? `return on ${fmtUsd(t.account_value)} of equity` : undefined
+            }>
+            {roiShown == null ? "—" : `${overridden ? "≈" : ""}${roiShown >= 0 ? "+" : ""}${fmtPct(roiShown, 1)}`}
           </div>
-          <div className="eyebrow mt-1.5">roi · {days}d</div>
+          <div className="mt-1.5 flex items-center gap-1">
+            <span className="eyebrow">roi ·</span>
+            {windows.map((d) => (
+              <button key={d}
+                onClick={() => setOwnDays(d === days ? null : d)}
+                title={d === days
+                  ? `the board's window`
+                  : `re-view just this card over ${d} days — headline and curve; the board's order doesn't move`}
+                className={`eyebrow !text-[9px] px-1 py-0.5 -my-0.5 rounded transition-colors
+                  ${wDays === d ? "!text-accent bg-accent/10" : "!text-dim hover:!text-ink"}`}>
+                {d}d
+              </button>
+            ))}
+          </div>
         </div>
         <div className="text-right shrink-0">
-          <div className={`num text-[15px] leading-none ${t.pnl >= 0 ? "text-win/85" : "text-loss/85"}`}>
-            {fmtPnl(t.pnl)}
+          <div className={`num text-[15px] leading-none ${(pnlShown ?? 0) >= 0 ? "text-win/85" : "text-loss/85"}`}>
+            {pnlShown == null ? "—" : fmtPnl(pnlShown)}
           </div>
-          <div className="eyebrow mt-1.5">pnl · net of fees</div>
+          <div className="eyebrow mt-1.5">pnl{overridden ? ` · ${wDays}d` : " · net of fees"}</div>
         </div>
       </div>
 
@@ -117,24 +182,24 @@ export default function TraderCard({
           Fixed height in every state so a grid of cards never reflows as
           curves land one page at a time. */}
       <div className="mt-3 h-[58px]">
-        {curve == null ? (
+        {c == null ? (
           <div className="skeleton h-full w-full opacity-60" />
-        ) : curve.available ? (
-          <Link href={`/trader/${t.address}?days=${days}`}
-            aria-label={`${shortAddr(t.address)} — ${days} day pnl curve`}
+        ) : c.available ? (
+          <Link href={`/trader/${t.address}?days=${wDays}`}
+            aria-label={`${shortAddr(t.address)} — ${wDays} day pnl curve`}
             title={
-              `${days}d pnl curve · ends ${fmtPnl(curve.pnl)} · high ${fmtPnl(curve.high)}` +
-              ` · low ${fmtPnl(curve.low)} · deepest fall ${fmtUsd(curve.max_drawdown)}` +
-              (curve.max_drawdown_pct > 0 ? ` (${curve.max_drawdown_pct}% off its peak)` : "") +
-              `\nsource: hyperliquid portfolio "${curve.period}" — the whole account` +
+              `${wDays}d pnl curve · ends ${fmtPnl(c.pnl)} · high ${fmtPnl(c.high)}` +
+              ` · low ${fmtPnl(c.low)} · deepest fall ${fmtUsd(c.max_drawdown)}` +
+              (c.max_drawdown_pct > 0 ? ` (${c.max_drawdown_pct}% off its peak)` : "") +
+              `\nsource: hyperliquid portfolio "${c.period}" — the whole account` +
               ` (perps and spot), realised and unrealised`
             }
-            className={`block h-full ${curve.pnl >= 0 ? "text-win" : "text-loss"}`}>
-            <Spark points={curve.points} height={58} />
+            className={`block h-full ${c.pnl >= 0 ? "text-win" : "text-loss"}`}>
+            <Spark points={c.points} height={58} />
           </Link>
         ) : (
           <div className="grid h-full place-items-center rounded-md border border-dashed border-white/[0.08] px-3">
-            <span className="text-[10px] leading-snug text-dim text-center">{curve.note ?? "no curve for this wallet"}</span>
+            <span className="text-[10px] leading-snug text-dim text-center">{c.note ?? "no curve for this wallet"}</span>
           </div>
         )}
       </div>
@@ -142,16 +207,16 @@ export default function TraderCard({
       {/* The two things the endpoint cannot say: how good it got, and how far
           it fell from there. */}
       <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-dim">
-        {curve?.available ? (
+        {c?.available ? (
           <>
             <span title="Best the cumulative curve ever got inside this window">
-              high <span className="num text-ink/70">{fmtPnl(curve.high)}</span>
+              high <span className="num text-ink/70">{fmtPnl(c.high)}</span>
             </span>
             <span title="Deepest peak → trough fall anywhere in the window — what you would have been down had you started at the worst moment">
               max fall{" "}
               <span className="num text-ink/70">
-                {curve.max_drawdown > 0 ? fmtUsd(curve.max_drawdown) : "none"}
-                {curve.max_drawdown_pct > 0 ? ` · ${curve.max_drawdown_pct}%` : ""}
+                {c.max_drawdown > 0 ? fmtUsd(c.max_drawdown) : "none"}
+                {c.max_drawdown_pct > 0 ? ` · ${c.max_drawdown_pct}%` : ""}
               </span>
             </span>
           </>
@@ -230,7 +295,7 @@ export default function TraderCard({
       <div className="mt-4 pt-3 border-t border-white/[0.05] flex items-center gap-2">
         <Link href={`/follows/new?leader=${t.address}`} className="btn-ghost flex-1"
           title="Copy this wallet — same destination as the board's copy button">copy</Link>
-        <Link href={`/trader/${t.address}?days=${days}`} className="btn flex-1"
+        <Link href={`/trader/${t.address}?days=${wDays}`} className="btn flex-1"
           title="Fills, round trips and the full curve">details →</Link>
       </div>
     </div>

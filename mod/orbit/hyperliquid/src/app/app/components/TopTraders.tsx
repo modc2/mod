@@ -59,6 +59,7 @@ const PAGE: Record<View, number> = { graph: 36, table: 250 };
 // v2: the fold default was reset once — the board opens folded unless you
 // open it again yourself.
 const FILTERS_KEY = "hl.board.filtersOpen.v2";
+const CONTROLS_KEY = "hl.board.controlsOpen";
 const FLOOR_KEYS = ["roi", "equity", "volume", "sharpe", "win", "trades"] as const;
 
 // Score floors — applied on the client over the full list, so they're instant.
@@ -110,11 +111,11 @@ export default function TopTraders() {
   const [seedOpen, setSeedOpen] = useState(false);
   const [coinsExpanded, setCoinsExpanded] = useState(false);
   // The filter bar rides along at the top of the board while the table
-  // scrolls. Window / measure / order always show — they are what the board
-  // is. The deep controls (floors, ƒ score, coins) are folded away by
-  // default and summarised as chips, so the panel opens two rows tall
-  // instead of six.
+  // scrolls. Everything folds: window / measure / order behind CONTROLS,
+  // the deep controls (floors, ƒ score, coins) behind FILTERS — both
+  // summarised as chips when folded, so the panel opens one row tall.
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [controlsOpen, setControlsOpen] = useState(false);
   const [coinDraft, setCoinDraft] = useState("");
   const [floors, setFloors] = useState<Floors>(NO_FLOORS);
   const [view, setView] = useState<View>("graph");
@@ -161,6 +162,8 @@ export default function TopTraders() {
   // say so again on every visit.
   useEffect(() => { if (localStorage.getItem(FILTERS_KEY) === "1") setFiltersOpen(true); }, []);
   useEffect(() => { localStorage.setItem(FILTERS_KEY, filtersOpen ? "1" : "0"); }, [filtersOpen]);
+  useEffect(() => { if (localStorage.getItem(CONTROLS_KEY) === "1") setControlsOpen(true); }, []);
+  useEffect(() => { localStorage.setItem(CONTROLS_KEY, controlsOpen ? "1" : "0"); }, [controlsOpen]);
   useEffect(() => {
     const saved = localStorage.getItem(VIEW_KEY);
     const v: View | null = saved === "table" ? "table" : (saved === "graph" || saved === "cards") ? "graph" : null;
@@ -401,6 +404,16 @@ export default function TopTraders() {
   // so a folded filter can never silently shape the board.
   const deepCount = floorSummary.length + (scoreActive ? 1 : 0) + (coinList.length > 0 ? 1 : 0);
   const deepActive = deepCount > 0;
+  // Folded CONTROLS print as one chip per group. A chip lights accent when
+  // its group is off the default — same promise as the filter chips: a
+  // folded control never silently shapes the board.
+  const sortLabel = sortKey === "score" ? "ƒ score"
+    : SORT_LABELS.find((s) => s.k === sortKey)?.label ?? sortKey;
+  const controlChips: { text: string; hot: boolean }[] = [
+    { text: `${days}d`, hot: days !== 7 },
+    { text: `top ${enrich} by ${rank}`, hot: enrich !== 120 || rank !== "roi" },
+    { text: `${sortLabel} · ${sortDir === "desc" ? "best" : "worst"} first`, hot: sortKey !== "roi" || sortDir !== "desc" },
+  ];
   // A live score adds a ƒ column right after the trader.
   const grid = scoreActive ? GRID_SCORED : GRID;
 
@@ -446,9 +459,11 @@ export default function TopTraders() {
       />
 
       {/* Filters — rides at the top of the board on scroll. Window, measure
-          depth and order are always here; floors, ƒ score and coins fold
-          behind the FILTERS button and summarise as chips when folded. */}
+          depth and order fold behind CONTROLS; floors, ƒ score and coins fold
+          behind FILTERS. Both summarise as chips when folded, so the panel
+          opens one row tall. */}
       <div className="panel bg-bg/90 sticky top-16 z-20 p-3 space-y-3">
+        {controlsOpen && (
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <Field label="window" title="How many days of trading the board scores — HL's official windows, or any 1–90">
             <div className="seg">
@@ -508,13 +523,36 @@ export default function TopTraders() {
             </div>
           </Field>
         </div>
+        )}
 
-        {/* Second line: the deep controls — floors, ƒ score, coins — live
-            behind one fold, and the board's actions sit opposite them. Folded
-            (the default) the deep filters print as chips, so what the board is
-            being asked for is still readable at a glance. */}
+        {/* The always-on line: both folds — window/measure/order behind
+            CONTROLS, the deep controls (floors, ƒ score, coins) behind
+            FILTERS — and the board's actions opposite them. Folded (the
+            default) each side prints as chips, so what the board is being
+            asked for is still readable at a glance. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              className={`btn !px-2.5 ${controlsOpen ? "!border-accent/40 !text-accent" : ""}`}
+              title={controlsOpen ? "Fold the window / measure / order controls away" : "Window, measure depth and board order"}
+              aria-expanded={controlsOpen}
+              onClick={() => setControlsOpen((v) => !v)}>
+              <span className={`inline-block w-0 h-0 border-y-[4px] border-y-transparent
+                border-l-[5px] border-l-current transition-transform duration-150
+                ${controlsOpen ? "rotate-90" : ""}`} />
+              controls
+            </button>
+            {!controlsOpen && (
+              <button className="flex flex-wrap items-center gap-1.5 text-left mr-2"
+                title="Open the board controls" onClick={() => setControlsOpen(true)}>
+                {controlChips.map((c) => (
+                  <span key={c.text}
+                    className={`pill whitespace-nowrap ${c.hot ? "!border-accent/40 !text-accent !bg-accent/10" : ""}`}>
+                    {c.text}
+                  </span>
+                ))}
+              </button>
+            )}
             <button
               className={`btn !px-2.5 ${filtersOpen || deepActive ? "!border-accent/40 !text-accent" : ""}`}
               title={filtersOpen ? "Fold the deep filters away" : "Floors, ƒ score and coin requirements"}

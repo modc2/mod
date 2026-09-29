@@ -1,0 +1,21 @@
+{
+    "name": "whalecopy",
+    "description": "Copy only conviction-sized trades: anything under the notional floor is noise and skipped.",
+    "version": "1.0.0",
+    "strat": {
+        "protocol": 1,
+        "class": "strat.py:Whale",
+        "venues": [
+            "raydium",
+            "uniswap",
+            "hyperliquid",
+            "bittensor",
+            "polymarket"
+        ],
+        "params": {
+            "min_notional": 1000.0,
+            "scale": 0.05
+        }
+    },
+    "forked_from": "whale"
+}

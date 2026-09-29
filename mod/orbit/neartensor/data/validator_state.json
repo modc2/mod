@@ -1,6 +1,6 @@
 {
   "scores": {
-    "0": 0.2640799142569854
+    "0": 0.3920417098405337
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -10,61 +10,79 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.1565,
-        "ema_score": 0.2641,
+        "epoch_score": 0.6906,
+        "ema_score": 0.392,
         "samples": [
           {
-            "score": 0.6515169891696908,
+            "score": 0.7023845886329135,
             "task": "block_header",
-            "elapsed": 3.232,
+            "elapsed": 3.175,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6003418823774334,
+            "score": 0.5502684938888747,
             "task": "gas_price",
-            "elapsed": 3.298,
+            "elapsed": 3.35,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.6746870185628998,
+            "task": "account_state",
+            "elapsed": 3.235,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.9066666666666667,
+            "task": "block_header",
+            "elapsed": 0.206,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.6723506229690237,
+            "task": "gas_price",
+            "elapsed": 3.268,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.7853126260966667,
+            "task": "account_state",
+            "elapsed": 3.323,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.6744808024371112,
+            "task": "block_header",
+            "elapsed": 3.238,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.558803043696348,
+            "task": "gas_price",
+            "elapsed": 3.224,
+            "signature_ok": true,
+            "correct": true
           }
         ]
       }
     },
-    "at": 1790614903,
+    "at": 1790701206,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 22,
+      "epoch": 23,
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1790614919
+  "updated": 1790701265
 }

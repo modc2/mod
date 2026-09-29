@@ -1,6 +1,66 @@
 {
     "name": "strat",
-    "description": "strat",
-    "version": "0.1.0",
-    "schema": "Qmdk5f2G4pMJYfaEZnayt4tC2VwMfV4P5FgJnn9byjRAjy"
+    "description": "Marketplace of trading strategies as mods \u2014 one class-defined Strat protocol across raydium, uniswap, hyperliquid, bittensor and polymarket. Discover, verify, fork, backtest and board strat mods; execution is delegated to the fleet module that owns each chain, keys never held here.",
+    "version": "1.0.0",
+    "strat_protocol": {
+        "version": 1,
+        "methods": [
+            "setup",
+            "sync",
+            "signal",
+            "execute",
+            "tick",
+            "backtest",
+            "teardown",
+            "state"
+        ],
+        "venues": {
+            "raydium": {
+                "module": "solana",
+                "currency": "USDC",
+                "symbol": "<mint>/<mint> pair"
+            },
+            "uniswap": {
+                "module": "defi",
+                "currency": "USDC",
+                "symbol": "<sell>/<buy> token pair"
+            },
+            "hyperliquid": {
+                "module": "hyperliquid",
+                "currency": "USDC",
+                "symbol": "coin, e.g. BTC"
+            },
+            "bittensor": {
+                "module": "bt",
+                "currency": "TAO",
+                "symbol": "SN<netuid>"
+            },
+            "polymarket": {
+                "module": "polymarket",
+                "currency": "USDC",
+                "symbol": "CLOB outcome token id"
+            }
+        },
+        "mod_contract": "a strat mod = directory with config.json carrying a `strat` block {protocol, class: 'strat.py:ClassName', venues, params} and a strat.py defining one subclass of protocol.Strat"
+    },
+    "fns": {
+        "info": "Overview: protocol version, venues, registered strats.",
+        "schema": "Machine-readable protocol contract (methods + dataclass fields).",
+        "venues": "The five venues and which fleet module signs for each; check=true pings them.",
+        "strats": "Marketplace listing; venue= filters.",
+        "strat": "One strat's full card (config + verification).",
+        "code": "A strat's source \u2014 the class IS the strategy.",
+        "verify": "Check a mod against the protocol contract.",
+        "new": "Scaffold a new strat mod (orbit=true makes it a first-class orbit module).",
+        "fork": "Copy an existing strat mod under a new name.",
+        "publish": "Promote a builtin strat to a first-class orbit module.",
+        "backtest": "Replay a strat over watched traders' venue history. Read-only.",
+        "tick": "One live sync->signal->execute cycle. DRY RUN by default; live needs dry_run=false + confirm=true + a token the peer accepts.",
+        "board": "The marketplace board: every strat, verified, with cached backtest perf."
+    },
+    "schema": "QmVoVnWex4asoX67NoqcnEErbPrGjadtFVLAB1SBjx2tpL",
+    "urls": {
+        "api": "http://localhost:50097"
+    },
+    "port": 50097
 }

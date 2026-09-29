@@ -32,11 +32,12 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next-staging/types/**/*.ts",
-    ".next-dev/types/**/*.ts"
+    ".next-staging/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next",
+    ".next-prev",
+    ".next-dev"
   ]
 }

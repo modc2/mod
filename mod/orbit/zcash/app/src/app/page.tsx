@@ -2,7 +2,7 @@
 
 import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { call, get, getToken, num, setToken, timeAgo, usd, zatToZec, zec } from './api'
-import { Button, C, Code, Copy, Field, Input, Note, Panel, Spinner, Stat } from './ui'
+import { Button, C, Code, Copy, Field, Input, Note, Panel, Skeleton, Spinner, Stat } from './ui'
 import { Ask, Learn } from './learn'
 import { PrivateBridge } from './private'
 import { PayWithWallet, UseWallet, WalletChip, WalletNetworks, useMetaMask } from './wallet'
@@ -99,6 +99,14 @@ export default function Page() {
 
   useEffect(() => { connect() }, [connect])
 
+  // Backends come back on their own (pm2 restarts, the API route revives a dead
+  // :8930), so keep trying quietly instead of parking on a manual Retry button.
+  useEffect(() => {
+    if (online !== false) return
+    const id = setTimeout(connect, 15000)
+    return () => clearTimeout(id)
+  }, [online, connect])
+
   const wide = useWide()
 
   return (
@@ -160,11 +168,28 @@ export default function Page() {
 
         {online === false && (
           <Note kind="error">
-            The zcash backend is not answering, and starting it from here did not
-            work. Run <code>m zcash/serve</code> and check <code>/tmp/zcash/rest.log</code>.
+            {/* An auth answer means the request reached a server — just the wrong
+                one (the gated mod-protocol port instead of this console's own
+                /_api route). Telling the user to restart the backend for that
+                only sends them down the wrong road. */}
+            {/auth|unauthorized|forbidden|token/i.test(why) ? (
+              <>
+                The console&apos;s API calls are being answered by the gated module
+                port instead of the console itself — usually a stale app build.
+                Redeploy with <code>app/build.sh</code> then{' '}
+                <code>pm2 restart zcash-app</code>.
+              </>
+            ) : (
+              <>
+                The zcash backend is not answering, and starting it from here did
+                not work. Run <code>m zcash/serve</code> and check{' '}
+                <code>/tmp/zcash/rest.log</code>.
+              </>
+            )}
             <div style={{ marginTop: 6, fontSize: 11, opacity: 0.85 }}>{why}</div>
-            <div style={{ marginTop: 10 }}>
-              <Button variant="ghost" onClick={connect}>Retry</Button>
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Button variant="ghost" onClick={connect}>Retry now</Button>
+              <span style={{ fontSize: 11, opacity: 0.7 }}>retrying automatically every 15s</span>
             </div>
           </Note>
         )}
@@ -246,16 +271,27 @@ function Explorer({ online }: { online: boolean | null }) {
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
         gap: 10, marginBottom: 16,
       }}>
-        <Stat label="Price" value={usd(info?.market_price_usd)} sub={`cap ${usd(info?.market_cap_usd)}`} />
-        <Stat label="Height" value={num(info?.best_block_height)} sub={timeAgo(info?.best_block_time)} />
-        <Stat label="Mempool" value={num(info?.mempool_transactions)} sub="pending txs" />
-        <Stat label="Transactions" value={info ? `${(info.transactions / 1e6).toFixed(2)}M` : '—'} sub="all time" />
-        <Stat
-          label="Supply"
-          value={info?.circulation_zec ? `${(info.circulation_zec / 1e6).toFixed(2)}M` : '—'}
-          sub={info?.circulation_zec
-            ? `of ${(info.max_supply_zec / 1e6).toFixed(0)}M ZEC`
-            : 'ZEC'} />
+        {/* While connecting or fetching, shimmer instead of a wall of dashes —
+            dashes read as "broken", a shimmer reads as "coming". */}
+        {(() => {
+          const loading = !info && online !== false && !err
+          const v = (val: ReactNode, w = 72) => loading ? <Skeleton w={w} /> : val
+          const s = (sub: ReactNode, w = 48) => loading ? <Skeleton w={w} h={10} /> : sub
+          return (
+            <>
+              <Stat label="Price" value={v(usd(info?.market_price_usd))} sub={s(`cap ${usd(info?.market_cap_usd)}`, 84)} />
+              <Stat label="Height" value={v(num(info?.best_block_height))} sub={s(timeAgo(info?.best_block_time))} />
+              <Stat label="Mempool" value={v(num(info?.mempool_transactions), 40)} sub="pending txs" />
+              <Stat label="Transactions" value={v(info ? `${(info.transactions / 1e6).toFixed(2)}M` : '—')} sub="all time" />
+              <Stat
+                label="Supply"
+                value={v(info?.circulation_zec ? `${(info.circulation_zec / 1e6).toFixed(2)}M` : '—')}
+                sub={info?.circulation_zec
+                  ? `of ${(info.max_supply_zec / 1e6).toFixed(0)}M ZEC`
+                  : 'ZEC'} />
+            </>
+          )
+        })()}
       </div>
 
       <Panel title="Search">

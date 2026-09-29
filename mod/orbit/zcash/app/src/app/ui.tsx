@@ -139,3 +139,14 @@ export function Copy({ text }: { text: string }) {
 export function Spinner({ label }: { label?: string }) {
   return <span style={{ color: C.dim, fontSize: 12 }}>{label || 'loading'}…</span>
 }
+
+// Placeholder bar for a value that is still loading — keyframes live in layout.tsx.
+export function Skeleton({ w = 64, h = 16 }: { w?: number | string, h?: number }) {
+  return (
+    <span aria-hidden style={{
+      display: 'inline-block', width: w, height: h, borderRadius: 4, verticalAlign: 'middle',
+      background: `linear-gradient(90deg, ${C.line} 25%, ${C.panel2} 50%, ${C.line} 75%)`,
+      backgroundSize: '200% 100%', animation: 'zc-shimmer 1.6s linear infinite',
+    }} />
+  )
+}

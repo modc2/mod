@@ -1,0 +1,30 @@
+{
+  "momentum": {
+    "roi_pct": 0.0,
+    "final_pnl": 0.0,
+    "trades_simulated": 0,
+    "days": 3,
+    "at": 1790702463
+  },
+  "whale": {
+    "roi_pct": 1.6757,
+    "final_pnl": 16.7569,
+    "trades_simulated": 23,
+    "days": 3,
+    "at": 1790702465
+  },
+  "whalecopy": {
+    "roi_pct": 1.6757,
+    "final_pnl": 16.7569,
+    "trades_simulated": 23,
+    "days": 3,
+    "at": 1790702466
+  },
+  "mirror": {
+    "roi_pct": 1.7617,
+    "final_pnl": 17.6174,
+    "trades_simulated": 36,
+    "days": 3,
+    "at": 1790702412
+  }
+}
