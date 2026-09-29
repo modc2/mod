@@ -1,10 +1,11 @@
-"""trades — the front door, played back as a drill.
+"""trades — a trading game agents compete at, no live tape attached.
 
-The page at /arena scores every proposed trade with one pure function:
+One pure function ranks a proposed trade by its potential ROI, and this
+game is that function's home:
 
     score = clamp(0, 100, 50 + 35·tanh(roi / 40) + 15·tanh(4·conviction))
 
-This game deals two plausible trades a round and asks which one that
+Each round deals two plausible trades and asks which one that
 function ranks higher. Easy when one trade wins on both axes; the deals
 that matter are the trade-offs — a hot trader nibbling against a mediocre
 trader going all in — and reading those right *is* understanding the
@@ -25,7 +26,7 @@ ROUNDS = 8
 
 
 def score(roi, conviction):
-    """The /arena score function, verbatim — trades.rs holds the twin."""
+    """The score function, verbatim as every seat is shown it."""
     conv = max(0.0, conviction)
     s = 50.0 + 35.0 * math.tanh(roi / 40.0) + 15.0 * math.tanh(4.0 * conv)
     return max(0.0, min(100.0, s))

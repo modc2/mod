@@ -31,6 +31,7 @@ import pick as PICK                                         # noqa: E402
 import proofs as P                                          # noqa: E402
 import router as R                                          # noqa: E402
 import settle as SET                                        # noqa: E402
+import zoo as Z                                             # noqa: E402
 from engine import InferError                               # noqa: E402
 
 BASE = os.environ.get('BASE_PATH', '/infer')
@@ -114,7 +115,16 @@ def info():
             'GET /portable': 'model= — will it run in a browser',
             'POST /compare': '{model, passes?} — every pass, side by side',
             'POST /export': '{source, shape?} — torch → ONNX',
-            'POST /examples': 'plant three models to work on',
+            'POST /examples': '{which?} — plant every builtin architecture (38)',
+            'GET /zoo': 'every model source, its count and crawl state',
+            'GET /zoo/models': 'q=, source=, domain=, task=, author=, local=, '
+                               'max_bytes=, sort=, limit=, offset= — search them all',
+            'GET /zoo/model': 'key= — one row, every file with its size',
+            'POST /zoo/scrape': '{sources?, fresh?} — crawl in the background',
+            'POST /zoo/stop': '{sources?} — stop a crawl (it resumes if restarted)',
+            'POST /zoo/plant': '{key, file?, name?, weights?} — into the store',
+            'POST /zoo/plant_many': '{keys} or {source, q, domain, limit}',
+            'GET /zoo/plants': 'id= — bulk plant progress',
             'POST /report': '{model, ms, ...} — record what a browser measured',
             'GET /reports': 'model= — browser numbers next to local ones',
             'GET /tools': 'the MCP tool registry',
@@ -247,7 +257,33 @@ def route(method, path, query, body):
         return E.export(arg('source'), name=arg('name'), opset=num('opset', 17),
                         shape=arg('shape'), weights=arg('weights'))
     if path == '/examples':
-        return E.examples()
+        return E.examples(arg('which'))
+    # ── the zoo: every place an .onnx can come from ─────────
+    if path == '/zoo':
+        return Z.status()
+    if path == '/zoo/models':
+        return Z.search(q=arg('q'), source=arg('source'), domain=arg('domain'),
+                        task=arg('task'), author=arg('author'),
+                        local=_tri(arg('local')), max_bytes=num('max_bytes'),
+                        sort=arg('sort') or 'downloads', limit=num('limit', 50),
+                        offset=num('offset', 0))
+    if path == '/zoo/model':
+        return Z.show(arg('key') or '')
+    if path == '/zoo/scrape':
+        return Z.scrape(arg('sources') or arg('source'), fresh=flag('fresh', False))
+    if path == '/zoo/stop':
+        return Z.stop(arg('sources') or arg('source'))
+    if path == '/zoo/plant':
+        if not arg('key'):
+            raise InferError('which zoo model? pass key=<source>:<ref>')
+        return Z.plant(arg('key'), file=arg('file'), name=arg('name'),
+                       weights=arg('weights'))
+    if path == '/zoo/plant_many':
+        return Z.plant_many(keys=arg('keys'), source=arg('source'), q=arg('q'),
+                            domain=arg('domain'), limit=num('limit', 50),
+                            max_bytes=num('max_bytes'))
+    if path == '/zoo/plants':
+        return Z.plant_status(arg('id'))
     # ── the board ────────────────────────────────────────────
     if path == '/proofs':
         if method == 'POST':
@@ -489,6 +525,11 @@ def serve(port=PORT):
             except InferError as e:
                 return self._send(e.status if e.status in range(400, 600) else 400,
                                   e.dict())
+            except Z.ZooError as e:
+                # 4xx, not 5xx: a registry being down is the caller's to read,
+                # and Cloudflare replaces 5xx bodies with its own page.
+                return self._send(e.status if e.status in range(400, 500) else 424,
+                                  e.dict())
             except TypeError as e:
                 return self._send(400, {'error': f'bad arguments — {e}'})
             except Exception as e:
@@ -499,6 +540,9 @@ def serve(port=PORT):
         def log_message(self, *a):
             pass
 
+    # Finish any zoo crawl a restart interrupted; refresh stale sources.
+    import threading
+    threading.Thread(target=Z.resume, name='zoo-resume', daemon=True).start()
     print(f'infer on :{port} — api /, console {base}, mcp POST /mcp, '
           f'{len(mcp.TOOLS)} tools, store {E.MODEL_DIR}', flush=True)
     ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()

@@ -46,7 +46,15 @@ INSTRUCTIONS = (
     'This deployment is on testnet: the tools that write '
     '(openhouse_pay_rent, openhouse_purchase, openhouse_set_terms, '
     'openhouse_claim_owner) record local bookkeeping entries, not signed '
-    'on-chain transactions, and no real money or deed is involved.'
+    'on-chain transactions, and no real money or deed is involved. '
+    'New here? openhouse_examples lists guided testnet walkthroughs and '
+    'openhouse_run_example runs one in a throwaway store and returns every '
+    'tool call it made. Banks: openhouse_bank_* connect any bank — a local '
+    'sandbox (testnet, open), statement files (camt.053/MT940/OFX/CSV in, '
+    'pain.001 out), Open Banking APIs (Berlin Group PSD2, UK OBIE) or a '
+    'bank\'s own MCP server — and openhouse_bank_reconcile books every '
+    'transfer carrying a renter\'s reference code onto the rent ledger once. '
+    'Anything but the sandbox is a real bank and needs the operator\'s key.'
 )
 
 
@@ -177,6 +185,120 @@ def _t_set_terms(args, oh):
 
 def _t_claim_owner(args, oh):
     return _ok(oh.claim_owner(_req(args, 'address')))
+
+
+def _t_civic_charter(args, oh):
+    return _ok(oh.civic_charter(_req(args, 'key'), name=str(args.get('name') or ''),
+                                region=str(args.get('region') or ''),
+                                uri=str(args.get('uri') or ''), owner=args.get('owner')))
+
+
+def _t_civic_override(args, oh):
+    return _ok(oh.civic_override(_req(args, 'action'), _req(args, 'key'),
+                                 reason=str(args.get('reason') or '')))
+
+
+# ── testnet examples ──
+
+def _t_examples(args, oh):
+    ex = oh.examples()
+    return {'count': len(ex), 'examples': ex}
+
+
+def _t_run_example(args, oh):
+    return _ok(oh.example(_req(args, 'name')))
+
+
+# ── the bank rail ──
+# Every bank tool takes an optional `key`: the sandbox needs none, a real
+# bank connection needs the operator bank key and says so when it is missing.
+
+def _key(args):
+    return str(args.get('key') or '')
+
+
+def _t_bank_kinds(args, oh):
+    return {'kinds': oh.bank_kinds()}
+
+
+def _t_bank_status(args, oh):
+    return oh.bank_status()
+
+
+def _t_bank_connect(args, oh):
+    cfg = args.get('config') or {}
+    if not isinstance(cfg, dict):
+        raise ToolError('config must be an object')
+    return _ok(oh.bank_connect(str(args.get('kind') or 'sandbox'),
+                               name=str(args.get('name') or ''), config=cfg, key=_key(args)))
+
+
+def _t_bank_disconnect(args, oh):
+    return _ok(oh.bank_disconnect(_req(args, 'connection'), key=_key(args)))
+
+
+def _t_bank_accounts(args, oh):
+    return {'accounts': _ok(oh.bank_accounts(str(args.get('connection') or ''), key=_key(args)))}
+
+
+def _t_bank_transactions(args, oh):
+    rows = _ok(oh.bank_transactions(str(args.get('connection') or ''),
+                                    account=str(args.get('account') or ''),
+                                    since=int(_num(args, 'since', 0)),
+                                    limit=int(_num(args, 'limit', 100)), key=_key(args)))
+    return {'count': len(rows), 'transactions': rows}
+
+
+def _t_bank_import(args, oh):
+    return _ok(oh.bank_import(_req(args, 'content'), connection=str(args.get('connection') or ''),
+                              format=str(args.get('format') or 'auto'), key=_key(args)))
+
+
+def _t_bank_receive(args, oh):
+    return _ok(oh.bank_receive(_num(args, 'amount'), reference=str(args.get('reference') or ''),
+                               from_name=str(args.get('from_name') or ''),
+                               from_iban=str(args.get('from_iban') or ''),
+                               account=str(args.get('account') or ''),
+                               connection=str(args.get('connection') or ''),
+                               date=int(_num(args, 'date', 0))))
+
+
+def _t_bank_reference(args, oh):
+    return _ok(oh.bank_reference(_req(args, 'address')))
+
+
+def _t_bank_link(args, oh):
+    return _ok(oh.bank_link(_req(args, 'address'), payer_iban=str(args.get('payer_iban') or ''),
+                            payer_name=str(args.get('payer_name') or ''),
+                            kind=str(args.get('kind') or 'rent'), key=_key(args)))
+
+
+def _t_bank_links(args, oh):
+    links = oh.bank_links(key=_key(args))
+    return {'count': len(links), 'links': links}
+
+
+def _t_bank_reconcile(args, oh):
+    rate = args.get('rate')
+    return _ok(oh.bank_reconcile(str(args.get('connection') or ''),
+                                 account=str(args.get('account') or ''),
+                                 since=int(_num(args, 'since', 0)),
+                                 dry_run=bool(args.get('dry_run')),
+                                 rate=_num(args, 'rate') if rate not in (None, '') else None,
+                                 key=_key(args)))
+
+
+def _t_bank_pay(args, oh):
+    return _ok(oh.bank_pay(_num(args, 'amount'), _req(args, 'to_iban'),
+                           to_name=str(args.get('to_name') or ''),
+                           account=str(args.get('account') or ''),
+                           connection=str(args.get('connection') or ''),
+                           currency=str(args.get('currency') or ''),
+                           reference=str(args.get('reference') or ''), key=_key(args)))
+
+
+_KEY = {'type': 'string', 'description': 'operator bank key — required for any connection that is not the sandbox'}
+_CONN = {'type': 'string', 'description': 'connection id (default: the only one)'}
 
 
 TOOLS = {
@@ -355,6 +477,195 @@ TOOLS = {
             'address': {'type': 'string', 'description': '0x address to record as owner'},
         }, 'required': ['address']},
         'handler': _t_claim_owner,
+    },
+    'openhouse_civic_charter': {
+        'description': 'WRITES. The owner charters a government (city housing '
+                       'authority, state) into the empty civic seat. Once '
+                       'seated only the authority can leave; the owner cannot '
+                       'remove it or clear its pause.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'key': {'type': 'string', 'description': "the government server's key (civic/server.py GET /city)"},
+            'name': {'type': 'string', 'description': 'e.g. "Cleveland Housing Authority"'},
+            'region': {'type': 'string', 'description': 'ISO 3166-2, e.g. US-OH'},
+            'uri': {'type': 'string', 'description': 'the .gov URL that publishes the key'},
+            'owner': {'type': 'string', 'description': '0x owner address — required once an owner is recorded'},
+        }, 'required': ['key']},
+        'handler': _t_civic_charter,
+    },
+    'openhouse_civic_override': {
+        'description': 'WRITES. The chartered authority acts: pause/unpause '
+                       'freezes or thaws payments (bank transfers are held, '
+                       'not lost), hold/release blocks or permits a taking.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'action': {'type': 'string', 'enum': ['pause', 'unpause', 'hold', 'release']},
+            'key': {'type': 'string', 'description': "the chartered authority's key"},
+            'reason': {'type': 'string', 'description': 'on the record, next to the action'},
+        }, 'required': ['action', 'key']},
+        'handler': _t_civic_override,
+    },
+    'openhouse_examples': {
+        'description': 'Guided testnet walkthroughs: a first rent payment, a '
+                       'zero-fee owner, a lease-option, paying a home off, '
+                       'rent paid by bank transfer, importing a real bank '
+                       'statement, a city freezing payments. Lists name, '
+                       'title and what each one shows. Run one with '
+                       'openhouse_run_example.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_examples,
+    },
+    'openhouse_run_example': {
+        'description': 'Run one walkthrough end to end in a THROWAWAY store '
+                       '(the live testnet node is untouched) and return the '
+                       'transcript: every step is a real openhouse_* tool call '
+                       'with its arguments and its actual result, so you can '
+                       'replay any step against this server.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'name': {'type': 'string', 'description': 'example name from openhouse_examples'},
+        }, 'required': ['name']},
+        'handler': _t_run_example,
+    },
+    'openhouse_bank_kinds': {
+        'description': 'Every bank this node can connect to and the fields '
+                       'each needs: sandbox (local testnet bank), statement '
+                       '(camt.053 / MT940 / OFX / CSV in, ISO 20022 pain.001 '
+                       'out — works with any bank), openbanking (Berlin Group '
+                       'PSD2 or UK OBIE API) and mcp (a bank that runs its own '
+                       'MCP server).',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_bank_kinds,
+    },
+    'openhouse_bank_status': {
+        'description': 'Bank connections (no credentials), how many renters '
+                       'are linked and how many transfers have been booked.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_bank_status,
+    },
+    'openhouse_bank_connect': {
+        'description': 'WRITES. Connect a bank. kind=sandbox needs nothing '
+                       '(config.currency / holder / opening_balance optional). '
+                       'Real kinds need key and their config fields — see '
+                       'openhouse_bank_kinds. Credentials are stored 0600 off '
+                       'the repo and only ever read back redacted.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'kind': {'type': 'string', 'enum': ['sandbox', 'statement', 'openbanking', 'mcp']},
+            'name': {'type': 'string', 'description': 'a label, becomes the connection id'},
+            'config': {'type': 'object', 'description': 'the kind\'s fields, e.g. {"base_url":…,"access_token":…}'},
+            'key': _KEY,
+        }, 'required': ['kind']},
+        'handler': _t_bank_connect,
+    },
+    'openhouse_bank_disconnect': {
+        'description': 'WRITES. Forget a bank connection and its credentials.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'connection': {'type': 'string'}, 'key': _KEY,
+        }, 'required': ['connection']},
+        'handler': _t_bank_disconnect,
+    },
+    'openhouse_bank_accounts': {
+        'description': 'Accounts on a bank connection with currency, IBAN and balance.',
+        'inputSchema': {'type': 'object', 'properties': {'connection': _CONN, 'key': _KEY}},
+        'handler': _t_bank_accounts,
+    },
+    'openhouse_bank_transactions': {
+        'description': 'Transactions on a bank connection, newest first, in '
+                       'one shape whatever the bank: amount is signed (+ is '
+                       'money in), plus counterparty, IBAN and reference.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'connection': _CONN,
+            'account': {'type': 'string', 'description': 'account id (default: all)'},
+            'since': {'type': 'integer', 'description': 'unix seconds'},
+            'limit': {'type': 'integer', 'description': 'max rows (default 100)'},
+            'key': _KEY,
+        }},
+        'handler': _t_bank_transactions,
+    },
+    'openhouse_bank_import': {
+        'description': 'WRITES. Import a downloaded bank statement into a '
+                       'statement connection — camt.053 XML, MT940, OFX/QFX '
+                       'or CSV, auto-detected. Overlapping re-imports are '
+                       'de-duplicated.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'content': {'type': 'string', 'description': 'the statement file\'s text'},
+            'format': {'type': 'string', 'enum': ['auto', 'camt053', 'mt940', 'ofx', 'csv']},
+            'connection': _CONN, 'key': _KEY,
+        }, 'required': ['content']},
+        'handler': _t_bank_import,
+    },
+    'openhouse_bank_receive': {
+        'description': 'WRITES. Sandbox only: simulate a renter paying by bank '
+                       'transfer: books an incoming transfer on the sandbox '
+                       'bank. Put their code from openhouse_bank_reference in '
+                       '`reference`, then run openhouse_bank_reconcile.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'amount': {'type': 'number', 'description': 'amount in the account currency'},
+            'reference': {'type': 'string', 'description': 'transfer memo, e.g. "Rent OH-9B3CD4"'},
+            'from_name': {'type': 'string'}, 'from_iban': {'type': 'string'},
+            'account': {'type': 'string'}, 'connection': _CONN,
+            'date': {'type': 'integer', 'description': 'unix seconds (default now)'},
+        }, 'required': ['amount']},
+        'handler': _t_bank_receive,
+    },
+    'openhouse_bank_reference': {
+        'description': 'The reference code a renter writes in their bank '
+                       'transfer memo (OH-XXXXXX) so the payment is credited '
+                       'to them — works on any rail: SEPA, ACH, Faster '
+                       'Payments, Zelle, wire.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x renter address'},
+        }, 'required': ['address']},
+        'handler': _t_bank_reference,
+    },
+    'openhouse_bank_link': {
+        'description': 'WRITES. Link a renter to their bank payments: their '
+                       'reference code always matches; payer_iban / payer_name '
+                       'catch transfers sent without the code.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x renter address'},
+            'payer_iban': {'type': 'string'}, 'payer_name': {'type': 'string'},
+            'kind': {'type': 'string', 'enum': ['rent', 'option'], 'description': 'how their transfers are booked (default rent)'},
+            'key': _KEY,
+        }, 'required': ['address']},
+        'handler': _t_bank_link,
+    },
+    'openhouse_bank_links': {
+        'description': 'Linked renters with their reference codes. Payer IBAN '
+                       'and name are masked without the key when a real bank '
+                       'is connected.',
+        'inputSchema': {'type': 'object', 'properties': {'key': _KEY}},
+        'handler': _t_bank_links,
+    },
+    'openhouse_bank_reconcile': {
+        'description': 'WRITES. Book every linked incoming bank transfer onto '
+                       'the rent ledger exactly once, converted to Ξ (rate = '
+                       'fiat per Ξ, default the live fx rail) and stamped with '
+                       'the transfer it came from. Returns booked, held '
+                       '(ledger refused, e.g. civic pause — retried next run) '
+                       'and unmatched credits. dry_run=true previews.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'connection': _CONN,
+            'account': {'type': 'string'},
+            'since': {'type': 'integer', 'description': 'unix seconds'},
+            'dry_run': {'type': 'boolean'},
+            'rate': {'type': 'number', 'description': 'fiat per 1 Ξ (default: live fx)'},
+            'key': _KEY,
+        }},
+        'handler': _t_bank_reconcile,
+    },
+    'openhouse_bank_pay': {
+        'description': 'WRITES. Send money out of a bank connection. sandbox '
+                       'debits its fake account; statement returns an ISO '
+                       '20022 pain.001 file to upload at the bank; '
+                       'openbanking initiates a SEPA transfer the account '
+                       'holder approves at the bank; mcp calls the bank\'s '
+                       'payment tool. Real banks need key.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'amount': {'type': 'number'},
+            'to_iban': {'type': 'string'}, 'to_name': {'type': 'string'},
+            'account': {'type': 'string', 'description': 'paying account id / IBAN'},
+            'currency': {'type': 'string'}, 'reference': {'type': 'string'},
+            'connection': _CONN, 'key': _KEY,
+        }, 'required': ['amount', 'to_iban']},
+        'handler': _t_bank_pay,
     },
 }
 

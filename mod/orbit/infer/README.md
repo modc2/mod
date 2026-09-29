@@ -264,6 +264,56 @@ takes `batch=`, the rest take 1, and `shapes={"input_ids":"1,128"}` overrides
 any of it by name. Whatever was used is echoed back in the report, because a
 latency number without a shape attached means nothing.
 
+## The zoo: every ONNX model there is, one search
+
+"Something to optimize" should not mean three toy models. The zoo is one
+catalog over every place an `.onnx` can come from — seven sources, three of
+them offline:
+
+| source | what | how | count (2026-09-29) |
+|---|---|---|---|
+| `builtin` | one model per architecture family, built here — MLP, CNN, ResNet / MobileNet / ConvNeXt blocks, U-Net, YOLO-style detector, ViT, MLP-Mixer, autoencoder, GAN, diffusion U-Net, LSTM / GRU / RNN, BiLSTM tagger, text-CNN, BERT, GPT, Llama block (RMSNorm, SwiGLU, GQA), MoE, seq2seq, keyword spotter, TCN, conformer, 3-D conv video, PointNet, siamese, GCN, DLRM, sentence embedder — plus onnx.helper ones that need no torch: linear / logistic regression, `ai.onnx.ml` LinearClassifier and TreeEnsemble, k-means, If/Loop control flow | built, seeded, no network | 38 |
+| `onnx-tests` | the onnx wheel's own conformance models — every operator and variant, networks exported from PyTorch, the `light/` classic CNNs | already on disk | 1,914 |
+| `torchvision` | every registered architecture — classification, detection (incl. Mask/Keypoint R-CNN), segmentation, video, optical flow, the quantizable twins | exported on plant; sized from `num_params` *before* building | 121 |
+| `github` | the ONNX Model Zoo (`onnx/models`), + any repo in `INFER_ZOO_GITHUB` | one git-trees call; LFS sizes read from the pointer | 2,325 |
+| `huggingface` | every repo tagged onnx, + orgs that ship `.onnx.zip` HF does not tag (Qualcomm; `INFER_ZOO_HF_AUTHORS`) | `filter=onnx`, 1,000/call with file lists, cursor-paged | 53,831 |
+| `modelscope` | every repo whose libraries include onnx — FunASR speech, OCR, Chinese NLP | the site's own search endpoint, 100/page | 7,278 |
+| `kaggle` | every model *instance* whose framework is ONNX | full catalogue crawl, 8 orderings (see below) | 182 |
+
+```
+m infer/examples                       # plant all 38 builtin architectures
+m infer/zoo q=whisper                  # search every source at once
+m infer/scrape                         # crawl every remote source, in the background
+m infer/plant huggingface:Xenova/whisper-tiny file=onnx/encoder_model.onnx
+```
+
+The console's **zoo** tab is the same thing with a search box, domain facets and
+a per-file variant list (fp16, q4, int8… and which one plants by default — the
+full-precision one, because making the smaller ones is the optimizer's job).
+
+Things that were learned by hitting them:
+
+- **Rate limits are read, never guessed.** HuggingFace answers every call with
+  `ratelimit: "api";r=<left>;t=<reset>` (500 calls / 5 min anonymous). The
+  first naive crawl got this IP blocked for the window; the client now pauses
+  *before* it runs out and sleeps exactly the reset on a 429. `HF_TOKEN` and
+  `GITHUB_TOKEN` are used when present and never required.
+- **Kaggle's page tokens die after ~117 pages** of any one ordering (a bare 500,
+  every time) while the catalogue reports 10,000. One pass cannot see it all, so
+  the crawl is one pass per sort order Kaggle accepts, unioned; a 500 deep into
+  a pass means "this ordering ends here".
+- **`http.client`'s `read(-1)` is not "read everything"** — it returns one
+  64 KiB chunk, and a JSON body cut there fails as "invalid control character".
+- **Weights beside the graph are fetched by what the graph names**, not by
+  filename guessing: `model.onnx` and `model_fp16.onnx_data` share a prefix and
+  not a model. They are folded inline, so one model is always one blob, and
+  anything over `INFER_MAX_BYTES` (or protobuf's 2 GiB) is refused before it is
+  written.
+- **Crawls resume.** Each page is appended to `zoo/<source>.partial.jsonl` with
+  its cursor in `zoo/<source>.state.json`; a restart picks up where it stopped. A
+  re-crawl writes beside the finished catalog and swaps in only when complete.
+  Remote sources older than `INFER_ZOO_TTL` (7 days) are re-crawled on start.
+
 ## The console
 
 `/infer` — drop a model, see what it is, pick passes (or take the plan), run the
@@ -318,8 +368,18 @@ GET  /parity?a=&b=&samples=&tol=
 GET  /portable?model=
 POST /compare         {model, passes?} — every pass on its own, ranked
 POST /export          {source, shape?, weights?}
+POST /examples        {which?} — plant every builtin architecture (38)
+
+GET  /zoo             every model source, its count and crawl state
+GET  /zoo/models      ?q= &source= &domain= &task= &author= &local= &max_bytes=
+                      &sort=downloads|likes|recent|name|size|source &limit= &offset=
+GET  /zoo/model?key=  one row, every file with its size
+POST /zoo/scrape      {sources?, fresh?} — crawl in the background
+POST /zoo/stop        {sources?}
+POST /zoo/plant       {key, file?, name?, weights?}
+POST /zoo/plant_many  {keys} | {source, q, domain, limit}   GET /zoo/plants?id=
 POST /report          what a browser measured    GET /reports?model=
-POST /mcp             MCP JSON-RPC 2.0 (40 tools)
+POST /mcp             MCP JSON-RPC 2.0 (45 tools)
 ```
 
 ## State and requirements
@@ -328,8 +388,10 @@ Models live in `~/.mod/infer/models/<sha256>.onnx` with `registry.json` beside
 them (`INFER_DIR` moves it). Nothing here holds keys or money, so reads and
 writes are both open.
 
-Needs `onnx`, `onnxruntime` and `numpy`. `torch` is optional and only `export`
-and `examples` touch it. `m infer/health` says which passes are actually
+Needs `onnx`, `onnxruntime` and `numpy`. `torch` is optional and only `export`,
+the torch-built examples and the torchvision zoo source touch it — the six
+onnx.helper examples and every downloaded zoo model work without it. The zoo's
+catalog lives in `~/.mod/infer/zoo/`. `m infer/health` says which passes are actually
 available on the box you are on — quantization and fp16 come from onnxruntime
 itself, and a stripped build has neither.
 

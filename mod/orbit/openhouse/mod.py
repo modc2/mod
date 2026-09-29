@@ -113,11 +113,17 @@ class Mod:
         'updated': 0,
     }
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, store=None):
+        """store: put the whole state somewhere other than ~/.openhouse — the
+        testnet examples run each scenario in a throwaway directory this way,
+        so they never touch the live store. Bank credentials follow it there
+        too; by default they live off the repo in ~/.mod/openhouse/."""
         self.module_dir = Path(__file__).parent
         self.config = config or self._load_config()
-        self.store_dir = Path(os.path.expanduser('~/.openhouse'))
+        self.store_dir = Path(store) if store else Path(os.path.expanduser('~/.openhouse'))
         self.store_dir.mkdir(parents=True, exist_ok=True)
+        self.secrets_dir = (self.store_dir / 'secrets' if store
+                            else Path(os.path.expanduser('~/.mod/openhouse')))
 
         # Paths
         self.shareholders_path = self.store_dir / 'shareholders.json'
@@ -348,13 +354,17 @@ class Mod:
     def _principal_paid_total(self):
         return sum(float(r.get('credit', 0)) for r in self._load_rent())
 
-    def pay_rent(self, renter: str, amount: float, kind: str = 'rent') -> dict:
+    def pay_rent(self, renter: str, amount: float, kind: str = 'rent',
+                 source: Optional[dict] = None) -> dict:
         """Record a rent payment and split it: protocol fee, equity, owner income.
 
         Args:
             renter: the paying address
             amount: payment amount
             kind:   'rent' (split by the model) or 'option' (all equity)
+            source: where the money came from, kept on the entry — the bank
+                    reconciler stamps {bank, txn, fiat, currency, rate} so a
+                    ledger line can be traced back to the transfer that paid it
         """
         if not renter:
             return {'error': 'Renter address required'}
@@ -382,6 +392,8 @@ class Mod:
             'model': t['model'],
             'kind': kind,
         }
+        if source:
+            entry['source'] = source
         ledger = self._load_rent()
         ledger.append(entry)
         self._save_rent(ledger)
@@ -958,6 +970,279 @@ class Mod:
         """Remove the seeded demo scenario — and only that."""
         return self._demo_mod().unseed(self)
 
+    # ━━ The bank rail ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #
+    # Most rent is paid by bank transfer, not by wallet. bank/ connects any
+    # bank — a local sandbox for testnet, statement files (camt.053, MT940,
+    # OFX, CSV) for every bank on earth, Open Banking APIs (Berlin Group
+    # PSD2, UK OBIE), or a bank's own MCP server — and the reconciler books
+    # each transfer carrying a renter's reference code onto the rent ledger
+    # exactly once, converted to Ξ at the fx rate and stamped with its source.
+    #
+    # Who may touch what: a sandbox connection is fake money on a fake bank,
+    # so it is as open as the rest of this testnet surface. Anything else is
+    # a real bank — its statements, its payees, its payments — so every call
+    # on it needs the operator bank key, a random secret created on first use
+    # at ~/.mod/openhouse/bank_key (0600). It is never served by any endpoint:
+    # the operator reads it off their own disk.
+
+    def _bank_pkg(self):
+        """Load bank/ as a package by path — `bank` is far too common a name
+        to put on sys.path (see mod_import_shadowing)."""
+        if getattr(self, '_bank_pkg_cache', None) is None:
+            import importlib.util
+            import sys
+            name = 'openhouse_bank'
+            if name not in sys.modules:
+                d = self.module_dir / 'bank'
+                spec = importlib.util.spec_from_file_location(
+                    name, d / '__init__.py', submodule_search_locations=[str(d)])
+                pkg = importlib.util.module_from_spec(spec)
+                sys.modules[name] = pkg
+                spec.loader.exec_module(pkg)
+            self._bank_pkg_cache = sys.modules[name]
+        return self._bank_pkg_cache
+
+    def _bank(self):
+        return self._bank_pkg().open_bank(self.store_dir / 'bank', self.secrets_dir)
+
+    def _bank_key(self) -> str:
+        """The operator's bank key — read or create. Private on purpose:
+        a leading underscore keeps it off /forward and every other surface."""
+        import secrets as _secrets
+        p = self.secrets_dir / 'bank_key'
+        if p.exists():
+            return p.read_text().strip()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        k = 'ohbk_' + _secrets.token_urlsafe(24)
+        p.write_text(k)
+        os.chmod(p, 0o600)
+        return k
+
+    def _bank_key_ok(self, key) -> bool:
+        import hmac
+        return bool(key) and hmac.compare_digest(str(key), self._bank_key())
+
+    def _bank_gate(self, key, kind: str = '', connection: str = '') -> Optional[dict]:
+        """None when allowed; an error dict when a real bank needs the key."""
+        if connection or not kind:
+            conns = {c['id']: c for c in self._bank().connections()}
+            if connection:
+                if connection not in conns:
+                    return None          # let the bank report "no connection"
+                kind = conns[connection]['kind']
+            elif len(conns) == 1:
+                kind = next(iter(conns.values()))['kind']
+            elif all(c['kind'] == 'sandbox' for c in conns.values()):
+                kind = 'sandbox'         # nothing real is connected (or nothing is)
+        if kind == 'sandbox' or self._bank_key_ok(key):
+            return None
+        return {'error': 'This is a real bank connection — pass key= (the operator '
+                         f'bank key in {self.secrets_dir / "bank_key"} on the node).'}
+
+    def _bank_run(self, fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except self._bank_pkg().BankError as e:
+            return {'error': str(e)}
+
+    def _to_eth(self, amount: float, currency: str, rate: Optional[float] = None) -> dict:
+        """Bank money → ledger Ξ. `rate` is fiat per 1 Ξ; default the fx rail."""
+        ccy = (currency or 'USD').upper()
+        if ccy == 'ETH':
+            return {'units': round(float(amount), 8), 'rate': 1.0, 'fx': 'native'}
+        if rate:
+            r, src = float(rate), 'fixed'
+        else:
+            fx = self.fx()
+            r, src = fx.get('rates', {}).get(ccy.lower()), fx.get('source', '')
+            if not r:
+                return {'error': f'no ETH rate for {ccy} — pass rate= (fiat per Ξ)'}
+        return {'units': round(float(amount) / float(r), 8), 'rate': float(r), 'fx': src}
+
+    def bank_kinds(self) -> list:
+        """Every bank dialect this node can connect to, with the fields each needs."""
+        return self._bank().kinds()
+
+    def bank_status(self) -> dict:
+        """Connections (no credentials), renter links, and what has been booked."""
+        b = self._bank()
+        matched = b.matched()
+        return {
+            'connections': [{k: c[k] for k in ('id', 'kind', 'name', 'live', 'created')}
+                            for c in b.connections()],
+            'links': len(b.links()),
+            'booked_transfers': len(matched),
+            'booked_units': round(sum(float(m.get('units', 0)) for m in matched.values()), 8),
+            'kinds': [k['kind'] for k in b.kinds()],
+            'gate': 'sandbox is open (testnet, fake money); every other kind needs the '
+                    'operator bank key from ~/.mod/openhouse/bank_key',
+        }
+
+    def bank_connect(self, kind: str = 'sandbox', name: str = '',
+                     config: Optional[dict] = None, key: str = '') -> dict:
+        """Connect a bank. kind: sandbox | statement | openbanking | mcp —
+        see bank_kinds() for each one's fields. Credentials are stored 0600
+        under ~/.mod/openhouse/, never in the repo, and read back redacted."""
+        blocked = self._bank_gate(key, kind=kind)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().connect, kind, name, config or {})
+
+    def bank_connections(self, key: str = '') -> list:
+        """Connections with credentials redacted; configs only with the key."""
+        conns = self._bank().connections()
+        if self._bank_key_ok(key):
+            return conns
+        return [c if c['kind'] == 'sandbox' else {k: v for k, v in c.items() if k != 'config'}
+                for c in conns]
+
+    def bank_disconnect(self, connection: str, key: str = '') -> dict:
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().disconnect, connection)
+
+    def bank_accounts(self, connection: str = '', key: str = '') -> Any:
+        """Accounts and balances on a connection."""
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().accounts, connection)
+
+    def bank_transactions(self, connection: str = '', account: str = '',
+                          since: int = 0, limit: int = 100, key: str = '') -> Any:
+        """Booked transactions, newest first. amount is signed: + is money in."""
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().transactions, connection, account,
+                              int(since or 0), int(limit or 100))
+
+    def bank_import(self, content: str, connection: str = '', format: str = 'auto',
+                    key: str = '') -> dict:
+        """Import a statement file into a `statement` connection: camt.053,
+        MT940, OFX/QFX or CSV (auto-detected). Re-imports are idempotent."""
+        blocked = self._bank_gate(key, connection=connection, kind='statement')
+        if blocked:
+            return blocked
+
+        def run():
+            a = self._bank().adapter(connection)
+            if not hasattr(a, 'import_statement'):
+                return {'error': f'{a.kind} connections pull from the bank — '
+                                 'import is for statement connections'}
+            return a.import_statement(content, format)
+        return self._bank_run(run)
+
+    def bank_receive(self, amount: float, reference: str = '', from_name: str = '',
+                     from_iban: str = '', account: str = '', connection: str = '',
+                     date: int = 0) -> dict:
+        """SANDBOX ONLY: book an incoming transfer, as if a renter paid by bank.
+        Put the renter's reference code (bank_reference) in `reference`."""
+        def run():
+            a = self._bank().adapter(connection)
+            if a.kind != 'sandbox':
+                return {'error': 'bank_receive only exists on the sandbox bank — '
+                                 'a real bank receives real transfers'}
+            return a.receive(account=account, from_name=from_name, from_iban=from_iban,
+                             amount=amount, reference=reference, date=date or None)
+        return self._bank_run(run)
+
+    def bank_reference(self, address: str) -> dict:
+        """The code a renter writes in the transfer memo so their rent finds them."""
+        if not address:
+            return {'error': 'address required'}
+        code = self._bank_pkg().reference_code(address)
+        return {'address': address, 'reference': code,
+                'instructions': f'Pay rent by ordinary bank transfer and put {code} '
+                                'in the payment reference / memo. Any bank, any rail '
+                                '(SEPA, ACH, Faster Payments, Zelle, wire) — the code '
+                                'is how the payment is credited to you.'}
+
+    def bank_link(self, address: str, payer_iban: str = '', payer_name: str = '',
+                  kind: str = 'rent', key: str = '') -> dict:
+        """Tie a renter to their bank payments: their reference code always
+        matches; payer_iban / payer_name catch transfers sent without it."""
+        blocked = self._bank_gate(key)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().link, address, payer_iban, payer_name, kind)
+
+    def bank_unlink(self, address: str, key: str = '') -> dict:
+        blocked = self._bank_gate(key)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().unlink, address)
+
+    def bank_links(self, key: str = '') -> list:
+        """Renter links. Payer IBAN/name are personal data — masked without the key
+        unless every connection is the sandbox."""
+        links = self._bank().links()
+        if self._bank_gate(key) is None:
+            return links
+        return [{**l, 'payer_iban': ('••' + l['payer_iban'][-4:]) if l['payer_iban'] else '',
+                 'payer_name': (l['payer_name'][:1] + '…') if l['payer_name'] else ''}
+                for l in links]
+
+    def bank_reconcile(self, connection: str = '', account: str = '', since: int = 0,
+                       dry_run: bool = False, rate: Optional[float] = None,
+                       key: str = '') -> dict:
+        """Book every linked incoming transfer onto the rent ledger, once.
+
+        Each credit carrying a renter's reference code (or from their linked
+        IBAN / name) becomes pay_rent(renter, fiat ÷ rate) with the bank
+        transfer stamped as its source. Transfers the ledger refuses (civic
+        pause, home paid off) are `held` and retried next run; credits nobody
+        claims come back `unmatched` for the owner to look at.
+
+        rate: fiat per 1 Ξ; default is the live fx rail (fx()).
+        """
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(
+            self._bank().reconcile,
+            record=lambda renter, units, kind, source: self.pay_rent(renter, units, kind=kind, source=source),
+            to_units=lambda amount, ccy: self._to_eth(amount, ccy, rate),
+            conn_id=connection, account=account, since=int(since or 0), dry_run=bool(dry_run))
+
+    def bank_pay(self, amount: float, to_iban: str, to_name: str = '', account: str = '',
+                 connection: str = '', currency: str = '', reference: str = '',
+                 key: str = '') -> dict:
+        """Send money out — owner income, a pool payout, a repair. Sandbox
+        debits its fake account; statement writes an ISO 20022 pain.001 file
+        to upload; openbanking initiates a SEPA transfer you approve at the
+        bank (SCA); mcp calls the bank's own payment tool. Real banks need key."""
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().pay, connection, account, to_name, to_iban,
+                              amount, currency, reference)
+
+    # ━━ Testnet examples ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _examples_mod(self):
+        """Load examples.py by path, same reasoning as _peers_mod."""
+        if getattr(self, '_examples_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_examples', self.module_dir / 'examples.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._examples_cache = mod_
+        return self._examples_cache
+
+    def examples(self) -> list:
+        """The testnet walkthroughs: name, title, what each one shows."""
+        return self._examples_mod().catalog()
+
+    def example(self, name: str) -> dict:
+        """Run one walkthrough end to end in a throwaway store and return its
+        transcript — every step is a real MCP tool call with its real result,
+        so any step can be replayed against the live testnet node."""
+        return self._examples_mod().run(name, type(self))
+
     # ━━ Health & Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def health(self):
@@ -1331,6 +1616,15 @@ class Mod:
          'the government\'s own infrastructure.'),
         ('mod.py', 'python',
          'Module logic — shares, dividends, governance, serving.'),
+        ('bank/core.py', 'python',
+         'The bank rail: one shape for every bank, and the reconciler that '
+         'books a transfer carrying a renter\'s code onto the ledger exactly once.'),
+        ('examples.py', 'python',
+         'The testnet walkthroughs — each a story told in real MCP tool calls, '
+         'played in a throwaway store.'),
+        ('contracts/script/Testnet.s.sol', 'solidity',
+         'Deploy a property and pay a month of rent on a real chain — anvil '
+         'locally, or Base Sepolia with your own test keys.'),
         ('api/api.py', 'python',
          'FastAPI REST surface over the module.'),
         ('api/mcp_server.py', 'python',
@@ -1537,6 +1831,19 @@ class Mod:
             fx                 - ETH in fiat currencies for display (refresh=)
             seed               - Fill the testnet store with fake example data (force=)
             unseed             - Remove the seeded demo data
+            examples           - The testnet walkthroughs
+            example            - Run one in a throwaway store, get the transcript (name=)
+            bank_kinds         - Banks this node can connect to (sandbox|statement|openbanking|mcp)
+            bank_status        - Connections, links, transfers booked
+            bank_connect       - Connect a bank (kind=, name=, config=, key=)
+            bank_accounts      - Accounts + balances (connection=, key=)
+            bank_transactions  - Signed transactions, newest first (connection=, since=, key=)
+            bank_import        - Import a statement: camt.053/MT940/OFX/CSV (file= or content=, key=)
+            bank_receive       - SANDBOX: fake an incoming transfer (amount=, reference=)
+            bank_reference     - A renter's transfer-memo code (address=)
+            bank_link          - Tie a renter to their payments (address=, payer_iban=, payer_name=)
+            bank_reconcile     - Book linked transfers as rent, once (rate=, dry_run=, key=)
+            bank_pay           - Send money out (amount=, to_iban=, to_name=, key=)
             property           - Property details
             shareholders       - All shareholders
             shareholder        - Shareholder info (address=)
@@ -1603,6 +1910,46 @@ class Mod:
             'fx': lambda: self.fx(refresh=bool(kwargs.get('refresh'))),
             'seed': lambda: self.seed(force=bool(kwargs.get('force'))),
             'unseed': lambda: self.unseed(),
+            'examples': lambda: self.examples(),
+            'example': lambda: self.example(kwargs.get('name', '')),
+            'bank_kinds': lambda: self.bank_kinds(),
+            'bank_status': lambda: self.bank_status(),
+            'bank_connect': lambda: self.bank_connect(
+                kwargs.get('kind', 'sandbox'), name=kwargs.get('name', ''),
+                config=kwargs.get('config') or {}, key=kwargs.get('key', '')),
+            'bank_connections': lambda: self.bank_connections(key=kwargs.get('key', '')),
+            'bank_disconnect': lambda: self.bank_disconnect(
+                kwargs.get('connection', ''), key=kwargs.get('key', '')),
+            'bank_accounts': lambda: self.bank_accounts(
+                kwargs.get('connection', ''), key=kwargs.get('key', '')),
+            'bank_transactions': lambda: self.bank_transactions(
+                kwargs.get('connection', ''), account=kwargs.get('account', ''),
+                since=int(kwargs.get('since', 0) or 0), limit=int(kwargs.get('limit', 100) or 100),
+                key=kwargs.get('key', '')),
+            'bank_import': lambda: self.bank_import(
+                kwargs.get('content') or (Path(kwargs['file']).read_text() if kwargs.get('file') else ''),
+                connection=kwargs.get('connection', ''), format=kwargs.get('format', 'auto'),
+                key=kwargs.get('key', '')),
+            'bank_receive': lambda: self.bank_receive(
+                float(kwargs.get('amount', 0)), reference=kwargs.get('reference', ''),
+                from_name=kwargs.get('from_name', ''), from_iban=kwargs.get('from_iban', ''),
+                account=kwargs.get('account', ''), connection=kwargs.get('connection', '')),
+            'bank_reference': lambda: self.bank_reference(kwargs.get('address', '')),
+            'bank_link': lambda: self.bank_link(
+                kwargs.get('address', ''), payer_iban=kwargs.get('payer_iban', ''),
+                payer_name=kwargs.get('payer_name', ''), kind=kwargs.get('kind', 'rent'),
+                key=kwargs.get('key', '')),
+            'bank_unlink': lambda: self.bank_unlink(kwargs.get('address', ''), key=kwargs.get('key', '')),
+            'bank_links': lambda: self.bank_links(key=kwargs.get('key', '')),
+            'bank_reconcile': lambda: self.bank_reconcile(
+                kwargs.get('connection', ''), account=kwargs.get('account', ''),
+                since=int(kwargs.get('since', 0) or 0), dry_run=bool(kwargs.get('dry_run')),
+                rate=float(kwargs['rate']) if kwargs.get('rate') else None, key=kwargs.get('key', '')),
+            'bank_pay': lambda: self.bank_pay(
+                float(kwargs.get('amount', 0)), kwargs.get('to_iban', ''),
+                to_name=kwargs.get('to_name', ''), account=kwargs.get('account', ''),
+                connection=kwargs.get('connection', ''), currency=kwargs.get('currency', ''),
+                reference=kwargs.get('reference', ''), key=kwargs.get('key', '')),
             'property': lambda: self.property(),
             'shareholders': lambda: self.shareholders(),
             'shareholder': lambda: self.shareholder(kwargs.get('address', '')),

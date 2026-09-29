@@ -1,6 +1,6 @@
 {
   "scores": {
-    "0": 0.3920417098405337
+    "0": 0.5138694196996285
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -10,79 +10,79 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.6906,
-        "ema_score": 0.392,
+        "epoch_score": 0.6891,
+        "ema_score": 0.5139,
         "samples": [
           {
-            "score": 0.7023845886329135,
+            "score": 0.7053502133366817,
             "task": "block_header",
-            "elapsed": 3.175,
+            "elapsed": 3.136,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.5502684938888747,
+            "score": 0.5804222926478344,
             "task": "gas_price",
-            "elapsed": 3.35,
+            "elapsed": 3.248,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6746870185628998,
+            "score": 0.6708014376322251,
             "task": "account_state",
-            "elapsed": 3.235,
+            "elapsed": 3.291,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.9066666666666667,
+            "score": 0.8599999999999999,
             "task": "block_header",
-            "elapsed": 0.206,
+            "elapsed": 0.152,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6723506229690237,
+            "score": 0.6699602324652487,
             "task": "gas_price",
-            "elapsed": 3.268,
+            "elapsed": 3.303,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.7853126260966667,
+            "score": 0.8148393614825253,
             "task": "account_state",
-            "elapsed": 3.323,
+            "elapsed": 3.233,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6744808024371112,
+            "score": 0.6847064110234032,
             "task": "block_header",
-            "elapsed": 3.238,
+            "elapsed": 3.102,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.558803043696348,
+            "score": 0.5263232576196664,
             "task": "gas_price",
-            "elapsed": 3.224,
+            "elapsed": 3.36,
             "signature_ok": true,
             "correct": true
           }
         ]
       }
     },
-    "at": 1790701206,
+    "at": 1790715196,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 23,
+      "epoch": 27,
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1790701265
+  "updated": 1790715254
 }

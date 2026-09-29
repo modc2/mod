@@ -7,7 +7,7 @@
 //! stripped) and the console at /arena (prefix kept), so both are served here
 //! and one console works in both places.
 
-use crate::{arena, mcp, mcpout, modmcp, rustc, storelink, trades, vibe};
+use crate::{arena, mcp, mcpout, modmcp, rustc, storelink, vibe};
 use axum::{
     body::Body,
     extract::{Path, Query, Request},
@@ -52,7 +52,7 @@ fn info() -> Value {
     v["endpoints"] = json!({
         "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
         "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
-        "games": "GET /modules?role=game&tag= — every game, filterable by tag; the trades page shows this shelf",
+        "games": "GET /modules?role=game&tag= — every game, filterable by tag; the console's GAMES tab shows this shelf",
         "codegame": "POST /codegame {repo, name?, tasks?, rounds?} — a repo of choice, harvested into a coding game",
         "classes": "GET /classes — the Python classes | POST /classes {source} — upload one as text",
         "blob": "GET /blob/:id — the module bytes, immutable (the id is their hash)",
@@ -71,8 +71,7 @@ fn info() -> Value {
         "tools": "GET /tools",
         "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
         "fleet": "GET /fleet — every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
-        "trades": "GET /trades?days=&hours= — the trader board joined onto the tape, every trade scored for potential ROI",
-        "console": "GET /arena (browser, the trades view) | GET /arena/classic (the games/agents console) | GET /arena/arcade (hi-score boards) | GET /arena/agents (the agent-module board, framed here)"
+        "console": "GET /arena (browser, the games/agents console; /arena/classic is a permanent alias) | GET /arena/arcade (hi-score boards) | GET /arena/agents (the agent-module board, framed here)"
     });
     v["stdio"] = json!("arena-api --stdio");
     v
@@ -86,19 +85,15 @@ async fn root(req: Request) -> Response {
         .map(|a| a.contains("text/html"))
         .unwrap_or(false);
     if wants_html {
-        Html(trades::TRADES_HTML).into_response()
+        Html(CONSOLE_HTML).into_response()
     } else {
         Json(info()).into_response()
     }
 }
 
-/// The front door is the trades view; the full games/agents console lives
-/// on at /arena/classic, untouched.
+/// The front door is the games/agents console. /arena/classic stays as a
+/// permanent alias — links and iframes were minted against it.
 async fn console() -> Html<&'static str> {
-    Html(trades::TRADES_HTML)
-}
-
-async fn classic() -> Html<&'static str> {
     Html(CONSOLE_HTML)
 }
 
@@ -589,7 +584,6 @@ fn api_routes() -> Router {
         .route("/runtime/:name", get(runtime_file))
         .route("/forward", post(forward))
         .route("/tools", get(tools))
-        .route("/trades", get(trades::data))
 }
 
 pub async fn serve(port: u16) {
@@ -615,7 +609,7 @@ pub async fn serve(port: u16) {
         .route("/", get(root))
         .route("/arena", get(console))
         .route("/arena/", get(console))
-        .route("/arena/classic", get(classic))
+        .route("/arena/classic", get(console))
         .route("/arena/arcade", get(arcade_page))
         .route("/arena/agents", get(agents_page))
         .merge(api_routes())

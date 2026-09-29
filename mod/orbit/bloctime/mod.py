@@ -455,6 +455,10 @@ class Mod:
             'explorer': f"https://sepolia.basescan.org/address/{contracts.get('bloctime', '')}",
         }
 
+    def whitepaper(self):
+        """The BlocTime whitepaper (markdown) — same file the API and console serve."""
+        return (self.module_dir / 'whitepaper.md').read_text()
+
     # ── Fork / Marketplace / Bridge ───────────────────────────────
 
     def _registry(self):

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+  <BkToCstmrStmt>
+    <GrpHdr><MsgId>DEMO-STMT-2026-09</MsgId><CreDtTm>2026-09-30T18:00:00</CreDtTm></GrpHdr>
+    <Stmt>
+      <Id>DEMO-2026-09</Id>
+      <Acct><Id><IBAN>XT611234567890123456</IBAN></Id><Ccy>EUR</Ccy><Nm>DEMO Landlord rent account</Nm></Acct>
+      <Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">200.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2026-09-01</Dt></Dt></Bal>
+      <Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="EUR">3015.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>2026-09-30</Dt></Dt></Bal>
+      <Ntry>
+        <Amt Ccy="EUR">1450.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-09-01</Dt></BookgDt><AcctSvcrRef>CAMT-0001</AcctSvcrRef>
+        <NtryDtls><TxDtls>
+          <RltdPties><Dbtr><Nm>Maya Ortiz</Nm></Dbtr><DbtrAcct><Id><IBAN>XT279876543210987654</IBAN></Id></DbtrAcct></RltdPties>
+          <RmtInf><Ustrd>Rent September OH-9B3CD4</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">1450.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-09-03</Dt></BookgDt><AcctSvcrRef>CAMT-0002</AcctSvcrRef>
+        <NtryDtls><TxDtls>
+          <RltdPties><Dbtr><Nm>Jonah Reyes</Nm></Dbtr><DbtrAcct><Id><IBAN>XT051111222233334444</IBAN></Id></DbtrAcct></RltdPties>
+          <RmtInf><Ustrd>september rent oh e0f923</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">85.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-09-12</Dt></BookgDt><AcctSvcrRef>CAMT-0003</AcctSvcrRef>
+        <NtryDtls><TxDtls>
+          <RltdPties><Cdtr><Nm>DEMO Plumbing Co</Nm></Cdtr><CdtrAcct><Id><IBAN>XT720000111122223333</IBAN></Id></CdtrAcct></RltdPties>
+          <RmtInf><Ustrd>Invoice 4411 boiler repair</Ustrd></RmtInf>
+        </TxDtls></NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">40.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts>PDNG</Sts>
+        <BookgDt><Dt>2026-09-29</Dt></BookgDt><AcctSvcrRef>CAMT-0004</AcctSvcrRef>
+        <AddtlNtryInf>Account fee (pending)</AddtlNtryInf>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

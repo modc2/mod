@@ -1,7 +1,7 @@
 {
     "name": "openhouse",
     "description": "Rent-to-own, on-chain \u2014 the protocol takes 0\u20135% (owner-set, zero allowed, capped in the contract) and 95\u2013100% of every payment stays with the property as renter equity and owner income",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "port": 50132,
     "app_port": 50131,
     "urls": {
@@ -46,6 +46,23 @@
         "fx",
         "seed",
         "unseed",
+        "examples",
+        "example",
+        "bank_kinds",
+        "bank_status",
+        "bank_connect",
+        "bank_connections",
+        "bank_disconnect",
+        "bank_accounts",
+        "bank_transactions",
+        "bank_import",
+        "bank_receive",
+        "bank_reference",
+        "bank_link",
+        "bank_unlink",
+        "bank_links",
+        "bank_reconcile",
+        "bank_pay",
         "purchase",
         "distribute",
         "record_action",
@@ -68,8 +85,8 @@
         "url": "http://localhost:50132/mcp",
         "transport": "streamable-http",
         "auth": "none",
-        "docs": "Model Context Protocol (JSON-RPC 2.0 over Streamable HTTP) tool server for LLM agents \u2014 POST /mcp on the API. Reads: openhouse_terms, openhouse_quote, openhouse_models, openhouse_status, openhouse_property, openhouse_rent_stats, openhouse_rent_ledger, openhouse_equity, openhouse_shareholders, openhouse_portfolio, openhouse_dividends, openhouse_landscape, openhouse_source. Writes (testnet bookkeeping, no signed transactions): openhouse_pay_rent, openhouse_purchase, openhouse_set_terms, openhouse_claim_owner."
+        "docs": "Model Context Protocol (JSON-RPC 2.0 over Streamable HTTP) tool server for LLM agents \u2014 POST /mcp on the API, 35 tools. Start: openhouse_examples / openhouse_run_example (testnet walkthroughs, each a transcript of real tool calls, run in a throwaway store). Reads: openhouse_terms, quote, models, status, property, rent_stats, rent_ledger, equity, shareholders, portfolio, dividends, civic, landscape, source. Writes (testnet bookkeeping, no signed transactions): openhouse_pay_rent, purchase, set_terms, claim_owner, civic_charter, civic_override. Banks (any bank): openhouse_bank_kinds, bank_status, bank_connect, bank_disconnect, bank_accounts, bank_transactions, bank_import, bank_receive, bank_reference, bank_link, bank_links, bank_reconcile, bank_pay \u2014 adapters: sandbox (testnet, open), statement (camt.053/MT940/OFX/CSV in, ISO 20022 pain.001 out), openbanking (Berlin Group PSD2 / UK OBIE), mcp (a bank's own MCP server). Non-sandbox banks need the operator key (~/.mod/openhouse/bank_key, never served)."
     },
-    "schema": "QmX9HgF395bxS9BSNivFwW3kJ35CNmcgLJf5GCWrceh1cr",
+    "schema": "Qmd92NGzXnu87da9vud7auATFJwZvSwzRMBEspBPQkmM4g",
     "gateway_port": 50131
 }

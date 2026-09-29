@@ -242,6 +242,156 @@ def civic_resign(req: CivicResignRequest):
     return result
 
 
+# ── Testnet examples ────────────────────────────────────────────
+# Guided walkthroughs, each played in a throwaway store — running one never
+# touches the live testnet data, so GET is honest about it.
+
+@app.get("/examples")
+def examples():
+    return get_openhouse().examples()
+
+@app.get("/examples/{name}")
+def example(name: str):
+    result = get_openhouse().example(name)
+    if "error" in result and "steps" not in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+# ── The bank rail ───────────────────────────────────────────────
+# Any bank: sandbox (testnet, open) · statement files · Open Banking · a
+# bank's own MCP server. Real banks need the operator bank key, passed as
+# the X-Bank-Key header or `key` in the body/query. Errors are 4xx, never
+# 5xx (Cloudflare strips 5xx bodies).
+
+class BankConnectRequest(BaseModel):
+    kind: str = "sandbox"
+    name: str = ""
+    config: dict = {}
+    key: str = ""
+
+class BankImportRequest(BaseModel):
+    content: str
+    connection: str = ""
+    format: str = "auto"
+    key: str = ""
+
+class BankReceiveRequest(BaseModel):
+    amount: float
+    reference: str = ""
+    from_name: str = ""
+    from_iban: str = ""
+    account: str = ""
+    connection: str = ""
+    date: int = 0
+
+class BankLinkRequest(BaseModel):
+    address: str
+    payer_iban: str = ""
+    payer_name: str = ""
+    kind: str = "rent"
+    key: str = ""
+
+class BankReconcileRequest(BaseModel):
+    connection: str = ""
+    account: str = ""
+    since: int = 0
+    dry_run: bool = False
+    rate: Optional[float] = None
+    key: str = ""
+
+class BankPayRequest(BaseModel):
+    amount: float
+    to_iban: str
+    to_name: str = ""
+    account: str = ""
+    connection: str = ""
+    currency: str = ""
+    reference: str = ""
+    key: str = ""
+
+class BankDisconnectRequest(BaseModel):
+    connection: str
+    key: str = ""
+
+
+def _bk(request: Request, key: str = "") -> str:
+    return key or request.headers.get("x-bank-key", "")
+
+def _bank_out(result):
+    if isinstance(result, dict) and "error" in result:
+        code = 403 if "key=" in result["error"] else 400
+        raise HTTPException(status_code=code, detail=result["error"])
+    return result
+
+@app.get("/bank")
+def bank_status():
+    return get_openhouse().bank_status()
+
+@app.get("/bank/kinds")
+def bank_kinds():
+    return get_openhouse().bank_kinds()
+
+@app.get("/bank/connections")
+def bank_connections(request: Request, key: str = ""):
+    return get_openhouse().bank_connections(key=_bk(request, key))
+
+@app.post("/bank/connect")
+def bank_connect(req: BankConnectRequest, request: Request):
+    return _bank_out(get_openhouse().bank_connect(
+        req.kind, name=req.name, config=req.config, key=_bk(request, req.key)))
+
+@app.post("/bank/disconnect")
+def bank_disconnect(req: BankDisconnectRequest, request: Request):
+    return _bank_out(get_openhouse().bank_disconnect(req.connection, key=_bk(request, req.key)))
+
+@app.get("/bank/accounts")
+def bank_accounts(request: Request, connection: str = "", key: str = ""):
+    return _bank_out(get_openhouse().bank_accounts(connection, key=_bk(request, key)))
+
+@app.get("/bank/transactions")
+def bank_transactions(request: Request, connection: str = "", account: str = "",
+                      since: int = 0, limit: int = 100, key: str = ""):
+    return _bank_out(get_openhouse().bank_transactions(
+        connection, account=account, since=since, limit=limit, key=_bk(request, key)))
+
+@app.post("/bank/import")
+def bank_import(req: BankImportRequest, request: Request):
+    return _bank_out(get_openhouse().bank_import(
+        req.content, connection=req.connection, format=req.format, key=_bk(request, req.key)))
+
+@app.post("/bank/receive")
+def bank_receive(req: BankReceiveRequest):
+    return _bank_out(get_openhouse().bank_receive(**req.model_dump()))
+
+@app.get("/bank/reference/{address}")
+def bank_reference(address: str):
+    return _bank_out(get_openhouse().bank_reference(address))
+
+@app.post("/bank/link")
+def bank_link(req: BankLinkRequest, request: Request):
+    return _bank_out(get_openhouse().bank_link(
+        req.address, payer_iban=req.payer_iban, payer_name=req.payer_name,
+        kind=req.kind, key=_bk(request, req.key)))
+
+@app.get("/bank/links")
+def bank_links(request: Request, key: str = ""):
+    return get_openhouse().bank_links(key=_bk(request, key))
+
+@app.post("/bank/reconcile")
+def bank_reconcile(req: BankReconcileRequest, request: Request):
+    return _bank_out(get_openhouse().bank_reconcile(
+        req.connection, account=req.account, since=req.since, dry_run=req.dry_run,
+        rate=req.rate, key=_bk(request, req.key)))
+
+@app.post("/bank/pay")
+def bank_pay(req: BankPayRequest, request: Request):
+    return _bank_out(get_openhouse().bank_pay(
+        req.amount, req.to_iban, to_name=req.to_name, account=req.account,
+        connection=req.connection, currency=req.currency, reference=req.reference,
+        key=_bk(request, req.key)))
+
+
 # ── The landscape ───────────────────────────────────────────────
 
 @app.get("/peers")

@@ -1111,8 +1111,8 @@ async function openGamePage(id) {
   const g = await call(`/modules/${id}`);
   openGame = g;
   show("game");
-  // Deep-linkable, the way a docs page is — the trades front door links
-  // straight to a board with #game/<id>.
+  // Deep-linkable, the way a docs page is — #game/<id> opens this board
+  // straight away.
   history.replaceState(null, "", `#game/${g.id}`);
   $("g-name").textContent = g.name;
   $("g-lang").textContent = langLabel(g.lang);

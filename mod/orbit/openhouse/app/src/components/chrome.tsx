@@ -20,6 +20,7 @@ export const ROUTES = [
   { href: '/manifesto', label: 'Manifesto', blurb: 'Why a rent cheque should buy something' },
   { href: '/split',     label: 'The Split', blurb: 'Where every payment goes — and the dial that sets it' },
   { href: '/simulator', label: 'Simulator', blurb: 'Scrub the timeline and watch the equity fill up' },
+  { href: '/testnet',   label: 'Testnet',   blurb: 'Run the walkthroughs — rent, any bank, a city — in a sandbox' },
   { href: '/invest',    label: 'Invest',    blurb: 'The building, the float, and how to take a position' },
   { href: '/paper',     label: 'Whitepaper', blurb: 'Six sections, one page each' },
   { href: '/landscape', label: 'Landscape', blurb: 'Every other on-chain housing project, honestly' },

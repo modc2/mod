@@ -30,7 +30,10 @@ conversion:
     locally   onnxruntime          `m infer/bench`
     browser   onnxruntime-web      the console, on the same bytes
 
-    m infer/examples                          # three models to work on
+    m infer/examples                          # every architecture, 38 models
+    m infer/zoo q=whisper                     # search every ONNX source at once
+    m infer/scrape                            # crawl HF, ModelScope, GitHub, Kaggle…
+    m infer/plant huggingface:onnx-community/all-MiniLM-L6-v2-ONNX
     m infer/inspect mlp                       # what it is: ops, params, shapes
     m infer/plan mlp target=web               # what to try, and why
     m infer/optimize mlp slim,extended        # do it, measured both ways
@@ -301,10 +304,26 @@ class Mod:
 
     delete = rm
 
-    def examples(self):
-        """Plant an MLP, a CNN and a transformer block to experiment on."""
+    def examples(self, which=None):
+        """Plant every builtin architecture (38 — MLP to MoE to tree ensemble),
+        or just the named ones: which=mlp,cnn,gpt-tiny."""
         import engine
-        return engine.examples()
+        return engine.examples(which)
+
+    def zoo(self, q=None, source=None, domain=None, sort='downloads', limit=20):
+        """Search every ONNX model this box can find, across every source."""
+        import zoo
+        return zoo.search(q=q, source=source, domain=domain, sort=sort, limit=limit)
+
+    def scrape(self, sources=None, fresh=False, wait=False):
+        """Crawl the zoo sources (all by default) in the background."""
+        import zoo
+        return zoo.scrape(sources, fresh=fresh, wait=wait)
+
+    def plant(self, key, file=None, name=None, weights=None):
+        """Download (or build) one zoo model into the store."""
+        import zoo
+        return zoo.plant(key, file=file, name=name, weights=weights)
 
     def export(self, source, name=None, opset=17, shape=None, weights=None):
         """torchvision:<name>, a .py defining `model`, or a .pt → ONNX."""

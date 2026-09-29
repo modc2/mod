@@ -185,6 +185,47 @@ class Mod:
         (self._dir() / f"{prompt['id']}.json").write_text(json.dumps(prompt, indent=2))
         return prompt
 
+    # ── harvest (scrape public prompt collections) ────────────────────
+    # Same catalog the API serves; local callers run as the operator.
+
+    def _harvest(self):
+        import importlib.util as ilu
+        p = os.path.join(self.path, "api", "harvest.py")
+        spec = ilu.spec_from_file_location("_promptland_harvest", p)
+        mod_ = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod_)
+        return mod_
+
+    def harvest_sources(self) -> List[dict]:
+        h = self._harvest()
+        counts = h.stats()["by_source"]
+        return [dict(s, count=counts.get(s["name"], 0)) for s in h.sources()]
+
+    def harvest(self, sources: Optional[List[str]] = None, limit: int = 2000) -> dict:
+        """Run the scraper synchronously (CLI/agent). `m promptland/harvest`."""
+        return self._harvest().run_harvest(sources, limit)
+
+    def harvest_list(self, q: str = "", source: str = "",
+                     offset: int = 0, limit: int = 100) -> dict:
+        return self._harvest().list_items(q=q, source=source, offset=offset, limit=limit)
+
+    def harvest_get(self, hid: str) -> dict:
+        item = self._harvest().get_item(hid)
+        if not item:
+            raise FileNotFoundError(f"harvested prompt {hid} not found")
+        return item
+
+    def harvest_keep(self, hid: str) -> dict:
+        """Copy a harvested prompt into the operator's library."""
+        item = self.harvest_get(hid)
+        desc = f"harvested from {item.get('source')}" + (
+            f" ({item['license']})" if item.get("license") else "")
+        return self.save_prompt(item["name"], item["body"],
+                                description=desc, tags=item.get("tags"))
+
+    def harvest_add_source(self, **src) -> dict:
+        return self._harvest().add_source(src)
+
     # ── serve / kill / status ─────────────────────────────────────────
 
     def serve(self, api_port: Optional[int] = None, app_port: Optional[int] = None) -> dict:

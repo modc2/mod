@@ -30,6 +30,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import harvest
+
 # ── localfs (CID store) — same canonical implementation orbit/localfs wraps ──
 _CORE_LOCALFS = Path(__file__).resolve().parents[3] / "core" / "store" / "src" / "localfs" / "localfs" / "mod.py"
 _spec = _ilu.spec_from_file_location("_promptland_localfs", _CORE_LOCALFS)
@@ -426,6 +428,118 @@ def import_prompt(request: Request, req: ImportReq):
         "updated": now,
         "imported_from": req.cid.strip(),
         "original_author": data.get("author"),
+    }
+    _prompt_path(addr, prompt["id"]).write_text(json.dumps(prompt, indent=2))
+    return {"prompt": prompt}
+
+
+# ── harvest (scrape public prompt collections into a local catalog) ──────────
+# Browsing is public; the "keep" copy needs a session; running the scraper and
+# editing sources are owner-only — fetches happen from this server.
+
+def require_owner(request: Request) -> str:
+    addr = require_auth(request)
+    if _role_of(addr) != "owner":
+        raise HTTPException(403, "Owner only")
+    return addr
+
+
+@app.get("/harvest/sources")
+def harvest_sources():
+    counts = harvest.stats()["by_source"]
+    return {"sources": [dict(s, count=counts.get(s["name"], 0)) for s in harvest.sources()]}
+
+
+class SourceReq(BaseModel):
+    name: str
+    kind: str
+    url: Optional[str] = None
+    repo: Optional[str] = None
+    branch: Optional[str] = None
+    include: Optional[List[str]] = None
+    exclude: Optional[List[str]] = None
+    license: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+@app.post("/harvest/sources")
+def harvest_add_source(request: Request, req: SourceReq):
+    require_owner(request)
+    try:
+        return {"source": harvest.add_source({k: v for k, v in req.dict().items() if v is not None})}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/harvest/sources/{name}")
+def harvest_remove_source(request: Request, name: str):
+    require_owner(request)
+    if not harvest.remove_source(name):
+        raise HTTPException(404, "Source not found")
+    return {"removed": name}
+
+
+class HarvestRunReq(BaseModel):
+    sources: Optional[List[str]] = None
+    limit: Optional[int] = None
+
+
+@app.post("/harvest/run")
+def harvest_run(request: Request, req: HarvestRunReq = HarvestRunReq()):
+    require_owner(request)
+    if harvest.STATUS.get("running"):
+        raise HTTPException(409, "Harvest already running")
+    limit = min(int(req.limit or harvest.MAX_ITEMS_PER_RUN), harvest.MAX_ITEMS_PER_RUN)
+    threading.Thread(
+        target=harvest.run_harvest, args=(req.sources, limit), daemon=True
+    ).start()
+    return {"started": True, "sources": req.sources or "all"}
+
+
+@app.get("/harvest/status")
+def harvest_status():
+    return {"status": dict(harvest.STATUS), "stats": harvest.stats()}
+
+
+@app.get("/harvest")
+def harvest_list(q: str = "", source: str = "", offset: int = 0, limit: int = 100):
+    return harvest.list_items(q=q, source=source, offset=offset, limit=limit)
+
+
+@app.get("/harvest/{hid}")
+def harvest_get(hid: str):
+    item = harvest.get_item(hid)
+    if not item:
+        raise HTTPException(404, "Harvested prompt not found")
+    return {"item": item}
+
+
+@app.delete("/harvest/{hid}")
+def harvest_delete(request: Request, hid: str):
+    require_owner(request)
+    if not harvest.delete_item(hid):
+        raise HTTPException(404, "Harvested prompt not found")
+    return {"deleted": hid}
+
+
+@app.post("/harvest/{hid}/keep")
+def harvest_keep(request: Request, hid: str):
+    addr = require_auth(request)
+    item = harvest.get_item(hid)
+    if not item:
+        raise HTTPException(404, "Harvested prompt not found")
+    now = int(time.time())
+    prompt = {
+        "id": secrets.token_hex(4),
+        "name": item["name"],
+        "description": f"harvested from {item.get('source')}"
+                       + (f" ({item.get('license')})" if item.get("license") else ""),
+        "tags": item.get("tags", []),
+        "body": item["body"],
+        "created": now,
+        "updated": now,
+        "harvested_from": item.get("origin"),
+        "harvest_source": item.get("source"),
     }
     _prompt_path(addr, prompt["id"]).write_text(json.dumps(prompt, indent=2))
     return {"prompt": prompt}

@@ -1099,71 +1099,16 @@ def export(source, name=None, opset=17, shape=None, weights=None):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def _example_models():
-    """Three architectures, so the module has something to be tried on."""
-    torch = _torch()
-    nn = torch.nn
-
-    class MLP(nn.Module):
-        """Deliberately holds a BatchNorm the fuser can eat."""
-
-        def __init__(self):
-            super().__init__()
-            self.net = nn.Sequential(
-                nn.Linear(64, 512), nn.BatchNorm1d(512), nn.ReLU(),
-                nn.Linear(512, 512), nn.BatchNorm1d(512), nn.ReLU(),
-                nn.Linear(512, 10))
-
-        def forward(self, x):
-            return self.net(x)
-
-    class CNN(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.body = nn.Sequential(
-                nn.Conv2d(3, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(),
-                nn.MaxPool2d(2),
-                nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(),
-                nn.AdaptiveAvgPool2d(1))
-            self.head = nn.Linear(64, 10)
-
-        def forward(self, x):
-            return self.head(self.body(x).flatten(1))
-
-    class Block(nn.Module):
-        """One transformer block — attention and a GELU MLP, which is where
-        `extended` has the most to fuse."""
-
-        def __init__(self, d=128, heads=4):
-            super().__init__()
-            self.attn = nn.MultiheadAttention(d, heads, batch_first=True)
-            self.n1, self.n2 = nn.LayerNorm(d), nn.LayerNorm(d)
-            self.ff = nn.Sequential(nn.Linear(d, 512), nn.GELU(), nn.Linear(512, d))
-
-        def forward(self, x):
-            h = self.n1(x)
-            x = x + self.attn(h, h, h, need_weights=False)[0]
-            return x + self.ff(self.n2(x))
-
-    return [('mlp', MLP(), torch.randn(8, 64)),
-            ('cnn', CNN(), torch.randn(4, 3, 32, 32)),
-            ('transformer-block', Block(), torch.randn(2, 32, 128))]
-
-
-def examples():
-    """Plant one of each architecture, so `optimize` has something to chew on."""
-    import tempfile
-    out, tmp = [], tempfile.mkdtemp(prefix='infer-examples-')
+def examples(which=None):
+    """Plant every builtin architecture — or the named ones — so `optimize`
+    has something to chew on. Lives in the zoo now: `builtin` is one of its
+    sources, beside onnx-tests, torchvision, GitHub, HuggingFace, ModelScope
+    and Kaggle."""
+    import zoo
     try:
-        for label, module, example in _example_models():
-            dst = os.path.join(tmp, label + '.onnx')
-            _torch_export(module, example, dst)
-            with open(dst, 'rb') as f:
-                out.append(store(f.read(), name=label, source='example'))
-        return {'planted': [r['id'] for r in out], 'models': out}
-    finally:
-        import shutil
-        shutil.rmtree(tmp, ignore_errors=True)
+        return zoo.examples(which)
+    except zoo.ZooError as e:
+        raise InferError(e.message, e.status)
 
 
 def health():

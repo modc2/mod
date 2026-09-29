@@ -29,9 +29,16 @@ import {
   PlusIcon,
   BanknotesIcon,
   ArrowRightOnRectangleIcon,
+  Bars3Icon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline'
 import { useThemeColors } from './theme'
 import ThemePicker from './ThemePicker'
+import Whitepaper from './Whitepaper'
+
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || ''
 
 // Remote browsers can't reach localhost:8851 — go through the gateway's
 // /api/bloctime route unless we're actually running on localhost.
@@ -2559,9 +2566,10 @@ function BridgePanel({ account, connected }: { account: string; connected: boole
 
 // ── Network picker (header) ─────────────────────────────────────────────
 
-function NetworkPicker({ chainId, onSelect }: {
+function NetworkPicker({ chainId, onSelect, block = false }: {
   chainId: string
   onSelect: (net: NetworkDef) => void
+  block?: boolean   // full-width row (sidebar) instead of a header chip
 }) {
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -2603,18 +2611,18 @@ function NetworkPicker({ chainId, onSelect }: {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className="btn btn-sm px-2.5 gap-2"
+        className={`btn btn-sm px-2.5 gap-2 ${block ? 'w-full' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
       >
         {/* The mark alone carries the network on a phone — the label is the
             first thing to go when the rail runs out of room. */}
         <ChainLogo chainId={chainId} className="w-4 h-4 shrink-0" />
-        <span className="normal-case tracking-normal hidden sm:inline">{netLabel(chainId)}</span>
+        <span className={`normal-case tracking-normal ${block ? 'flex-1 text-left' : 'hidden sm:inline'}`}>{netLabel(chainId)}</span>
         <ChevronDownIcon className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
-        <div className="menu right-0 mt-2 w-60" role="menu">
+        <div className={`menu right-0 mt-2 ${block ? 'left-0' : 'w-60'}`} role="menu">
           <p className="lbl-dim px-2.5 pt-1.5 pb-2">Network</p>
           {[...NETWORKS, ...customs].map(net => (
             <button
@@ -2661,11 +2669,12 @@ function NetworkPicker({ chainId, onSelect }: {
   )
 }
 
-// ── User sidebar ────────────────────────────────────────────────────────
-// The connected account as a panel you can keep open: identity, gas,
-// balances, live positions — and the way out. The header wallet chip
-// toggles it, and disconnect lives here rather than in the header so the
-// one destructive wallet action is never a single stray click.
+// ── Sidebar ─────────────────────────────────────────────────────────────
+// Everything that isn't a tab lives here: wallet, network, instance, your
+// balances and positions, the whitepaper, the skin, refresh and the way out.
+// The header keeps the tabs and ONE button that opens this. Disconnect sits
+// at the bottom of the drawer so the destructive action is never a stray
+// click in the header.
 
 function SideRow({ label, value, tone = 'text-ink2' }: {
   label: string; value: React.ReactNode; tone?: string
@@ -2678,11 +2687,44 @@ function SideRow({ label, value, tone = 'text-ink2' }: {
   )
 }
 
-function UserSidebar({ open, onClose, account, chainId, gasBal, overview, stats, potShare, instances, activeId, instLoading, onUse, onBrowse, onDisconnect }: {
+function SideSection({ title, aside, children }: {
+  title: string; aside?: React.ReactNode; children: React.ReactNode
+}) {
+  return (
+    <div className="px-4 py-3 border-b border-hair space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="lbl-dim">{title}</span>
+        {aside && <span className="ml-auto">{aside}</span>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+type SideView = 'main' | 'paper'
+
+// The app serves the paper itself (src/app/paper/route.ts); the API's copy
+// is the fallback for forks or static exports without the route.
+async function loadWhitepaper(): Promise<{ markdown: string; updated?: number }> {
+  try {
+    const res = await fetch(`${BASE_PATH}/paper`, { cache: 'no-store' })
+    if (res.ok) return await res.json()
+  } catch {}
+  return api('whitepaper', {}, 'GET')
+}
+
+function AppSidebar({ open, view, onView, onClose, connected, onConnect, account, chainId, onSelectNetwork,
+                      gasBal, overview, stats, potShare, instances, activeId, instLoading, onUse, onBrowse,
+                      loading, onRefresh, onDisconnect }: {
   open: boolean
+  view: SideView
+  onView: (v: SideView) => void
   onClose: () => void
+  connected: boolean
+  onConnect: () => void
   account: string
   chainId: string
+  onSelectNetwork: (net: NetworkDef) => void
   gasBal: string | null
   overview: Overview | null
   stats: Stats | null
@@ -2692,143 +2734,203 @@ function UserSidebar({ open, onClose, account, chainId, gasBal, overview, stats,
   instLoading: boolean
   onUse: (inst: Instance) => void
   onBrowse: () => void
+  loading: boolean
+  onRefresh: () => void
   onDisconnect: () => void
 }) {
   const net = netFor(chainId)
   const explorer = stats?.explorer && account
     ? `${stats.explorer.replace(/\/address\/.*$/, '')}/address/${account}`
     : ''
+  const reading = view === 'paper'
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open, onClose])
 
   return (
     <>
-      {/* Backdrop only below lg — on desktop the drawer coexists with the page. */}
+      {/* Backdrop below lg always; on desktop only while reading, when the
+          drawer is wide enough to cover the page anyway. */}
       {open && (
-        <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={onClose} aria-hidden />
+        <div className={`fixed inset-0 z-40 bg-black/40 ${reading ? '' : 'lg:hidden'}`} onClick={onClose} aria-hidden />
       )}
       <aside
-        aria-label="Connected wallet"
+        aria-label="BlocTime menu"
         aria-hidden={!open}
-        className={`fixed top-0 right-0 bottom-0 z-50 w-[300px] max-w-[85vw] flex flex-col
+        className={`fixed top-0 right-0 bottom-0 z-50 max-w-[100vw] flex flex-col
           border-l border-line bg-base/95 backdrop-blur-xl shadow-2xl
-          transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
+          transition-[transform,width] duration-200 ${reading ? 'w-[600px]' : 'w-[320px]'}
+          ${open ? 'translate-x-0' : 'translate-x-full pointer-events-none'}`}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-hair">
-          <span className="chip-dot bg-up" />
-          <span className="lbl">My Wallet</span>
+          {reading ? (
+            <button onClick={() => onView('main')} className="btn btn-sm gap-1" title="Back">
+              <ChevronLeftIcon className="w-3.5 h-3.5" /> Back
+            </button>
+          ) : (
+            <>
+              <span className={`chip-dot ${connected ? 'bg-up' : 'bg-faint'}`} />
+              <span className="lbl">BlocTime</span>
+            </>
+          )}
+          {reading && <span className="lbl">Whitepaper</span>}
           <button onClick={onClose} className="btn btn-icon ml-auto" title="Close">
             <XMarkIcon className="w-4 h-4" />
           </button>
         </div>
 
-        {/* The full address, not the ellipsis the header wears. */}
-        <div className="px-4 py-3 border-b border-hair space-y-2">
-          <p className="text-[11px] font-mono text-ink2 break-all leading-relaxed">{account || '--'}</p>
-          <div className="flex items-center gap-1.5">
-            <button
-              className="btn btn-sm flex items-center gap-1"
-              onClick={() => { navigator.clipboard.writeText(account); toast.success('Address copied') }}
-            >
-              <DocumentDuplicateIcon className="w-3.5 h-3.5" /> Copy
-            </button>
-            {explorer && (
-              <a href={explorer} target="_blank" rel="noreferrer" className="btn btn-sm flex items-center gap-1">
-                <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Explorer
-              </a>
-            )}
+        {reading ? (
+          <div className="flex-1 overflow-y-auto">
+            <Whitepaper load={loadWhitepaper} />
           </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {/* Which BlocTime deployment this wallet view is pointed at.
-              Every instance on the market is listed and togglable in place —
-              all the balance rows below are per-instance, so the selector
-              sits above them. */}
-          <div className="border-b border-hair">
-            <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
-              <span className="lbl-dim">Instance ({instances.length})</span>
-              {instLoading && <ArrowPathIcon className="w-3 h-3 animate-spin text-faint" />}
-              <button onClick={onBrowse} className="ml-auto text-[9px] uppercase tracking-wider text-mute hover:text-accent transition-colors">
-                All deployments →
-              </button>
-            </div>
-            <div className="px-4 pb-3 space-y-1.5 max-h-48 overflow-y-auto">
-              {instances.map(inst => {
-                const active = inst.id === activeId
-                return (
-                  <button
-                    key={inst.id}
-                    onClick={() => { if (!active) onUse(inst) }}
-                    disabled={active}
-                    // The active instance stays full-strength — it's the
-                    // current state, not an unavailable action.
-                    className={`w-full flex items-center gap-2 border rounded-lg px-2.5 py-2 text-left transition-colors
-                      ${active ? 'border-accent/40 bg-accent/10 cursor-default' : 'border-hair bg-panel hover:border-line'}`}
-                  >
-                    <ChainLogo chainId={inst.chainId} className="w-3.5 h-3.5 shrink-0" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[11px] font-bold text-ink truncate">
-                        {inst.name}
-                        {inst.official && <span className="ml-1.5 text-[8px] uppercase tracking-wider text-gold font-normal">official</span>}
-                      </span>
-                      <span className="block text-[9px] font-mono text-faint truncate">
-                        {netLabel(inst.chainId)} · {fmtAddr(inst.bloctime)}
-                      </span>
+        ) : (
+          <>
+            {/* Wallet + network stay pinned above the scroll so the network
+                menu can drop over the list instead of being clipped by it. */}
+            <div className="px-4 py-3 border-b border-hair space-y-2">
+              {connected ? (
+                <>
+                  <p className="text-[11px] font-mono text-ink2 break-all leading-relaxed">{account}</p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      className="btn btn-sm flex items-center gap-1"
+                      onClick={() => { navigator.clipboard.writeText(account); toast.success('Address copied') }}
+                    >
+                      <DocumentDuplicateIcon className="w-3.5 h-3.5" /> Copy
+                    </button>
+                    {explorer && (
+                      <a href={explorer} target="_blank" rel="noreferrer" className="btn btn-sm flex items-center gap-1">
+                        <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" /> Explorer
+                      </a>
+                    )}
+                    <span className={`ml-auto text-[11px] font-mono ${gasBal === '0' ? 'text-down' : 'text-up'}`}
+                          title="Gas balance">
+                      {gasBal !== null ? `${fmtEth(gasBal)} ${net?.symbol || 'ETH'}` : '--'}
                     </span>
-                    {active
-                      ? <CheckCircleIcon className="w-3.5 h-3.5 text-accent shrink-0" />
-                      : <span className="text-[9px] uppercase tracking-wider text-mute shrink-0">use</span>}
-                  </button>
-                )
-              })}
-              {instances.length === 0 && (
-                <p className="text-[10px] text-faint py-1">
-                  {instLoading ? 'Loading deployments...' : 'No deployments found'}
-                </p>
+                  </div>
+                </>
+              ) : (
+                <button onClick={onConnect} className="btn btn-accent w-full">Connect wallet</button>
+              )}
+              <NetworkPicker chainId={chainId} onSelect={onSelectNetwork} block />
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {/* The whitepaper, one tap away from any tab. */}
+              <button
+                onClick={() => onView('paper')}
+                className="w-full flex items-center gap-3 px-4 py-3 border-b border-hair text-left hover:bg-panel transition-colors group"
+              >
+                <DocumentTextIcon className="w-5 h-5 text-accent shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-bold text-ink">Whitepaper</span>
+                  <span className="block text-[10px] text-faint truncate">How BlocTime works: dollars x seconds, the weekly pot</span>
+                </span>
+                <ChevronRightIcon className="w-4 h-4 text-faint group-hover:text-accent transition-colors" />
+              </button>
+
+              {/* Which deployment this console points at. Every balance below
+                  is per-instance, so the selector sits above them. */}
+              <SideSection
+                title={`Instance (${instances.length})`}
+                aside={
+                  <span className="flex items-center gap-2">
+                    {instLoading && <ArrowPathIcon className="w-3 h-3 animate-spin text-faint" />}
+                    <button onClick={onBrowse} className="text-[9px] uppercase tracking-wider text-mute hover:text-accent transition-colors">
+                      All →
+                    </button>
+                  </span>
+                }
+              >
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {instances.map(inst => {
+                    const active = inst.id === activeId
+                    return (
+                      <button
+                        key={inst.id}
+                        onClick={() => { if (!active) onUse(inst) }}
+                        disabled={active}
+                        // The active instance stays full-strength — it's the
+                        // current state, not an unavailable action.
+                        className={`w-full flex items-center gap-2 border rounded-lg px-2.5 py-2 text-left transition-colors
+                          ${active ? 'border-accent/40 bg-accent/10 cursor-default' : 'border-hair bg-panel hover:border-line'}`}
+                      >
+                        <ChainLogo chainId={inst.chainId} className="w-3.5 h-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-bold text-ink truncate">
+                            {inst.name}
+                            {inst.official && <span className="ml-1.5 text-[8px] uppercase tracking-wider text-gold font-normal">official</span>}
+                          </span>
+                          <span className="block text-[9px] font-mono text-faint truncate">
+                            {netLabel(inst.chainId)} · {fmtAddr(inst.bloctime)}
+                          </span>
+                        </span>
+                        {active
+                          ? <CheckCircleIcon className="w-3.5 h-3.5 text-accent shrink-0" />
+                          : <span className="text-[9px] uppercase tracking-wider text-mute shrink-0">use</span>}
+                      </button>
+                    )
+                  })}
+                  {instances.length === 0 && (
+                    <p className="text-[10px] text-faint py-1">
+                      {instLoading ? 'Loading deployments...' : 'No deployments found'}
+                    </p>
+                  )}
+                </div>
+              </SideSection>
+
+              {connected && (
+                <>
+                  <SideRow label="BLOC" tone="text-accent" value={overview ? fmtEth(overview.totalBlocTime) : '--'} />
+                  <SideRow label="Staked" tone="text-gold" value={overview ? fmtEth(overview.totalStaked) : '--'} />
+                  <SideRow label="Pending Rewards" tone="text-up" value={overview ? fmtEth(overview.pendingRewards) : '--'} />
+                  <SideRow label="Voting Power" tone="text-iris" value={overview ? fmtEth(overview.votingPower) : '--'} />
+                  <SideRow label="Next Pot Share" tone="text-gold" value={overview ? `${fmtEth(potShare)} BLOC` : '--'} />
+                  <SideRow label="Delegate" value={overview?.delegate ? fmtAddr(overview.delegate) : 'none'} />
+                </>
+              )}
+
+              {/* Every position at a glance — what's locked and what's ripe,
+                  without leaving whatever tab you're on. */}
+              {connected && overview && overview.positions.length > 0 && (
+                <SideSection title={`Positions (${overview.positions.length})`}>
+                  {overview.positions.map(p => (
+                    <div key={p.stakeId}
+                         className="flex items-center justify-between gap-2 text-[11px] font-mono border border-hair rounded-lg px-2.5 py-1.5 bg-panel">
+                      <span className="text-faint">#{p.stakeId}</span>
+                      <span className="text-ink2">{fmtEth(p.amount)}</span>
+                      <span className={p.secondsRemaining > 0 ? 'text-gold' : 'text-up'}>
+                        {p.secondsRemaining > 0 ? fmtLockSpan(p.secondsRemaining) : 'unlocked'}
+                      </span>
+                    </div>
+                  ))}
+                </SideSection>
+              )}
+
+              <SideSection title="Skin">
+                <ThemePicker inline />
+              </SideSection>
+            </div>
+
+            <div className="px-4 py-3 border-t border-hair flex items-center gap-2">
+              <button onClick={onRefresh} disabled={loading} className="btn btn-sm gap-1.5 flex-1">
+                <ArrowPathIcon className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+              </button>
+              {connected && (
+                <button
+                  onClick={onDisconnect}
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-down/40 bg-down/10 text-down text-[10px] font-bold uppercase tracking-wider hover:bg-down/20 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <ArrowRightOnRectangleIcon className="w-3.5 h-3.5" /> Disconnect
+                </button>
               )}
             </div>
-          </div>
-
-          <SideRow label="Network" value={
-            <span className="inline-flex items-center gap-1.5">
-              <ChainLogo chainId={chainId} className="w-3.5 h-3.5" />{netLabel(chainId)}
-            </span>
-          } />
-          <SideRow label="Gas" tone={gasBal === '0' ? 'text-down' : 'text-up'}
-                   value={gasBal !== null ? `${fmtEth(gasBal)} ${net?.symbol || 'ETH'}` : '--'} />
-          <SideRow label="BLOC" tone="text-accent" value={overview ? fmtEth(overview.totalBlocTime) : '--'} />
-          <SideRow label="Staked" tone="text-gold" value={overview ? fmtEth(overview.totalStaked) : '--'} />
-          <SideRow label="Pending Rewards" tone="text-up" value={overview ? fmtEth(overview.pendingRewards) : '--'} />
-          <SideRow label="Voting Power" tone="text-iris" value={overview ? fmtEth(overview.votingPower) : '--'} />
-          <SideRow label="Next Pot Share" tone="text-gold" value={overview ? `${fmtEth(potShare)} BLOC` : '--'} />
-          <SideRow label="Delegate" value={overview?.delegate ? fmtAddr(overview.delegate) : 'none'} />
-
-          {/* Every position at a glance — enough to see what's locked and
-              what's ripe without leaving whatever tab you're on. */}
-          {overview && overview.positions.length > 0 && (
-            <div className="px-4 py-3 space-y-1.5">
-              <span className="lbl-dim">Positions ({overview.positions.length})</span>
-              {overview.positions.map(p => (
-                <div key={p.stakeId}
-                     className="flex items-center justify-between gap-2 text-[11px] font-mono border border-hair rounded-lg px-2.5 py-1.5 bg-panel">
-                  <span className="text-faint">#{p.stakeId}</span>
-                  <span className="text-ink2">{fmtEth(p.amount)}</span>
-                  <span className={p.secondsRemaining > 0 ? 'text-gold' : 'text-up'}>
-                    {p.secondsRemaining > 0 ? fmtLockSpan(p.secondsRemaining) : 'unlocked'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="px-4 py-3 border-t border-hair">
-          <button
-            onClick={onDisconnect}
-            className="w-full px-4 py-2 rounded-lg border border-down/40 bg-down/10 text-down text-[10px] font-bold uppercase tracking-wider hover:bg-down/20 transition-colors flex items-center justify-center gap-1.5"
-          >
-            <ArrowRightOnRectangleIcon className="w-3.5 h-3.5" /> Disconnect
-          </button>
-        </div>
+          </>
+        )}
       </aside>
     </>
   )
@@ -2842,6 +2944,8 @@ function BlocTimePageInner() {
   const [connected, setConnected] = useState(false)
   const [account, setAccount] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sideView, setSideView] = useState<SideView>('main')
+  const closeSidebar = useCallback(() => setSidebarOpen(false), [])
   const [gasBal, setGasBal] = useState<string | null>(null)
   const [chainId, setChainId] = useState(DEFAULT_CHAIN)
   const [tab, setTab] = useState<Tab>('stake')
@@ -3431,44 +3535,35 @@ function BlocTimePageInner() {
             ))}
           </div>
 
+          {/* One button. Wallet, network, skin, refresh and the
+              whitepaper all live in the sidebar it opens. */}
           <div className="flex items-center gap-1.5 shrink-0">
-            <NetworkPicker chainId={chainId} onSelect={selectNetwork} />
-            {connected ? (
-              <button
-                className="chip hover:border-line"
-                title="Wallet"
-                aria-expanded={sidebarOpen}
-                onClick={() => setSidebarOpen(o => !o)}
-              >
-                <span className="chip-dot bg-up" />
-                {gasBal !== null && (
-                  <span className={`font-mono ${gasBal === '0' ? 'text-down' : 'text-up'}`}>
-                    {fmtEth(gasBal)} {netFor(chainId)?.symbol || 'ETH'}
-                  </span>
-                )}
-                {fmtAddr(account)}
-              </button>
-            ) : (
+            {!connected && (
               <button onClick={connectWallet} className="btn btn-accent btn-sm">Connect</button>
             )}
             <button
-              onClick={fetchAll}
-              disabled={loading}
-              className="btn btn-icon"
-              title="Refresh"
+              className="chip hover:border-line"
+              title="Menu"
+              aria-expanded={sidebarOpen}
+              onClick={() => { setSideView('main'); setSidebarOpen(o => !o) }}
             >
-              <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              {connected && <><span className="chip-dot bg-up" />{fmtAddr(account)}</>}
+              <Bars3Icon className="w-4 h-4" />
             </button>
-            <ThemePicker />
           </div>
         </div>
       </div>
 
-      <UserSidebar
-        open={connected && sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+      <AppSidebar
+        open={sidebarOpen}
+        view={sideView}
+        onView={setSideView}
+        onClose={closeSidebar}
+        connected={connected}
+        onConnect={connectWallet}
         account={account}
         chainId={chainId}
+        onSelectNetwork={selectNetwork}
         gasBal={gasBal}
         overview={overview}
         stats={stats}
@@ -3478,6 +3573,8 @@ function BlocTimePageInner() {
         instLoading={marketLoading}
         onUse={handleUse}
         onBrowse={() => { setTab('market'); setSidebarOpen(false) }}
+        loading={loading}
+        onRefresh={fetchAll}
         onDisconnect={disconnectWallet}
       />
 

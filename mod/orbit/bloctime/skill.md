@@ -14,6 +14,8 @@ Time-weighted staking protocol on Base Sepolia. Stake native tokens for a wall-c
 - **Fork** — `m bloctime/fork name=x` copies the whole module into orbit/x with its own ports/route
 - **Marketplace** — registry of deployed BlocTime instances (`~/.mod/bloctime/registry.json`) records every deployment: chain, RPC, contracts, treasury, owner; MARKET tab browses them, USE switches the app onto any instance (reads via its RPC, writes via wallet)
 - **Self-deploy** — DEPLOY tab ships ABI+bytecode (`GET /factory`) so anyone deploys NativeToken+Treasury+BlocTime from their own wallet (default 8-year max lock, owner-changeable via `setParams`), then auto-registers on the market
+- **Whitepaper** — `whitepaper.md` at the module root is the protocol paper; `GET /whitepaper` serves it (read from disk per request, edits go live), `bt.whitepaper()` returns it, and the console reads it in the sidebar
+- **Sidebar** — the header is tabs + one menu button; wallet, network, instance, balances/positions, whitepaper, skin, refresh and disconnect all live in the right drawer
 - **Bridge** — BRIDGE tab + `/bridge/*` proxy into the bridge module (Substrate/Solana snapshot → Base claims), with activator wake-on-access fallback
 
 ## Usage

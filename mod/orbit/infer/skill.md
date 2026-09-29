@@ -78,8 +78,10 @@ execute it for you in production.
 
 ## The order that matters
 
-1. **`infer_add`** (or `infer_export` from torch, or `infer_examples` to get
-   something to try) — a model has to be in the store before anything else
+1. **`infer_add`** (or `infer_export` from torch, `infer_examples` for all 38
+   builtin architectures, or **`infer_zoo`** → **`infer_zoo_plant`** for any of
+   ~65,000 real models from HuggingFace, ModelScope, Kaggle, the GitHub ONNX
+   Model Zoo, torchvision and the onnx test suite) — a model has to be in the store before anything else
    works. Stored under the SHA-256 of its bytes.
 2. **`infer_inspect`** — what it is. Read `inputs` first: any dimension that
    comes back as a *string* is symbolic and nothing can be timed until you
@@ -169,7 +171,15 @@ model-specific enough that guessing it is not worth doing.
 
 ## Gotchas
 
-- `export` and `examples` need torch; nothing else does. `infer_health` says
+- `export`, the torch-built examples and the `torchvision` zoo source need
+  torch; nothing else does.
+- `infer_zoo` searches a cached catalog. If a remote source shows count 0 or
+  `complete: false`, `infer_zoo_status` says why and `infer_zoo_scrape` crawls
+  it (in the background — poll `infer_zoo_status`). HuggingFace rows have no
+  sizes until opened: `infer_zoo_model` reads them. Planting picks the
+  full-precision file by default; pass `file=` for a specific variant.
+- Gated HuggingFace repos fail to plant with 403 until `HF_TOKEN` is set on
+  the server. `infer_health` says
   what is available on the box.
 - Benchmarks deliberately disable onnxruntime's own graph optimization. Turning
   it on would re-apply the passes at load time and every model would measure

@@ -81,7 +81,12 @@ INSTRUCTIONS = (
     '(measured in a browser, not assumed). infer_optimize reports '
     '`portability_lost` when it happens. Nothing here guesses at accuracy: '
     'infer_parity feeds both models the same inputs and reports how far the '
-    'numbers moved.'
+    'numbers moved. '
+    'THE ZOO is where models come from: infer_zoo searches seven sources at '
+    'once (three offline — builtin, onnx-tests, torchvision — and four crawled: '
+    'the GitHub ONNX Model Zoo, HuggingFace, ModelScope, Kaggle), and '
+    'infer_zoo_plant puts one in the store. infer_examples plants every '
+    'builtin architecture in one call.'
 )
 
 
@@ -205,7 +210,33 @@ def _t_export(a):
 
 
 def _t_examples(a):
-    return E.examples()
+    return E.examples(a.get('which'))
+
+
+# ── the zoo ──────────────────────────────────────────────────────
+
+def _zoo(fn):
+    """ZooError → InferError, so MCP reports it like every other refusal."""
+    def wrapped(a):
+        import zoo
+        try:
+            return fn(zoo, a)
+        except zoo.ZooError as e:
+            raise InferError(e.message, e.status)
+    return wrapped
+
+
+_t_zoo = _zoo(lambda Z, a: Z.search(
+    q=a.get('q'), source=a.get('source'), domain=a.get('domain'), task=a.get('task'),
+    author=a.get('author'), local=a.get('local'), max_bytes=a.get('max_bytes'),
+    sort=a.get('sort') or 'downloads', limit=a.get('limit') or 20,
+    offset=a.get('offset') or 0))
+_t_zoo_model = _zoo(lambda Z, a: Z.show(a['key']))
+_t_zoo_status = _zoo(lambda Z, a: Z.status())
+_t_zoo_scrape = _zoo(lambda Z, a: Z.stop(a.get('sources')) if a.get('stop')
+                     else Z.scrape(a.get('sources'), fresh=bool(a.get('fresh'))))
+_t_zoo_plant = _zoo(lambda Z, a: Z.plant(a['key'], file=a.get('file'), name=a.get('name'),
+                                         weights=a.get('weights')))
 
 
 def _t_delete(a):
@@ -749,13 +780,84 @@ TOOLS = {
         'handler': _t_export,
     },
     'infer_examples': {
-        'description': 'Plant three models to work on: a feed-forward net with '
-                       'BatchNorm to fuse, a small CNN, and a transformer block. '
-                       'One of each architecture, so the difference between what '
-                       'the passes do to a Conv stack and what they do to '
-                       'attention is visible in two calls.',
-        'inputSchema': {'type': 'object', 'properties': {}},
+        'description': 'Plant every builtin architecture — 38 small models built '
+                       'on this box, no download: MLP, CNN, ResNet/MobileNet/'
+                       'ConvNeXt blocks, U-Net, YOLO-style detector, ViT, '
+                       'MLP-Mixer, autoencoder, GAN, diffusion U-Net, LSTM/GRU/RNN, '
+                       'BiLSTM tagger, text-CNN, BERT, GPT, Llama block, MoE, '
+                       'seq2seq, keyword spotter, TCN, conformer, 3-D conv video, '
+                       'PointNet, siamese, GCN, DLRM, sentence embedder, and '
+                       'onnx.helper ones (linear/logistic regression, '
+                       'LinearClassifier, TreeEnsemble, k-means, If/Loop control '
+                       'flow). Pass which= to plant only some.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'which': _str('comma-separated architecture names; default all')}},
         'handler': _t_examples,
+    },
+    'infer_zoo': {
+        'description': 'Search every ONNX model this box can find, across seven '
+                       'sources at once: builtin (every architecture, built '
+                       'here), onnx-tests (the onnx wheel\'s ~1,900 conformance '
+                       'models, offline), torchvision (121 architectures, '
+                       'exported on plant), github (the ONNX Model Zoo), '
+                       'huggingface (every repo tagged onnx), modelscope, and '
+                       'kaggle. Returns rows with a `key` to hand to '
+                       'infer_zoo_plant, plus facet counts by source, domain, '
+                       'task and author.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'q': _str('words that must all appear (name, task, author, tags)'),
+            'source': _str('comma-separated: builtin, onnx-tests, torchvision, '
+                           'github, huggingface, modelscope, kaggle'),
+            'domain': _str('vision, text, audio, multimodal, tabular, graph, '
+                           'generative, operator, other'),
+            'task': _str('substring of the task, e.g. object-detection'),
+            'author': _str('exact org/user, e.g. onnx-community'),
+            'local': _bool('true = only what needs no download'),
+            'max_bytes': _num('only rows whose default file is known and ≤ this'),
+            'sort': _str('downloads (default), likes, name, recent, size, source'),
+            'limit': _num('rows (default 20)'), 'offset': _num('skip this many')}},
+        'handler': _t_zoo,
+    },
+    'infer_zoo_model': {
+        'description': 'One zoo row with every .onnx file in it and its size, '
+                       'read from the source — the variants (fp16, q4, int8…) '
+                       'and which one plants by default.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'key': _str('<source>:<ref>, from infer_zoo')}, 'required': ['key']},
+        'handler': _t_zoo_model,
+    },
+    'infer_zoo_status': {
+        'description': 'Every zoo source: how many models it holds, whether its '
+                       'crawl is complete, running, or stopped, and the last '
+                       'log lines of a running one.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_zoo_status,
+    },
+    'infer_zoo_scrape': {
+        'description': 'Crawl zoo sources in the background (all of them by '
+                       'default, each on its own thread). Rate limits are read '
+                       'from the servers\' own headers; an interrupted crawl '
+                       'resumes from its cursor. fresh=true re-crawls from the '
+                       'start (the old catalog stays readable until it is '
+                       'done); stop=true stops.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'sources': _str('comma-separated source names; default all'),
+            'fresh': _bool('start over rather than resume'),
+            'stop': _bool('stop these crawls instead')}},
+        'handler': _t_zoo_scrape,
+    },
+    'infer_zoo_plant': {
+        'description': 'Download (or build) one zoo model into the store, ready '
+                       'for infer_optimize / infer_bench / the browser. External '
+                       'weight files are folded inline so it is one blob. '
+                       'Refuses anything over INFER_MAX_BYTES before building it.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'key': _str('<source>:<ref>, from infer_zoo'),
+            'file': _str('which .onnx in the row (default: the full-precision one)'),
+            'name': _str('what to call it in the store'),
+            'weights': _str('torchvision only: DEFAULT for pretrained weights')},
+            'required': ['key']},
+        'handler': _t_zoo_plant,
     },
     'infer_delete': {
         'description': 'Remove a model from the store. The bytes go too, unless '

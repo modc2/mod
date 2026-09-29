@@ -120,3 +120,22 @@ export interface CompareData {
   evidence: { claim: string; detail: string; source: string }[]
   fetched: number; cached: boolean
 }
+
+/* ── testnet examples + the bank rail ───────────────────── */
+
+export interface ExampleMeta { name: string; title: string; shows: string; level: string }
+
+export interface ExampleStep {
+  n: number; tool: string; args: Record<string, any>; note: string
+  result?: any; error?: string
+}
+
+export interface ExampleRun extends ExampleMeta {
+  ok: boolean; error: string; summary: string; store: string; replay: string
+  steps: ExampleStep[]; checks: { claim: string; ok: boolean }[]
+}
+
+export interface BankKind {
+  kind: string; label: string; live: boolean; caps: string[]; doc: string
+  fields: { name: string; required: boolean; secret: boolean; help: string }[]
+}

@@ -308,6 +308,18 @@ async def health():
     return {"status": "ok", "module": "bloctime"}
 
 
+WHITEPAPER_PATH = MODULE_DIR / "whitepaper.md"
+
+
+@app.get("/whitepaper")
+async def whitepaper():
+    """The protocol paper as markdown, read from disk on every request so
+    edits to whitepaper.md go live without a restart."""
+    if not WHITEPAPER_PATH.exists():
+        raise HTTPException(status_code=404, detail="whitepaper.md missing")
+    return {"markdown": WHITEPAPER_PATH.read_text(), "updated": int(WHITEPAPER_PATH.stat().st_mtime)}
+
+
 @app.post("/overview")
 async def overview(req: Optional[AddressReq] = None):
     w3, contract, account, _ = load_contract()

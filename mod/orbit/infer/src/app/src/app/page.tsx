@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API, api, fmtB, num } from '@/lib/api';
 import { makeTensor, ort } from '@/lib/ort';
+import { Examples, Zoo } from './Zoo';
 
-type Tab = 'models' | 'optimize' | 'browser' | 'passes' | 'about';
+type Tab = 'models' | 'zoo' | 'optimize' | 'browser' | 'passes' | 'about';
 
-const TABS: Tab[] = ['models', 'optimize', 'browser', 'passes', 'about'];
+const TABS: Tab[] = ['models', 'zoo', 'optimize', 'browser', 'passes', 'about'];
 const TAB_LABEL: Record<Tab, string> = {
-  models: 'models', optimize: 'optimize', browser: 'run in browser',
+  models: 'models', zoo: 'zoo', optimize: 'optimize', browser: 'run in browser',
   passes: 'passes', about: 'about',
 };
 
@@ -50,7 +51,6 @@ export default function Console() {
   const [dropText, setDropText] = useState('choose an .onnx file — or drop one here');
   const [dropErr, setDropErr] = useState('');
   const [dropHot, setDropHot] = useState(false);
-  const [planting, setPlanting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadModels = useCallback(async () => {
@@ -95,13 +95,6 @@ export default function Console() {
       setDropText('');
       setDropErr(e.message);
     }
-  }
-
-  async function plant() {
-    setPlanting(true);
-    try { await api('/examples', { method: 'POST' }); await loadModels(); }
-    catch (e: any) { alert(e.message); }
-    setPlanting(false);
   }
 
   async function rm(id: string) {
@@ -223,12 +216,11 @@ export default function Console() {
               <input type="file" accept=".onnx" hidden ref={fileRef}
                 onChange={e => upload(e.target.files?.[0])} />
             </div>
+            <Examples onPlanted={loadModels} />
             <div className="row" style={{ marginTop: 12 }}>
-              <button className="ghost" disabled={planting} onClick={plant}>
-                {planting ? 'exporting from torch…' : 'plant three examples'}
-              </button>
-              <span className="dim">an MLP with BatchNorm to fuse, a small CNN, and a
-                transformer block</span>
+              <button className="ghost" onClick={() => setTab('zoo')}>browse the zoo →</button>
+              <span className="dim">every ONNX model on HuggingFace, ModelScope, Kaggle, the
+                GitHub model zoo, torchvision and the onnx test suite — searchable, one click to plant</span>
             </div>
           </div>
           <div className="panel">
@@ -251,9 +243,13 @@ export default function Console() {
                 ))}
               </tbody></table>
             ) : (
-              <p className="note">nothing stored yet — drop an .onnx above, or plant the examples.</p>
+              <p className="note">nothing stored yet — drop an .onnx above, plant the examples, or pick one from the zoo.</p>
             )}
           </div>
+        </section>
+
+        <section className={tab === 'zoo' ? 'on' : ''}>
+          <Zoo onPlanted={loadModels} />
         </section>
 
         <section className={tab === 'optimize' ? 'on' : ''}>
