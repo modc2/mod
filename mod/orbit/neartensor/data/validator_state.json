@@ -1,6 +1,6 @@
 {
   "scores": {
-    "0": 0.5635623700291628
+    "0": 0.5456926943788376
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -10,79 +10,67 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.6795,
-        "ema_score": 0.5636,
+        "epoch_score": 0.4112,
+        "ema_score": 0.5457,
         "samples": [
           {
-            "score": 0.680983953104056,
+            "score": 1.0,
             "task": "block_header",
-            "elapsed": 3.149,
+            "elapsed": 0.166,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.5343768084149609,
+            "score": 0.8126330216401789,
             "task": "gas_price",
-            "elapsed": 3.239,
+            "elapsed": 3.264,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6675159209783841,
+            "score": 0.651766636714763,
             "task": "account_state",
-            "elapsed": 3.341,
+            "elapsed": 3.229,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.8366666666666667,
+            "score": 0.8249703342745145,
             "task": "block_header",
-            "elapsed": 0.127,
+            "elapsed": 3.099,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.670098385831465,
-            "task": "gas_price",
-            "elapsed": 3.301,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
-            "score": 0.8111712456675242,
-            "task": "account_state",
-            "elapsed": 3.285,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
-            "score": 0.6793580152014153,
-            "task": "block_header",
-            "elapsed": 3.171,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           },
           {
-            "score": 0.5559297038534712,
-            "task": "gas_price",
-            "elapsed": 3.265,
-            "signature_ok": true,
-            "correct": true
+            "score": 0.0,
+            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
           }
         ]
       }
     },
-    "at": 1790716355,
+    "at": 1790728401,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 28,
+      "epoch": 30,
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1790716414
+  "updated": 1790728427
 }
