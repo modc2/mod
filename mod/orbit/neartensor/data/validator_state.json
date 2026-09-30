@@ -1,6 +1,6 @@
 {
   "scores": {
-    "0": 0.5456926943788376
+    "0": 0.5357863796207291
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -10,34 +10,34 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.4112,
-        "ema_score": 0.5457,
+        "epoch_score": 0.4108,
+        "ema_score": 0.5358,
         "samples": [
           {
             "score": 1.0,
             "task": "block_header",
-            "elapsed": 0.166,
+            "elapsed": 0.232,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.8126330216401789,
+            "score": 0.7921009959146497,
             "task": "gas_price",
-            "elapsed": 3.264,
+            "elapsed": 3.224,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.651766636714763,
+            "score": 0.673944413330267,
             "task": "account_state",
-            "elapsed": 3.229,
+            "elapsed": 3.245,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.8249703342745145,
+            "score": 0.820612922589708,
             "task": "block_header",
-            "elapsed": 3.099,
+            "elapsed": 3.154,
             "signature_ok": true,
             "correct": true
           },
@@ -60,17 +60,17 @@
         ]
       }
     },
-    "at": 1790728401,
+    "at": 1790746110,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 30,
+      "epoch": 32,
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1790728427
+  "updated": 1790746136
 }
