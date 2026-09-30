@@ -103,7 +103,26 @@
   .convo:hover .x{visibility:visible}
   .convo .x:hover{color:var(--bad)}
   .sidelabel{padding:10px 12px 4px;font:11px var(--mono);letter-spacing:.18em;
-        color:var(--faint);text-transform:uppercase}
+        color:var(--faint);text-transform:uppercase;display:flex;
+        align-items:center}
+  .sidelabel .plus{margin-left:auto;border:none;padding:0 4px;color:var(--faint);
+        background:none;font-size:14px;line-height:1;letter-spacing:0}
+  .sidelabel .plus:hover{color:var(--hot)}
+
+  /* the grokbots — visible in the sidebar, not buried in settings */
+  #sidebots{flex:none;max-height:32%;overflow-y:auto;padding:0 8px 8px}
+  .sbot{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:2px;
+        border-radius:8px;cursor:pointer;color:var(--dim);font-size:13px}
+  .sbot:hover{background:var(--raised);color:var(--ink)}
+  .sbot.on{background:var(--raised);color:var(--ink);
+        box-shadow:inset 2px 0 0 var(--hot)}
+  .sbot .bdot{width:7px;height:7px;border-radius:50%;flex:none;
+        border:1px solid var(--faint)}
+  .sbot.on .bdot{background:var(--hot);border-color:var(--hot);
+        box-shadow:0 0 8px rgba(110,231,255,.7)}
+  .sbot .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sbot .m{color:var(--faint);font:10px var(--mono);white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis;max-width:40%}
   #sidefoot{border-top:1px solid var(--line);padding:12px}
   #sidefoot .who{display:flex;align-items:center;gap:8px;font:12px var(--mono);
         color:var(--dim);overflow:hidden;margin-bottom:8px}
@@ -289,6 +308,10 @@
     </button>
     <div class="sidelabel">Chats</div>
     <div id="convos"></div>
+    <div class="sidelabel">Grokbots
+      <button class="plus" id="newbot" title="make a grokbot">+</button>
+    </div>
+    <div id="sidebots"></div>
     <div id="sidefoot"></div>
   </nav>
 
@@ -633,6 +656,35 @@ function drawBots(){
     });
   }
   drawBotPick();
+  drawSideBots();
+}
+
+// the sidebar roster — every grokbot on your account, one click to arm it
+function drawSideBots(){
+  const wrap = $('#sidebots'), signed = !!(YOU && YOU.address);
+  if (!signed){
+    wrap.innerHTML = '<div class="muted" style="padding:4px 10px">sign in below '
+      + '— your grokbots hang off your address</div>';
+    return;
+  }
+  if (!BOTS.length){
+    wrap.innerHTML = '<div class="muted" style="padding:4px 10px">none yet — '
+      + 'hit + to make one. A grokbot is a name, a model and a system prompt.</div>';
+    return;
+  }
+  wrap.innerHTML = BOTS.map(b => `
+    <div class="sbot ${BOT === b.name ? 'on' : ''}" data-bot="${esc(b.name)}"
+         title="${esc(b.system || '')}">
+      <span class="bdot"></span>
+      <span class="t">${esc(b.name)}</span>
+      <span class="m">${esc(b.model || 'default')}${
+        b.search ? ' · search' : ''}</span>
+    </div>`).join('');
+  wrap.querySelectorAll('.sbot').forEach(el => el.onclick = () => {
+    BOT = BOT === el.dataset.bot ? null : el.dataset.bot;
+    drawBots(); drawHint();
+    toast(BOT ? 'chatting as ' + BOT : 'no bot — plain Grok');
+  });
 }
 
 function drawBotPick(){
@@ -839,6 +891,12 @@ $('#newchat').onclick = newChat;
 function openVeil(id){ $('#' + id).classList.add('on'); }
 function closeVeil(id){ $('#' + id).classList.remove('on'); }
 $('#opensettings').onclick = () => openVeil('settings');
+$('#newbot').onclick = () => {
+  if (!YOU || !YOU.address)
+    return toast('connect a wallet first — grokbots are per account', true);
+  openVeil('settings');
+  setTimeout(() => $('#bname').focus(), 50);
+};
 $('#openactivity').onclick = () => { openVeil('activity'); loadRuns(); };
 document.querySelectorAll('[data-close]').forEach(el =>
   el.onclick = () => closeVeil(el.dataset.close));
