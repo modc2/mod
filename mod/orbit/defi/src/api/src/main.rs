@@ -29,6 +29,7 @@ mod finance;
 mod graph;
 mod hub;
 mod mcp;
+mod risk;
 mod storage;
 mod treasury;
 mod whitepaper;
@@ -56,6 +57,7 @@ pub struct AppState {
     pub treasury: treasury::Treasury,
     pub finance: finance::Finance,
     pub hub: hub::Hub,
+    pub risk: risk::Risk,
     pub secret: Vec<u8>,
     pub challenges: auth::Challenges,
     pub module_dir: std::path::PathBuf,
@@ -132,6 +134,7 @@ async fn main() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|_| blocks_dir.parent().map(|p| p.join("hub.json")).unwrap_or_else(|| module_dir.join("src/api/hub.json"))),
         ),
+        risk: risk::Risk::new(&data_dir),
         secret: auth::load_secret(&data_dir),
         challenges: auth::Challenges::default(),
         module_dir,
@@ -196,7 +199,13 @@ async fn main() {
         .route("/treasury/claim", post(post_claim))
         .route("/treasury/register", post(post_register))
         .route("/hub", get(get_hub))
+        .route("/hub/risk", get(get_hub_risks))
+        .route("/hub/risk/assess", post(post_hub_risk_assess_all))
         .route("/hub/:id", get(get_hub_protocol))
+        .route("/hub/:id/risk", get(get_hub_risk))
+        .route("/hub/:id/risk/assess", post(post_hub_risk_assess))
+        .route("/hub/:id/risk/recommend", post(post_hub_risk_recommend))
+        .route("/hub/:id/risk/recommend/:rid", delete(delete_hub_risk_recommend))
         .route("/modules", get(get_modules))
         .route("/modules/facets", get(get_module_facets))
         .route("/modules/:id", get(get_module))
@@ -1097,7 +1106,9 @@ async fn get_hub(
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
     let (subnets, tao_usd) = hub_tao_inputs(&state).await;
     let hl = hub_hl_inputs(&state).await;
-    Ok(Json(state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd, &hl)))
+    let mut out = state.hub.assemble(&pools, &state.finance.registry, fetched, chain.as_deref(), min_tvl, &subnets, tao_usd, &hl);
+    state.risk.annotate_hub(&mut out);
+    Ok(Json(out))
 }
 
 /// What the hub's Bittensor entry joins against: the bt module's subnet list
@@ -1152,15 +1163,175 @@ async fn get_hub_protocol(
         .and_then(|v| v.as_str())
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(1_000_000.0);
+    let mut row = hub_row(&state, &id, min_tvl).await?;
+    state.risk.annotate_protocol(&mut row);
+    Ok(Json(row))
+}
+
+/// One hub card in full, joined live — what the detail view and the risk
+/// desk both read.
+pub async fn hub_row(
+    state: &Shared,
+    id: &str,
+    min_tvl: f64,
+) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
     let (pools, fetched) = state.yields.all().await.map_err(yields_err)?;
-    let (subnets, tao_usd) = hub_tao_inputs(&state).await;
-    let hl = hub_hl_inputs(&state).await;
-    let trust = hub_trust_inputs(&state, &id, &subnets).await;
+    let (subnets, tao_usd) = hub_tao_inputs(state).await;
+    let hl = hub_hl_inputs(state).await;
+    let trust = hub_trust_inputs(state, id, &subnets).await;
     state
         .hub
-        .protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd, &hl, &trust)
-        .map(Json)
+        .protocol(id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd, &hl, &trust)
         .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
+}
+
+// ── risk reads on the hub ──────────────────────────────────────────────────
+//
+// A number next to the words on every card: a local baseline plus the agent
+// module's read over the agent protocol, and recommendations from people for
+// the cards nobody has assessed yet. See risk.rs.
+
+#[derive(Deserialize, Default)]
+struct AssessBody {
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RecommendBody {
+    text: String,
+    #[serde(default)]
+    level: Option<String>,
+}
+
+fn is_owner(state: &AppState, who: Option<&str>) -> bool {
+    !state.owner.is_empty() && who.is_some_and(|w| w.eq_ignore_ascii_case(&state.owner))
+}
+
+/// Everyone runs on the agent's default (local-first) provider; naming a
+/// provider or model — which can spend — is the owner's call.
+pub fn assess_opts(state: &AppState, who: Option<&str>, provider: Option<String>, model: Option<String>) -> Result<risk::AssessOpts, String> {
+    let wants = provider.as_deref().is_some_and(|p| !p.is_empty()) || model.as_deref().is_some_and(|m| !m.is_empty());
+    if wants && !is_owner(state, who) {
+        return Err("only the module owner can pick the agent's provider or model — leave them unset to use the agent's default".into());
+    }
+    Ok(risk::AssessOpts { provider, model })
+}
+
+async fn get_hub_risks(State(state): State<Shared>) -> Json<serde_json::Value> {
+    let lines: serde_json::Map<String, serde_json::Value> =
+        state.hub.ids().into_iter().map(|id| { let l = state.risk.line(&id); (id, l) }).collect();
+    Json(serde_json::json!({
+        "risk": lines,
+        "records": state.risk.all(),
+        "batch": state.risk.batch(),
+        "cooldown_secs": risk::COOLDOWN_SECS,
+        "agent": state.agent.base,
+        "note": "risk 0 = as safe as onchain gets, 100 = walk away. baseline is computed here; the agent's read is blended in and clamped to ±20 of it.",
+    }))
+}
+
+async fn get_hub_risk(State(state): State<Shared>, Path(id): Path<String>) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !state.hub.ids().iter().any(|i| i == &id) {
+        return Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("no hub protocol '{id}'") }))));
+    }
+    let mut out = serde_json::to_value(state.risk.get(&id)).unwrap_or_default();
+    out["line"] = state.risk.line(&id);
+    Ok(Json(out))
+}
+
+async fn post_hub_risk_assess(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Option<Json<AssessBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = caller(&state, &headers);
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let opts = assess_opts(&state, who.as_deref(), body.provider, body.model)
+        .map_err(|e| (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": e }))))?;
+    state
+        .risk
+        .may_assess(&id, is_owner(&state, who.as_deref()))
+        .map_err(|e| (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({ "error": e }))))?;
+    let row = hub_row(&state, &id, 1_000_000.0).await?;
+    let rec = state
+        .risk
+        .assess(&row, &state.agent, &opts, who.as_deref().unwrap_or("anon"), bearer(&headers).as_deref())
+        .await
+        .map_err(|e| (StatusCode::CONFLICT, Json(serde_json::json!({ "error": e }))))?;
+    let mut out = serde_json::to_value(rec).unwrap_or_default();
+    out["line"] = state.risk.line(&id);
+    Ok(Json(out))
+}
+
+/// Owner only: walk every card in the background, one agent run at a time
+/// (a local model is one process — parallel runs would just queue there).
+async fn post_hub_risk_assess_all(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    body: Option<Json<AssessBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = require_caller(&state, &headers)?;
+    if !is_owner(&state, Some(&who)) {
+        return Err((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "assessing every card is the module owner's call" }))));
+    }
+    if state.risk.batch().get("running").and_then(|v| v.as_bool()) == Some(true) {
+        return Ok(Json(serde_json::json!({ "batch": state.risk.batch() })));
+    }
+    let body = body.map(|b| b.0).unwrap_or_default();
+    let opts = risk::AssessOpts { provider: body.provider, model: body.model };
+    let ids = state.hub.ids();
+    state.risk.set_batch(serde_json::json!({ "running": true, "total": ids.len(), "done": 0, "failed": [], "started": auth::now() }));
+    let st = state.clone();
+    let token = bearer(&headers);
+    tokio::spawn(async move {
+        let mut failed: Vec<serde_json::Value> = Vec::new();
+        for (n, id) in ids.iter().enumerate() {
+            let res = match hub_row(&st, id, 1_000_000.0).await {
+                Ok(row) => st.risk.assess(&row, &st.agent, &opts, &who, token.as_deref()).await.map(|_| ()),
+                Err((_, e)) => Err(e.0.to_string()),
+            };
+            if let Err(e) = res {
+                failed.push(serde_json::json!({ "id": id, "error": e }));
+            }
+            st.risk.set_batch(serde_json::json!({ "running": true, "total": ids.len(), "done": n + 1, "current": ids.get(n + 1), "failed": failed }));
+        }
+        st.risk.set_batch(serde_json::json!({ "running": false, "total": ids.len(), "done": ids.len(), "failed": failed, "finished": auth::now() }));
+    });
+    Ok(Json(serde_json::json!({ "batch": state.risk.batch() })))
+}
+
+/// Anyone may leave a read — signed in it carries the wallet, otherwise "anon".
+async fn post_hub_risk_recommend(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<RecommendBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if !state.hub.ids().iter().any(|i| i == &id) {
+        return Err((StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("no hub protocol '{id}'") }))));
+    }
+    let who = caller(&state, &headers).unwrap_or_else(|| "anon".into());
+    let rec = state.risk.recommend(&id, &body.text, body.level.as_deref(), &who).map_err(bad)?;
+    let mut out = serde_json::to_value(rec).unwrap_or_default();
+    out["line"] = state.risk.line(&id);
+    Ok(Json(out))
+}
+
+async fn delete_hub_risk_recommend(
+    State(state): State<Shared>,
+    Path((id, rid)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = require_caller(&state, &headers)?;
+    let rec = state
+        .risk
+        .unrecommend(&id, &rid, &who, is_owner(&state, Some(&who)))
+        .map_err(|e| (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": e }))))?;
+    Ok(Json(serde_json::to_value(rec).unwrap_or_default()))
 }
 
 // ── the treasury ───────────────────────────────────────────────────────────

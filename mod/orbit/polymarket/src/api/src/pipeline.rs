@@ -268,7 +268,7 @@ exit_entry: -1.0,
                     trades_24h: 0,
                     last_trade_ts: None, first_trade_ts: None,
                     pnl_curve: None,
-                    market_metrics: None,
+                    market_metrics: None, qc: None, qc_prints: vec![],
                 });
                 existing.volume = existing.volume.max(vol);
                 if pnl.abs() > existing.pnl.abs() {
@@ -367,6 +367,7 @@ exit_entry: -1.0,
         // bounded pass it lands. Only surviving traders are asked about, so
         // this is a fraction of the requests the enrichment above spends.
         fill_settled_accuracy(&self.http, DATA_API, &mut out, cutoff_sec).await;
+        link_qc_clusters(&mut out);
 
         out.sort_by(|a, b| b.pnl.partial_cmp(&a.pnl).unwrap_or(std::cmp::Ordering::Equal));
         // Newly resolved account ages go to disk here too, so an on-demand
@@ -391,6 +392,19 @@ exit_entry: -1.0,
             traders: out,
         })
     }
+}
+
+/// Sybil pass: link wallets sharing a flash-trade fingerprint (quality.rs).
+/// Needs the whole enriched pool at once — a cluster is a cross-row fact.
+pub fn link_qc_clusters(traders: &mut [Trader]) {
+    let mut rows: Vec<(Vec<String>, &mut crate::quality::Quality)> = traders
+        .iter_mut()
+        .filter_map(|t| {
+            let prints = std::mem::take(&mut t.qc_prints);
+            t.qc.as_mut().map(|q| (prints, q))
+        })
+        .collect();
+    crate::quality::link_clusters(&mut rows);
 }
 
 /// Fill `win_rate` / `decided_positions` (and the per-market split behind a
@@ -506,6 +520,10 @@ async fn enrich_trader_with_url(
     // heavy trader, on precisely the traders the leaderboard is made of.
     const MAX_PAGES: u32 = 11; // 5500 activity rows — the upstream ceiling
     let mut all_trades: Vec<Value> = Vec::new();
+    // Did the walk reach the window start (or the wallet's first fill)? A
+    // walk cut short by the 5500-row ceiling or an upstream error leaves the
+    // window's oldest stretch unseen — QC reports that as `partial`.
+    let mut walk_complete = false;
     for page in 0..MAX_PAGES {
         let url = format!(
             "{}/activity?user={}&limit={}&offset={}",
@@ -522,6 +540,7 @@ async fn enrich_trader_with_url(
                         .unwrap_or(u64::MAX);
                     all_trades.extend(trades.iter().map(slim_trade));
                     if len < PAGE as usize || oldest_ts < cutoff_sec {
+                        walk_complete = true;
                         break;
                     }
                 } else {
@@ -625,6 +644,26 @@ async fn enrich_trader_with_url(
     trader.resolve_rate = -1.0;
     trader.decided_positions = 0;
 
+    // Quality verdict, graded while the raw fills are still in hand. The
+    // cross-trader cluster link runs once the whole pool is enriched.
+    let now_for_cov = chrono::Utc::now().timestamp() as u64;
+    let window = now_for_cov.saturating_sub(cutoff_sec).max(1);
+    let coverage = if walk_complete {
+        1.0
+    } else {
+        now_for_cov.saturating_sub(oldest_ts) as f64 / window as f64
+    };
+    let sell_usd = metrics.sell_volume;
+    let (qc, prints) = crate::quality::grade(&crate::quality::Evidence {
+        exits: metrics.exits,
+        sold_shares: metrics.sold_shares,
+        matched_shares: metrics.matched_shares,
+        sell_usd,
+        coverage,
+    });
+    trader.qc = Some(qc);
+    trader.qc_prints = prints;
+
     trader.market_metrics = if metrics.per_market.is_empty() { None } else { Some(metrics.per_market) };
 
     (Some(trader), oldest_ts)
@@ -640,6 +679,10 @@ struct WindowMetrics {
     /// realized in-window — the series Sharpe is computed from.
     returns: Vec<f64>,
     per_market: Vec<MarketMetric>,
+    /// In-window realized exits + sell basis coverage — what quality.rs grades.
+    exits: Vec<crate::quality::Exit>,
+    sold_shares: f64,
+    matched_shares: f64,
 }
 
 fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
@@ -653,8 +696,14 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         .collect();
     sorted.sort_by_key(|t| normalize_ts(t));
 
-    // Cost-basis book
+    // Cost-basis book, keyed per OUTCOME TOKEN — see `book_key`.
     let mut book: HashMap<String, (f64, f64)> = HashMap::new(); // key -> (size, cost)
+    // When each open lot was opened (position went 0 → >0) — hold time for
+    // the flash-trade test in quality.rs.
+    let mut opened_at: HashMap<String, u64> = HashMap::new();
+    let mut exits: Vec<crate::quality::Exit> = Vec::new();
+    let mut sold_shares = 0.0f64;
+    let mut matched_shares = 0.0f64;
     let mut pnl = 0.0f64;
     let mut returns: Vec<f64> = Vec::new();
     let mut buy_volume = 0.0f64;
@@ -675,8 +724,7 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
     for t in sorted {
         let ts = normalize_ts(t);
         let in_window = ts >= cutoff_sec;
-        let key = t.get("conditionId").or(t.get("asset"))
-            .and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let key = book_key(t);
         let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("");
         let price = t.get("price").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
         let size = t.get("size").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
@@ -691,14 +739,20 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
             continue;
         }
 
-        let pos = book.entry(key).or_insert((0.0, 0.0));
+        let pos = book.entry(key.clone()).or_insert((0.0, 0.0));
 
         let mut realized = 0.0f64;
         // Fractional return of an in-window closed SELL — SELLs without an
         // in-hand basis are dropped (a placeholder 0 would deflate stdev),
         // mirroring the live engine's `compute_trader_roi_stats`.
         let mut sell_return: Option<f64> = None;
+        if side == "SELL" && in_window {
+            sold_shares += size;
+        }
         if side == "BUY" {
+            if pos.0 <= 1e-9 {
+                opened_at.insert(key.clone(), ts);
+            }
             pos.1 += price * size; // cost
             pos.0 += size;         // size
         } else if side == "SELL" && pos.0 > 0.0 {
@@ -708,6 +762,14 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
             pos.1 -= avg * sold;
             pos.0 -= sold;
             if in_window {
+                matched_shares += sold;
+                exits.push(crate::quality::Exit {
+                    key: key.clone(),
+                    ts,
+                    realized,
+                    hold_secs: ts.saturating_sub(opened_at.get(&key).copied().unwrap_or(0)),
+                    move_per_share: price - avg,
+                });
                 pnl += realized;
                 if avg > 0.0 {
                     let r = (price - avg) / avg;
@@ -774,7 +836,19 @@ fn compute_window_metrics(trades: &[Value], cutoff_sec: u64) -> WindowMetrics {
         count,
         returns,
         per_market: market_metrics,
+        exits,
+        sold_shares,
+        matched_shares,
     }
+}
+
+/// Cost-basis key for one fill: the OUTCOME TOKEN (`asset`), falling back to
+/// `conditionId` only when a row has no asset. Keying on conditionId (as this
+/// used to) pooled YES and NO of one market into a single book, so a NO bought
+/// at 2c became the "cost" of a YES sold at 98c.
+fn book_key(t: &Value) -> String {
+    let s = |k: &str| t.get(k).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+    s("asset").or_else(|| s("conditionId")).unwrap_or("").to_string()
 }
 
 fn compute_pnl_curve(trades: &[Value], cutoff_sec: u64) -> Vec<f64> {
@@ -807,8 +881,7 @@ fn compute_pnl_curve(trades: &[Value], cutoff_sec: u64) -> Vec<f64> {
         let ts = normalize_ts(t);
         let in_window = ts >= cutoff_sec;
 
-        let key = t.get("conditionId").or(t.get("asset"))
-            .and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let key = book_key(t);
         let price = t.get("price").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
         let size = t.get("size").and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))).unwrap_or(0.0);
         let side = t.get("side").and_then(|v| v.as_str()).unwrap_or("").to_uppercase();
@@ -1329,7 +1402,7 @@ mod tests {
             positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0,
             last_trade_ts: None, first_trade_ts: None,
-            pnl_curve: None, market_metrics: None,
+            pnl_curve: None, market_metrics: None, qc: None, qc_prints: vec![],
         }
     }
 
@@ -1460,7 +1533,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None, qc: None, qc_prints: vec![],
         };
 
         // Call with the mock server URL (override DATA_API)
@@ -1491,7 +1564,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None, qc: None, qc_prints: vec![],
         };
 
         let cutoff = now - 86400;
@@ -1529,7 +1602,7 @@ mod tests {
             address: "0xtest".to_string(),
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
-            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None,
+            market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None, pnl_curve: None, market_metrics: None, qc: None, qc_prints: vec![],
         };
 
         let cutoff = now - 86400;
@@ -1556,7 +1629,7 @@ mod tests {
                     pnl: 150.0, win_rate: 65.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 10,
                     decided_positions: 0,
                     market_titles: vec!["Market A".into()], recent_trades: 10, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
-                    pnl_curve: Some(vec![0.0; 12]), market_metrics: None,
+                    pnl_curve: Some(vec![0.0; 12]), market_metrics: None, qc: None, qc_prints: vec![],
                 },
                 Trader {
                     address: "0xbbb".to_string(),
@@ -1564,7 +1637,7 @@ mod tests {
                     pnl: -50.0, win_rate: 40.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 5,
                     decided_positions: 0,
                     market_titles: vec![], recent_trades: 5, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
-                    pnl_curve: None, market_metrics: None,
+                    pnl_curve: None, market_metrics: None, qc: None, qc_prints: vec![],
                 },
             ],
         };
@@ -1604,7 +1677,7 @@ mod tests {
                 pnl: 5.0, win_rate: 50.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 2,
                     decided_positions: 0,
                 market_titles: vec!["Test".into()], recent_trades: 2, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
-                pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None,
+                pnl_curve: Some(vec![1.0, 2.0, 3.0]), market_metrics: None, qc: None, qc_prints: vec![],
             }],
         };
 
@@ -1654,7 +1727,7 @@ mod tests {
             recent_trades: 42,
             trades_24h: 7, last_trade_ts: None, first_trade_ts: None,
             pnl_curve: Some(vec![0.0, 5.0, 10.0, 8.0, 12.0, 15.0, 14.0, 18.0, 20.0, 22.0, 25.0, 30.0]),
-            market_metrics: None,
+            market_metrics: None, qc: None, qc_prints: vec![],
         };
         let json = serde_json::to_string(&trader).unwrap();
         let parsed: Trader = serde_json::from_str(&json).unwrap();
@@ -1692,7 +1765,7 @@ mod tests {
             volume: 0.0, buy_volume: 0.0, sell_volume: 0.0,
             pnl: 0.0, win_rate: 0.0, resolve_rate: -1.0, sharpe: 0.0, exit_entry: -1.0, positions: 0, decided_positions: 0,
             market_titles: vec![], recent_trades: 0, trades_24h: 0, last_trade_ts: None, first_trade_ts: None,
-            pnl_curve: None, market_metrics: None,
+            pnl_curve: None, market_metrics: None, qc: None, qc_prints: vec![],
         };
         let json = serde_json::to_string(&trader).unwrap();
         assert!(!json.contains("pnlCurve"), "pnlCurve should be omitted when None");

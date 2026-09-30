@@ -25,6 +25,7 @@ pub mod copy;
 pub mod copy_actions;
 pub mod sentiment;
 pub mod settled;
+pub mod quality;
 
 use std::sync::Arc;
 

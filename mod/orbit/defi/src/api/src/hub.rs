@@ -76,6 +76,11 @@ fn tier_rank(tier: &str) -> u8 {
 impl Hub {
     /// Whether assembling this hub needs the bt module's subnet list at all —
     /// so the caller only knocks on Bittensor when an entry will use it.
+    /// Every vetted id, in hub.json order — what a batch risk read walks.
+    pub fn ids(&self) -> Vec<String> {
+        self.entries.iter().map(|e| e.id.clone()).collect()
+    }
+
     pub fn wants_subnets(&self) -> bool {
         self.entries.iter().any(|e| e.source.as_deref() == Some("bittensor"))
     }

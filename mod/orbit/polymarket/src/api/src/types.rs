@@ -121,6 +121,15 @@ pub struct Trader {
     /// Per-market metrics — memory-only, not serialized to JSON / disk cache.
     #[serde(skip)]
     pub market_metrics: Option<Vec<MarketMetric>>,
+    /// Quality-control verdict (quality.rs): flags like `flash` (wash round
+    /// trip), `cluster` (sybil wallets), `one_hit`, `no_basis`, `partial`.
+    /// `None` = graded before QC existed — kept by every `?qc=` mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub qc: Option<crate::quality::Quality>,
+    /// Flash-trade fingerprints for the cross-trader cluster pass — live for
+    /// one sweep only.
+    #[serde(skip)]
+    pub qc_prints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +249,10 @@ pub struct ActiveTradersQuery {
     /// active. 0/absent = off.
     #[serde(rename = "minConsistency")]
     pub min_consistency: Option<f64>,
+    /// Quality-control mode: `off` | `standard` (default — hides wash-trade
+    /// and sybil-cluster rows) | `strict` (also hides one-hit and
+    /// unverifiable-basis rows). See quality.rs.
+    pub qc: Option<String>,
     pub status: Option<String>,
 }
 

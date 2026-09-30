@@ -1208,6 +1208,25 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
     let history_dropped = before_history - traders.len();
     let history_known = traders.iter().filter(|t| t.first_trade_ts.is_some()).count();
 
+    // Quality control (quality.rs). Counts are taken over the board as the
+    // other floors left it, BEFORE the QC cut, so the console can say "38
+    // wash-trade rows hidden" and offer the switch that shows them. Rows
+    // graded before QC existed carry no verdict and are kept in every mode.
+    let qc_mode = crate::quality::Mode::parse(q.qc.as_deref());
+    let mut qc_counts: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut qc_graded = 0usize;
+    for t in &traders {
+        if let Some(ref qc) = t.qc {
+            qc_graded += 1;
+            for f in &qc.flags {
+                *qc_counts.entry(f.clone()).or_default() += 1;
+            }
+        }
+    }
+    let before_qc = traders.len();
+    traders.retain(|t| t.qc.as_ref().is_none_or(|qc| !qc_mode.hides(&qc.flags)));
+    let qc_dropped = before_qc - traders.len();
+
     // Sort by the metric the caller asked for, ALWAYS.
     //
     // Topic/category match count is a TIEBREAKER, not the primary key. It used
@@ -1319,6 +1338,12 @@ fn apply_pagination(payload: &crate::types::AggPayload, q: &ActiveTradersQuery, 
         // unresolved is a floor that is mostly not applied — the console
         // needs to be able to say so rather than imply a clean cut.
         "historyKnown": history_known,
+        // Quality control: the mode applied, rows it hid, per-flag counts on
+        // the pre-QC board, and how many rows carry a verdict at all.
+        "qcMode": qc_mode.as_str(),
+        "qcDropped": qc_dropped,
+        "qcCounts": qc_counts,
+        "qcGraded": qc_graded,
         "page": page,
         "pageSize": page_size,
         "count": payload.count,
@@ -1848,7 +1873,7 @@ mod tests {
             trades_24h: 0,
             last_trade_ts: None, first_trade_ts: None,
             pnl_curve: None,
-            market_metrics: Some(metrics),
+            market_metrics: Some(metrics), qc: None, qc_prints: vec![],
         }
     }
 
@@ -1880,6 +1905,44 @@ mod tests {
             synced_at: 0,
             traders,
         }
+    }
+
+    /// QC: `standard` (the default) hides wash/sybil rows, `strict` also
+    /// hides one-hit rows, `off` hides nothing, and an ungraded row is kept
+    /// everywhere. Counts describe the pre-QC board.
+    #[test]
+    fn qc_modes_hide_by_severity_and_keep_ungraded() {
+        let verdict = |flags: &[&str]| crate::quality::Quality {
+            flags: flags.iter().map(|f| f.to_string()).collect(),
+            coverage: 1.0, top_share: 0.1, flash_share: 0.0, basis_coverage: 1.0, cluster: 1,
+        };
+        let mut wash = trader_with_markets("0xwash", &[("m", 20_000.0, 2)]);
+        wash.qc = Some(verdict(&["flash", "cluster", "one_hit"]));
+        let mut lucky = trader_with_markets("0xlucky", &[("m", 900.0, 3)]);
+        lucky.qc = Some(verdict(&["one_hit"]));
+        let mut clean = trader_with_markets("0xclean", &[("m", 500.0, 40)]);
+        clean.qc = Some(verdict(&["partial"]));
+        let old = trader_with_markets("0xold", &[("m", 100.0, 5)]);
+        let all = payload(vec![wash, lucky, clean, old]);
+        let run = |mode: Option<&str>| {
+            let q = match mode {
+                Some(m) => paged_query(json!({"sort": "pnl", "qc": m})),
+                None => paged_query(json!({"sort": "pnl"})),
+            };
+            apply_pagination(&all, &q, "memory")
+        };
+
+        let sorted = |r: &Value| { let mut a = addresses(r); a.sort(); a };
+        let std = run(None);
+        assert_eq!(std["qcMode"], "standard");
+        assert_eq!(sorted(&std), vec!["0xclean", "0xlucky", "0xold"]);
+        assert_eq!(std["qcDropped"].as_u64(), Some(1));
+        assert_eq!(std["qcCounts"]["one_hit"].as_u64(), Some(2));
+        assert_eq!(std["qcGraded"].as_u64(), Some(3));
+        assert_eq!(std["total"].as_u64(), Some(3));
+
+        assert_eq!(sorted(&run(Some("strict"))), vec!["0xclean", "0xold"]);
+        assert_eq!(addresses(&run(Some("off"))).len(), 4);
     }
 
     /// The regression this file's sort was rewritten for: under a market

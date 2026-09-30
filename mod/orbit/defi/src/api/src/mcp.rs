@@ -407,6 +407,31 @@ fn finance_tools() -> serde_json::Value {
             }, "required": ["id"] }
         },
         {
+            "name": "defi_hub_risk",
+            "description": "[public] Risk reads for the hub's vetted protocols. Without id: one line per card {assessed, score, level, summary, recommendations} plus the batch status. With id: the full record — the assessment (local deterministic baseline with every check, the agent module's read over the agent protocol, the blended 0-100 RISK score: 0 = as safe as onchain gets, 100 = walk away) and every recommendation people left. A card with assessed=false has no risk read yet — ask the agent (defi_hub_risk_assess) or leave a recommendation (defi_hub_risk_recommend).",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string", "description": "a hub id from defi_hub; omit for every card" }
+            } }
+        },
+        {
+            "name": "defi_hub_risk_assess",
+            "description": "[public] Have the agent assess one hub protocol's risk now. Runs one step on the agent module (POST /run, no tools) with the card, the baseline and the last recommendations as data; the agent's score is blended 60/40 with the baseline and clamped to ±20 of it. Uses the agent's default provider (local first, free). Naming provider/model is [owner]. Non-owners wait 10 minutes between runs on the same card. Takes up to a couple of minutes on a local model.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string" },
+                "provider": { "type": "string", "description": "[owner] agent provider, e.g. liquidai, venice, openrouter" },
+                "model": { "type": "string", "description": "[owner] model id on that provider" }
+            }, "required": ["id"] }
+        },
+        {
+            "name": "defi_hub_risk_recommend",
+            "description": "[public] Leave a risk recommendation on a hub protocol — what you think can go wrong and, optionally, a level (low|medium|high|severe). Signed in it carries your wallet; otherwise it is filed as anon. Up to 600 characters; the next agent assessment reads it as data.",
+            "inputSchema": { "type": "object", "properties": {
+                "id": { "type": "string" },
+                "text": { "type": "string" },
+                "level": { "type": "string", "enum": ["low", "medium", "high", "severe"] }
+            }, "required": ["id", "text"] }
+        },
+        {
             "name": "defi_modules",
             "description": "[public] The finance modules: every place money can go that gives a return — DefiLlama's pools on Ethereum, Base and Solana; Bittensor subnets through the bt module; Hyperliquid perps vaults through the hyperliquid module (trailing APR, quoted not promised); Polymarket one-to-one copy-trading through the polymarket module (a module is one trader mirrored at weight 1.0 — owner-gated, so the board lists only with its access token); vaults you composed and deployed; the BlocTime treasury. Each row carries returns, liquidity, conditions, and an adapter saying how THIS desk enters it (or null = read-only). Filters: chain (ethereum|base|solana|tao|hyperliquid|polymarket|evm), kind, q, addable, instant, min_tvl, stable, organic, sort (score|apy|tvl|base|mean30d), limit.",
             "inputSchema": { "type": "object", "properties": {
@@ -869,6 +894,43 @@ async fn call_tool(
             let hl = crate::hub_hl_inputs(&state).await;
             let trust = crate::hub_trust_inputs(&state, &id, &subnets).await;
             state.hub.protocol(&id, &pools, &state.finance.registry, fetched, min_tvl, &subnets, tao_usd, &hl, &trust)
+        }
+        "defi_hub_risk" => match args.get("id").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+            Some(id) => {
+                if !state.hub.ids().iter().any(|i| i == id) {
+                    return Err(format!("no hub protocol '{id}'"));
+                }
+                let mut out = serde_json::to_value(state.risk.get(id)).unwrap_or_default();
+                out["line"] = state.risk.line(id);
+                Ok(out)
+            }
+            None => {
+                let lines: serde_json::Map<String, serde_json::Value> =
+                    state.hub.ids().into_iter().map(|id| { let l = state.risk.line(&id); (id, l) }).collect();
+                Ok(serde_json::json!({ "risk": lines, "batch": state.risk.batch() }))
+            }
+        },
+        "defi_hub_risk_assess" => {
+            let id = arg_str(&args, "id")?;
+            let s = |k: &str| args.get(k).and_then(|v| v.as_str()).map(String::from);
+            let opts = crate::assess_opts(state, who.as_deref(), s("provider"), s("model"))?;
+            let owner = !state.owner.is_empty() && who.as_deref().is_some_and(|w| w.eq_ignore_ascii_case(&state.owner));
+            state.risk.may_assess(&id, owner)?;
+            let row = crate::hub_row(state, &id, 1_000_000.0).await.map_err(|(_, e)| e.0.to_string())?;
+            let rec = state.risk.assess(&row, &state.agent, &opts, who.as_deref().unwrap_or("anon"), token.as_deref()).await?;
+            let mut out = serde_json::to_value(rec).unwrap_or_default();
+            out["line"] = state.risk.line(&id);
+            Ok(out)
+        }
+        "defi_hub_risk_recommend" => {
+            let id = arg_str(&args, "id")?;
+            if !state.hub.ids().iter().any(|i| i == &id) {
+                return Err(format!("no hub protocol '{id}'"));
+            }
+            let text = arg_str(&args, "text")?;
+            let level = args.get("level").and_then(|v| v.as_str());
+            let rec = state.risk.recommend(&id, &text, level, who.as_deref().unwrap_or("anon"))?;
+            Ok(serde_json::to_value(rec).unwrap_or_default())
         }
         "defi_modules" => {
             let filter = crate::finance::Filter::from_query(&args);

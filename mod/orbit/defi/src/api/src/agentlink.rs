@@ -121,16 +121,35 @@ impl AgentLink {
         Ok(body)
     }
 
-    /// Ask the agent module to think, via the mod protocol's `forward` fn.
+    /// Ask the agent module to think. Goes through `run` — the agent's
+    /// `forward` has no `ask` fn, and a call to one just echoes its schema.
     pub async fn ask(
         &self,
         prompt: &str,
         token: Option<&str>,
     ) -> Result<String, String> {
-        let mut req = self
-            .http
-            .post(format!("{}/forward", self.base))
-            .json(&serde_json::json!({ "fn": "ask", "params": { "text": prompt } }));
+        self.run(prompt, None, None, token).await.map(|r| r.text)
+    }
+
+    /// One agent run over the agent protocol: `POST /run`, a single step, no
+    /// tools asked for. provider/model unset = the agent module's own default,
+    /// which resolves local first — nothing is spent unless a caller names a
+    /// paid provider. The answer is the run's `response` step.
+    pub async fn run(
+        &self,
+        query: &str,
+        provider: Option<&str>,
+        model: Option<&str>,
+        token: Option<&str>,
+    ) -> Result<Reply, String> {
+        let mut body = serde_json::json!({ "query": query, "steps": 1, "tools": [] });
+        if let Some(p) = provider.filter(|p| !p.is_empty()) {
+            body["provider"] = p.into();
+        }
+        if let Some(m) = model.filter(|m| !m.is_empty()) {
+            body["model"] = m.into();
+        }
+        let mut req = self.http.post(format!("{}/run", self.base)).json(&body);
         if let Some(t) = token {
             req = req.bearer_auth(t);
         }
@@ -141,10 +160,49 @@ impl AgentLink {
         let status = resp.status();
         let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
-            return Err(format!("agent returned {status}: {body}"));
+            return Err(format!("agent returned {status}: {}", body.to_string().chars().take(300).collect::<String>()));
         }
-        Ok(extract_text(&body))
+        if let Some(err) = body.get("error").and_then(|e| e.as_str()) {
+            return Err(format!("agent run failed: {err}"));
+        }
+        Ok(Reply {
+            text: run_text(&body),
+            model: body.pointer("/usage/model").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+            provider: body.pointer("/usage/provider").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        })
     }
+}
+
+/// What one agent run said, and which model said it.
+#[derive(Debug, Clone)]
+pub struct Reply {
+    pub text: String,
+    pub model: String,
+    pub provider: String,
+}
+
+/// A run's `result` is its step list; the answer is the `response` step (or,
+/// failing that, the last step that produced text).
+fn run_text(body: &serde_json::Value) -> String {
+    if let Some(steps) = body.get("result").and_then(|r| r.as_array()) {
+        let text_of = |s: &serde_json::Value| -> Option<String> {
+            match s.get("result") {
+                Some(serde_json::Value::String(t)) => Some(t.clone()),
+                Some(v @ serde_json::Value::Object(_)) => {
+                    let t = extract_text(v);
+                    (!t.is_empty() && t != "{}").then_some(t)
+                }
+                _ => None,
+            }
+        };
+        if let Some(t) = steps.iter().rev().filter(|s| s.get("tool").and_then(|t| t.as_str()) == Some("response")).find_map(text_of) {
+            return t;
+        }
+        if let Some(t) = steps.iter().rev().find_map(text_of) {
+            return t;
+        }
+    }
+    extract_text(body)
 }
 
 /// The agent protocol returns results in a few shapes depending on harness;
