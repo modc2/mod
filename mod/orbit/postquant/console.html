@@ -147,6 +147,19 @@
   .kv{display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;font-size:12.5px}
   .kv b{color:var(--dim);font-weight:600}
   .tabs2{display:flex;gap:6px;margin-bottom:10px}
+  /* ── ASK: the agent ── */
+  #ask-log{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+  .turn-q{align-self:flex-end;max-width:80%;background:rgba(157,123,255,.10);
+          border:1px solid var(--pq-dim);border-radius:8px;padding:7px 11px}
+  .turn-a{border:1px solid var(--line);border-radius:8px;padding:8px 11px;
+          background:var(--inset)}
+  .turn-a .ans{white-space:pre-wrap;word-break:break-word}
+  .chip{display:inline-block;border:1px solid var(--line2);border-radius:12px;
+        padding:1px 8px;margin:0 6px 6px 0;font-size:11px;color:var(--dim);cursor:pointer}
+  .chip.ok{border-color:#2f5d43;color:var(--good)}
+  .chip.no{border-color:#6b2c2c;color:var(--bad)}
+  .chip.run{border-color:var(--pq-dim);color:#d6c9fa}
+  #ask-q{flex:1;min-width:240px}
   @media (max-width:900px){.tag{display:none}}
   /* ── the whitepaper ── */
   .paper{max-width:860px;margin:0 auto;font-size:17px;line-height:1.75;
@@ -186,6 +199,7 @@
   <div class="tag">a key/value market where every byte pays rent — ML-DSA or SLH-DSA + SHA3, no curves, every witness checked by its key type's wasm</div>
   <nav>
     <button data-tab="chain" class="on">CHAIN</button>
+    <button data-tab="ask">ASK</button>
     <button data-tab="store">STORE</button>
     <button data-tab="market">MARKET</button>
     <button data-tab="write">WRITE</button>
@@ -228,6 +242,23 @@
         <button class="go" id="insp-btn">LOOK UP</button>
       </div>
       <pre id="insp-out" class="muted">—</pre>
+    </div>
+  </section>
+
+  <!-- ASK --------------------------------------------------------------- -->
+  <section id="ask">
+    <div class="panel">
+      <h2>ask the chain</h2>
+      <p class="note">Tell it what to do in plain words — it runs the same
+        tools as every other tab and shows each one it used. Chain steps with
+        "then". Add "dry run" to see the price without signing anything.</p>
+      <div class="row">
+        <input type="text" id="ask-q" placeholder='e.g. create wallet alice then faucet 100 to alice' autocomplete="off">
+        <button class="go" id="ask-go">ASK</button>
+        <span class="pill" id="ask-brain">—</span>
+      </div>
+      <div id="ask-examples"></div>
+      <div id="ask-log"></div>
     </div>
   </section>
 
@@ -568,10 +599,80 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
   document.querySelectorAll('main > section').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); $(b.dataset.tab).classList.add('on');
-  ({chain: loadChain, store: loadKeys, market: loadMarket,
+  ({chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
     wallet: () => { loadWallets(); loadAlgos(); },
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
 });
+
+// ── ASK: POST /run/stream, the fleet's agent contract ──
+let askLoaded = false;
+async function loadAsk() {
+  if (askLoaded) return;
+  try {
+    const r = await api('/agents');
+    const a = r.agents.find(x => x.id === r.default) || r.agents[0];
+    const b = r.brains || {};
+    $('ask-brain').textContent = b.llm && b.llm.ready
+      ? 'brain: ' + b.llm.model + ' (falls back to rules)'
+      : 'brain: rules — local, free, no model';
+    $('ask-examples').innerHTML = (a.examples || []).map(e =>
+      `<span class="chip">${esc(e)}</span>`).join('');
+    document.querySelectorAll('#ask-examples .chip').forEach(c => c.onclick = () => {
+      $('ask-q').value = c.textContent; $('ask-q').focus(); });
+    askLoaded = true;
+  } catch (e) { $('ask-brain').textContent = 'agent unavailable: ' + e.message; }
+}
+async function ask() {
+  const q = $('ask-q').value.trim();
+  if (!q) return;
+  $('ask-q').value = ''; $('ask-go').disabled = true;
+  const turn = document.createElement('div');
+  turn.innerHTML = `<div class="turn-q">${esc(q)}</div>` +
+    '<div class="turn-a"><div class="tools"></div><div class="ans muted">working…</div></div>';
+  $('ask-log').prepend(turn);
+  const tools = turn.querySelector('.tools'), ans = turn.querySelector('.ans');
+  let chip = null;
+  const handle = ev => {
+    if (ev.type === 'tool_start') {
+      chip = document.createElement('span'); chip.className = 'chip run';
+      chip.textContent = ev.tool; chip.title = JSON.stringify(ev.params);
+      tools.appendChild(chip);
+    } else if (ev.type === 'step' && ev.step.tool !== 'finish' && chip) {
+      chip.className = 'chip ' + (ev.step.error ? 'no' : 'ok');
+      chip.textContent = ev.step.tool + (ev.step.ms !== undefined ? ' ' + ev.step.ms + 'ms' : '');
+      const detail = ev.step;
+      chip.onclick = () => { const pre = turn.querySelector('pre') ||
+        turn.querySelector('.turn-a').appendChild(document.createElement('pre'));
+        pre.textContent = JSON.stringify(detail, null, 2); };
+    } else if (ev.type === 'status') {
+      ans.textContent = ev.text;
+    } else if (ev.type === 'done') {
+      ans.className = 'ans'; ans.textContent = ev.result;
+    } else if (ev.type === 'error') {
+      ans.className = 'ans err'; ans.textContent = ev.error;
+    }
+  };
+  try {
+    const r = await fetch(API + '/run/stream', {method: 'POST',
+      headers: {'content-type': 'application/json'}, body: JSON.stringify({query: q})});
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (frame.startsWith('data: ')) handle(JSON.parse(frame.slice(6)));
+      }
+    }
+  } catch (e) { ans.className = 'ans err'; ans.textContent = e.message; }
+  $('ask-go').disabled = false; $('ask-q').focus();
+}
+$('ask-go').onclick = ask;
+$('ask-q').onkeydown = e => { if (e.key === 'Enter') ask(); };
 
 // ── CHAIN ──
 const stat = (v, k, cls) => `<div class="stat"><b class="${cls||''}">${v}</b><span>${k}</span></div>`;

@@ -18,6 +18,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
+import { ask } from '../lib/ask'
 
 export type ToolParam = { type?: string; required?: boolean; default?: any; hint?: string }
 export type ToolKind = 'builtin' | 'custom' | 'mod'
@@ -156,7 +157,7 @@ export default function Tools({ token, isHost, onCount }: {
   }
 
   const removeBox = async (b: Box) => {
-    if (!confirm(`Delete toolbox "${b.name}"?`)) return
+    if (!(await ask({ title: `Delete toolbox "${b.name}"?`, ok: 'Delete', danger: true }))) return
     try {
       const r = await fetch(`${API_URL}/toolboxes/${encodeURIComponent(b.name)}${keyq}`,
         { method: 'DELETE' }).then(x => x.json())
@@ -167,7 +168,7 @@ export default function Tools({ token, isHost, onCount }: {
   }
 
   const remove = async (t: ToolEntry) => {
-    if (!confirm(`Delete tool "${t.name}"?`)) return
+    if (!(await ask({ title: `Delete tool "${t.name}"?`, ok: 'Delete', danger: true }))) return
     try {
       const r = await fetch(`${API_URL}/tools/${encodeURIComponent(t.name)}${keyq}`, { method: 'DELETE' }).then(x => x.json())
       if (r?.error) { setErr(r.error); return }

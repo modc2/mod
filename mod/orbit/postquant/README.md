@@ -97,6 +97,31 @@ python3 -m pytest tests -q     # the suite, against a throwaway chain
   `POST /set /del /fund /sweep /list /buy /transfer /wallet /faucet /mine`
 - MCP: `POST /mcp` (Streamable HTTP), 24 tools, `pq_head` through `pq_algos`
 
+## Ask it
+
+The chain speaks the fleet's agent contract, so you can just say what you
+want — in the console's ASK tab, over HTTP, or from the shell:
+
+```
+python3 agent.py "create wallet alice then faucet 100 to alice"
+curl -N localhost:51030/run/stream -d '{"query":"set greeting to hi for 2 days from alice then get greeting"}'
+GET  /agents                     # the roster orbit/build probes: pq, pq-reader
+```
+
+- **Two brains.** `rules` (default, always on) is a plain-English command
+  parser: no model, no network, no key, free. `llm` is optional — point
+  `POSTQUANT_AGENT_LLM` at any OpenAI-compatible endpoint with tool calling
+  (a local ollama: `http://127.0.0.1:11434/v1`) and it drives the same tools;
+  if it fails the run falls back to rules and says so.
+- **One door.** Every step is `mcp.call_tool()`, the function REST and MCP
+  use, so the agent cannot see a different chain or skip a check.
+- **Same write gate.** With `server.secret` present, a run without the bearer
+  still answers: writes that can be priced come back as dry runs, the rest
+  are refused with the reason. The `pq-reader` agent never signs.
+- Events (SSE): `model_start`, `token`, `tool_start`, `step`, `done|error` —
+  orbit/agent's names, so orbit/build draws a postquant run like any other
+  job. Mount it there with `POST /agents/mods {"mod":"orbit/postquant"}`.
+
 The usual life of a key:
 
 ```
@@ -138,6 +163,7 @@ state.py        the state machine — pure functions of (state, tx, timestamp)
 keys.py         keystore, addresses, transaction signing
 chain.py        blocks, mempool, the proposer, replay + verify
 mcp.py          24 tools; call_tool() is the one door
+agent.py        plain English → call_tool(); rules brain + optional llm brain
 api.py          REST + console + MCP on one port
 console.html    the app
 mod.py          the module surface

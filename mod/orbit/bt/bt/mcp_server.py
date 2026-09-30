@@ -20,7 +20,7 @@ import traceback
 
 from . import tools
 
-SERVER_INFO = {'name': 'bittensor', 'version': '2.4.0'}
+SERVER_INFO = {'name': 'bittensor', 'version': '3.0.0'}
 PROTOCOL_VERSION = '2025-06-18'
 
 

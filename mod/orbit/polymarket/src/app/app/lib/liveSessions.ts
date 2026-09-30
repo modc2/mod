@@ -60,6 +60,7 @@ export interface LiveSession {
     capital?: number;
     autoExecute?: boolean;
     intervalMs?: number;
+    traders?: { address: string; weight?: number; enabled?: boolean }[];
   };
   state?: {
     status?: string;

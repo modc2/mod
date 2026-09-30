@@ -2,6 +2,7 @@ node_modules/
 .next/
 .next-dev/
 out/
-dist/
+dist
 dist.*/
 *.tsbuildinfo
+releases/

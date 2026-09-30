@@ -49,7 +49,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_STRATS, orderedTemplates, traderIndexTemplate } from "../lib/defaultStrats";
 import { useStratManager } from "../lib/stratManager";
-import { useStratStats, useStratPnlHistory, fmtUsd, type StratPnlPoint } from "../lib/stratStats";
+import { useStratStats, useStratPnlHistory, fmtUsd, moneyOnStrat, sessionLabel, type StratPnlPoint } from "../lib/stratStats";
 import { fetchPublicStrats, type PublicStratEntry } from "../lib/stratSync";
 import { FORMULA_EVENT, broadcastFormula, loadSavedFormula } from "../lib/scoreFormula";
 import { isTraderIndex } from "../lib/traderIndex";
@@ -97,10 +97,11 @@ export default function StratsTab() {
   const {
     indexes, activeId, select, fork, forkDefault, rename,
     requestDelete, pendingDelete, confirmDelete, cancelDelete,
-    stopStrat, setVisibility, importPublic, broadcast,
+    stopStrat, setVisibility, importPublic, broadcast, adoptSession,
   } = useStratManager();
   // Live money stats + running set: cards show deployed capital alongside backtest.
-  const { stats: liveStats, running: liveStratIds } = useStratStats();
+  const { stats: liveStats, running: liveStratIds, sessions: liveSessions, cash } = useStratStats();
+  const moneyOn = (id: string) => moneyOnStrat(liveStats[id], liveStratIds.has(id));
   // 7-day PnL curves per strat, from the server sidecar's 10-min samples.
   const pnlHistory = useStratPnlHistory();
 
@@ -297,35 +298,56 @@ export default function StratsTab() {
           two or three that actually hold capital drown in it. This is the
           plain answer to "where is my money": name · $ in play · PnL. */}
       {(() => {
-        const invested = indexes.filter((idx) => {
-          const m = liveStats[idx.id];
-          return liveStratIds.has(idx.id) || (m != null && (m.moneyIn > 0 || m.openPositions > 0));
-        });
+        // Every dollar, not just the dollars with a local card: sessions the
+        // engine runs for strats this browser never saved (WHO I COPY rows,
+        // another device) are listed by their session label.
+        type Row = { id: string; name: string; local: boolean; running: boolean; executing: boolean; money: number };
+        const known = new Set(indexes.map((i) => i.id));
+        const rows: Row[] = [
+          ...indexes.map((idx) => ({
+            id: idx.id, name: idx.name, local: true,
+            running: liveStratIds.has(idx.id),
+            executing: liveSessions[idx.id]?.executing ?? false,
+            money: moneyOn(idx.id),
+          })),
+          ...Object.values(liveSessions).filter((ss) => !known.has(ss.strategyId)).map((ss) => ({
+            id: ss.strategyId, name: sessionLabel(ss), local: false,
+            running: ss.running, executing: ss.executing,
+            money: moneyOn(ss.strategyId),
+          })),
+        ].filter((r) => r.running || r.money > 0)
+          .sort((a, b) => b.money - a.money);
+        const total = rows.reduce((t, r) => t + r.money, 0);
         return (
           <section className="space-y-1">
-            <SectionHeader label="INVESTED" hint="strats your money is on right now · click = active" />
-            {invested.length === 0 ? (
+            <div className="flex items-baseline justify-between gap-2">
+              <SectionHeader label="INVESTED" hint="where your money is right now" />
+              {rows.length > 0 && (
+                <span className="shrink-0 text-[10.5px] font-mono tabular-nums text-pixel-gray">
+                  <span className="text-pixel-white font-semibold">{fmtUsd(total)}</span> on {rows.length} strat{rows.length === 1 ? "" : "s"}
+                  {cash !== null && <> · wallet {fmtUsd(cash)}</>}
+                </span>
+              )}
+            </div>
+            {rows.length === 0 ? (
               <div className="px-1.5 py-1 text-[10px] font-mono text-pixel-gray">
                 No money on any strat. Deposit on <span className="text-pixel-white">INDEX</span>, then start one on LIVE.
               </div>
             ) : (
               <div className="flex flex-col gap-0.5">
-                {invested.map((idx) => {
-                  const m = liveStats[idx.id];
-                  const isActive = idx.id === activeId;
-                  const isRunning = liveStratIds.has(idx.id);
-                  // "How much of my money is on this strat" = the session's
-                  // committed capital; open cost basis is the fallback for
-                  // sessions predating the capital field.
-                  const inPlay = m?.moneyIn ?? 0;
-                  const invested = (m?.capital ?? 0) > 0 ? m!.capital : inPlay;
+                {rows.map((r) => {
+                  const m = liveStats[r.id];
+                  const isActive = r.id === activeId;
                   const totalPnl = m?.totalPnl ?? 0;
-                  const curve = pnlHistory[idx.id];
+                  const deployed = m?.moneyIn ?? 0;
+                  const curve = pnlHistory[r.id];
                   return (
-                    <button
-                      key={idx.id}
-                      onClick={() => select(idx.id)}
+                    <div
+                      key={r.id}
+                      onClick={() => r.local && select(r.id)}
                       className={`flex items-center gap-2 rounded-[var(--radius-sm)] px-2.5 py-2 text-left transition-colors ${
+                        r.local ? "cursor-pointer" : ""
+                      } ${
                         isActive
                           ? "bg-green-400/[0.07] ring-1 ring-green-400/30"
                           : "hover:bg-pixel-white/[0.04] ring-1 ring-pixel-border/60"
@@ -333,28 +355,49 @@ export default function StratsTab() {
                     >
                       <span
                         className={`w-2 h-2 rounded-full shrink-0 ${
-                          isRunning ? "bg-green-400 animate-pulse" : "bg-pixel-gray/50"
+                          r.running ? "bg-green-400 animate-pulse" : "bg-pixel-gray/50"
                         }`}
-                        title={isRunning ? "Trading now" : "Holding positions, engine stopped"}
+                        title={r.running ? "Trading now" : "Holding positions, engine stopped"}
                       />
                       <span className={`flex-1 min-w-0 truncate text-[12px] font-mono font-semibold ${isActive ? "text-green-400" : "text-pixel-white"}`}>
-                        {idx.name}
+                        {r.name}
+                        {r.running && !r.executing && (
+                          <span className="ml-1.5 text-[9px] tracking-[0.1em] text-amber-300/80" title="Dry run — computes every order, places none">PAPER</span>
+                        )}
                       </span>
+                      {!r.local && liveSessions[r.id] && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); adoptSession(liveSessions[r.id], r.name); }}
+                          className="shrink-0 px-1.5 py-0.5 rounded border border-green-400/50 text-[9px] font-mono text-green-400 hover:bg-green-400/10"
+                          title="This strat has money on the engine but no card in MY STRATS here — SAVE adds it (same id, so its money and P&L stay attached)"
+                        >
+                          SAVE
+                        </button>
+                      )}
                       {curve && curve.length >= 2 && (
                         <span className="shrink-0" title="Last 7 days of live PnL">
                           <Sparkline data={curve.map((p) => p.pnl)} width={64} height={18} />
                         </span>
                       )}
                       <span
-                        className={`shrink-0 text-[11px] font-mono tabular-nums ${invested > 0 ? "text-pixel-white" : "text-pixel-gray"}`}
-                        title={`${fmtUsd(invested)} of your money on this strat · ${fmtUsd(inPlay)} currently deployed in open positions`}
+                        className="shrink-0 text-[12px] font-mono font-semibold tabular-nums text-pixel-white"
+                        title={`${fmtUsd(r.money)} of your money on this strat · ${fmtUsd(deployed)} of it in open positions right now`}
                       >
-                        {fmtUsd(invested)} in
+                        {fmtUsd(r.money)}
                       </span>
-                      <span className={`shrink-0 text-[11px] font-mono font-semibold tabular-nums ${totalPnl > 0 ? "text-green-400" : totalPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
+                      <span className={`shrink-0 w-14 text-right text-[11px] font-mono font-semibold tabular-nums ${totalPnl > 0 ? "text-green-400" : totalPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
                         {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
                       </span>
-                    </button>
+                      {r.running && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); void stopStrat(r.id); }}
+                          className="shrink-0 px-1.5 py-0.5 rounded border border-pixel-border/60 text-[9px] font-mono text-pixel-gray hover:text-red-400 hover:border-red-400/60"
+                          title="Stop this strat's engine. Open positions stay open until you sell or they resolve."
+                        >
+                          STOP
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -365,7 +408,7 @@ export default function StratsTab() {
 
       {/* ── MY STRATS — the management list ── */}
       <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
-        <SectionHeader label="MY STRATS" hint="click = active · live money + last backtest per card" />
+        <SectionHeader label="MY STRATS" hint="every strat you saved · money on it first · click = active" />
         {/* Cards: each strat is a self-contained card. Columns come from the
             CONTAINER's width (auto-fill), not a viewport breakpoint — this tab
             renders inside frames (modc2, the phone view) whose width has
@@ -383,9 +426,10 @@ export default function StratsTab() {
             </div>
           )}
 
-          {indexes.map((idx) => {
+          {[...indexes].sort((a, b) => moneyOn(b.id) - moneyOn(a.id)).map((idx) => {
             const isActive = idx.id === activeId;
             const isRunning = liveStratIds.has(idx.id);
+            const onIt = moneyOn(idx.id);
             const isPublic = idx.visibility === "public";
             const indexed = isTraderIndex(idx);
             const money = liveStats[idx.id];
@@ -505,11 +549,23 @@ export default function StratsTab() {
                       </span>
                       {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
                     </div>
+                    {/* Headline = the money on this strat (committed capital
+                        while running, open positions once stopped). */}
+                    {onIt > 0 && (
+                      <div className="text-[13px] font-mono font-semibold text-pixel-white tabular-nums" title={`${fmtUsd(onIt)} of your money on this strat · ${fmtUsd(inPlay)} in ${openPos} open position${openPos === 1 ? "" : "s"}`}>
+                        {fmtUsd(onIt)}
+                        <span className="ml-1 text-[9px] font-normal text-pixel-gray">
+                          {openPos > 0 ? `${openPos} pos ${fmtUsd(inPlay)}` : "none in positions"}
+                        </span>
+                      </div>
+                    )}
                     {traded ? (
                       <>
-                        <div className="text-[11px] font-mono font-semibold text-pixel-white tabular-nums">
-                          {openPos > 0 ? fmtUsd(inPlay) : "flat"}
-                        </div>
+                        {onIt <= 0 && (
+                          <div className="text-[11px] font-mono font-semibold text-pixel-white tabular-nums">
+                            {openPos > 0 ? fmtUsd(inPlay) : "flat"}
+                          </div>
+                        )}
                         <div className={`text-[9.5px] font-mono tabular-nums ${pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : "text-pixel-gray"}`}>
                           24h {pnl24h >= 0 ? "+" : ""}{fmtUsd(pnl24h)}
                           {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
@@ -519,9 +575,11 @@ export default function StratsTab() {
                         </div>
                       </>
                     ) : (
-                      <div className="text-[9.5px] font-mono text-pixel-gray/60">
-                        {isRunning ? "running · no positions" : "not trading"}
-                      </div>
+                      onIt <= 0 && (
+                        <div className="text-[9.5px] font-mono text-pixel-gray/60">
+                          {isRunning ? "running · no positions" : "not trading"}
+                        </div>
+                      )
                     )}
                   </div>
 

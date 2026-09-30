@@ -1,6 +1,6 @@
 {
   "scores": {
-    "0": 0.5533373126976917
+    "0": 0.5950153500791494
   },
   "hotkey": "5HdTUa9S4sScox8X2dPi3JCKiRnmUm6gYg9T42py3EJAmBXq",
   "last_epoch": {
@@ -10,70 +10,79 @@
     "results": {
       "0": {
         "hotkey": "5FQrkv63LhBJxcZnYEi2X3EZcFdFEDV6wKYJLQSrtxo3v2Ck",
-        "epoch_score": 0.4875,
-        "ema_score": 0.5533,
+        "epoch_score": 0.6923,
+        "ema_score": 0.595,
         "samples": [
           {
-            "score": 1.0,
+            "score": 0.6803177907584015,
             "task": "block_header",
-            "elapsed": 0.137,
+            "elapsed": 3.158,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.811297092236352,
+            "score": 0.5555799531808655,
             "task": "gas_price",
-            "elapsed": 3.284,
+            "elapsed": 3.27,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.6195337500291808,
+            "score": 0.6768654758981261,
             "task": "account_state",
-            "elapsed": 3.361,
+            "elapsed": 3.204,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.7962527178131276,
+            "score": 0.8833333333333333,
             "task": "block_header",
-            "elapsed": 3.168,
+            "elapsed": 0.165,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.672620978095676,
+            "score": 0.66640077786663,
             "task": "gas_price",
-            "elapsed": 3.264,
+            "elapsed": 3.358,
             "signature_ok": true,
             "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+            "score": 0.8135180116465759,
+            "task": "account_state",
+            "elapsed": 3.251,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.6794887962889412,
+            "task": "block_header",
+            "elapsed": 3.169,
+            "signature_ok": true,
+            "correct": true
           },
           {
-            "score": 0.0,
-            "error": "unreachable: HTTPConnectionPool(host='127.0.0.1', port=50184): Max retries exceeded with url: /synapse (Caused by NewConnectionError(\"HTTPConnection(host='127.0.0.1', port=50184): Failed to establish a new connection: [Errno 111] Connection refused\"))"
+            "score": 0.5826086927808666,
+            "task": "gas_price",
+            "elapsed": 3.217,
+            "signature_ok": true,
+            "correct": true
           }
         ]
       }
     },
-    "at": 1790785763,
+    "at": 1790804093,
     "weights": {
       "0": 1.0
     },
     "set_weights": {
       "ok": true,
-      "epoch": 34,
+      "epoch": 35,
       "incentive": {
         "0": 1.0
       }
     }
   },
-  "updated": 1790785798
+  "updated": 1790804152
 }

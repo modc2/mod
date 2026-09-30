@@ -14,6 +14,10 @@ state root for the same chain. call_tool() is the single door.
          writes, args as a JSON body
     GET  /tools             the MCP tool registry
     POST /mcp               MCP JSON-RPC 2.0 (Streamable HTTP)
+    GET  /agents            the agent roster — the fleet's agent contract
+    POST /run  /run/stream  ask the agent in plain English (JSON | SSE);
+                            its writes pass the same bearer gate as POST /set
+    GET  /.well-known/agent.json   agent/1.0 card
     GET  /postquant         the console
 
 WHY WRITES ARE GATED AND READS ARE NOT
@@ -42,6 +46,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
+import agent as pqagent                                         # noqa: E402
 import mcp as mcpsrv                                            # noqa: E402
 import state as S                                               # noqa: E402
 from state import StateError                                    # noqa: E402
@@ -97,6 +102,11 @@ def info():
                for p, t in sorted(ROUTES.items()) if p in WRITE_ROUTES},
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
+            'GET /agents': 'the agent roster (fleet agent contract)',
+            'POST /run': 'ask the agent in plain English — "set hello to '
+                         'world for 2 days", "send 5 to bob"',
+            'POST /run/stream': 'the same run as SSE: model_start, token, '
+                                'tool_start, step, done|error',
             f'GET {BASE}': 'the console',
         },
         'auth': {
@@ -108,6 +118,10 @@ def info():
         },
         'mcp': {'endpoint': 'POST /mcp', 'stdio': 'python3 mcp.py',
                 'tools': len(mcpsrv.TOOLS)},
+        'agent': {'roster': 'GET /agents', 'run': 'POST /run',
+                  'stream': 'POST /run/stream', 'card': '/.well-known/agent.json',
+                  'agents': list(pqagent.AGENTS), 'brains': pqagent.brains(),
+                  'try': pqagent.EXAMPLES[:5]},
     }
 
 
@@ -220,16 +234,73 @@ def serve(port=PORT, bind=None, base=BASE, block_loop=True):
                 return p[len(base):], query
             return p, query
 
-        def _authed(self, path, method):
+        def _may_write(self):
+            """The write gate: open with no server.secret, else the bearer."""
             token_needed = secret()
             if not token_needed:
-                return True
-            if method == 'GET' or path.lstrip('/') not in WRITE_ROUTES:
                 return True
             auth = (self.headers.get('authorization') or '').strip()
             token = auth[7:].strip() if auth.lower().startswith('bearer ') \
                 else ''
             return token == token_needed
+
+        def _authed(self, path, method):
+            if method == 'GET' or path.lstrip('/') not in WRITE_ROUTES:
+                return True
+            return self._may_write()
+
+        def _agent(self, p, body):
+            """The agent contract. Returns True when it answered."""
+            if p == '/.well-known/agent.json':
+                host = self.headers.get('host') or f'localhost:{port}'
+                self._send(200, pqagent.card(f'http://{host}'))
+                return True
+            if p == '/agents' and self.command == 'GET':
+                self._send(200, pqagent.agents())
+                return True
+            if p.startswith('/agents/') and self.command == 'GET':
+                try:
+                    self._send(200, pqagent.agent(p.split('/', 2)[2]))
+                except KeyError as e:
+                    self._send(404, {'error': str(e)})
+                return True
+            if p not in ('/run', '/run/stream'):
+                return False
+            if self.command != 'POST':
+                self._send(405, {'error': f'POST {p} with {{"query": "..."}}'})
+                return True
+            query = str(body.get('query') or body.get('message') or '').strip()
+            if not query:
+                self._send(400, {'error': 'a run needs a `query`',
+                                 'try': pqagent.EXAMPLES})
+                return True
+            kw = {'agent': body.get('agent_type') or body.get('agent'),
+                  'brain': body.get('brain') or 'auto',
+                  'model': body.get('model'),
+                  'history': body.get('history') if isinstance(
+                      body.get('history'), list) else None,
+                  'can_write': self._may_write()}
+            if p == '/run':
+                try:
+                    self._send(200, pqagent.run(query, **kw))
+                except StateError as e:
+                    self._send(e.status, e.dict())
+                return True
+            self.send_response(200)
+            self.send_header('content-type', 'text/event-stream')
+            self.send_header('cache-control', 'no-cache')
+            self.send_header('connection', 'close')
+            self._cors()
+            self.end_headers()
+            try:
+                for ev in pqagent.run_stream(query, **kw):
+                    self.wfile.write(
+                        f'data: {json.dumps(ev, default=str)}\n\n'.encode())
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass                    # the caller hung up mid-run
+            self.close_connection = True
+            return True
 
         def _dispatch(self):
             p, query = self._path()
@@ -251,6 +322,10 @@ def serve(port=PORT, bind=None, base=BASE, block_loop=True):
                 except FileNotFoundError:
                     return self._send(200, info())
             body = self._read()
+            if not isinstance(body, dict):
+                body = {}
+            if self._agent(p, body):
+                return None
             if not self._authed(p, self.command):
                 return self._send(401, {'error': 'this route spends PQ — send '
                                         'the bearer from '

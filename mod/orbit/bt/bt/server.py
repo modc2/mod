@@ -1,7 +1,10 @@
 """
 bt.server — HTTP surface for the bt module on one port (:50280).
 
-  GET  /            Apple-style console (app/index.html)
+  GET  /            the console — a static Next.js export (app/dist, see
+                    app/build.sh); every page route maps to dist/<page>.html
+  GET  /legacy      the single-file console it replaced (app/legacy.html),
+                    also served at / whenever no build has been published
   GET  /api         module info (mod protocol null-call convention)
   GET  /api/tools   MCP-shaped tool listing
   GET  /api/docs    grouped tool docs for the Docs section
@@ -39,12 +42,32 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'],
                    allow_methods=['*'], allow_headers=['*'])
 
 
+# API paths as they arrive once the gateway has stripped `/bt/api`
+# (modc2.com/bt/api/call reaches us as /call — the mod protocol's canonical
+# form). /docs and / are also console pages, so those two only count as API
+# when the caller is not a browser asking for HTML.
+_API_ROOT = {'/call', '/tools', '/ask', '/agent'}
+_API_SHARED = {'/', '/docs'}
+
+
+def _api_path(path: str, request: Request) -> str | None:
+    if path.startswith('/_api/') or path == '/_api':
+        return ('/api' + path[5:]).rstrip('/')   # the console's own unstripped route
+    if path in _API_ROOT or path.startswith('/agent/') or path.startswith('/.well-known/'):
+        return '/api' + path if not path.startswith('/.well-known/') else path
+    if path in _API_SHARED and 'text/html' not in request.headers.get('accept', ''):
+        return '/api' + (path if path != '/' else '')
+    return None
+
+
 @app.middleware('http')
 async def strip_gateway_prefix(request: Request, call_next):
-    # The gateway proxies modc2.com/bt with the /bt prefix kept.
+    # The gateway proxies modc2.com/bt with the /bt prefix kept, and
+    # modc2.com/bt/api/* with /bt/api stripped. Both land on the same routes.
     path = request.scope['path']
     if path == '/bt' or path.startswith('/bt/'):
-        request.scope['path'] = path[3:] or '/'
+        path = path[3:] or '/'
+    request.scope['path'] = _api_path(path, request) or path
     return await call_next(request)
 
 
@@ -53,6 +76,7 @@ def _info():
         'name': 'bt',
         'description': 'Bittensor protocol console + MCP server',
         'version': SERVER_INFO['version'],
+        'app': 'next' if os.path.isdir(DIST_DIR) else 'legacy',
         'network': tools.DEFAULT_NETWORK,
         'tools': len(tools.TOOLS),
         'block': history.stats().get('block'),   # what the index is synced to
@@ -226,16 +250,60 @@ async def mcp_endpoint(request: Request):
 
 
 @app.get('/mcp')
-def mcp_get():
+def mcp_get(request: Request):
+    # /mcp is also the console's "connect via MCP" page — browsers get that
+    if 'text/html' in request.headers.get('accept', ''):
+        return console('mcp')
     return JSONResponse(status_code=405, content={
         'error': 'POST JSON-RPC here (MCP streamable HTTP); SSE stream not offered'})
 
 
 # ------------------------------------------------------------------- app
+#
+# The console is app/ — a Next.js app exported to static files (build.sh
+# publishes app/dist -> app/releases/<t>). No node process at runtime: this
+# server hands the files out next to /api and /mcp. Routes resolve the way
+# `next export` lays them out: /markets -> markets.html, /_next/... as-is.
+# Registered LAST, so it can never shadow an API route.
+
+DIST_DIR = os.path.join(APP_DIR, 'dist')
+LEGACY = os.path.join(APP_DIR, 'legacy.html')
+_IMMUTABLE = {'cache-control': 'public, max-age=31536000, immutable'}
+_FRESH = {'cache-control': 'no-cache'}
+
+
+def _dist_file(path: str):
+    """The file under app/dist a request path maps to, or None."""
+    root = os.path.realpath(DIST_DIR)
+    if not os.path.isdir(root):
+        return None
+    rel = path.strip('/') or 'index'
+    for cand in (rel, rel + '.html', os.path.join(rel, 'index.html')):
+        full = os.path.realpath(os.path.join(root, cand))
+        if (full == root or full.startswith(root + os.sep)) and os.path.isfile(full):
+            return full
+    return None
+
+
+@app.get('/legacy')
+def legacy():
+    return FileResponse(LEGACY, headers=_FRESH)
+
 
 @app.get('/')
-def index():
-    return FileResponse(os.path.join(APP_DIR, 'index.html'))
+@app.get('/{path:path}')
+def console(path: str = ''):
+    f = _dist_file(path)
+    if f:
+        return FileResponse(f, headers=_IMMUTABLE if '/_next/static/' in f else _FRESH)
+    if not os.path.isdir(DIST_DIR):
+        # never built on this host — the single-file console still works
+        if path.strip('/') in ('', 'index.html'):
+            return FileResponse(LEGACY, headers=_FRESH)
+    nf = _dist_file('404')
+    if nf and not path.startswith(('api/', '_next/')):
+        return FileResponse(nf, status_code=404, headers=_FRESH)
+    return JSONResponse(status_code=404, content={'ok': False, 'error': f'not found: /{path}'})
 
 
 if __name__ == '__main__':

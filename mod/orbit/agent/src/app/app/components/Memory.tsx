@@ -23,6 +23,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { API_URL } from '../config'
+import { ask } from '../lib/ask'
 
 export type MemNote = { id: string; name: string; content: string; tags?: string[]; cid?: string; owner?: string | null; owner_source?: 'item' | 'host' | null }
 export type MemFact = { id: string; name: string; content: string; tags?: string[]; updated?: number }
@@ -141,7 +142,7 @@ export default function Memory({ token, session, memSel, onToggleMem, onNotesCha
   }
 
   const remove = async (kind: 'note' | 'fact', id: string, label: string) => {
-    if (!confirm(`Forget "${label}"?`)) return
+    if (!(await ask({ title: `Forget "${label}"?`, ok: 'Forget', danger: true }))) return
     const q = token ? `?key=${encodeURIComponent(token)}` : ''
     const route = kind === 'note' ? `memory/${encodeURIComponent(id)}` : `memory/facts/${encodeURIComponent(id)}`
     try {

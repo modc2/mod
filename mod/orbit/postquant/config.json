@@ -1,7 +1,7 @@
 {
     "name": "postquant",
-    "version": "0.3.0",
-    "description": "A post-quantum L1 whose entire state machine is a market in key/value space, with pluggable post-quantum key types where the algorithm IS a wasm module. Signatures come from two families that share nothing \u2014 ML-DSA 44/65/87 (FIPS 204, module lattices) and SLH-DSA-SHAKE-128f (FIPS 205, nothing but SHAKE256) \u2014 chosen per wallet, with the address committing to the choice; every commitment is SHA3-256 and there is no elliptic curve anywhere in the trust path. Every transaction witness is verified INSIDE the compiled wasm verifier registered for its key type (blob SHA3-256 committed in pq/wasm/manifest.json, checked on both sides of the process boundary, fail closed), so what a valid signature means is pinned to exact bytes any node can hash, ship and re-run \u2014 and a future key type is one plugin file plus one blob, not a fork. There is one thing to own on this chain, a key in the store, and the whole protocol is the market for it: write gas per byte (a key byte costs 4x a value byte, hash values below blobs), witness gas per byte of signature billed per scheme as-is (2420 for ML-DSA-44, 17088 for SLH-DSA \u2014 the honest price of resting on nothing but hashes), and rent per byte-hour against a prepaid escrow. Expiry makes entries sweepable for their bond; the fee market is EIP-1559 over state growth. Consensus is a single proposer \u2014 authority, not agreement \u2014 but verify replays every block from genesis and re-runs every witness through its key type's wasm. REST, the browser console and 24 MCP tools on one port, off the same functions.",
+    "version": "0.4.0",
+    "description": "A post-quantum L1 whose entire state machine is a market in key/value space, with pluggable post-quantum key types where the algorithm IS a wasm module. Signatures come from two families that share nothing \u2014 ML-DSA 44/65/87 (FIPS 204, module lattices) and SLH-DSA-SHAKE-128f (FIPS 205, nothing but SHAKE256) \u2014 chosen per wallet, with the address committing to the choice; every commitment is SHA3-256 and there is no elliptic curve anywhere in the trust path. Every transaction witness is verified INSIDE the compiled wasm verifier registered for its key type (blob SHA3-256 committed in pq/wasm/manifest.json, checked on both sides of the process boundary, fail closed), so what a valid signature means is pinned to exact bytes any node can hash, ship and re-run \u2014 and a future key type is one plugin file plus one blob, not a fork. There is one thing to own on this chain, a key in the store, and the whole protocol is the market for it: write gas per byte (a key byte costs 4x a value byte, hash values below blobs), witness gas per byte of signature billed per scheme as-is (2420 for ML-DSA-44, 17088 for SLH-DSA \u2014 the honest price of resting on nothing but hashes), and rent per byte-hour against a prepaid escrow. Expiry makes entries sweepable for their bond; the fee market is EIP-1559 over state growth. Consensus is a single proposer \u2014 authority, not agreement \u2014 but verify replays every block from genesis and re-runs every witness through its key type's wasm. REST, the browser console, 24 MCP tools and a plain-English agent (the fleet agent contract: GET /agents + POST /run/stream) on one port, off the same functions.",
     "icon": "\u25a7",
     "color": "#9d7bff",
     "anchor": "mod.py",
@@ -16,10 +16,11 @@
         "api": "http://localhost:51030",
         "app": "http://localhost:51030/postquant",
         "same_origin_api": "http://localhost:51030/postquant/_api",
-        "mcp": "http://localhost:51030/mcp"
+        "mcp": "http://localhost:51030/mcp",
+        "agents": "http://localhost:51030/agents"
     },
     "backend": "python stdlib only (http.server + hashlib) \u2014 no dependencies; ML-DSA, SLH-DSA and ML-KEM implemented in pq/, witness verification in per-algorithm wasm (dependency-free Rust, bare rustc, run by a node host)",
-    "frontend": "console.html \u2014 the tip, the store, the market, write/quote, wallets with per-scheme creation, the key-type table, the whitepaper; served at /postquant",
+    "frontend": "console.html \u2014 the tip, ASK (the agent), the store, the market, write/quote, wallets with per-scheme creation, the key-type table, the whitepaper; served at /postquant",
     "state": "~/.mod/postquant \u2014 keys.json (32-byte seeds, mode 0600, never committed), <chain_id>/blocks.jsonl (the log, the truth), <chain_id>/state.json (a snapshot, discarded if it disagrees with the log)",
     "crypto": {
         "signatures": "pluggable per account: ML-DSA-44/65/87 (FIPS 204, pq/mldsa.py) and SLH-DSA-SHAKE-128f (FIPS 205, pq/slhdsa.py); registry pq/algos.py, plugins in pq/algos.d/",
@@ -86,7 +87,8 @@
         "writes": "POST /set /del /fund /sweep /list /buy /transfer /wallet /faucet /mine \u2014 JSON bodies, same args as the tools",
         "tools": "GET /tools",
         "mcp": "POST /mcp (JSON-RPC 2.0, Streamable HTTP) | python3 mcp.py (stdio)",
-        "console": "GET /postquant (browser)"
+        "console": "GET /postquant (browser)",
+        "agent": "GET /agents /agents/{id} /.well-known/agent.json \u00b7 POST /run /run/stream {\"query\": \"set hello to world for 2 days\"}"
     },
     "fns": [
         "forward",
@@ -110,7 +112,9 @@
         "verify",
         "mine",
         "test",
-        "readme"
+        "readme",
+        "agents",
+        "ask"
     ],
     "env": {
         "POSTQUANT_PORT": "port for API, console and MCP (default 51030)",
@@ -127,10 +131,27 @@
         "POSTQUANT_WASM": "on (default) requires every witness to verify in its key type's wasm; off is the explicit dev-only opt-out",
         "POSTQUANT_WASM_NODE": "path to the node runtime for the wasm host (default: node on PATH)",
         "POSTQUANT_WASM_TIMEOUT": "seconds to wait for one wasm verification (default 30)",
-        "POSTQUANT_ALLOW_CLASSICAL": "accept witnesses from algorithms that declared quantum_safe=false (devnet only)"
+        "POSTQUANT_ALLOW_CLASSICAL": "accept witnesses from algorithms that declared quantum_safe=false (devnet only)",
+        "POSTQUANT_AGENT_LLM": "optional OpenAI-compatible base url for the agent's llm brain, e.g. http://127.0.0.1:11434/v1 (unset = rules brain only)",
+        "POSTQUANT_AGENT_MODEL": "model name for the llm brain (default qwen2.5:7b)",
+        "POSTQUANT_AGENT_LLM_KEY": "bearer for the llm endpoint if it needs one (or ~/.mod/postquant/agent.key)",
+        "POSTQUANT_AGENT_TIMEOUT": "seconds per llm call (default 120)"
     },
     "services": [
         "postquant-api"
     ],
-    "schema": "QmZWwoXpvuEmk3ecgTswou2U98sbHKxAqJ9XKV6GEy4XD7"
+    "schema": "Qmcr7ADSwPAjE2sm4G1nm3zvE4u3LxFVQmc46EDatgR7QR",
+    "agent": {
+        "contract": "GET /agents + POST /run/stream (SSE: model_start, token, tool_start, step, done|error) \u2014 what orbit/build probes before mounting a module as an agent backend; POST /run returns the same run as JSON; /.well-known/agent.json is the agent/1.0 card",
+        "agents": {
+            "pq": "operator \u2014 reads, and writes when the caller passes the write gate",
+            "pq-reader": "never signs; writes come back as dry-run quotes"
+        },
+        "brains": {
+            "rules": "default, always on: a plain-English command parser \u2014 no model, no network, no key, free",
+            "llm": "optional: any OpenAI-compatible /chat/completions with tool calling (ollama, llama-server) via POSTQUANT_AGENT_LLM; falls back to rules if it fails"
+        },
+        "gate": "the agent calls mcp.call_tool like every other surface; its writes pass the same bearer rule as POST /set \u2014 without it, priceable writes run as dry_run and the rest are refused",
+        "source": "agent.py"
+    }
 }

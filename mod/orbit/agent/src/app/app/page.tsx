@@ -19,6 +19,7 @@ import { loadLocalIdentity, getOrCreateLocalIdentity, clearLocalIdentity, localS
 import PasswordWallet from './components/PasswordWallet'
 import Users from './components/Users'
 import { BrowserModel, serveModelRequest, type BrowserState } from './lib/browserModel'
+import { ask } from './lib/ask'
 
 type ToolSchema = { description: string; params: Record<string, any> }
 // images: what the user pasted, as data URLs. thumbs are the tiny copies that
@@ -321,7 +322,7 @@ type MemNote = { id: string; name: string; content: string; tags: string[] }
 // balance + vault info for a provider API key
 type KeyBalance = {
   provider: string; configured: boolean; key: string | null; supported?: boolean
-  encrypted?: boolean; unlocked?: boolean; hint?: string | null; source?: string | null
+  encrypted?: boolean; unlocked?: boolean; hint?: string | null; source?: string | null; fleet?: boolean
   remembered?: boolean; remember_expires?: number | null
   keyless?: boolean          // LFM providers: local/browser compute, no key, no bill
   balance?: number | null; total_credits?: number; total_usage?: number
@@ -430,7 +431,7 @@ export default function Home() {
   const [keyVersion, setKeyVersion] = useState(0)
 
   // provider + model selection
-  type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean; keyless?: boolean; runtime?: string | null; hint?: string | null; free?: boolean }
+  type ProviderInfo = { key: string; models: string[]; default_model: string; configured?: boolean; encrypted?: boolean; unlocked?: boolean; keyless?: boolean; runtime?: string | null; hint?: string | null; free?: boolean; fleet?: boolean }
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [provider, setProvider] = useState<string>('openrouter')
   const [model, setModel] = useState<string>('')
@@ -508,6 +509,23 @@ export default function Home() {
       .catch(() => setModelCosts({}))
   }, [])
 
+  // a fleet module's catalog isn't waited on by /providers (it may be asleep,
+  // or a 200-row upstream list) — it is asked for when that provider is picked
+  const loadProviderModels = useCallback((p: string, keepModel?: string | null) => {
+    fetch(`${API_URL}/providers/models?provider=${encodeURIComponent(p)}`, { signal: AbortSignal.timeout(30000) })
+      .then(r => r.json())
+      .then(d => {
+        const models: string[] = d.models || []
+        setProviders(list => list.map(x => x.key === p
+          ? { ...x, models, default_model: x.default_model || d.default_model || '' } : x))
+        if (!keepModel) {
+          const def = d.default_model || models[0] || ''
+          setModel(m => m || def)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   const onProviderChange = (p: string) => {
     setProvider(p)
     localStorage.setItem('agent_provider', p)
@@ -517,10 +535,12 @@ export default function Home() {
       browserRef.current.dispose()
       setBrowserState({ phase: 'idle' })
     }
-    const def = providers.find(x => x.key === p)?.default_model || ''
+    const picked = providers.find(x => x.key === p)
+    const def = picked?.default_model || ''
     setModel(def)
     localStorage.setItem('agent_model', def)
     fetchModelCosts(p)
+    if (picked?.fleet && !picked.models.length) loadProviderModels(p)
   }
 
   // workspace layout: chats + agents in the side rail, the market on the other
@@ -837,7 +857,7 @@ export default function Home() {
   // the host through, so a refusal comes back as a 403 to surface
   const deletePersona = async (p: Persona) => {
     const what = p.kind === 'agent' ? 'agent' : 'prompt'
-    if (!confirm(`Delete ${what} "${p.label}"? This can't be undone.`)) return
+    if (!(await ask({ title: `Delete ${what} "${p.label}"?`, body: "This can't be undone.", ok: 'Delete', danger: true }))) return
     const q = auth?.token ? `?key=${encodeURIComponent(auth.token)}` : ''
     const route = p.kind === 'agent'
       ? `agents/${encodeURIComponent(p.id)}`
@@ -1464,10 +1484,12 @@ export default function Home() {
         setProvider(p)
         const pd = list.find(x => x.key === p)
         // drop saved models the provider no longer offers (stale slugs 404 on run)
-        const validSaved = savedM && (pd?.models || []).includes(savedM) ? savedM : null
+        // (a fleet module's list arrives later, so its saved model is kept)
+        const validSaved = savedM && ((pd?.models || []).includes(savedM) || (pd?.fleet && !pd.models.length)) ? savedM : null
         setModel(validSaved || pd?.default_model || '')
         if (!validSaved && savedM) localStorage.removeItem('agent_model')
         fetchModelCosts(p)
+        if (pd?.fleet && !pd.models.length) loadProviderModels(p, validSaved)
       })
       .catch(() => {})
     // owner / user info
@@ -2095,10 +2117,11 @@ export default function Home() {
     : [{ key: 'openrouter' }, { key: 'venice' }] as ProviderInfo[]
   ).map(p => ({
     value: p.key,
-    label: p.key,
-    // ⌂ the weights are here (this box, or your tab) · ⬢ someone's API
-    icon: p.free ? '⌂' : '⬢',
-    ...(p.free ? { badge: 'free' } : {}),
+    label: p.fleet ? p.key.slice(4) : p.key,
+    // ⌂ the weights are here (this box, or your tab) · ⬢ someone's API ·
+    // ⬡ another mod in the fleet, on that mod's own key
+    icon: p.fleet ? '⬡' : p.free ? '⌂' : '⬢',
+    ...(p.fleet ? { badge: 'mod' } : p.free ? { badge: 'free' } : {}),
     ...(p.hint ? { hint: p.hint } : {}),
   }))
 
@@ -2107,7 +2130,9 @@ export default function Home() {
     <div className="flex items-center gap-1.5 min-w-0 flex-1">
       <Select
         accent="emerald" className="shrink-0"
-        title={isFree
+        title={activeProvider?.fleet
+          ? `${provider}: ${activeProvider.hint || 'a fleet mod'} — runs on that mod's own key (host only)`
+          : isFree
           ? `${provider}: ${activeProvider?.hint || 'runs locally'} — never billed`
           : `${provider}: hosted, billed at cost`}
         value={provider}
@@ -2120,7 +2145,9 @@ export default function Home() {
         options={(() => {
           const ids = providerModels.length === 0 && !model
             ? ['']
-            : (model && !providerModels.includes(model) ? [model, ...providerModels] : providerModels)
+            : (model && !providerModels.includes(model) ? [model, ...providerModels] : [...providerModels])
+          // a fleet mod always offers its own default: '' = let the mod pick
+          if (activeProvider?.fleet && !ids.includes('')) ids.unshift('')
           // compute the max input cost across this provider's models for normalising the meter
           const maxInput = modelCosts
             ? Math.max(...ids.map(mn => modelCosts[mn]?.input ?? 0), 0.000001)
@@ -2149,6 +2176,7 @@ export default function Home() {
   const vaultLocked = !!balance && !!balance.encrypted && !balance.unlocked && !balance.configured
   const fmtBalance = (b: KeyBalance | null) => {
     if (!b) return '···'
+    if (b.fleet) return 'mod key'   // the fleet mod bills its own key, not you
     if (b.keyless) return 'free'    // nothing to bill: local or browser compute
     if (vaultLocked) return 'locked'
     if (!b.configured) return 'no key'

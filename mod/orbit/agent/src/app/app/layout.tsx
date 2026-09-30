@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { AskHost } from './lib/ask'
 
 export const metadata: Metadata = {
   title: 'Agent — Mod Agent OS',
@@ -32,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>
-      <body>{children}</body>
+      <body>{children}<AskHost /></body>
     </html>
   )
 }

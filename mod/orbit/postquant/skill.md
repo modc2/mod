@@ -29,6 +29,15 @@ Not for: blob storage (8KB value cap — store the hash, keep the blob in
 `arweave`/`lighthouse`/`store`), general smart contracts (seven tx kinds, no
 VM), or real value (single-proposer devnet; the faucet pays from genesis).
 
+## Or just ask
+
+`POST /run/stream {"query": "..."}` (or `/run` for JSON, or the console's ASK
+tab) — "create wallet alice then faucet 100 to alice then set notes/1 to hello
+for 7 days from alice". The default brain is a local rules parser (free, no
+model); `POSTQUANT_AGENT_LLM` adds an OpenAI-compatible one. Writes obey the
+same bearer gate as `POST /set`; without it they come back as dry runs.
+`GET /agents` is the roster (the fleet agent contract).
+
 ## The order that matters
 
 1. `pq_head` — the tip, the base fee, what the store weighs. `pq_algos` —

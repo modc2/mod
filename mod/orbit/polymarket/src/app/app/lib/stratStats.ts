@@ -10,7 +10,7 @@
 // add up: each runs its own engine, so each holds only its own slice.
 
 import { useEffect, useRef, useState } from "react";
-import { getAccessToken } from "./access";
+import { getAccessToken, getOwnerAddress } from "./access";
 import { fetchPositions } from "./polymarket";
 import { useAuth } from "../context/AuthContext";
 import { fetchLiveSessions, runningStrategyIds, type SessionStratLedger } from "./liveSessions";
@@ -57,6 +57,39 @@ export interface StratStatsResult {
   /** Strat ids with a RUNNING backend engine right now. Several strats can be
       funded and live at the same time. */
   running: Set<string>;
+  /** Every engine session the wallet has, keyed by strat id — including ones
+      whose strat is NOT saved in this browser (a WHO I COPY row, a strat made
+      on another device). Lets money surfaces list every dollar, not just the
+      dollars that happen to have a local strat card. */
+  sessions: Record<string, StratSession>;
+}
+
+export interface StratSession {
+  strategyId: string;
+  running: boolean;
+  /** true = real orders; false = dry run. */
+  executing: boolean;
+  capital: number;
+  /** Lowercased leader addresses the session copies. */
+  traders: string[];
+}
+
+/** "How much of my money is on this strat": a RUNNING strat holds its whole
+    committed capital (or more, if positions grew past it); a stopped one only
+    holds whatever positions it still has open. One rule for every surface. */
+export function moneyOnStrat(m: StratMoney | undefined, running: boolean): number {
+  if (!m) return 0;
+  return running ? Math.max(m.capital, m.moneyIn) : m.moneyIn;
+}
+
+/** Display name for a session with no local strat card. `copy-<addr>` ids
+    are WHO I COPY rows (one leader each). */
+export function sessionLabel(s: StratSession): string {
+  const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+  const m = /^copy-(0x[0-9a-f]{40})$/i.exec(s.strategyId);
+  if (m) return `COPY ${short(m[1])}`;
+  if (s.traders.length === 1) return `COPY ${short(s.traders[0])}`;
+  return `strat ${s.strategyId.slice(0, 10)}${s.traders.length ? ` · ${s.traders.length}T` : ""}`;
 }
 
 const num = (v: unknown): number => {
@@ -69,13 +102,16 @@ const num = (v: unknown): number => {
     users with no engine data). */
 export function useStratStats(pollMs = 30_000): StratStatsResult {
   const { auth } = useAuth();
-  const address = auth.address;
-  const [result, setResult] = useState<StratStatsResult>({ stats: {}, cash: null, running: new Set() });
+  // The signed-in OWNER is the funded wallet on this single-owner deployment
+  // — fall back to it so the money still shows when no browser wallet is
+  // connected (header "no wallet", QR-paired phone).
+  const address = auth.address ?? getOwnerAddress();
+  const [result, setResult] = useState<StratStatsResult>({ stats: {}, cash: null, running: new Set(), sessions: {} });
   // Deposit wallet is CREATE2-stable per EOA — resolve once and reuse.
   const walletRef = useRef<{ eoa: string; wallet: string } | null>(null);
 
   useEffect(() => {
-    if (!address) { setResult({ stats: {}, cash: null, running: new Set() }); return; }
+    if (!address) { setResult({ stats: {}, cash: null, running: new Set(), sessions: {} }); return; }
     let cancelled = false;
 
     const poll = async () => {
@@ -109,6 +145,20 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
         // them is what makes the sidebar's per-strat money add up.
         const sessions = await fetchLiveSessions(address);
         const running = runningStrategyIds(sessions);
+        const meta: Record<string, StratSession> = {};
+        for (const s of sessions) {
+          const id = s.strategyId || s.config?.strategyId;
+          if (!id) continue;
+          meta[id] = {
+            strategyId: id,
+            running: s.running,
+            executing: !!s.config?.autoExecute,
+            capital: num(s.config?.capital),
+            traders: (s.config?.traders ?? [])
+              .filter((t) => t?.enabled !== false && t?.address)
+              .map((t) => t.address.toLowerCase()),
+          };
+        }
         if (cash === null) {
           const bal = sessions.map((s) => s.state?.balance).find((b) => typeof b === "number");
           if (typeof bal === "number") cash = bal;
@@ -151,7 +201,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
           if (id && c > 0) capital[id] = (capital[id] ?? 0) + c;
         }
         if (positions.length === 0 && Object.keys(ledger).length === 0 && Object.keys(capital).length === 0) {
-          if (!cancelled) setResult({ stats: {}, cash, running });
+          if (!cancelled) setResult({ stats: {}, cash, running, sessions: meta });
           return;
         }
 
@@ -232,7 +282,7 @@ export function useStratStats(pollMs = 30_000): StratStatsResult {
           const b = basis24h[id] ?? 0;
           s.roi24h = b > 0 ? (s.pnl24h / b) * 100 : null;
         }
-        if (!cancelled) setResult({ stats: next, cash, running });
+        if (!cancelled) setResult({ stats: next, cash, running, sessions: meta });
       } catch { /* transient — keep last snapshot */ }
     };
 

@@ -9,19 +9,13 @@
 // eight strategies is selected" but "whose trades am I copying, with how
 // much, and would that much have worked".
 //
-// Four blocks, in the order the decision is made:
+// Top to bottom (2026-09-30 simplification — "no way i can understand this"):
 //
-//   ACCOUNT  (AccountsPanel)  — every wallet this browser has signed in as and
-//                               the USDC each holds. It carries the column's
-//                               × close, so the user block IS the header.
-//   STRATS   (StratBlock)     — the saved strategies with the money on each,
-//                               and which one BACKTEST and LIVE are looking
-//                               at. The default one is a TRADER INDEX: every
-//                               trade the bench makes, copied 1:1 and scaled
-//                               by your capital against that trader's book.
-//   COPY     (CopyPanel)      — the copy book: pick a leader, set the dollars
-//                               behind them, replay $N over the last M days,
-//                               start or stop each one.
+//   ACCOUNT  (AccountsPanel)  — ONE row: wallet · balance (→ MONEY) · ⋯ · ×.
+//   tabs                      — COPY · MONEY · BACKTEST · LIVE
+//   COPY     (CopyPanel)      — the copy book: who, how much, start / stop.
+//   STRATS   (StratsFold)     — folded: saved strats + the active one's
+//                               traders (what BACKTEST and LIVE run).
 //
 // MONEY (topping up / taking out) used to be a drawer block between ACCOUNT
 // and STRATS; it's a rail TAB now (see below) — the expanded wallet tiles
@@ -50,9 +44,9 @@ import { useEmbedded } from "../lib/embedded";
 import AccountsPanel, { OPEN_ACCOUNTS_EVENT } from "./AccountsPanel";
 import CopyPanel from "./CopyPanel";
 import MoneyTab, { OPEN_MONEY_EVENT } from "./MoneyBlock";
-import StratBlock, { OPEN_STRATS_EVENT } from "./StratBlock";
+import { OPEN_STRATS_EVENT } from "./StratBlock";
+import StratsFold from "./StratsFold";
 import DeskRoster from "./DeskRoster";
-import IndexBench from "./IndexBench";
 import SelectionTray from "./SelectionTray";
 import Workspace from "./Workspace";
 
@@ -91,8 +85,11 @@ export type SidebarTab = "INDEX" | "MONEY" | "BACKTEST" | "LIVE";
 export const SIDEBAR_TAB_EVENT = "poly-sidebar-tab";
 const TAB_KEY = "poly_sidebar_tab";
 const TABS: SidebarTab[] = ["INDEX", "MONEY", "BACKTEST", "LIVE"];
+/** What each tab SAYS. INDEX keeps its id (persisted key, events) but reads
+    COPY — "index" was jargon; copying traders is what the tab does. */
+const TAB_LABELS: Record<SidebarTab, string> = { INDEX: "COPY", MONEY: "MONEY", BACKTEST: "BACKTEST", LIVE: "LIVE" };
 const TAB_HINTS: Record<SidebarTab, string> = {
-  INDEX: "Your strats and the money on each — allocation, the bench, the copy book",
+  INDEX: "Who you copy, with how much — start / stop. Your strats are folded at the bottom.",
   MONEY: "Your liquidity — bridge in from any EVM chain, top up, take out, see where it sits",
   BACKTEST: "Replay the bench against history on simulated money — no wallet touched",
   LIVE: "Run the bench against the real book with real money",
@@ -125,9 +122,6 @@ export default function UserSidebar() {
   const [open, setOpen] = useState(false);
   const [docked, setDocked] = useState(false);
   const [tab, setTab] = useState<SidebarTab>("INDEX");
-  // Set when the wallet chip asks for the accounts block by name — the column
-  // may not have been mounted yet when the event fired.
-  const [accountsWanted, setAccountsWanted] = useState(false);
 
   useIsoLayoutEffect(() => {
     const mq = window.matchMedia(DOCK_MQ);
@@ -162,7 +156,7 @@ export default function UserSidebar() {
   }, []);
 
   useEffect(() => {
-    const onOpen = () => { setAccountsWanted(true); setTabPersisted("INDEX"); setDrawer(true); };
+    const onOpen = () => { setTabPersisted("INDEX"); setDrawer(true); };
     // Open WITHOUT forcing the accounts block — the caller wants the column
     // (the selection tray, the copy book, the money panel), not the wallet
     // list. MoneyBlock listens for OPEN_MONEY_EVENT itself and expands; this
@@ -236,7 +230,7 @@ export default function UserSidebar() {
   const onDesk = pathname === "/copy";
   const column = (
     <>
-      <AccountsPanel initialExpanded={accountsWanted} onClose={() => setDrawer(false)} />
+      <AccountsPanel onClose={() => setDrawer(false)} />
 
       {/* The rail. These were the console's top-level pages — now the board
           stays put and the column tabs between building the index, replaying
@@ -257,7 +251,7 @@ export default function UserSidebar() {
                   : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06]"
               }`}
             >
-              {t}
+              {TAB_LABELS[t]}
               <span
                 className={`absolute left-2 right-2 bottom-0 h-[2px] rounded-full transition-opacity ${
                   active
@@ -275,18 +269,17 @@ export default function UserSidebar() {
       <div className="flex-1 overflow-y-auto">
         {tab === "INDEX" ? (
           <>
-            {/* ALLOCATION leads — your strats and the money on each, the
-                active strat BACKTEST/LIVE point at, and $ ALLOCATE to move
-                money amongst them. Building and sharing live on /strats;
-                topping up and taking out live on the MONEY tab. */}
-            <StratBlock />
-            {/* The active strat's bench — every + ADD from the board, each
-                with its current board SCORE, toggled or removed right here. */}
-            <IndexBench />
+            {/* The copy book leads — who you copy, with how much, start /
+                stop. That is what this tab is for (2026-09-30: ALLOCATION +
+                BENCH above it repeated the active strat's name three times
+                before the first control). */}
             {/* The finder's checked shortlist — replayed, sized and committed
                 right here. Renders nothing while nothing is checked. */}
             <SelectionTray />
             {onDesk ? <DeskRoster /> : <CopyPanel />}
+            {/* Strats (allocation + the active strat's traders) — ONE fold,
+                closed by default, naming the active strat once. */}
+            <StratsFold />
           </>
         ) : tab === "MONEY" ? (
           /* Top up / take out / send — WalletPanel and, behind MORE, the

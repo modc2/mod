@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/secretshare/">
+<title>secretshare — split a secret between people you trust</title>
+<style>
+  :root { --bg:#0e0f12; --card:#16181d; --line:#262a32; --fg:#e8e9ec; --dim:#8b909a;
+          --acc:#7cf2c1; --err:#ff7a7a; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:1040px; margin:0 auto; padding:32px 20px 60px; }
+  h1 { font-size:26px; margin:0 0 4px; letter-spacing:-.01em; }
+  h1 b { color:var(--acc); font-weight:700; }
+  .lead { color:var(--dim); margin:0 0 22px; }
+  .steps { display:flex; gap:10px; margin:0 0 24px; padding:0; list-style:none; flex-wrap:wrap; }
+  .steps li { flex:1 1 220px; border:1px solid var(--line); border-radius:10px; padding:10px 14px; color:var(--dim); font-size:14px; }
+  .steps b { color:var(--fg); display:block; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:820px) { .grid { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; display:flex; flex-direction:column; gap:12px; }
+  .card h2 { margin:0; font-size:17px; }
+  .card p { margin:0; color:var(--dim); font-size:14px; }
+  textarea, input { width:100%; background:#0b0c0f; color:var(--fg); border:1px solid var(--line);
+                    border-radius:8px; padding:10px 12px; font:13px/1.45 var(--mono); }
+  textarea { resize:vertical; min-height:96px; }
+  textarea:focus, input:focus { outline:none; border-color:var(--acc); }
+  .row { display:flex; gap:12px; align-items:end; }
+  .row label { flex:1; font-size:13px; color:var(--dim); display:flex; flex-direction:column; gap:4px; }
+  button { font:600 14px system-ui, sans-serif !important; background:var(--acc); color:#06120d; border:0;
+           border-radius:8px; padding:11px 16px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); font-weight:500 !important; padding:6px 10px; font-size:12px !important; }
+  button:disabled { opacity:.5; cursor:default; }
+  .msg { font-size:13px; min-height:1.2em; }
+  .msg.err { color:var(--err); }
+  .msg.ok { color:var(--acc); }
+  .shares { display:flex; flex-direction:column; gap:8px; }
+  .share { border:1px solid var(--line); border-radius:8px; padding:8px 10px; display:flex; gap:10px; align-items:center; }
+  .share .n { color:var(--acc); font:700 12px var(--mono); min-width:22px; }
+  .share code { flex:1; font:12px var(--mono); word-break:break-all; color:var(--fg); }
+  .result { font:14px var(--mono); background:#0b0c0f; border:1px solid var(--acc); border-radius:8px; padding:12px; white-space:pre-wrap; word-break:break-all; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  footer { margin-top:28px; color:var(--dim); font-size:13px; }
+  footer code { font-family:var(--mono); color:var(--fg); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1><b>secret</b>share</h1>
+  <p class="lead">Split a password, seed phrase or key into pieces. Hand them to people you trust. Any few of them together can get it back, and no single piece reveals anything.</p>
+
+  <ol class="steps">
+    <li><b>1. Split</b>Type the secret and choose how many pieces, and how many are needed to unlock it.</li>
+    <li><b>2. Hand out</b>Give each person one piece. Keep them apart. Throw away the original if you want.</li>
+    <li><b>3. Unlock</b>When it's needed, paste in enough pieces and the secret comes back.</li>
+  </ol>
+
+  <div class="grid">
+    <section class="card" id="split-card">
+      <h2>Split a secret</h2>
+      <p>Everything happens in this browser tab. Nothing is sent to any server.</p>
+      <textarea id="secret" placeholder="your secret — e.g. a 24-word seed phrase" autocomplete="off" spellcheck="false"></textarea>
+      <div class="row">
+        <label>Pieces to make<input id="n" type="number" min="2" max="255" value="5"></label>
+        <label>Pieces needed to unlock<input id="k" type="number" min="2" max="255" value="3"></label>
+      </div>
+      <button id="do-split">Split into pieces</button>
+      <div class="msg" id="split-msg"></div>
+      <div id="split-out" hidden>
+        <div class="actions" style="margin-bottom:8px">
+          <button class="ghost" id="copy-all">Copy all</button>
+          <button class="ghost" id="dl-all">Download as files</button>
+        </div>
+        <div class="shares" id="shares"></div>
+      </div>
+    </section>
+
+    <section class="card" id="combine-card">
+      <h2>Unlock a secret</h2>
+      <p>Paste the pieces you have, one per line. Order doesn't matter.</p>
+      <textarea id="pieces" placeholder="ss1.xxxxxxxx.3.1.…&#10;ss1.xxxxxxxx.3.4.…&#10;ss1.xxxxxxxx.3.5.…" spellcheck="false"></textarea>
+      <button id="do-combine">Unlock</button>
+      <div class="msg" id="combine-msg"></div>
+      <div id="combine-out" hidden>
+        <div class="result" id="result"></div>
+        <div class="actions" style="margin-top:8px">
+          <button class="ghost" id="copy-result">Copy</button>
+          <button class="ghost" id="hide-result">Hide</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    Shamir's Secret Sharing over GF(256), with a checksum so wrong pieces fail loudly instead of returning garbage.
+    Pieces also work from the command line: <code>m secretshare/split "…" n=5 k=3</code> · <code>m secretshare/combine "ss1… ss1… ss1…"</code>.
+   
+  </footer>
+</main>
+
+<script src="shamir.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const say = (el, text, cls) => { el.textContent = text; el.className = "msg" + (cls ? " " + cls : ""); };
+  const copy = async (text, btn) => {
+    try { await navigator.clipboard.writeText(text); } catch {
+      const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select();
+      document.execCommand("copy"); t.remove();
+    }
+    const old = btn.textContent; btn.textContent = "Copied"; setTimeout(() => (btn.textContent = old), 1200);
+  };
+  let lastShares = [];
+
+  // Keep the threshold sane as the piece count changes.
+  $("n").addEventListener("input", () => { if (+$("k").value > +$("n").value) $("k").value = $("n").value; });
+
+  $("do-split").onclick = async () => {
+    const msg = $("split-msg");
+    try {
+      const n = +$("n").value, k = +$("k").value;
+      lastShares = await Shamir.split($("secret").value, n, k);
+      const box = $("shares"); box.innerHTML = "";
+      lastShares.forEach((s, i) => {
+        const row = document.createElement("div"); row.className = "share";
+        row.innerHTML = `<span class="n">#${i + 1}</span><code></code><button class="ghost">Copy</button>`;
+        row.querySelector("code").textContent = s;
+        row.querySelector("button").onclick = (e) => copy(s, e.target);
+        box.appendChild(row);
+      });
+      $("split-out").hidden = false;
+      say(msg, `Made ${n} pieces. Any ${k} of them unlock the secret.`, "ok");
+    } catch (e) { $("split-out").hidden = true; say(msg, e.message, "err"); }
+  };
+
+  $("copy-all").onclick = (e) => copy(lastShares.join("\n"), e.target);
+  $("dl-all").onclick = () => lastShares.forEach((s, i) => {
+    const set = s.split(".")[1];
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([s + "\n"], { type: "text/plain" }));
+    a.download = `secretshare-${set}-piece-${i + 1}-of-${lastShares.length}.txt`;
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+
+  $("do-combine").onclick = async () => {
+    const msg = $("combine-msg");
+    try {
+      const bytes = await Shamir.combine($("pieces").value);
+      let text;
+      try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+      catch { text = "(binary) base64: " + btoa(String.fromCharCode(...bytes)); }
+      $("result").textContent = text;
+      $("combine-out").hidden = false;
+      say(msg, "Unlocked.", "ok");
+    } catch (e) { $("combine-out").hidden = true; say(msg, e.message, "err"); }
+  };
+  $("copy-result").onclick = (e) => copy($("result").textContent, e.target);
+  $("hide-result").onclick = () => { $("result").textContent = ""; $("combine-out").hidden = true; say($("combine-msg"), ""); };
+</script>
+</body>
+</html>

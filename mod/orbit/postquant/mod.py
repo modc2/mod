@@ -92,6 +92,19 @@ class Mod:
     def mine(self, force=False):
         return self.call('mine', force=force)
 
+    # ── the agent: plain English → the same tools ─────────────────
+
+    def ask(self, query='help', agent=None, brain='auto', **kw):
+        """Ask the chain in plain words — "set hello to world for 2 days
+        then get hello". A local call is the operator, so it may write."""
+        import agent as pqagent
+        return pqagent.run(query, agent=agent, brain=brain, can_write=True, **kw)
+
+    def agents(self):
+        """The agent roster — the fleet's agent contract (GET /agents)."""
+        import agent as pqagent
+        return pqagent.agents()
+
     # ── housekeeping ──────────────────────────────────────────────
 
     def info(self):

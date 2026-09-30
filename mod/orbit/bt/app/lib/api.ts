@@ -7,12 +7,29 @@
 
 export const BASE: string = process.env.NEXT_PUBLIC_BASE ?? '/bt';
 
-export const api = (p: string) => `${BASE}/api/${p.replace(/^\//, '')}`;
+/* /{mod}/_api is the one path the gateway forwards untouched (/{mod}/api gets
+ * its prefix stripped); bt.server maps it back onto /api. */
+export const api = (p: string) => `${BASE}/_api/${p.replace(/^\//, '')}`;
 
 export interface CallReply<T = any> { ok: boolean; tool: string; ms: number; result: T; error?: string }
 
-export async function call<T = any>(tool: string, args: Record<string, unknown> = {},
-                                    signal?: AbortSignal): Promise<CallReply<T>> {
+/* Identical reads already in flight share one request — chain reads queue
+ * behind one websocket lock server-side, so a duplicate costs real seconds. */
+const INFLIGHT = new Map<string, Promise<CallReply<any>>>();
+
+export function call<T = any>(tool: string, args: Record<string, unknown> = {},
+                              signal?: AbortSignal): Promise<CallReply<T>> {
+  if (WRITE_TOOLS.test(tool) || signal) return send<T>(tool, args, signal);
+  const key = tool + JSON.stringify(args);
+  const hit = INFLIGHT.get(key);
+  if (hit) return hit as Promise<CallReply<T>>;
+  const p = send<T>(tool, args).finally(() => INFLIGHT.delete(key));
+  INFLIGHT.set(key, p);
+  return p;
+}
+
+async function send<T>(tool: string, args: Record<string, unknown>,
+                       signal?: AbortSignal): Promise<CallReply<T>> {
   const r = await fetch(api('call'), {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ tool, args }), signal,

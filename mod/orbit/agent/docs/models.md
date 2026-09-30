@@ -126,3 +126,35 @@ the first load).
 the LFM q4 builds use `GatherBlockQuantized`, which onnxruntime-web implements
 on WebGPU but not on the wasm backend. A browser without WebGPU will load some
 repos and fail on others — the console's `⌁` pill reports the device it got.
+
+## Fleet mods as providers (`mod:<name>`)
+
+Every other model module on the box shows up in the provider pill with a `⬡`
+and a `mod` badge: `mod:chutes`, `mod:aipg`, `mod:freetoken`, `mod:grokbot`,
+`mod:openrouter` (the orbit router, not the built-in `openrouter`), and anything
+added later.
+
+- **Found by reading source, never importing.** `src/fleet.py` scans the
+  sibling directories for a class with a `chat` (or `complete`) method AND a
+  `models` (or `model2info`) method. Nothing is loaded or woken to list them.
+  Modules the agent already drives natively (venice, liquidai, hermes) are
+  skipped so there is one route to each.
+- **Each one runs in its own process.** `src/fleet_worker.py` holds one module
+  per interpreter and speaks JSON lines. Several fleet modules keep their code
+  in a top-level `src` package, the same name as the agent's own, so importing
+  them in-process breaks one or the other. Workers are reaped after 15 idle
+  minutes; logs are in `/tmp/agent/fleet/<name>.log`.
+- **Adapters, not contracts.** The worker calls `chat(messages=…)`, else
+  `chat/complete/ask(prompt=…)`, passing only the kwargs the signature names,
+  and reads the text out of a string, an OpenAI `choices` body, or a
+  `{text|content|answer|…}` dict. `models()` is asked for text models
+  (`type='text'` / `kind='chat'` when it takes them), and the ids come out of
+  whatever list or dict it returns.
+- **The model list loads when you pick one.** `/providers` only returns what
+  is cached, so a sleeping module never slows the page. `GET
+  /providers/models?provider=mod:x` waits for the list. The model pill always
+  has `default`, which lets the module choose.
+- **Host only, on the module's own key.** A fleet run spends that module's
+  key (the operator's), and the agent has no price list to bill a guest from.
+  So `run()` refuses anyone but the host (403). The balance pill reads `mod
+  key`.

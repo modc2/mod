@@ -31,7 +31,9 @@ import type { SavedIndex } from "../lib/types";
 
 const OPEN_KEY = "poly_bench_open";
 
-export default function IndexBench() {
+/** `bare` = no BENCH fold header; always open, with a one-line caption.
+    Used inside the side panel's STRATS fold (StratsFold.tsx). */
+export default function IndexBench({ bare = false }: { bare?: boolean } = {}) {
   const [strat, setStrat] = useState<SavedIndex | null>(null);
   const [open, setOpen] = useState(true);
   const board = useScoreBoard();
@@ -81,8 +83,17 @@ export default function IndexBench() {
   });
   const onBench = strat.traders.filter((t) => t.enabled !== false).length;
 
+  const showing = bare || open;
   return (
     <section style={{ borderTop: "1px solid var(--border)" }}>
+      {bare ? (
+        <div
+          className="px-3 pt-2 pb-1 text-[9.5px] font-mono tracking-[0.14em] text-pixel-gray"
+          title={`The traders on "${strat.name}" — every + ADD TO STRAT on the board lands here. BACKTEST replays them; LIVE copies them.`}
+        >
+          TRADERS IN THIS STRAT · {onBench}{onBench !== strat.traders.length ? `/${strat.traders.length}` : ""}
+        </div>
+      ) : (
       <button
         onClick={() => setOpenPersisted(!open)}
         aria-expanded={open}
@@ -97,8 +108,9 @@ export default function IndexBench() {
           <span className={`text-[9px] text-pixel-gray transition-transform ${open ? "rotate-90" : ""}`}>▶</span>
         </span>
       </button>
+      )}
 
-      {open && (
+      {showing && (
         <div className="px-3 pb-2 space-y-1">
           <div className="flex items-baseline font-mono text-[8.5px] tracking-[0.12em] text-pixel-gray/80">
             <span>{board.label}{board.days > 0 ? ` · ${board.days}D` : ""} — the board&apos;s current score</span>

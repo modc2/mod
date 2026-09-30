@@ -44,14 +44,46 @@ WINDOWS = {'change_24h': 86400, 'change_7d': 7 * 86400}
 FLOW_MIN_FRACTION = 0.02      # 2% of the previous position
 FLOW_MIN_TAO = 0.05           # and at least this much TAO moved
 
+# Writers (track/untrack/_record) serialize on _db_lock. Readers do NOT:
+# the db is WAL, so any number of readers run alongside the one writer, each
+# on its own connection. A process-wide lock around reads is what used to
+# stall the whole API — one slow traders() call held it for a minute while
+# every console poll and copytensor's bt_trader_at queued behind it.
 _db_lock = threading.Lock()
+_schema_lock = threading.Lock()
+_schema_for: Optional[str] = None     # the db path the schema was ensured on
 _thread: Optional[threading.Thread] = None
 
 
-def _db() -> sqlite3.Connection:
-    conn = sqlite3.connect(os.path.join(history.data_dir(), 'traders.db'),
-                           timeout=30)
+def _path() -> str:
+    return os.path.join(history.data_dir(), 'traders.db')
+
+
+def _connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(_path(), timeout=30)
     conn.execute('PRAGMA journal_mode=WAL')
+    conn.execute('PRAGMA busy_timeout=30000')
+    return conn
+
+
+def _db() -> sqlite3.Connection:
+    """A connection with the schema guaranteed — DDL runs once per db path."""
+    global _schema_for
+    if _schema_for == _path():
+        return _connect()
+    with _schema_lock:
+        conn = _connect()
+        _ensure_schema(conn)
+        _schema_for = _path()
+        return conn
+
+
+def _reader() -> sqlite3.Connection:
+    """A read connection — never takes _db_lock."""
+    return _db()
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute('''CREATE TABLE IF NOT EXISTS traders (
         ss58 TEXT PRIMARY KEY, label TEXT, network TEXT,
         added_ts INTEGER, last_ts INTEGER)''')
@@ -73,7 +105,7 @@ def _db() -> sqlite3.Connection:
         have = {r[1] for r in conn.execute(f'PRAGMA table_info({table})')}
         if 'block' not in have:
             conn.execute(f'ALTER TABLE {table} ADD COLUMN block INTEGER')
-    return conn
+    conn.commit()
 
 
 SNAP_COLS = ('ss58', 'ts', 'free_tao', 'staked_tao', 'total_tao', 'positions',
@@ -142,14 +174,13 @@ def untrack(address: str, purge: bool = False) -> Dict:
 
 
 def watchlist() -> List[Dict]:
-    with _db_lock:
-        conn = _db()
-        try:
-            rows = conn.execute(
-                'SELECT ss58, label, network, added_ts, last_ts FROM traders '
-                'ORDER BY added_ts').fetchall()
-        finally:
-            conn.close()
+    conn = _reader()
+    try:
+        rows = conn.execute(
+            'SELECT ss58, label, network, added_ts, last_ts FROM traders '
+            'ORDER BY added_ts').fetchall()
+    finally:
+        conn.close()
     return [{'ss58': r[0], 'label': r[1], 'network': r[2],
              'added_ts': r[3], 'last_ts': r[4]} for r in rows]
 
@@ -288,10 +319,19 @@ def snapshot_all(bt=None) -> Dict:
 def _snap_at(conn, address: str, ts: int, tolerance: float = 0.5,
              horizon: Optional[int] = None) -> Optional[Dict]:
     """The stored snapshot closest to ts, or None if none is close enough."""
+    # two seeks on the (ss58, ts) primary key — ORDER BY ABS(ts - ?) can't
+    # use it and read every snapshot of the trader (JSON blobs included)
+    lo = conn.execute('SELECT ts FROM trader_snaps WHERE ss58 = ? AND ts <= ? '
+                      'ORDER BY ts DESC LIMIT 1', (address, ts)).fetchone()
+    hi = conn.execute('SELECT ts FROM trader_snaps WHERE ss58 = ? AND ts >= ? '
+                      'ORDER BY ts ASC LIMIT 1', (address, ts)).fetchone()
+    near = [r[0] for r in (lo, hi) if r]
+    if not near:
+        return None
+    best = min(near, key=lambda t: (abs(t - ts), t))
     row = conn.execute(
         'SELECT ts, free_tao, staked_tao, total_tao, positions, block '
-        'FROM trader_snaps WHERE ss58 = ? ORDER BY ABS(ts - ?) LIMIT 1',
-        (address, ts)).fetchone()
+        'FROM trader_snaps WHERE ss58 = ? AND ts = ?', (address, best)).fetchone()
     if not row:
         return None
     if horizon and abs(row[0] - ts) > tolerance * horizon:
@@ -309,13 +349,12 @@ def positions_at(address: str, ts: Optional[int] = None,
     reads them here instead of paying a deep-block state query.
     """
     ts = int(ts if ts is not None else time.time())
-    with _db_lock:
-        conn = _db()
-        try:
-            snap = _snap_at(conn, address, ts,
-                            horizon=tolerance_sec or None, tolerance=1.0)
-        finally:
-            conn.close()
+    conn = _reader()
+    try:
+        snap = _snap_at(conn, address, ts,
+                        horizon=tolerance_sec or None, tolerance=1.0)
+    finally:
+        conn.close()
     if snap is None:
         return {'ss58': address, 'ts': ts, 'found': False, 'positions': [],
                 'note': 'no snapshot in range — track this address first'}
@@ -376,48 +415,47 @@ def traders(sort_by: str = 'total_tao', limit: int = 0,
     """The tracked-trader table: value, allocation, PnL — served locally."""
     prices = _prices_now()
     rows = []
-    with _db_lock:
-        conn = _db()
-        try:
-            for t in [dict(zip(('ss58', 'label', 'network', 'added_ts', 'last_ts'), r))
-                      for r in conn.execute(
-                          'SELECT ss58, label, network, added_ts, last_ts FROM traders'
-                      ).fetchall()]:
-                snap = _snap_at(conn, t['ss58'], int(time.time()))
-                row = dict(t)
-                if snap is None:
-                    row.update({'total_tao': None, 'free_tao': None,
-                                'staked_tao': None, 'subnets': 0,
-                                'positions': [], 'warming': True})
-                    rows.append(row)
-                    continue
-                by_uid = _by_netuid(snap['positions'])
-                # revalue at current prices so the table never shows a stale mark
-                staked = sum((prices.get(uid, r['price']) or 0.0) * r['alpha']
-                             for uid, r in by_uid.items())
-                total = snap['free_tao'] + staked
-                row.update({
-                    'snapshot_ts': snap['ts'], 'free_tao': snap['free_tao'],
-                    'staked_tao': staked, 'total_tao': total,
-                    'subnets': len(by_uid),
-                    'top_subnets': sorted(
-                        [{'netuid': uid,
-                          'value_tao': (prices.get(uid, r['price']) or 0.0) * r['alpha'],
-                          'alpha': r['alpha']} for uid, r in by_uid.items()],
-                        key=lambda x: x['value_tao'], reverse=True)[:3],
-                    'snapshots': conn.execute(
-                        'SELECT COUNT(*) FROM trader_snaps WHERE ss58 = ?',
-                        (t['ss58'],)).fetchone()[0],
-                    'flows_24h': conn.execute(
-                        'SELECT COUNT(*) FROM trader_flows WHERE ss58 = ? AND ts >= ?',
-                        (t['ss58'], int(time.time()) - 86400)).fetchone()[0],
-                })
-                row.update(_perf(conn, t['ss58'], total, prices))
-                if sparks:
-                    row['spark'] = _spark(conn, t['ss58'])
+    conn = _reader()
+    try:
+        for t in [dict(zip(('ss58', 'label', 'network', 'added_ts', 'last_ts'), r))
+                  for r in conn.execute(
+                      'SELECT ss58, label, network, added_ts, last_ts FROM traders'
+                  ).fetchall()]:
+            snap = _snap_at(conn, t['ss58'], int(time.time()))
+            row = dict(t)
+            if snap is None:
+                row.update({'total_tao': None, 'free_tao': None,
+                            'staked_tao': None, 'subnets': 0,
+                            'positions': [], 'warming': True})
                 rows.append(row)
-        finally:
-            conn.close()
+                continue
+            by_uid = _by_netuid(snap['positions'])
+            # revalue at current prices so the table never shows a stale mark
+            staked = sum((prices.get(uid, r['price']) or 0.0) * r['alpha']
+                         for uid, r in by_uid.items())
+            total = snap['free_tao'] + staked
+            row.update({
+                'snapshot_ts': snap['ts'], 'free_tao': snap['free_tao'],
+                'staked_tao': staked, 'total_tao': total,
+                'subnets': len(by_uid),
+                'top_subnets': sorted(
+                    [{'netuid': uid,
+                      'value_tao': (prices.get(uid, r['price']) or 0.0) * r['alpha'],
+                      'alpha': r['alpha']} for uid, r in by_uid.items()],
+                    key=lambda x: x['value_tao'], reverse=True)[:3],
+                'snapshots': conn.execute(
+                    'SELECT COUNT(*) FROM trader_snaps WHERE ss58 = ?',
+                    (t['ss58'],)).fetchone()[0],
+                'flows_24h': conn.execute(
+                    'SELECT COUNT(*) FROM trader_flows WHERE ss58 = ? AND ts >= ?',
+                    (t['ss58'], int(time.time()) - 86400)).fetchone()[0],
+            })
+            row.update(_perf(conn, t['ss58'], total, prices))
+            if sparks:
+                row['spark'] = _spark(conn, t['ss58'])
+            rows.append(row)
+    finally:
+        conn.close()
     rows.sort(key=lambda r: r.get(sort_by) or 0.0, reverse=True)
     if limit:
         rows = rows[:limit]
@@ -525,15 +563,14 @@ def board(days: int = 7, top: int = 0, min_subnets: int = 0,
     prices = _prices_now()
     names = {r['netuid']: r.get('name')
              for r in history.screener(sparks=False).get('rows', [])}
-    with _db_lock:
-        conn = _db()
-        try:
-            tracked = [dict(zip(('ss58', 'label'), r)) for r in conn.execute(
-                'SELECT ss58, label FROM traders').fetchall()]
-            rows = [_board_row(conn, t, window, prices, sparks, names)
-                    for t in tracked]
-        finally:
-            conn.close()
+    conn = _reader()
+    try:
+        tracked = [dict(zip(('ss58', 'label'), r)) for r in conn.execute(
+            'SELECT ss58, label FROM traders').fetchall()]
+        rows = [_board_row(conn, t, window, prices, sparks, names)
+                for t in tracked]
+    finally:
+        conn.close()
 
     rows = [r for r in rows if r['num_subnets'] >= min_subnets]
     key = sort_by if sort_by in BOARD_SORTS else 'market_pct'
@@ -552,55 +589,54 @@ def trader(address: str, hours: int = 168, flows_limit: int = 50) -> Dict:
     prices = _prices_now()
     names = {r['netuid']: r.get('name')
              for r in history.screener(sparks=False).get('rows', [])}
-    with _db_lock:
-        conn = _db()
-        try:
-            meta = conn.execute(
-                'SELECT label, network, added_ts, last_ts FROM traders WHERE ss58 = ?',
-                (address,)).fetchone()
-            snap = _snap_at(conn, address, int(time.time()))
-            out: Dict[str, Any] = {
-                'ss58': address, 'tracked': meta is not None,
-                'label': meta[0] if meta else None,
-                'added_ts': meta[2] if meta else None,
-                'last_ts': meta[3] if meta else None,
-            }
-            if snap is None:
-                out.update({'warming': True, 'positions': [], 'series': [],
-                            'flows': [], 'total_tao': None,
-                            'note': 'no snapshot yet — call bt_track, then bt_trader_snapshot'})
-                return out
-            by_uid = _by_netuid(snap['positions'])
-            positions = []
-            for uid, r in sorted(by_uid.items(),
-                                 key=lambda kv: kv[1]['value_tao'], reverse=True):
-                price = prices.get(uid, r['price']) or 0.0
-                positions.append({
-                    'netuid': uid, 'name': names.get(uid) or f'subnet {uid}',
-                    'alpha': r['alpha'], 'price': price,
-                    'value_tao': price * r['alpha'],
-                    'hotkeys': r['hotkeys'],
-                })
-            staked = sum(p['value_tao'] for p in positions)
-            total = snap['free_tao'] + staked
-            for p in positions:
-                p['pct_of_total'] = (p['value_tao'] / total * 100.0) if total else 0.0
-            out.update({
-                'snapshot_ts': snap['ts'], 'snapshot_block': snap['block'],
-                'free_tao': snap['free_tao'],
-                'staked_tao': staked, 'total_tao': total,
-                'subnets': len(positions), 'positions': positions,
-                'series': _series(conn, address, hours),
-                'flows': _flows(conn, address, hours=hours * 4,
-                                limit=flows_limit),
-                'snapshots': conn.execute(
-                    'SELECT COUNT(*) FROM trader_snaps WHERE ss58 = ?',
-                    (address,)).fetchone()[0],
-            })
-            out.update(_perf(conn, address, total, prices))
+    conn = _reader()
+    try:
+        meta = conn.execute(
+            'SELECT label, network, added_ts, last_ts FROM traders WHERE ss58 = ?',
+            (address,)).fetchone()
+        snap = _snap_at(conn, address, int(time.time()))
+        out: Dict[str, Any] = {
+            'ss58': address, 'tracked': meta is not None,
+            'label': meta[0] if meta else None,
+            'added_ts': meta[2] if meta else None,
+            'last_ts': meta[3] if meta else None,
+        }
+        if snap is None:
+            out.update({'warming': True, 'positions': [], 'series': [],
+                        'flows': [], 'total_tao': None,
+                        'note': 'no snapshot yet — call bt_track, then bt_trader_snapshot'})
             return out
-        finally:
-            conn.close()
+        by_uid = _by_netuid(snap['positions'])
+        positions = []
+        for uid, r in sorted(by_uid.items(),
+                             key=lambda kv: kv[1]['value_tao'], reverse=True):
+            price = prices.get(uid, r['price']) or 0.0
+            positions.append({
+                'netuid': uid, 'name': names.get(uid) or f'subnet {uid}',
+                'alpha': r['alpha'], 'price': price,
+                'value_tao': price * r['alpha'],
+                'hotkeys': r['hotkeys'],
+            })
+        staked = sum(p['value_tao'] for p in positions)
+        total = snap['free_tao'] + staked
+        for p in positions:
+            p['pct_of_total'] = (p['value_tao'] / total * 100.0) if total else 0.0
+        out.update({
+            'snapshot_ts': snap['ts'], 'snapshot_block': snap['block'],
+            'free_tao': snap['free_tao'],
+            'staked_tao': staked, 'total_tao': total,
+            'subnets': len(positions), 'positions': positions,
+            'series': _series(conn, address, hours),
+            'flows': _flows(conn, address, hours=hours * 4,
+                            limit=flows_limit),
+            'snapshots': conn.execute(
+                'SELECT COUNT(*) FROM trader_snaps WHERE ss58 = ?',
+                (address,)).fetchone()[0],
+        })
+        out.update(_perf(conn, address, total, prices))
+        return out
+    finally:
+        conn.close()
 
 
 def _series(conn, address: str, hours: int, points: int = 300) -> List[Dict]:
@@ -616,13 +652,12 @@ def _series(conn, address: str, hours: int, points: int = 300) -> List[Dict]:
 
 
 def series(address: str, hours: int = 168, points: int = 300) -> Dict:
-    with _db_lock:
-        conn = _db()
-        try:
-            return {'ss58': address, 'hours': hours,
-                    'series': _series(conn, address, hours, points)}
-        finally:
-            conn.close()
+    conn = _reader()
+    try:
+        return {'ss58': address, 'hours': hours,
+                'series': _series(conn, address, hours, points)}
+    finally:
+        conn.close()
 
 
 def _flows(conn, address: Optional[str], hours: int, limit: int) -> List[Dict]:
@@ -647,12 +682,11 @@ def _flows(conn, address: Optional[str], hours: int, limit: int) -> List[Dict]:
 def flows(address: Optional[str] = None, hours: int = 168,
           limit: int = 100) -> Dict:
     """The inferred trade tape — position changes between snapshots."""
-    with _db_lock:
-        conn = _db()
-        try:
-            rows = _flows(conn, address, hours, limit)
-        finally:
-            conn.close()
+    conn = _reader()
+    try:
+        rows = _flows(conn, address, hours, limit)
+    finally:
+        conn.close()
     names = {r['netuid']: r.get('name')
              for r in history.screener(sparks=False).get('rows', [])}
     for r in rows:
@@ -667,18 +701,17 @@ def flows(address: Optional[str] = None, hours: int = 168,
 
 
 def stats() -> Dict:
-    with _db_lock:
-        conn = _db()
-        try:
-            n = conn.execute('SELECT COUNT(*) FROM traders').fetchone()[0]
-            snaps = conn.execute('SELECT COUNT(*) FROM trader_snaps').fetchone()[0]
-            fl = conn.execute('SELECT COUNT(*) FROM trader_flows').fetchone()[0]
-            last = conn.execute('SELECT MAX(ts) FROM trader_snaps').fetchone()[0]
-            block = conn.execute(
-                'SELECT block FROM trader_snaps WHERE ts = ? AND block IS NOT NULL '
-                'LIMIT 1', (last,)).fetchone() if last else None
-        finally:
-            conn.close()
+    conn = _reader()
+    try:
+        n = conn.execute('SELECT COUNT(*) FROM traders').fetchone()[0]
+        snaps = conn.execute('SELECT COUNT(*) FROM trader_snaps').fetchone()[0]
+        fl = conn.execute('SELECT COUNT(*) FROM trader_flows').fetchone()[0]
+        last = conn.execute('SELECT MAX(ts) FROM trader_snaps').fetchone()[0]
+        block = conn.execute(
+            'SELECT block FROM trader_snaps WHERE ts = ? AND block IS NOT NULL '
+            'LIMIT 1', (last,)).fetchone() if last else None
+    finally:
+        conn.close()
     return {'tracked': n, 'snapshots': snaps, 'flows': fl,
             'last_snapshot_ts': last, 'block': block[0] if block else None,
             'refresh_sec': REFRESH_SEC}
@@ -687,36 +720,35 @@ def stats() -> Dict:
 def sync(head: bool = True) -> Dict:
     """Where the trader index stands: block, lag, and who is covered."""
     now = int(time.time())
-    with _db_lock:
-        conn = _db()
-        try:
-            tracked = conn.execute('SELECT COUNT(*) FROM traders').fetchone()[0]
-            last = conn.execute('SELECT MAX(ts) FROM trader_snaps').fetchone()[0]
-            if last is None:
-                return {'warming': True, 'block': None, 'tracked': tracked,
-                        'snapshots': 0, 'note': 'no trader snapshot yet'}
-            block = conn.execute(
-                'SELECT MAX(block) FROM trader_snaps WHERE ts >= ?',
-                (last - 600,)).fetchone()[0]
-            # a round covers the watchlist; anyone not in the last round is
-            # a hole in the index, so name them rather than average them away
-            round_n = conn.execute(
-                'SELECT COUNT(*) FROM traders WHERE last_ts >= ?',
-                (last - REFRESH_SEC,)).fetchone()[0]
-            stale = [r[0] for r in conn.execute(
-                'SELECT ss58 FROM traders WHERE last_ts IS NULL OR last_ts < ?',
-                (now - 3 * REFRESH_SEC,))]
-            # addresses with stored history that nobody refreshes any more —
-            # untracked without purge. Their curves silently stop.
-            orphans = conn.execute(
-                'SELECT COUNT(DISTINCT ss58) FROM trader_snaps WHERE ss58 NOT IN '
-                '(SELECT ss58 FROM traders)').fetchone()[0]
-            snaps, first_ts = conn.execute(
-                'SELECT COUNT(*), MIN(ts) FROM trader_snaps').fetchone()
-            flows_n, flows_last = conn.execute(
-                'SELECT COUNT(*), MAX(ts) FROM trader_flows').fetchone()
-        finally:
-            conn.close()
+    conn = _reader()
+    try:
+        tracked = conn.execute('SELECT COUNT(*) FROM traders').fetchone()[0]
+        last = conn.execute('SELECT MAX(ts) FROM trader_snaps').fetchone()[0]
+        if last is None:
+            return {'warming': True, 'block': None, 'tracked': tracked,
+                    'snapshots': 0, 'note': 'no trader snapshot yet'}
+        block = conn.execute(
+            'SELECT MAX(block) FROM trader_snaps WHERE ts >= ?',
+            (last - 600,)).fetchone()[0]
+        # a round covers the watchlist; anyone not in the last round is
+        # a hole in the index, so name them rather than average them away
+        round_n = conn.execute(
+            'SELECT COUNT(*) FROM traders WHERE last_ts >= ?',
+            (last - REFRESH_SEC,)).fetchone()[0]
+        stale = [r[0] for r in conn.execute(
+            'SELECT ss58 FROM traders WHERE last_ts IS NULL OR last_ts < ?',
+            (now - 3 * REFRESH_SEC,))]
+        # addresses with stored history that nobody refreshes any more —
+        # untracked without purge. Their curves silently stop.
+        orphans = conn.execute(
+            'SELECT COUNT(DISTINCT ss58) FROM trader_snaps WHERE ss58 NOT IN '
+            '(SELECT ss58 FROM traders)').fetchone()[0]
+        snaps, first_ts = conn.execute(
+            'SELECT COUNT(*), MIN(ts) FROM trader_snaps').fetchone()
+        flows_n, flows_last = conn.execute(
+            'SELECT COUNT(*), MAX(ts) FROM trader_flows').fetchone()
+    finally:
+        conn.close()
     tip = history.head_block() if head else None
     age = now - last
     return {

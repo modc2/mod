@@ -22,6 +22,7 @@ import { Fragment, useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 import TaskBuilder from './TaskBuilder'
 import SkillLab from './SkillLab'
+import { ask } from '../lib/ask'
 
 type Row = {
   rank: number; agent: string; icon: string; active: boolean
@@ -493,7 +494,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
     loadBoards()
   }
   const deleteGame = async (g: any) => {
-    if (!confirm(`Delete "${g.name}"? Scores on its tasks stay on the record.`)) return
+    if (!(await ask({ title: `Delete "${g.name}"?`, body: 'Scores on its tasks stay on the record.', ok: 'Delete', danger: true }))) return
     setErr(null)
     try {
       const r = await fetch(
@@ -543,7 +544,7 @@ export default function Arena({ token, isHost, address, onSignIn, onNewAgent }: 
   const removeTask = async (t: Task) => {
     const slug = String(t.index ?? '')
     if (!slug) return
-    if (!confirm(`Delete "${t.title}"? Matches already played keep their scores.`)) return
+    if (!(await ask({ title: `Delete "${t.title}"?`, body: 'Matches already played keep their scores.', ok: 'Delete', danger: true }))) return
     setErr(null)
     try {
       const r = await fetch(

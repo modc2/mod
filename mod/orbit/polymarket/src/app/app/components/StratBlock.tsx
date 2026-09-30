@@ -41,7 +41,7 @@ import { listStrats } from "../lib/activeStrat";
 import { traderIndexTemplate } from "../lib/defaultStrats";
 import { getActiveIndexId } from "../lib/indexStore";
 import { useStratManager } from "../lib/stratManager";
-import { useStratStats, fmtUsd } from "../lib/stratStats";
+import { useStratStats, fmtUsd, moneyOnStrat } from "../lib/stratStats";
 import { isTraderIndex } from "../lib/traderIndex";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 import DepositPanel from "./DepositPanel";
@@ -53,7 +53,9 @@ export const OPEN_STRATS_EVENT = "poly-open-strats";
 
 const OPEN_KEY = "poly_strats_open";
 
-export default function StratBlock() {
+/** `bare` = just the list, no ALLOCATION fold header — the side panel's
+    STRATS fold (StratsFold.tsx) supplies the one header. */
+export default function StratBlock({ bare = false }: { bare?: boolean } = {}) {
   const [open, setOpen] = useState(true);
   // Cheap header readout while collapsed: one store read, refreshed on the
   // broadcast every mutation already fires. No poll, no fetch.
@@ -83,6 +85,8 @@ export default function StratBlock() {
       localStorage.setItem(OPEN_KEY, next ? "1" : "0");
     } catch {}
   }, []);
+
+  if (bare) return <AllocationList />;
 
   return (
     <section style={{ borderTop: "1px solid var(--border)" }}>
@@ -118,7 +122,10 @@ function AllocationList() {
     fork, forkDefault, rename,
     requestDelete, pendingDelete, confirmDelete, cancelDelete,
   } = useStratManager();
-  const { stats: stratStats, cash, running: liveStratIds } = useStratStats();
+  const { stats: stratStats, cash, running: liveStratIds, sessions: liveSessions } = useStratStats();
+  // Money ON a strat: a running strat holds its committed capital, a
+  // stopped one only its open positions (moneyOnStrat — one rule everywhere).
+  const onStrat = (id: string) => moneyOnStrat(stratStats[id], liveStratIds.has(id));
 
   const [depositOpen, setDepositOpen] = useState(false);
   // The single-trader DEPOSIT/WITHDRAW screen, keyed by strat id — the list
@@ -135,13 +142,16 @@ function AllocationList() {
     setRenamingId(null);
   };
 
-  const totalInPlay = indexes.reduce((s, i) => s + (stratStats[i.id]?.openValue ?? 0), 0);
+  // Every session the engine has — including WHO I COPY rows with no local
+  // strat card — so the footer total is the wallet's real exposure.
+  const allIds = new Set([...indexes.map((i) => i.id), ...Object.keys(liveSessions)]);
+  const totalOnStrats = [...allIds].reduce((s, id) => s + onStrat(id), 0);
 
   // ALLOCATION per strat: real in-play money when it has positions, else the
   // planned budget ($ ALLOCATE's `capital`). The share bars are drawn off
   // this total — solid when the money is real, dim when it's still a plan.
   const allocOf = (i: (typeof indexes)[number]) => {
-    const real = stratStats[i.id]?.openValue ?? 0;
+    const real = onStrat(i.id);
     return real > 0 ? real : Number(i.capital) || 0;
   };
   const totalAlloc = indexes.reduce((s, i) => s + allocOf(i), 0);
@@ -150,14 +160,13 @@ function AllocationList() {
   // running or holding positions are the ones "how much do I have on each"
   // is asking about — they float to the top, store order kept within each
   // group so rows don't shuffle on every poll.
-  const holdsMoney = (id: string) => liveStratIds.has(id) || (stratStats[id]?.openValue ?? 0) > 0;
+  const holdsMoney = (id: string) => liveStratIds.has(id) || onStrat(id) > 0;
   const ordered = [...indexes.filter((i) => holdsMoney(i.id)), ...indexes.filter((i) => !holdsMoney(i.id))];
 
   return (
     <div className="pb-2">
       <div className="px-3 pb-1.5 text-[9.5px] font-mono leading-snug text-pixel-gray">
-        Your strats. Click one to make it active — BACKTEST and LIVE run the active strat,
-        and its row unlocks FORK · RENAME · delete. Bars show where your money sits.
+        Click a strat to make it active — BACKTEST and LIVE run the active one.
       </div>
 
       <div className="px-1.5 flex flex-col gap-0.5">
@@ -187,7 +196,8 @@ function AllocationList() {
           const isRunning = liveStratIds.has(idx.id);
           const indexed = isTraderIndex(idx);
           const capital = Number(idx.capital) || 0;
-          const alloc = inPlay > 0 ? inPlay : capital;
+          const onIt = onStrat(idx.id);
+          const alloc = onIt > 0 ? onIt : capital;
           const share = totalAlloc > 0 && alloc > 0 ? (alloc / totalAlloc) * 100 : 0;
 
           return (
@@ -289,16 +299,16 @@ function AllocationList() {
                   neither. The % beneath is this strat's share of the total. */}
               <span className="shrink-0 text-right">
                 <span
-                  className={`block font-mono text-[11px] tabular-nums ${openPositions > 0 ? "text-pixel-gray-light" : "text-pixel-gray/60"}`}
+                  className={`block font-mono text-[11px] tabular-nums ${onIt > 0 ? "text-pixel-white font-semibold" : "text-pixel-gray/60"}`}
                   title={
-                    openPositions > 0
-                      ? `${idx.name} has ${fmtUsd(inPlay)} in play across ${openPositions} open position(s).`
+                    onIt > 0
+                      ? `${fmtUsd(onIt)} of your money is on ${idx.name} · ${fmtUsd(inPlay)} in ${openPositions} open position(s).`
                       : capital > 0
                         ? `${idx.name} holds no positions — ${fmtUsd(capital)} is its planned budget ($ ALLOCATE), not funds in play.`
                         : `${idx.name} holds no positions and has no budget — $ ALLOCATE to give it one.`
                   }
                 >
-                  {openPositions > 0 ? fmtUsd(inPlay) : capital > 0 ? `plan ${fmtUsd(capital)}` : <span className="opacity-40">—</span>}
+                  {onIt > 0 ? fmtUsd(onIt) : capital > 0 ? `plan ${fmtUsd(capital)}` : <span className="opacity-40">—</span>}
                 </span>
                 {share > 0 && (
                   <span
@@ -341,7 +351,7 @@ function AllocationList() {
                 <span className="mt-1 block h-[3px] rounded-full bg-pixel-white/[0.07] overflow-hidden">
                   <span
                     className={`block h-full rounded-full transition-[width] duration-300 ${
-                      inPlay > 0 ? "bg-green-400/80" : "bg-pixel-gray/40"
+                      onIt > 0 ? "bg-green-400/80" : "bg-pixel-gray/40"
                     }`}
                     style={{ width: `${Math.max(share, alloc > 0 ? 2 : 0)}%` }}
                   />
@@ -417,9 +427,9 @@ function AllocationList() {
 
       {/* The wallet reconciliation — real money, across every strat. */}
       <div className="mt-2 px-3 pt-1.5 flex items-center justify-between text-[10px] font-mono" style={{ borderTop: "1px solid var(--border)" }}>
-        <span className="text-pixel-gray tracking-[0.14em]">IN PLAY</span>
-        <span className="text-pixel-white tabular-nums" title="Open positions across all strats, marked to current prices">
-          {fmtUsd(totalInPlay)}
+        <span className="text-pixel-gray tracking-[0.14em]">ON STRATS</span>
+        <span className="text-pixel-white tabular-nums" title="Money on every strat the engine runs for this wallet — running strats count their committed capital, stopped ones their open positions">
+          {fmtUsd(totalOnStrats)}
           {cash !== null && <span className="text-pixel-gray"> · {fmtUsd(cash)} free</span>}
         </span>
       </div>

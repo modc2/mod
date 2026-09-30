@@ -490,10 +490,73 @@ def test_http_mcp(client):
     assert j['result']['protocolVersion'] == '2025-03-26'
 
 
-def test_http_serves_app(client):
-    html = client.get('/').text
+def test_http_serves_legacy_console(client):
+    html = client.get('/legacy').text
     assert 'Bittensor' in html and 'id="docs"' in html
     assert 'id="ask"' in html and 'sendChat' in html and 'chat-thread' in html
+
+
+@pytest.fixture
+def fake_dist(tmp_path, monkeypatch):
+    """A tiny stand-in for app/dist, laid out the way `next export` does."""
+    from bt import server
+    d = tmp_path / 'dist'
+    (d / '_next' / 'static' / 'chunks').mkdir(parents=True)
+    (d / 'index.html').write_text('<html>home</html>')
+    (d / 'markets.html').write_text('<html>markets</html>')
+    (d / '404.html').write_text('<html>warp pipe</html>')
+    (d / '_next' / 'static' / 'chunks' / 'a.js').write_text('js')
+    (tmp_path / 'secret.txt').write_text('nope')
+    monkeypatch.setattr(server, 'DIST_DIR', str(d))
+    return d
+
+
+HTML = {'accept': 'text/html,application/xhtml+xml'}
+
+
+def test_http_serves_next_export(client, fake_dist):
+    assert client.get('/', headers=HTML).text == '<html>home</html>'
+    assert client.get('/markets').text == '<html>markets</html>'
+    assert client.get('/bt/markets').text == '<html>markets</html>'   # gateway prefix kept
+    r = client.get('/bt/_next/static/chunks/a.js')
+    assert r.text == 'js' and 'immutable' in r.headers['cache-control']
+    assert client.get('/markets').headers['cache-control'] == 'no-cache'
+    r = client.get('/nowhere')
+    assert r.status_code == 404 and 'warp pipe' in r.text
+    assert client.get('/api/nope').status_code == 404
+    assert client.get('/api').json()['app'] == 'next'
+    assert client.get('/mcp').status_code == 405                  # MCP clients
+    (fake_dist / 'mcp.html').write_text('<html>mcp page</html>')
+    assert client.get('/mcp', headers=HTML).text == '<html>mcp page</html>'
+
+
+def test_http_static_never_escapes_dist(client, fake_dist):
+    from bt import server
+    assert server._dist_file('../secret.txt') is None
+    assert server._dist_file('/../../etc/passwd') is None
+    assert client.get('/..%2Fsecret.txt').status_code == 404
+
+
+def test_http_falls_back_to_legacy_without_a_build(client, tmp_path, monkeypatch):
+    from bt import server
+    monkeypatch.setattr(server, 'DIST_DIR', str(tmp_path / 'never-built'))
+    assert 'sendChat' in client.get('/', headers=HTML).text
+    assert client.get('/api').json()['app'] == 'legacy'
+
+
+def test_http_api_through_every_gateway_shape(client, fake_dist):
+    """/bt/api/* arrives stripped (/call), the console uses /bt/_api/*, and
+    direct callers use /api/* — all three reach the same routes."""
+    body = {'tool': 'bt_wallets'}
+    for path in ('/api/call', '/call', '/_api/call', '/bt/_api/call'):
+        r = client.post(path, json=body)
+        assert r.status_code == 200 and r.json()['ok'] is True, path
+    assert client.get('/tools').json()['tools']
+    assert client.get('/agent/card').json()['name']
+    assert client.get('/').json()['name'] == 'bt'                    # null call
+    assert 'groups' in client.get('/docs').json()                    # API docs for fetch()
+    assert client.get('/docs', headers=HTML).status_code in (200, 404)  # the page for browsers
+    assert client.get('/bt/_api').json()['name'] == 'bt'
 
 
 # ---------------------------------------------------------------- agent

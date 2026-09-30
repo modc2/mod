@@ -18,12 +18,14 @@ import {
   publishStrat, unpublishStrat, type PublicStratEntry,
 } from "./stratSync";
 import { shortAddress } from "./auth";
+import { getOwnerAddress } from "./access";
 import { fetchTopTraderAddresses } from "./polymarket";
 import { forkDefaultStrat, type StratTemplate } from "./defaultStrats";
 import { stopLiveSession } from "./liveSessions";
 import { useAuth } from "../context/AuthContext";
 import { useFilters } from "../context/FiltersContext";
 import type { SavedIndex } from "./types";
+import type { StratSession } from "./stratStats";
 
 export interface StratManager {
   indexes: SavedIndex[];
@@ -37,6 +39,10 @@ export interface StratManager {
   /** IDENTITY strat: copy exactly ONE trader — the watchlist is that single
       address at weight 1 and stays that way. */
   createIdentity: (address: string) => SavedIndex;
+  /** Save an engine session that has no strat card in this browser (a WHO I
+      COPY row, a strat made on another device) as a strat — SAME id, so its
+      money, ledger and running state attach to the new card. */
+  adoptSession: (s: StratSession, name: string) => SavedIndex;
   fork: (id: string) => SavedIndex | null;
   forkDefault: (t: StratTemplate) => SavedIndex;
   /** Fork a strat from the PUBLIC gallery into this account, private. */
@@ -169,6 +175,30 @@ export function useStratManager(): StratManager {
     return idx;
   }, [broadcast, localToken]);
 
+  const adoptSession = useCallback((sess: StratSession, name: string): SavedIndex => {
+    const now = Date.now();
+    const idx: SavedIndex = {
+      id: sess.strategyId,
+      name: uniqueIndexName(name),
+      ...(sess.traders.length === 1 ? { identity: sess.traders[0] } : {}),
+      traders: sess.traders.map((address) => ({ address, weight: 1 / Math.max(1, sess.traders.length) })),
+      backtestDays: 7,
+      rebalanceMinutes: 0.5,
+      livePollMinutes: 0.5,
+      capital: sess.capital || 1000,
+      minTrade: 1,
+      maxTrade: 100,
+      maxPerCycle: 3,
+      liveEnabled: sess.running,
+      createdAt: now,
+      updatedAt: now,
+    };
+    saveIndex(idx);
+    broadcast();
+    if (localToken) pushStrat(idx, localToken.token);
+    return idx;
+  }, [broadcast, localToken]);
+
   /** Fork a saved strat: an independent copy of the strategy (watchlist,
       weights, every param), stopped and un-funded, named "<NAME> COPY". The
       original keeps running untouched; the engine is keyed per strat id. */
@@ -278,7 +308,8 @@ export function useStratManager(): StratManager {
   const stopStrat = useCallback(async (id: string) => {
     updateIndex(id, { liveEnabled: false, updatedAt: Date.now() });
     broadcast();
-    if (auth.address) await stopLiveSession(auth.address, id);
+    const eoa = auth.address ?? getOwnerAddress();
+    if (eoa) await stopLiveSession(eoa, id);
   }, [broadcast, auth.address]);
 
   return {
@@ -289,6 +320,7 @@ export function useStratManager(): StratManager {
     select,
     create,
     createIdentity,
+    adoptSession,
     fork,
     forkDefault,
     importPublic,

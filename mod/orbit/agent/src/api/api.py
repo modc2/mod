@@ -959,8 +959,10 @@ def list_providers():
     """List LLM providers with their selectable models and default model."""
     mod = get_mod()
     providers = []
-    for key in mod.PROVIDERS:
-        default_model = mod.DEFAULT_MODELS.get(key) or mod.DEFAULT_MODELS.get(mod.PROVIDERS.get(key, ''), '')
+    for key in mod.all_providers():
+        fleet = key.startswith('mod:')
+        default_model = (mod._model_for(key) if fleet else
+                         mod.DEFAULT_MODELS.get(key) or mod.DEFAULT_MODELS.get(mod.PROVIDERS.get(key, ''), ''))
         info = mod.key_info(key)
         providers.append({
             "key": key,
@@ -973,12 +975,26 @@ def list_providers():
             "keyless": info.get("keyless", False),
             # where the compute is: the hosted providers bill, these three don't
             "runtime": mod.LOCAL_RUNTIMES.get(key),
-            "hint": mod.LOCAL_HINTS.get(key),
+            "hint": mod.provider_hint(key),
             "free": key in mod.LOCAL_PROVIDERS,
+            # another model module in the fleet, run on its own key — host only
+            "fleet": fleet,
         })
     # local first: a console that opens on a provider nobody has to pay for is
     # the whole point of shipping the LFM runtimes (Mod.default_provider)
     return {"providers": providers, "default": mod.default_provider()}
+
+@app.get("/providers/models")
+def provider_models(provider: str):
+    """One provider's model list, waited on. /providers never blocks on a
+    fleet module's catalog; the console asks here when one is picked."""
+    mod = get_mod()
+    if provider.startswith('mod:'):
+        from src.fleet import FLEET
+        return {"provider": provider, "models": FLEET.models(provider),
+                "default_model": mod._model_for(provider)}
+    return {"provider": provider, "models": mod.provider_models(provider),
+            "default_model": mod._model_for(provider)}
 
 @app.get("/models/costs")
 def model_costs(provider: Optional[str] = None):
@@ -993,7 +1009,7 @@ def model_costs(provider: Optional[str] = None):
     mod = get_mod()
     p = provider or mod._provider
     short = next((k for k, v in mod.PROVIDERS.items() if v == p), p)
-    if short in mod.LOCAL_PROVIDERS:
+    if short in mod.LOCAL_PROVIDERS or str(short).startswith('mod:'):
         return {"costs": {}, "provider": short}
     try:
         client = mod._client(short)
@@ -1032,9 +1048,9 @@ def run_params(key: Optional[str] = None):
     except Exception:
         personas = [{"value": "default", "label": "Default", "icon": ">_", "hint": ""}]
     providers, models_by, default_by = [], {}, {}
-    for key in mod.PROVIDERS:
+    for key in mod.all_providers():
         info = mod.key_info(key)
-        state = (mod.LOCAL_HINTS.get(key, "no key needed") if info.get("keyless") else
+        state = ((mod.provider_hint(key) or "no key needed") if info.get("keyless") else
                  "ready" if info.get("configured") else
                  "locked" if info.get("encrypted") and not info.get("unlocked") else "no key")
         providers.append({"value": key, "label": key, "hint": state})

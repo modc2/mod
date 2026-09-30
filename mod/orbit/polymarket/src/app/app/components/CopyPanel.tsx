@@ -74,7 +74,6 @@ import { confirmGate, gatePatch } from "../lib/armGate";
 import CopyTradesPanel from "./CopyTradesPanel";
 import { OPEN_MONEY_EVENT } from "./MoneyBlock";
 
-const OPEN_KEY = "poly_copy_panel_open";
 const MEASURE_KEY = "poly_copy_measure_open";
 const TRADES_KEY = "poly_copy_trades_open";
 const GROW_KEY = "poly_copy_grow_open";
@@ -95,50 +94,13 @@ function fmtSigned(v: number): string {
   return `${v >= 0 ? "+" : ""}${fmtUsd(v)}`;
 }
 
+/** The copy book IS the side panel's COPY tab — no fold header of its own
+    (the tab name says what it is; a "WHO I COPY ▲" bar above it was one more
+    label saying the same thing). */
 export default function CopyPanel() {
-  const [expanded, setExpanded] = useState(false);
-  useEffect(() => {
-    try {
-      setExpanded(localStorage.getItem(OPEN_KEY) !== "0");
-    } catch {
-      setExpanded(true);
-    }
-  }, []);
-
-  const toggle = () => {
-    setExpanded((e) => {
-      const next = !e;
-      try {
-        localStorage.setItem(OPEN_KEY, next ? "1" : "0");
-      } catch {}
-      return next;
-    });
-  };
-
   return (
-    <div className="shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-      <button
-        onClick={toggle}
-        aria-expanded={expanded}
-        className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-pixel-white/[0.06] transition-colors"
-        title="The copy book — which traders you copy, with how much, what that money would have done, and what it actually did"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="block text-[9.5px] font-mono tracking-[0.14em] text-pixel-gray">
-            WHO I COPY
-          </span>
-          {/* The tagline is a door sign — once the door is open the body's own
-              first line ($N on M traders) says the same thing with numbers. */}
-          {!expanded && (
-            <span className="block truncate text-[11.5px] font-mono text-cyan-300">
-              the traders, their dollars, start / stop
-            </span>
-          )}
-        </span>
-        <span className="text-[9px] text-pixel-gray shrink-0">{expanded ? "▲" : "▼"}</span>
-      </button>
-      {/* Mounted only while showing — see the file header. */}
-      {expanded && <CopyBookBody />}
+    <div className="shrink-0 pt-2" style={{ borderBottom: "1px solid var(--border)" }}>
+      <CopyBookBody />
     </div>
   );
 }
@@ -246,8 +208,7 @@ function CopyBookBody() {
           className="mx-3 mb-1.5 w-[calc(100%-1.5rem)] text-left text-[9.5px] font-mono text-amber-400 hover:text-amber-300 leading-snug"
           title="Your Polymarket balance is smaller than what the desk is sized at. REAL orders will be cut down to what's there. Click to top up."
         >
-          your wallet has {fmtUsd(funded)} — REAL orders size down to that
-          <span className="block underline">TOP UP →</span>
+          wallet has only {fmtUsd(funded)} · <span className="underline">TOP UP →</span>
         </button>
       )}
 
@@ -343,7 +304,7 @@ function CopyBookBody() {
               className="text-[9.5px] font-mono tracking-[0.08em] text-pixel-gray hover:text-pixel-white whitespace-nowrap"
               title="Paste more traders, or split one total evenly across the book"
             >
-              {growOpen ? "▲ ADD / SIZE" : "＋ ADD / SIZE"}
+              {growOpen ? "▲ ADD / SIZE" : "+ ADD / SIZE"}
             </button>
             <span className="flex-1" />
             <Link

@@ -17,13 +17,44 @@ as **one open module you can read, run, and fork**, plus the whole protocol
 2. **MCP over HTTP** — `POST /mcp` speaks the same JSON-RPC (streamable HTTP),
    for remote clients: `https://modc2.com/bt/mcp`.
 
-3. **Web console** — Apple-style single-page app at `/` (gateway: `modc2.com/bt`):
-   live market screener (price, 1h/24h/7d change, mcap, 24h volume, liquidity,
-   sparklines), per-subnet detail with price chart + identity links + top
-   validators, account explorer for any ss58, a **Traders** tab that tracks
-   any coldkey over time, a **Chat** tab where an agent answers from those same
-   tools and opens what it is talking about, Wallet, Trade, a generic tool
-   Console, and a **Docs** section generated live from the tool registry.
+3. **Web console** — a Next.js app (`app/`), exported to static files and
+   served by the same FastAPI process at `/` (gateway: `modc2.com/bt`). Real
+   routes — `/markets` (screener table + heatmap), `/traders` (tracked +
+   leaderboard + tape), `/account?addr=…`, `/wallet`, `/trade`, `/chat`,
+   `/console?tool=…`, `/docs`, `/open`, `/mcp` — and shareable overlays
+   (`?sn=64` a subnet, `?tr=5…` a trader) that float over any page, which is
+   what the chat agent opens mid-answer. Full Super Mario, both themes.
+
+## The console (app/)
+
+```
+app/app/            routes (App Router) + globals.css — the whole look
+app/components/     Shell, TopBar, Rail, Overlays, LineChart, Positions, ui
+app/lib/            api (one wire: POST {base}/_api/call), data, wallet,
+                    overlay, chat (agent SSE client), format, md, hooks
+app/build.sh        tsc -> next build -> releases/<t>, dist -> releases/<t>
+app/legacy.html     the single-file console it replaced (served at /legacy)
+```
+
+- **No node at runtime.** `output: 'export'` + `basePath: '/bt'`; bt.server
+  maps `/markets` -> `dist/markets.html` and `/_next/*` as-is. `build.sh`
+  swaps a symlink, so publishing is one rename and needs no restart; a failed
+  build leaves the old release serving; a host that never built serves
+  `legacy.html` at `/`. Roll back: `ln -sfn releases/<old> dist.tmp && mv -T dist.tmp dist`.
+- **Zero UI deps** — next, react, react-dom. Charts are hand-rolled SVG, the
+  pixel font is self-hosted (`app/app/fonts`), no CDN, no Google Fonts.
+- **`/bt/_api/*`, not `/bt/api/*`.** The gateway strips `/bt/api` before it
+  proxies (the mod-protocol canonical API form), so the console calls the one
+  path forwarded untouched and bt.server maps it back onto `/api`. The stripped
+  form works too: `modc2.com/bt/api/call` arrives as `/call` and is routed.
+  `/`, `/docs` and `/mcp` are both pages and API — browsers asking for
+  `text/html` get the page, everything else gets JSON.
+- **Chat state lives in the layout,** not the /chat page: when the agent calls
+  `bt_view` the console navigates while the answer keeps streaming.
+- Home links are plain anchors: Next's export fetches the `/` payload at
+  `/bt.txt`, which sits outside the gateway's `/bt/*` route.
+- Dev: `cd app && npm run dev` (port 50281, `.next-dev/` — never the live
+  build). Build: `app/build.sh` (or `m bt/app/build`).
 
 ## The open indexer
 
@@ -59,9 +90,9 @@ bt/tools.py       ← THE tool registry (37 tools, JSON schemas, handlers)
 bt/history.py     ← the open indexer: SQLite snapshots + instant screener
 bt/traders.py     ← the trader index: tracked coldkeys, equity, inferred trades
 bt/mcp_server.py  ← zero-dep MCP stdio server (JSON-RPC over stdin/stdout)
-bt/server.py      ← FastAPI :50280 — app + /api/* + /mcp (starts the indexer)
+bt/server.py      ← FastAPI :50280 — console (app/dist) + /api/* + /mcp (starts the indexers)
 bt/bt.py          ← engine anchor (Bt chain surface, BtTrader) over _bt_engine.pyc
-app/index.html    ← the console (no build step)
+app/              ← the console: Next.js, exported static (see below)
 ```
 
 Every surface is generated from `bt/tools.py`, so the console, the docs, and
@@ -117,10 +148,10 @@ walk took over a 253-account pool. Point it elsewhere with
 ## API
 
 ```
-GET  /api          module info
+GET  /api          module info          (also /_api, and / for non-HTML callers)
 GET  /api/tools    MCP-shaped tool listing
 GET  /api/docs     grouped docs (drives the Docs section)
-POST /api/call     {"tool": "bt_screener", "args": {"limit": 5}}
+POST /api/call     {"tool": "bt_screener", "args": {"limit": 5}}   (also /_api/call, /call)
 POST /mcp          MCP JSON-RPC (initialize / tools/list / tools/call)
 
 GET  /.well-known/agent.json   the agent card (also /api/agent/card)
@@ -179,6 +210,14 @@ page load, or an agent's four screener calls, no longer queue behind a
 index instead of ordering a million rows by distance, which took the screener
 from ~1s to ~0.1s, and `trader_snaps` is indexed by time (`MAX(ts)`,
 `COUNT(*)` and every window scan used to read the whole 10 GB table).
+
+The trader index follows the same rules (v3.0): `_snap_at` seeks the
+`(ss58, ts)` key twice instead of `ORDER BY ABS(ts - ?)` (31 ms -> 0.1 ms per
+lookup; `traders()` does ~1,700 of them — minutes -> 0.7 s), and only writers
+(`track`/`untrack`/`_record`) take `_db_lock`. Readers open their own WAL
+connection. The old process-wide lock around reads was the "whole API stalls
+for a minute" bug: one slow `traders()` held it while every console poll and
+copytensor's `bt_trader_at` queued behind it.
 
 ## Run
 

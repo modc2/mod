@@ -32,6 +32,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
 import { useDraftEngines } from './useDraftEngines'
+import { ask } from '../lib/ask'
 
 type Scorer = { type: string; path?: string; text?: string; pattern?: string; name?: string; n?: number }
 type CustomTask = {
@@ -270,7 +271,7 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
   }
 
   const removeOa = async (slug: string, title: string) => {
-    if (!confirm(`Delete "${title}" from openarena? Matches already played keep their scores.`)) return
+    if (!(await ask({ title: `Delete "${title}" from openarena?`, body: 'Matches already played keep their scores.', ok: 'Delete', danger: true }))) return
     try {
       const q = token ? `?key=${encodeURIComponent(token)}` : ''
       const r = await fetch(`${API_URL}/arena/openarena/tasks/${encodeURIComponent(slug)}${q}`,
@@ -427,7 +428,7 @@ export default function TaskBuilder({ token, address, isHost, onSignIn, onOpenAr
   }
 
   const remove = async (slug: string, title: string) => {
-    if (!confirm(`Delete the task "${title}"? Matches already played keep their scores.`)) return
+    if (!(await ask({ title: `Delete the task "${title}"?`, body: 'Matches already played keep their scores.', ok: 'Delete', danger: true }))) return
     try {
       const q = token ? `?key=${encodeURIComponent(token)}` : ''
       const r = await fetch(`${API_URL}/arena/tasks/${encodeURIComponent(slug)}${q}`, { method: 'DELETE' })

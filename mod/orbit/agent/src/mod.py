@@ -35,6 +35,7 @@ from .tools.mod import Tools
 from .credits import Credits
 from .billing import Meter
 from .hermes import HermesModel
+from .fleet import FLEET, FleetModel, is_fleet
 from .liquid import BROWSER, CATALOG, BrowserModel, LiquidModel
 from .prompt import render as render_prompt
 from .steps import (THINK as THINK_BLOCK, normalize as normalize_step,
@@ -654,6 +655,10 @@ RULES:
         local = self.LOCAL_PROVIDERS.get(provider)
         if local:
             return local()
+        # any other model module in the fleet (`mod:chutes`), driven in its
+        # own process on its own key — see fleet.py
+        if is_fleet(provider):
+            return FleetModel(provider)
         if not m:
             return None
         session_key = self._session_keys.get(self._provider_short(provider))
@@ -791,6 +796,9 @@ RULES:
         # model look like it belonged to somebody else — so each one but the
         # default was silently swapped out for claude-opus-5.
         short = self._provider_short(provider)
+        if is_fleet(short):
+            # a fleet module names its own models; none asked for = its default
+            return model or FleetModel(short).default_model() or ''
         if not model:
             return self.DEFAULT_MODELS.get(short, 'anthropic/claude-opus-5')
         if model in set(self.MODELS.get(short, [])):
@@ -810,6 +818,10 @@ RULES:
         Liquid shipped this morning is selectable this afternoon; everything
         else is the curated MODELS list.
         """
+        # a fleet module's list is whatever it last answered — never waited
+        # on here, /providers asks on every page load (see FLEET.models)
+        if is_fleet(provider):
+            return FLEET.cached_models(provider)
         # hermes is local but not a liquidai runtime: its list comes from
         # its own module, so a GGUF downloaded this morning is selectable now
         if provider == 'hermes':
@@ -830,6 +842,22 @@ RULES:
             if live:
                 return live
         return self.MODELS.get(provider, [])
+
+    def all_providers(self) -> List[str]:
+        """Every provider a run may name: the built-ins, then each model
+        module found in the fleet (`mod:<name>`, see fleet.py)."""
+        try:
+            fleet = FLEET.keys()
+        except Exception as e:
+            print(f"[agent] fleet scan failed: {e}")
+            fleet = []
+        return list(self.PROVIDERS) + [k for k in fleet if k not in self.PROVIDERS]
+
+    def provider_hint(self, provider: str) -> Optional[str]:
+        if is_fleet(provider):
+            row = FLEET.get(provider) or {}
+            return row.get('hint') or f"the {provider[4:]} module, on its own key"
+        return self.LOCAL_HINTS.get(provider)
 
     def set_provider(self, provider: str):
         """Switch the module's default LLM provider. Use 'openrouter', 'venice',
@@ -1147,6 +1175,13 @@ RULES:
             raise RuntimeError(self._client_why.get(prov) or (
                 f"No API key available for provider '{short}'. "
                 f"Add a key — or unlock your encrypted key — in the Builder (model node)."))
+        # a fleet module spends the operator's own key in that module, and
+        # nothing here can bill a guest for it — so only the host may use one
+        if getattr(client, 'host_only', False) and hasattr(self, 'is_owner') \
+                and not self.is_owner(key):
+            raise PermissionError(
+                f"'{short}' runs on the {short[4:]} module's own key — only the "
+                f"host can run on it. Pick openrouter, venice or a local provider.")
         self._on_step = on_step
         self._on_usage = on_usage
         self._on_live = on_live
@@ -2671,6 +2706,13 @@ class Mod(Agent):
 
     def key_info(self, provider: str = 'openrouter') -> dict:
         """Masked view of the active API key + encrypted-vault state for a provider."""
+        if is_fleet(provider):
+            # the key (if any) lives in that module; it is its business
+            return {'provider': provider, 'configured': True, 'key': None,
+                    'supported': False, 'keyless': True, 'encrypted': False,
+                    'unlocked': False, 'hint': self.provider_hint(provider),
+                    'source': provider[4:], 'fleet': True,
+                    'remembered': False, 'remember_expires': None}
         if provider in self.LOCAL_PROVIDERS:
             # nothing to hold a key for: 'configured' means "a run can start",
             # and on these it always can (a cloud key lives in liquidai's own
@@ -2969,6 +3011,10 @@ class Mod(Agent):
     def balance(self, provider: str = 'openrouter') -> dict:
         """Remaining credit on the active API key (openrouter /credits, venice rate_limits)."""
         info = self.key_info(provider)
+        if info.get('fleet'):
+            return {**info, 'balance': None,
+                    'note': f"billed to the {provider[4:]} module's own key, "
+                            f"not to agent credit — host only"}
         if info.get('keyless'):
             return {**info, 'balance': None,
                     'note': 'no key, no bill — this provider runs on local or '

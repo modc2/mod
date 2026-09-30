@@ -11,22 +11,16 @@
 // column, and this block is the column's header — hence `onClose`, which puts
 // the sidebar's × in the same row as the user it belongs to.
 //
-// Collapsed it shows the signed-in wallet; expanded it shows ONLY that wallet
-// as a card — who you are, the money behind it, sign out. Every other known
-// wallet lives behind a SWITCH ACCOUNT fold, closed by default: switching is a
-// once-in-a-while act, and a list of four $0.00 strangers above the fold read
-// as clutter, not options.
+// It is ONE row: dot · wallet · balance (→ MONEY tab) · ⋯ · ×. The ⋯ unfolds
+// copy / rename / sign out, then SWITCH ACCOUNT and device pairing, both
+// folded again: those are once-in-a-while acts. The active strat is NOT
+// repeated here — the STRATS fold at the bottom of the tab owns it.
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { listStrats, STRAT_UPDATED_EVENT } from "../lib/activeStrat";
 import { shortAddress } from "../lib/auth";
 import { fundedUsd } from "../lib/funding";
-import { getActiveIndexId } from "../lib/indexStore";
-import { useStratStats, fmtUsd } from "../lib/stratStats";
-import type { SavedIndex } from "../lib/types";
 import { OPEN_MONEY_EVENT } from "./MoneyBlock";
-import { OPEN_STRATS_EVENT } from "./StratBlock";
 import WalletTokenPanel from "./WalletTokenPanel";
 
 /** Header chip → sidebar handshake. The chip dispatches this to open the
@@ -79,7 +73,7 @@ export default function AccountsPanel({
   // that's one fetch; the rest wait for the SWITCH ACCOUNT fold to open.
   const activeAddr = auth.address?.toLowerCase() ?? null;
   useEffect(() => {
-    if (!expanded || !addrKey) return;
+    if (!addrKey) return;
     const addrs = addrKey
       .split(",")
       .filter(Boolean)
@@ -92,14 +86,11 @@ export default function AccountsPanel({
       if (!cancelled) setBalances((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
     })();
     return () => { cancelled = true; };
-  }, [expanded, showSwitch, addrKey, activeAddr]);
+  }, [showSwitch, addrKey, activeAddr]);
 
-  // The header chip asks for this section by name.
-  useEffect(() => {
-    const onOpen = () => setExpanded(true);
-    window.addEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
-    return () => window.removeEventListener(OPEN_ACCOUNTS_EVENT, onOpen);
-  }, []);
+  // The header chip used to pop the ⋯ menu open too (OPEN_ACCOUNTS_EVENT);
+  // the one-row header already shows who and how much, so the chip now just
+  // opens the column (UserSidebar) and the menu stays a deliberate click.
 
   const others = knownWallets.filter((w) => w.address.toLowerCase() !== activeAddr);
   const active = knownWallets.find((w) => w.address.toLowerCase() === activeAddr);
@@ -152,41 +143,57 @@ export default function AccountsPanel({
 
   return (
     <div className="shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-      {/* ── Header row: who you are, click to expand the switcher. The
-             sidebar's close × rides along at the end — a sibling, not a child,
-             since a button can't nest inside a button. ── */}
-      <div className="flex items-stretch min-h-[48px]">
-        <button
-          onClick={() => setExpanded((e) => !e)}
-          className="flex-1 min-w-0 px-3 py-2 flex items-center gap-2 text-left hover:bg-pixel-white/[0.06] transition-colors"
-          aria-expanded={expanded}
+      {/* ── ONE header row: who you are · your money · ⋯ · ×. The balance is
+             the door to the MONEY tab; ⋯ unfolds the rare acts (copy, rename,
+             switch, pair a device, sign out). The old expanded card printed
+             the address twice and the active strat a fourth time
+             (user, 2026-09-30: "no way i can understand this sidebar"). ── */}
+      <div className="flex items-center gap-1.5 min-h-[44px] pl-3 pr-2">
+        <div className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
+        <span
+          className="min-w-0 flex-1 truncate text-[11.5px] font-mono text-green-400"
           title={
             auth.connected && auth.address
               ? `${auth.address} · ${auth.authenticated ? "trading enabled" : "trading not yet enabled"}`
               : "Not signed in"
           }
         >
-          <div className={`w-1.5 h-1.5 rounded-full ${dotColor} shrink-0`} />
-          <span className="min-w-0 flex-1">
-            <span className="block text-[9.5px] font-mono tracking-[0.14em] text-pixel-gray">
-              ACCOUNT
-              {knownWallets.length > 1 && (
-                <span className="text-pixel-gray/70"> · {knownWallets.length} known</span>
-              )}
-            </span>
-            <span className="block truncate text-[11.5px] font-mono text-green-400">
-              {auth.connected && auth.address
-                ? active?.label || shortAddress(auth.address).toLowerCase()
-                : hasWallet ? "not signed in" : "no wallet"}
-            </span>
-          </span>
-          <span className="text-[9px] text-pixel-gray shrink-0">{expanded ? "▲" : "▼"}</span>
+          {auth.connected && auth.address
+            ? active?.label || shortAddress(auth.address).toLowerCase()
+            : hasWallet ? "not signed in" : "no wallet"}
+        </span>
+        {auth.connected && auth.address ? (
+          <button
+            onClick={() => window.dispatchEvent(new Event(OPEN_MONEY_EVENT))}
+            title="Your tradable balance — click to top up or take money out"
+            className="shrink-0 rounded-[3px] px-1.5 py-0.5 hover:bg-pixel-white/[0.06] transition-colors"
+          >
+            {fundedChip(auth.address)}
+          </button>
+        ) : (
+          <button
+            onClick={() => { if (hasWallet) void connect(); }}
+            disabled={!hasWallet || loading}
+            className="pixel-btn btn-xs normal-case border-green-400 text-green-400 hover:bg-green-400/10 disabled:opacity-40 shrink-0"
+          >
+            {loading ? "..." : "sign in"}
+          </button>
+        )}
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          title="Account options — copy address, rename, switch account, use on another device, sign out"
+          className={`grid place-items-center w-[24px] h-[24px] rounded-[var(--radius-sm)] text-[13px] leading-none shrink-0 transition-colors ${
+            expanded ? "bg-pixel-white/[0.08] text-pixel-white" : "text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.06]"
+          }`}
+        >
+          ⋯
         </button>
         {onClose && (
           <button
             onClick={onClose}
             title="Hide this sidebar"
-            className="self-center mr-2 grid place-items-center w-[24px] h-[24px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors text-[13px] leading-none shrink-0"
+            className="grid place-items-center w-[24px] h-[24px] rounded-[var(--radius-sm)] border border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors text-[13px] leading-none shrink-0"
           >
             ×
           </button>
@@ -194,44 +201,15 @@ export default function AccountsPanel({
       </div>
 
       {expanded && (
-        <div className="px-2 pb-2 space-y-1.5">
-          {/* ── The signed-in wallet, as a card. This is the whole point of
-                 the block — everything else folds away beneath it. ── */}
-          {auth.connected && auth.address ? (
-            <div className="rounded-[var(--radius-sm)] border border-pixel-border/60 bg-pixel-white/[0.03] px-2.5 py-2">
-              <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  {active?.label && (
-                    <div className="text-[11.5px] text-pixel-white truncate">{active.label}</div>
-                  )}
-                  <div className="font-mono text-[11px] text-green-400 truncate" title={auth.address}>
-                    {shortAddress(auth.address).toLowerCase()}
-                  </div>
-                </div>
-                {/* The balance is the door to the MONEY tab — the one place
-                    to top up / take out, so the number you'd want to change
-                    is the thing you click to change it. */}
-                <button
-                  onClick={() => window.dispatchEvent(new Event(OPEN_MONEY_EVENT))}
-                  title="Your tradable balance — click to top up or take money out (MONEY tab)"
-                  className="flex flex-col items-end shrink-0 rounded-[3px] px-1 -mx-1 hover:bg-pixel-white/[0.06] transition-colors"
-                >
-                  {fundedChip(auth.address)}
-                  <span className={`text-[9.5px] font-mono ${auth.authenticated ? "text-green-400/80" : "text-amber-400"}`}>
-                    {auth.authenticated ? "CLOB ✓" : "CLOB…"}
-                  </span>
-                </button>
-              </div>
-              <ActiveStratStrip />
-              <div
-                className="flex items-center gap-1.5 mt-2 pt-1.5"
-                style={{ borderTop: "1px solid var(--border)" }}
-              >
+        <div className="px-3 pb-2 space-y-1.5">
+          {auth.connected && auth.address && (
+            <>
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={copyActive}
                   className="text-[10px] tracking-[0.12em] text-pixel-gray hover:text-green-400 rounded-[3px] border border-pixel-border/60 hover:border-green-400/60 px-2 py-0.5 transition-colors"
                 >
-                  {copied ? "copied ✓" : "copy"}
+                  {copied ? "copied ✓" : "copy address"}
                 </button>
                 <button
                   onClick={() => startEdit(auth.address!, active?.label)}
@@ -247,7 +225,7 @@ export default function AccountsPanel({
                 </button>
               </div>
               {editing === auth.address && (
-                <div className="flex items-center gap-1.5 mt-1.5">
+                <div className="flex items-center gap-1.5">
                   <input
                     autoFocus
                     value={draftLabel}
@@ -267,20 +245,7 @@ export default function AccountsPanel({
                   </button>
                 </div>
               )}
-            </div>
-          ) : (
-            <div className="rounded-[var(--radius-sm)] border border-pixel-border/60 bg-pixel-white/[0.03] px-2.5 py-2 flex items-center justify-between gap-2">
-              <span className="text-[11px] text-pixel-gray">
-                {hasWallet ? "Not signed in." : "No wallet extension."}
-              </span>
-              <button
-                onClick={() => { if (hasWallet) void connect(); }}
-                disabled={!hasWallet || loading}
-                className="pixel-btn normal-case text-[11px] px-2 py-1 border-green-400 text-green-400 hover:bg-green-400/10 disabled:opacity-40"
-              >
-                {loading ? "..." : "connect"}
-              </button>
-            </div>
+            </>
           )}
 
           {/* ── SWITCH ACCOUNT — the other known wallets + "sign in another
@@ -404,105 +369,5 @@ export default function AccountsPanel({
         </div>
       )}
     </div>
-  );
-}
-
-/** The wallet card's ACTIVE STRAT strip — which strategy this wallet's money
- *  is pointed at, and what that strat is doing right now: engine status, open
- *  positions marked to price, 24h PnL, and how many other strats are live.
- *  It lives inside the card because a strat's money, engine session and
- *  ledger are all keyed by (wallet, strat) — opening the account and not
- *  seeing what it is running is the gap this closes. Rendered only while the
- *  card is expanded, so its polling hook (useStratStats → /live/sessions)
- *  never runs for a docked-but-collapsed column. Clicking it hands off to the
- *  full STRATS block below via OPEN_STRATS_EVENT. */
-function ActiveStratStrip() {
-  // Cheap store read for the list + active id, refreshed on the broadcast
-  // every strat mutation already fires — same pattern as StratBlock's header.
-  const [snap, setSnap] = useState<{ count: number; active: SavedIndex | null }>({
-    count: 0,
-    active: null,
-  });
-  useEffect(() => {
-    const read = () => {
-      const all = listStrats();
-      const id = getActiveIndexId();
-      setSnap({
-        count: all.length,
-        active: (id ? all.find((s) => s.id === id) : null) ?? all[0] ?? null,
-      });
-    };
-    read();
-    window.addEventListener(STRAT_UPDATED_EVENT, read);
-    return () => window.removeEventListener(STRAT_UPDATED_EVENT, read);
-  }, []);
-
-  const { stats, running } = useStratStats();
-  const { active, count } = snap;
-  const money = active ? stats[active.id] : undefined;
-  const isRunning = active ? running.has(active.id) : false;
-  const openPositions = money?.openPositions ?? 0;
-  const inPlay = money?.openValue ?? 0;
-  const pnl24h = money?.pnl24h ?? 0;
-  const roi24h = money?.roi24h ?? null;
-  const traded = openPositions > 0 || (money?.fills ?? 0) > 0;
-
-  return (
-    <button
-      onClick={() => window.dispatchEvent(new CustomEvent(OPEN_STRATS_EVENT))}
-      className="w-full text-left mt-2 pt-1.5 group"
-      style={{ borderTop: "1px solid var(--border)" }}
-      title={
-        active
-          ? `Active strat: ${active.name} — what BACKTEST and LIVE are pointed at. Click for the full strat list.`
-          : "No strats yet — click to open the STRATS block and create one."
-      }
-    >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className="text-[9px] font-mono tracking-[0.16em] text-pixel-gray shrink-0">
-          STRAT
-        </span>
-        {active ? (
-          <>
-            {isRunning && (
-              <span
-                className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0"
-                title="Engine running for this strat"
-              />
-            )}
-            <span className="min-w-0 truncate text-[11px] font-mono font-semibold text-green-400 group-hover:underline">
-              {active.name}
-            </span>
-            <span className="ml-auto shrink-0 text-[9.5px] font-mono text-pixel-gray">
-              {count} saved{running.size > 0 ? ` · ${running.size} live` : ""}
-            </span>
-          </>
-        ) : (
-          <span className="text-[10.5px] font-mono text-pixel-gray group-hover:text-green-400">
-            none yet — + NEW STRAT below
-          </span>
-        )}
-      </div>
-      {active && (
-        <div className="mt-0.5 text-[10px] font-mono text-pixel-gray truncate">
-          {traded ? (
-            <>
-              {openPositions > 0 ? `${openPositions} pos · ${fmtUsd(inPlay)} in play` : "flat"}
-              {" "}· 24h{" "}
-              <span className={pnl24h > 0 ? "text-green-400" : pnl24h < 0 ? "text-red-400" : ""}>
-                {pnl24h >= 0 ? "+" : ""}
-                {fmtUsd(pnl24h)}
-                {roi24h !== null && ` (${roi24h >= 0 ? "+" : ""}${roi24h.toFixed(1)}%)`}
-              </span>
-            </>
-          ) : isRunning ? (
-            "running · no positions yet"
-          ) : (
-            "not trading"
-          )}
-          <span className="text-pixel-gray/60"> · {active.traders.length}T</span>
-        </div>
-      )}
-    </button>
   );
 }

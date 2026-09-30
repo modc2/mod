@@ -185,7 +185,7 @@ export default function Select({
               >
                 <div className="flex items-center gap-2 w-full">
                   <span className="w-4 text-center shrink-0 opacity-80">{o.icon || ''}</span>
-                  <span className="truncate">{o.label}</span>
+                  <span className="truncate shrink-0 max-w-[65%]">{o.label}</span>
                   {o.badge && (
                     <span className="text-[9px] px-1 py-0.5 rounded bg-white/[0.06] text-gray-500 shrink-0 font-mono">{o.badge}</span>
                   )}
