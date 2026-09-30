@@ -204,7 +204,7 @@
         "reads": "open",
         "writes": "open on loopback for models and the catalog; settlement is gated by its own arming and confirm flags rather than by a token, because the thing being protected is funds leaving a wallet this module does not hold"
     },
-    "schema": "QmcXxbP544CCPanL5oLcnS1YecNCkXiQ98wc3ck76eaxDH",
+    "schema": "QmT9XUz9az9jEmbs9yHfZ6jdyXMVip3DnZzYDtqLgtQLvt",
     "halves": {
         "router": "every crypto-settled, no-KYC inference router as one multimodal catalog, routed by price and paid in the background",
         "proofs": "post what a model said at temperature 0, hash it, sign it, publish it, and let anyone re-run the question",

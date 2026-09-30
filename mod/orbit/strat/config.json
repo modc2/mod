@@ -58,7 +58,7 @@
         "tick": "One live sync->signal->execute cycle. DRY RUN by default; live needs dry_run=false + confirm=true + a token the peer accepts.",
         "board": "The marketplace board: every strat, verified, with cached backtest perf."
     },
-    "schema": "QmVoVnWex4asoX67NoqcnEErbPrGjadtFVLAB1SBjx2tpL",
+    "schema": "QmaWgbBbXtnEwwTKe47CCfXs2Uz2DwPisaHxvNRjSLNzcM",
     "urls": {
         "api": "http://localhost:50097"
     },
