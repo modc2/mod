@@ -529,7 +529,6 @@ export default function Home() {
   const [sidebarSide, setSidebarSide] = useState<SidebarSide>('left')
   const [railPane, setRailPane] = useState<RailPane>('chats')
   const [chatSearch, setChatSearch] = useState('')
-  const [agentSearch, setAgentSearch] = useState('')
 
   // the market rail — the library, docked opposite the chats rail
   const [marketOpen, setMarketOpen] = useState(true)
@@ -3832,10 +3831,10 @@ export default function Home() {
     </div>
   )
 
-  // --- Agents pane — the personas you can run as, beside the chats ---
-  // Two states in one pane: the list, and the editor for whichever agent you
-  // opened. Making one never leaves the console — you write it here, hit
-  // "save + use", and the next message runs as it.
+  // --- Agent editor — the rail's one other face ---
+  // The list of agents lives in the top-bar AGENTS hub and the console's
+  // persona picker; ✎ / + from either lands here, so making one never leaves
+  // the console — write it, hit "save + use", and the next message runs as it.
   const agentsPane = agentEdit ? (
     <AgentEditor
       key={agentEdit.name || (agentEdit.from ? `from:${agentEdit.from}` : 'new')}
@@ -3855,81 +3854,43 @@ export default function Home() {
         setTimeout(() => inputRef.current?.focus(), 60)
       }}
     />
-  ) : (
-    <>
-      <div className="px-2.5 py-2 border-b border-white/[0.06] shrink-0">
-        <input
-          value={agentSearch}
-          onChange={e => setAgentSearch(e.target.value)}
-          placeholder="Filter agents…"
-          className="w-full bg-white/[0.03] border border-white/[0.08] rounded-md px-2.5 py-1.5 text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/40 transition"
-        />
-      </div>
-      <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
-        {(() => {
-          const s = agentSearch.trim().toLowerCase()
-          const shown = personas.filter(p => !s ||
-            p.label.toLowerCase().includes(s) || (p.description || '').toLowerCase().includes(s))
-          if (shown.length === 0) {
-            return <div className="text-center text-xs text-gray-500 py-10 px-3">Nothing matches</div>
-          }
-          // agents bring tools and a model; prompts only set the goal — keep
-          // the two apart so the distinction stays visible
-          return (['agent', 'prompt'] as const).map(kind => {
-            const rows = shown.filter(p => p.kind === kind)
-            if (rows.length === 0) return null
-            return (
-              <div key={kind}>
-                <div className="px-2 pt-2 pb-1 text-[9px] text-gray-600 uppercase tracking-wider">
-                  {kind === 'agent' ? 'agents' : 'prompts'}
-                </div>
-                {rows.map(p => personaRow(p))}
-              </div>
-            )
-          })
-        })()}
-      </div>
-      {/* new agent — written right here; the canvas is one click further on
-          for the graph view of the same thing */}
-      {/* a top edge, like the identity footer below it — without one the row
-          the list happens to be cut through bleeds straight into these buttons */}
-      <div className="px-2 py-2 shrink-0 flex items-center gap-1.5 border-t border-white/[0.06]">
-        <button onClick={() => setAgentEdit({ name: null })}
-          className="flex-1 min-w-0 text-left px-2.5 py-2 rounded-md text-xs whitespace-nowrap transition border border-dashed border-emerald-500/25 text-emerald-300/90 hover:bg-emerald-500/10 flex items-center gap-2">
-          <span className="w-5 text-center shrink-0">+</span> new agent
-        </button>
-        <button onClick={() => openFlow()}
-          title="Open the flow canvas — wire agents together into a graph"
-          className="px-2 py-2 rounded-md text-[10px] uppercase tracking-wider transition border border-white/[0.08] text-gray-500 hover:text-violet-300 hover:border-violet-400/30 shrink-0">
-          flow
-        </button>
-      </div>
-    </>
-  )
+  ) : null
+
+  // the rail only leaves the chat list while an agent is open in the editor
+  const editingInRail = railPane === 'agents' && !!agentEdit
 
   const railContent = (
     <div className="flex flex-col h-full min-h-0">
-      {/* rail header — two panes: the chats you've had, the agents you can be */}
-      <div className="px-2 py-2 border-b border-white/[0.06] flex items-center gap-1 shrink-0">
-        {/* the two pane names are the header's floor — the counts beside them
-            are not, so a rail dragged down near its minimum drops the counts
-            rather than growing wider than the rail and sliding underneath the
-            buttons on the right, which is what it used to do */}
-        <div className="flex items-center gap-0.5 bg-white/[0.03] border border-white/[0.07] rounded-md p-0.5 min-w-0 overflow-hidden">
-          {([['chats', tasks.length], ['agents', personas.length]] as const).map(([pane, n]) => (
-            <button key={pane} onClick={() => { setPane(pane as RailPane); if (pane === 'agents') setAgentEdit(null) }}
-              title={`${n} ${pane}`}
-              className={`px-2 py-1 rounded text-[10px] uppercase tracking-wider whitespace-nowrap truncate min-w-0 transition ${
-                railPane === pane ? 'bg-emerald-500/15 text-emerald-200' : 'text-gray-500 hover:text-gray-300'
-              }`}>
-              {pane}{n && !tightRail ? <span className="opacity-60 font-mono"> {n}</span> : null}
-            </button>
-          ))}
-        </div>
+      {/* rail header — the rail is the chat history, nothing else. It used to
+          carry a CHATS | AGENTS toggle, but AGENTS is already the top-bar door
+          (and the persona picker in the console header), and CHATS sat right
+          under the chat icon that had just opened it: three names for two
+          things. Now it only turns into the agent editor when you open one
+          from the persona picker, and says so, with a way back. */}
+      <div className="px-2.5 py-2 border-b border-white/[0.06] flex items-center gap-1.5 shrink-0 min-h-[44px]">
+        {editingInRail ? (
+          <button onClick={() => { setAgentEdit(null); setPane('chats') }}
+            title="Back to your chats"
+            className="flex items-center gap-1.5 min-w-0 text-[11px] text-gray-400 hover:text-emerald-200 transition">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            <span className="uppercase tracking-wider truncate">chats</span>
+          </button>
+        ) : (
+          <div className="flex items-baseline gap-1.5 min-w-0 pl-0.5" title={`${tasks.length} chats`}>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-gray-300">history</span>
+            {tasks.length > 0 && <span className="text-[10px] font-mono text-gray-600">{tasks.length}</span>}
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-0.5 shrink-0">
-          <button onClick={() => railPane === 'chats' ? newChat() : setAgentEdit({ name: null })}
-            className="w-6 h-6 flex items-center justify-center rounded-md text-emerald-300/90 hover:bg-emerald-500/10 border border-emerald-500/25 transition text-sm leading-none"
-            title={railPane === 'chats' ? 'New chat' : 'New agent'}>+</button>
+          {!editingInRail && (
+            <button onClick={newChat}
+              className="h-6 px-2 flex items-center gap-1 rounded-md text-[10px] uppercase tracking-wider text-emerald-300/90 hover:bg-emerald-500/10 border border-emerald-500/25 transition leading-none"
+              title="New chat">
+              <span className="text-sm leading-none">+</span>{!tightRail && <span>new</span>}
+            </button>
+          )}
           <button onClick={() => setSidebarSide(s => s === 'left' ? 'right' : 'left')}
             className="w-6 h-6 flex items-center justify-center rounded-md text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
             title={`Swap sides — rail to the ${sidebarSide === 'left' ? 'right' : 'left'}, market opposite`}>
@@ -3948,7 +3909,7 @@ export default function Home() {
         </div>
       </div>
 
-      {railPane === 'agents' ? agentsPane : <>
+      {editingInRail ? agentsPane : <>
       {/* search — only worth the space once there's a history */}
       {tasks.length > 4 && (
         <div className="px-2.5 py-2 border-b border-white/[0.06] shrink-0">
@@ -4028,10 +3989,10 @@ export default function Home() {
                 activeTab === tab ? 'text-white' : 'text-gray-600 hover:text-gray-400'
               }`}
             >
-              {/* "console" here sat directly under CONSOLE in the view
-                  switcher — same word, two different scopes. This pane is the
-                  transcript, and the rail beside it already calls those chats. */}
-              {tab === 'output' ? 'chat' : tab}
+              {/* not "chat": the top-bar chat icon already names this view,
+                  so a CHAT tab under it said the same word twice. This pane
+                  is the one conversation's thread. */}
+              {tab === 'output' ? 'thread' : tab}
               {tab === 'tools' && (currentTask && getSteps(currentTask).length > 0 ? (
                 <span className="tab-badge ml-1 text-emerald-400/80 normal-case">{getSteps(currentTask).length}</span>
               ) : toolCounts ? (
@@ -4277,11 +4238,6 @@ export default function Home() {
               className="w-6 h-6 flex items-center justify-center rounded-md text-emerald-300/90 border border-emerald-500/25 hover:bg-emerald-500/10 transition text-sm leading-none"
               title="New chat"
             >+</button>
-            <button
-              onClick={() => { setRailClosed(false); setPane('agents') }}
-              className="w-6 h-6 flex items-center justify-center rounded-md text-gray-500 hover:text-emerald-300 hover:bg-white/[0.06] transition text-[11px] leading-none"
-              title={`Agents — running as ${activePersona?.label || agentType}`}
-            >{promptSel ? '¶' : (currentAgentDef?.icon || '>_')}</button>
             <div className="flex flex-col items-center gap-1.5 mt-2 overflow-y-auto min-h-0">
               {tasks.slice(0, 12).map(t => (
                 <button
