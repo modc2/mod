@@ -1,0 +1,80 @@
+/* every subnet is a market: the pair header, the two-column market layout in
+ * the subnet overlay and the order ticket (components/Ticket.tsx) */
+.ovl-card.wide { max-width: 1180px; }
+.mkt-pair { display: inline-flex; align-items: baseline; gap: 2px; font-family: var(--mono); font-size: 13px;
+  color: var(--ink); height: 26px; padding: 0 10px; align-items: center; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--raise); }
+.mkt-pair i { font-style: normal; color: var(--ink3); margin: 0 1px; }
+.mkt-pair em { font-style: normal; color: var(--ink3); margin-left: 8px; font-size: 11.5px; }
+.mkt-stats { display: inline-flex; gap: 18px; margin-left: auto; flex-wrap: wrap; font-family: var(--mono);
+  font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mkt-stats em { display: block; font-style: normal; font-family: var(--sans); font-size: 10.5px; color: var(--ink3);
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 2px; }
+
+.mkt { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+.mkt-main { min-width: 0; }
+.mkt-side { position: sticky; top: 12px; margin-top: 22px; }
+@media (max-width: 900px) {
+  .mkt { grid-template-columns: 1fr; }
+  .mkt-side { position: static; order: -1; margin-top: 18px; }
+  .mkt-stats { margin-left: 0; width: 100%; }
+}
+
+/* ticket */
+.tk { border: 1px solid var(--line2); border-radius: 12px; background: var(--raise); padding: 14px; box-shadow: var(--hl); }
+.tk-h { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; font-size: 14px; }
+.tk-side { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 9px;
+  background: var(--card); border: 1px solid var(--line); }
+.tk-side button { height: 32px; border: 0; border-radius: 6px; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ink3); transition: color .15s, background .15s; }
+.tk-side button:hover { color: var(--ink); }
+.tk-side button.on.buy { background: color-mix(in srgb, var(--good) 18%, transparent); color: var(--good); }
+.tk-side button.on.sell { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+.tk-l { display: flex; justify-content: space-between; margin: 14px 0 6px; }
+.tk-l em { font-style: normal; font-family: var(--mono); font-size: 11.5px; color: var(--ink3); font-weight: 400; }
+.tk-amt { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--card);
+  padding-right: 12px; transition: border-color .15s; }
+.tk-amt:focus-within { border-color: var(--accent); }
+.tk-amt input { border: 0 !important; background: none !important; box-shadow: none !important; font-family: var(--mono);
+  font-size: 20px; height: 44px; flex: 1; min-width: 0; outline: none; }
+.tk-amt span { font-family: var(--mono); font-size: 15px; color: var(--ink2); }
+.tk-pcts { display: flex; gap: 4px; margin-top: 6px; }
+.tk-pcts button { flex: 1; height: 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--card);
+  color: var(--ink2); font-family: var(--mono); font-size: 11px; cursor: pointer; }
+.tk-pcts button:hover:not(:disabled) { color: var(--ink); border-color: var(--line2); }
+.tk-rows { margin-top: 12px; font-size: 12.5px; }
+.tk-rows > div { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; color: var(--ink2); }
+.tk-rows b { font-family: var(--mono); font-weight: 500; color: var(--ink); }
+.tk-rows .linkish { background: none; border: 0; padding: 0; cursor: pointer; font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+.tk-more { border-top: 1px dashed var(--line); margin-top: 6px; }
+.tk-more label { margin-top: 10px; }
+.tk-more select, .tk-more input { width: 100%; }
+.tk-go { width: 100%; justify-content: center; margin-top: 14px; height: 40px; }
+.tk-go.buy:not(:disabled) { background: var(--good); color: var(--bg); }
+.tk-go.sell:not(:disabled) { background: var(--bad); color: #fff; }
+.tk-go.buy:hover:not(:disabled), .tk-go.sell:hover:not(:disabled) { filter: brightness(1.08); background-blend-mode: normal; }
+.tk-get { display: block; text-align: center; margin-top: 8px; font-size: 12px; }
+.tk-pos { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--line); font-size: 12.5px; }
+.tk-pos b { font-family: var(--mono); font-weight: 500; }
+.tk-note { font-size: 11.5px; margin: 10px 0 0; line-height: 1.45; }
+.tk .txbox { margin-top: 12px; padding: 12px; }
+
+/* markets table: a quick Trade on hover */
+.screener td.mkt-go { width: 1px; padding-left: 0; }
+.mkt-go button { opacity: 0; height: 24px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--raise); color: var(--ink2); font: inherit; font-size: 12px; cursor: pointer; transition: opacity .12s; }
+.screener tr:hover .mkt-go button, .mkt-go button:focus-visible { opacity: 1; }
+.mkt-go button:hover { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent); }
+
+/* /trade market picker */
+.mpick { position: relative; }
+.mpick input { width: 100%; }
+.mpick-list { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); max-height: 320px; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line2); border-radius: 10px; box-shadow: var(--shadow-lg); padding: 4px; }
+.mpick-list button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px;
+  background: none; color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.mpick-list button:hover { background: var(--raise); }
+.mpick-list .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mpick-list .num { font-family: var(--mono); font-size: 12px; color: var(--ink2); }
+.mpick-list > .muted { display: block; padding: 8px; }

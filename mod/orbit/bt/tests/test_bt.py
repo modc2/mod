@@ -45,7 +45,7 @@ def test_mutating_tools_flagged():
 def test_docs_grouping():
     groups = tools.docs()
     assert {g['group'] for g in groups} == {
-        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'Network',
+        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'News', 'Network',
         'Console'}
     total = sum(len(g['tools']) for g in groups)
     assert total == len(tools.TOOLS)
@@ -470,7 +470,7 @@ def test_http_info(client):
 
 def test_http_tools_and_docs(client):
     assert len(client.get('/api/tools').json()['tools']) == len(tools.TOOLS)
-    assert len(client.get('/api/docs').json()['groups']) == 7
+    assert len(client.get('/api/docs').json()['groups']) == 8
 
 
 def test_http_call(client):
@@ -488,6 +488,9 @@ def test_http_mcp(client):
                                   'method': 'initialize',
                                   'params': {'protocolVersion': '2025-03-26'}}).json()
     assert j['result']['protocolVersion'] == '2025-03-26'
+    j = client.post('/mcp', json={'jsonrpc': '2.0', 'id': 3, 'method': 'initialize',
+                                  'params': {'protocolVersion': '1999-01-01'}}).json()
+    assert j['result']['protocolVersion'] == '2025-06-18'
 
 
 def test_http_serves_legacy_console(client):
@@ -662,6 +665,12 @@ def test_view_tool_drives_the_console():
         tools.call_tool('bt_view', {'view': 'moon'})
     with pytest.raises(ValueError, match='unknown sort_by'):
         tools.call_tool('bt_view', {'view': 'markets', 'sort_by': 'vibes'})
+    # the subnet overlay is tabbed; the agent can open straight onto one
+    out = tools.call_tool('bt_view', {'view': 'subnet', 'netuid': 64, 'tab': 'trades'})
+    assert out['__view__'] == {'view': 'subnet', 'netuid': 64, 'tab': 'trades'}
+    assert 'tab' not in tools.call_tool('bt_view', {'view': 'markets', 'tab': 'news'})['__view__']
+    with pytest.raises(ValueError, match='unknown tab'):
+        tools.call_tool('bt_view', {'view': 'subnet', 'netuid': 1, 'tab': 'memes'})
     assert not tools.TOOL_MAP['bt_view'].mutates      # the agent may call it
 
 
@@ -745,9 +754,50 @@ def test_chat_http_surface(client, tmp_path, monkeypatch):
     assert listed['stats']['chats'] >= 1
     assert client.get(f'/api/agent/chats/{cid}').json()['messages'][0]['text'] == 'hello world'
     assert client.get('/api/agent/chats/nope').status_code == 404
-    assert client.post(f'/api/agent/chats/{cid}/rename',
+    # a stranger cannot touch saved chats; the operator can
+    assert client.delete(f'/api/agent/chats/{cid}').status_code == 403
+    from bt import server
+    monkeypatch.setattr(server, 'WRITE_TOKEN', 'k')
+    op = {'authorization': 'Bearer k'}
+    assert client.post(f'/api/agent/chats/{cid}/rename', headers=op,
                        json={'title': 'renamed'}).json()['title'] == 'renamed'
-    assert client.delete(f'/api/agent/chats/{cid}').json()['ok'] is True
+    assert client.delete(f'/api/agent/chats/{cid}', headers=op).json()['ok'] is True
+
+
+def test_http_writes_are_operator_only(client, monkeypatch):
+    from bt import server
+    called = []
+    monkeypatch.setitem(tools.TOOL_MAP, 'bt_transfer', tools.Tool(
+        'bt_transfer', 'x', 'Wallet', {'dest': {'type': 'string', 'description': ''}},
+        lambda dest: called.append(dest) or {'ok': True}, mutates=True))
+    body = {'tool': 'bt_transfer', 'args': {'dest': 'attacker'}}
+    r = client.post('/api/call', json=body)                  # not loopback
+    assert r.status_code == 403 and not called
+    j = client.post('/mcp', json={'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                                  'params': {'name': 'bt_transfer',
+                                             'arguments': {'dest': 'attacker'}}}).json()
+    assert j['result']['isError'] is True and not called
+    r = client.post('/api/call', json={'tool': 'bt_block',
+                                       'args': {'network': 'ws://10.0.0.1:9944'}})
+    assert r.status_code == 403
+    monkeypatch.setattr(server, 'WRITE_TOKEN', 'k')
+    r = client.post('/api/call', json=body, headers={'authorization': 'Bearer k'})
+    assert r.status_code == 200 and called == ['attacker']
+
+
+def test_operator_check_shapes():
+    from types import SimpleNamespace
+    from bt.server import _is_operator
+
+    def req(host='127.0.0.1', **h):
+        return SimpleNamespace(client=SimpleNamespace(host=host),
+                               headers={'host': 'localhost:50280', **h})
+    assert _is_operator(req())                                       # curl / Claude MCP
+    assert _is_operator(req(origin='http://localhost:50280'))        # local console
+    assert not _is_operator(req(origin='https://evil.example'))      # drive-by page
+    assert not _is_operator(req(**{'x-forwarded-for': '1.2.3.4'}))   # via gateway
+    assert not _is_operator(req(host='10.0.0.5'))                    # LAN
+    assert not _is_operator(req(**{'host': 'modc2.com'}))
 
 
 def test_stop_when_nothing_runs(client):

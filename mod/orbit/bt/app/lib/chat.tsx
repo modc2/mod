@@ -125,7 +125,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const applyView = useCallback((a: ViewAction) => {
     if (!a || !a.view) return;
-    if (a.view === 'subnet' && a.netuid != null) { overlay.openSubnet(+a.netuid); return; }
+    if (a.view === 'subnet' && a.netuid != null) { overlay.openSubnet(+a.netuid, a.tab); return; }
     if (a.view === 'trader' && a.address) { overlay.openTrader(a.address); return; }
     overlay.close();
     if (a.view === 'markets') {

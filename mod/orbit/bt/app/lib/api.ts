@@ -102,4 +102,5 @@ export interface ToolSchema {
 /* what bt_view hands the console (see bt/tools.py _view) */
 export interface ViewAction {
   view: string; netuid?: number; address?: string; search?: string; sort_by?: string;
+  tab?: string;
 }

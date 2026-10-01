@@ -1,0 +1,50 @@
+/* subnet page: public git url + chain-event trade tape (components/Repo, components/Trades) */
+.repo-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
+.repo-k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink3); }
+.repo-url { font-family: var(--mono); font-size: 13px; color: var(--accent); word-break: break-all; }
+.repo-copy, .trades-more { background: none; border: 1px solid var(--line); border-radius: 7px; color: var(--ink2);
+  font: inherit; font-size: 12px; padding: 4px 11px; cursor: pointer; }
+.repo-copy:hover, .trades-more:hover { color: var(--ink); border-color: var(--ink3); }
+.trades-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.trades-sum { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink2); margin-bottom: 10px; }
+.trades-sum b { color: inherit; font-weight: 600; }
+.trades-sum > span:first-child b, .trades-sum > span:nth-child(4), .trades-sum > span:nth-child(5) b { color: var(--ink); }
+.trades-pressure { flex: 1; min-width: 90px; max-width: 220px; height: 6px; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, var(--bad) 55%, transparent); }
+.trades-pressure i { display: block; height: 100%; background: var(--good); }
+.trades-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; margin-bottom: 12px; }
+.trades-who { display: inline-flex; align-items: center; gap: 6px; background: none; border: 1px solid var(--line);
+  border-radius: 7px; padding: 3px 10px 3px 4px; font: inherit; font-size: 12px; color: var(--ink2); cursor: pointer; }
+.trades-who:hover { color: var(--ink); border-color: var(--ink3); }
+.trades-who.bare { border: 0; padding: 0; font-family: var(--mono); }
+.trades-who b { font-weight: 600; }
+.trades-tbl td { white-space: nowrap; }
+.trades-swap { margin-left: 6px; font-size: 10px; color: var(--ink3); text-transform: uppercase; letter-spacing: .05em; }
+.trades-tbl .linkish { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+.trades-more { margin-top: 12px; }
+.trades-cov { font-size: 12px; margin-top: 10px; }
+.repo-copy, .trades-more { height: 26px; padding: 0 10px; background: var(--raise); }
+.trades-who { height: 26px; border-radius: 7px; background: var(--card); }
+.trades-who.bare { background: none; height: auto; }
+.trades-sum b { font-family: var(--mono); font-weight: 500; }
+
+/* subnet overlay tabs: Overview · Trades · Validators · News (?t= in the url) */
+.sn-tabs { display: flex; gap: 2px; margin: 22px 0 18px; border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: none; }
+.sn-tabs::-webkit-scrollbar { display: none; }
+.sn-tabs button { position: relative; background: none; border: 0; cursor: pointer; white-space: nowrap;
+  font: inherit; font-size: 13px; font-weight: 500; color: var(--ink3); padding: 9px 14px 11px;
+  transition: color .15s; }
+.sn-tabs button:hover { color: var(--ink); }
+.sn-tabs button.on { color: var(--ink); }
+.sn-tabs button.on::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px;
+  border-radius: 2px; background: var(--accent); }
+.sn-tabs button:focus-visible { outline: 1px solid var(--accent); outline-offset: -3px; border-radius: 6px; }
+.sn-step { margin-left: auto; display: inline-flex; gap: 4px; }
+.sn-step + .ovl-close { margin-left: 4px; }
+.sn-step button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--raise);
+  color: var(--ink2); font-size: 16px; line-height: 1; cursor: pointer; transition: color .15s, border-color .15s; }
+.sn-step button:hover:not(:disabled) { color: var(--ink); border-color: var(--line2); }
+.sn-step button:disabled { opacity: .35; cursor: default; }
+.sn-tabhead { margin-bottom: 12px; font-size: 12px; }
+[role="tabpanel"] > .chart-empty:first-child, [role="tabpanel"] > .ranges:first-child { margin-top: 0; }

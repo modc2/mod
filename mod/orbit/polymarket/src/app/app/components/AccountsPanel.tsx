@@ -90,7 +90,7 @@ export default function AccountsPanel({
 
   // The header chip used to pop the ⋯ menu open too (OPEN_ACCOUNTS_EVENT);
   // the one-row header already shows who and how much, so the chip now just
-  // opens the column (UserSidebar) and the menu stays a deliberate click.
+  // lands on STRATS → MONEY (StratsNav) and the menu stays a deliberate click.
 
   const others = knownWallets.filter((w) => w.address.toLowerCase() !== activeAddr);
   const active = knownWallets.find((w) => w.address.toLowerCase() === activeAddr);

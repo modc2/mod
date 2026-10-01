@@ -27,22 +27,40 @@ export const CLAUDE_BIN = process.env.POLYMARKET_CLAUDE_BIN
     host; agent routes run on a long-lived OAuth token instead — from the env,
     or from the module's own secret dir (~/.mod/polymarket/), where the fleet
     keeps everything key-shaped. Absent both, the run fails with the CLI's own
-    auth error, visibly. */
+    auth error, visibly.
+
+    A pinned token gets revoked (it has been, four times), and then EVERY agent
+    route dies at once while the box login one directory over is perfectly
+    alive. So a pinned token the API refuses is remembered as dead — keyed by
+    the value, so writing a fresh token into the file revives it with no
+    restart — and runs fall back to the box login instead. */
+const TOKEN_FILE = () => join(stateDir(), "claude_oauth_token");
+const deadTokens = new Set<string>();
+
 export function oauthToken(): string | null {
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  try {
-    const t = readFileSync(join(stateDir(), "claude_oauth_token"), "utf8").trim();
-    return t || null;
-  } catch {
-    return null;
+  let t = process.env.CLAUDE_CODE_OAUTH_TOKEN || "";
+  if (!t) {
+    try {
+      t = readFileSync(TOKEN_FILE(), "utf8").trim();
+    } catch {
+      t = "";
+    }
   }
+  return t && !deadTokens.has(t) ? t : null;
 }
 
-/** The env every spawned CLI gets: the process env plus that token. */
-export function claudeEnv(): NodeJS.ProcessEnv {
-  const token = oauthToken();
-  return { ...process.env, ...(token ? { CLAUDE_CODE_OAUTH_TOKEN: token } : {}) };
+/** The env every spawned CLI gets: the process env plus the pinned token —
+    or, with `token` null, the env with any token stripped so the CLI uses
+    the box's own login. */
+export function claudeEnv(token: string | null = oauthToken()): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  return token ? { ...env, CLAUDE_CODE_OAUTH_TOKEN: token } : env;
 }
+
+/** The CLI's words for "these credentials are no good" — expired, revoked,
+    or never valid. Anything else (timeouts, model errors) is not retried. */
+const AUTH_FAIL = /failed to authenticate|oauth|revoked|invalid (api key|bearer|token)|\b401\b|please run \/login/i;
 
 /** Past this the user is better served by an error than a spinner. */
 const TIMEOUT_MS = 120_000;
@@ -57,7 +75,34 @@ export interface RunOpts {
   extraArgs?: string[];
 }
 
-export function runClaude(prompt: string, model: string = AGENT_MODEL, opts: RunOpts = {}): Promise<AgentRun> {
+export async function runClaude(prompt: string, model: string = AGENT_MODEL, opts: RunOpts = {}): Promise<AgentRun> {
+  const token = oauthToken();
+  const run = await runOnce(prompt, model, opts, claudeEnv(token));
+  if (run.ok !== false || !token || !AUTH_FAIL.test(run.error)) return run;
+  // The pinned token is the problem, not the question: retire it and ask
+  // again on the box login. If that fails too, its error is the honest one.
+  deadTokens.add(token);
+  console.warn(`[agentCli] pinned claude token refused (${run.error.slice(0, 120)}) — falling back to the box login; write a fresh token to ${TOKEN_FILE()} to re-pin`);
+  return runOnce(prompt, model, opts, claudeEnv(null));
+}
+
+const goodTokens = new Set<string>();
+
+/** claudeEnv() for a run that can't retry (a detached, streaming spawn like
+    the lab's): the pinned token is tried once with a one-word Haiku ask the
+    first time each token value is seen, and dropped for the box login if
+    the API refuses it. */
+export async function checkedClaudeEnv(): Promise<NodeJS.ProcessEnv> {
+  const token = oauthToken();
+  if (!token || goodTokens.has(token)) return claudeEnv(token);
+  const probe = await runOnce("Reply with OK.", "haiku", { timeoutMs: 30_000 }, claudeEnv(token));
+  if (probe.ok === false) {
+    if (AUTH_FAIL.test(probe.error)) deadTokens.add(token);
+  } else goodTokens.add(token);
+  return claudeEnv(oauthToken());
+}
+
+function runOnce(prompt: string, model: string, opts: RunOpts, env: NodeJS.ProcessEnv): Promise<AgentRun> {
   const timeoutMs = opts.timeoutMs || TIMEOUT_MS;
   return new Promise((resolve) => {
     let child;
@@ -67,7 +112,7 @@ export function runClaude(prompt: string, model: string = AGENT_MODEL, opts: Run
         "--output-format", "json",
         "--model", model,
         ...(opts.extraArgs || []),
-      ], { stdio: ["pipe", "pipe", "pipe"], env: claudeEnv() });
+      ], { stdio: ["pipe", "pipe", "pipe"], env });
     } catch (e) {
       resolve({ ok: false, error: `could not start the claude CLI: ${e instanceof Error ? e.message : String(e)}` });
       return;

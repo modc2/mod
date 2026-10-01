@@ -26,6 +26,7 @@
 import { NextResponse } from "next/server";
 
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
+import { checkedClaudeEnv } from "../../lib/server/agentCli";
 import {
   candidateBacktest, draftCandidate, labRunning, listLabRuns, readLabRun,
   startLabRun, stopLabRun, vibeCandidate,
@@ -107,7 +108,7 @@ export async function POST(req: Request) {
     const meta = startLabRun({
       goal: typeof body.goal === "string" ? body.goal : undefined,
       maxExperiments: typeof body.maxExperiments === "number" ? body.maxExperiments : undefined,
-    });
+    }, await checkedClaudeEnv());
     return NextResponse.json({ started: true, run: meta });
   } catch (e) {
     return NextResponse.json(

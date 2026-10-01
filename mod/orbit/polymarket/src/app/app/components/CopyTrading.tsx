@@ -31,6 +31,7 @@ import { publishScores } from "../lib/scoreBus";
 import { fetchTraderBacktestScores, VERDICT_TEXT, type TraderBacktestScore } from "../lib/backtestScores";
 import { usePicks } from "../lib/pickStore";
 import ScoreAsk from "./ScoreAsk";
+import ScoreMarket from "./ScoreMarket";
 import ScoreRatioChips from "./ScoreRatioChips";
 import Sparkline from "./Sparkline";
 
@@ -92,6 +93,8 @@ interface CopyTradingProps {
   selectedAddresses?: string[];
   compact?: boolean;
 }
+
+const BOARD_TAB_KEY = "poly_board_tab";
 
 export default function CopyTrading({
   days = 30,
@@ -157,6 +160,21 @@ export default function CopyTrading({
   // score is normally a preset chip and the expression only matters when you
   // are writing one.
   const [showScore, setShowScore] = useState(false);
+  // TRADERS | ƒ SCORE FUNCTIONS — the tab strip over the board. The score
+  // shelf sits one click above the traders it ranks instead of on another
+  // page; the grid stays MOUNTED (just hidden) under the SCORE tab so
+  // flipping back never refetches or loses the page/scroll.
+  const [boardTab, setBoardTabState] = useState<"traders" | "score">("traders");
+  useEffect(() => {
+    try { if (localStorage.getItem(BOARD_TAB_KEY) === "score") setBoardTabState("score"); } catch { /* private mode */ }
+  }, []);
+  const setBoardTab = useCallback((t: "traders" | "score") => {
+    setBoardTabState(t);
+    try { localStorage.setItem(BOARD_TAB_KEY, t); } catch { /* quota / private mode */ }
+  }, []);
+  // USE on a listing = "rank the board on this": adopt it, then show the
+  // traders it just re-ranked.
+  const adoptScoreFn = useCallback((f: string) => { setFormula(f); setBoardTab("traders"); }, [setBoardTab]);
   // The formula box, so a VARIABLES chip lands where the caret is. Appending
   // blindly is worse than useless: "100 * pnl / volume" + "sharpe" is two
   // expressions with no operator between them, which compiles to nothing and
@@ -188,8 +206,8 @@ export default function CopyTrading({
   }, []);
   useEffect(() => { setFormula(loadSavedFormula()); }, []);
   useEffect(() => { saveFormula(formula); }, [formula]);
-  // USE in the sidebar's SCORE MARKET (STRATS tab) broadcasts the source —
-  // adopt it live, since both surfaces are on screen at once.
+  // USE in the STRATS tab's SCORE MARKET broadcasts the source — adopt it
+  // live. (The board's own ƒ SCORE FUNCTIONS tab sets it directly.)
   useEffect(() => {
     const onFormula = (e: Event) => setFormula((e as CustomEvent<string>).detail);
     window.addEventListener(FORMULA_EVENT, onFormula);
@@ -1202,6 +1220,60 @@ export default function CopyTrading({
           <span className="text-pixel-gray-light shrink-0">leaderboard was {formatAgo(staleAgeMs)} stale</span>
         </div>
       )}
+      {/* ── TRADERS | ƒ SCORE FUNCTIONS ── */}
+      <div className="flex items-center gap-1 px-1" role="tablist">
+        {([
+          ["traders", "TRADERS", visibleTotal > 0 ? visibleTotal.toLocaleString() : ""],
+          ["score", "\u0192 SCORE FUNCTIONS", ""],
+        ] as const).map(([id, label, count]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={boardTab === id}
+            onClick={() => setBoardTab(id)}
+            title={id === "score"
+              ? "Browse, search and publish score functions — USE one and the board below re-ranks on it"
+              : "The trader board, ranked on the current score"}
+            className={`text-[12px] font-mono tracking-wider px-3 py-1.5 border-b-2 transition-colors ${
+              boardTab === id
+                ? "border-green-400 text-pixel-white"
+                : "border-transparent text-pixel-gray hover:text-pixel-white"
+            }`}
+          >
+            {label}
+            {count && <span className="ml-1.5 text-pixel-gray">{count}</span>}
+          </button>
+        ))}
+        <span className="ml-auto text-[11px] font-mono text-pixel-gray truncate max-w-[45%]" title={formula}>
+          ranked on <span className="text-green-400">{scoreLang === "expr" ? formula : `${scoreLang === "py" ? "python" : "js"} \u0192 \u00b7 ${formula.split("\n")[0]}`}</span>
+        </span>
+      </div>
+
+      {boardTab === "score" && (
+        <div className="pixel-panel p-3 space-y-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] text-pixel-gray">
+              USE a function and the board ranks on it (a function can also hide traders) &middot; or write your own:
+            </span>
+            <button
+              onClick={() => { setBoardTab("traders"); setShowControls(true); setShowScore(true); }}
+              className="pixel-btn text-[11px] px-2 py-0.5 border-pixel-border text-pixel-gray hover:text-pixel-white hover:border-pixel-white"
+              title="Open the score editor on the board — expression, JS or Python"
+            >
+              &fnof; EDIT CURRENT SCORE
+            </button>
+            {compiled.error && (
+              <span className="text-[11px] px-2 py-0.5 border border-red-400/60 text-red-400" title={compiled.error}>ERR</span>
+            )}
+            {scoreHidden > 0 && !compiled.error && (
+              <span className="text-[11px] text-amber-400">hiding {scoreHidden.toLocaleString()} traders</span>
+            )}
+          </div>
+          <ScoreMarket embedded formula={formula} setFormula={adoptScoreFn} />
+        </div>
+      )}
+
+      <div className={boardTab === "score" ? "hidden" : "space-y-3"}>
       {/* ── Single-line header ── */}
       <div className="pixel-panel px-4 py-2.5">
         {!showControls && (
@@ -1773,19 +1845,19 @@ export default function CopyTrading({
                   never a silent bad ranking. */}
               <ScoreAsk formula={formula} setFormula={setFormula} days={days} />
 
-              {/* Or shop for one: the ▦ SCORE MARKET lives on the STRATS
-                  main tab (its one home — build/share artifacts live there).
-                  USE over there drops the source into this box live. */}
+              {/* Or shop for one: the ▦ SCORE MARKET is the ƒ SCORE
+                  FUNCTIONS tab right above the board. USE there drops the
+                  source into this box. */}
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-pixel-gray tracking-wider shrink-0 min-w-[72px]" title="A searchable shelf of score functions — curated consistency hunters plus anything published from this deploy.">
                   &#9638; MARKET
                 </span>
                 <button
                   className="pixel-btn text-[11px] px-2.5 py-1 border-pixel-border text-pixel-gray hover:text-pixel-green hover:border-pixel-green/60"
-                  onClick={() => router.push("/strats")}
-                  title='Browse score functions on the STRATS tab — USE drops the source into this box'
+                  onClick={() => setBoardTab("score")}
+                  title='Browse score functions — USE drops the source into this box'
                 >
-                  BROWSE SCORE FUNCTIONS → STRATS
+                  BROWSE SCORE FUNCTIONS
                 </button>
               </div>
 
@@ -2112,6 +2184,7 @@ export default function CopyTrading({
           )}
         </div>
       ) : null}
+      </div>
     </div>
   );
 }

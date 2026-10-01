@@ -9,6 +9,7 @@ mirrors the real layout the code walks:
     {home}/mod/mod/core/<mods>
     {home}/.mod/api/registry.json   {owner: {mod: cid}}
     {home}/.mod/build/private/*.json  build's privacy records
+    {home}/.mod/build/visibility.json build's hub listing policy (default private)
 """
 import importlib.util
 import json
@@ -67,6 +68,12 @@ def build_fake_home(home: Path) -> Path:
     _write(secret / "config.json", json.dumps({"description": "you should not see me"}))
     _write(secret / "README.md", "# secret\n")
 
+    # Unlisted module: no encryption record, just never made public in the
+    # host's listing policy (the default for every module).
+    draft = repo / "orbit" / "draft"
+    _write(draft / "config.json", json.dumps({"description": "not published yet"}))
+    _write(draft / "README.md", "# draft\n")
+
     # Hidden / underscore dirs are always skipped.
     _write(repo / "orbit" / ".hidden" / "config.json", "{}")
     _write(repo / "orbit" / "_priv" / "config.json", "{}")
@@ -75,6 +82,13 @@ def build_fake_home(home: Path) -> Path:
     _write(priv / "secret.json", json.dumps({"enabled": True}))
     _write(priv / "alpha.json", json.dumps({"enabled": False}))
     _write(priv / "junk.json", "not json at all")
+
+    # build's hub listing policy: private by default, these made public.
+    # "secret" is listed but its encryption record still hides it.
+    _write(home / ".mod" / "build" / "visibility.json", json.dumps({
+        "default": "private",
+        "modules": {m: "public" for m in ("alpha", "beta", "broken", "secret", "docs")},
+    }))
 
     # Two owners hold a CID for alpha — sorted key order picks owner_a.
     _write(home / ".mod" / "api" / "registry.json", json.dumps({

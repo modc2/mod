@@ -503,3 +503,14 @@ Check at least one light skin and one dark before shipping a visual change.
 - **Ports**: api 50150, app 3150
 - **Gateway**: registered in `server.namespace.app_namespace` on first `serve()`. Accessible via the mod-protocol gateway on :3001 (`/copytensor` for app, `/copytensor/api/*` for API) and the caddy edge on :3000. Use `m.copytensor.gateway()` (or `m copytensor/gateway`) to print live URLs.
 - **Docker**: `docker compose up -d --build` from the module dir, or `m copytensor/serve` (auto-picks docker when available, falls back to local with the prebuilt arm64 binary). Image: `copytensor-copytensor:latest`. Rust 1.93+ required (older base images choke on `ar_archive_writer`/`constant_time_eq` edition2024 features).
+
+### Agent dock (the robot in the corner)
+
+The desk agent is summoned over any page from the AGENT cap at the top right
+(`TopBar.tsx::AgentButton`), not visited. `context/AgentDockContext.tsx` holds
+open/busy and polls `GET /agent/approvals` every 15 s so a parked write shows as
+an amber count on the button from every page. `components/AgentDock.tsx` mounts
+`<StratAgent compact />` on first open and then only hides it, so a reply keeps
+streaming and parked writes stay answerable while the window is shut. It is
+unmounted on `/agent` — two live copies would fight over the
+`copytensor:agent:v1` transcript slot. `AgentBot.tsx` is the 12×12 pixel sprite.

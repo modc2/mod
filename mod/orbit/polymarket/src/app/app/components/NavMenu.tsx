@@ -13,9 +13,9 @@
 //   STRATS   →  the strat manager page (/strats): the MY STRATS cards with
 //               live money + backtest stats, the factory + lab, the gallery
 //
-// BACKTEST and LIVE stay in the side panel's rail (UserSidebar) — testing
-// and running the bench happen BESIDE whatever page you're on. Don't re-add
-// them here.
+// BACKTEST, LIVE, COPY and MONEY are tabs OF the strats page (?tab=) — the
+// right-hand side panel that held them was removed 2026-10-01 ("too
+// complicated"). Don't re-add them here, and don't bring the panel back.
 //
 // The MARK is the agent's handle. It used to be inert badge ("not a button"),
 // while the console agent was a robot icon in the crowded top-right cluster.

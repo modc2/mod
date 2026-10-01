@@ -14,6 +14,7 @@ import {
   shortSs58,
 } from "../lib/api";
 import { useSidebar } from "../context/SidebarContext";
+import { useAgentDock } from "../context/AgentDockContext";
 
 /** Transcript rows. Tool calls are part of the record, not a spinner. */
 type Item =
@@ -33,13 +34,27 @@ const STORE_KEY = "copytensor:agent:v1";
 const KEEP = 60;
 
 const EXAMPLES = [
+  "Who is the best trader this week, and is it skill or deposits?",
   "Build me a 5-trader index of the best 7d performers with books over 1000 TAO",
   "Who is buying the top gainers right now? Make a strat that follows them",
   "I want low variance — mirror big diversified books only, 200 TAO",
 ];
 
-export default function StratAgent() {
+/**
+ * `compact` is the same console sized for the floating dock: the transcript
+ * scrolls inside a fixed-height window instead of growing the page. `onLeave`
+ * fires when an action takes you elsewhere (the strat maker), so the dock
+ * can step out of the way.
+ */
+export default function StratAgent({
+  compact = false,
+  onLeave,
+}: {
+  compact?: boolean;
+  onLeave?: () => void;
+} = {}) {
   const { openIndex } = useSidebar();
+  const dock = useAgentDock();
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -47,6 +62,7 @@ export default function StratAgent() {
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const tailRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
 
   // A reload does not cancel a parked write — the request lives on the
   // server. Re-read the pending set so a restored transcript is actionable
@@ -97,9 +113,27 @@ export default function StratAgent() {
     } catch {}
   }, [items, sessionId]);
 
+  // In the dock the transcript is its own scroller; scrollIntoView there
+  // would also drag the page underneath.
   useEffect(() => {
-    tailRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [items]);
+    if (compact) {
+      const el = logRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    } else {
+      tailRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    }
+  }, [items, busy, compact]);
+
+  // The top-bar button shows the agent working while its window is shut,
+  // and re-counts the approval queue the moment a card arrives or settles.
+  const setDockBusy = dock?.setBusy;
+  useEffect(() => { setDockBusy?.(busy); }, [busy, setDockBusy]);
+  const refreshPending = dock?.refreshPending;
+  const approvalSig = items
+    .filter((x) => x.kind === "approval")
+    .map((x) => (x.kind === "approval" ? `${x.approval.id}:${x.approval.state}` : ""))
+    .join(",");
+  useEffect(() => { if (approvalSig) refreshPending?.(); }, [approvalSig, refreshPending]);
 
   const push = (item: Item) => setItems((cur) => [...cur, item]);
 
@@ -121,6 +155,8 @@ export default function StratAgent() {
           push({ kind: "agent", text: ev.text });
           break;
         case "tool":
+          // The CLI's own schema lookup is plumbing, not research.
+          if (ev.name === "ToolSearch") break;
           push({ kind: "tool", name: ev.name, args: ev.args, state: "run" });
           break;
         case "tool_done":
@@ -242,9 +278,9 @@ export default function StratAgent() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className={compact ? "flex flex-col h-full min-h-0 gap-2" : "space-y-3"}>
       {/* Status strip */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <span
           className={`pixel-badge ${
             status?.ready ? "border-green-400 text-green-400" : "border-amber-400 text-amber-400"
@@ -252,7 +288,7 @@ export default function StratAgent() {
         >
           {status ? (status.ready ? `READY · ${status.model}` : "NO AUTH") : "…"}
         </span>
-        {status?.ready && (
+        {status?.ready && !compact && (
           <span className="pixel-badge text-pixel-gray">{status.tools.length} TOOLS</span>
         )}
         {status?.ready && !!status.write_tools?.length && (
@@ -260,7 +296,7 @@ export default function StratAgent() {
             className="pixel-badge border-amber-400 text-amber-400"
             title={`asks first, every time: ${status.write_tools.join(", ")}`}
           >
-            {status.write_tools.length} NEED YOUR OK
+            WRITES ASK FIRST
           </span>
         )}
         {sessionId && (
@@ -298,7 +334,12 @@ export default function StratAgent() {
       )}
 
       {/* Transcript */}
-      <div className="pixel-panel p-3 space-y-3 min-h-[280px]">
+      <div
+        ref={logRef}
+        className={`pixel-panel p-3 space-y-3 ${
+          compact ? "flex-1 min-h-0 overflow-y-auto overscroll-contain" : "min-h-[280px]"
+        }`}
+      >
         {items.length === 0 && (
           <div className="space-y-3">
             {/* What it is and what it can't do is the page standfirst's job.
@@ -310,7 +351,7 @@ export default function StratAgent() {
               {EXAMPLES.map((e) => (
                 <button
                   key={e}
-                  className="pixel-btn text-[10px] px-2 py-1 text-left justify-start leading-4"
+                  className="pixel-btn agent-example"
                   onClick={() => send(e)}
                   disabled={busy}
                 >
@@ -333,7 +374,10 @@ export default function StratAgent() {
               key={i}
               item={item}
               onSave={() => { void saveStrat(i, item.strat); }}
-              onOpen={async () => openIndex(item.savedId || (await saveStrat(i, item.strat)))}
+              onOpen={async () => {
+                openIndex(item.savedId || (await saveStrat(i, item.strat)));
+                onLeave?.();
+              }}
             />
           ) : (
             <Row key={i} item={item} />
@@ -341,7 +385,10 @@ export default function StratAgent() {
         )}
 
         {busy && !items.some((x) => x.kind === "approval" && x.approval.state === "pending") && (
-          <div className="font-mono text-[12px] text-green-400">▌ thinking…</div>
+          <div className="agent-thinking font-mono text-[12px] text-green-400">
+            <span className="agent-thinking__dots" aria-hidden="true"><i /><i /><i /></span>
+            working the board…
+          </div>
         )}
         <div ref={tailRef} />
       </div>
@@ -352,7 +399,7 @@ export default function StratAgent() {
           e.preventDefault();
           send(input);
         }}
-        className="flex gap-2 items-stretch"
+        className="flex gap-2 items-stretch shrink-0"
       >
         <textarea
           value={input}
@@ -370,7 +417,7 @@ export default function StratAgent() {
               ? "follow up — 'drop the bottom two', 'make it 8 traders'…"
               : "what should this strat own?"
           }
-          className="pixel-input flex-1 p-2 font-mono text-[13px] resize-y"
+          className={`pixel-input flex-1 p-2 font-mono text-[13px] ${compact ? "resize-none" : "resize-y"}`}
           disabled={busy || (status ? !status.ready : false)}
         />
         <button

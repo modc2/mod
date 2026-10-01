@@ -7,8 +7,9 @@
 // strats tab in the main header"). This page owns building and sharing:
 // the MY STRATS cards (live money + last backtest side by side), + NEW
 // STRAT, the AUTO STRAT factory + STRAT LAB, the SCORE MARKET, the
-// community gallery and the CID share path. Money still lives in the side
-// panel's INDEX tab; BACKTEST/LIVE stay rail tabs there too.
+// community gallery and the CID share path. Since 2026-10-01 it is ALL the
+// management: the right-hand side panel is gone and its COPY · MONEY ·
+// BACKTEST · LIVE tabs are tabs here (?tab=, lib/stratsNav.ts).
 //
 // One legacy link shape must keep working — it is in browser history and in
 // every chat log the console was ever linked in:
@@ -29,6 +30,9 @@ function StratsInner() {
   const params = useSearchParams();
   const legacyId = params?.get("id") ?? null;
   const legacyAddress = legacyId ? addressFromStrategyId(legacyId) : null;
+  // The workspace tabs earn the room the old wide dock gave them.
+  const tab = params?.get("tab");
+  const wide = tab === "backtest" || tab === "live";
 
   // An effect rather than a server redirect: `addressFromStrategyId` reads a
   // client-side id format against localStorage-backed state.
@@ -43,7 +47,7 @@ function StratsInner() {
   // StratsTab is a self-contained column (it grew up in a 760px dock) — as a
   // main page it gets the same reading width, centered.
   return (
-    <div className="max-w-[860px] mx-auto px-2 sm:px-4 py-3">
+    <div className={`${wide ? "max-w-[1200px]" : "max-w-[860px]"} mx-auto px-2 sm:px-4 py-3`}>
       <StratsTab />
     </div>
   );

@@ -2,7 +2,7 @@
 /* The top bar: wallet chips + the connect popover + the theme pipe. */
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { EXTS, kindGlyph, useWallet } from '@/lib/wallet';
+import { ExtAccount, kindGlyph, useWallet } from '@/lib/wallet';
 import { fmt, short } from '@/lib/format';
 import { Ident } from './ui';
 import { BASE } from '@/lib/api';
@@ -20,16 +20,38 @@ function ThemeButton() {
   return <button id="themeBtn" onClick={toggle} title="Toggle theme" aria-label="Toggle theme">{dark ? '☀' : '☾'}</button>;
 }
 
+/* skins are optional stylesheets in public/skins layered over the core look;
+   the layout's first-paint script loads the saved one, this flips it live */
+const SKINS = ['', 'mario'];
+function SkinButton() {
+  const [skin, setSkin] = useState('');
+  useEffect(() => { setSkin(document.documentElement.dataset.skin || ''); }, []);
+  const next = () => {
+    const k = SKINS[(SKINS.indexOf(skin) + 1) % SKINS.length];
+    const root = document.documentElement;
+    document.getElementById('bt-skin')?.remove();
+    if (k) {
+      const l = document.createElement('link');
+      l.rel = 'stylesheet'; l.id = 'bt-skin'; l.href = `${BASE}/skins/${k}.css`;
+      document.head.appendChild(l);
+      root.dataset.skin = k;
+    } else delete root.dataset.skin;
+    try { k ? localStorage.setItem('bt.skin', k) : localStorage.removeItem('bt.skin'); } catch { /* */ }
+    setSkin(k);
+  };
+  return <button id="skinBtn" onClick={next} title={`Skin: ${skin || 'sleek'} — click to switch`}>{skin || 'sleek'}</button>;
+}
+
 function WalletPopover() {
   const w = useWallet();
   const [msg, setMsg] = useState('');
-  const [accts, setAccts] = useState<{ addr: string; name: string; ext: string }[]>([]);
+  const [accts, setAccts] = useState<ExtAccount[]>([]);
   const [addr, setAddr] = useState(w.wallet?.addr || '');
   const [, bump] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => bump(n => n + 1), 1200);   /* extensions inject late */
+    const t = setTimeout(() => bump(n => n + 1), 1500);   /* extensions inject late */
     const out = (e: MouseEvent) => {
       const el = e.target as HTMLElement;
       if (ref.current && !ref.current.contains(el) && !el.closest('.wchip')) w.setPopOpen(false);
@@ -38,9 +60,8 @@ function WalletPopover() {
     return () => { clearTimeout(t); removeEventListener('click', out); };
   }, [w]);
 
-  const ext = async (id: string) => {
-    const meta = EXTS.find(e => e.id === id)!;
-    if (w.extPresent(id)) setMsg(`Approve ${meta.name} in the extension…`);
+  const ext = async (id: string, name: string) => {
+    if (w.extPresent(id)) setMsg(`Approve ${name} in the extension…`);
     setAccts([]);
     const r = await w.extConnect(id);
     setMsg(r.msg || ''); setAccts(r.accounts || []);
@@ -51,10 +72,10 @@ function WalletPopover() {
     <div className="wpop" ref={ref}>
       <label style={{ marginTop: 0 }}>Connect a browser wallet</label>
       <div className="wext">
-        {EXTS.map(e => {
-          const on = w.extPresent(e.id);
+        {w.extList().map(e => {
+          const on = e.installed;
           return (
-            <button key={e.id} className={on ? 'on' : 'off'} onClick={() => ext(e.id)}
+            <button key={e.id} className={on ? 'on' : 'off'} onClick={() => ext(e.id, e.name)}
                     title={on ? `Connect ${e.name}` : `${e.name} not detected — install it`}>
               <span className="dot" />{e.name}{on ? '' : ' ↗'}
             </button>
@@ -62,10 +83,11 @@ function WalletPopover() {
         })}
       </div>
       {msg && <div className="wmsg">{msg}</div>}
+      {!msg && w.note && <div className="wmsg">{w.note}</div>}
       {accts.length > 0 && (
         <div className="wacct">
           {accts.map(a => (
-            <button key={a.addr} onClick={() => w.connect(a.addr, a.name, false, a.ext)}>
+            <button key={a.addr} onClick={() => w.connect(a.addr, a.name, false, a.ext, a.extId)}>
               {a.name}<span className="a">{short(a.addr)}</span>
             </button>
           ))}
@@ -132,6 +154,7 @@ export default function TopBar() {
           </div>
         )}
         <ThemeButton />
+        <SkinButton />
       </div>
       {w.popOpen && <WalletPopover />}
     </nav>

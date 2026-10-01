@@ -11,7 +11,7 @@ def test_modules_walks_both_groups_and_skips_hidden(catalog):
     hub, _ = catalog
     mods = hub.modules("all")
     names = {(m["group"], m["name"]) for m in mods}
-    assert names == {("orbit", "alpha"), ("orbit", "phantom"), ("orbit", "secret"),
+    assert names == {("orbit", "alpha"), ("orbit", "draft"), ("orbit", "phantom"), ("orbit", "secret"),
                      ("core", "beta"), ("core", "broken"), ("core", "docs")}
     # .hidden / _priv never surface.
     assert not any(m["name"].startswith((".", "_")) for m in mods)
@@ -20,7 +20,7 @@ def test_modules_walks_both_groups_and_skips_hidden(catalog):
 def test_modules_group_filter(catalog):
     hub, _ = catalog
     assert {m["group"] for m in hub.modules("core")} == {"core"}
-    assert hub.names("orbit") == ["alpha", "phantom", "secret"]
+    assert hub.names("orbit") == ["alpha", "draft", "phantom", "secret"]
 
 
 def test_doc_flags_reflect_shipped_files(catalog):
@@ -68,9 +68,9 @@ def test_search_matches_name_and_description_case_insensitive(catalog):
 def test_info_counts(catalog):
     hub, _ = catalog
     info = hub.info()
-    assert info["modules"] == 6
-    assert info["by_group"] == {"orbit": 3, "core": 3}
-    assert info["with_readme"] == 3
+    assert info["modules"] == 7
+    assert info["by_group"] == {"orbit": 4, "core": 3}
+    assert info["with_readme"] == 4
     assert info["with_skill"] == 1
 
 

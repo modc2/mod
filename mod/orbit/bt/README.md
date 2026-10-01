@@ -67,6 +67,16 @@ served from local disk in microseconds — no chain round-trip, no third-party
 API, no key. History depth grows the longer it runs. `BT_NO_SNAPSHOT=1`
 disables the thread (tests do this).
 
+## Every trade on every subnet
+
+`bt/trades.py` indexes the chain's own events block by block into `~/.mod/bt/trades.db`:
+each `StakeAdded` is a buy and each `StakeRemoved` is a sell (coldkey, hotkey, TAO, alpha, price, block).
+Hotkey moves and coldkey transfers (a same-pool Removed+Added pair) are not trades and are left out.
+Subnet-to-subnet swaps show as a sell plus a buy (`kind='swap'`). It follows the finalized head and backfills
+`BT_TRADES_BACKFILL_DAYS` (7) days, using the archive node for older blocks. Gaps heal on their own, and rows older
+than `BT_TRADES_KEEP_DAYS` (30) days are pruned. `bt_trades netuid=…` reads it instantly, paging with `before_block`.
+Every subnet page shows the tape (1H/24H/7D/ALL, buys/sells, biggest wallets) and the subnet's public git URL.
+
 ## Tracking traders
 
 The same idea, pointed at accounts. `bt_track` a coldkey and `bt/traders.py`
@@ -112,7 +122,14 @@ the MCP schemas can never drift apart.
 
 \* = real on-chain write (moves TAO or creates key material). The MCP server's
 instructions tell clients to confirm with the user first; the console asks
-before signing.
+before signing. Over HTTP (`/api/call`, `/mcp`) these only run for the
+operator: a request from this machine to `localhost` with no proxy headers and
+no foreign browser `Origin`, or one with `Authorization: Bearer $BT_WRITE_TOKEN`.
+Everyone else gets 403 — and the same goes for custom `network` endpoints and
+renaming/deleting saved chats. Reads stay open.
+
+`bt/autopilot.py` is an optional LLM trading desk (caps per trade/day/budget,
+propose-only by default). Nothing in the server imports it.
 
 `bt_screener` / `bt_history` / `bt_stats` answer instantly from the indexer;
 `bt_scan` is the raw full-chain scan (slow, but always straight from chain).
@@ -219,6 +236,50 @@ connection. The old process-wide lock around reads was the "whole API stalls
 for a minute" bug: one slow `traders()` held it while every console poll and
 copytensor's `bt_trader_at` queued behind it.
 
+## SubWallet (browser-wallet signing)
+
+Connect **SubWallet**, Talisman or polkadot{.js} from the wallet chip; the
+Trade page then buys (stake), sells (unstake) and sends TAO from *your* account.
+No chain library ships to the browser and no key ever reaches the node:
+
+```
+POST /api/tx/prepare {kind: stake|unstake|transfer, address, ...}
+   -> node composes the call on the live runtime, picks nonce + 64-block era,
+      returns a SignerPayloadJSON + preview + fee
+injector.signer.signPayload(payload)          (SubWallet shows it, signs)
+POST /api/tx/submit {id, signature}
+   -> node verifies the signature against the bytes IT built (mismatch =
+      refused, nothing broadcast), assembles, broadcasts, waits for inclusion
+```
+
+- `bt/tx.py` — prepare/verify/submit, own websocket (`BT_TX_ENDPOINT`), every
+  submission logged to `~/.mod/bt/tx.db` (`GET /api/tx`, tool `bt_tx_history`).
+- Stake/unstake are **limit orders** by default (`add_stake_limit` /
+  `remove_stake_limit`, 2% slippage, `allow_partial=false`); slippage 0 = market.
+- Bittensor's custom transaction extensions (SubtensorTransactionExtension,
+  DrandPriority, CheckShieldedTxValidity, SudoTransactionExtension) are empty,
+  so a wallet that does not know them signs the same bytes.
+  `scripts/signpayload_check.js` reproduces SubWallet's signing path
+  (@polkadot/extension-base) with and without chain metadata; both verified,
+  and finney accepted the signature (rejected only for fees on an empty account).
+- `app/lib/injected.ts` — zero-dep `window.injectedWeb3` bridge: waits for
+  late injection, filters out EVM/ecdsa/other-chain accounts, follows account
+  changes (a revoked account drops to watch-only). `polkadot-js` key covers
+  SubWallet mobile's in-app browser and Nova.
+
+## Daily block ledger + caching
+
+`bt/blocks.py` (thread, hourly check): for every UTC day it fetches the block
+that opened the day from an archive node (`BT_ARCHIVE_ENDPOINT`, bisection over
+`Timestamp.Now`, ~3 s/day, backfills `BT_BLOCKS_BACKFILL_DAYS`=120) and folds
+that day's 5-minute snapshots into one candle per subnet (OHLC, mcap, TAO in
+pool, 24h volume, emission). Stored in `~/.mod/bt/blocks.db`; closed days never
+change. Tools `bt_days`, `bt_daily`; `GET /api/blocks`; table on the Open page.
+
+The console paints from a localStorage cache (`usePoll(..., cacheKey)`) for the
+screener, stats, traders, node info and the ledger, then replaces it with the
+live answer — a reload never shows an empty table.
+
 ## Run
 
 ```sh
@@ -238,3 +299,40 @@ Tests cover the registry, the indexer (synthetic snapshots — change %, volume
 deltas, sparklines, downsampling, cold-start-from-disk), the trader index
 (flow inference, dust rejection, PnL windows, snapshot tolerance), MCP stdio
 protocol, and HTTP surfaces without touching the chain.
+
+## News (per-subnet web scraper)
+
+`bt/news.py` keeps an open, local news index for every subnet in
+`~/.mod/bt/news.db`. A background thread walks the subnets stalest-first, one
+every `BT_NEWS_PACE_SEC` (15s), and re-scrapes each one after
+`BT_NEWS_REFRESH_SEC` (6h). It uses only key-less public sources (stdlib
+`urllib` + `xml.etree`, no extra dependencies):
+
+| source  | what it reads                                                    |
+|---------|------------------------------------------------------------------|
+| github  | `releases.atom` + `commits.atom` of the subnet's on-chain repo   |
+| site    | the subnet website's own RSS/Atom (autodiscovered, rechecked daily) |
+| gnews   | Google News RSS: `"<name>" bittensor`                            |
+| reddit  | Reddit search RSS                                                |
+| hn      | Hacker News (Algolia) search                                     |
+| bing    | Bing News RSS (registered, off by default)                       |
+| feeds   | outlet feeds in `~/.mod/bt/news_feeds.json`, polled every 30 min and filed under the subnets they name |
+
+Relevance rules: an item has to name the subnet (word-boundary match, or
+`SN<n>`). Fuzzy sources (reddit, hn, outlet feeds) also need Bittensor
+context ("bittensor", "subnet", "TAO", "SN<n>"). Over-generic names are
+never matched. `focus=1` means the headline itself names the subnet. Price-ticker
+pages and presale promos are muted (`BT_NEWS_MUTE` regex). netuid 0 holds
+network-wide Bittensor news. Each host gets a minimum request gap, and a 429
+benches that host for 3 minutes instead of blocking a thread.
+
+Tools (group **News**, all local, so none of them queue behind the chain lock):
+`bt_news`, `bt_news_buzz`, `bt_news_refresh`, `bt_news_sources`,
+`bt_news_add_feed`, `bt_news_remove_feed`. Console: `/news` (buzz strip,
+filters, scraper status), a News section in every subnet overlay
+(`scrape now`), and an "In the news" card on the home page. Deep link:
+`/bt/news?netuid=64`.
+
+Env: `BT_NEWS_SOURCES` (default `github,site,gnews,reddit,hn`),
+`BT_NO_NEWS=1` disables the thread, `BT_NEWS_KEEP_DAYS` (365).
+

@@ -16,6 +16,7 @@ export const ROUTES: { group: string; items: { href: string; label: string; dot:
     { href: '/markets', label: 'Markets', dot: '#fbd000' },
     { href: '/traders', label: 'Traders', dot: '#049cd8' },
     { href: '/account', label: 'Account', dot: '#e52521' },
+    { href: '/news', label: 'News', dot: '#f2f2f2' },
   ] },
   { group: 'You', items: [
     { href: '/wallet', label: 'Wallet', dot: '#43b047' },
@@ -47,7 +48,7 @@ export default function Rail() {
       {/* a plain anchor: Next's export fetches the "/" payload at /bt.txt, outside the gateway's /bt/* route */}
       <a className={'rail-brand' + (path === '/' ? ' active' : '')} href={BASE || '/'}>
         <span className="rb-mark">τ</span>
-        <span className="rb-text"><b>bt</b><em>WORLD τ-1</em></span>
+        <span className="rb-text"><b>bt</b><em>open explorer</em></span>
       </a>
       {ROUTES.map(g => (
         <div className="rail-group" key={g.group}>
@@ -68,7 +69,7 @@ export default function Rail() {
               <i className={wal.tao ? '' : 'zero'}>{wal.tao == null ? 'τ —' : 'τ ' + fmt(wal.tao, 3)}</i></span>
           </Link>
         ) : (
-          <button className="rw connect" onClick={() => w.setPopOpen(true)}>★ Connect wallet</button>
+          <button className="rw connect" onClick={() => w.setPopOpen(true)}>Connect wallet</button>
         )}
       </div>
       <div className="rail-foot">

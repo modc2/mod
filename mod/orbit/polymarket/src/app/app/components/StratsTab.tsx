@@ -45,6 +45,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_STRATS, orderedTemplates, traderIndexTemplate } from "../lib/defaultStrats";
@@ -55,8 +56,14 @@ import { FORMULA_EVENT, broadcastFormula, loadSavedFormula } from "../lib/scoreF
 import { isTraderIndex } from "../lib/traderIndex";
 import { describeTraderFilter } from "../lib/strats/strat";
 import { shortAddress } from "../lib/auth";
+import { isStratsView, stratsHref, type StratsView } from "../lib/stratsNav";
+import AccountsPanel from "./AccountsPanel";
 import AutoStratPanel from "./AutoStratPanel";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
+import CopyPanel from "./CopyPanel";
+import MoneyTab from "./MoneyBlock";
+import SelectionTray from "./SelectionTray";
+import Workspace from "./Workspace";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
 import ScoreMarket from "./ScoreMarket";
 import Sparkline from "./Sparkline";
@@ -82,6 +89,15 @@ function curveHover(points: StratPnlPoint[]) {
     return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
   };
 }
+
+const VIEW_TABS: [StratsView, string, string][] = [
+  ["strats", "STRATS", "Build, manage and share your strats"],
+  ["copy", "COPY", "Who you copy, with how much — start / stop"],
+  ["money", "MONEY", "Your account and liquidity — top up, take out, bridge"],
+  ["backtest", "BACKTEST", "Replay the active strat on history — simulated money, no wallet touched"],
+  ["live", "LIVE", "Run the active strat against the real book with real money"],
+  ["trades", "TRADES", "Every trade this account has made, each with its P&L"],
+];
 
 function SectionHeader({ label, hint }: { label: string; hint: string }) {
   return (
@@ -110,7 +126,15 @@ export default function StratsTab() {
   // same record the LIVE tab buries under its trades view). The user asked
   // "show me the trades that were made and their pnl" from THIS page, so the
   // record gets a first-class tab here instead of a pointer at LIVE.
-  const [view, setView] = useState<"strats" | "trades">("strats");
+  //
+  // 2026-10-01 the right-hand side panel was removed ("too complicated") and
+  // its tabs moved in here: COPY (the copy book + the finder's shortlist),
+  // MONEY (account + liquidity), BACKTEST and LIVE (the workspace). The URL
+  // (?tab=) is the state — see lib/stratsNav.ts.
+  const router = useRouter();
+  const tabParam = useSearchParams()?.get("tab");
+  const view: StratsView = isStratsView(tabParam) ? tabParam : "strats";
+  const setView = useCallback((v: StratsView) => router.replace(stratsHref(v), { scroll: false }), [router]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   // Held by ID, not by object: the list re-reads every couple of seconds and
@@ -220,24 +244,24 @@ export default function StratsTab() {
           this row because with 16 cards the dashed + NEW STRAT at the list's
           end is below the fold — creating a strat must not require scrolling
           past every existing one. */}
-      <div className="flex items-center gap-2 px-1">
+      <div className="flex flex-wrap items-center gap-2 px-1">
         <div className="flex gap-1 border border-pixel-border rounded-full overflow-hidden">
-          {([
-            ["strats", "STRATS"],
-            ["trades", "TRADES"],
-          ] as const).map(([v, label]) => (
+          {VIEW_TABS.map(([v, label, hint]) => (
             <button
               key={v}
               onClick={() => setView(v)}
               className={`px-3 py-1 text-[10px] font-semibold tracking-[0.14em] transition-colors ${
-                view === v ? "bg-pixel-border-light text-pixel-white" : "text-pixel-gray hover:bg-pixel-border-light/50"
+                view === v
+                  ? v === "live" ? "bg-red-400/15 text-red-400" : "bg-pixel-border-light text-pixel-white"
+                  : "text-pixel-gray hover:bg-pixel-border-light/50"
               }`}
-              title={v === "strats" ? "Build, manage and share your strats" : "Every trade this account has made, each with its P&L"}
+              title={hint}
             >
               {label}
             </button>
           ))}
         </div>
+        {view === "strats" && (<>
         <input
           ref={uploadRef}
           type="file"
@@ -270,7 +294,28 @@ export default function StratsTab() {
         >
           + NEW STRAT
         </button>
+        </>)}
       </div>
+
+      {/* ── COPY / MONEY / BACKTEST / LIVE — what the side panel used to hold ── */}
+      {view === "copy" && (
+        <section className="rounded-[var(--radius-sm)] border border-pixel-border overflow-hidden">
+          {/* The finder's checked shortlist (renders nothing when empty),
+              then the copy book: who, how much, start / stop. */}
+          <SelectionTray />
+          <CopyPanel />
+        </section>
+      )}
+      {view === "money" && (
+        <section className="rounded-[var(--radius-sm)] border border-pixel-border overflow-hidden">
+          <AccountsPanel />
+          <MoneyTab />
+        </section>
+      )}
+      {(view === "backtest" || view === "live") && (
+        /* Keyed so a half-run replay never leaks into LIVE and back. */
+        <Workspace key={view} mode={view === "live" ? "LIVE" : "BACKTEST"} bare />
+      )}
 
       {/* ── TRADES — the trading record, one row per position with its P&L ── */}
       {view === "trades" && (
@@ -289,8 +334,9 @@ export default function StratsTab() {
       <div className="px-1 text-[9.5px] font-mono leading-snug text-pixel-gray">
         Build, manage and share your strats here. Every strat is{" "}
         <span className="text-pixel-white">private by default</span> — publish one to the
-        community gallery when it's ready. Money lives on the{" "}
-        <span className="text-pixel-white">INDEX</span> tab: allocate there, run on LIVE.
+        community gallery when it&apos;s ready. Fund on{" "}
+        <span className="text-pixel-white">MONEY</span>, pick who to copy on{" "}
+        <span className="text-pixel-white">COPY</span>, run on <span className="text-pixel-white">LIVE</span>.
       </div>
 
       {/* ── INVESTED — just the strats your money is on, nothing else ──
@@ -331,7 +377,7 @@ export default function StratsTab() {
             </div>
             {rows.length === 0 ? (
               <div className="px-1.5 py-1 text-[10px] font-mono text-pixel-gray">
-                No money on any strat. Deposit on <span className="text-pixel-white">INDEX</span>, then start one on LIVE.
+                No money on any strat. Deposit on <span className="text-pixel-white">MONEY</span>, then start one on LIVE.
               </div>
             ) : (
               <div className="flex flex-col gap-0.5">

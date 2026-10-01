@@ -1955,50 +1955,6 @@ button, input, select, textarea {
 /* ════════════════════════════════════════════════════════════════════
    THE FRONT DOOR — home cards, the one-step copy dialog, MORE menu
    ════════════════════════════════════════════════════════════════════ */
-.home-hero { padding: 8px 0 4px; }
-/* 2px, not 3: at 24px on an 8px design grid the third pixel of magenta
-   sits under the next glyph's stem and the line reads as smear rather
-   than as a drop shadow. */
-.home-hero .arcade-title {
-  font-size: 24px;
-  line-height: 1.6;
-  text-shadow: 2px 2px 0 var(--neon-magenta);
-}
-@media (min-width: 768px) {
-  .home-hero .arcade-title { font-size: 24px; text-shadow: 2px 2px 0 var(--neon-magenta); }
-}
-
-/* Four live numbers under the pitch. Dim Silkscreen label, bright VT323
-   value — the same label/readout pairing the filter bar uses, so the
-   hero speaks the console's own dialect rather than growing a stat-tile
-   row of its own. */
-.hero-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 26px;
-  margin-top: 16px;
-}
-.hero-stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.hero-stat-k {
-  font-family: 'Silkscreen', monospace;
-  font-size: 9px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
-.hero-stat b {
-  font-family: 'VT323', monospace;
-  font-size: 21px;
-  line-height: 1;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-  color: var(--fg);
-}
-
 /* One trader, one plate: name, the number that matters, one COPY.
    A column, not a block: a card that earned an extra qualifier chip would
    otherwise push its own buttons below its neighbours' in the same row. */
@@ -2351,3 +2307,205 @@ a.trader-card:hover { border-color: var(--accent); }
   border-color: rgb(var(--neon-amber-rgb) / 0.6);
   color: var(--neon-amber);
 }
+
+
+/* ════════════════════════════════════════════════════════════════════
+   AGENT DOCK — the robot in the corner, and the window it opens
+   ════════════════════════════════════════════════════════════════════
+   The agent is summoned over the page you're on, not visited. The cap
+   in the top bar carries three states and nothing else: lit (window
+   open), antenna blinking (mid-reply), amber count (writes parked on
+   you). The window is a hard plate pinned to the right edge — same
+   border/shadow language as the copy dialog — and becomes the whole
+   screen on a phone. */
+.agent-bot { display: block; flex: none; }
+.agent-bot__eye,
+.agent-bot__tip { fill: var(--accent); }
+.nav-active .agent-bot__eye,
+.nav-active .agent-bot__tip { fill: var(--bg); }
+.agent-bot__eye { animation: agent-blink 5s steps(1, end) infinite; }
+@keyframes agent-blink {
+  0%, 94%  { opacity: 1; }
+  95%, 98% { opacity: 0; }
+}
+.agent-btn--busy .agent-bot__tip { animation: agent-tip 0.6s steps(2, end) infinite; }
+@keyframes agent-tip {
+  0%   { fill: var(--neon-lime); }
+  100% { fill: var(--neon-amber); }
+}
+
+.pixel-btn.agent-btn {
+  position: relative;
+  gap: 8px;
+  padding-left: 10px;
+  padding-right: 12px;
+}
+/* On a phone the face alone is the button — the word costs a rail slot. */
+@media (max-width: 1023px) {
+  .agent-btn__label { display: none; }
+  .pixel-btn.agent-btn { padding-left: 9px; padding-right: 9px; }
+}
+.pixel-btn.agent-btn--ask:not(.nav-active) {
+  border-color: var(--neon-amber);
+  color: var(--neon-amber);
+}
+.agent-btn__badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--bg);
+  background: var(--neon-amber);
+  border: 2px solid var(--shadow-hard);
+  animation: agent-badge 1s steps(2, end) infinite;
+}
+@keyframes agent-badge {
+  0%   { transform: translateY(0); }
+  100% { transform: translateY(-2px); }
+}
+
+.agent-dock {
+  position: fixed;
+  z-index: 70;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: min(460px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-from);
+  border: 2px solid var(--border-strong);
+  box-shadow: 6px 6px 0 var(--shadow-hard), 0 0 0 1px rgb(var(--accent-rgb) / 0.25);
+  animation: agent-dock-in 0.12s steps(3, end);
+}
+@keyframes agent-dock-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+.agent-dock__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border-bottom: 2px solid var(--border-strong);
+  background: rgb(var(--accent-rgb) / 0.08);
+}
+.agent-dock__face {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  color: var(--fg);
+  border: 2px solid var(--accent);
+  background: var(--bg);
+  box-shadow: 2px 2px 0 var(--shadow-hard);
+}
+.agent-dock__title {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--fg);
+}
+.agent-dock__sub {
+  margin-top: 4px;
+  font-family: 'VT323', monospace;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pixel-btn.agent-dock__ctl {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 14px;
+  flex: none;
+}
+.agent-dock__body {
+  flex: 1;
+  min-height: 0;
+  padding: 10px;
+}
+.agent-dock-scrim { display: none; }
+/* Shut but still mounted: the stream and any parked write live on. Its own
+   class, because `.agent-dock`'s display:flex outranks Tailwind's .hidden. */
+.agent-dock.agent-dock--shut { display: none; }
+@media (max-width: 639px) {
+  .agent-dock {
+    inset: 0;
+    width: auto;
+    border-width: 0;
+    box-shadow: none;
+  }
+  .agent-dock-scrim:not(.agent-dock--shut) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 69;
+    background: rgb(0 0 0 / 0.72);
+  }
+}
+
+.agent-thinking { display: flex; align-items: center; gap: 8px; }
+.agent-thinking__dots { display: inline-flex; gap: 3px; }
+.agent-thinking__dots i {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  animation: agent-dot 0.9s steps(1, end) infinite;
+}
+.agent-thinking__dots i:nth-child(2) { animation-delay: 0.3s; }
+.agent-thinking__dots i:nth-child(3) { animation-delay: 0.6s; }
+@keyframes agent-dot {
+  0%, 66% { opacity: 0.25; }
+  33%     { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-dock,
+  .agent-bot__eye,
+  .agent-btn__badge,
+  .agent-btn--busy .agent-bot__tip,
+  .agent-thinking__dots i { animation: none; }
+}
+
+
+/* ── Front-door polish ────────────────────────────────────────────────
+   The filter plate's three rails share one label column, so HISTORY /
+   RANK BY / BOOK chips start on the same x instead of drifting with the
+   length of each word. */
+.filter-bar .window-rail-k {
+  min-width: 68px;
+}
+.filter-bar-row .rail + .rail .window-rail-k { min-width: 0; }
+@media (max-width: 1023px) {
+  .filter-bar-row .rail + .rail .window-rail-k { min-width: 68px; }
+}
+/* A section count is one token — "(9 of 245)" never breaks across lines. */
+.section-count { white-space: nowrap; }
+/* Example prompts are sentences, not caps — they read in the terminal
+   face, with a cursor in the gutter. */
+.pixel-btn.agent-example {
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  font-family: 'VT323', monospace;
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  text-transform: none;
+  text-align: left;
+  box-shadow: 2px 2px 0 var(--shadow-hard);
+}
+.pixel-btn.agent-example::before { content: "▸"; color: var(--accent); flex: none; }

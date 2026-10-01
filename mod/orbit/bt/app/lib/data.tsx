@@ -32,12 +32,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<Sort>({ key: 'market_cap', dir: -1 });
 
-  const info = usePoll<Info>(() => getJSON('').then(j => j as Info), 60_000);
+  const info = usePoll<Info>(() => getJSON('').then(j => j as Info), 60_000, [], 'info');
   const screener = usePoll<Screener>(async () =>
-    (await call<Screener>('bt_screener', { sort_by: 'market_cap' })).result, 60_000);
-  const stats = usePoll<Stats>(async () => (await call<Stats>('bt_stats')).result, 60_000);
+    (await call<Screener>('bt_screener', { sort_by: 'market_cap' })).result, 60_000, [], 'screener');
+  const stats = usePoll<Stats>(async () => (await call<Stats>('bt_stats')).result, 60_000, [], 'stats');
   const traders = usePoll<TraderRow[]>(async () =>
-    (await call<{ rows: TraderRow[] }>('bt_traders', { sort_by: 'total_tao' })).result.rows || [], 60_000);
+    (await call<{ rows: TraderRow[] }>('bt_traders', { sort_by: 'total_tao' })).result.rows || [], 60_000, [], 'traders');
 
   const rows = screener.data?.rows;
   const names = useMemo(() => Object.fromEntries((rows || []).map(r => [r.netuid, r.name || ''])), [rows]);

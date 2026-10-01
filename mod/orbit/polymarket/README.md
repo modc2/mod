@@ -2,15 +2,14 @@
 
 **Copy a bench of traders at your own scale. You put capital behind an index of names; every trade they make is re-sized by the ratio between your money and theirs.**
 
-The console is **three tabs**, and they read left to right as one sentence:
+The console is **two header tabs**, and there is no side panel:
 
 | tab | route | what you do there |
 |---|---|---|
-| **STRATS** | `/polymarket/strats` | pick a strategy, and set the capital behind it |
-| **TRADERS** | `/polymarket/traders` | put traders on its bench |
-| **TEST & LIVE** | `/polymarket/live` | replay it against history, then run it against the book |
+| **TRADERS** | `/polymarket/traders` | find traders, check the ones you want |
+| **STRATS** | `/polymarket/strats` | ALL management — one pill row of sub-tabs |
 
-There is no fourth. Money — topping up and taking it back out — is **not a tab**: it is the MONEY block in the right-hand side panel, open from anywhere, over whatever you were looking at (`app/components/MoneyBlock.tsx`). A funding form you have to navigate to is a funding form you navigate *away from a running session* to reach.
+STRATS sub-tabs are addressed by `?tab=` (`app/lib/stratsNav.ts`): **STRATS** (build, manage, share — default) · **COPY** (who you copy, with how much, start/stop + the finder's checked shortlist) · **MONEY** (account + top up / take out / bridge) · **BACKTEST** · **LIVE** · **TRADES** (every position with its P&L). `/polymarket/backtest` and `/polymarket/live` forward into their tabs. The right-hand side panel (`UserSidebar`) was removed 2026-10-01 as too complicated; every event that used to open it (wallet chip, FUND NOW, REVIEW & COPY) now navigates to the matching tab via `app/components/StratsNav.tsx`.
 
 ### The default strat is a TRADER INDEX
 
@@ -62,9 +61,9 @@ The console's older unit was an **allocation**: one leader, one dollar amount, o
 
 It lives on the server rather than in the browser for one reason: saved strats sync **encrypted** with a key the browser never uploads (`api/src/strats.rs`), so nothing outside that one tab can read them — and an agent that cannot see what it is copying cannot reason about it. The book holds no keys and no wallet state, only addresses, dollars and a few tunables, and every route to it is already behind the owner-only access gate.
 
-### The copy book, in the sidebar
+### The copy book — STRATS → COPY
 
-The book is a right-hand column on **every page** (`app/components/UserSidebar.tsx` → `CopyPanel.tsx`), opened from the sidebar handle or the wallet chip in the top-right. It is built around a ROSTER, not a row — a desk is a set of traders with different amounts behind them, and every control here acts on as many of them as you check:
+The book is the COPY tab of the strats page (`/polymarket/strats?tab=copy` → `CopyPanel.tsx`). It is built around a ROSTER, not a row — a desk is a set of traders with different amounts behind them, and every control here acts on as many of them as you check:
 
 1. **Select** — paste one address, or paste a whole list: every `0x…` in the blob is added, each with the amount beside it, so "copy these five" is one gesture rather than five. `▦ FIND` goes to the full desk and its market search.
 2. **Fund** — the `$` on each row *is* the sizing model. Check any number of rows and the bulk bar appears: `SET EACH $N`, `▶`, `■`, `PAUSE`, `RESUME`, `DROP`, or hand the selection to the `BASKET` screen. Desk-wide there is `BANKROLL` + `SPLIT EVEN`, and `▶ START ALL` / `■ STOP ALL` behind one TEST·LIVE switch.
@@ -606,11 +605,11 @@ The front door to `/strats` is a card grid, and each card's headline is its **N-
 - Those rosters are picked *by* trailing P&L over the window they're then scored on, so a recommendation's number is survivorship-biased by construction. The section header says so: **upper bound, not a forecast**. A saved strat carries no such bias — its traders were chosen before the window it's measured over.
 - A strat with nothing to copy reports the reason (`no traders to copy`, `all 1279 entries blocked · time-to-close`, `no price tape for this window`) instead of a `$0` that reads as breaking even.
 
-### Money lives in the side panel
+### Money — STRATS → MONEY
 
-Topping up and taking money out is the **MONEY** tab of the right-hand column (`app/components/MoneyBlock.tsx`), which reads top to bottom in the order money flows. `LiquidityFlow.tsx` leads with one strip — OTHER CHAINS ▸ WALLET ▸ TRADING ▸ IN PLAY — each pool a shortcut to the block that moves it (IN PLAY jumps to the INDEX tab's ALLOCATION). `WalletPanel.tsx` is the move: two tiles, one amount box, one button; tap the other tile and the arrow flips, so deposit and withdraw are one flow rather than two forms. `BridgePanel.tsx` is the bridge, flattened: one row per (EVM chain, asset) the wallet actually holds — balances swept over public RPCs by the shared `lib/chainBalances.ts` — amount prefilled (native coins keep a gas reserve), one button, landing as Polygon USDC via LiFi. Holding nothing off-Polygon collapses it to your address and the watched chains. The legacy V1 Safe panel renders itself away unless a balance is stranded on it.
+Topping up and taking money out is the **MONEY** tab of the strats page (`/polymarket/strats?tab=money`, `app/components/MoneyBlock.tsx`), which reads top to bottom in the order money flows. `LiquidityFlow.tsx` leads with one strip — OTHER CHAINS ▸ WALLET ▸ TRADING ▸ IN PLAY — each pool a shortcut to the block that moves it (IN PLAY jumps to the COPY tab). `WalletPanel.tsx` is the move: two tiles, one amount box, one button; tap the other tile and the arrow flips, so deposit and withdraw are one flow rather than two forms. `BridgePanel.tsx` is the bridge, flattened: one row per (EVM chain, asset) the wallet actually holds — balances swept over public RPCs by the shared `lib/chainBalances.ts` — amount prefilled (native coins keep a gas reserve), one button, landing as Polygon USDC via LiFi. Holding nothing off-Polygon collapses it to your address and the watched chains. The legacy V1 Safe panel renders itself away unless a balance is stranded on it.
 
-It used to be a `LIVE → WALLET` subtab inside the workspace, which put funding one navigation away from every screen that needed it and gave the engine's own tab rail a stop that had nothing to do with the engine. Anything that discovers it is short of funds — LIVE's `FUND NOW` banner, an engine "not enough balance" — now dispatches `OPEN_MONEY_EVENT` and the drawer opens **over** the page you were on. Device pairing (token + sign-in QR), which shared that subtab, moved to the ACCOUNT block, where it is about who you are signed in as rather than about money.
+It used to be a `LIVE → WALLET` subtab inside the workspace, which put funding one navigation away from every screen that needed it and gave the engine's own tab rail a stop that had nothing to do with the engine. Anything that discovers it is short of funds — LIVE's `FUND NOW` banner, an engine "not enough balance" — now dispatches `OPEN_MONEY_EVENT`, which lands on STRATS → MONEY. Device pairing (token + sign-in QR), which shared that subtab, moved to the ACCOUNT block, where it is about who you are signed in as rather than about money.
 
 ### Funding several strats at once (`$ DEPOSIT`)
 

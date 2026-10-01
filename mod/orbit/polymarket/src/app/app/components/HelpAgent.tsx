@@ -53,7 +53,7 @@ const GREETING: Msg = {
 // Three doors into the thing, so an empty column isn't a blank prompt.
 const SUGGESTIONS = [
   "how do I start copying a trader?",
-  "what does the INDEX strat actually do?",
+  "how do I put money in to trade?",
   "why isn't my live session trading?",
 ];
 

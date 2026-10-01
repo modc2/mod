@@ -22,6 +22,7 @@ from . import tools
 
 SERVER_INFO = {'name': 'bittensor', 'version': '3.0.0'}
 PROTOCOL_VERSION = '2025-06-18'
+PROTOCOL_VERSIONS = (PROTOCOL_VERSION, '2025-03-26', '2024-11-05')
 
 
 def _reply(id_, result=None, error=None):
@@ -41,7 +42,8 @@ def handle(msg: dict):
     if method == 'initialize':
         client_ver = (msg.get('params') or {}).get('protocolVersion')
         _reply(id_, {
-            'protocolVersion': client_ver or PROTOCOL_VERSION,
+            'protocolVersion': client_ver if client_ver in PROTOCOL_VERSIONS
+                               else PROTOCOL_VERSION,
             'capabilities': {'tools': {}},
             'serverInfo': SERVER_INFO,
             'instructions': (

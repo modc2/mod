@@ -1,22 +1,19 @@
 "use client";
 
-// /backtest — a FORWARDER. The backtest workspace is the side panel's
-// BACKTEST tab now (components/UserSidebar.tsx); the console's one page is
-// the trader board. This route survives for bookmarks and old links: it
-// opens the panel on BACKTEST and lands you on /traders.
+// /backtest — a FORWARDER for bookmarks and old links. The BACKTEST workspace is a
+// tab of the STRATS page (/strats?tab=backtest) since the side panel was removed.
 //
 // basePath ("/polymarket") is prepended automatically — pass paths WITHOUT it.
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-import { requestSidebarTab } from "../components/UserSidebar";
+import { stratsHref } from "../lib/stratsNav";
 
 export default function BacktestForwarder() {
   const router = useRouter();
   useEffect(() => {
-    requestSidebarTab("BACKTEST");
-    router.replace("/traders");
+    router.replace(stratsHref("backtest"));
   }, [router]);
   return null;
 }

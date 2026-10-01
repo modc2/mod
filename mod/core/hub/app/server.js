@@ -7,7 +7,9 @@
  * (index.html) plus a few JSON/markdown endpoints. It deliberately does NOT
  * proxy the loopback catalog api (:50520) — that surface is raw and unrouted;
  * this one applies the same privacy rule the caddy router uses (a module with
- * an enabled record under ~/.mod/build/private/ is simply absent).
+ * an enabled record under ~/.mod/build/private/ is simply absent) plus the
+ * host's listing policy (~/.mod/build/visibility.json): every module is
+ * private until the owner makes it public in build's HUB.
  *
  * The whitepaper is not duplicated here: /_wp reads core/docs' whitepaper.md
  * (engineer) and docs/simple/whitepaper.md (human twin), so docs stays the one
@@ -27,7 +29,7 @@ const INDEX = path.join(__dirname, "index.html");
 const GROUPS = ["orbit", "core"];
 
 // Same rule as orbit/caddy _is_private: any read failure means "not private".
-const isPrivate = (name) => {
+const isEncrypted = (name) => {
   const safe = name.replace(/[^a-zA-Z0-9\-_]/g, "");
   if (!safe) return false;
   try {
@@ -36,6 +38,22 @@ const isPrivate = (name) => {
     return false;
   }
 };
+
+// The host's listing policy (orbit/build visibility.rs): every module is
+// private unless made public. modules[name] beats default. A missing or
+// unreadable file means everything is private. This layer only hides cards,
+// so failing closed costs a listing, never an outage.
+const VISIBILITY = process.env.BUILD_VISIBILITY_FILE || path.join(HOME, ".mod", "build", "visibility.json");
+const loadPolicy = () => {
+  try {
+    const p = JSON.parse(fs.readFileSync(VISIBILITY));
+    return { default: p.default || "private", modules: p.modules || {} };
+  } catch {
+    return { default: "private", modules: {} };
+  }
+};
+const isListed = (policy, name) => (policy.modules[name.toLowerCase()] || policy.default) === "public";
+const isPrivate = (name, policy = loadPolicy()) => isEncrypted(name) || !isListed(policy, name);
 
 // A module's config.json may sit at <mod>/config.json or <mod>/<name>/config.json.
 const desc = (dir, name) => {
@@ -49,6 +67,7 @@ const desc = (dir, name) => {
 
 const modules = () => {
   const out = [];
+  const policy = loadPolicy();
   for (const g of GROUPS) {
     const base = path.join(REPO, g);
     let names;
@@ -66,7 +85,7 @@ const modules = () => {
       } catch {
         continue;
       }
-      if (!st.isDirectory() || isPrivate(name)) continue;
+      if (!st.isDirectory() || isPrivate(name, policy)) continue;
       out.push({
         name,
         group: g,

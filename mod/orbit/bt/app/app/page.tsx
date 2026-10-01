@@ -7,6 +7,7 @@ import { useOverlay } from '@/lib/overlay';
 import { usePoll, useNow } from '@/lib/hooks';
 import { agoText, compact, fmt, fmtPrice, short } from '@/lib/format';
 import { Pct, SideTag, Spinner, Stat, SubnetLogo } from '@/components/ui';
+import { NewsItem, NewsList } from '@/components/News';
 
 function Synced() {
   const { syncAt, syncBlock } = useData();
@@ -36,7 +37,7 @@ function MoverList({ rows, value }: { rows: SubnetRow[]; value: (r: SubnetRow) =
 
 export default function Home() {
   const router = useRouter();
-  const { stats, screener } = useData();
+  const { stats, screener, bySubnet } = useData();
   const { openTrader, openSubnet } = useOverlay();
   const t = useNow(30_000);
   const rows = (screener?.rows || []).filter(r => r.netuid !== 0);
@@ -48,20 +49,22 @@ export default function Home() {
   const board = usePoll<BoardRow[]>(async () =>
     ((await call('bt_trader_board', { days: 7, top: 6, sort_by: 'market_pct', min_subnets: 1 })).result.rows || [])
       .filter((r: BoardRow) => r.baseline), 300_000);
+  const headlines = usePoll<NewsItem[]>(async () =>
+    (await call('bt_news', { days: 7, limit: 8, kind: 'news,blog', focused: true })).result.items || [], 300_000);
 
   return (
     <>
       <div className="hero page">
-        <span className="world">WORLD τ-1 &nbsp;·&nbsp; <span className="coin">★</span>×{stats?.subnets || '∞'} &nbsp;·&nbsp; 1UP</span>
+        <span className="world"><span className="coin" />live on finney · {stats?.subnets || '—'} subnet markets</span>
         <h1>The <span className="tao">open</span> Bittensor explorer.</h1>
         <p className="sub">Every subnet, price, validator and account — indexed locally, served instantly.<br />
-          No closed backend. No API key. The whole stack is open source. Let&apos;s-a go.</p>
+          No closed backend. No API key. The whole stack is open source.</p>
         <div className="cta">
           <button className="pill primary" onClick={() => router.push('/markets')}>Explore markets</button>
           <button className="pill ghost" onClick={() => router.push('/chat')}>Chat with the network</button>
         </div>
         <div className="stats">
-          <Stat label="Subnets" value={stats?.subnets || '—'} />
+          <Stat label="Markets" value={stats?.subnets || '—'} />
           <Stat label="Alpha mcap τ" value={compact(stats?.total_market_cap_tao)} />
           <Stat label="24h volume τ" value={stats?.volume_24h_tao != null ? compact(stats.volume_24h_tao) : 'soon'} />
           <Stat label="TAO in pools" value={compact(stats?.total_tao_in_pools)} />
@@ -92,6 +95,12 @@ export default function Home() {
               <span className="v"><Pct v={b.market_pct} /></span>
             </div>
           )) : <span className="muted">The trader index is still building its first week.</span>}
+        </div>
+        <div className="card" style={{ gridColumn: '1 / -1' }}>
+          <h3>◎ In the news — this week <Link href="/news">all news →</Link></h3>
+          {headlines.data == null ? <Spinner /> : headlines.data.length
+            ? <NewsList items={headlines.data} bySubnet={bySubnet} compact />
+            : <span className="muted">The news scraper is on its first pass over the subnets.</span>}
         </div>
         <div className="card" style={{ gridColumn: '1 / -1' }}>
           <h3>● The tape — last 24h <Link href="/traders">traders →</Link></h3>

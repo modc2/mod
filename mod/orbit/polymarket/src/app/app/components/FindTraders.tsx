@@ -38,7 +38,7 @@ import Sparkline from "./Sparkline";
 import {
   addPicks, clearPicks, removePicks, setPickDays, togglePick as storeTogglePick, usePicks,
 } from "../lib/pickStore";
-import { OPEN_SIDEBAR_EVENT } from "./UserSidebar";
+import { openStratsView } from "../lib/stratsNav";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 /** Windows the hourly warmup aggregates (`warmup_cycle`, pipeline.rs). */
@@ -528,23 +528,23 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
       )}
       {error && <div className="font-mono text-[10px] text-red-400">{error}</div>}
 
-      {/* The selection itself lives in the SIDE PANEL (SelectionTray) — every
-          checked row replayed there as it's checked, sized per name, committed
-          with one COPY ALL. Here, just the count: the desk stays a finder. */}
+      {/* The selection itself lives on STRATS → COPY (SelectionTray) — every
+          checked row replayed there, sized per name, committed with one COPY
+          ALL. Here, just the count: the desk stays a finder. */}
       {picks.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px]">
           <span className="text-[11px] tracking-[0.14em] text-pixel-green">
             {picks.length} SELECTED · ${picks.reduce((s, p) => s + p.usd, 0).toLocaleString()}
           </span>
           <span className="text-pixel-gray">
-            replaying in the side panel — size and commit them there
+            size and commit them on STRATS → COPY
           </span>
           <button
             className="pixel-btn btn-xs"
-            onClick={() => window.dispatchEvent(new Event(OPEN_SIDEBAR_EVENT))}
-            title="Open the side panel — the selection tray is its top block"
+            onClick={() => openStratsView("copy")}
+            title="Open STRATS → COPY — your selection is its top block"
           >
-            SHOW PANEL →
+            REVIEW & COPY →
           </button>
           <button className="pixel-btn btn-xs" onClick={clearPicks} title="Uncheck everything">
             CLEAR

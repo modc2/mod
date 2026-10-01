@@ -43,6 +43,16 @@ def clean_store():
     shutil.rmtree(STORE, ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def everything_listed(tmp_path, monkeypatch):
+    """The live host lists nothing by default; these tests read real modules,
+    so give them a policy that publishes everything."""
+    policy = tmp_path / 'visibility.json'
+    policy.write_text(json.dumps({'default': 'public', 'modules': {}}))
+    monkeypatch.setattr(scan, 'VISIBILITY', str(policy))
+    return policy
+
+
 @pytest.fixture
 def mod():
     return _anchor.Mod(local=False)
@@ -61,6 +71,16 @@ def test_private_modules_are_absent(monkeypatch):
     assert 'advise' not in [m['module'] for m in scan.modules()['modules']]
     with pytest.raises(scan.ScanError):
         scan.module_dir('advise')
+
+
+def test_unlisted_modules_are_absent(everything_listed):
+    everything_listed.write_text(json.dumps({'default': 'private', 'modules': {'build': 'public'}}))
+    names = [m['module'] for m in scan.modules()['modules']]
+    assert names == ['build']
+    with pytest.raises(scan.ScanError):
+        scan.module_dir('advise')
+    everything_listed.write_text('{corrupt')                # fails closed
+    assert scan.modules()['modules'] == []
 
 
 def test_tree_prunes_dependency_dirs(mod):

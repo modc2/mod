@@ -88,6 +88,10 @@ function Hero() {
           </div>
         </div>
       </div>
+      {w.note && <p className="muted" style={{ marginTop: 12 }}>{w.note}</p>}
+      {w.canSign && <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <Link className="pill primary" href="/trade">Buy · Sell · Send with {wal.ext}</Link>
+      </div>}
       {phase === 'index' && <p className="muted" style={{ marginTop: 14 }}><Spinner /> checking the local index…</p>}
       {phase === 'chain' && <p className="muted" style={{ marginTop: 14 }}><Spinner /> reading the chain — can take a minute while the indexer is busy…</p>}
       {err && <p className="muted" style={{ marginTop: 14 }}>{err}</p>}
@@ -159,7 +163,7 @@ function Balance() {
 export default function WalletPage() {
   return (
     <Section id="wallet" title="Wallet."
-      lead="Your account, live from the chain — connect a browser wallet, pick a local one, or just watch an address.">
+      lead="Your account, live from the chain — connect SubWallet (or Talisman / polkadot{.js}) to trade from it, pick a node wallet, or just watch an address.">
       <Hero />
       <div className="grid cols2">
         <LocalWallets />

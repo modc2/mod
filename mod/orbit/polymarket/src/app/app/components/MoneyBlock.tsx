@@ -28,7 +28,7 @@
 //
 //     window.dispatchEvent(new Event(OPEN_MONEY_EVENT))
 //
-// and UserSidebar opens the column on this tab (LIVE's FUND NOW banner, an
+// and StratsNav navigates to STRATS → MONEY (LIVE's FUND NOW banner, an
 // engine "not enough balance" state, the header's balance chip).
 
 import { useAuth } from "../context/AuthContext";
@@ -38,7 +38,7 @@ import BridgePanel from "./BridgePanel";
 import PolymarketAccountPanel from "./PolymarketAccountPanel";
 
 /** Ask the side panel to open on the MONEY tab. Anything short of funds
-    fires this rather than navigating. Handled by UserSidebar. */
+    fires this rather than navigating. Handled by StratsNav. */
 export const OPEN_MONEY_EVENT = "poly-open-money";
 
 export default function MoneyTab() {

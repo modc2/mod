@@ -437,7 +437,10 @@ export function labRunning(): LabRunMeta | null {
   return null;
 }
 
-export function startLabRun(opts: { goal?: string; maxExperiments?: number } = {}): LabRunMeta {
+export function startLabRun(
+  opts: { goal?: string; maxExperiments?: number } = {},
+  env: NodeJS.ProcessEnv = claudeEnv(),
+): LabRunMeta {
   const active = labRunning();
   if (active) throw new Error(`a lab run is already going (${active.id}) — stop it or wait`);
 
@@ -465,7 +468,7 @@ export function startLabRun(opts: { goal?: string; maxExperiments?: number } = {
       // Detached, own process group: the run outlives this request, and a
       // stop can kill the agent AND its python MCP child in one signal.
       detached: true, stdio: ["pipe", out, out], cwd: "/tmp",
-      env: claudeEnv(),
+      env, // from checkedClaudeEnv() — a detached run cannot retry a dead token
     });
   } finally {
     closeSync(out);

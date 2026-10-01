@@ -15,12 +15,11 @@ import { useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import { stablesOffPolygon, useChainBalances } from "../lib/chainBalances";
 import { useStratStats, fmtUsd } from "../lib/stratStats";
+import { openStratsView } from "../lib/stratsNav";
 
-// UserSidebar's SIDEBAR_TAB_EVENT — dispatched by literal name to avoid a
-// MoneyBlock ↔ UserSidebar import cycle. Keep in sync with UserSidebar.tsx.
+// IN PLAY → where allocation lives: STRATS → COPY.
 function openIndexTab() {
-  try { localStorage.setItem("poly_sidebar_tab", "INDEX"); } catch {}
-  window.dispatchEvent(new CustomEvent("poly-sidebar-tab", { detail: "INDEX" }));
+  openStratsView("copy");
 }
 
 function scrollToId(id: string) {

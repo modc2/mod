@@ -1,10 +1,37 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { BASE, call } from '@/lib/api';
+import { BASE, call, getJSON } from '@/lib/api';
 import { useData } from '@/lib/data';
-import { compact } from '@/lib/format';
+import { ago, compact, short } from '@/lib/format';
+import { usePoll } from '@/lib/hooks';
 import { CopyBlock, Section } from '@/components/ui';
+
+interface Day { day: string; block: number; block_hash: string; block_ts: number; subnets: number; blocks?: number }
+interface Ledger { days: Day[]; count: number; candles: number; last_pass: number | null; last_error: string | null }
+
+/* The block that opened each UTC day — fetched once a day from an archive
+ * node and kept on this disk with that day's candles (bt/blocks.py). */
+function DailyLedger() {
+  const { data } = usePoll<Ledger>(() => getJSON<Ledger>('blocks?limit=14'), 600_000, [], 'blocks');
+  return (
+    <div className="card" style={{ marginTop: 18 }}>
+      <h3>The daily block ledger</h3>
+      <p>Once a day the node fetches the block that opened the UTC day and folds that day&apos;s snapshots into a candle per subnet. Closed days never change, so history is a local read forever — <code className="inline">bt_days</code>, <code className="inline">bt_daily</code>.</p>
+      {!data ? <p className="muted">—</p> : (
+        <div className="scroll-x" style={{ marginTop: 10 }}>
+          <table><thead><tr><th>Day (UTC)</th><th className="num">Opening block</th><th className="num">Blocks</th><th className="num">Subnet candles</th><th>Hash</th></tr></thead>
+            <tbody>{data.days.map(d => (
+              <tr key={d.day}><td>{d.day}</td><td className="num">#{d.block?.toLocaleString()}</td>
+                <td className="num">{d.blocks != null ? d.blocks.toLocaleString() : 'today'}</td>
+                <td className="num">{d.subnets}</td>
+                <td className="num" title={d.block_hash}>{short(d.block_hash)}</td></tr>))}</tbody></table>
+          <p className="muted" style={{ marginTop: 8 }}>{data.count} days anchored · {compact(data.candles)} candles · last check {data.last_pass ? ago(data.last_pass) : 'pending'}{data.last_error ? ` · ${data.last_error}` : ''}</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Open() {
   const { info } = useData();
@@ -45,6 +72,7 @@ export default function Open() {
           <p style={{ marginTop: 10 }}><Link href="/mcp">Connect via MCP →</Link></p>
         </div>
       </div>
+      <DailyLedger />
     </Section>
   );
 }

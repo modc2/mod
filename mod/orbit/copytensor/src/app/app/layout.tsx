@@ -8,6 +8,8 @@ import SidebarShell from "./components/SidebarShell";
 import SubnetTicker from "./components/SubnetTicker";
 import TopBar from "./components/TopBar";
 import BuildBadge from "./components/BuildBadge";
+import AgentDock from "./components/AgentDock";
+import { AgentDockProvider } from "./context/AgentDockContext";
 
 export const dynamic = "force-dynamic";
 
@@ -36,17 +38,20 @@ export default function RootLayout({
           <CurrencyProvider>
             <FiltersProvider>
               <SidebarProvider>
-                <div className="crt-overlay" />
-                <div className="crt-screen min-h-screen">
-                  <SubnetTicker />
-                  <TopBar />
-                  <SidebarShell>
-                    <main className="max-w-[1600px] mx-auto px-3 py-4 sm:px-4 sm:py-6">
-                      {children}
-                    </main>
-                  </SidebarShell>
-                  <BuildBadge />
-                </div>
+                <AgentDockProvider>
+                  <div className="crt-overlay" />
+                  <div className="crt-screen min-h-screen">
+                    <SubnetTicker />
+                    <TopBar />
+                    <SidebarShell>
+                      <main className="max-w-[1600px] mx-auto px-3 py-4 sm:px-4 sm:py-6">
+                        {children}
+                      </main>
+                    </SidebarShell>
+                    <BuildBadge />
+                    <AgentDock />
+                  </div>
+                </AgentDockProvider>
               </SidebarProvider>
             </FiltersProvider>
           </CurrencyProvider>

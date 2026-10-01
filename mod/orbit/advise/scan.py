@@ -8,7 +8,9 @@ What it will show is ordinary published source: the files a module ships,
 minus the things nobody meant to publish. Four rules do the work:
 
     * a module marked private in ``~/.mod/build/private/<name>.json`` is not
-      here at all — not in ``modules()``, not readable by name;
+      here at all — not in ``modules()``, not readable by name — and neither
+      is one the host never made public in ``~/.mod/build/visibility.json``
+      (build's hub listing: every module is private until its owner flips it);
     * dependency and build output (``node_modules``, ``vendor``, ``target``,
       ``.next``, ``__pycache__`` …) is skipped, because it is not the module
       and it would bury the parts that are;
@@ -34,6 +36,7 @@ ANCHOR = os.environ.get('MOD_ANCHOR') or os.path.join(HOME, 'mod', 'mod')
 # core before orbit: when a name exists in both trees, core is the real one.
 TREES = ('core', 'orbit')
 PRIVATE_DIR = os.path.join(HOME, '.mod', 'build', 'private')
+VISIBILITY = os.environ.get('BUILD_VISIBILITY_FILE') or os.path.join(HOME, '.mod', 'build', 'visibility.json')
 
 SKIP_DIRS = {
     '.git', '.hg', 'node_modules', 'vendor', 'target', '__pycache__', '.next',
@@ -96,11 +99,28 @@ def private_names():
     return out
 
 
+def listing_policy():
+    """build's hub listing (orbit/build visibility.rs). Missing or unreadable
+    means everything is private: this rule may only fail toward hiding."""
+    try:
+        with open(VISIBILITY) as fh:
+            p = json.load(fh)
+        return {'default': p.get('default') or 'private', 'modules': p.get('modules') or {}}
+    except Exception:
+        return {'default': 'private', 'modules': {}}
+
+
+def listed(name, policy=None):
+    """Has the host made this module public?"""
+    p = policy or listing_policy()
+    return (p['modules'].get(str(name).lower()) or p['default']) == 'public'
+
+
 def module_dir(name, allow_private=False):
     """Absolute path of a scannable module, or raise."""
     if not _valid(name):
         raise ScanError(f'bad module name: {name!r}')
-    if not allow_private and str(name).lower() in private_names():
+    if not allow_private and (str(name).lower() in private_names() or not listed(name)):
         raise ScanError(f'no module named {name!r}')      # private == absent
     for tree in TREES:
         path = os.path.join(ANCHOR, tree, name)
@@ -167,13 +187,14 @@ def _is_module(path):
 def modules(q=None, limit=400):
     """Every module an outsider may scan, with enough to choose one."""
     hidden = private_names()
+    policy = listing_policy()
     out = []
     for tree in TREES:
         base = os.path.join(ANCHOR, tree)
         if not os.path.isdir(base):
             continue
         for name in sorted(os.listdir(base)):
-            if not _valid(name) or name.lower() in hidden or _skip(name):
+            if not _valid(name) or name.lower() in hidden or not listed(name, policy) or _skip(name):
                 continue
             path = os.path.join(base, name)
             if not os.path.isdir(path) or not _is_module(path):

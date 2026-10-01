@@ -55,16 +55,12 @@ export default function RootLayout({
                   Explicit STOP clears the record, so accidental reloads
                   auto-resume but deliberate stops stay stopped. */}
               <div className="crt-overlay" />
-              {/* The whole console insets when the account/strat sidebar is
-                  docked open (--strat-dock, set by StratSidebar) — header
-                  included, so the header cluster that owns it (top-RIGHT)
-                  never slides under it. Same on the LEFT for the agent
-                  column (--agent-dock, set by HelpAgent), so the logo that
-                  toggles it never slides underneath itself. */}
+              {/* The whole console insets on the LEFT when the agent column
+                  is docked open (--agent-dock, set by HelpAgent), so the
+                  logo that toggles it never slides underneath itself. */}
               <div
                 className="crt-screen dock-inset min-h-screen"
                 style={{
-                  paddingRight: "var(--strat-dock, 0px)",
                   paddingLeft: "var(--agent-dock, 0px)",
                 }}
               >

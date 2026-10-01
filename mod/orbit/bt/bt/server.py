@@ -17,6 +17,11 @@ bt.server — HTTP surface for the bt module on one port (:50280).
   POST /api/agent/ask     the same turn, run to completion, one JSON reply
   POST /api/agent/stop    {"chat"} -> kill the run in flight
   POST /mcp         MCP streamable-HTTP endpoint (same JSON-RPC as stdio)
+  POST /api/tx/prepare  {kind, address, ...} -> SignerPayloadJSON for a browser
+                    wallet's signer.signPayload (SubWallet / Talisman / polkadot-js)
+  POST /api/tx/submit   {id, signature} -> verified, broadcast, included
+  GET  /api/tx          what this console has signed (?address=)
+  GET  /api/blocks      the daily block ledger + daily-candle coverage
 
 Run:  python3 -m bt.server   (or pm2: bt-app)
 """
@@ -30,14 +35,15 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from . import agent, chats, history, tools, traders
-from .mcp_server import PROTOCOL_VERSION, SERVER_INFO
+from . import agent, blocks, chats, history, news, tools, traders, trades, tx
+from .mcp_server import PROTOCOL_VERSION, PROTOCOL_VERSIONS, SERVER_INFO
 
 PORT = int(os.environ.get('BT_PORT', '50280'))
 APP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'app')
 
 app = FastAPI(title='bt', docs_url=None, redoc_url=None,
-              on_startup=[history.start, traders.start])
+              on_startup=[history.start, traders.start, blocks.start, news.start,
+                          trades.start])
 app.add_middleware(CORSMiddleware, allow_origins=['*'],
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -46,14 +52,14 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'],
 # (modc2.com/bt/api/call reaches us as /call — the mod protocol's canonical
 # form). /docs and / are also console pages, so those two only count as API
 # when the caller is not a browser asking for HTML.
-_API_ROOT = {'/call', '/tools', '/ask', '/agent'}
+_API_ROOT = {'/call', '/tools', '/ask', '/agent', '/tx', '/blocks'}
 _API_SHARED = {'/', '/docs'}
 
 
 def _api_path(path: str, request: Request) -> str | None:
     if path.startswith('/_api/') or path == '/_api':
         return ('/api' + path[5:]).rstrip('/')   # the console's own unstripped route
-    if path in _API_ROOT or path.startswith('/agent/') or path.startswith('/.well-known/'):
+    if path in _API_ROOT or path.startswith(('/agent/', '/tx/', '/blocks/')) or path.startswith('/.well-known/'):
         return '/api' + path if not path.startswith('/.well-known/') else path
     if path in _API_SHARED and 'text/html' not in request.headers.get('accept', ''):
         return '/api' + (path if path != '/' else '')
@@ -69,6 +75,61 @@ async def strip_gateway_prefix(request: Request, call_next):
         path = path[3:] or '/'
     request.scope['path'] = _api_path(path, request) or path
     return await call_next(request)
+
+
+# ---------------------------------------------------------------- write gate
+#
+# Mutating tools (bt_transfer, bt_buy, bt_sell, ...) sign with this node's
+# local wallet, so over HTTP they only run for the operator: a request made
+# on this machine to localhost (no proxy in between, no foreign browser
+# origin), or one carrying BT_WRITE_TOKEN as a bearer token. Everyone else
+# gets a 403 — reads stay open. The stdio MCP server is local by nature.
+
+WRITE_TOKEN = os.environ.get('BT_WRITE_TOKEN', '')
+_LOOPBACK = {'127.0.0.1', '::1', 'localhost'}
+_PROXY_HEADERS = ('x-forwarded-for', 'x-forwarded-host', 'forwarded', 'x-real-ip')
+
+
+def _hostname(value: str) -> str:
+    v = value.split('://', 1)[-1].split('/', 1)[0]
+    if v.startswith('['):
+        return v[1:].split(']', 1)[0]
+    return v.rsplit(':', 1)[0] if v.count(':') == 1 else v
+
+
+def _is_operator(request: Request) -> bool:
+    if WRITE_TOKEN:
+        auth = request.headers.get('authorization', '')
+        if auth == f'Bearer {WRITE_TOKEN}':
+            return True
+    client = request.client.host if request.client else ''
+    if client not in _LOOPBACK and not client.startswith('127.'):
+        return False
+    if any(h in request.headers for h in _PROXY_HEADERS):
+        return False          # came in through the gateway, not from this box
+    if _hostname(request.headers.get('host', '')) not in _LOOPBACK:
+        return False
+    origin = request.headers.get('origin')
+    if origin and _hostname(origin) not in _LOOPBACK:
+        return False          # some web page the operator has open
+    return True
+
+
+_NAMED_NETWORKS = {'finney', 'test', 'local', 'archive', 'latent-lite'}
+
+
+def _write_denied(name, args=None):
+    tool = tools.TOOL_MAP.get(name)
+    net = (args or {}).get('network') if isinstance(args, dict) else None
+    if net is not None and net not in _NAMED_NETWORKS:
+        # a custom endpoint makes this server open a socket wherever told
+        return ('custom network endpoints are operator-only; use one of '
+                + ', '.join(sorted(_NAMED_NETWORKS)))
+    if tool is not None and tool.mutates:
+        return (f'{name} signs with this node\'s wallet and only runs for the '
+                'operator: call it from this machine on localhost, or send '
+                'Authorization: Bearer $BT_WRITE_TOKEN')
+    return None
 
 
 def _info():
@@ -106,9 +167,12 @@ def api_docs():
 
 
 @app.post('/api/call')
-def api_call(body: dict):
+def api_call(body: dict, request: Request):
     name = body.get('tool')
     args = body.get('args') or {}
+    if not _is_operator(request) and (denied := _write_denied(name, args)):
+        return JSONResponse(status_code=403, content={
+            'ok': False, 'tool': name, 'error': denied})
     t0 = time.time()
     try:
         result = tools.call_tool(name, args)
@@ -156,13 +220,20 @@ def api_chat(chat_id: str):
     return got
 
 
+_OPERATOR_ONLY = {'ok': False, 'error': 'only the operator can change saved chats'}
+
+
 @app.post('/api/agent/chats/{chat_id}/rename')
-def api_chat_rename(chat_id: str, body: dict):
+def api_chat_rename(chat_id: str, body: dict, request: Request):
+    if not _is_operator(request):
+        return JSONResponse(status_code=403, content=_OPERATOR_ONLY)
     return chats.rename(chat_id, str(body.get('title') or ''))
 
 
 @app.delete('/api/agent/chats/{chat_id}')
-def api_chat_delete(chat_id: str):
+def api_chat_delete(chat_id: str, request: Request):
+    if not _is_operator(request):
+        return JSONResponse(status_code=403, content=_OPERATOR_ONLY)
     return chats.delete(chat_id)
 
 
@@ -202,16 +273,75 @@ def api_agent_stop(body: dict):
     return agent.stop(str(body.get('chat') or ''))
 
 
+# ------------------------------------------------- browser-wallet transactions
+#
+# SubWallet (or any injectedWeb3 wallet) signs; this node composes and relays.
+# Errors are 4xx with a plain-words message: Cloudflare eats 5xx bodies.
+
+_TX_HINTS = (
+    ('Inability to pay some fees', 'Not enough free TAO to pay the network fee.'),
+    ('balance too low', 'Not enough free TAO for this amount plus the fee.'),
+    ('BadProof', 'The wallet signature was rejected by the chain.'),
+    ('Stale', 'This transaction was already used (stale nonce) — prepare it again.'),
+    ('AncientBirthBlock', 'The signing window expired — prepare it again.'),
+)
+
+
+def _tx_error(e: Exception):
+    msg = f'{e}'
+    for needle, hint in _TX_HINTS:
+        if needle in msg:
+            msg = f'{hint} ({needle})'
+            break
+    code = 400 if isinstance(e, ValueError) else 409
+    return JSONResponse(status_code=code, content={'ok': False, 'error': msg})
+
+
+@app.get('/api/tx')
+def api_tx(address: str = '', limit: int = 50):
+    try:
+        return {'ok': True, 'kinds': tx.KINDS,
+                'txs': tx.history(address=address or None, limit=limit)}
+    except Exception as e:
+        return _tx_error(e)
+
+
+@app.post('/api/tx/prepare')
+def api_tx_prepare(body: dict):
+    body = dict(body or {})
+    kind, address = body.pop('kind', ''), body.pop('address', '')
+    try:
+        return {'ok': True, **tx.prepare(kind, address, **body)}
+    except Exception as e:
+        return _tx_error(e)
+
+
+@app.post('/api/tx/submit')
+def api_tx_submit(body: dict):
+    try:
+        return tx.submit(str(body.get('id') or ''), str(body.get('signature') or ''),
+                         wait=body.get('wait', True) is not False)
+    except Exception as e:
+        return _tx_error(e)
+
+
+@app.get('/api/blocks')
+def api_blocks(limit: int = 60):
+    return blocks.days(limit=limit)
+
+
 # ------------------------------------------------------------ MCP over HTTP
 
-def _mcp_handle(msg: dict):
+def _mcp_handle(msg: dict, operator: bool = False):
     method = msg.get('method')
     id_ = msg.get('id')
     if id_ is None:  # notification
         return None
     if method == 'initialize':
         client_ver = (msg.get('params') or {}).get('protocolVersion')
-        result = {'protocolVersion': client_ver or PROTOCOL_VERSION,
+        # answer with the client's version only if we speak it, else ours
+        result = {'protocolVersion': client_ver if client_ver in PROTOCOL_VERSIONS
+                  else PROTOCOL_VERSION,
                   'capabilities': {'tools': {}}, 'serverInfo': SERVER_INFO}
     elif method == 'ping':
         result = {}
@@ -219,7 +349,10 @@ def _mcp_handle(msg: dict):
         result = {'tools': tools.list_tools()}
     elif method == 'tools/call':
         params = msg.get('params') or {}
+        denied = None if operator else _write_denied(params.get('name'), params.get('arguments'))
         try:
+            if denied:
+                raise PermissionError(denied)
             out = tools.call_tool(params.get('name'), params.get('arguments') or {})
             result = {'content': [{'type': 'text',
                                    'text': json.dumps(out, indent=2, default=str)}],
@@ -243,7 +376,7 @@ async def mcp_endpoint(request: Request):
             'jsonrpc': '2.0', 'id': None,
             'error': {'code': -32700, 'message': 'parse error'}})
     msgs = body if isinstance(body, list) else [body]
-    replies = [r for r in (_mcp_handle(m) for m in msgs) if r is not None]
+    replies = [r for r in (_mcp_handle(m, _is_operator(request)) for m in msgs) if r is not None]
     if not replies:
         return JSONResponse(status_code=202, content=None)
     return replies[0] if not isinstance(body, list) else replies

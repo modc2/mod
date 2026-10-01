@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { CopyConfig, CurvePoint, LeaderboardEntry, MarketStats } from "../lib/types";
+import type { CopyConfig, CurvePoint, LeaderboardEntry } from "../lib/types";
 import {
-  fetchCopies, fetchCurve, fetchLeaderboard, fetchMarket, fmtCompact,
+  fetchCopies, fetchCurve, fetchLeaderboard, fmtCompact,
   shortSs58, windowPhrase,
 } from "../lib/api";
 import { useCurrency, fmtValue } from "../context/CurrencyContext";
@@ -114,15 +114,6 @@ export default function Home() {
 
   return (
     <div className="space-y-7">
-      <section className="home-hero">
-        <h1 className="arcade-title">Copy the best <span className="text-green-400">Bittensor</span> traders.</h1>
-        <p className="arcade-prose mt-3">
-          Pick a trader. Say how much TAO should follow them. We mirror
-          what they hold across subnets, and keep it lined up as they move.
-        </p>
-        <HeroStats traders={cov?.priced} />
-      </section>
-
       {active.length > 0 && (
         <section className="space-y-3">
           <SectionHead title="You are copying" href="/portfolio" cta="MANAGE" />
@@ -357,7 +348,7 @@ function SectionHead({
           title ("Top traders · last 7 days") and an ellipsis ate it. */}
       <h2 className="font-display text-pixel-white flex-1 min-w-0 break-words">
         {title}
-        {count && <span className="text-pixel-gray text-xs ml-2 font-mono">({count})</span>}
+        {count && <span className="section-count text-pixel-gray text-xs ml-2 font-mono">({count})</span>}
       </h2>
       {href && cta && (
         <Link href={href} className="pixel-btn px-3 py-1 text-[11px] no-underline text-pixel-gray-light shrink-0">
@@ -377,39 +368,6 @@ function Step({ n, title, children }: { n: string; title: string; children: Reac
       </div>
       <p className="arcade-prose-sm">{children}</p>
     </div>
-  );
-}
-
-/**
- * The market is on. Four live numbers under the pitch — TAO's price, what
- * the alpha market is worth, what traded today, and how many wallets the
- * index watches — so the front door opens onto a running exchange rather
- * than a static sales page. One cached /market call, nothing that blocks.
- */
-function HeroStats({ traders }: { traders?: number }) {
-  const { currency, usdPerTao } = useCurrency();
-  const [m, setM] = useState<MarketStats | null>(null);
-  useEffect(() => {
-    fetchMarket().then(setM).catch(() => {});
-  }, []);
-  const show = (tao: number) =>
-    currency === "USD" && usdPerTao ? `$${fmtCompact(tao * usdPerTao)}` : `${fmtCompact(tao)} τ`;
-  return (
-    <div className="hero-stats">
-      <HeroStat k="TAO" v={m?.tao_usd ? `$${m.tao_usd.toFixed(2)}` : "—"} tone="text-green-400" />
-      <HeroStat k="alpha mcap" v={m ? show(m.total_market_cap_tao) : "—"} />
-      <HeroStat k="24h volume" v={m ? show(m.volume_24h_tao) : "—"} />
-      <HeroStat k="traders indexed" v={traders != null ? String(traders) : "—"} />
-    </div>
-  );
-}
-
-function HeroStat({ k, v, tone }: { k: string; v: string; tone?: string }) {
-  return (
-    <span className="hero-stat">
-      <span className="hero-stat-k">{k}</span>
-      <b className={tone}>{v}</b>
-    </span>
   );
 }
 

@@ -1,8 +1,8 @@
 "use client";
 
-// The ▦ SCORE MARKET — a searchable shelf of score functions. Its ONE home
-// is the sidebar's STRATS tab (SCORE FUNCTIONS section); the board's ƒ SCORE
-// panel only links here. Type "consistent roi" and every listing (curated +
+// The ▦ SCORE MARKET — a searchable shelf of score functions. Its home is
+// the ƒ SCORE FUNCTIONS tab over the trader board (CopyTrading, `embedded`);
+// the STRATS tab's SCORE FUNCTIONS section mounts the same shelf folded. Type "consistent roi" and every listing (curated +
 // community) mentioning both words surfaces; USE hands the source to the
 // host's setFormula — StratsTab broadcasts it over the formula bus into the
 // board's score box, so a listing still compiles through the normal editor
@@ -26,6 +26,9 @@ import {
 interface Props {
   formula: string;
   setFormula: (f: string) => void;
+  /** Mounted as a whole tab (the board's ƒ SCORE FUNCTIONS): open from the
+      start, no ✕, and the list gets the full height instead of a 16rem box. */
+  embedded?: boolean;
 }
 
 const LANG_BADGE: Record<string, string> = { expr: "ƒ", js: "JS ƒ", py: "PY ƒ" };
@@ -45,8 +48,8 @@ function equationOf(source: string): string {
   return lines[lines.length - 1] ?? "";
 }
 
-export default function ScoreMarket({ formula, setFormula }: Props) {
-  const [open, setOpen] = useState(false);
+export default function ScoreMarket({ formula, setFormula, embedded = false }: Props) {
+  const [open, setOpen] = useState(embedded);
   const [query, setQuery] = useState("");
   const [community, setCommunity] = useState<ScoreFnListing[]>([]);
   const [note, setNote] = useState<string | null>(null);
@@ -150,16 +153,18 @@ export default function ScoreMarket({ formula, setFormula }: Props) {
         >
           ƒ CODE
         </button>
-        <button
-          className="pixel-btn text-[11px] px-1.5 py-0.5 text-pixel-gray hover:text-red-400"
-          onClick={() => setOpen(false)}
-          title="Close the market"
-        >
-          ✕
-        </button>
+        {!embedded && (
+          <button
+            className="pixel-btn text-[11px] px-1.5 py-0.5 text-pixel-gray hover:text-red-400"
+            onClick={() => setOpen(false)}
+            title="Close the market"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
-      <div className="max-h-64 overflow-y-auto space-y-1.5 pr-0.5">
+      <div className={`${embedded ? "max-h-[70vh]" : "max-h-64"} overflow-y-auto space-y-1.5 pr-0.5`}>
         {listings.length === 0 && (
           <div className="text-[11px] text-pixel-gray py-2">
             {mineOnly

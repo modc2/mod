@@ -1,18 +1,23 @@
 'use client';
 /* Subnet + trader detail overlays. Mounted once in the shell; driven by
  * lib/overlay (and so by the chat agent's bt_view). */
-import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { call, Flow, Position, SubnetRow } from '@/lib/api';
 import { useData } from '@/lib/data';
-import { useOverlay } from '@/lib/overlay';
+import { SUBNET_TABS, SubnetTab, useOverlay } from '@/lib/overlay';
 import { compact, fmt, fmtPrice, RANGES, short, when } from '@/lib/format';
 import LineChart, { Pt } from './LineChart';
 import { Cells, Pct, Ranges, SideTag, Spinner, SubnetLogo } from './ui';
+import { NewsItem, NewsList } from './News';
+import RepoLine from './Repo';
+import Trades from './Trades';
+import Ticket from './Ticket';
 
-function Shell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+function Shell({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
   return (
     <div className="ovl open" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="ovl-card">{children}</div>
+      <div className={'ovl-card' + (wide ? ' wide' : '')}>{children}</div>
     </div>
   );
 }
@@ -23,27 +28,43 @@ interface Validators { neurons: number; top: { uid: number; hotkey?: string; sta
   validator_trust?: number; dividends?: number; emission?: number }[] }
 const VAL_CACHE: Record<number, Validators> = {};
 
-function SubnetOverlay({ netuid }: { netuid: number }) {
-  const { bySubnet, reloadScreener, screener } = useData();
-  const { close, openTrader } = useOverlay();
-  const r: SubnetRow | undefined = bySubnet[netuid];
-  const [range, setRange] = useState(0);
-  const [series, setSeries] = useState<Pt[] | null>(null);
-  const [err, setErr] = useState('');
+/* the subnet's latest headlines from the local news index; scrape-now on demand */
+function SubnetNews({ netuid }: { netuid: number }) {
+  const [items, setItems] = useState<NewsItem[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [busy, setBusy] = useState('');
+  const { close } = useOverlay();
+  const load = useCallback(() => call('bt_news', { netuid, days: 0, limit: 6, kind: 'news,blog,social,release' })
+    .then(j => { setItems(j.result.items); setTotal(j.result.total); })
+    .catch(() => setItems([])), [netuid]);
+  useEffect(() => { setItems(null); load(); }, [load]);
+  const scrape = () => {
+    setBusy('scraping…');
+    call('bt_news_refresh', { netuid })
+      .then(j => { setBusy(`+${j.result.added} new`); load(); })
+      .catch(e => setBusy(e.message))
+      .finally(() => setTimeout(() => setBusy(''), 4000));
+  };
+  return (
+    <>
+      <div className="nhead sn-tabhead">
+        <span className="muted">Headlines from the local news index</span>
+        <span className="nhead-r">
+          {total > 0 && <Link href={`/news?netuid=${netuid}`} onClick={close}>all {total} →</Link>}
+          <button className="linkish" onClick={scrape} disabled={busy === 'scraping…'}>{busy || 'scrape now'}</button>
+        </span>
+      </div>
+      {items == null ? <Spinner /> : items.length
+        ? <NewsList items={items} showSubnet={false} compact />
+        : <span className="muted">No news indexed for this subnet yet — the scraper reaches every subnet within a few hours, or scrape now.</span>}
+    </>
+  );
+}
+
+/* top validators — a live chain read, so it only runs once its tab is opened */
+function SubnetValidators({ netuid }: { netuid: number }) {
   const [vals, setVals] = useState<Validators | null>(VAL_CACHE[netuid] || null);
   const [valErr, setValErr] = useState('');
-
-  useEffect(() => { if (!screener) reloadScreener(); }, [screener, reloadScreener]);
-
-  useEffect(() => {
-    let live = true;
-    setSeries(null); setErr('');
-    call('bt_history', { netuid, hours: RANGES[range].hours, points: 400 })
-      .then(j => { if (live) setSeries((j.result.series || []).map((p: any) => ({ t: p.t, v: p.price }))); })
-      .catch(e => live && setErr(e.message));
-    return () => { live = false; };
-  }, [netuid, range]);
-
   useEffect(() => {
     let live = true;
     if (VAL_CACHE[netuid]) { setVals(VAL_CACHE[netuid]); return; }
@@ -53,6 +74,79 @@ function SubnetOverlay({ netuid }: { netuid: number }) {
       .catch(e => live && setValErr(e.message));
     return () => { live = false; };
   }, [netuid]);
+  if (valErr) return <span className="muted">{valErr}</span>;
+  if (!vals) return <p className="muted"><Spinner /> reading the metagraph from the chain…</p>;
+  if (!vals.top?.length) return <span className="muted">No neurons found.</span>;
+  return (
+    <div className="scroll-x">
+      <table><thead><tr><th>UID</th><th>Hotkey</th><th className="num">Stake τ</th>
+        <th className="num">VTrust</th><th className="num">Dividends</th><th className="num">Emission</th></tr></thead>
+        <tbody>{vals.top.map(n => (
+          <tr key={n.uid}><td className="num">{n.uid}</td>
+            <td className="num" title={n.hotkey}>{short(n.hotkey)}</td>
+            <td className="num">{compact(n.stake)}</td>
+            <td className="num">{fmt(n.validator_trust, 3)}</td>
+            <td className="num">{fmt(n.dividends, 3)}</td>
+            <td className="num">{fmt(n.emission, 3)}</td></tr>
+        ))}</tbody></table>
+      <p className="muted" style={{ marginTop: 8 }}>{vals.neurons} neurons registered on this subnet.</p>
+    </div>
+  );
+}
+
+function SubnetChart({ netuid }: { netuid: number }) {
+  const [range, setRange] = useState(0);
+  const [series, setSeries] = useState<Pt[] | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    setSeries(null); setErr('');
+    call('bt_history', { netuid, hours: RANGES[range].hours, points: 400 })
+      .then(j => { if (live) setSeries((j.result.series || []).map((p: any) => ({ t: p.t, v: p.price }))); })
+      .catch(e => live && setErr(e.message));
+    return () => { live = false; };
+  }, [netuid, range]);
+  return (
+    <>
+      <Ranges sel={range} onSel={setRange} />
+      {err ? <div className="chart-empty muted">{err}</div>
+        : series == null ? <div className="chart-empty muted"><Spinner /></div>
+        : <LineChart series={series} hours={RANGES[range].hours} fmtY={v => `τ ${fmtPrice(v)}`} />}
+    </>
+  );
+}
+
+const TAB_LABEL: Record<SubnetTab, string> = {
+  overview: 'Overview', trades: 'Trades', validators: 'Validators', news: 'News',
+};
+
+function SubnetOverlay({ netuid }: { netuid: number }) {
+  const { bySubnet, reloadScreener, screener } = useData();
+  const { close, openTrader, openSubnet, tab, setTab } = useOverlay();
+  const r: SubnetRow | undefined = bySubnet[netuid];
+  /* a tab mounts the first time it is shown and then stays mounted (hidden),
+   * so flipping back and forth never refetches */
+  const [seen, setSeen] = useState<Set<SubnetTab>>(() => new Set([tab]));
+  useEffect(() => { setSeen(s => s.has(tab) ? s : new Set(s).add(tab)); }, [tab]);
+
+  useEffect(() => { if (!screener) reloadScreener(); }, [screener, reloadScreener]);
+
+  /* 1-4 pick a tab, [ and ] step to the neighbouring subnet (same tab) */
+  const ids = Object.keys(bySubnet).map(Number).sort((a, b) => a - b);
+  const at = ids.indexOf(netuid);
+  const prev = at > 0 ? ids[at - 1] : null, next = at >= 0 && at < ids.length - 1 ? ids[at + 1] : null;
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return;
+      const i = '1234'.indexOf(e.key);
+      if (i >= 0) setTab(SUBNET_TABS[i]);
+      else if (e.key === '[' && prev != null) openSubnet(prev, tab);
+      else if (e.key === ']' && next != null) openSubnet(next, tab);
+    };
+    addEventListener('keydown', key);
+    return () => removeEventListener('keydown', key);
+  }, [setTab, openSubnet, prev, next, tab]);
 
   if (!r) return (
     <Shell onClose={close}>
@@ -62,62 +156,75 @@ function SubnetOverlay({ netuid }: { netuid: number }) {
     </Shell>
   );
 
+  const pane = (t: SubnetTab, body: ReactNode) => seen.has(t)
+    ? <div role="tabpanel" id={`sn-pane-${t}`} aria-labelledby={`sn-tab-${t}`} hidden={tab !== t}>{body}</div>
+    : null;
+
+  /* a subnet IS a market: the pair is its alpha against τ, the ticket sits beside the chart */
   return (
-    <Shell onClose={close}>
+    <Shell onClose={close} wide>
       <div className="ovl-head">
         <SubnetLogo logo={r.logo} symbol={r.symbol} big />
         <h3>{r.name || 'subnet ' + r.netuid}</h3>
-        <span className="tag">netuid {r.netuid}</span>
-        <span className="sn-sym" style={{ fontSize: 14 }}>{r.symbol}</span>
+        <span className="mkt-pair" title={`netuid ${r.netuid}`}>{r.symbol || 'α'}<i>/</i>τ<em>SN{r.netuid}</em></span>
+        <span className="sn-step">
+          <button onClick={() => prev != null && openSubnet(prev, tab)} disabled={prev == null}
+                  title={prev != null ? `subnet ${prev}  [` : ''} aria-label="Previous subnet">‹</button>
+          <button onClick={() => next != null && openSubnet(next, tab)} disabled={next == null}
+                  title={next != null ? `subnet ${next}  ]` : ''} aria-label="Next subnet">›</button>
+        </span>
         <button className="ovl-close" onClick={close} aria-label="Close">✕</button>
-      </div>
-      <div className="idlinks">
-        {r.github && <a href={r.github} target="_blank" rel="noopener noreferrer">⌥ GitHub</a>}
-        {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer">↗ Website</a>}
-        {r.discord && (/^https?:\/\//.test(r.discord)
-          ? <a href={r.discord} target="_blank" rel="noopener noreferrer">◆ Discord</a>
-          : <span className="na" title="Discord">◆ {r.discord}</span>)}
-        {!r.github && <span className="na">no public repo — ask them why</span>}
-        {r.owner && <button className="na linkish" onClick={() => openTrader(r.owner!)}
-                            title={r.owner}>owner {short(r.owner)}</button>}
       </div>
       <div className="bigprice">
         <b>τ {fmtPrice(r.price)}</b>
         <span className="delta"><Pct v={r.change_1h} /> <span className="muted">1h</span></span>
         <span className="delta"><Pct v={r.change_24h} /> <span className="muted">24h</span></span>
         <span className="delta"><Pct v={r.change_7d} /> <span className="muted">7d</span></span>
+        <span className="mkt-stats">
+          <span><em>Vol 24h</em>τ {r.vol_24h != null ? compact(r.vol_24h) : '—'}</span>
+          <span><em>Liquidity</em>τ {compact(r.tao_in)}</span>
+          <span><em>Mcap</em>τ {compact(r.market_cap)}</span>
+        </span>
       </div>
-      <Ranges sel={range} onSel={setRange} />
-      {err ? <div className="chart-empty muted">{err}</div>
-        : series == null ? <div className="chart-empty muted"><Spinner /></div>
-        : <LineChart series={series} hours={RANGES[range].hours} fmtY={v => `τ ${fmtPrice(v)}`} />}
-      <Cells items={[
-        ['Market cap τ', compact(r.market_cap)],
-        ['Vol 24h τ', r.vol_24h != null ? compact(r.vol_24h) : '—'],
-        ['TAO liquidity', compact(r.tao_in)],
-        ['Alpha in pool', compact(r.alpha_in)],
-        ['Alpha staked', compact(r.alpha_out)],
-        ['Emission', fmt(r.emission, 4)],
-        ['Tempo', r.tempo ?? '—'],
-        ['Registered at block', r.registered_at ? fmt(r.registered_at, 0) : '—'],
-      ]} />
-      {r.description && <p className="desc">{r.description}</p>}
-      <div className="ovl-sub">Top validators</div>
-      {valErr ? <span className="muted">{valErr}</span> : !vals ? <Spinner /> : vals.top?.length ? (
-        <div className="scroll-x">
-          <table><thead><tr><th>UID</th><th>Hotkey</th><th className="num">Stake τ</th>
-            <th className="num">VTrust</th><th className="num">Dividends</th><th className="num">Emission</th></tr></thead>
-            <tbody>{vals.top.map(n => (
-              <tr key={n.uid}><td className="num">{n.uid}</td>
-                <td className="num" title={n.hotkey}>{short(n.hotkey)}</td>
-                <td className="num">{compact(n.stake)}</td>
-                <td className="num">{fmt(n.validator_trust, 3)}</td>
-                <td className="num">{fmt(n.dividends, 3)}</td>
-                <td className="num">{fmt(n.emission, 3)}</td></tr>
-            ))}</tbody></table>
-          <p className="muted" style={{ marginTop: 8 }}>{vals.neurons} neurons registered on this subnet.</p>
+      <div className="mkt">
+      <div className="mkt-main">
+      <div className="sn-tabs" role="tablist" aria-label="Subnet sections">
+        {SUBNET_TABS.map((t, i) => (
+          <button key={t} role="tab" id={`sn-tab-${t}`} aria-controls={`sn-pane-${t}`}
+                  aria-selected={tab === t} className={tab === t ? 'on' : ''}
+                  onClick={() => setTab(t)} title={`${TAB_LABEL[t]}  (${i + 1})`}>{TAB_LABEL[t]}</button>
+        ))}
+      </div>
+      {pane('overview', <>
+        <SubnetChart netuid={netuid} />
+        <Cells items={[
+          ['Market cap τ', compact(r.market_cap)],
+          ['Vol 24h τ', r.vol_24h != null ? compact(r.vol_24h) : '—'],
+          ['TAO liquidity', compact(r.tao_in)],
+          ['Alpha in pool', compact(r.alpha_in)],
+          ['Alpha staked', compact(r.alpha_out)],
+          ['Emission', fmt(r.emission, 4)],
+          ['Tempo', r.tempo ?? '—'],
+          ['Registered at block', r.registered_at ? fmt(r.registered_at, 0) : '—'],
+        ]} />
+        {r.description && <p className="desc">{r.description}</p>}
+        <div className="idlinks">
+          {r.github && <a href={r.github} target="_blank" rel="noopener noreferrer">⌥ GitHub</a>}
+          {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer">↗ Website</a>}
+          {r.discord && (/^https?:\/\//.test(r.discord)
+            ? <a href={r.discord} target="_blank" rel="noopener noreferrer">◆ Discord</a>
+            : <span className="na" title="Discord">◆ {r.discord}</span>)}
+          {r.owner && <button className="na linkish" onClick={() => openTrader(r.owner!)}
+                              title={r.owner}>owner {short(r.owner)}</button>}
         </div>
-      ) : <span className="muted">No neurons found.</span>}
+        <RepoLine github={r.github} />
+      </>)}
+      {pane('trades', <Trades netuid={netuid} />)}
+      {pane('validators', <SubnetValidators netuid={netuid} />)}
+      {pane('news', <SubnetNews netuid={netuid} />)}
+      </div>
+      <aside className="mkt-side"><Ticket netuid={netuid} /></aside>
+      </div>
     </Shell>
   );
 }

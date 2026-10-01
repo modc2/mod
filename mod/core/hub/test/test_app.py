@@ -1,7 +1,9 @@
 """hub app (app/server.js) — the real node server against the fake tree.
 
 This is the PUBLIC surface, so this is where privacy must hold: a module
-with an enabled record under {HOME}/.mod/build/private/ is simply absent.
+with an enabled record under {HOME}/.mod/build/private/ is simply absent, and
+so is any module the listing policy ({HOME}/.mod/build/visibility.json) has
+not made public.
 The server is zero-dep; one process serves the whole file.
 
 Run: pytest core/hub/test
@@ -76,8 +78,26 @@ def test_mods_hides_private_modules(app):
     assert headers["Content-Type"] == "application/json"
     names = {m["name"] for m in json.loads(body)}
     assert "secret" not in names          # enabled private record → absent
-    assert "alpha" in names               # enabled: false → public
+    assert "alpha" in names               # enabled: false + listed → public
+    assert "draft" not in names           # never made public → private by default
     assert not any(n.startswith((".", "_")) for n in names)
+
+
+def test_listing_policy_is_live_and_fails_closed(app):
+    base, home = app
+    policy = home / ".mod" / "build" / "visibility.json"
+    saved = policy.read_text()
+    try:
+        policy.write_text(json.dumps({"default": "public", "modules": {"alpha": "private"}}))
+        names = {m["name"] for m in json.loads(_get(base, "/hub/_mods")[2])}
+        assert "draft" in names and "alpha" not in names
+        assert "secret" not in names      # encryption beats a public default
+        policy.write_text("{corrupt")
+        assert json.loads(_get(base, "/hub/_mods")[2]) == []
+        policy.unlink()
+        assert json.loads(_get(base, "/hub/_mods")[2]) == []
+    finally:
+        policy.write_text(saved)
 
 
 def test_mods_row_shape(app):
@@ -101,7 +121,7 @@ def test_doc_serves_readme_and_skill(app):
 
 def test_doc_refuses_private_missing_and_traversal(app):
     base, _ = app
-    for name in ("secret", "no-such-mod", "..%2F..%2Fetc", "_priv", ".hidden"):
+    for name in ("secret", "draft", "no-such-mod", "..%2F..%2Fetc", "_priv", ".hidden"):
         with pytest.raises(urllib.error.HTTPError) as e:
             _get(base, "/hub/_doc/" + name)
         assert e.value.code == 404

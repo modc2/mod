@@ -9,7 +9,7 @@ import { Pct, Section, Spark, SubnetLogo, Tabs } from '@/components/ui';
 
 const COLS: { key: keyof SubnetRow; label: string; num: boolean; nosort?: boolean }[] = [
   { key: 'netuid', label: '#', num: true },
-  { key: 'name', label: 'Subnet', num: false },
+  { key: 'name', label: 'Market', num: false },
   { key: 'price', label: 'Price τ', num: true },
   { key: 'change_1h', label: '1h', num: true },
   { key: 'change_24h', label: '24h', num: true },
@@ -18,13 +18,14 @@ const COLS: { key: keyof SubnetRow; label: string; num: boolean; nosort?: boolea
   { key: 'vol_24h', label: 'Vol 24h τ', num: true },
   { key: 'tao_in', label: 'Liquidity τ', num: true },
   { key: 'spark', label: '24h trend', num: false, nosort: true },
+  { key: 'symbol', label: '', num: false, nosort: true },
 ];
 
 /* 24h move → tile color: green up, red down, saturating at ±15% */
 function heatColor(v?: number | null) {
-  if (v == null) return 'hsl(230,20%,45%)';
-  const k = Math.min(Math.abs(v) / 15, 1);
-  return v >= 0 ? `hsl(130,${35 + 30 * k}%,${42 - 12 * k}%)` : `hsl(2,${40 + 35 * k}%,${48 - 14 * k}%)`;
+  if (v == null) return 'hsl(220,8%,22%)';
+  const k = Math.sqrt(Math.min(Math.abs(v) / 15, 1));    /* sqrt: small moves still read */
+  return v >= 0 ? `hsl(156,${18 + 50 * k}%,${21 + 14 * k}%)` : `hsl(357,${20 + 52 * k}%,${23 + 17 * k}%)`;
 }
 
 export default function Markets() {
@@ -104,8 +105,9 @@ export default function Markets() {
               <td className="num">{r.vol_24h != null ? compact(r.vol_24h) : <span className="muted">—</span>}</td>
               <td className="num">{compact(r.tao_in)}</td>
               <td><Spark pts={r.spark} dir={r.change_24h} /></td>
+              <td className="mkt-go"><button onClick={e => { e.stopPropagation(); openSubnet(r.netuid); }}>Trade</button></td>
             </tr>
-          )) : <tr><td colSpan={10} className="muted">No matches.</td></tr>}
+          )) : <tr><td colSpan={COLS.length} className="muted">No matches.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -113,7 +115,7 @@ export default function Markets() {
 
   return (
     <Section id="markets" title="Markets."
-      lead="Every alpha market on the chain — live prices, changes, volume and 24-hour trend, straight from the built-in open indexer.">
+      lead="Every subnet is a market: its alpha trades against τ in an on-chain pool. Live prices, volume and trend from the open indexer — open one to chart it and trade it.">
       <div className="card">
         <div className="head-row">
           <input ref={box} value={search} onChange={e => setSearch(e.target.value)}

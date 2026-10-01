@@ -2,33 +2,32 @@
 /* The connected wallet: one address the whole console follows.
  *
  * Three kinds — a local coldkey on this node (▣), a browser extension
- * account via the standard window.injectedWeb3 bridge (◈), or any ss58 you
- * just want to watch (◎). Nothing is signed from here; the value is cached in
- * localStorage so the bar paints before the chain answers. */
+ * account — SubWallet, Talisman, polkadot{.js} — via the standard
+ * window.injectedWeb3 bridge (◈, see lib/injected.ts), or any ss58 you just
+ * want to watch (◎). Extension accounts can sign: lib/signer.ts. The value is
+ * cached in localStorage so the bar paints before the chain answers. */
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { call } from './api';
+import * as inj from './injected';
 
 export interface Wallet {
   addr: string; name: string | null; local: boolean; ext: string | null;
+  extId?: string | null;          /* injectedWeb3 key — what can sign for it */
   tao: number | null; free?: number | null; staked?: number | null;
 }
 
-export const EXTS = [
-  { id: 'subwallet-js', name: 'SubWallet', url: 'https://www.subwallet.app/download.html' },
-  { id: 'talisman', name: 'Talisman', url: 'https://talisman.xyz/download' },
-] as const;
-const DAPP = 'bt · Bittensor explorer';
+export const EXTS = inj.KNOWN;
 const WKEY = 'bt.wallet', BAR_KEY = 'bt.wbar', RECENT_KEY = 'bt.recent';
 
 export const kindGlyph = (w: Wallet) => (w.local ? '▣' : w.ext ? '◈' : '◎');
 export const kindText = (w: Wallet) =>
   w.local ? `local wallet · ${w.name}` : w.ext ? `${w.ext}${w.name ? ' · ' + w.name : ''}` : 'watch-only';
 
-interface ExtAccount { addr: string; name: string; ext: string }
+export interface ExtAccount { addr: string; name: string; ext: string; extId: string }
 
 interface WalletCtx {
   wallet: Wallet | null;
-  connect: (addr: string, name?: string | null, local?: boolean, ext?: string | null) => void;
+  connect: (addr: string, name?: string | null, local?: boolean, ext?: string | null, extId?: string | null) => void;
   disconnect: () => void;
   refresh: () => Promise<void>;
   refreshing: boolean;
@@ -37,14 +36,14 @@ interface WalletCtx {
   barHidden: boolean; setBarHidden: (h: boolean) => void;
   popOpen: boolean; setPopOpen: (o: boolean) => void;
   extPresent: (id: string) => boolean;
+  extList: () => (inj.ExtMeta & { installed: boolean })[];
+  canSign: boolean;              /* connected through a wallet that is here now */
+  note: string;
   extConnect: (id: string) => Promise<{ msg?: string; accounts?: ExtAccount[] }>;
   localWallets: { name: string; coldkey?: string; hotkeys?: string[] }[] | null;
 }
 
 const Ctx = createContext<WalletCtx | null>(null);
-
-const injected = (): Record<string, any> =>
-  (typeof window !== 'undefined' && (window as any).injectedWeb3) || {};
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -54,6 +53,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [refreshing, setRefreshing] = useState(false);
   const [localWallets, setLocal] = useState<WalletCtx['localWallets']>(null);
   const [, bump] = useState(0);
+  const [note, setNote] = useState('');
   const walletRef = useRef<Wallet | null>(null);
   walletRef.current = wallet;
 
@@ -75,8 +75,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setRefreshing(false);
   }, []);
 
-  const connect = useCallback((addr: string, name: string | null = null, local = false, ext: string | null = null) => {
-    const w: Wallet = { addr, name, local, ext, tao: null };
+  const connect = useCallback((addr: string, name: string | null = null, local = false,
+                               ext: string | null = null, extId: string | null = null) => {
+    const w: Wallet = { addr, name, local, ext, extId: extId || inj.metaFor(ext)?.id || null, tao: null };
+    setNote('');
     if (!local && !ext) {
       setRecent(prev => {
         const r = [addr, ...prev.filter(a => a !== addr)].slice(0, 5);
@@ -114,31 +116,49 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!saved) { const w = ws.find(x => x.coldkey); if (w) connect(w.coldkey!, w.name, true); }
     }).catch(() => setLocal([]));
     /* extensions inject shortly after load — re-render once they have */
-    const t = setTimeout(() => bump(n => n + 1), 1200);
-    return () => clearTimeout(t);
+    let live = true;
+    inj.whenInjected(undefined, 3000).then(() => { if (live) bump(n => n + 1); });
+    return () => { live = false; };
   }, [connect]);
 
   const extConnect = useCallback(async (id: string) => {
-    const meta = EXTS.find(e => e.id === id)!;
-    const ext = injected()[id];
-    if (!ext) { window.open(meta.url, '_blank', 'noopener'); return {}; }
+    const meta = inj.metaFor(id) || { id, name: id, url: undefined };
+    if (!(await inj.whenInjected(id, 1500))) {
+      if (meta.url) window.open(meta.url, '_blank', 'noopener');
+      return { msg: `${meta.name} is not installed in this browser — install it, then reload.` };
+    }
     try {
-      const inj = await ext.enable(DAPP);
-      let accs: { address: string; name?: string }[] = [];
-      if (inj.accounts?.get) accs = await inj.accounts.get();
-      else accs = await new Promise((res, rej) => {
-        const un = inj.accounts.subscribe((a: any) => { res(a); try { un && un(); } catch { /* */ } });
-        setTimeout(() => rej(new Error('no answer from the extension')), 8000);
-      });
-      accs = (accs || []).filter(a => a && a.address && !a.address.startsWith('0x'));
-      if (!accs.length) return { msg: `No substrate accounts shared. Open ${meta.name} and allow this site to see an account.` };
-      if (accs.length === 1) { connect(accs[0].address, accs[0].name || meta.name, false, meta.name); return {}; }
+      const accs = await inj.accounts(id);
+      if (!accs.length) return { msg: `No Bittensor accounts shared. Open ${meta.name}, allow this site, and pick a Substrate (not Ethereum) account.` };
+      if (accs.length === 1) { connect(accs[0].address, accs[0].name || meta.name, false, meta.name, id); return {}; }
       return { msg: `${meta.name} · pick an account`,
-               accounts: accs.map(a => ({ addr: a.address, name: a.name || meta.name, ext: meta.name })) };
+               accounts: accs.map(a => ({ addr: a.address, name: a.name || meta.name, ext: meta.name, extId: id })) };
     } catch (e) {
-      return { msg: `${meta.name}: ${(e as Error).message || 'connection rejected'}` };
+      return { msg: inj.rejectText(e, meta.name) };
     }
   }, [connect]);
+
+  /* Follow the wallet: if the user stops sharing the connected account, keep
+   * watching the address but stop offering to sign with it. */
+  const extId = wallet?.extId || (wallet?.ext ? inj.metaFor(wallet.ext)?.id : null) || null;
+  useEffect(() => {
+    if (!extId) return;
+    let un: (() => void) | null = null, live = true;
+    inj.whenInjected(extId, 3000).then(ok => {
+      if (!ok || !live) return;
+      inj.subscribe(extId, accs => {
+        const w = walletRef.current;
+        if (!w || (w.extId !== extId && w.ext !== inj.metaFor(extId)?.name)) return;
+        const hit = accs.find(a => a.address === w.addr);
+        if (hit) { if (hit.name && hit.name !== w.name) save({ ...w, name: hit.name, extId }); else if (!w.extId) save({ ...w, extId }); }
+        else if (accs.length) {   /* empty = locked/loading, not a revoke */
+          save({ ...w, ext: null, extId: null });
+          setNote(`${inj.metaFor(extId)?.name || 'The wallet'} no longer shares this account — watching it read-only.`);
+        }
+      }).then(u => { if (live) un = u; else u(); }).catch(() => { /* not authorised yet — connect asks */ });
+    });
+    return () => { live = false; if (un) un(); };
+  }, [extId]);
 
   /* every new pick gets a fresh balance */
   const addr = wallet?.addr;
@@ -147,7 +167,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value: WalletCtx = {
     wallet, connect, disconnect: () => save(null), refresh, refreshing, setBalance, recent,
     barHidden, setBarHidden, popOpen, setPopOpen,
-    extPresent: id => !!injected()[id], extConnect, localWallets,
+    extPresent: inj.present, extList: inj.wallets, extConnect, localWallets,
+    canSign: !!(extId && inj.present(extId)), note,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

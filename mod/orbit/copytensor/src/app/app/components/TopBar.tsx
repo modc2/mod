@@ -8,9 +8,12 @@ import RpcPoolChip from "./RpcPoolChip";
 import CurrencyToggle from "./CurrencyToggle";
 import { useSidebar, type SidebarPanel } from "../context/SidebarContext";
 import { useFilters } from "../context/FiltersContext";
+import { useAgentDock } from "../context/AgentDockContext";
+import AgentBot from "./AgentBot";
 
 // Four doors on the rail. Everything a first-timer doesn't need — baskets,
-// the agent, the drawer, skins, the RPC readout — lives behind MORE.
+// the drawer, skins, the RPC readout — lives behind MORE. The agent is not
+// a door: it's the robot in the corner, summoned over whatever page you're on.
 const NAV = [
   { href: "/", label: "HOME" },
   { href: "/traders", label: "TRADERS" },
@@ -20,7 +23,6 @@ const NAV = [
 
 const MORE_LINKS = [
   { href: "/strats", label: "STRATS", hint: "baskets of traders" },
-  { href: "/agent", label: "AGENT", hint: "ask for a strat" },
 ];
 
 const DRAWER: { id: SidebarPanel; label: string }[] = [
@@ -163,14 +165,16 @@ export default function TopBar() {
                   </div>
                 )}
               </div>
+              <AgentButton />
             </div>
           </div>
 
+          <div className="ml-auto lg:hidden"><AgentButton /></div>
           <button
             onClick={() => setMenu((m) => !m)}
             aria-expanded={menu}
             aria-label="Menu"
-            className={`pixel-btn topbar-ctl px-3 ml-auto lg:hidden ${menu ? "nav-active" : ""}`}
+            className={`pixel-btn topbar-ctl px-3 lg:hidden ${menu ? "nav-active" : ""}`}
           >
             {menu ? "✕" : "☰"}
           </button>
@@ -182,7 +186,7 @@ export default function TopBar() {
         {menu && (
           <div className="lg:hidden flex flex-col gap-2 pt-2 border-t-2 border-pixel-border">
             {searchBox}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {MORE_LINKS.map((l) => (
                 <Link key={l.href} href={l.href} className="pixel-btn topbar-ctl no-underline">{l.label}</Link>
               ))}
@@ -205,5 +209,38 @@ export default function TopBar() {
         )}
       </div>
     </header>
+  );
+}
+
+/**
+ * The robot in the corner. Opens the desk agent over the current page; on
+ * /agent it's already full-screen, so the button just reads as lit. A
+ * number on it means writes are parked waiting for your answer — the agent
+ * is blocked on them — and a blinking antenna means it's mid-reply.
+ */
+function AgentButton() {
+  const dock = useAgentDock();
+  const path = usePathname() || "";
+  const router = useRouter();
+  if (!dock) return null;
+  const onPage = path === "/agent";
+  const lit = dock.open || onPage;
+  const label = dock.pending
+    ? `Agent — ${dock.pending} write${dock.pending === 1 ? "" : "s"} waiting for your OK`
+    : dock.busy ? "Agent — working" : "Talk to the agent";
+  return (
+    <button
+      onClick={() => (onPage ? router.back() : dock.toggle())}
+      aria-label={label}
+      aria-expanded={dock.open}
+      title={label}
+      className={`pixel-btn topbar-ctl agent-btn ${lit ? "nav-active" : ""} ${
+        dock.busy ? "agent-btn--busy" : ""
+      } ${dock.pending ? "agent-btn--ask" : ""}`}
+    >
+      <AgentBot size={18} />
+      <span className="agent-btn__label">AGENT</span>
+      {dock.pending > 0 && <span className="agent-btn__badge">{dock.pending}</span>}
+    </button>
   );
 }

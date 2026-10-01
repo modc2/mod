@@ -6,7 +6,7 @@ import { useFilters, useFilterParams } from "../context/FiltersContext";
 import { getAccessToken } from "../lib/access";
 import { loadIndexes } from "../lib/indexStore";
 import NavMenu from "./NavMenu";
-import UserSidebar from "./UserSidebar";
+import StratsNav from "./StratsNav";
 import WalletChip from "./WalletChip";
 import ThemePicker from "./ThemePicker";
 
@@ -297,17 +297,10 @@ export default function TopBar({
         <div className="flex items-center gap-1 min-w-0">
           <NavMenu />
         </div>
-        {/* ── Theme picker + the user column's handle + wallet chip —
-            top-right corner. There is no strat readout beside them: the
-            console copies one trader at a time, so "which strat am I on" is
-            answered by the page you're on (/copy/<address>), not by a global
-            picker whose selection could disagree with it. What IS there is the
-            copy book itself (UserSidebar) — the leaders, their dollars and
-            their backtests — opened from the same corner as the wallet that
-            funds them, and from the wallet chip, which has always dispatched
-            OPEN_ACCOUNTS_EVENT asking for exactly this column. The picker
-            yields on tiny screens so the pair never gets shoved under the left
-            cluster. ── */}
+        {/* ── Theme picker + wallet chip — top-right corner. The right-hand
+            side panel that used to open from here is GONE (2026-10-01): all
+            management is a tab of /strats, and the wallet chip's
+            OPEN_ACCOUNTS_EVENT lands on its MONEY tab (StratsNav). ── */}
         <div className="flex items-center gap-2 min-w-0">
           <div className="hidden min-[480px]:block">
             <ThemePicker />
@@ -315,7 +308,7 @@ export default function TopBar({
           {/* The console agent's icon used to sit HERE, a fourth glyph in a
               four-glyph corner. It's the left-hand column now, opened by the
               logo — don't put a second handle back in this cluster. */}
-          <UserSidebar />
+          <StratsNav />
           <WalletChip />
         </div>
       </div>
