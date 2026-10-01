@@ -322,6 +322,120 @@ body {
   outline: none;
 }
 
+/* A segmented control's track, so unpressed options still read as options. */
+.seg {
+  display: grid;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--inset);
+  border: 1px solid var(--line);
+}
+.seg .chip[aria-pressed='true'] {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+/* ── Shell layout ──────────────────────────────────────────────────────
+ * Desktop: a left column (brand over the layer rail, one width), a right
+ * dock, the inspector beside the dock. Phone: the rail, the dock and the
+ * inspector all become bottom sheets, and only one is open at a time.
+ * ──────────────────────────────────────────────────────────────────────*/
+
+.brand {
+  transition: border-color 140ms ease;
+}
+.brand:hover {
+  border-color: var(--line-strong);
+}
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent-ink);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.rail {
+  left: 12px;
+  top: 72px;
+  bottom: 12px;
+  width: 288px;
+  animation: rail-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.dock {
+  right: 12px;
+  top: 72px;
+  bottom: 12px;
+  width: 340px;
+  animation: dock-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.inspector {
+  top: 72px;
+}
+@keyframes rail-in {
+  from { opacity: 0; transform: translateX(-8px); }
+}
+@keyframes dock-in {
+  from { opacity: 0; transform: translateX(8px); }
+}
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(16px); }
+}
+
+@media (max-width: 767px) {
+  .rail,
+  .dock {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 8px;
+    width: auto;
+    animation-name: sheet-in;
+  }
+  .rail {
+    max-height: 62vh;
+  }
+  .dock {
+    height: 74vh;
+  }
+  .inspector {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+  .inspector > aside {
+    width: 100%;
+    max-height: 58vh;
+    animation: sheet-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  /* Room for the bottom sheets' content above the attribution / zoom. */
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-scale {
+    display: none;
+  }
+}
+
+/* Horizontal toolbars scroll on a phone without growing a bar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail,
+  .dock,
+  .inspector > aside {
+    animation: none;
+  }
+}
+
 /* ── Theme picker ──────────────────────────────────────────────────────
  * A round portal in the header showing the current theme's glyph, opening
  * a menu of every theme with swatch dots sampled from its own tokens.

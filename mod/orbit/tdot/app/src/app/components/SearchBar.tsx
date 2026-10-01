@@ -15,6 +15,19 @@ export default function SearchBar({
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLInputElement>(null)
+
+  // "/" jumps to search from anywhere that isn't already a text field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      if (e.key !== '/' || (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      e.preventDefault()
+      input.current?.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Debounced: Nominatim's usage policy asks for at most one request a second,
   // and a keystroke-per-request search would blow straight through that.
@@ -39,19 +52,23 @@ export default function SearchBar({
   }, [])
 
   return (
-    <div ref={box} className="relative w-[260px]">
-      <div className="field flex items-center gap-2 px-2.5 py-1.5">
+    <div ref={box} className="relative w-full">
+      <div className="panel flex h-[34px] focus-within:border-accent items-center gap-2 px-2.5">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" className="shrink-0 text-muted">
           <circle cx="7" cy="7" r="4.6" stroke="currentColor" strokeWidth="1.5" />
           <path d="M10.6 10.6L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
         <input
+          ref={input}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onFocus={() => hits.length && setOpen(true)}
-          placeholder="Search an address or place…"
+          placeholder="Search places…"
           className="w-full bg-transparent text-[12.5px] text-ink outline-none placeholder:text-muted"
         />
+        {!q && !busy && (
+          <kbd className="hidden shrink-0 rounded-[4px] border border-line px-1.5 text-[10px] text-muted md:block">/</kbd>
+        )}
         {busy && (
           <span className="h-3 w-3 shrink-0 animate-spin rounded-full border border-line-strong border-t-transparent" />
         )}

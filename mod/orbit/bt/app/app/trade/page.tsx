@@ -123,7 +123,7 @@ function WalletDesk() {
         </> : <>
           <div style={{ marginTop: 12 }}><MarketPick value={netuid} onPick={setNetuid} /></div>
           {netuid != null ? <>
-            <button className="linkish" style={{ marginTop: 10 }} onClick={() => openSubnet(netuid)}>
+            <button className="mkt-open" onClick={() => openSubnet(netuid)}>
               open the SN{netuid} market — chart, trades, validators →</button>
             <div style={{ marginTop: 12 }}><Ticket key={netuid + side} netuid={netuid} initial={side} /></div>
           </> : <p className="muted" style={{ marginTop: 12 }}>Every subnet is a market. Pick one to buy or sell its alpha.</p>}
@@ -211,7 +211,10 @@ function LocalDesk() {
 
 function ConnectNudge() {
   const w = useWallet();
-  const installed = w.extList().filter(e => e.installed);
+  /* extensions are only visible in the browser — read them after hydration or the static html mismatches */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const installed = mounted ? w.extList().filter(e => e.installed) : [];
   return (
     <div className="card">
       <h3 className="t">Trade from your own wallet</h3>

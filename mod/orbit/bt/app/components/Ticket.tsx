@@ -108,7 +108,9 @@ export default function Ticket({ netuid, initial = 'stake' }: { netuid: number; 
     if (side === 'stake') tx.review('stake', { netuid, hotkey, amount_tao: a, slippage_pct: s });
     else tx.review('unstake', { netuid, hotkey, amount_alpha: a, slippage_pct: s });
   };
-  const flip = (s: Side) => { setSide(s); setAmt(''); tx.reset(); };
+  const flip = (s: Side) => { setSide(s); setAmt(''); setHotkey(''); tx.reset(); };
+  /* nothing to sell: say so instead of offering an empty form */
+  const empty = side === 'unstake' && acct.rows != null && !mine.length;
 
   return (
     <div className={'tk ' + (side === 'stake' ? 'buy' : 'sell')}>
@@ -125,7 +127,7 @@ export default function Ticket({ netuid, initial = 'stake' }: { netuid: number; 
       </label>
       <div className="tk-amt">
         <input type="number" inputMode="decimal" step="any" min="0" value={amt} placeholder="0.0"
-               onChange={e => setAmt(e.target.value)} disabled={busy} />
+               onChange={e => setAmt(e.target.value)} disabled={busy || empty} />
         <span>{side === 'stake' ? 'τ' : 'α'}</span>
       </div>
       {cap != null && cap > 0 && (
@@ -164,7 +166,8 @@ export default function Ticket({ netuid, initial = 'stake' }: { netuid: number; 
         </div>
       )}
 
-      {!busy && tx.phase !== 'done' && (
+      {empty && <p className="muted tk-note">You hold no {r?.symbol || 'alpha'} on SN{netuid} yet — buy first.</p>}
+      {!busy && tx.phase !== 'done' && !empty && (
         <button className={'pill primary tk-go ' + (side === 'stake' ? 'buy' : 'sell')} disabled={!ready} onClick={go}>
           {side === 'stake' ? 'Buy' : 'Sell'} {r?.symbol || 'α'}</button>
       )}

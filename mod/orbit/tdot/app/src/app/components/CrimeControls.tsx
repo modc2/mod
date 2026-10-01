@@ -61,13 +61,14 @@ export default function CrimeControls({ options, query, onChange, busy }: Props)
       </Field>
 
       <Field label="Occurred from">
-        <div className="grid grid-cols-2 gap-1">
+        <div className="seg grid-cols-2">
           {WINDOWS.map((w) => (
             <button
               key={w.since}
               onClick={() => onChange({ since: w.since })}
               aria-pressed={query.since === w.since}
-              className="chip bg-fill px-2 py-1.5 text-[11.5px]"
+              title={w.hint}
+              className="chip px-2 py-1.5 text-[11.5px] tabular-nums"
             >
               {w.label}
             </button>

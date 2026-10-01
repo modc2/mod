@@ -34,7 +34,7 @@ export default function ThemePicker() {
         aria-expanded={open}
       >
         <span className="theme-toggle__glyph" aria-hidden>{theme.glyph}</span>
-        <span className="theme-toggle__label">{theme.label}</span>
+        <span className="theme-toggle__label hidden xl:inline">{theme.label}</span>
         <span className="theme-toggle__swatch" aria-hidden>
           {theme.swatch.map((c) => <i key={c} style={{ background: c }} />)}
         </span>

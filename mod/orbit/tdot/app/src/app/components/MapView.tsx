@@ -95,7 +95,12 @@ export default function MapView({
       m.resize()
       // Frame the whole city regardless of the window's aspect ratio; a fixed
       // centre+zoom leaves a wide window showing half of Lake Ontario.
-      m.fitBounds(TORONTO_BOUNDS, { padding: { top: 80, bottom: 40, left: 300, right: 60 }, duration: 0 })
+      // On a phone the layer rail is a closed bottom sheet, so it reserves no room.
+      const narrow = m.getContainer().clientWidth < 768
+      const padding = narrow
+        ? { top: 120, bottom: 70, left: 16, right: 16 }
+        : { top: 80, bottom: 40, left: 320, right: 60 }
+      m.fitBounds(TORONTO_BOUNDS, { padding, duration: 0 })
       onMapReady(m)
       redrawRef.current()
     })

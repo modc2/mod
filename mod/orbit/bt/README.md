@@ -23,13 +23,18 @@ as **one open module you can read, run, and fork**, plus the whole protocol
    leaderboard + tape), `/account?addr=…`, `/wallet`, `/trade`, `/chat`,
    `/console?tool=…`, `/docs`, `/open`, `/mcp` — and shareable overlays
    (`?sn=64` a subnet, `?tr=5…` a trader) that float over any page, which is
-   what the chat agent opens mid-answer. Full Super Mario, both themes.
+   what the chat agent opens mid-answer. **Every subnet is a market**: the
+   `?sn=` overlay is the market view — α/τ pair, price + volume/liquidity/mcap
+   strip, chart and Overview·Trades·Validators·News tabs on the left, the
+   order ticket (`components/Ticket.tsx`: Buy/Sell, 25/50/max, 2% limit,
+   biggest validator by default, signed in SubWallet) on the right. `/trade`
+   picks a market by name/symbol/netuid and drives the same ticket.
 
 ## The console (app/)
 
 ```
 app/app/            routes (App Router) + globals.css — the whole look
-app/components/     Shell, TopBar, Rail, Overlays, LineChart, Positions, ui
+app/components/     Shell, TopBar, Rail, Overlays, Ticket, LineChart, Positions, ui
 app/lib/            api (one wire: POST {base}/_api/call), data, wallet,
                     overlay, chat (agent SSE client), format, md, hooks
 app/build.sh        tsc -> next build -> releases/<t>, dist -> releases/<t>
