@@ -1,51 +1,51 @@
 {
-    "name": "rent2own",
-    "version": "0.1.0",
-    "description": "Rent-to-own agreements you can check with a pencil: price, rent, credit share and term in; a month-by-month schedule out (equity built, strike price at exercise, balance left to finance). Saved deals and payment logs live in one local JSON file. Stdlib only, nothing calls out.",
-    "icon": "home",
-    "color": "#4ade80",
-    "anchor": "mod.py",
-    "network": "local",
-    "port": 51060,
-    "base_path": "/rent2own",
-    "fns": [
-        "forward",
-        "info",
-        "health",
-        "readme",
-        "quote",
-        "save",
-        "agreements",
-        "agreement",
-        "pay",
-        "remove",
-        "test"
-    ],
-    "api_fns": [
-        "info",
-        "health",
-        "readme",
-        "quote",
-        "agreements",
-        "agreement"
-    ],
-    "endpoints": {
-        "/info": "Null call - what this module is and what it exposes",
-        "/health": "Liveness plus agreement count (local disk only)",
-        "/quote": "Deal at exercise + schedule (price=, rent=, credit=, months=, option_fee=, appreciation=, full=)",
-        "/agreements": "Saved agreements, newest first (limit=)",
-        "/agreement": "One agreement with its schedule marked up to months paid (id=)",
-        "/readme": "The project README"
-    },
-    "notes": {
-        "local_first": "all math is stdlib; agreements live in ~/.mod/rent2own/agreements.json (override with RENT2OWN_DATA) - no external calls",
-        "content_addressed": "an agreement id is a hash of its terms and parties - saving the same deal twice lands on the same id",
-        "writes_not_exposed": "save/pay/remove are CLI-only until the module gets an auth story; api_fns are read-only",
-        "sibling": "openhouse is the on-chain rent-to-own protocol; rent2own is the offline calculator and ledger"
-    },
-    "key": "rent2own",
-    "urls": {
-        "api": "http://localhost:51060"
-    },
-    "schema": "QmSVCfSWRLCLM6PbhxzC1kp9koJAq9DQaC9uA8jaKCExKL"
+  "name": "rent2own",
+  "version": "0.1.0",
+  "description": "Rent-to-own agreements you can check with a pencil: price, rent, credit share and term in; a month-by-month schedule out (equity built, strike price at exercise, balance left to finance). Saved deals and payment logs live in one local JSON file. Stdlib only, nothing calls out.",
+  "icon": "home",
+  "color": "#4ade80",
+  "anchor": "mod.py",
+  "network": "local",
+  "port": 51060,
+  "base_path": "/rent2own",
+  "fns": [
+    "forward",
+    "info",
+    "health",
+    "readme",
+    "quote",
+    "save",
+    "agreements",
+    "agreement",
+    "pay",
+    "remove",
+    "test"
+  ],
+  "api_fns": [
+    "info",
+    "health",
+    "readme",
+    "quote",
+    "agreements",
+    "agreement"
+  ],
+  "endpoints": {
+    "/info": "Null call - what this module is and what it exposes",
+    "/health": "Liveness plus agreement count (local disk only)",
+    "/quote": "Deal at exercise + schedule (price=, rent=, credit=, months=, option_fee=, appreciation=, full=)",
+    "/agreements": "Saved agreements, newest first (limit=)",
+    "/agreement": "One agreement with its schedule marked up to months paid (id=)",
+    "/readme": "The project README"
+  },
+  "notes": {
+    "local_first": "all math is stdlib; agreements live in ~/.mod/rent2own/agreements.json (override with RENT2OWN_DATA) - no external calls",
+    "content_addressed": "an agreement id is a hash of its terms and parties - saving the same deal twice lands on the same id",
+    "writes_not_exposed": "save/pay/remove are CLI-only until the module gets an auth story; api_fns are read-only",
+    "sibling": "openhouse is the on-chain rent-to-own protocol; rent2own is the offline calculator and ledger"
+  },
+  "key": "rent2own",
+  "urls": {
+    "api": "http://localhost:51060"
+  },
+  "schema": "QmSVCfSWRLCLM6PbhxzC1kp9koJAq9DQaC9uA8jaKCExKL"
 }
