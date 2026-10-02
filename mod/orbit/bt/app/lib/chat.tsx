@@ -12,6 +12,7 @@ import { api, getJSON, postJSON, ViewAction } from './api';
 import { useData } from './data';
 import { useOverlay } from './overlay';
 import { short } from './format';
+import { openDock } from './dock';
 
 export interface ToolChip {
   id: string; name: string; args: Record<string, unknown>; builtin?: boolean;
@@ -231,17 +232,21 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     ctlRef.current?.abort();
   }, []);
 
-  const newChat = useCallback(() => {
-    if (runningRef.current) return;
+  const reset = useCallback(() => {
+    if (runningRef.current) return false;
     touched.current = true;
     remember(null); setMsgs([]); setShowBack(false);
     loadChats();
+    return true;
   }, [loadChats]);
+
+  /* a new chat always lands in the right sidebar (ChatDock listens; /chat hides the dock) */
+  const newChat = useCallback(() => { if (reset()) openDock({ open: true, mode: 'side' }); }, [reset]);
 
   const deleteChat = useCallback(async (cid: string) => {
     await fetch(api('agent/chats/' + cid), { method: 'DELETE' }).catch(() => {});
-    if (idRef.current === cid) newChat(); else loadChats();
-  }, [newChat, loadChats]);
+    if (idRef.current === cid) reset(); else loadChats();
+  }, [reset, loadChats]);
 
   return (
     <Ctx.Provider value={{ id, msgs, running, chats, agent, showBack, send, stop, newChat, recheck,

@@ -172,7 +172,7 @@
         "COMPUTE_ORACLE": "0 to keep the ticker from running in the API server",
         "COMPUTE_ORACLE_DB": "where the game lives (default ~/.mod/compute/oracle.db)"
     },
-    "schema": "QmTFL6SEE8wb4SgzHSsPYv5RhP1G4bJ6EsRZrFnEkqPvBN",
+    "schema": "QmYckGKquK33nuSLEEDkqkgbk4XzoSKCYHi8fRew1vy6o8",
     "mod_lane": {
         "what": "the markets that also run as their own modules on this box, read through those modules and compared with the direct-to-upstream lane",
         "mods": {

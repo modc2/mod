@@ -1,0 +1,77 @@
+{
+    "name": "news",
+    "title": "news \u00b7 any topic, every outlet",
+    "description": "News aggregator for any query. Fans out to keyless open sources (GDELT, Hacker News, your RSS/Atom feeds; reddit and google opt-in), merges duplicate stories across outlets and ranks them locally by relevance, freshness and coverage. Stdlib-only, one SQLite cache, no keys. Also an MCP server (HTTP /mcp and stdio).",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51120,
+    "route": false,
+    "deps": [],
+    "urls": {
+        "api": "http://localhost:51120",
+        "mcp": "http://localhost:51120/mcp"
+    },
+    "mcp": {
+        "http": "http://localhost:51120/mcp",
+        "stdio": {
+            "command": "python3",
+            "args": [
+                "-m",
+                "newsagg.mcp_server"
+            ],
+            "cwd": "."
+        }
+    },
+    "state": "~/.mod/news/cache.db (raw HTTP bodies by url) \u00b7 ~/.mod/news/feeds.json",
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness + cache size"
+        },
+        "search": {
+            "method": "GET|POST",
+            "auth": false,
+            "docs": "?q=&k=&hours=&sources=gdelt,hn -> {sources:{name:{ok,items}}, results:[{title,url,outlet,ts,age_h,score,why,also,found_by}]}"
+        },
+        "read": {
+            "method": "GET",
+            "auth": false,
+            "docs": "?url=&max_chars= -> article text"
+        },
+        "sources": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Available sources and defaults"
+        },
+        "feeds": {
+            "method": "GET|POST|DELETE",
+            "auth": false,
+            "docs": "List / add {url,name} / remove ?url="
+        },
+        "mcp": {
+            "method": "POST",
+            "auth": false,
+            "docs": "MCP JSON-RPC: news_search, news_read, news_sources, news_feeds, news_add_feed, news_remove_feed, news_status"
+        }
+    },
+    "fns": [
+        "forward",
+        "search",
+        "headlines",
+        "read",
+        "sources",
+        "feeds",
+        "add_feed",
+        "remove_feed",
+        "reset_feeds",
+        "clear_cache",
+        "mcp",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "schema": "QmUGXWGiPkLi4AFF3SZjobG8S3kVbyQ4RoPdkcnpKAmaTR"
+}

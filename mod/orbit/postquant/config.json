@@ -140,7 +140,7 @@
     "services": [
         "postquant-api"
     ],
-    "schema": "Qmcr7ADSwPAjE2sm4G1nm3zvE4u3LxFVQmc46EDatgR7QR",
+    "schema": "QmNMTU8Jc2AcP6EoRiX4nKp7rsdsJyBbzzMMk9234wp5GE",
     "agent": {
         "contract": "GET /agents + POST /run/stream (SSE: model_start, token, tool_start, step, done|error) \u2014 what orbit/build probes before mounting a module as an agent backend; POST /run returns the same run as JSON; /.well-known/agent.json is the agent/1.0 card",
         "agents": {

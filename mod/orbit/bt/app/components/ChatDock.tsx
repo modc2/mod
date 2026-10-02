@@ -7,26 +7,28 @@
  *             (html[data-dock=side] + --dock), drag its left edge to resize
  *
  * Mode, open state and width persist in localStorage `bt.dock`. Ctrl/⌘+J
- * toggles it. When the agent navigates away mid-answer (bt_view) the dock
+ * toggles it. Starting a new chat anywhere (chat.newChat → lib/dock signal)
+ * opens it as the sidebar. When the agent navigates away mid-answer (bt_view) the dock
  * opens itself so the stream stays in view — this replaced "← back to chat". */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useChat } from '@/lib/chat';
 import ChatThread from './ChatThread';
+import { DOCK_EVENT, DockMode, DockRequest } from '@/lib/dock';
 
-type Mode = 'float' | 'side';
+type Mode = DockMode;
 interface DockState { open: boolean; mode: Mode; w: number }
 
 const KEY = 'bt.dock';
 const MIN_W = 320, MAX_W = 760;
-const DEFAULT: DockState = { open: false, mode: 'float', w: 400 };
+const DEFAULT: DockState = { open: false, mode: 'side', w: 400 };
 const clampW = (w: number) => Math.max(MIN_W, Math.min(MAX_W, Math.round(w) || DEFAULT.w));
 
 function load(): DockState {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || '{}');
-    return { open: !!s.open, mode: s.mode === 'side' ? 'side' : 'float', w: clampW(s.w ?? DEFAULT.w) };
+    return { open: !!s.open, mode: s.mode === 'float' ? 'float' : 'side', w: clampW(s.w ?? DEFAULT.w) };
   } catch { return DEFAULT; }
 }
 
@@ -55,6 +57,13 @@ export default function ChatDock() {
   }, [side, st.w]);
 
   const set = useCallback((p: Partial<DockState>) => setSt(s => ({ ...s, ...p })), []);
+
+  /* someone asked for the dock (a new chat was started) */
+  useEffect(() => {
+    const on = (e: Event) => set((e as CustomEvent<DockRequest>).detail || { open: true });
+    addEventListener(DOCK_EVENT, on);
+    return () => removeEventListener(DOCK_EVENT, on);
+  }, [set]);
 
   /* agent took us somewhere else mid-answer → keep the conversation on screen */
   useEffect(() => {

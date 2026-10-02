@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { BoardRow, call, Flow, SubnetRow } from '@/lib/api';
 import { useData } from '@/lib/data';
 import { useOverlay } from '@/lib/overlay';
+import { useChat } from '@/lib/chat';
 import { usePoll, useNow } from '@/lib/hooks';
 import { agoText, compact, fmt, fmtPrice, short } from '@/lib/format';
 import { Pct, SideTag, Spinner, Stat, SubnetLogo } from '@/components/ui';
@@ -37,6 +38,7 @@ function MoverList({ rows, value }: { rows: SubnetRow[]; value: (r: SubnetRow) =
 
 export default function Home() {
   const router = useRouter();
+  const chat = useChat();
   const { stats, screener, bySubnet } = useData();
   const { openTrader, openSubnet } = useOverlay();
   const t = useNow(30_000);
@@ -61,7 +63,7 @@ export default function Home() {
           No closed backend. No API key. The whole stack is open source.</p>
         <div className="cta">
           <button className="pill primary" onClick={() => router.push('/markets')}>Explore markets</button>
-          <button className="pill ghost" onClick={() => router.push('/chat')}>Chat with the network</button>
+          <button className="pill ghost" onClick={chat.newChat} disabled={chat.running}>Chat with the network</button>
         </div>
         <div className="stats">
           <Stat label="Markets" value={stats?.subnets || '—'} />
