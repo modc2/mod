@@ -179,7 +179,8 @@ pub fn put_module(args: &Value) -> Result<Value, String> {
         "python" | "py" | "class" => klass::describe(&raw),
         _ => describe(&raw),
     }?;
-    let id = blobs::put(&raw)?;
+    // Hashed now, stored once it is known to be welcome.
+    let id = blobs::hash(&raw);
 
     let asked = args
         .get("name")
@@ -207,20 +208,60 @@ pub fn put_module(args: &Value) -> Result<Value, String> {
         _ => String::new(),
     };
 
+    // An edit: these bytes replace `parent`. Only its owner (or the box's)
+    // may do that, and the new version inherits the name and the owner —
+    // so a game keeps its address while its rules change.
+    let who = crate::ident::caller();
+    let parent = match args.get("parent").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+        Some(key) => {
+            let p = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}` to edit"))?;
+            if !crate::ident::can_edit(&p.owner, who.as_deref()) {
+                return Err(match who {
+                    None => format!("sign in to edit {} — only its owner can", p.name),
+                    Some(_) => format!("{} is not yours to edit — fork it instead", p.name),
+                });
+            }
+            if p.id == id {
+                return Err(format!("nothing changed — these are the bytes {} already is", p.name));
+            }
+            if p.role != described["role"].as_str().unwrap_or("") {
+                return Err(format!(
+                    "{} is a {}, and the edit reads as a {} — an edit keeps what it is",
+                    p.name, p.role, described["role"].as_str().unwrap_or("?")
+                ));
+            }
+            Some(p)
+        }
+        None => None,
+    };
+    let asked = parent.as_ref().map(|p| p.name.clone()).unwrap_or(asked);
+    blobs::put(&raw)?;
+
     let module = store::write(|s| {
         let existing = s.modules.get(&id).cloned();
+        // Somebody else's bytes, uploaded again, change nothing about them:
+        // the words on a module are its owner's to write.
+        let may_touch = existing.as_ref().map_or(true, |e| {
+            e.source == "example" || crate::ident::can_edit(&e.owner, who.as_deref())
+        });
+        let kept = |f: fn(&WasmModule) -> String| existing.as_ref().map(f).unwrap_or_default();
         let src_changed = !src.is_empty() && existing.as_ref().map(|e| e.src != src).unwrap_or(true);
         let m = WasmModule {
             id: id.clone(),
             name: existing.as_ref().map(|e| e.name.clone()).unwrap_or(asked),
             role: described["role"].as_str().unwrap_or("wasm").to_string(),
-            description: args.get("description").and_then(|v| v.as_str()).unwrap_or("").into(),
-            author: args.get("author").and_then(|v| v.as_str()).unwrap_or("").into(),
-            tags: args
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
-                .unwrap_or_default(),
+            description: if may_touch { args.get("description").and_then(|v| v.as_str()).unwrap_or("").into() }
+                else { kept(|e| e.description.clone()) },
+            author: if may_touch { args.get("author").and_then(|v| v.as_str()).unwrap_or("").into() }
+                else { kept(|e| e.author.clone()) },
+            tags: if may_touch {
+                args.get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                    .unwrap_or_default()
+            } else {
+                existing.as_ref().map(|e| e.tags.clone()).unwrap_or_default()
+            },
             size: raw.len(),
             info: described,
             source: args.get("source").or_else(|| args.get("origin"))
@@ -231,7 +272,32 @@ pub fn put_module(args: &Value) -> Result<Value, String> {
             src: if src.is_empty() { existing.as_ref().map(|e| e.src.clone()).unwrap_or_default() } else { src.clone() },
             src_cid: if src_changed { String::new() } else { existing.as_ref().map(|e| e.src_cid.clone()).unwrap_or_default() },
             stored: existing.as_ref().map(|e| e.stored).unwrap_or(0),
+            // First upload owns it. An edit keeps the game's owner.
+            owner: existing.as_ref().map(|e| e.owner.clone()).filter(|o| !o.is_empty())
+                .or_else(|| parent.as_ref().map(|p| p.owner.clone()))
+                .or_else(|| who.clone())
+                .unwrap_or_default(),
+            agent: args.get("agent").and_then(|v| v.as_str()).filter(|_| may_touch).map(str::to_string)
+                .or_else(|| existing.as_ref().map(|e| e.agent.clone()))
+                .unwrap_or_default(),
+            parent: parent.as_ref().map(|p| p.id.clone())
+                .or_else(|| existing.as_ref().map(|e| e.parent.clone()))
+                .unwrap_or_default(),
+            superseded: if parent.is_some() { String::new() }
+                else { existing.as_ref().map(|e| e.superseded.clone()).unwrap_or_default() },
         };
+        // An edit lands under the old version's name, so the old version
+        // takes its own description with it and steps off the shelf.
+        let mut m = m;
+        if let Some(p) = &parent {
+            if m.description.is_empty() {
+                m.description = p.description.clone();
+            }
+            m.name = p.name.clone();
+            if let Some(old) = s.modules.get_mut(&p.id) {
+                old.superseded = id.clone();
+            }
+        }
         s.modules.insert(id.clone(), m.clone());
         m
     });
@@ -257,10 +323,16 @@ pub fn list_modules(args: &Value) -> Value {
     let tag = args.get("tag").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
     // `lang=python` is how you ask for the classes, `lang=wasm` for the binaries.
     let lang = args.get("lang").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+    // Old versions are kept (their matches point at them) but off the shelf.
+    let all = matches!(args.get("all").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_bool().map(|b| b.to_string()))).as_deref(), Some("1" | "true"));
+    // `owner=0x…` is one person's shelf.
+    let owner = args.get("owner").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
 
     let list = store::read(|s| {
         s.module_list()
             .into_iter()
+            .filter(|m| all || m.superseded.is_empty())
+            .filter(|m| owner.is_empty() || m.card()["owner"].as_str().unwrap_or("").eq_ignore_ascii_case(&owner))
             .filter(|m| role.is_empty() || m.role == role)
             .filter(|m| lang.is_empty() || m.lang() == lang)
             .filter(|m| tag.is_empty() || m.tags.iter().any(|t| t.to_lowercase() == tag))
@@ -270,7 +342,11 @@ pub fn list_modules(args: &Value) -> Value {
                     || m.description.to_lowercase().contains(&q)
                     || m.id.starts_with(&q)
             })
-            .map(|m| m.card())
+            .map(|m| {
+                let mut c = m.card();
+                c["version"] = json!(s.lineage(&m.id).len());
+                c
+            })
             .collect::<Vec<_>>()
     });
     json!({ "count": list.len(), "modules": list })
@@ -286,6 +362,13 @@ pub fn get_module(key: &str, with_source: bool) -> Result<Value, String> {
     v["info"] = m.info.clone();
     v["url"] = json!(m.url());
     v["stored"] = json!(blobs::exists(&m.id));
+    // Its versions, newest first — an edit is new bytes, so each is its own
+    // id with its own board, and the matches before an edit stay with it.
+    let history: Vec<Value> = store::read(|s| s.lineage(&m.id).iter().map(|h| json!({
+        "id": h.id, "short": h.short(), "created": h.created, "runs": h.runs, "made_with": h.made_with(),
+    })).collect());
+    v["version"] = json!(history.len());
+    v["history"] = json!(history);
     if with_source && m.lang() != "wasm" && m.size <= 256 * 1024 {
         if let Ok(raw) = blobs::get(&m.id) {
             if let Ok(text) = String::from_utf8(raw) {
@@ -395,7 +478,45 @@ pub fn module_bytes(key: &str) -> Result<(String, Vec<u8>), String> {
     Ok((id, bytes))
 }
 
-pub fn delete_module(key: &str) -> Result<Value, String> {
+/// Delete a module — its owner's call, or the box's. Deleting the current
+/// version of an edited game puts the version before it back on the shelf;
+/// `all` takes every version with it.
+pub fn delete_module(key: &str, all: bool) -> Result<Value, String> {
+    let m = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}`"))?;
+    let who = crate::ident::caller();
+    if !crate::ident::can_edit(&m.owner, who.as_deref()) {
+        return Err(match who {
+            None => format!("sign in to delete {} — only its owner can", m.name),
+            Some(_) => format!("{} is not yours to delete", m.name),
+        });
+    }
+    if all {
+        let chain: Vec<String> = store::read(|s| s.lineage(&m.id).iter().map(|v| v.id.clone()).collect());
+        let mut gone = vec![];
+        for id in chain {
+            gone.push(remove_one(&id)?);
+        }
+        return Ok(json!({ "removed": m.id, "name": m.name, "versions": gone.len(), "cid": m.cid }));
+    }
+    let v = remove_one(&m.id)?;
+    // The version it replaced is the game again.
+    if !m.parent.is_empty() {
+        store::write(|s| {
+            if let Some(p) = s.modules.get_mut(&m.parent) {
+                if p.superseded == m.id {
+                    p.superseded.clear();
+                }
+            }
+        });
+    }
+    let mut v = v;
+    if !m.parent.is_empty() {
+        v["restored"] = json!(m.parent);
+    }
+    Ok(v)
+}
+
+fn remove_one(key: &str) -> Result<Value, String> {
     let m = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}`"))?;
     let players_using = store::read(|s| {
         s.players

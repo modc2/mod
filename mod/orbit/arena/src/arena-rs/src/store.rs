@@ -73,6 +73,20 @@ pub struct WasmModule {
     /// When the store copy was last written.
     #[serde(default)]
     pub stored: u64,
+    /// The wallet address that uploaded it — verified off the request's
+    /// token, never taken from an argument. Empty = the box's own.
+    #[serde(default)]
+    pub owner: String,
+    /// What wrote it: the model a vibe session ran, `hand`, `harvest`…
+    #[serde(default)]
+    pub agent: String,
+    /// The version this one replaced — an edit is new bytes, so a new id.
+    #[serde(default)]
+    pub parent: String,
+    /// The version that replaced this one. Set = an old version: still
+    /// resolvable by id (its matches point at it), hidden from the shelf.
+    #[serde(default)]
+    pub superseded: String,
 }
 
 impl WasmModule {
@@ -111,7 +125,31 @@ impl WasmModule {
                     .map(String::from).collect::<Vec<_>>())
                 .unwrap_or_default(),
             "host_needs": self.info.get("host_needs").cloned().unwrap_or(json!([])),
+            // Whose it is. An unclaimed module belongs to the box.
+            "owner": if self.owner.is_empty() { crate::ident::host() } else { self.owner.clone() },
+            "owner_is_host": self.owner.is_empty() || crate::ident::is_owner(&self.owner),
+            "agent": self.agent,
+            "made_with": self.made_with(),
+            "parent": if self.parent.is_empty() { Value::Null } else { json!(self.parent) },
+            "superseded": if self.superseded.is_empty() { Value::Null } else { json!(self.superseded) },
         })
+    }
+
+    /// What wrote it, in the words a card has room for.
+    pub fn made_with(&self) -> String {
+        if !self.agent.is_empty() {
+            return self.agent.clone();
+        }
+        if self.source == "example" {
+            return "example pack".into();
+        }
+        if self.tags.iter().any(|t| t == "codegame" || t == "harvest" || t == "repo") || self.name.ends_with("-recon") {
+            return "harvested from a repo".into();
+        }
+        if self.tags.iter().any(|t| t == "vibe") {
+            return "build agent".into();
+        }
+        "uploaded".into()
     }
 
     pub fn short(&self) -> String {
@@ -427,7 +465,38 @@ impl Store {
             }
             return None; // ambiguous prefix resolves to nothing, never to a guess
         }
-        self.modules.values().find(|m| m.name.eq_ignore_ascii_case(k))
+        // A name is the current version's: an edit hands it on, and the old
+        // bytes keep answering to their id only.
+        self.modules
+            .values()
+            .filter(|m| m.name.eq_ignore_ascii_case(k))
+            .min_by_key(|m| (!m.superseded.is_empty(), std::cmp::Reverse(m.created)))
+    }
+
+    /// The current version of whatever `id` is a version of.
+    pub fn head(&self, id: &str) -> Option<&WasmModule> {
+        let mut at = self.modules.get(id)?;
+        for _ in 0..1000 {
+            match self.modules.get(&at.superseded) {
+                Some(next) if !at.superseded.is_empty() => at = next,
+                _ => break,
+            }
+        }
+        Some(at)
+    }
+
+    /// The versions behind a module, newest first, the module itself first.
+    pub fn lineage(&self, id: &str) -> Vec<&WasmModule> {
+        let mut out = vec![];
+        let mut at = self.modules.get(id);
+        while let Some(m) = at {
+            if out.iter().any(|o: &&WasmModule| o.id == m.id) {
+                break; // a cycle would be a bug; never loop on one
+            }
+            out.push(m);
+            at = if m.parent.is_empty() { None } else { self.modules.get(&m.parent) };
+        }
+        out
     }
 
     pub fn player(&self, key: &str) -> Option<&Player> {

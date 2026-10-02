@@ -120,7 +120,9 @@ async fn via_tool(name: &str, args: Value) -> Response {
     match mcp::call_tool(name, &args).await {
         Ok(v) => Json(v).into_response(),
         Err(e) => {
-            let status = if e.starts_with("no module") || e.starts_with("no player") || e.starts_with("no match") || e.starts_with("no game") {
+            let status = if let Some(denied) = auth_status(&e) {
+                denied
+            } else if e.starts_with("no module") || e.starts_with("no player") || e.starts_with("no match") || e.starts_with("no game") {
                 StatusCode::NOT_FOUND
             } else {
                 StatusCode::BAD_REQUEST
@@ -166,8 +168,34 @@ async fn get_module(Path(id): Path<String>, Query(q): Query<HashMap<String, Stri
     via_tool("get_module", json!({ "module": id, "source": with_source })).await
 }
 
-async fn delete_module(Path(id): Path<String>) -> Response {
-    via_tool("delete_module", json!({ "module": id })).await
+async fn delete_module(Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
+    let all = q.get("all").map(|v| v == "1" || v == "true").unwrap_or(false);
+    via_tool("delete_module", json!({ "module": id, "all": all })).await
+}
+
+/// Who this request is, as far as the arena can tell: the address its token
+/// proves (or why it proves nothing), and whether that address runs the box.
+async fn whoami(headers: axum::http::HeaderMap) -> Json<Value> {
+    let token = crate::ident::from_headers(&headers);
+    let (address, error) = match token.as_deref().map(crate::ident::verify) {
+        Some(Ok(a)) => (Some(a), None),
+        Some(Err(e)) => (None, Some(e)),
+        None => (None, None),
+    };
+    Json(json!({
+        "address": address,
+        "signed_in": address.is_some(),
+        "box_owner": address.as_deref().map(crate::ident::is_owner).unwrap_or(false),
+        "host": crate::ident::host(),
+        "error": error,
+    }))
+}
+
+/// Every request runs as whoever its token proves, or as nobody. A bad token
+/// is not an error here — it is a request from nobody, and /whoami says why.
+async fn as_caller(req: Request, next: axum::middleware::Next) -> Response {
+    let who = crate::ident::from_headers(req.headers()).and_then(|t| crate::ident::verify(&t).ok());
+    crate::ident::scope(who, next.run(req)).await
 }
 
 async fn inspect(Json(body): Json<Value>) -> Response {
@@ -456,9 +484,22 @@ async fn fleet_tools(Path(name): Path<String>) -> Response {
 // dependency failing rather than the caller's request being wrong — 424, and
 // never a 5xx, which a proxy in front would replace with a bare code.
 
+/// A refusal about who you are: 401 when nobody signed the request, 403 when
+/// somebody did and it is not theirs.
+fn auth_status(e: &str) -> Option<StatusCode> {
+    if e.starts_with("sign in") {
+        Some(StatusCode::UNAUTHORIZED)
+    } else if e.contains("not yours") || (e.starts_with("vibe session") && e.contains("'s — fork")) {
+        Some(StatusCode::FORBIDDEN)
+    } else {
+        None
+    }
+}
+
 fn vibe_response(out: Result<Value, String>) -> Response {
     match out {
         Ok(v) => Json(v).into_response(),
+        Err(e) if auth_status(&e).is_some() => (auth_status(&e).unwrap(), Json(json!({ "error": e }))).into_response(),
         Err(e) if e.starts_with("build:") => (StatusCode::FAILED_DEPENDENCY, Json(json!({ "error": e }))).into_response(),
         Err(e) if e.starts_with("no vibe session") || e.starts_with("no module") => {
             (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response()
@@ -534,6 +575,7 @@ fn api_routes() -> Router {
     Router::new()
         .route("/info", get(health))
         .route("/health", get(health))
+        .route("/whoami", get(whoami))
         .route(
             "/mcp",
             post(mcp_endpoint).get(|| async {
@@ -613,6 +655,8 @@ pub async fn serve(port: u16) {
     // From here on an upload pushes itself to the store; what was planted
     // before now, and anything older without a cid, goes in one pass.
     storelink::backfill_later();
+    // Whose box this is — who may edit anything here.
+    crate::ident::learn_owners_later();
 
     let app = Router::new()
         .route("/", get(root))
@@ -629,6 +673,7 @@ pub async fn serve(port: u16) {
         // there too and one console works in both places.
         .nest("/arena/api", api_routes())
         .nest("/api/arena", api_routes())
+        .layer(axum::middleware::from_fn(as_caller))
         .layer(CorsLayer::permissive());
 
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));

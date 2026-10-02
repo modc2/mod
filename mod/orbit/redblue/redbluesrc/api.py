@@ -64,8 +64,8 @@ PORT = int(os.environ.get('RB_PORT', 50970))
 
 # Spending a model call or editing the corpus needs the bearer, when one is
 # set. Reading a score never does — a scoreboard nobody can read is not one.
-WRITE_ROUTES = {'/fight', '/round', '/ping', '/attacks', '/defenses', '/keys',
-                '/sweep', '/sweep/stop'}
+WRITE_ROUTES = {'/fight', '/duel', '/vibe', '/round', '/ping', '/attacks',
+                '/defenses', '/keys', '/sweep', '/sweep/stop'}
 
 
 class ApiError(Exception):
@@ -93,6 +93,11 @@ def info():
                              'measured on',
             'GET /cost': '?defense= — model calls per turn, before you spend them',
             'POST /fight': '{attack, defense, model, judge} — one exchange, judged',
+            'POST /duel': '{red, blue, model, judge, judge_model, parallel} — any '
+                          'red(s) × any blue(s) typed or by id, nothing saved; a '
+                          'grid of match records + a per-blue hold tally',
+            'POST /vibe': '{side, goal, against, technique, model} — write one '
+                          'side; model=local is offline, any model writes it',
             'POST /round': '{attacks, defenses, model, judge, parallel, controls, '
                            'background} — the tournament',
             'GET /rounds': 'history (?limit=, ?status=) or ?id= for one in full',
@@ -178,6 +183,12 @@ def route(method, path, query, body):
 
     if path == '/fight' and method == 'POST':
         return mcpsrv.t_fight(b)
+
+    if path == '/duel' and method == 'POST':
+        return mcpsrv.t_duel(b)
+
+    if path == '/vibe' and method == 'POST':
+        return mcpsrv.t_vibe(b)
 
     if path == '/round' and method == 'POST':
         return _round(b)

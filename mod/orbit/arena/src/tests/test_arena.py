@@ -20,6 +20,8 @@ import time
 
 import pytest
 import requests
+from eth_account import Account
+from eth_account.messages import encode_defunct
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(HERE)
@@ -27,6 +29,25 @@ BINARY = os.path.join(SRC, 'arena-rs', 'target', 'release', 'arena-api')
 RUNNER = os.path.join(SRC, 'runtime', 'run.mjs')
 EXAMPLES = os.path.join(SRC, 'examples', 'wasm')
 CLASSES = os.path.join(SRC, 'examples', 'classes')
+
+
+# Who runs the test server's box — the one address that may edit anything.
+OWNER = Account.create()
+
+
+def token_for(acct):
+    """A mod-protocol token the way a browser wallet signs one: personal_sign
+    over {"data","time"} compact, data a string, time whole seconds."""
+    data, t = 'arena', str(int(time.time()))
+    msg = json.dumps({'data': data, 'time': t}, separators=(',', ':'))
+    sig = Account.sign_message(encode_defunct(text=msg), private_key=acct.key).signature.hex()
+    sig = sig if sig.startswith('0x') else '0x' + sig
+    raw = json.dumps({'data': data, 'time': t, 'key': acct.address.lower(), 'signature': sig}).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+
+def as_(acct):
+    return {'token': token_for(acct)}
 
 
 def free_port():
@@ -47,7 +68,7 @@ def arena():
         [BINARY],
         env={**os.environ, 'PORT': str(port), 'ARENA_STATE': state,
              # A test upload must never land in the real store.
-             'ARENA_STORE_URL': 'off'},
+             'ARENA_STORE_URL': 'off', 'ARENA_OWNERS': OWNER.address},
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     base = f'http://127.0.0.1:{port}'
@@ -95,6 +116,11 @@ def arena_no_agent():
     proc.terminate()
     proc.wait(timeout=10)
     shutil.rmtree(state, ignore_errors=True)
+
+
+def post_as(base, path, body, acct):
+    r = requests.post(f'{base}{path}', json=body, headers=as_(acct), timeout=30)
+    return r.status_code, r.json()
 
 
 def get(base, path, **params):
@@ -706,7 +732,7 @@ def test_the_abi_is_documented_at_runtime(arena):
 
 
 def test_deleting_a_module_someone_plays_with_is_refused(arena, bots):
-    r = requests.delete(f'{arena}/modules/bot-ttt', timeout=30)
+    r = requests.delete(f'{arena}/modules/bot-ttt', headers=as_(OWNER), timeout=30)
     assert r.status_code == 400
     assert 'perfect' in r.json()['error']
     assert get(arena, '/modules/bot-ttt')[0] == 200
@@ -1193,7 +1219,7 @@ def test_storing_an_unchanged_fork_is_the_original_and_a_changed_one_is_new(aren
     _, after = get(arena, f"/vibe/{s['session']}")
     assert after['status'] == 'stored'
     assert after['stored']['id'] == stored['id']
-    requests.delete(f"{arena}/modules/{stored['id']}", timeout=30)
+    requests.delete(f"{arena}/modules/{stored['id']}", headers=as_(OWNER), timeout=30)
 
 
 def test_a_template_session_starts_from_the_template_and_a_player_is_entered_when_stored(arena):
@@ -1215,7 +1241,7 @@ def test_a_template_session_starts_from_the_template_and_a_player_is_entered_whe
     _, players = get(arena, '/players')
     assert any(p['name'] == '_vibe_bot' for p in players['players'])
     requests.delete(f"{arena}/players/{stored['entered']['id']}", timeout=30)
-    requests.delete(f"{arena}/modules/{stored['id']}", timeout=30)
+    requests.delete(f"{arena}/modules/{stored['id']}", headers=as_(OWNER), timeout=30)
 
     # A prefix that is not unambiguous is refused rather than guessed.
     _, s2 = post(arena, '/vibe', {'role': 'player'})
@@ -1237,3 +1263,65 @@ def test_a_sentence_needs_the_agent_and_says_so_when_it_is_off(arena_no_agent):
     assert out['error'].startswith('build:')
     _, listing = get(arena_no_agent, '/vibe')
     assert listing['build']['available'] is False
+
+
+# ── ownership: a game is its uploader's to edit ──────────────────────────
+
+def test_whoami_reads_a_wallet_token_and_knows_the_box_owner(arena):
+    alice = Account.create()
+    me = requests.get(f'{arena}/whoami', headers=as_(alice), timeout=10).json()
+    assert me['address'] == alice.address.lower() and not me['box_owner']
+    boss = requests.get(f'{arena}/whoami', headers=as_(OWNER), timeout=10).json()
+    assert boss['box_owner']
+    nobody = requests.get(f'{arena}/whoami', headers={'token': 'garbage'}, timeout=10).json()
+    assert nobody['address'] is None and nobody['error']
+
+
+def test_only_the_owner_edits_or_deletes_and_an_edit_is_the_next_version(arena):
+    alice, eve = Account.create(), Account.create()
+    _, abi = get(arena, '/abi', role='game', lang='class')
+    src = abi['template'] + f'\n# owned {time.time()}\n'
+    name = f'owned-{int(time.time() * 1000)}'
+    m = requests.post(f'{arena}/classes', json={'source': src, 'name': name, 'description': 'mine'},
+                      headers=as_(alice), timeout=30).json()
+    assert m['owner'] == alice.address.lower() and m['role'] == 'game', m
+
+    # Nobody else edits it, deletes it, or rewrites its words by re-uploading.
+    r = requests.post(f'{arena}/vibe', json={'edit': m['id']}, headers=as_(eve), timeout=30)
+    assert r.status_code == 403 and 'not yours' in r.json()['error']
+    assert requests.delete(f"{arena}/modules/{m['id']}", timeout=30).status_code == 401
+    assert requests.delete(f"{arena}/modules/{m['id']}", headers=as_(eve), timeout=30).status_code == 403
+    r = requests.post(f'{arena}/classes', json={'source': src + '#x\n', 'parent': m['id']}, headers=as_(eve), timeout=30)
+    assert r.status_code == 403
+    requests.post(f'{arena}/classes', json={'source': src, 'description': 'defaced'}, headers=as_(eve), timeout=30)
+    assert get(arena, f"/modules/{m['id']}")[1]['description'] == 'mine'
+
+    # Alice edits: a session bound to her, stored as v2 under the same name.
+    _, s = post_as(arena, '/vibe', {'edit': m['id']}, alice)
+    assert s['edit'] == m['id'] and s['owner'] == alice.address.lower()
+    r = requests.post(f'{arena}/vibe', json={'session': s['session'], 'source': src + '# hijack\n'},
+                      headers=as_(eve), timeout=30)
+    assert r.status_code == 403
+    post_as(arena, '/vibe', {'session': s['session'], 'source': src + '# v2\n'}, alice)
+    _, v2 = post_as(arena, f"/vibe/{s['session']}/store", {}, alice)
+    assert v2['name'] == name and v2['parent'] == m['id'] and v2['owner'] == alice.address.lower(), v2
+    _, now = get(arena, f'/modules/{name}')
+    assert now['id'] == v2['id'] and now['version'] == 2
+    _, shelf = get(arena, '/modules', role='game')
+    assert [x['name'] for x in shelf['modules']].count(name) == 1
+    _, hers = get(arena, '/modules', owner=alice.address)
+    assert [x['id'] for x in hers['modules']] == [v2['id']]
+
+    # Undo v2 and v1 is the game again; then the box owner may clear it all.
+    out = requests.delete(f"{arena}/modules/{v2['id']}", headers=as_(alice), timeout=30).json()
+    assert out['restored'] == m['id']
+    assert get(arena, f'/modules/{name}')[1]['id'] == m['id']
+    assert requests.delete(f"{arena}/modules/{m['id']}?all=1", headers=as_(OWNER), timeout=30).ok
+
+
+def test_a_vibe_round_needs_a_signed_in_caller(arena):
+    code, out = post(arena, '/vibe', {'role': 'game', 'prompt': 'tic tac toe'})
+    # The agent may be off on the box running the tests; either way no
+    # anonymous caller gets a round.
+    assert code in (401, 424), out
+    assert 'sign in' in out['error'] or out['error'].startswith('build:')

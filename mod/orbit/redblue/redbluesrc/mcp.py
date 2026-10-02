@@ -34,7 +34,7 @@ MAX_OUT = int(os.environ.get('RB_MAX_RESULT_CHARS', 40000))
 # Writing a round runs the target model, which spends CLI/API calls; those are
 # the gated tools.
 WRITE_TOOLS = {'rb_round', 'rb_fight', 'rb_attack', 'rb_defend',
-               'rb_delete', 'rb_sweep'}
+               'rb_delete', 'rb_sweep', 'rb_duel'}
 
 INSTRUCTIONS = (
     'Red-vs-blue jailbreak game with a real scoreboard. Red team writes attacks '
@@ -150,6 +150,28 @@ def t_fight(a):
                           int(a['timeout']) if a.get('timeout') else None,
                           a.get('judge_model') or None)
     return rec
+
+
+def t_duel(a):
+    from . import lab
+    return lab.duel(lab.resolve_side(a.get('red'), 'red'),
+                    lab.resolve_side(a.get('blue') or '', 'blue'),
+                    model=a.get('model') or models.DEFAULT,
+                    judge=a.get('judge') or 'heuristic',
+                    timeout=int(a['timeout']) if a.get('timeout') else None,
+                    judge_model=a.get('judge_model') or None,
+                    parallel=int(a.get('parallel') or 6))
+
+
+def t_vibe(a):
+    from . import lab
+    side = a.get('side')
+    against = a.get('against')
+    if against:
+        against = lab.resolve_side(against, 'blue' if side == 'red' else 'red')
+    return lab.vibe(side, goal=a.get('goal'), against=against,
+                    technique=a.get('technique'), model=a.get('model') or 'local',
+                    timeout=int(a['timeout']) if a.get('timeout') else None)
 
 
 def t_round(a):
@@ -356,6 +378,51 @@ TOOLS = {
             'required': ['attack']},
         'handler': t_fight,
     },
+    'rb_duel': {
+        'description': 'Any red against any blue, nothing saved first. red and '
+                       'blue are each a raw string (a prompt / a system prompt '
+                       'typed by hand), a comma-separated list of saved ids, or '
+                       'an inline object; an empty blue is the bare model. '
+                       'Returns an N×M grid of full match records plus a per-blue '
+                       'hold tally. A blue carrying a `secret` is also checked '
+                       'for a verbatim leak of it, and any blue is checked for '
+                       'leaking its own system prompt — either flips the cell to '
+                       'a red win regardless of the judge.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'red': _str('The red prompt(s): raw text, comma-separated attack '
+                        'ids, or an attack object'),
+            'blue': _str('The blue(s): a raw system prompt, comma-separated '
+                         'defense ids, or a defense object; empty = bare model'),
+            'model': _str('Target model (default claude:haiku)'),
+            'judge': _str('heuristic (default, offline) or model'),
+            'judge_model': _str('Grade with this model instead of the target'),
+            'parallel': _num('Cells in flight at once (default 6)'),
+            'timeout': _num('Per-call timeout in seconds')},
+            'required': ['red']},
+        'handler': t_duel,
+    },
+    'rb_vibe': {
+        'description': 'Write one side for you. side=red picks (and, given the '
+                       'blue to beat via against=, adapts) an attack from the '
+                       'corpus; side=blue composes a defense from the baseline '
+                       'plus tripwires for the framings in against=. model=local '
+                       '(default) is offline and keyless; any other model writes '
+                       'it, falling back to local with the reason if it declines. '
+                       'Feed the result straight into rb_duel.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'side': _str('red or blue'),
+            'goal': _str('For a red: what a breach would obtain (a topic/keyword '
+                         'that narrows the corpus)'),
+            'against': _str('The other side it should beat — a blue for a red '
+                            'vibe, red(s) for a blue vibe'),
+            'technique': _str('For a red: prefer this framing, e.g. roleplay / '
+                              'override / many-shot'),
+            'model': _str('local (default, offline) or a model string that '
+                          'writes it'),
+            'timeout': _num('Per-call timeout in seconds')},
+            'required': ['side']},
+        'handler': t_vibe,
+    },
     'rb_round': {
         'description': 'The tournament: every attack × every defense, scored, '
                        'with the benign control set. Returns per-defense '
@@ -501,6 +568,10 @@ def info():
         'pipeline': 'input rules → system prompt → model → [self-check] → '
                     'output rules; any stage can end the turn, and the record '
                     'says which did',
+        'lab': 'rb_duel fires any red prompt(s) at any blue prompt(s) typed by '
+               'hand or picked by id, nothing saved; rb_vibe writes either side '
+               '(local/offline by default, or a model). A blue may carry a '
+               'secret and the lab judges a verbatim leak itself.',
         'targets': 'model= chooses the backend: claude:haiku (default, keyless), '
                    'openrouter:<slug>, venice:<id>, anthropic:<model>, '
                    'openai:<model>, or mock:naive|strict|compliant (offline, '

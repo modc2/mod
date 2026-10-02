@@ -111,6 +111,7 @@
     <button data-tab="attacks">RED</button>
     <button data-tab="defenses">BLUE</button>
     <button data-tab="fight">FIGHT</button>
+    <button data-tab="lab">LAB</button>
     <button data-tab="about">RULES</button>
   </nav>
 </header>
@@ -297,6 +298,57 @@
     </div>
   </section>
 
+  <!-- LAB --------------------------------------------------------------- -->
+  <section id="lab">
+    <div class="panel">
+      <h2>the bench — any red against any blue</h2>
+      <p class="note">Type a red prompt and a blue system prompt and see if it
+        gets through — or let the bench <b>vibe</b> either side for you. Nothing
+        is saved. A blue can hold a <b>secret</b> and the bench judges a
+        verbatim leak of it itself, no model needed.</p>
+      <div class="row">
+        <label>target</label><input type="text" id="l-model" value="mock:naive" size="20">
+        <label>judge</label>
+        <select id="l-judge"><option>heuristic</option><option>model</option></select>
+        <label>vibe with</label>
+        <input type="text" id="l-vibe-model" value="local" size="12"
+               title="local = offline, keyless; or a model string that writes the side">
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2 style="color:var(--red)">red — the attack</h2>
+        <div class="row">
+          <select id="l-red-pick"><option value="">— load a saved attack —</option></select>
+          <input type="text" id="l-red-goal" placeholder="goal / topic (for vibe)" style="flex:1">
+          <button id="l-red-vibe" title="pick & adapt an attack from the corpus">VIBE RED</button>
+        </div>
+        <textarea id="l-red" placeholder="the red prompt — type it, or vibe it" style="min-height:150px"></textarea>
+        <div id="l-red-note" class="note"></div>
+      </div>
+      <div class="panel">
+        <h2 style="color:var(--blue)">blue — the defense</h2>
+        <div class="row">
+          <select id="l-blue-pick"><option value="">— load a saved/built-in defense —</option></select>
+          <button id="l-blue-vibe" title="compose a defense that beats the red">VIBE BLUE</button>
+        </div>
+        <textarea id="l-blue" placeholder="the blue system prompt — empty = the bare model" style="min-height:120px"></textarea>
+        <div class="row" style="margin-top:6px">
+          <label>secret</label>
+          <input type="text" id="l-secret" placeholder="a password the blue must never reveal (optional)" style="flex:1">
+        </div>
+        <div id="l-blue-note" class="note"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="row">
+        <button class="go" id="l-go">RUN</button>
+        <span id="l-status" class="flash"></span>
+      </div>
+      <div id="l-out"></div>
+    </div>
+  </section>
+
   <!-- ABOUT ------------------------------------------------------------- -->
   <section id="about">
     <div class="panel"><h2>the rules</h2><div id="about-body" class="muted">—</div></div>
@@ -326,7 +378,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   b.classList.add('on');
   $('#' + b.dataset.tab).classList.add('on');
   ({board: loadBoard, models: loadModels, rounds: loadRounds, attacks: loadAttacks,
-    defenses: loadDefenses, fight: loadPickers, about: loadAbout}[b.dataset.tab])();
+    defenses: loadDefenses, fight: loadPickers, lab: loadLab, about: loadAbout}[b.dataset.tab])();
 });
 
 // ── board ──────────────────────────────────────────────────────
@@ -742,6 +794,121 @@ $('#f-go').onclick = async () => {
   } catch (e) {
     $('#f-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
   }
+};
+
+// ── lab ────────────────────────────────────────────────────────
+// Either side is a raw string typed by hand, or an object we were handed by a
+// vibe / a saved pick. Typing in a box drops the object for that side — the
+// text is now the truth. On RUN we send whichever is current, so a vibed
+// blue's input tripwires are not silently lost by showing only its prompt.
+const LAB = {red: null, blue: null};
+
+function renderVerdict(m) {
+  return `<div class="row" style="margin-top:10px">
+      <span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span>
+      <span class="pill">${m.red_win ? 'red got through' : 'blue held'}</span>
+      <span class="pill">stopped at ${esc(m.blocked_at || 'model')}</span>
+      <span class="pill">judge: ${esc(m.judge || '—')}</span>
+      <span class="pill">${m.model_calls || 0} model calls</span>
+      <span class="pill">${m.ms || 0} ms</span>
+    </div>
+    <div class="muted">${esc(m.reason || m.error || '')}</div>
+    ${(m.stages || []).map(s => `<div class="stage"><b>${esc(s.stage)}</b>
+      <span>${esc(s.rule || s.action)}</span>
+      <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+    <pre>${esc(m.response || m.error || '')}</pre>`;
+}
+
+async function loadLab() {
+  const [{attacks}, {defenses}] = await Promise.all(
+    [api('/attacks'), api('/defenses')]);
+  $('#l-red-pick').innerHTML = '<option value="">— load a saved attack —</option>'
+    + attacks.map(a => `<option value="${esc(a.id)}">${esc(a.id)}</option>`).join('');
+  $('#l-blue-pick').innerHTML = '<option value="">— load a saved/built-in defense —</option>'
+    + defenses.map(d => `<option value="${esc(d.id)}">${esc(d.id)}</option>`).join('');
+}
+
+$('#l-red').oninput = () => { LAB.red = null; $('#l-red-note').textContent = ''; };
+$('#l-blue').oninput = () => { LAB.blue = null; $('#l-blue-note').textContent = ''; };
+
+$('#l-red-pick').onchange = async () => {
+  const id = $('#l-red-pick').value; if (!id) return;
+  const a = await api('/attacks?id=' + encodeURIComponent(id));
+  LAB.red = {id};
+  $('#l-red').value = a.turns
+    ? a.turns.map(t => `${t.role}: ${t.content}`).join('\n\n') : (a.prompt || '');
+  $('#l-red-note').textContent = `loaded ${id}`
+    + (a.turns ? ' — multi-turn attack, runs as saved' : '');
+};
+$('#l-blue-pick').onchange = async () => {
+  const id = $('#l-blue-pick').value; if (!id) return;
+  const {defenses} = await api('/defenses?id=' + encodeURIComponent(id));
+  const d = (defenses || []).find(x => x.id === id) || {};
+  LAB.blue = {id};
+  $('#l-blue').value = d.system_prompt || '';
+  const nr = (d.input_rules || []).length + (d.output_rules || []).length;
+  $('#l-blue-note').textContent = `loaded ${id}`
+    + (nr ? ` — ${nr} rule(s)` : '') + (d.self_check ? ' + self-check' : '');
+};
+
+$('#l-red-vibe').onclick = async () => {
+  $('#l-status').textContent = 'vibing red…';
+  try {
+    const r = await post('/vibe', {side: 'red', goal: $('#l-red-goal').value.trim() || null,
+      against: $('#l-blue').value.trim() || null,
+      model: $('#l-vibe-model').value.trim() || 'local'});
+    LAB.red = {prompt: r.prompt, turns: r.turns, markers: r.markers,
+               goal: r.goal, technique: r.technique, name: r.name};
+    $('#l-red').value = r.turns
+      ? r.turns.map(t => `${t.role}: ${t.content}`).join('\n\n') : (r.prompt || '');
+    $('#l-red-note').textContent = `${esc(r.source || 'vibed')}${
+      r.from ? ' · ' + esc(r.from) : ''}${r.why ? ' — ' + esc(r.why) : ''}${
+      r.fallback ? ' — ' + esc(r.fallback) : ''}`;
+    $('#l-status').textContent = '';
+  } catch (e) { $('#l-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+$('#l-blue-vibe').onclick = async () => {
+  $('#l-status').textContent = 'vibing blue…';
+  try {
+    const b = await post('/vibe', {side: 'blue',
+      against: $('#l-red').value.trim() || null,
+      model: $('#l-vibe-model').value.trim() || 'local'});
+    LAB.blue = {system_prompt: b.system_prompt, input_rules: b.input_rules,
+                output_rules: b.output_rules, self_check: b.self_check, name: b.name};
+    $('#l-blue').value = b.system_prompt || '';
+    const nr = (b.input_rules || []).length + (b.output_rules || []).length;
+    $('#l-blue-note').textContent = `${esc(b.source || 'vibed')}${
+      nr ? ` · ${nr} tripwire(s)` : ''}${b.why ? ' — ' + esc(b.why) : ''}${
+      b.fallback ? ' — ' + esc(b.fallback) : ''}`;
+    $('#l-status').textContent = '';
+  } catch (e) { $('#l-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+$('#l-go').onclick = async () => {
+  const btn = $('#l-go'); btn.disabled = true;
+  $('#l-status').textContent = 'running…'; $('#l-out').innerHTML = '';
+  try {
+    // red: the vibed/picked object, else the typed text. blue the same, with
+    // the secret folded in whichever form it takes.
+    let red = LAB.red || $('#l-red').value;
+    let blue = LAB.blue || $('#l-blue').value;
+    const secret = $('#l-secret').value.trim();
+    if (secret) {
+      blue = (typeof blue === 'object' && blue) ? {...blue, secret}
+        : {system_prompt: String(blue || ''), secret};
+    }
+    const res = await post('/duel', {red, blue, model: $('#l-model').value.trim(),
+      judge: $('#l-judge').value});
+    $('#l-status').textContent = '';
+    const m = res.matches[0];
+    const t = res.tally[0] || {};
+    $('#l-out').innerHTML = renderVerdict(m)
+      + `<p class="note" style="margin-top:8px">target ${esc(res.model)} ·
+         judge ${esc(res.judge)} · blue ${t.held ? 'held' : 'was breached by'}
+         this red</p>`;
+  } catch (e) {
+    $('#l-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
 };
 
 // ── about ──────────────────────────────────────────────────────

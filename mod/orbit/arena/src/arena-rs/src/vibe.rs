@@ -53,6 +53,9 @@ pub struct Round {
     pub cost_usd: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
+    /// The model the round ran on, as build reported it.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -79,6 +82,10 @@ pub struct Session {
     pub stored: Option<Value>,
     pub created: u64,
     pub updated: u64,
+    /// Whose session it is — the signed caller that opened it. Only they (or
+    /// the box's owners) steer it, store it, or throw it away.
+    #[serde(default)]
+    pub owner: String,
 }
 
 fn now() -> u64 {
@@ -108,6 +115,10 @@ fn client() -> &'static reqwest::Client {
 
 /// Where the build module's job server answers. `ARENA_BUILD_URL=off` turns
 /// the agent off — the tests run that way, and so does a box without build.
+pub fn build_base() -> Option<String> {
+    build_url()
+}
+
 fn build_url() -> Option<String> {
     let raw = std::env::var("ARENA_BUILD_URL").unwrap_or_else(|_| "http://127.0.0.1:8890".into());
     let raw = raw.trim().trim_end_matches('/').to_string();
@@ -145,7 +156,7 @@ fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
 
 /// The address build's ledger will file the jobs under: its owner, read off
 /// its own public `/owner` card. Cached — it does not change under us.
-async fn build_owner(base: &str) -> Result<String, String> {
+pub async fn build_owner(base: &str) -> Result<String, String> {
     static OWNER: OnceLock<Mutex<Option<String>>> = OnceLock::new();
     let cell = OWNER.get_or_init(|| Mutex::new(None));
     if let Some(o) = cell.lock().unwrap_or_else(|e| e.into_inner()).clone() {
@@ -396,6 +407,25 @@ fn system_prompt(s: &Session) -> String {
 
 // ── the door ─────────────────────────────────────────────────────────────
 
+/// A session is its owner's. One opened by nobody in particular (before
+/// sign-in existed, or by the CLI) is anybody's.
+fn may_steer(s: &Session) -> Result<(), String> {
+    if s.owner.is_empty() || crate::ident::can_edit(&s.owner, crate::ident::caller().as_deref()) {
+        return Ok(());
+    }
+    Err(format!("vibe session {} is {}'s — fork the game to write your own", s.id, short_addr(&s.owner)))
+}
+
+fn short_addr(a: &str) -> String {
+    if a.len() > 12 { format!("{}…{}", &a[..6], &a[a.len() - 4..]) } else { a.to_string() }
+}
+
+/// What a session that edits a module is editing, if it is one.
+fn edit_target(s: &Session) -> Option<String> {
+    s.from.get("edit").and_then(|v| v.as_bool()).filter(|e| *e)
+        .and(s.from.get("module").and_then(|v| v.as_str()).map(str::to_string))
+}
+
 /// Start a session, or continue one, and — given a sentence — hand it to the
 /// build agent. Without a sentence this is a fork or a template: a session
 /// holding the source it started from, ready for one.
@@ -408,6 +438,7 @@ pub async fn vibe(args: &Value) -> Result<Value, String> {
 
     let mut s = if let Some(id) = str_arg("session") {
         let mut s = find(&id)?;
+        may_steer(&s)?;
         if s.status == "running" {
             return Err(format!("vibe session {} is still running job {} — wait for it, or cancel it", s.id, s.job().unwrap_or_default()));
         }
@@ -434,6 +465,13 @@ pub async fn vibe(args: &Value) -> Result<Value, String> {
     let base = build_url().ok_or(
         "build: the build agent is off on this arena (ARENA_BUILD_URL=off) — the session holds its source; edit it by hand and store it",
     )?;
+    // A round spends the box's agent, so it is somebody's: sign in first.
+    let who = crate::ident::caller().ok_or(
+        "sign in to vibecode — a round runs this box's build agent, and the session is kept as yours",
+    )?;
+    if s.owner.is_empty() {
+        s.owner = who;
+    }
     let running = sessions().lock().unwrap_or_else(|e| e.into_inner()).values().filter(|x| x.status == "running" && x.id != s.id).count();
     if running >= max_running() {
         return Err(format!("build: {running} vibe rounds are already running on this box — {} at a time is the cap, try again in a moment", max_running()));
@@ -464,6 +502,7 @@ pub async fn vibe(args: &Value) -> Result<Value, String> {
         log: String::new(),
         cost_usd: None,
         error: None,
+        model: if model.is_empty() { None } else { Some(model.clone()) },
     });
     s.status = "running".into();
     s.error = None;
@@ -486,7 +525,18 @@ fn start(args: &Value) -> Result<Session, String> {
         other => return Err(format!("lang `{other}` — a vibe writes a python or a rust class")),
     };
 
-    let (source, from, name) = if let Some(key) = str_arg("from").or_else(|| str_arg("module")) {
+    let editing = str_arg("edit");
+    if let Some(key) = &editing {
+        let m = arena::get_module(key, false)?;
+        let owner = m.get("owner").and_then(|v| v.as_str()).unwrap_or("");
+        if !crate::ident::can_edit(owner, crate::ident::caller().as_deref()) {
+            return Err(match crate::ident::caller() {
+                None => "sign in to edit a game — only its owner can".to_string(),
+                Some(_) => format!("{} is not yours to edit — fork it instead", m.get("name").and_then(|v| v.as_str()).unwrap_or(key)),
+            });
+        }
+    }
+    let (source, from, name) = if let Some(key) = editing.clone().or_else(|| str_arg("from")).or_else(|| str_arg("module")) {
         let m = arena::get_module(&key, true)?;
         let m_lang = m.get("lang").and_then(|v| v.as_str()).unwrap_or("wasm");
         if m_lang == "wasm" {
@@ -502,8 +552,13 @@ fn start(args: &Value) -> Result<Session, String> {
         }
         lang = m_lang.to_string();
         let m_name = m.get("name").and_then(|v| v.as_str()).unwrap_or("module").to_string();
-        let from = json!({ "module": m.get("id"), "name": m_name, "role": m_role });
-        (source, from, str_arg("name").unwrap_or_else(|| format!("{m_name}-fork")))
+        if editing.is_some() {
+            let from = json!({ "module": m.get("id"), "name": m_name, "role": m_role, "edit": true });
+            (source, from, m_name)
+        } else {
+            let from = json!({ "module": m.get("id"), "name": m_name, "role": m_role });
+            (source, from, str_arg("name").unwrap_or_else(|| format!("{m_name}-fork")))
+        }
     } else if let Some(text) = args.get("source").and_then(|v| v.as_str()).filter(|t| !t.trim().is_empty()) {
         (text.to_string(), json!({ "source": "given" }), str_arg("name").unwrap_or_else(|| format!("my{role}")))
     } else {
@@ -535,6 +590,7 @@ fn start(args: &Value) -> Result<Session, String> {
         stored: None,
         created: now(),
         updated: now(),
+        owner: crate::ident::caller().unwrap_or_default(),
     };
     save(&s);
     Ok(s)
@@ -602,6 +658,9 @@ fn settle(id: &str, job: &Value, status: &str) {
         r.log = tail(output);
         r.cost_usd = cost;
         r.error = error.clone();
+        if let Some(m) = job.get("model").and_then(|v| v.as_str()).filter(|m| !m.is_empty()) {
+            r.model = Some(m.to_string());
+        }
     }
     s.status = mapped.into();
     s.error = error;
@@ -651,10 +710,25 @@ pub async fn card(s: &Session) -> Result<Value, String> {
         "stored": s.stored,
         "created": s.created,
         "updated": s.updated,
+        "owner": if s.owner.is_empty() { Value::Null } else { json!(s.owner) },
+        "edit": edit_target(s),
+        "agent": agent_of(s),
         "then": if s.stored.is_some() { "stored — it is in the registry now" }
                 else if s.status == "running" { "wait: get_vibe until status is done, then read `source`" }
                 else { "another sentence continues it (vibe with `session`); store_vibe puts it in the registry" },
     }))
+}
+
+/// What wrote the session: the models its rounds ran on, else `hand`.
+fn agent_of(s: &Session) -> String {
+    let mut models: Vec<String> = vec![];
+    for r in s.rounds.iter().filter(|r| r.status == "done") {
+        let m = r.model.clone().unwrap_or_else(|| "build agent".into());
+        if !models.contains(&m) {
+            models.push(m);
+        }
+    }
+    if models.is_empty() { "hand".into() } else { models.join(" + ") }
 }
 
 pub async fn get(key: &str) -> Result<Value, String> {
@@ -677,6 +751,7 @@ pub fn list() -> Value {
             "from": s.from, "status": s.status, "rounds": s.rounds.len(),
             "stored": s.stored.as_ref().and_then(|m| m.get("id")),
             "updated": s.updated,
+            "owner": s.owner, "edit": edit_target(s), "agent": agent_of(s),
         })).collect::<Vec<_>>(),
     })
 }
@@ -687,6 +762,7 @@ pub fn list() -> Value {
 pub async fn store(args: &Value) -> Result<Value, String> {
     let key = args.get("session").and_then(|v| v.as_str()).unwrap_or("");
     let mut s = find(key)?;
+    may_steer(&s)?;
     if s.status == "running" {
         return Err(format!("vibe session {} is still running — wait for the round to finish", s.id));
     }
@@ -704,7 +780,18 @@ pub async fn store(args: &Value) -> Result<Value, String> {
         "name": name,
         "description": args.get("description").and_then(|v| v.as_str()).unwrap_or(""),
         "tags": ["class", "vibe"],
+        "agent": agent_of(&s),
     });
+    // An edit lands as the next version of what it edits — put_module checks
+    // the caller may, so a session cannot launder somebody else's game.
+    if let Some(target) = edit_target(&s) {
+        // Edited twice? The game has moved on to the version stored last time.
+        let head = crate::store::read(|st| st.head(&target).map(|m| m.id.clone())).unwrap_or(target);
+        body["parent"] = json!(head);
+        if body["description"].as_str().unwrap_or("").is_empty() {
+            body.as_object_mut().map(|o| o.remove("description"));
+        }
+    }
     if let Some(a) = args.get("author") {
         body["author"] = a.clone();
     }
@@ -743,6 +830,7 @@ pub async fn store(args: &Value) -> Result<Value, String> {
 
 pub async fn cancel(key: &str) -> Result<Value, String> {
     let mut s = find(key)?;
+    may_steer(&s)?;
     if s.status != "running" {
         return Err(format!("vibe session {} is not running", s.id));
     }
@@ -761,6 +849,7 @@ pub async fn cancel(key: &str) -> Result<Value, String> {
 
 pub fn delete(key: &str) -> Result<Value, String> {
     let s = find(key)?;
+    may_steer(&s)?;
     std::fs::remove_dir_all(dir().join(&s.id)).map_err(|e| format!("could not remove the session: {e}"))?;
     sessions().lock().unwrap_or_else(|e| e.into_inner()).remove(&s.id);
     Ok(json!({ "deleted": s.id, "stored": s.stored }))

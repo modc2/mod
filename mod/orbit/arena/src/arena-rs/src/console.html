@@ -515,6 +515,75 @@
   @media (max-width: 900px) { .stage, .lobby2 { grid-template-columns: 1fr; }
     .stage .board { white-space: pre-wrap; font-size: 13.5px; min-height: 180px; } }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  /* ── who: the sign-in capsule, owner chips, the agent that wrote a game ── */
+  .me { display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 10px; border-radius: 999px;
+        border: 1px solid var(--line); background: var(--panel2); font-size: 12px; color: var(--ink); cursor: pointer;
+        font-family: inherit; min-height: 34px; }
+  .me:hover { border-color: var(--accent); }
+  .me .badge { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
+               background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+  .dotid { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 9px; border-radius: 999px;
+          border: 1px solid var(--line); background: var(--panel2); font-size: 11.5px; color: var(--dim);
+          white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip b { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  .chip.mine { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .chip.mine b { color: var(--accent); }
+  .chip.agent b { color: var(--accent2); }
+  .chip svg { width: 13px; height: 13px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; }
+  .ver { font-size: 10.5px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--dim); }
+
+  /* the shelf of games */
+  .shelfbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .shelfbar h1 { margin: 0; font-size: 22px; letter-spacing: -.01em; }
+  .shelfbar h1 small { color: var(--dim); font-size: 13px; font-weight: 400; margin-left: 6px; }
+  .gcard { position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .gcard::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+                   background: linear-gradient(90deg, var(--h1), var(--h2)); opacity: .85; }
+  .gcard .head .mono2 { width: 42px; height: 42px; font-size: 15px; border-radius: 12px; }
+  .gcard h3 { display: flex; gap: 7px; align-items: center; }
+  .gcard p.desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.9em; }
+  .gcard .chips { margin: 2px 0 10px; }
+  .gcard .lead { font-size: 12.5px; }
+  .gcard .foot { margin-top: auto; padding-top: 10px; align-items: center; }
+  .gcard .acts { display: flex; gap: 6px; }
+  .gcard .acts button { padding: 4px 10px; min-height: 30px; font-size: 12px; }
+  .newcard { display: grid; place-items: center; text-align: center; min-height: 220px; border-style: dashed !important;
+             color: var(--dim); }
+  .newcard b { display: block; color: var(--ink); font-size: 15px; margin: 8px 0 4px; }
+  .newcard .plus { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin: 0 auto;
+                   font-size: 26px; color: var(--on-accent); background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+  .byline { margin: -4px 0 14px; }
+
+  /* the studio: say what to change on the left, the code on the right */
+  .studio { display: grid; gap: 14px; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); align-items: start; }
+  .studio > .card { margin: 0; min-width: 0; }
+  .studio textarea.code { min-height: 520px; font-size: 12.5px; line-height: 1.5; tab-size: 4; white-space: pre; }
+  .studio .say { min-height: 96px; font-size: 14px; }
+  .rounds { display: grid; gap: 8px; margin-top: 12px; }
+  .round { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--panel2); font-size: 12.5px; }
+  .round .q { color: var(--ink); white-space: pre-wrap; }
+  .round .meta { color: var(--dim); font-size: 11px; margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .round.running { border-color: var(--accent); }
+  .round.failed, .round.cancelled { border-color: color-mix(in srgb, var(--bad) 50%, var(--line)); }
+  .ideas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .ideas button { border: 1px dashed var(--line); background: none; color: var(--dim); border-radius: 999px;
+                  padding: 4px 10px; font: inherit; font-size: 11.5px; cursor: pointer; }
+  .ideas button:hover { color: var(--ink); border-color: var(--accent); }
+  @media (max-width: 900px) { #new-game { display: none; } .studio { grid-template-columns: 1fr; } .studio textarea.code { min-height: 340px; } }
+
+  /* ask(): the in-page dialog — never the browser's own confirm() */
+  .askback { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px;
+             background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(4px); }
+  .askbox { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
+            padding: 18px; box-shadow: 0 20px 60px -20px rgba(0,0,0,.6); }
+  .askbox h3 { margin: 0 0 8px; }
+  .askbox p { margin: 0 0 14px; color: var(--dim); font-size: 13px; white-space: pre-wrap; }
+  .askbox input, .askbox textarea { width: 100%; margin-bottom: 14px; }
+  .askbox .row { justify-content: flex-end; }
+  button.danger { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
 </style>
 </head>
 <body>
@@ -529,7 +598,9 @@
   </nav>
   <a href="/arena/arcade" style="color:var(--dim);font-size:12px;text-decoration:none;padding:7px 4px">arcade</a>
   <span class="counts" id="banner">loading…</span>
-  <button class="act sm" id="add-open">+ add</button>
+  <button class="act sm" id="new-game" title="write a new game with the agent, a sentence at a time">+ new game</button>
+  <button class="ghost sm" id="add-open" title="upload a .wasm / .py / .rs, or harvest a repo">upload</button>
+  <button class="me" id="me" title="sign in with your wallet">sign in</button>
   <span class="themewrap">
     <button class="ghost sm" id="theme" aria-haspopup="menu" aria-expanded="false">theme</button>
     <div class="themes" id="theme-menu" role="menu" hidden></div>
@@ -579,34 +650,12 @@
       <p class="dim small" id="r-out" style="margin:8px 0 0">nobody writes the tests — they are what the repo already does</p>
     </div>
 
-    <!-- ── vibe ──
-         Writing one with the build agent. A session is a file on this box that
-         orbit/build's agent edits a sentence at a time, from the template or
-         from a fork of any stored class. What it wrote lands in the editor
-         below and is uploaded from there like anything typed by hand — the
-         agent has no door of its own into the registry. -->
-    <div id="vibe" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px">
-      <div class="row" style="margin-bottom:8px">
-        <h2 class="grow" style="margin:0;font-size:14px">vibe one</h2>
-        <span class="dim small" id="v-avail">…</span>
+    <div class="row" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px">
+      <div class="grow">
+        <h2 style="margin:0;font-size:14px">vibecode one</h2>
+        <span class="dim small">say what you want; the build agent writes the class, you watch it and publish it</span>
       </div>
-      <div class="row">
-        <select id="v-from" title="start from the template, or fork a stored class"></select>
-        <select id="v-role" title="what to write"><option value="game">game</option><option value="player">player</option></select>
-        <select id="v-lang" title="in which language"><option value="python">python</option><option value="rust">rust</option></select>
-        <input id="v-name" placeholder="name" style="flex:1;min-width:170px">
-      </div>
-      <div class="row" style="margin-top:8px;align-items:stretch">
-        <textarea id="v-prompt" rows="2" style="flex:1;min-width:220px;width:auto" spellcheck="false"
-          placeholder="what to write — “tic-tac-toe on a 4x4 board, three in a row wins, print the board every move”"></textarea>
-        <button class="act" id="v-go">vibecode</button>
-      </div>
-      <div class="row small" id="v-status" style="margin-top:8px" hidden>
-        <span id="v-state" class="dim"></span><span class="grow"></span>
-        <a id="v-job" class="dim" target="_blank" rel="noopener" hidden>the job on build ↗</a>
-        <button class="link" id="v-cancel" hidden>cancel</button>
-      </div>
-      <pre id="v-log" class="dim small" style="max-height:220px;margin-top:6px" hidden></pre>
+      <button class="act" id="add-studio">open the studio</button>
     </div>
 
     <details id="write" style="margin-top:12px">
@@ -660,8 +709,17 @@
 
   <!-- ── games ────────────────────────────────────────────────────────── -->
   <section id="view-games" hidden>
+    <div class="shelfbar">
+      <h1>games<small id="g-count"></small></h1>
+      <div class="seg" id="g-scope" role="tablist" style="flex:none" hidden>
+        <button data-scope="all" aria-selected="true">all</button>
+        <button data-scope="mine" aria-selected="false">mine</button>
+      </div>
+      <span class="grow"></span>
+      <button class="act sm" id="g-new">+ new game</button>
+    </div>
     <div class="row" style="margin-bottom:12px">
-      <input id="g-search" class="grow" placeholder="search games" autocomplete="off">
+      <input id="g-search" class="grow" placeholder="search games, owners, agents" autocomplete="off">
       <select id="g-sort" title="how to order them">
         <option value="played">most played</option>
         <option value="name">by name</option>
@@ -678,11 +736,14 @@
       <button class="link" id="g-back">← games</button>
       <h2 id="g-name"></h2>
       <span class="tag game" id="g-lang"></span>
+      <span class="ver" id="g-ver" hidden></span>
       <span class="grow"></span>
-      <button class="link" id="g-fork" title="copy its source into a vibe session under a new name">fork</button>
-      <button class="link" id="g-delete">delete</button>
+      <button class="act sm" id="g-edit" hidden title="change the rules with the agent — saving makes the next version">edit with agent</button>
+      <button class="ghost sm" id="g-fork" title="copy its source into the studio under a new name — yours">fork</button>
+      <button class="link" id="g-delete" hidden>delete</button>
     </div>
     <p class="dim small" id="g-desc" style="margin-top:-6px"></p>
+    <div class="chips byline" id="g-by"></div>
 
     <div class="card">
       <h2>leaderboard</h2>
@@ -727,6 +788,60 @@
     <details class="card"><summary class="dim" style="cursor:pointer">what this game is</summary>
       <pre id="g-body" style="margin-top:10px"></pre>
     </details>
+  </section>
+
+  <!-- ── studio ── vibecoding one game. A session is a file on this box the
+       build agent edits a sentence at a time; the code is on the right and is
+       yours to change by hand between rounds. Publishing is an ordinary
+       upload — and for an edit, the next version of the game, owner only. -->
+  <section id="view-studio" hidden>
+    <div class="crumb">
+      <button class="link" id="s-back">← games</button>
+      <h2 id="s-title">new game</h2>
+      <span class="tag game" id="s-kind">game</span>
+      <span class="grow"></span>
+      <span class="dim small" id="s-avail"></span>
+    </div>
+    <div class="studio">
+      <div class="card">
+        <div class="row" style="margin-bottom:10px">
+          <input id="s-name" class="grow" placeholder="name" autocomplete="off" spellcheck="false">
+          <select id="s-lang" title="the language the class is written in">
+            <option value="python">python</option><option value="rust">rust</option>
+          </select>
+        </div>
+        <textarea id="s-say" class="say" spellcheck="true"
+          placeholder="describe the game — “connect four on a 7x6 board, first to four in a row wins, draw the board every turn”"></textarea>
+        <div class="ideas" id="s-ideas"></div>
+        <div class="row" style="margin-top:10px">
+          <span class="dim small grow" id="s-who"></span>
+          <button class="act" id="s-send">vibecode</button>
+        </div>
+        <div class="row small" style="margin-top:10px">
+          <span id="s-state" class="dim grow"></span>
+          <a id="s-job" class="dim" target="_blank" rel="noopener" hidden>job ↗</a>
+          <button class="link" id="s-cancel" hidden>stop</button>
+        </div>
+        <div class="rounds" id="s-rounds"></div>
+        <details id="s-logwrap" style="margin-top:10px" hidden>
+          <summary class="dim small" style="cursor:pointer">what the agent is doing</summary>
+          <pre id="s-log" class="dim small" style="max-height:260px;margin-top:6px"></pre>
+        </details>
+      </div>
+      <div class="card">
+        <div class="row" style="margin-bottom:8px">
+          <h2 class="grow" style="margin:0">code</h2>
+          <span class="small" id="s-reads"></span>
+        </div>
+        <textarea id="s-code" class="code" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:10px">
+          <input id="s-desc" class="grow" placeholder="one line on how it plays (optional)">
+          <button class="ghost" id="s-discard">discard</button>
+          <button class="act" id="s-publish">publish</button>
+        </div>
+        <p class="dim small" id="s-out" style="margin:8px 0 0"></p>
+      </div>
+    </div>
   </section>
 
   <!-- ── lobby ── the front page. A match is always on the stage — the latest
@@ -1054,8 +1169,10 @@ function toast(msg, bad = false) {
   toastTimer = setTimeout(() => (t.hidden = true), bad ? 7000 : 2600);
 }
 
-async function call(path, init) {
-  const r = await fetch(API + path, init);
+async function call(path, init = {}) {
+  // Every call goes as whoever is signed in; the server reads the token, so
+  // ownership is never something the page asserts.
+  const r = await fetch(API + path, { ...init, headers: { ...authHeaders(), ...(init.headers || {}) } });
   const body = await r.json().catch(() => ({ error: `${r.status} ${r.statusText}` }));
   if (!r.ok) throw new Error(body.error || `${r.status}`);
   return body;
@@ -1067,6 +1184,135 @@ const post = (path, body) =>
 
 const copy = (text, what = "copied") =>
   navigator.clipboard?.writeText(text).then(() => toast(what), () => toast("could not copy", true));
+
+// ── ask ──────────────────────────────────────────────────────────────────
+// The page's own dialog. Resolves with the key of the button pressed (or the
+// text typed, for a prompt), and null for cancel / Escape / a click outside.
+function ask({ title, body = "", ok = "ok", cancel = "cancel", danger = false, input = null, choices = null }) {
+  return new Promise((resolve) => {
+    const back = el("div", { className: "askback" });
+    const field = input ? el(input.multiline ? "textarea" : "input",
+      { placeholder: input.placeholder || "", value: input.value || "", rows: 4, spellcheck: false }) : null;
+    const done = (v) => { back.remove(); document.removeEventListener("keydown", onKey); resolve(v); };
+    const onKey = (e) => {
+      if (e.key === "Escape") done(null);
+      if (e.key === "Enter" && !(field && input.multiline)) { e.preventDefault(); done(field ? field.value : (choices ? choices[0][0] : true)); }
+    };
+    const buttons = (choices || [[true, ok, danger]]).map(([key, label, bad]) =>
+      el("button", { className: `act sm${bad ? " danger" : ""}`, textContent: label,
+                     onclick: () => done(field ? field.value : key) }));
+    back.append(el("div", { className: "askbox", role: "dialog" }, [
+      el("h3", { textContent: title }),
+      body ? el("p", { textContent: body }) : null,
+      field,
+      el("div", { className: "row" }, [el("button", { className: "ghost sm", textContent: cancel, onclick: () => done(null) }), ...buttons]),
+    ]));
+    back.onclick = (e) => { if (e.target === back) done(null); };
+    document.body.append(back);
+    document.addEventListener("keydown", onKey);
+    (field || buttons[buttons.length - 1]).focus();
+  });
+}
+
+// ── who ──────────────────────────────────────────────────────────────────
+// You are a wallet address. Signing in is one personal_sign over a
+// mod-protocol token — no account, no server session, nothing stored but the
+// token in this browser. The server verifies it on every call and says who
+// owns what; this page only ever shows what the server said.
+const TOKEN_KEY = "arena_token";
+let me = { address: null, box_owner: false, host: "" };
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} };
+function authHeaders() { const t = lsGet(TOKEN_KEY); return t ? { token: t } : {}; }
+const b64url = (text) => btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+  .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const shortAddr = (a) => (a && a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || "");
+const sameAddr = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+/** May the signed-in person change this module? Its owner may, and so may
+ *  whoever runs the box. The server checks again; this only hides buttons. */
+const canEdit = (m) => !!me.address && (me.box_owner || sameAddr(m.owner, me.address));
+/** Yours: you uploaded it — or it is the box's and you run the box. */
+const isMine = (m) => !!me.address && (sameAddr(m.owner, me.address) || (me.box_owner && m.owner_is_host));
+
+function addrDot(a) {
+  let h = 0;
+  for (const c of (a || "").toLowerCase()) h = (h * 33 + c.charCodeAt(0)) % 360;
+  return el("span", { className: "dotid", style: `background:conic-gradient(hsl(${h} 70% 60%),hsl(${(h + 120) % 360} 70% 52%),hsl(${h} 70% 60%))` });
+}
+
+/** The owner of a module as a chip: you, the box, or an address. */
+function ownerChip(m) {
+  const mine = isMine(m);
+  const who = mine ? "you" : m.owner_is_host ? "box owner" : shortAddr(m.owner);
+  return el("span", { className: `chip${mine ? " mine" : ""}`, title: `owner ${m.owner || "this box"}` },
+    [addrDot(m.owner), "by ", el("b", { textContent: who })]);
+}
+
+const AGENT_ICON = "<rect x='5' y='8' width='14' height='11' rx='3'/><path d='M12 8V4.5'/><circle cx='12' cy='4' r='1'/><circle cx='9.5' cy='13' r='.6'/><circle cx='14.5' cy='13' r='.6'/>";
+/** What wrote it — a model when the agent did, else how it arrived. */
+function agentChip(m) {
+  const by = m.made_with || m.agent || "uploaded";
+  const wrote = !["uploaded", "example pack", "hand", "harvested from a repo"].includes(by);
+  return el("span", { className: `chip${wrote ? " agent" : ""}`, title: wrote ? `written by the agent running ${by}` : by },
+    [icon(AGENT_ICON), wrote ? "made with " : "", el("b", { textContent: by })]);
+}
+
+async function loadMe() {
+  try { me = await call("/whoami"); } catch { me = { address: null, box_owner: false, host: "" }; }
+  if (lsGet(TOKEN_KEY) && !me.address) {
+    lsSet(TOKEN_KEY, null);
+    if (me.error) toast(`signed out — ${me.error}`, true);
+  }
+  const b = $("me");
+  b.replaceChildren(...(me.address
+    ? [addrDot(me.address), shortAddr(me.address), me.box_owner ? el("span", { className: "badge", textContent: "owner" }) : null]
+    : ["sign in"]));
+  b.title = me.address ? `${me.address}${me.box_owner ? " — you run this box" : ""}` : "sign in with your wallet";
+  $("g-scope").hidden = !me.address;
+  renderGames();
+  if (openGame && !$("view-game").hidden) gameActions(openGame);
+  if (!$("view-studio").hidden) studioDraw();
+}
+
+async function signIn() {
+  const eth = window.ethereum;
+  if (!eth) {
+    const pasted = await ask({
+      title: "sign in",
+      body: "No wallet extension in this browser. Paste a mod-protocol token instead — `m token` mints one on your box.",
+      input: { placeholder: "token" }, ok: "sign in",
+    });
+    if (!pasted) return false;
+    lsSet(TOKEN_KEY, pasted.trim());
+    await loadMe();
+    return !!me.address;
+  }
+  try {
+    const [address] = await eth.request({ method: "eth_requestAccounts" });
+    // data is a string and time whole seconds: the one shape every verifier
+    // in the fleet reads the same way.
+    const data = "arena", time = Math.floor(Date.now() / 1000).toString();
+    const msg = JSON.stringify({ data, time });
+    const hex = "0x" + [...new TextEncoder().encode(msg)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const signature = await eth.request({ method: "personal_sign", params: [hex, address] });
+    lsSet(TOKEN_KEY, b64url(JSON.stringify({ data, time, key: address.toLowerCase(), signature })));
+    await loadMe();
+    if (me.address) toast(`signed in as ${shortAddr(me.address)}`);
+    return !!me.address;
+  } catch (e) {
+    toast(e.message || "the wallet said no", true);
+    return false;
+  }
+}
+
+$("me").onclick = async () => {
+  if (!me.address) return signIn();
+  const r = await ask({ title: shortAddr(me.address),
+    body: `${me.address}\n${me.box_owner ? "you run this box — you can edit every game here" : "you can edit the games you made"}`,
+    choices: [["mine", "my games"], ["out", "sign out", true]], cancel: "close" });
+  if (r === "out") { lsSet(TOKEN_KEY, null); await loadMe(); toast("signed out"); }
+  if (r === "mine") { gameScope = "mine"; show("games"); renderGames(); }
+};
 
 // ── state ────────────────────────────────────────────────────────────────
 let modules = [];          // everything stored
@@ -1098,7 +1344,7 @@ $("bottom").replaceChildren(...TABS.map(([name, paths]) => {
 function show(view) {
   for (const s of document.querySelectorAll("main section")) s.hidden = s.id !== `view-${view}`;
   const tab = view === "agent" ? "agents"
-            : view === "game" ? "games" : view;
+            : view === "game" || view === "studio" ? "games" : view;
   document.querySelectorAll("nav button[data-tab]").forEach((b) =>
     b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
   if (view === "docs") openDocs();
@@ -1247,29 +1493,37 @@ async function loadFleet(force = false) {
 }
 
 // ── games ────────────────────────────────────────────────────────────────
+let gameScope = "all";     // all | mine
 function renderGames() {
   const q = ($("g-search").value || "").toLowerCase().trim();
   const sort = $("g-sort").value;
+  document.querySelectorAll("#g-scope button").forEach((b) =>
+    b.setAttribute("aria-selected", String(b.dataset.scope === gameScope)));
   const rows = games().filter((g) =>
-    !q || `${g.name} ${g.description} ${g.lang}`.toLowerCase().includes(q));
+    (gameScope !== "mine" || isMine(g))
+    && (!q || `${g.name} ${g.description} ${g.lang} ${g.owner} ${g.made_with}`.toLowerCase().includes(q)));
   rows.sort((a, b) =>
     sort === "name" ? a.name.localeCompare(b.name)
     : sort === "new" ? (b.created || 0) - (a.created || 0)
     : sort === "lang" ? (a.lang || "").localeCompare(b.lang || "") || a.name.localeCompare(b.name)
     : (b.runs || 0) - (a.runs || 0));
+  $("g-count").textContent = `${rows.length}${gameScope === "mine" ? " yours" : ""}`;
 
   const cards = rows.map((g) => {
     const board = boards.get(g.id) || [];
-    const top = board.length ? Math.max(...board.map((p) => p.elo)) : 0;
-    const card = el("div", { className: "card", tabIndex: 0 }, [
+    let h = 0;
+    for (const c of g.name) h = (h * 31 + c.charCodeAt(0)) % 360;
+    const card = el("div", { className: "card gcard", tabIndex: 0,
+      style: `--h1:hsl(${h} 62% 58%);--h2:hsl(${(h + 48) % 360} 62% 46%)` }, [
       el("div", { className: "head" }, [
         monogram(g.name),
-        el("div", { className: "grow" }, [
-          el("h3", { textContent: g.name }),
-          el("span", { className: "dim small", textContent: langLabel(g.lang) }),
+        el("div", { className: "grow", style: "min-width:0" }, [
+          el("h3", {}, [g.name, g.version > 1 ? el("span", { className: "ver", textContent: `v${g.version}` }) : null]),
+          el("span", { className: "dim small", textContent: `${langLabel(g.lang)} · ${g.runs} matches` }),
         ]),
       ]),
       el("p", { className: "desc", textContent: g.description || "no description" }),
+      el("div", { className: "chips" }, [ownerChip(g), agentChip(g)]),
     ]);
     if (board.length) {
       board.slice(0, 3).forEach((p, i) => card.append(el("div", { className: "lead" }, [
@@ -1277,27 +1531,43 @@ function renderGames() {
         el("span", { className: "who", textContent: p.name }),
         el("span", { className: "dim", textContent: p.elo }),
       ])));
-      card.append(el("div", { style: "margin-top:8px" }, bar(board[0].elo / (top || 1))));
     } else {
       card.append(el("div", { className: "lead dim" }, [
-        el("span", {}), el("span", { className: "who", textContent: "nobody has played it yet" }), el("span", {}),
+        el("span", {}), el("span", { className: "who", textContent: "no agent has played it yet" }), el("span", {}),
       ]));
     }
+    const acts = el("div", { className: "acts" });
+    const btn = (label, cls, fn, title) => {
+      const b = el("button", { className: cls, textContent: label, title });
+      b.onclick = (e) => { e.stopPropagation(); fn(); };
+      acts.append(b);
+    };
+    if (canEdit(g) && g.lang !== "wasm") btn("edit", "act sm", () => openStudio({ edit: g }), "change it with the agent");
+    else if (g.lang !== "wasm") btn("fork", "ghost sm", () => openStudio({ from: g }), "a copy of it, yours to change");
     card.append(el("div", { className: "foot" }, [
-      el("span", { textContent: `${g.runs} matches` }),
       el("span", { title: g.cid ? `in the store as ${g.cid}` : "not in the store yet",
-                   textContent: `sha ${short(g.id)}${g.cid ? " · stored" : ""}` }),
+                   textContent: `sha ${short(g.id)}` }),
+      acts,
     ]));
     const open = () => openGamePage(g.id);
     card.onclick = open;
-    card.onkeydown = (e) => { if (e.key === "Enter") open(); };
+    card.onkeydown = (e) => { if (e.key === "Enter" && e.target === card) open(); };
     return card;
   });
-  $("games").replaceChildren(...(cards.length ? cards : [
+  const make = el("button", { className: "card newcard", onclick: () => openStudio({}) }, [
+    el("div", {}, [el("div", { className: "plus", textContent: "+" }),
+      el("b", { textContent: "vibecode a new game" }),
+      el("span", { className: "small", textContent: "say what it is — the agent writes it, you publish it" })]),
+  ]);
+  $("games").replaceChildren(...(cards.length ? [...cards, make] : [
     el("p", { className: "dim", textContent: q ? `nothing matches “${q}”`
-      : "no games yet — add one and it becomes a leaderboard" }),
+      : gameScope === "mine" ? "you have no games yet — make one:" : "no games yet" }), make,
   ]));
 }
+document.querySelectorAll("#g-scope button").forEach((b) =>
+  (b.onclick = () => { gameScope = b.dataset.scope; renderGames(); }));
+$("g-new").onclick = () => openStudio({});
+$("new-game").onclick = () => openStudio({});
 $("g-search").oninput = renderGames;
 $("g-sort").onchange = renderGames;
 
@@ -1312,7 +1582,7 @@ async function openGamePage(id) {
   $("g-lang").textContent = langLabel(g.lang);
   $("g-desc").textContent = g.description || "";
   codeCard("g", g);
-  $("g-fork").hidden = g.lang === "wasm";   // a fork starts from source
+  gameActions(g);
   const { source, ...rest } = g;
   $("g-body").textContent = JSON.stringify(rest, null, 2);
   $("g-note").textContent = g.lang === "python"
@@ -1326,15 +1596,48 @@ async function openGamePage(id) {
   await Promise.all([renderBoard(), renderGameMatches()]);
 }
 
-$("g-fork").onclick = () => openGame && forkInto(openGame);
+/** Who made the game, what wrote it, who leads it — and what you may do. */
+function gameActions(g) {
+  const champ = (boards.get(g.id) || [])[0];
+  const history = g.history || [];
+  const before = history.slice(1).reduce((n, h) => n + (h.runs || 0), 0);
+  $("g-by").replaceChildren(...[
+    ownerChip(g), agentChip(g),
+    champ ? el("span", { className: "chip", title: "the agent on top of this board" },
+      [rankEl(0), el("b", { textContent: champ.name }), ` ${champ.elo}`]) : null,
+    history.length > 1 ? el("span", { className: "chip", title: history.map((h, i) =>
+      `v${history.length - i} ${h.short} · ${h.runs} matches · ${h.made_with}`).join("\n") },
+      [`v${history.length} · `, el("b", { textContent: `${before}` }), " matches on earlier versions"]) : null,
+  ].filter(Boolean));
+  $("g-ver").hidden = !(g.version > 1);
+  $("g-ver").textContent = `v${g.version}`;
+  const mayEdit = canEdit(g);
+  $("g-edit").hidden = !mayEdit || g.lang === "wasm";
+  $("g-fork").hidden = g.lang === "wasm";          // a fork starts from source
+  $("g-delete").hidden = !mayEdit;
+}
+
+$("g-edit").onclick = () => openGame && openStudio({ edit: openGame });
+$("g-fork").onclick = () => openGame && openStudio({ from: openGame });
 
 $("g-delete").onclick = async () => {
   if (!openGame) return;
-  if (!confirm(`delete ${openGame.name}? the bytes go too, the matches stay.`)) return;
+  const g = openGame;
+  const versions = (g.history || []).length;
+  const pick = await ask({
+    title: `delete ${g.name}?`,
+    body: versions > 1
+      ? `This is version ${versions}. Undo it and version ${versions - 1} is the game again — or delete every version. Matches already played stay on record either way.`
+      : "The code goes. Matches already played stay on record.",
+    choices: versions > 1 ? [["undo", `undo v${versions}`], ["all", "delete all versions", true]] : [["all", "delete", true]],
+  });
+  if (!pick) return;
   try {
-    await call(`/modules/${openGame.id}`, { method: "DELETE" });
-    show("games");
+    const r = await call(`/modules/${g.id}${pick === "all" ? "?all=1" : ""}`, { method: "DELETE" });
     await refresh();
+    if (r.restored) { toast(`v${versions} undone`); return openGamePage(r.restored); }
+    toast(`${g.name} deleted`);
+    show("games");
   } catch (e) { toast(e.message, true); }
 };
 
@@ -2179,7 +2482,7 @@ async function openPlayerPage(id) {
     } catch { /* the module may have been deleted from under the player */ }
   }
   $("pl-fork").hidden = !(mod && mod.lang !== "wasm");
-  $("pl-fork").onclick = () => mod && forkInto(mod);
+  $("pl-fork").onclick = () => mod && openStudio({ from: mod });
   if (mod) {
     codeCard("pl", mod);
   } else {
@@ -2195,7 +2498,7 @@ async function openPlayerPage(id) {
   $("pl-body").textContent = body;
 
   $("pl-out").onclick = async () => {
-    if (!confirm(`withdraw ${p.name}?`)) return;
+    if (!(await ask({ title: `withdraw ${p.name}?`, body: "Its ratings and matches stay on record.", ok: "withdraw", danger: true }))) return;
     await call(`/players/${p.id}`, { method: "DELETE" });
     show("agents");
     await refresh();
@@ -2240,12 +2543,9 @@ const b64 = (bytes) => {
 $("add-open").onclick = () => {
   const a = $("add");
   a.hidden = !a.hidden;
-  if (!a.hidden) {
-    a.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    vibeFromOptions();
-    vibeAvailability();
-  }
+  if (!a.hidden) a.scrollIntoView({ behavior: "smooth", block: "nearest" });
 };
+$("add-studio").onclick = () => { $("add").hidden = true; openStudio({}); };
 $("add-close").onclick = () => ($("add").hidden = true);
 
 async function offer(file) {
@@ -2329,8 +2629,8 @@ function renderOther() {
     const x = el("button", { className: "link", textContent: "×", style: "margin-left:5px",
                              title: `delete ${m.name}` });
     x.onclick = async () => {
-      if (!confirm(`delete ${m.name}? the bytes go too.`)) return;
-      await call(`/modules/${m.id}`, { method: "DELETE" });
+      if (!(await ask({ title: `delete ${m.name}?`, body: "The bytes go too.", ok: "delete", danger: true }))) return;
+      try { await call(`/modules/${m.id}`, { method: "DELETE" }); } catch (e) { return toast(e.message, true); }
       await refresh();
     };
     p.append(x);
@@ -2399,27 +2699,6 @@ $("w-store").onclick = async () => {
   try {
     const source = $("w-src").value;
     if (!source.trim()) throw new Error("nothing written yet");
-    // Unchanged from what the vibe session holds? Store it through the
-    // session, so the session is marked as what it became.
-    if (vibeSession && vibeSession.status !== "running" && source === vibeSession.source) {
-      const m = await post(`/vibe/${vibeSession.session}/store`, {
-        name: $("w-name").value.trim() || undefined,
-        description: $("w-desc").value.trim(),
-      });
-      if (m.compile_error) {
-        $("w-out").textContent = m.compile_error;
-        $("w-out").className = "bad";
-        return;
-      }
-      vibeReset();
-      if (m.role === "player" && m.entered && !m.entered.error) {
-        toast(`${m.name} is an agent — connected`);
-        $("add").hidden = true;
-        await refresh();
-        return show("agents");
-      }
-      return landed(m);
-    }
     const info = await post("/inspect", { text: source });
     const blocked = (info.imports || []).filter((i) => !i.allowed).map((i) => i.module);
     $("w-out").textContent = [
@@ -2458,135 +2737,264 @@ $("w-store").onclick = async () => {
   }
 };
 
-// ── vibe ─────────────────────────────────────────────────────────────────
+// ── studio ───────────────────────────────────────────────────────────────
 //
-// Writing one with the build agent. The session is a file on this box that
-// orbit/build's agent edits a sentence at a time; this page only ever sees
-// the text, which lands in the editor above and is uploaded from there. A
-// hand edit between rounds counts: the editor's text is what the next round
-// starts from, not what the agent last wrote.
-let vibeSession = null;   // the session being written, as /vibe/:id last said
-let vibeTimer = null;
+// Vibecoding one game (or player). The session is a file on this box that
+// orbit/build's agent edits a sentence at a time; the code is on the right
+// and a hand edit between rounds counts — what is in the editor is what the
+// next round starts from. Three ways in: new (the template), fork (a copy of
+// any class, yours), edit (a game you own — publishing makes its next
+// version, under the same name). The server decides who may; this page only
+// hides the buttons it would refuse.
+let studio = null;        // { mode, target, role, card, shown }
+let studioTimer = null;
 
-function vibeFromOptions() {
-  const forkable = modules.filter((m) => m.lang !== "wasm" && (m.role === "game" || m.role === "player"));
-  const sel = $("v-from");
-  const keep = sel.value;
-  sel.replaceChildren(
-    el("option", { value: "", textContent: "from the template" }),
-    ...forkable.map((m) => el("option", { value: m.id, textContent: `fork ${m.name} · ${m.role}, ${m.lang}` })),
-  );
-  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+const IDEAS = {
+  new: [
+    "tic-tac-toe on a 4x4 board, three in a row wins",
+    "a bluffing dice game for 2 to 4 players",
+    "snake on a 10x10 grid, both players move at once",
+    "split 100 coins: propose, accept or reject",
+    "a word guessing game with six tries",
+  ],
+  edit: [
+    "make the board bigger",
+    "explain in the note why a move was illegal",
+    "draw the board more clearly in the view",
+    "add a turn limit and score a draw when it runs out",
+  ],
+};
+
+async function openStudio({ edit = null, from = null, role = "game" } = {}) {
+  clearTimeout(studioTimer);
+  const target = edit || from;
+  studio = { mode: edit ? "edit" : from ? "fork" : "new", target, role: target?.role || role, card: null, shown: "" };
+  show("studio");
+  $("add").hidden = true;
+  $("s-say").value = "";
+  $("s-desc").value = edit?.description || "";
+  $("s-name").value = edit ? edit.name : from ? `${from.name}-fork` : "";
+  $("s-out").textContent = "";
+  $("s-code").value = "";
+  $("s-code").placeholder = "loading…";
+  $("s-rounds").replaceChildren();
+  $("s-logwrap").hidden = true;
+  studioDraw();
+  studioAvailability();
+  try {
+    studioShow(await post("/vibe", studioStartBody()));
+  } catch (e) {
+    $("s-out").textContent = e.message;
+    $("s-out").className = "bad small";
+  }
+  $("s-say").focus();
 }
 
-async function vibeAvailability() {
+function studioStartBody() {
+  const { mode, target, role } = studio;
+  if (mode === "edit") return { edit: target.id };
+  if (mode === "fork") return { from: target.id, name: $("s-name").value.trim() || undefined };
+  return { role, lang: $("s-lang").value, name: $("s-name").value.trim() || undefined };
+}
+
+async function studioAvailability() {
   try {
     const { build } = await call("/vibe");
-    $("v-avail").textContent = build.available
-      ? `build agent ready${build.running ? ` · ${build.running} writing now` : ""}`
-      : `no agent — ${build.reason || "build is not reachable"}; a fork still works`;
-    $("v-avail").className = build.available ? "dim small" : "small bad";
-  } catch (e) {
-    $("v-avail").textContent = e.message;
-    $("v-avail").className = "small bad";
+    $("s-avail").textContent = build.available
+      ? `agent ready${build.running ? ` · ${build.running} writing now` : ""}`
+      : "agent off — edit the code by hand and publish";
+    $("s-avail").className = build.available ? "dim small" : "small bad";
+  } catch (e) { $("s-avail").textContent = e.message; }
+}
+
+/** Everything that depends on who you are and where the session is. */
+function studioDraw() {
+  if (!studio) return;
+  const { mode, target, role, card } = studio;
+  const running = card?.status === "running";
+  const rounds = card?.rounds || [];
+  $("s-title").textContent = mode === "edit" ? `editing ${target.name}`
+    : mode === "fork" ? `fork of ${target.name}` : `new ${role}`;
+  $("s-kind").textContent = role;
+  $("s-say").placeholder = mode === "new"
+    ? `describe the ${role} — “connect four on a 7x6 board, first to four in a row wins, draw the board every turn”`
+    : `what to change — “make the board 7x7 and let a player skip one turn per game”`;
+  $("s-kind").className = `tag ${role === "player" ? "player" : "game"}`;
+  $("s-name").disabled = mode === "edit";
+  $("s-lang").disabled = mode !== "new" || rounds.length > 0 || running;
+  if (card) $("s-lang").value = card.lang === "rust" ? "rust" : "python";
+  $("s-who").replaceChildren(...(me.address
+    ? [addrDot(me.address), ` as ${shortAddr(me.address)}`, mode === "edit" ? ` · saving makes v${(target.version || 1) + 1}` : " · publishing makes it yours"]
+    : ["sign in to vibecode — a round runs this box's agent"]));
+  $("s-send").disabled = running;
+  $("s-send").textContent = running ? "writing…" : !me.address ? "sign in & vibecode" : rounds.length ? "send" : "vibecode";
+  $("s-publish").disabled = running || !card;
+  $("s-publish").textContent = mode === "edit" ? `save as v${(target.version || 1) + 1}` : "publish";
+  $("s-ideas").replaceChildren(...IDEAS[mode === "edit" ? "edit" : "new"].map((idea) =>
+    el("button", { textContent: idea, onclick: () => {
+      const t = $("s-say");
+      t.value = t.value.trim() ? `${t.value.trim()}, ${idea}` : idea;
+      t.focus();
+    } })));
+}
+
+function studioShow(card) {
+  if (!studio) return;
+  const was = studio.card;
+  studio.card = card;
+  // The file is the agent's while a round runs; once it is done the editor
+  // takes it — unless the person typed there in the meantime.
+  const untouched = $("s-code").value === studio.shown || !$("s-code").value;
+  if (untouched || (card.status === "running" && !was)) {
+    $("s-code").value = card.source || "";
+    studio.shown = card.source || "";
   }
-}
-
-function vibeReset() {
-  clearTimeout(vibeTimer);
-  vibeSession = null;
-  $("v-status").hidden = true;
-  $("v-log").hidden = true;
-  $("v-go").disabled = false;
-  $("v-go").textContent = "vibecode";
-}
-
-/** Open the add card with a stored module as the starting point — the fork
- *  button on a game's page or a player's. */
-async function forkInto(m) {
-  show("games");
-  $("add").hidden = false;
-  $("add").scrollIntoView({ behavior: "smooth", block: "start" });
-  vibeFromOptions();
-  vibeAvailability();
-  $("v-from").value = m.id;
-  $("v-role").value = m.role;
-  $("v-lang").value = m.lang;
-  $("v-name").value = `${m.name}-fork`;
-  $("v-prompt").focus();
-  try { await vibeStart({ from: m.id }); } catch (e) { toast(e.message, true); }
-}
-
-/** POST /vibe — a fresh session (from the template, or a fork), or one more
- *  round on the open one. */
-async function vibeStart(extra = {}) {
-  const body = {
-    role: $("v-role").value, lang: $("v-lang").value,
-    name: $("v-name").value.trim() || undefined, ...extra,
-  };
-  if (vibeSession && !extra.from) {
-    body.session = vibeSession.session;
-    body.source = $("w-src").value;
-  }
-  const card = await post("/vibe", body);
-  showVibe(card);
-  return card;
-}
-
-function showVibe(card) {
-  const was = vibeSession;
-  vibeSession = card;
-  // While a round runs the file is the agent's; once it is done, the editor
-  // takes it — unless the person typed there meanwhile.
-  const untouched = !was || $("w-src").value === was.source;
-  if (card.status !== "running" && untouched) $("w-src").value = card.source || "";
-  else if (card.status === "running" && !was) $("w-src").value = card.source || "";
-  $("w-lang").value = card.lang === "rust" ? "rust" : "class";
-  $("w-lang").onchange();
-  if (card.name && !$("w-name").value) $("w-name").value = card.name;
-  $("write").open = true;
+  if (!$("s-name").value && card.name) $("s-name").value = card.name;
 
   const r = card.reads_as || {};
   const blocked = (r.imports || []).filter((i) => !i.allowed).map((i) => i.module);
-  $("w-out").textContent = r.error ? r.error : [
-    `class ${r.class || "?"} — ${r.role}`,
-    `defines ${(r.exports || []).map((e) => e.name).join(", ") || "nothing"}`,
-    r.role === "class" ? `not playable yet — it still needs ${(r.missing || []).join(", ")}` : "",
-    blocked.length ? `the sandbox will refuse: ${blocked.join(", ")}` : "",
-  ].filter(Boolean).join("\n");
-  $("w-out").className = r.error || r.role === "class" || blocked.length ? "bad" : "dim";
+  const bad = r.error || r.role === "class" || blocked.length;
+  $("s-reads").textContent = r.error ? "does not read yet"
+    : r.role === "class" ? `not playable yet — needs ${(r.missing || []).join(", ")}`
+    : blocked.length ? `the sandbox refuses ${blocked.join(", ")}`
+    : `reads as a ${r.role}${r.class ? ` · class ${r.class}` : ""}`;
+  $("s-reads").className = bad ? "small bad" : "small dim";
+  $("s-reads").title = r.error || "";
 
   const rounds = card.rounds || [];
   const last = rounds[rounds.length - 1];
-  const from = card.from?.module ? `fork of ${card.from.name}`
-             : card.from?.template ? `the ${card.from.template} template` : "your text";
-  $("v-status").hidden = false;
-  $("v-state").textContent = [
-    `session ${card.session}`, from,
-    `${rounds.length} round${rounds.length === 1 ? "" : "s"}`, card.status,
-    last?.cost_usd ? `$${last.cost_usd}` : "",
+  const spent = rounds.reduce((n, x) => n + (parseFloat(x.cost_usd) || 0), 0);
+  $("s-state").textContent = [
+    card.status === "running" ? "the agent is writing" : card.status,
+    rounds.length ? `${rounds.length} round${rounds.length === 1 ? "" : "s"}` : "",
+    card.agent && card.agent !== "hand" ? `made with ${card.agent}` : "",
+    spent ? `$${spent.toFixed(2)}` : "",
     card.error ? `— ${card.error}` : "",
   ].filter(Boolean).join(" · ");
-  $("v-state").className = card.status === "failed" ? "small bad" : "dim";
-  $("v-job").hidden = !card.job_url;
-  if (card.job_url) $("v-job").href = card.job_url;
-  $("v-cancel").hidden = card.status !== "running";
-  $("v-go").disabled = card.status === "running";
-  $("v-go").textContent = card.status === "running" ? "writing…" : rounds.length ? "vibecode again" : "vibecode";
-  const log = last?.log || "";
-  $("v-log").hidden = !log;
-  $("v-log").textContent = log;
-  $("v-log").scrollTop = $("v-log").scrollHeight;
+  $("s-state").className = card.status === "failed" ? "bad" : "dim";
+  $("s-job").hidden = !card.job_url;
+  if (card.job_url) $("s-job").href = card.job_url;
+  $("s-cancel").hidden = card.status !== "running";
 
-  clearTimeout(vibeTimer);
+  $("s-rounds").replaceChildren(...rounds.slice().reverse().map((x, i) => el("div", { className: `round ${x.status}` }, [
+    el("div", { className: "q", textContent: x.prompt }),
+    el("div", { className: "meta" }, [
+      el("span", { textContent: `round ${rounds.length - i}` }),
+      el("span", { textContent: x.status === "running" ? "writing…" : x.status }),
+      x.model ? el("span", { textContent: x.model }) : null,
+      x.cost_usd ? el("span", { textContent: `$${(+x.cost_usd).toFixed(2)}` }) : null,
+      x.finished ? el("span", { textContent: `${Math.max(1, Math.round((x.finished - x.started) / 60))} min` }) : null,
+      x.error ? el("span", { className: "bad", textContent: x.error }) : null,
+    ]),
+  ])));
+  const log = last?.log || "";
+  $("s-logwrap").hidden = !log;
+  if (card.status === "running") $("s-logwrap").open = true;
+  $("s-log").textContent = log;
+  $("s-log").scrollTop = $("s-log").scrollHeight;
+  studioDraw();
+
+  clearTimeout(studioTimer);
   if (card.status === "running") {
-    vibeTimer = setTimeout(async () => {
-      try { showVibe(await call(`/vibe/${card.session}`)); } catch (e) { toast(e.message, true); }
+    studioTimer = setTimeout(async () => {
+      if (!studio || studio.card?.session !== card.session) return;
+      try { studioShow(await call(`/vibe/${card.session}`)); } catch (e) { toast(e.message, true); }
     }, 2000);
   } else if (was?.status === "running" && last?.status === "done") {
-    toast(`round ${rounds.length} done — it reads as a ${r.role}`);
+    toast(`round ${rounds.length} done — ${$("s-reads").textContent}`);
   }
 }
+
+$("s-send").onclick = async () => {
+  if (!studio?.card) return;
+  if (!me.address && !(await signIn())) return;
+  const prompt = $("s-say").value.trim();
+  if (!prompt) { $("s-say").focus(); return toast("say what to write or change", true); }
+  $("s-send").disabled = true;
+  try {
+    studioShow(await post("/vibe", {
+      session: studio.card.session, prompt, source: $("s-code").value,
+      name: studio.mode === "edit" ? undefined : $("s-name").value.trim() || undefined,
+    }));
+    $("s-say").value = "";
+  } catch (e) {
+    toast(e.message, true);
+    studioDraw();
+  }
+};
+$("s-say").onkeydown = (e) => {
+  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $("s-send").click(); }
+};
+$("s-cancel").onclick = async () => {
+  if (!studio?.card) return;
+  try { studioShow(await post(`/vibe/${studio.card.session}/cancel`, {})); } catch (e) { toast(e.message, true); }
+};
+// A new game's language is a different template; switch while nothing is written.
+$("s-lang").onchange = async () => {
+  if (!studio || studio.mode !== "new" || (studio.card?.rounds || []).length) return;
+  const old = studio.card;
+  studio.shown = $("s-code").value = "";
+  try {
+    studioShow(await post("/vibe", studioStartBody()));
+    if (old) call(`/vibe/${old.session}`, { method: "DELETE" }).catch(() => {});
+  } catch (e) { toast(e.message, true); }
+};
+
+$("s-publish").onclick = async () => {
+  const c = studio?.card;
+  if (!c || c.status === "running") return;
+  if (!me.address && !(await signIn())) return;
+  const out = $("s-out");
+  out.className = "dim small";
+  out.textContent = c.lang === "rust" ? "compiling…" : "publishing…";
+  $("s-publish").disabled = true;
+  try {
+    // Hand edits since the last round go into the session first.
+    if ($("s-code").value !== c.source) {
+      studioShow(await post("/vibe", { session: c.session, source: $("s-code").value }));
+    }
+    const m = await post(`/vibe/${c.session}/store`, {
+      name: studio.mode === "edit" ? undefined : $("s-name").value.trim() || undefined,
+      description: $("s-desc").value.trim(),
+    });
+    if (m.compile_error) {
+      out.className = "bad small";
+      out.textContent = m.compile_error;
+      return;
+    }
+    const mode = studio.mode;
+    clearTimeout(studioTimer);
+    studio = null;
+    await refresh();
+    if (m.role === "player") {
+      toast(`${m.name} is an agent — connected`);
+      return show("agents");
+    }
+    toast(mode === "edit" ? `${m.name} saved — this version starts a fresh board` : `${m.name} published — it is yours`);
+    return openGamePage(m.id);
+  } catch (e) {
+    out.className = "bad small";
+    out.textContent = e.message;
+    toast(e.message, true);
+  } finally {
+    $("s-publish").disabled = false;
+  }
+};
+
+$("s-discard").onclick = async () => {
+  const c = studio?.card;
+  const rounds = (c?.rounds || []).length;
+  if (c && (rounds || $("s-code").value !== c.source)) {
+    const ok = await ask({ title: "discard this session?", body: "What the agent wrote here goes. Nothing published is touched.", ok: "discard", danger: true });
+    if (!ok) return;
+  }
+  clearTimeout(studioTimer);
+  if (c) call(`/vibe/${c.session}`, { method: "DELETE" }).catch(() => {});
+  const back = studio?.mode === "edit" ? studio.target : null;
+  studio = null;
+  if (back) openGamePage(back.id); else show("games");
+};
+$("s-back").onclick = () => { clearTimeout(studioTimer); show("games"); };
 
 // A harvest clones and then *runs* a repository's functions, which is minutes
 // of work for a large one. There is no job to poll here — the call waits, so
@@ -2619,35 +3027,6 @@ $("r-go").onclick = async () => {
   }
 };
 
-$("v-go").onclick = async () => {
-  const prompt = $("v-prompt").value.trim();
-  if (!prompt) return toast("say what to write", true);
-  $("v-go").disabled = true;
-  try {
-    const extra = { prompt };
-    if (!vibeSession && $("v-from").value) extra.from = $("v-from").value;
-    await vibeStart(extra);
-    $("v-prompt").value = "";
-  } catch (e) {
-    toast(e.message, true);
-    $("v-go").disabled = false;
-  }
-};
-$("v-cancel").onclick = async () => {
-  if (!vibeSession) return;
-  try { showVibe(await post(`/vibe/${vibeSession.session}/cancel`, {})); } catch (e) { toast(e.message, true); }
-};
-$("v-from").onchange = async () => {
-  const m = modules.find((x) => x.id === $("v-from").value);
-  vibeReset();
-  if (!m) return;
-  $("v-role").value = m.role;
-  $("v-lang").value = m.lang;
-  $("v-name").value = `${m.name}-fork`;
-  try { await vibeStart({ from: m.id }); } catch (e) { toast(e.message, true); }
-};
-$("v-role").onchange = () => vibeReset();
-$("v-lang").onchange = () => vibeReset();
 
 // ── docs ─────────────────────────────────────────────────────────────────
 //
@@ -2844,7 +3223,8 @@ function renderLobby() {
       monogram(g.name),
       el("div", {}, [
         el("b", { textContent: g.name }),
-        el("small", { textContent: champ ? `${g.runs} played · ${champ.name} leads` : "not played yet" }),
+        el("small", { textContent: (isMine(g) ? "yours · " : "")
+          + (champ ? `${g.runs} played · ${champ.name} leads` : "not played yet") }),
       ]),
     ]);
     return t;
@@ -3025,6 +3405,7 @@ setInterval(() => { if (!document.hidden && !$("view-lobby").hidden) loadFeed();
 
 // ── boot ─────────────────────────────────────────────────────────────────
 try {
+  await loadMe();
   await refresh();
   loadFleet().catch(() => {});
   loadAbPast();

@@ -93,18 +93,33 @@ class Mod:
 
     def _up(self):
         try:
-            return requests.get(f'{self.server_url}/info', timeout=3).ok
+            return self._http.get(f'{self.server_url}/info', timeout=3).ok
         except Exception:
             return False
 
+    @property
+    def _http(self):
+        """Every call signed as this box's key, so the arena knows the CLI is
+        its owner — editing and deleting are owner-only. Minted once; an
+        unsigned session if the key cannot be loaded."""
+        if getattr(self, '_session', None) is None:
+            s = requests.Session()
+            try:
+                import mod as m
+                s.headers['token'] = m.mod('auth')().token('arena')
+            except Exception:
+                pass
+            self._session = s
+        return self._session
+
     def _get(self, path, **params):
-        r = requests.get(f'{self.server_url}{path}',
+        r = self._http.get(f'{self.server_url}{path}',
                          params={k: v for k, v in params.items() if v is not None},
                          timeout=60)
         return self._read(r)
 
     def _post(self, path, body=None, timeout=900):
-        r = requests.post(f'{self.server_url}{path}', json=body or {}, timeout=timeout)
+        r = self._http.post(f'{self.server_url}{path}', json=body or {}, timeout=timeout)
         return self._read(r)
 
     @staticmethod
@@ -239,7 +254,7 @@ class Mod:
         """What every Rust class is compiled against — Moves, Step, Outcome,
         `arena::log`, `arena::random`, `arena::mcp`. The whole file, which is
         the specification."""
-        r = requests.get(f'{self.server_url}/runtime/prelude.rs', timeout=30)
+        r = self._http.get(f'{self.server_url}/runtime/prelude.rs', timeout=30)
         return r.text if r.ok else {'error': f'{r.status_code}: {r.text[:300]}'}
 
     def toolchain(self):
@@ -313,7 +328,7 @@ class Mod:
         the compile, which happens once and is cached under the module's id.
         A Python class has no wasm form — it runs in the interpreter sandbox.
         """
-        r = requests.get(f'{self.server_url}/wasm/{module}', timeout=300)
+        r = self._http.get(f'{self.server_url}/wasm/{module}', timeout=300)
         if not r.ok:
             return self._read(r)
         if path:
@@ -403,12 +418,13 @@ class Mod:
     def vibe(self, prompt: str = '', session: str = '', role: str = 'game',
              lang: str = 'python', from_module: str = '', source: str = '',
              name: str = '', model: str = '', wait: bool = True, path: str = '',
-             **kwargs):
+             edit: str = '', **kwargs):
         """Write a game or a player with the build agent, a sentence at a time.
 
             m arena/vibe prompt="tic-tac-toe on a 4x4 board, three in a row wins"
             m arena/vibe role=player prompt="a connect4 bot that blocks threats"
             m arena/vibe from_module=connect4 prompt="make it 5 in a row"   # a fork
+            m arena/vibe edit=connect4 prompt="make it 5 in a row"          # yours: next version
             m arena/vibe session=3f2a prompt="also print the board"       # round two
             m arena/vibe session=3f2a path=mygame.py                       # write it out
 
@@ -430,6 +446,8 @@ class Mod:
             body['name'] = name
         if model:
             body['model'] = model
+        if edit:
+            body['edit'] = edit
         card = self._post('/vibe', body)
         if not isinstance(card, dict) or card.get('error'):
             return card
@@ -506,9 +524,11 @@ class Mod:
             raw = f.read()
         return self._post('/inspect', {'bytes': base64.b64encode(raw).decode()})
 
-    def rm(self, module: str):
-        """Remove a module and its bytes."""
-        return self._read(requests.delete(f'{self.server_url}/modules/{module}', timeout=30))
+    def rm(self, module: str, all: bool = False):
+        """Remove a module and its bytes (owner only). On the current version of
+        an edited game the previous version comes back; all=1 removes them all."""
+        return self._read(self._http.delete(f'{self.server_url}/modules/{module}',
+                                            params={'all': 1} if all else None, timeout=30))
 
     def examples(self):
         """Re-read the example pack from disk. Build it with src/examples/build.sh."""
@@ -544,7 +564,7 @@ class Mod:
 
     def withdraw(self, player: str):
         """Withdraw a player. Past matches keep their record."""
-        return self._read(requests.delete(f'{self.server_url}/players/{player}', timeout=30))
+        return self._read(self._http.delete(f'{self.server_url}/players/{player}', timeout=30))
 
     def probe(self, player: str, view: str = 'Legal moves: rock, paper, scissors',
               seat: int = 0, answer: str = ''):

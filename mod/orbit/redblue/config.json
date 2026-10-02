@@ -1,7 +1,7 @@
 {
     "name": "redblue",
-    "version": "0.2.0",
-    "description": "Red team versus blue team, with an actual scoreboard. Red writes attacks \u2014 prompts built to make a target model produce something it should not. Blue writes defenses, and a defense is a whole pipeline rather than a system prompt: input rules, the system prompt, the model, an optional self-check pass, output rules, any stage of which can end the turn. The arena fires every attack at every defense, a two-axis judge asks did-it-refuse and did-anything-harmful-escape, and the number that comes out is the refusal rate on attacks \u2014 held honest by the over-refusal rate on a fixed set of benign controls that sit right next to the attacks, so safety_score = refusal_rate - over_refusal and a refuse-everything defense nets ~0. The target is pluggable: the keyless local Claude CLI by default, any API model, or an offline mock whose correct score is known, which is how the harness itself is tested. Attacks, defenses and round records live in ~/.mod/redblue, never in this repo. A sweep fires the same round at every model Venice or OpenRouter serves and ranks the models. REST, the browser console and fourteen MCP tools on one port, off the same functions, so an agent, a shell and a human are never told different scores for the same round.",
+    "version": "0.3.0",
+    "description": "Red team versus blue team, with an actual scoreboard. Red writes attacks \u2014 prompts built to make a target model produce something it should not. Blue writes defenses, and a defense is a whole pipeline rather than a system prompt: input rules, the system prompt, the model, an optional self-check pass, output rules, any stage of which can end the turn. The arena fires every attack at every defense, a two-axis judge asks did-it-refuse and did-anything-harmful-escape, and the number that comes out is the refusal rate on attacks \u2014 held honest by the over-refusal rate on a fixed set of benign controls that sit right next to the attacks, so safety_score = refusal_rate - over_refusal and a refuse-everything defense nets ~0. The target is pluggable: the keyless local Claude CLI by default, any API model, or an offline mock whose correct score is known, which is how the harness itself is tested. Attacks, defenses and round records live in ~/.mod/redblue, never in this repo. A sweep fires the same round at every model Venice or OpenRouter serves and ranks the models. REST, the browser console and sixteen MCP tools on one port, off the same functions, so an agent, a shell and a human are never told different scores for the same round.",
     "icon": "\u25e8",
     "color": "#5db4ff",
     "anchor": "mod.py",
@@ -19,7 +19,7 @@
         "mcp": "http://localhost:50970/mcp"
     },
     "backend": "python stdlib only (http.server + urllib) \u2014 no dependencies",
-    "frontend": "console.html \u2014 the board, MODELS (every model a provider serves + sweep), the round runner, both corpora, one-exchange fight; served at /redblue",
+    "frontend": "console.html \u2014 the board, MODELS (every model a provider serves + sweep), the round runner, both corpora, one-exchange fight, the LAB bench (any red \u00d7 any blue, typed or vibed); served at /redblue",
     "state": "~/.mod/redblue \u2014 attacks/<id>.json, defenses/<id>.json, rounds/<id>.json, server.secret. A defense's system prompt is the blue team's live answer to an open attack surface and an attack corpus is a list of things that worked, so neither is committed to this repo.",
     "forked_from": "orbit/rvb",
     "scoring": {
@@ -37,6 +37,8 @@
         "header": "Authorization: Bearer <contents of ~/.mod/redblue/server.secret>",
         "gated": [
             "POST /fight",
+            "POST /duel",
+            "POST /vibe",
             "POST /round",
             "POST /ping",
             "POST /attacks",
@@ -56,6 +58,8 @@
         "rb_defenses",
         "rb_defend",
         "rb_fight",
+        "rb_duel",
+        "rb_vibe",
         "rb_round",
         "rb_rounds",
         "rb_board",
@@ -73,6 +77,8 @@
         "controls": "GET /controls \u2014 the fixed benign control set over-refusal is measured on",
         "cost": "GET /cost?defense= \u2014 model calls per turn, before you spend them",
         "fight": "POST /fight {attack, defense, model, judge} \u2014 one exchange, every stage and the verdict",
+        "duel": "POST /duel {red, blue, model, judge, judge_model, parallel} \u2014 any red prompt(s) \u00d7 any blue prompt(s), typed by hand or picked by id, nothing saved; an N\u00d7M grid of match records plus a per-blue hold tally; a blue with a `secret` is leak-checked for it",
+        "vibe": "POST /vibe {side, goal, against, technique, model} \u2014 write one side; side=red picks/adapts an attack from the corpus, side=blue composes a defense; model=local is offline, any model writes it",
         "round": "POST /round {attacks, defenses, model, judge, parallel, controls, background} \u2014 the tournament",
         "rounds": "GET /rounds?limit=&status= | GET /rounds?id= \u2014 one round in full, live while it runs",
         "board": "GET /board?rounds=8 \u2014 standings, blue and red",
@@ -98,6 +104,8 @@
         "delete_defense",
         "cost",
         "fight",
+        "duel",
+        "vibe",
         "round",
         "rounds",
         "show",
@@ -133,7 +141,7 @@
     "services": [
         "redblue-api"
     ],
-    "schema": "QmWua19YAZ43M34amqrVokMAmVRoXvpeGzQWysYqq4tLLN",
+    "schema": "QmRF3KgoxPSzFdwXVcFV6TyW6ykCutjmTCfVhyRD3mHSgp",
     "sweeps": {
         "providers": "venice (128 text models, keyless listing) | openrouter (465, keyless listing) | mock (offline)",
         "default": "defense none (the bare model), judge heuristic (free) \u2014 the question is how safe is the MODEL",

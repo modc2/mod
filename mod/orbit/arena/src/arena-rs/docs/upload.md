@@ -80,6 +80,33 @@ and a template still work, the sentence answers 424). `ARENA_VIBE_MAX` rounds
 run at once (2), a round is cancelled after 15 minutes, and
 `ARENA_VIBE_MODEL` picks the model.
 
+## Whose it is
+
+Every module has an **owner**: the wallet address that signed the upload.
+Ownership is proved, never claimed — a request carries a mod-protocol token
+in its `token` header (a browser wallet's `personal_sign` over
+`{"data","time"}`, or `m.mod('auth')().token(...)` from the box), the arena
+verifies the signature itself, offline, and that address is the caller.
+`GET /whoami` says who a token proves. A module uploaded without one belongs
+to the box. Re-uploading somebody else's bytes changes nothing about them.
+
+Only the owner — or whoever runs the box (build's owner, the box key, and
+`ARENA_OWNERS`) — may **edit** or **delete** a module:
+
+```console
+$ m arena/vibe edit=connect4 prompt="make the board 8x7"   # a session bound to you
+$ m arena/vibe_store session=7c1e                            # connect4, version 2
+```
+
+An edit is new bytes, so a new id: the new version takes the game's name and
+owner, `parent` points at the old one, and the old one leaves the shelf (its
+matches still point at it; `GET /modules?all=1` lists it). Each version has
+its own board. `DELETE /modules/<id>` on the current version puts the
+previous one back; `?all=1` deletes every version. A vibe **round** needs a
+signed-in caller — it runs the box's agent — and the session is then theirs
+alone to steer, store or discard. Every module also carries `made_with`: the
+model the agent ran on when a vibe wrote it, else how it arrived.
+
 ## Two hashes
 
 Every stored module has two names for the same bytes, and both are on its page:

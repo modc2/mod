@@ -184,6 +184,43 @@ class Mod:
                               judge, self._num(timeout), judge_model)
         return rec
 
+    def duel(self, red, blue='', model=None, judge='heuristic', timeout=None,
+             judge_model=None, parallel=6):
+        """Any red against any blue — nothing saved first.
+
+        `red` and `blue` are each a raw string (the prompt / the system prompt
+        typed by hand), a comma-separated list of saved ids, or an inline
+        object. An empty blue is the bare model. A grid of N reds × M blues
+        comes back with every cell's full match record. A blue that carries a
+        `secret` (inline) is also leak-checked for it.
+        """
+        from redbluesrc import lab
+        return lab.duel(self._duel_side(red, 'red'),
+                        self._duel_side(blue, 'blue'),
+                        model=model or models.DEFAULT, judge=judge,
+                        timeout=self._num(timeout), judge_model=judge_model,
+                        parallel=int(parallel))
+
+    def vibe(self, side, goal=None, against=None, technique=None,
+             model='local', timeout=None):
+        """Write one side for you — a red or a blue.
+
+        `model='local'` (default) is offline and keyless: a red is picked from
+        the corpus (adaptively, if `against` is the blue it must beat), a blue
+        is composed from the baseline plus tripwires for the framings in
+        `against`. Any other value is a model that writes it, falling back to
+        local with the reason if it declines.
+        """
+        from redbluesrc import lab
+        ag = self._duel_side(against, side == 'red' and 'blue' or 'red') \
+            if against else None
+        return lab.vibe(side, goal=goal, against=ag, technique=technique,
+                        model=model, timeout=self._num(timeout))
+
+    def _duel_side(self, spec, which):
+        from redbluesrc import lab
+        return lab.resolve_side(spec, which)
+
     def round(self, attacks=None, defenses=None, model=None, judge='model',
               parallel=6, controls=True, timeout=None, name=None,
               judge_model=None):

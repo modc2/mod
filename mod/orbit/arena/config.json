@@ -123,7 +123,7 @@
     },
     "endpoints": {
         "mcp": "POST /mcp (Streamable HTTP, JSON-RPC 2.0)",
-        "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
+        "modules": "GET /modules?owner=&all= | POST /modules {\u2026, parent?} | GET /modules/:id (owner, made_with, version, history) | DELETE /modules/:id?all= (owner only)",
         "blob": "GET /blob/:id",
         "inspect": "POST /inspect {bytes|text}",
         "players": "GET /players | POST /players | GET /players/:id (the full sheet: by_game with faults and form, opponents, streak) | DELETE /players/:id",
@@ -146,7 +146,8 @@
         "docs": "GET /docs \u2014 the contents | GET /docs/:slug (?format=md) | GET /docs/search?q= | the docs_* tools and the resources arena://docs/<slug>",
         "fleet": "GET /fleet \u2014 every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
         "vibe": "GET /vibe (every session + whether the build agent is reachable) | POST /vibe {prompt?, session?, role?, lang?, from?, source?, name?, model?} | GET /vibe/:id | POST /vibe/:id/store {name?, description?, enter?} | POST /vibe/:id/cancel | DELETE /vibe/:id",
-        "ab": "POST /ab {a, b, games?, count?, seed?, timeout_ms?} \u2014 A/B test two agents head to head, seats swapped, through the rated match loop | GET /ab | GET /ab/:id | DELETE /ab/:id"
+        "ab": "POST /ab {a, b, games?, count?, seed?, timeout_ms?} \u2014 A/B test two agents head to head, seats swapped, through the rated match loop | GET /ab | GET /ab/:id | DELETE /ab/:id",
+        "whoami": "GET /whoami \u2014 the address a request's `token` header proves, and whether it runs this box"
     },
     "tools": [
         "arena_info",
@@ -252,7 +253,7 @@
         "vibe_store",
         "vibe_cancel"
     ],
-    "schema": "QmNVzAXVoXocM7BVWeW7viVDVT3dQ5oBLVaA6XkExUmmo2",
+    "schema": "QmW6aZy8sACmS6AiFzqpZPd2yvtF52jHQfXEj4WWgN5hJj",
     "langs": [
         "wasm",
         "python",
@@ -270,6 +271,12 @@
         "what": "write a game or a player with the build agent, a sentence at a time: a session is one file under ~/.mod/arena/vibe/<id>/ that orbit/build's job server (Claude Code) edits in place, starting from the template or from a stored class (a fork). Storing it is put_class on the text, so the registry reads what the agent wrote.",
         "build": "http://127.0.0.1:8890 (ARENA_BUILD_URL; `off` disables the agent \u2014 a fork and a template still work). The arena mints build's own session token from ~/.mod/build/server.secret, so the jobs land in build's ledger under its owner: the arena and build share a host.",
         "limits": "ARENA_VIBE_MAX rounds at once (2), 15 minutes a round, 4000 characters a sentence; ARENA_VIBE_MODEL picks the model (blank = build's default)",
-        "console": "+ add \u25b8 vibe one: start from a template or fork any class, type a sentence, watch the round, keep going or upload; every game and player page has a fork button"
+        "console": "the studio (+ new game, or edit / fork on any game): say what to write on the left, the code on the right, publish \u2014 an edit saves the next version"
+    },
+    "ownership": {
+        "what": "every module has an owner: the wallet that signed the upload, verified from the request's `token` header (mod-protocol token, EIP-191 or raw keccak secp256k1) in src/arena-rs/src/ident.rs \u2014 offline, no service asked. Unsigned uploads belong to the box.",
+        "edit": "only the owner or the box's owners (build's owner, the box key, ARENA_OWNERS) edit or delete. An edit (vibe edit=<module>, or put_module parent=) is the next version: same name and owner, parent link, old version hidden but kept. DELETE on the head restores the previous version; ?all=1 removes every version.",
+        "vibe": "a vibe round needs a signed-in caller; the session is bound to them",
+        "console": "sign in (wallet or pasted token) in the header; games shelf shows owner + made-with chips, all|mine; edit opens the studio, others get fork"
     }
 }

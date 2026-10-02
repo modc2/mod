@@ -34,6 +34,7 @@ mod arena;
 mod blobs;
 mod docs;
 mod http;
+mod ident;
 mod klass;
 mod liquidai;
 mod mcp;

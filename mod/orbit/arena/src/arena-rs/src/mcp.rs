@@ -142,7 +142,9 @@ pub fn tool_list() -> Value {
                     "name": { "type": "string" },
                     "description": { "type": "string" },
                     "author": { "type": "string" },
-                    "tags": { "type": "array", "items": { "type": "string" } }
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "parent": { "type": "string", "description": "Edit: the module these bytes replace. Owner only — the new version keeps its name and owner, the old one leaves the shelf" },
+                    "agent": { "type": "string", "description": "What wrote it — a model, `hand`, …" }
                 },
                 "required": ["bytes"]
             }
@@ -169,17 +171,19 @@ pub fn tool_list() -> Value {
                     "name": { "type": "string", "description": "What to call it. Defaults to the class name." },
                     "description": { "type": "string" },
                     "author": { "type": "string" },
-                    "tags": { "type": "array", "items": { "type": "string" } }
+                    "tags": { "type": "array", "items": { "type": "string" } },
+                    "parent": { "type": "string", "description": "Edit: the module these bytes replace. Owner only — the new version keeps its name and owner, the old one leaves the shelf" },
+                    "agent": { "type": "string", "description": "What wrote it — a model, `hand`, …" }
                 },
                 "required": ["source"]
             }
         },
         {
             "name": "delete_module",
-            "description": "Remove a module and its bytes. Refused while a player is entered with it; past matches keep their record either way.",
+            "description": "Remove a module and its bytes — its owner's call (send a mod-protocol token), or the box's. Removing the current version of an edited game puts the previous version back; all=true removes every version. Refused while a player is entered with it; past matches keep their record either way.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "module": { "type": "string" } },
+                "properties": { "module": { "type": "string" }, "all": { "type": "boolean", "default": false, "description": "every version, not just this one" } },
                 "required": ["module"]
             }
         },
@@ -466,6 +470,7 @@ pub fn tool_list() -> Value {
                     "role": { "type": "string", "enum": ["game", "player"], "default": "game", "description": "for a new session from the template" },
                     "lang": { "type": "string", "enum": ["python", "rust"], "default": "python" },
                     "from": { "type": "string", "description": "a stored class module to fork — its id, its name, or a prefix" },
+                    "edit": { "type": "string", "description": "a class module you own, to edit in place: storing the session makes a new version under the same name (owner only)" },
                     "source": { "type": "string", "description": "start from this text instead (or, with `session`, replace the file before the round)" },
                     "name": { "type": "string", "description": "what the result should be called when stored" },
                     "model": { "type": "string", "description": "the model build should run the round on; blank is build's default" }
@@ -1012,7 +1017,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             if key.is_empty() {
                 return Err("delete_module requires `module`".into());
             }
-            arena::delete_module(&key)
+            arena::delete_module(&key, args.get("all").and_then(|v| v.as_bool()).unwrap_or(false))
         }
 
         "list_players" => Ok(arena::list_players(args)),
