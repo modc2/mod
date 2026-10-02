@@ -11,6 +11,10 @@ One process answers every spelling of the protocol's URL rule:
                           that resolves the same locally and behind the gateway
     /api/x402/{fn}     → the API (prefix stripped by the gateway)
     /{fn}               → the API, bare, for local curl
+    /mcp, /x402/mcp, /api/x402/mcp
+                        → MCP (streamable HTTP, stateless JSON-RPC): x402_mcp
+                          finds the right paid MCP server, x402_find any
+                          service, x402_service opens one. Read-only.
 
     python3 serve.py [--port 51110] [--host 0.0.0.0]
 """
@@ -40,13 +44,23 @@ _spec.loader.exec_module(_anchor)
 
 MOD = _anchor.Mod(local=False)
 
+import x402mcp as mcp            # noqa: E402 — the one MCP dispatch
+import x402trust as trust        # noqa: E402 — who is calling
+
+mcp.SYNC, mcp.MOD = MOD.sync, MOD
+
 READ_FNS = ('info', 'health', 'readme', 'services', 'service', 'hosts',
-            'networks', 'stats', 'sources', 'partners', 'facilitators')
+            'networks', 'stats', 'sources', 'partners', 'facilitators',
+            'find', 'mcp_servers', 'users', 'trust', 'whoami', 'tools')
 # Writes are POST. Probing fetches a stranger's URL from this box, and sync /
 # add_source spend its bandwidth — so they are local-only unless the owner
 # sets X402_OPEN=1 (see _allowed).
-WRITE_FNS = ('sync', 'discover', 'add_source', 'remove_source', 'probe', 'forget')
-API_FNS = READ_FNS + WRITE_FNS
+WRITE_FNS = ('sync', 'discover', 'add_source', 'remove_source', 'probe', 'forget',
+             'reindex')
+# Agent actions run as the CALLER (token / key / anon), gated by their trust
+# tier inside x402mcp — never as this box, which is what Mod's methods do.
+AGENT_FNS = ('call', 'quote', 'register', 'revoke', 'set_trust', 'policy', 'wallet')
+API_FNS = READ_FNS + WRITE_FNS + AGENT_FNS
 
 FLAGS = ('priced', 'background', 'pin', 'discover')
 JSONS = ()
@@ -68,7 +82,19 @@ def _coerce(args):
     return out
 
 
+# ── MCP: x402mcp.handle_message is the whole engine (tools, trust gates);
+# this file is only its HTTP framing. stdio: python3 x402mcp.py
+MCP_PATHS = ('/mcp', f'{PREFIX}/mcp', f'/api{PREFIX}/mcp')
+
+
 def api(fn, args):
+    if fn == 'users':
+        a = _coerce(args)
+        return trust.users(limit=int(a.get('limit') or 100), kind=a.get('kind'))
+    if fn == 'trust':
+        return trust.trust(str(_coerce(args).get('user') or ''))
+    if fn == 'tools':
+        return {'tools': mcp.tool_list()}
     if fn == 'readme':
         return {'readme': MOD.readme()}
     if fn == 'sync':
@@ -88,12 +114,26 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers',
-                         'Content-Type, Authorization, x-mod-token')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self._cors()
+        for k, v in self.__dict__.pop('_extra', {}).items():
+            self.send_header(k, v)
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _cors(self):
+        self.send_header('Access-Control-Allow-Headers',
+                         'Content-Type, Authorization, x-mod-token, token, '
+                         'Mcp-Session-Id, Mcp-Protocol-Version')
+        self.send_header('Access-Control-Expose-Headers', 'Mcp-Session-Id')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+
+    def _accepted(self):
+        # Notifications: 202 with an EMPTY body (`null` trips strict clients).
+        self.send_response(202)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
 
     def _allowed(self):
         # Behind the gateway every request arrives from loopback with a
@@ -102,6 +142,31 @@ class Handler(SimpleHTTPRequestHandler):
             return True
         fwd = self.headers.get('X-Forwarded-For') or self.headers.get('CF-Connecting-IP')
         return not fwd and self.client_address[0] in ('127.0.0.1', '::1')
+
+    def _local(self):
+        # Owner standing is this box only: never X402_OPEN, never a request
+        # the gateway forwarded.
+        fwd = self.headers.get('X-Forwarded-For') or self.headers.get('CF-Connecting-IP')
+        return not fwd and self.client_address[0] in ('127.0.0.1', '::1')
+
+    def _who(self):
+        ip = (self.headers.get('CF-Connecting-IP')
+              or (self.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+              or self.client_address[0])
+        return trust.identify(dict(self.headers.items()), ip=ip, local=self._local())
+
+    def _agent(self, fn, args):
+        """REST face of an MCP tool, run as the caller."""
+        a = {k: (v[0] if isinstance(v, list) else v) for k, v in args.items()}
+        if fn == 'policy' and a:
+            a = {'set': a.get('set') or a}
+        r = mcp.call_tool('x402_' + fn, a, self._who())
+        if r.get('isError'):
+            msg = r['content'][0]['text']
+            return self._json({'error': msg, 'kind': 'refused' if msg.startswith(
+                ('refused', 'denied', 'rate limit')) else 'bad_request'}, 403 if msg.startswith(
+                ('refused', 'denied')) else 429 if msg.startswith('rate limit') else 400)
+        return self._json(r['structuredContent'])
 
     def _fn(self, path):
         if path == PREFIX:
@@ -112,6 +177,12 @@ class Handler(SimpleHTTPRequestHandler):
         return None
 
     def _dispatch(self, fn, args, method):
+        if fn == 'whoami':
+            return self._json(trust.standing(self._who()['id']))
+        if fn in AGENT_FNS:
+            if method != 'POST':
+                return self._json({'error': f'{fn} is a POST', 'kind': 'bad_method'}, 405)
+            return self._agent(fn, args)
         if fn in WRITE_FNS and method != 'POST':
             return self._json({'error': f'{fn} is a POST', 'kind': 'bad_method'}, 405)
         if fn in WRITE_FNS and not self._allowed():
@@ -136,6 +207,9 @@ class Handler(SimpleHTTPRequestHandler):
         raw = parsed.path
         path = raw.rstrip('/') or '/'
 
+        if path in MCP_PATHS:          # no server-initiated stream; POST only
+            return self._json({'error': 'MCP here is POST (stateless streamable HTTP)',
+                               'tools': [t['name'] for t in mcp.tool_list()]}, 405)
         fn = self._fn(path)
         if fn:
             return self._dispatch(fn, args, 'GET')
@@ -162,8 +236,21 @@ class Handler(SimpleHTTPRequestHandler):
             body = json.loads(raw_body) if raw_body.strip() else {}
         except json.JSONDecodeError:
             body = {k: v[0] for k, v in parse_qs(raw_body).items()}
-        if not isinstance(body, dict):
+        if not isinstance(body, (dict, list)):
             body = {}
+        if isinstance(body, list) and path not in MCP_PATHS:
+            body = {}
+
+        if path in MCP_PATHS:
+            if not raw_body.strip() or (raw_body.strip()[:1] not in '{[' ):
+                return self._json({'jsonrpc': '2.0', 'id': None,
+                                   'error': {'code': -32700, 'message': 'parse error'}}, 400)
+            reply = mcp.handle_message(body, self._who())
+            if reply is None:
+                return self._accepted()
+            if isinstance(body, dict) and body.get('method') == 'initialize':
+                self._extra = {'Mcp-Session-Id': 'x402-' + os.urandom(8).hex()}
+            return self._json(reply)
 
         fn = self._fn(path)
         if not fn:
@@ -176,6 +263,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 def serve(port=None, host='0.0.0.0', autosync=True):
     port = int(port or MOD.port)
+    threading.Thread(target=MOD.index().refresh, daemon=True).start()
     if autosync and os.environ.get('X402_AUTOSYNC', '1') != '0':
         threading.Thread(target=MOD.autosync, daemon=True).start()
     httpd = ThreadingHTTPServer((host, port), Handler)

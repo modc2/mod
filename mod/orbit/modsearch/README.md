@@ -15,4 +15,6 @@ curl -XPOST 127.0.0.1:51090/search -d '{"query":"split a secret","docs":[{"id":"
 
 Scoring is `0.72·cosine + 0.28·bm25(norm) + name bonus`. A doc is kept only if its cosine clears `max(0.2, 0.6·best)`, or it is a strong word or name hit.
 
-Used by: the build hub's **◇ agent** search (`/build/_api/hub/search`).
+`POST /embed {texts}` returns raw unit vectors (≤512 per call, uncached) for a mod that keeps its own index, so the box loads one encoder, not one per mod.
+
+Used by: the build hub's **◇ agent** search (`/build/_api/hub/search`) and the x402 semantic index (`/x402/api/find`).

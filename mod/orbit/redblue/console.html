@@ -13,13 +13,44 @@
   body{margin:0;background:var(--bg);color:var(--ink);
        font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
   a{color:var(--blue)}
-  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-         padding:12px 16px;border-bottom:1px solid var(--line);background:#0a0e13;
-         position:sticky;top:0;z-index:5}
-  .mark{font-weight:700;letter-spacing:.18em}
+  header{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+         padding:10px 18px;background:linear-gradient(180deg,#0c1117,#090d12);
+         border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;
+         background:linear-gradient(90deg,var(--red) 0%,var(--red) 48%,var(--blue) 52%,var(--blue) 100%);
+         opacity:.85}
+  .brand{display:flex;align-items:center;gap:11px;min-width:0}
+  .logo{width:26px;height:26px;border-radius:6px;flex:none;position:relative;
+        background:linear-gradient(135deg,var(--red) 0 50%,var(--blue) 50% 100%);
+        box-shadow:0 0 0 1px #ffffff14,0 0 18px -4px #5db4ff66,0 0 18px -6px #ff5d5d66}
+  .logo::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:2px;
+        background:#0a0e13;transform:rotate(45deg)}
+  .mark{font-weight:800;letter-spacing:.2em;font-size:14px;line-height:1}
   .mark .r{color:var(--red)} .mark .b{color:var(--blue)}
-  .tag{color:var(--dim)}
-  nav{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+  .tag{color:var(--dim);font-size:11px;line-height:1;margin-top:5px;letter-spacing:.02em}
+  .tchip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);
+         background:#0a0f15;border-radius:999px;padding:4px 11px 4px 9px;
+         font-size:11.5px;color:var(--dim);white-space:nowrap}
+  .tchip b{color:var(--ink);font-weight:600}
+  .tchip .sep{width:1px;height:12px;background:var(--line)}
+  .tchip .p{display:inline-flex;align-items:center;gap:5px}
+  .tchip .p i{width:6px;height:6px;border-radius:50%;background:#3a4756}
+  .tchip .p.ok i{background:var(--good);box-shadow:0 0 6px var(--good)}
+  .tchip .p.ok{color:var(--ink)}
+  nav{display:flex;align-items:center;gap:2px;margin-left:auto;flex-wrap:wrap;
+      border:1px solid var(--line);background:#0a0f15;border-radius:10px;padding:3px}
+  nav .gap{width:1px;height:16px;background:var(--line);margin:0 4px}
+  nav button{border:1px solid transparent;background:none;border-radius:7px;
+             padding:5px 12px;color:var(--dim);font-size:12px;letter-spacing:.08em;
+             position:relative;transition:color .12s,background .12s}
+  nav button:hover{color:var(--ink);background:#111823;border-color:transparent}
+  nav button.on{color:#fff;background:#14202d;border-color:#2a4058}
+  nav button.on::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;
+             height:2px;border-radius:2px;background:var(--blue)}
+  nav button.red.on{background:#2a1215;border-color:#5a2026}
+  nav button.red.on::after{background:var(--red)}
+  nav button.red:not(.on){color:#c98a8a}
+  nav button.blue:not(.on){color:#8ab4d8}
   button,select,input,textarea{
     background:#111823;color:var(--ink);border:1px solid var(--line);
     border-radius:3px;padding:5px 10px;font:inherit}
@@ -102,16 +133,25 @@
 </head>
 <body>
 <header>
-  <div class="mark"><span class="r">RED</span><span class="b">BLUE</span></div>
-  <div class="tag" id="sub">jailbreak attacks × defense pipelines, judged on two axes</div>
+  <div class="brand">
+    <div class="logo"></div>
+    <div>
+      <div class="mark"><span class="r">RED</span><span class="b">BLUE</span></div>
+      <div class="tag">attacks × defenses, scored</div>
+    </div>
+  </div>
+  <div class="tchip" id="sub" title="target model · which providers can run right now">connecting…</div>
   <nav>
     <button data-tab="board" class="on">BOARD</button>
     <button data-tab="models">MODELS</button>
     <button data-tab="rounds">ROUNDS</button>
-    <button data-tab="attacks">RED</button>
-    <button data-tab="defenses">BLUE</button>
+    <span class="gap"></span>
+    <button data-tab="attacks" class="red">RED</button>
+    <button data-tab="defenses" class="blue">BLUE</button>
+    <span class="gap"></span>
     <button data-tab="fight">FIGHT</button>
     <button data-tab="lab">LAB</button>
+    <span class="gap"></span>
     <button data-tab="about">RULES</button>
   </nav>
 </header>
@@ -932,9 +972,10 @@ async function loadAbout() {
 
 // ── boot ───────────────────────────────────────────────────────
 api('/targets').then(t => {
-  const ready = Object.entries(t.providers).filter(([, p]) => p.ready)
-    .map(([n]) => n).join(' · ');
-  $('#sub').textContent = `target ${t.default} · ready: ${ready}`;
+  const ps = Object.entries(t.providers).filter(([, p]) => p.ready);
+  $('#sub').innerHTML = `<span>target</span><b>${esc(t.default)}</b><span class="sep"></span>`
+    + (ps.length ? ps.map(([n, p]) => `<span class="p ok" title="${esc(p.note || p.how || '')}"><i></i>${esc(n)}</span>`).join('')
+                 : '<span class="p"><i></i>no backend ready</span>');
   $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
 }).catch(() => {});
 loadBoard();

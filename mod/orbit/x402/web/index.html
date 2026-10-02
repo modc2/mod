@@ -68,6 +68,20 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px}
   .card .name{font-weight:700}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg a{padding:8px 10px;color:var(--dim);cursor:pointer;font-size:12px}
+  .seg a.on{background:var(--accent);color:#141100;font-weight:700}
+  .srv{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:10px}
+  .srv .top{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .srv .name{font-weight:700}
+  .srv .tools{margin:8px 0 0;border-top:1px solid var(--line)}
+  .srv .tool{padding:6px 0;border-bottom:1px solid var(--line);cursor:pointer}
+  .srv .tool:last-child{border-bottom:none}
+  .srv .tool:hover{color:var(--accent)}
+  .srv code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:3px 6px;font-size:11px;word-break:break-all}
+  .ex{cursor:pointer}
+  .ex:hover{color:var(--text);border-color:var(--accent)}
+  .score{color:var(--accent);font-size:11px}
 </style>
 </head>
 <body>
@@ -78,6 +92,7 @@
 <div class="stats" id="stats"></div>
 <nav id="tabs">
   <a data-t="services" class="on">SERVICES</a>
+  <a data-t="mcp">MCP SERVERS</a>
   <a data-t="hosts">PROVIDERS</a>
   <a data-t="sources">FACILITATORS</a>
   <a data-t="partners">ECOSYSTEM</a>
@@ -110,7 +125,8 @@ async function post(fn, body = {}) {
 }
 function status(msg, err) { const s = $('#status'); s.textContent = msg || ''; s.className = err ? 'err' : ''; }
 
-const st = {tab: 'services', q: '', network: '', max_price: '', sort: 'popular', offset: 0, host: ''};
+const st = {tab: 'services', q: '', network: '', max_price: '', sort: 'popular', offset: 0, host: '',
+            meaning: localStorage.getItem('x402.meaning') !== '0', mq: ''};
 const PAGE = 50;
 
 async function loadStats() {
@@ -138,23 +154,28 @@ function bar() {
       `<option value="${v}" ${st.max_price === v ? 'selected' : ''}>${v ? 'up to $' + v : 'any price'}</option>`).join('')}</select>
     <select name="sort">${[['popular','most used'],['cheap','cheapest'],['new','newest'],['recent','recently updated'],['pricey','priciest']].map(([v, l]) =>
       `<option value="${v}" ${st.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <span class="seg" title="words: exact text match · meaning: what the service does"><a data-m="0" class="${st.meaning ? '' : 'on'}">words</a><a data-m="1" class="${st.meaning ? 'on' : ''}">meaning</a></span>
     ${st.host ? `<button type="button" class="quiet" id="clearhost">host: ${esc(st.host)} &times;</button>` : ''}
   </form>`;
 }
 
 async function services() {
-  const r = await get('services', {q: st.q, network: st.network, max_price: st.max_price,
-                                   sort: st.sort, host: st.host, limit: PAGE, offset: st.offset});
+  const sem = st.meaning && st.q && !st.host;
+  const r = sem
+    ? await get('find', {q: st.q, network: st.network, max_price: st.max_price, k: 100})
+        .then(f => { semNote(f); return {items: f.items.map(x => ({...x, sources: []})), total: f.items.length, offset: 0, limit: 100, sem: true}; })
+    : await get('services', {q: st.q, network: st.network, max_price: st.max_price,
+                             sort: st.sort, host: st.host, limit: PAGE, offset: st.offset});
   const rows = r.items.map((s, i) => `<tr class="row" data-i="${i}">
       <td><div class="url">${s.icon ? `<img class="ic" src="${esc(s.icon)}" loading="lazy" onerror="this.remove()">` : ''}<span class="m">${esc(s.method)}</span>${esc(s.url)}</div>
           <div class="desc">${esc(s.name ? s.name + ' · ' : '')}${esc(s.description)}</div></td>
       <td>${s.networks.slice(0, 3).map(n => `<span class="chip" title="${esc(n)}">${esc(n)}</span>`).join('')}${s.networks.length > 3 ? `<span class="dim">+${s.networks.length - 3}</span>` : ''}</td>
       <td class="num">${usd(s.price_usd)}</td>
       <td class="num">${s.calls_30d ? big(s.calls_30d) : '<span class="dim">-</span>'}</td>
-      <td class="dim">${esc(s.sources.join(' '))}</td></tr>`).join('');
+      <td class="dim">${r.sem ? `<span class="score">${s.score.toFixed(2)}</span> ${s.why.map(w => `<span class="chip">${esc(w)}</span>`).join('')}` : esc(s.sources.join(' '))}</td></tr>`).join('');
   $('#view').innerHTML = bar() + (r.items.length ? `<table>
-      <tr><th>service</th><th>pays on</th><th class="num">per call</th><th class="num">calls 30d</th><th>listed by</th></tr>${rows}</table>
-      ${pager(r)}` : '<div class="empty">nothing matches</div>');
+      <tr><th>service</th><th>pays on</th><th class="num">per call</th><th class="num">calls 30d</th><th>${r.sem ? 'match' : 'listed by'}</th></tr>${rows}</table>
+      ${r.sem ? '' : pager(r)}` : '<div class="empty">nothing matches</div>');
   wireBar();
   document.querySelectorAll('tr.row').forEach(tr => tr.onclick = () => detail(r.items[+tr.dataset.i].url));
 }
@@ -175,6 +196,8 @@ function wireBar() {
   f.onsubmit = e => { e.preventDefault(); apply(); };
   f.q.oninput = () => { clearTimeout(t); t = setTimeout(apply, 300); };
   f.querySelectorAll('select').forEach(s => s.onchange = apply);
+  f.querySelectorAll('.seg a').forEach(a => a.onclick = () => {
+    st.meaning = a.dataset.m === '1'; localStorage.setItem('x402.meaning', st.meaning ? '1' : '0'); apply(); });
   const ch = $('#clearhost'); if (ch) ch.onclick = () => { st.host = ''; st.offset = 0; render(); };
   const p = $('#prev'), n = $('#next');
   if (p) p.onclick = () => { st.offset = Math.max(0, st.offset - PAGE); render(); };
@@ -277,7 +300,67 @@ async function partners() {
       </div>`).join('') + '</div>').join('');
 }
 
-const VIEWS = {services, hosts, sources, partners};
+function semNote(f) {
+  const i = f.index || {};
+  const msg = f.mode === 'lexical' ? `matching words only: the local encoder is unavailable${i.error ? ' (' + i.error + ')' : ''}`
+    : f.mode === 'partial' ? `still learning the index (${big(i.vectors)} of ${big(i.services)} services); results improve as it finishes`
+    : `ranked by meaning in ${f.elapsed_ms} ms, on this machine`;
+  status(msg, f.mode === 'lexical');
+}
+
+const EXAMPLES = ['is this token a rug', 'turn a web page into markdown', 'check a wallet before paying it',
+                  'make a short video', 'stablecoin yields', 'current weather', 'search the news'];
+
+async function mcp() {
+  $('#view').innerHTML = `<p class="hint">Describe the job. Every paid MCP server in the index is ranked by what its tools do, not by the words they use.</p>
+    <form class="bar" id="mf"><input class="q" name="q" placeholder="what should the server do?" value="${esc(st.mq)}" autofocus>
+      <select name="max_price">${['', '0.001', '0.01', '0.1', '1'].map(v =>
+        `<option value="${v}" ${st.max_price === v ? 'selected' : ''}>${v ? 'up to $' + v + ' a call' : 'any price'}</option>`).join('')}</select></form>
+    <div id="mres"></div>`;
+  const f = $('#mf'); let t;
+  const go = () => { st.mq = f.q.value; st.max_price = f.max_price.value; mcpResults(); };
+  f.onsubmit = e => { e.preventDefault(); go(); };
+  f.q.oninput = () => { clearTimeout(t); t = setTimeout(go, 350); };
+  f.max_price.onchange = go;
+  f.q.focus(); f.q.setSelectionRange(f.q.value.length, f.q.value.length);
+  mcpResults();
+}
+
+async function mcpResults() {
+  const box = $('#mres');
+  if (!st.mq.trim()) {
+    const i = (await get('info')).semantic || {};
+    box.innerHTML = `<div class="dim" style="margin:8px 0">${i.mcp_servers ? big(i.mcp_servers) + ' MCP servers indexed. ' : ''}Try:</div>` +
+      EXAMPLES.map(e => `<span class="chip ex">${esc(e)}</span>`).join(' ');
+    box.querySelectorAll('.ex').forEach(c => c.onclick = () => { $('#mf').q.value = c.textContent; st.mq = c.textContent; mcpResults(); });
+    status('');
+    return;
+  }
+  box.innerHTML = '<div class="dim">searching</div>';
+  const r = await get('mcp_servers', {q: st.mq, max_price: st.max_price, k: 25});
+  semNote(r);
+  if (!r.items.length) { box.innerHTML = '<div class="empty">no MCP server does that yet</div>'; return; }
+  box.innerHTML = r.items.map((g, gi) => `<div class="srv">
+    <div class="top">${g.icon ? `<img class="ic" src="${esc(g.icon)}" loading="lazy" onerror="this.remove()">` : ''}
+      <span class="name">${esc(g.name)}</span><span class="score">${g.score.toFixed(2)}</span>
+      <span class="dim">${usd(g.min_price)}${g.max_price !== g.min_price ? ' - ' + usd(g.max_price) : ''} a call</span>
+      ${g.networks.slice(0, 4).map(n => `<span class="chip">${esc(n)}</span>`).join('')}
+      ${g.why.map(w => `<span class="chip ok">${esc(w)}</span>`).join('')}</div>
+    <div class="url dim" style="margin-top:4px">${esc(g.server)}</div>
+    <div class="tools">${g.tools.slice(0, 4).map((t, ti) => `<div class="tool" data-g="${gi}" data-t="${ti}">
+      <span class="m">${esc(t.method)}</span>${esc(t.description || t.url).slice(0, 160)} <span class="dim">${usd(t.price_usd)}</span></div>`).join('')}
+      ${g.tools.length > 4 ? `<div class="dim" style="padding-top:6px">+${g.tools.length - 4} more matching tools</div>` : ''}</div>
+    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <code>${esc(g.connect.claude)}</code><button class="quiet cp" data-g="${gi}">copy</button></div>
+  </div>`).join('');
+  box.querySelectorAll('.tool').forEach(el => el.onclick = () => detail(r.items[+el.dataset.g].tools[+el.dataset.t].url));
+  box.querySelectorAll('.cp').forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(r.items[+b.dataset.g].connect.claude); b.textContent = 'copied'; }
+    catch { b.textContent = 'select it'; }
+    setTimeout(() => b.textContent = 'copy', 1500); });
+}
+
+const VIEWS = {services, mcp, hosts, sources, partners};
 function tab(t) {
   st.tab = t;
   document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === t));

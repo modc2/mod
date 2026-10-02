@@ -10,12 +10,18 @@ one searchable SQLite file on this box.
     m x402/sync                              # discover facilitators, crawl all
     m x402/services q=weather max_price=0.01 # search the index
     m x402/service url=https://api.exa.ai/search
+    m x402/find q="turn a pdf into text"     # by meaning, not words
+    m x402/mcp_servers q="crypto rug checks"  # the right MCP server
     m x402/hosts                             # one row per provider
     m x402/sources                           # every facilitator + crawl status
     m x402/partners category=Facilitators    # the ecosystem registry
     m x402/probe url=https://…               # ask one URL for its 402, pin it
     m x402/add_source base_url=https://my-facilitator.example
     m x402/serve                             # console + API on :51110
+    m x402/call url=https://… pay=none       # what a service costs (house|payment=… pays)
+    m x402/users                             # every MCP caller, by trust 0-100
+    m x402/set_trust user=0x… pin=60         # owner: pin / adjust / ban
+    m x402/mcp                               # MCP over stdio (HTTP: POST /mcp)
 
 Self-sustaining: facilitators are found from the coinbase/x402 ecosystem
 registry, not hard-coded, and the server re-crawls on a timer. No keys, no
@@ -40,6 +46,7 @@ if HERE not in sys.path:
 
 import x402db as store                                       # noqa: E402
 import x402src as src                                        # noqa: E402
+import x402sem as sem                                        # noqa: E402
 
 DAY = 86400
 
@@ -55,6 +62,13 @@ class Mod:
 
     _sync_lock = threading.Lock()
     _syncing = None
+    _index = None                       # one semantic index per process
+
+    @classmethod
+    def index(cls):
+        if cls._index is None:
+            cls._index = sem.Index()
+        return cls._index
 
     def __init__(self, port=None, local=True, **kwargs):
         self.dir = HERE
@@ -89,6 +103,7 @@ class Mod:
             'what': cfg.get('description'),
             'index': store.stats(),
             'syncing': Mod._syncing,
+            'semantic': self.index().status(),
             'last_sync': store.meta('last_sync'),
             'store': store.DB,
             'urls': cfg.get('urls'),
@@ -112,6 +127,27 @@ class Mod:
                             max_price=_num(max_price), min_price=_num(min_price),
                             priced=_flag(priced), sort=sort,
                             limit=int(limit or 50), offset=int(offset or 0))
+
+    def find(self, q=None, kind='all', k=20, network=None, max_price=None):
+        """Search by meaning. kind=all ranks services; kind=mcp ranks MCP
+        servers (their paid tools folded together, with a connect line).
+        Local encoder + FTS fused; falls back to FTS alone, and says so."""
+        kind = (kind or 'all').lower()
+        if kind not in ('all', 'mcp'):
+            raise ValueError('kind is all|mcp')
+        return self.index().find(_need(q, 'q'), kind=kind, k=int(k or 20),
+                                 network=network or None, max_price=_num(max_price))
+
+    def mcp_servers(self, q=None, k=20, network=None, max_price=None):
+        """The right MCP server for a job: find(kind=mcp)."""
+        return self.find(q=q, kind='mcp', k=k, network=network, max_price=max_price)
+
+    def reindex(self, background=False):
+        """Embed new/changed services (incremental). Runs after every crawl."""
+        if _flag(background):
+            threading.Thread(target=self.index().refresh, daemon=True).start()
+            return {'started': True}
+        return self.index().refresh()
 
     def service(self, url=None):
         """One service in full: offers, sources that list it, raw listing."""
@@ -212,8 +248,7 @@ class Mod:
         url = _need(url, 'url')
         r = src.probe(url, method=method)
         if r.get('x402') and _flag(pin):
-            store.put_source('probe', 'probe', 'Direct probes', '', 'local')
-            store.upsert([r['service']], 'probe', pinned=True)
+            store.pin(r['service'])
         if r.get('service'):
             r['service'] = {k: v for k, v in r['service'].items() if k != 'raw'}
         return r
@@ -269,6 +304,7 @@ class Mod:
                     report['sources'][sid] = res
             store.meta('last_sync', time.time())
             report['index'] = store.stats()
+            threading.Thread(target=self.index().refresh, daemon=True).start()
             return report
         finally:
             Mod._syncing = None
@@ -304,6 +340,71 @@ class Mod:
             if time.time() - last > self.sync_every:
                 self._sync_safe()
             time.sleep(60)
+
+    # ── agents: MCP, paying, trust ───────────────────────────────
+    # Every one of these runs the MCP tool of the same name as this box
+    # (owner), so the CLI, the API and any agent share one code path.
+
+    def _tool(self, name, **args):
+        import x402mcp as mcp
+        import x402trust as trust
+        mcp.SYNC = mcp.SYNC or self.sync
+        mcp.MOD = mcp.MOD or self
+        r = mcp.call_tool(name, {k: v for k, v in args.items() if v is not None},
+                          trust.identify(local=True))
+        if r.get('isError'):
+            raise ValueError(r['content'][0]['text'])
+        return r['structuredContent']
+
+    def call(self, url=None, method='GET', body=None, query=None, headers=None, pay='none',
+             payment=None, quote_id=None, signature=None, max_price_usd=None, network=None):
+        """Call an x402 service; pay='none' shows the price, 'house' pays from
+        the node wallet, payment=/quote_id+signature pay with yours."""
+        return self._tool('x402_call', url=url, method=method, body=body, query=query,
+                          headers=headers, pay=pay, payment=payment, quote_id=quote_id,
+                          signature=signature, max_price_usd=max_price_usd, network=network)
+
+    def quote(self, url=None, method='GET', body=None, query=None, payer=None, offer=None):
+        """Price a service and get the EIP-712 typed data to sign."""
+        return self._tool('x402_quote', url=url, method=method, body=body, query=query,
+                          payer=payer, offer=offer)
+
+    def users(self, limit=50, kind=None):
+        """Every MCP caller seen, ranked by trust."""
+        return self._tool('x402_users', limit=limit, kind=kind)
+
+    def trust(self, user=None):
+        """One caller's trust score 0-100 and what produced it."""
+        return self._tool('x402_trust', user=_need(user, 'user'))
+
+    def set_trust(self, user=None, pin=None, adjust=None, ban=None, note=None, clear=False):
+        """Owner: pin / adjust / ban / clear a caller's trust."""
+        return self._tool('x402_set_trust', user=_need(user, 'user'), pin=pin, adjust=adjust,
+                          ban=None if ban is None else _flag(ban), note=note, clear=_flag(clear))
+
+    def register(self, label=None):
+        """Issue an API key for an agent (shown once)."""
+        return self._tool('x402_register', label=label)
+
+    def revoke(self, user=None):
+        return self._tool('x402_revoke', user=_need(user, 'user'))
+
+    def policy(self, **changes):
+        """Read the spend/tier policy; key=value pairs change it (owner)."""
+        fix = {k: (_flag(v) if k == 'house' else json.loads(v) if isinstance(v, str)
+                   and v[:1] in '{[' else _num(v) if k.endswith('_usd') else v)
+               for k, v in changes.items()}
+        return self._tool('x402_policy', set=fix or None)
+
+    def wallet(self, create=False):
+        """The node's house wallet (create=1 makes one; fund it with USDC)."""
+        return self._tool('x402_wallet', create=_flag(create))
+
+    def mcp(self):
+        """Serve MCP over stdio as this box (owner)."""
+        import x402mcp
+        x402mcp.SYNC, x402mcp.MOD = self.sync, self
+        return x402mcp.main()
 
     # ── ops ──────────────────────────────────────────────────────
 

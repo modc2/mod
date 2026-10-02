@@ -1,6 +1,6 @@
 {
     "name": "modsearch",
-    "description": "Find a module by what you mean. Local semantic search over the module fleet (or any docs you send): a small CPU sentence encoder (all-MiniLM-L6-v2) fused with BM25, vectors cached on disk. No key, no cloud, no LLM call; degrades to BM25 alone if the encoder can't load. Powers the build hub's agent search.",
+    "description": "Find a module by what you mean. Local semantic search over the module fleet (or any docs you send): a small CPU sentence encoder (all-MiniLM-L6-v2) fused with BM25, vectors cached on disk. No key, no cloud, no LLM call; degrades to BM25 alone if the encoder can't load. Powers the build hub's agent search and serves raw vectors (POST /embed) so other mods share one encoder.",
     "version": "0.1.0",
     "anchor": "mod.py",
     "port": 51090,
@@ -19,6 +19,11 @@
             "method": "GET|POST",
             "auth": false,
             "docs": "GET ?q=&k= ranks this box's fleet; POST {query, docs:[{id,text,name?}], k} ranks the docs you send -> {mode, results:[{id,score,sem,lex,why}]}"
+        },
+        "embed": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{texts:[...<=512]} -> {model, dim, vectors} unit vectors, uncached; the shared local encoder (x402 semantic index uses it)"
         }
     },
     "fns": [

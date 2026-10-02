@@ -4,6 +4,9 @@ modsearch api — semantic search over modules (or any short documents).
     GET  /health                      liveness + which scorer is live
     GET  /search?q=&k=                rank this box's fleet (orbit/ + core/)
     POST /search {query, docs?, k?}   rank the docs YOU send: [{id, text, name?}]
+    POST /embed {texts}               raw unit vectors (uncached) for callers
+                                      that keep their own index — one encoder
+                                      in RAM for the whole box
 
 POST with your own docs is the reusable door: a caller that already holds a
 list (the build hub, which only holds what its viewer may see) sends it and
@@ -60,6 +63,13 @@ class SearchRequest(BaseModel):
     k: int = 50
 
 
+class EmbedRequest(BaseModel):
+    texts: List[str]
+
+
+MAX_EMBED = 512
+
+
 @app.get('/health')
 def health():
     return {'ok': True, 'module': 'modsearch', 'model': ENCODER.model_name,
@@ -79,3 +89,13 @@ def search(req: SearchRequest):
         raise HTTPException(400, f'at most {engine.MAX_DOCS} docs per search')
     docs = [d.model_dump() for d in req.docs] if req.docs is not None else engine.fleet_docs(FLEET_ROOTS)
     return engine.search(req.query, docs, k=req.k, encoder=ENCODER)
+
+
+@app.post('/embed')
+def embed(req: EmbedRequest):
+    if len(req.texts) > MAX_EMBED:
+        raise HTTPException(400, f'at most {MAX_EMBED} texts per call')
+    vecs = ENCODER.embed(req.texts) if req.texts else []
+    if vecs is None:
+        raise HTTPException(409, f'encoder unavailable: {ENCODER.error}')
+    return {'model': ENCODER.model_name, 'dim': len(vecs[0]) if vecs else 0, 'vectors': vecs}

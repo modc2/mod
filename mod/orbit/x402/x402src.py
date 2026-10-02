@@ -307,14 +307,12 @@ def ecosystem(workers=16):
 
 # ── probe: ask one resource directly ──────────────────────────────
 
-def probe(url, method='GET', timeout=15):
-    """Call a URL unpaid. An x402 resource answers 402 with its requirements —
-    in the body (v1) or base64 in the PAYMENT-REQUIRED header (v2)."""
-    method = (method or 'GET').upper()
-    status, headers, body = fetch(url, timeout, method=method)
-    hdr = {k.lower(): v for k, v in headers.items()}
+def requirements(status, headers, body):
+    """A 402 reply → its payment requirements (dict with `accepts`), or None.
+    v2 puts them base64 in the PAYMENT-REQUIRED header, v1 in the body."""
     if status != 402:
-        return {'x402': False, 'status': status, 'url': url, 'method': method}
+        return None
+    hdr = {k.lower(): v for k, v in (headers or {}).items()}
     req = None
     enc = hdr.get('payment-required')
     if enc:
@@ -325,9 +323,22 @@ def probe(url, method='GET', timeout=15):
     if req is None:
         try:
             req = json.loads(body)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
             req = None
     if not isinstance(req, dict) or not req.get('accepts'):
+        return None
+    return req
+
+
+def probe(url, method='GET', timeout=15):
+    """Call a URL unpaid. An x402 resource answers 402 with its requirements —
+    in the body (v1) or base64 in the PAYMENT-REQUIRED header (v2)."""
+    method = (method or 'GET').upper()
+    status, headers, body = fetch(url, timeout, method=method)
+    if status != 402:
+        return {'x402': False, 'status': status, 'url': url, 'method': method}
+    req = requirements(status, headers, body)
+    if req is None:
         return {'x402': False, 'status': 402, 'url': url,
                 'error': '402 without x402 payment requirements'}
     item = dict(req)
@@ -339,4 +350,5 @@ def probe(url, method='GET', timeout=15):
     row = normalize(item)
     if row and method != 'GET':
         row['method'] = method
-    return {'x402': row is not None, 'status': 402, 'url': url, 'service': row}
+    return {'x402': row is not None, 'status': 402, 'url': url, 'service': row,
+            'requirements': req}

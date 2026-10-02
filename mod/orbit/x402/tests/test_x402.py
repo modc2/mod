@@ -190,3 +190,110 @@ def test_reads_do_not_wait_for_a_writer():
         t.start()
         t.join(5)
     assert out == [1]
+
+
+# ── semantic index (x402sem) — a fake encoder, no model, no network ──
+
+import x402sem as sem  # noqa: E402
+
+VOCAB = ['weather', 'forecast', 'rain', 'rug', 'token', 'scam', 'video', 'movie', 'markdown', 'scrape']
+SYN = {'forecast': 'weather', 'rain': 'weather', 'scam': 'rug', 'movie': 'video', 'scrape': 'markdown'}
+
+
+class FakeEncoder:
+    """Bag of concepts: synonyms share an axis, so 'rain' ~ 'weather'."""
+    backend, error = 'fake', None
+
+    def encode(self, texts):
+        import numpy as np
+        out = []
+        for t in texts:
+            v = np.zeros(len(VOCAB), dtype=np.float32)
+            for w in __import__('re').findall(r'[a-z]+', t.lower()):
+                w = SYN.get(w, w)
+                if w in VOCAB:
+                    v[VOCAB.index(w)] += 1
+            v[-1] += 0.01
+            out.append((v / np.linalg.norm(v)).tolist())
+        return out
+
+
+class DeadEncoder:
+    backend, error = None, 'no model here'
+
+    def encode(self, texts):
+        return None
+
+
+def _svc(url, desc, typ='http', price=0.01, calls=0):
+    return {'url': url, 'host': src.host_of(url), 'name': '', 'description': desc,
+            'method': 'POST', 'type': typ, 'tags': [], 'networks': ['base'],
+            'price_usd': price, 'offers': [], 'calls_30d': calls}
+
+
+def _seed():
+    store.upsert([
+        _svc('https://wx.io/mcp/tools/now', 'weather now for a city', price=0.001),
+        _svc('https://wx.io/mcp/tools/week', 'seven day weather outlook', price=0.002),
+        _svc('https://mcp.rugcheck.dev/check', 'token rug probability'),
+        _svc('https://plain.api/forecast', 'weather api, not mcp', calls=900),
+        _svc('https://vid.app/mcp', 'make a video clip', typ='mcp', price=0.4),
+        _svc('https://feeds.dev/feeds/mcp-registry', 'a list of mcp servers'),
+    ], 'test')
+
+
+def test_mcp_server_rule():
+    assert sem.mcp_server('https://a.io/mcp/tools/x') == 'https://a.io/mcp'
+    assert sem.mcp_server('https://a.io/api/paddock/mcp') == 'https://a.io/api/paddock/mcp'
+    assert sem.mcp_server('https://a.io/mcp-x402-payai-test') == 'https://a.io/mcp-x402-payai-test'
+    assert sem.mcp_server('https://mcp.a.io/tool') == 'https://mcp.a.io'
+    assert sem.mcp_server('https://a.io/is_degraded', 'mcp') == 'https://a.io/is_degraded'
+    assert sem.mcp_server('https://a.io/feeds/mcp-registry') is None
+    assert sem.mcp_server('https://a.io/search') is None
+
+
+def test_find_by_meaning_not_words():
+    _seed()
+    ix = sem.Index(FakeEncoder())
+    assert ix.refresh()['vectors'] == 6
+    r = ix.find('will it rain', k=5)          # 'rain' appears in no description
+    assert r['mode'] == 'semantic'
+    assert {i['url'] for i in r['items'][:3]} >= {'https://wx.io/mcp/tools/now',
+                                                  'https://plain.api/forecast'}
+
+
+def test_find_mcp_folds_tools_into_servers():
+    _seed()
+    ix = sem.Index(FakeEncoder())
+    ix.refresh()
+    r = ix.find('forecast', kind='mcp')
+    top = r['items'][0]
+    assert top['server'] == 'https://wx.io/mcp' and len(top['tools']) == 2
+    assert top['min_price'] == 0.001 and 'claude mcp add' in top['connect']['claude']
+    assert all(g['server'] != 'https://plain.api/forecast' for g in r['items'])
+    assert ix.find('scam coin', kind='mcp')['items'][0]['server'] == 'https://mcp.rugcheck.dev'
+    assert ix.find('movie', kind='mcp', max_price=0.1)['items'] == []
+
+
+def test_refresh_is_incremental_and_drops_gone():
+    _seed()
+    enc = FakeEncoder()
+    calls = []
+    real = enc.encode
+    enc.encode = lambda t: calls.append(len(t)) or real(t)
+    ix = sem.Index(enc)
+    ix.refresh()
+    calls.clear()
+    ix.refresh()
+    assert calls == []                         # nothing changed, nothing encoded
+    store.forget('https://vid.app/mcp')
+    assert ix.refresh()['vectors'] == 5
+
+
+def test_find_without_encoder_falls_back_to_words():
+    _seed()
+    ix = sem.Index(DeadEncoder())
+    ix.refresh()
+    r = ix.find('weather', kind='mcp')
+    assert r['mode'] == 'lexical'
+    assert r['items'] and r['items'][0]['server'] == 'https://wx.io/mcp'

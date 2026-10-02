@@ -157,6 +157,12 @@ def upsert(rows, source, now=None, pinned=False):
     return n
 
 
+def pin(service):
+    """A service seen first-hand (a probe) — indexed and pinned."""
+    put_source('probe', 'probe', 'Direct probes', '', 'local')
+    return upsert([service], 'probe', pinned=True)
+
+
 def retire(source, before):
     """After a complete crawl: drop the source's stale sightings, then any
     unpinned service no source lists any more. → number of services removed."""

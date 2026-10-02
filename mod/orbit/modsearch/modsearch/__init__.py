@@ -146,6 +146,17 @@ class Encoder:
                             f.write(json.dumps([k, row]) + '\n')
             return [self._cache[k] for k in keys]
 
+    def embed(self, texts: List[str]) -> Optional[List[List[float]]]:
+        """Unit vectors for `texts`, uncached — for callers that keep their own
+        store (x402 holds 37k vectors in its SQLite; they don't belong in this
+        jsonl). One model in RAM serves the whole fleet. None = no encoder."""
+        with self._lock:
+            if not self._load():
+                return None
+            vecs = self._model.encode([str(t)[:MAX_TEXT] for t in texts], batch_size=64,
+                                      normalize_embeddings=True, show_progress_bar=False)
+            return [[round(float(x), 5) for x in v] for v in vecs]
+
 
 def _dot(a: List[float], b: List[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
