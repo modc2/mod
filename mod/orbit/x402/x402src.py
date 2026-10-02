@@ -80,6 +80,7 @@ USD_ASSETS = {
     '0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392',   # USDC sei
     'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',  # USDC solana
     '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',  # USDC solana-devnet
+    '31566704',                                      # USDC algorand (ASA)
 }
 USD_ASSETS = {a.lower() for a in USD_ASSETS}
 
@@ -161,7 +162,7 @@ def offer(a):
 
 def _method(item, accepts):
     info = ((item.get('extensions') or {}).get('bazaar') or {}).get('info') or {}
-    m = (info.get('input') or {}).get('method')
+    m = (info.get('input') or {}).get('method') or item.get('method')
     for a in accepts:
         if m:
             break
@@ -185,7 +186,9 @@ def canonical(url):
 
 def normalize(item):
     """Any discovery item / 402 body → one service row, or None if unusable."""
-    url = item.get('resource') or item.get('url')
+    url = item.get('resource') or item.get('resourceUrl') or item.get('url')
+    if isinstance(url, dict):                     # v2 402 body: {url, description}
+        url = url.get('url')
     accepts = [a for a in (item.get('accepts') or []) if isinstance(a, dict)]
     if not url and accepts:
         url = accepts[0].get('resource')
@@ -211,9 +214,10 @@ def normalize(item):
         'networks': sorted({o['network'] for o in offers if o['network']}),
         'price_usd': min(prices) if prices else None,
         'offers': offers,
-        'calls_30d': _int(quality.get('l30DaysTotalCalls')) or 0,
+        # CDP reports a 30-day window; GoPlausible only a lifetime settle count.
+        'calls_30d': _int(quality.get('l30DaysTotalCalls')) or _int(item.get('settleCount')) or 0,
         'payers_30d': _int(quality.get('l30DaysUniquePayers')) or 0,
-        'last_updated': item.get('lastUpdated') or '',
+        'last_updated': item.get('lastUpdated') or item.get('lastSeen') or '',
         'raw': item,
     }
 

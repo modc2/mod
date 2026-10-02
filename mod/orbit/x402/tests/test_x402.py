@@ -58,6 +58,15 @@ def test_normalize_v1_unknown_asset_has_no_price():
     assert r['description'] == 'v1 desc' and r['networks'] == ['base']
 
 
+def test_normalize_goplausible_shape():
+    r = src.normalize({'resourceUrl': 'https://g.io/a', 'method': 'post', 'settleCount': 9,
+                       'accepts': [{'network': 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=',
+                                    'amount': '200000', 'asset': '31566704'}]})
+    assert r['url'] == 'https://g.io/a' and r['method'] == 'POST'
+    assert r['networks'] == ['algorand'] and r['price_usd'] == pytest.approx(0.2)
+    assert r['calls_30d'] == 9
+
+
 def test_normalize_rejects_junk():
     assert src.normalize({'resource': 'ftp://x'}) is None
     assert src.normalize({}) is None
@@ -171,3 +180,13 @@ def test_http_surface(monkeypatch):
         assert b'X402' in html
     finally:
         httpd.shutdown()
+
+
+def test_reads_do_not_wait_for_a_writer():
+    store.upsert([src.normalize(V2)], 'cdp')
+    out = []
+    with store._lock:                      # a crawl batch mid-write
+        t = threading.Thread(target=lambda: out.append(store.search(q='search')['total']))
+        t.start()
+        t.join(5)
+    assert out == [1]

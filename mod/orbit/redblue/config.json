@@ -133,7 +133,7 @@
     "services": [
         "redblue-api"
     ],
-    "schema": "QmW5wx5j4nHS9tUFD4ewAzpfNL85YfsvNsYy3Et1fVmanw",
+    "schema": "QmPE1mK6pw3Ni4WuUAVYEpqaRDRSPYBbZ2y88haK8nhrCk",
     "sweeps": {
         "providers": "venice (128 text models, keyless listing) | openrouter (465, keyless listing) | mock (offline)",
         "default": "defense none (the bare model), judge heuristic (free) \u2014 the question is how safe is the MODEL",

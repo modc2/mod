@@ -10,8 +10,24 @@
     },
     "state": "~/.mod/modsearch/vectors.jsonl (sha256(model+text) -> vector)",
     "endpoints": {
-        "health": {"method": "GET", "auth": false, "docs": "Liveness + encoder state"},
-        "search": {"method": "GET|POST", "auth": false, "docs": "GET ?q=&k= ranks this box's fleet; POST {query, docs:[{id,text,name?}], k} ranks the docs you send -> {mode, results:[{id,score,sem,lex,why}]}"}
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness + encoder state"
+        },
+        "search": {
+            "method": "GET|POST",
+            "auth": false,
+            "docs": "GET ?q=&k= ranks this box's fleet; POST {query, docs:[{id,text,name?}], k} ranks the docs you send -> {mode, results:[{id,score,sem,lex,why}]}"
+        }
     },
-    "fns": ["forward", "search", "serve", "kill", "status", "test"]
+    "fns": [
+        "forward",
+        "search",
+        "serve",
+        "kill",
+        "status",
+        "test"
+    ],
+    "schema": "QmTuJxhzxFTBbEZM2sNqNJiBpVFHnFuUd9rxoHG9QhX5Zb"
 }

@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
 def connect(path=None):
     path = path or DB
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    c = sqlite3.connect(path, timeout=30, check_same_thread=False)
+    c = sqlite3.connect(path, timeout=60)
     c.row_factory = sqlite3.Row
     c.execute('PRAGMA journal_mode=WAL')
     c.execute('PRAGMA synchronous=NORMAL')
@@ -66,24 +66,38 @@ def connect(path=None):
     return c
 
 
-_conn = None
-_conn_path = None
+# One connection per thread. Under WAL, readers never wait for a writer, so
+# the console stays live while four facilitators are being crawled; only
+# writers queue behind _lock.
+_local = threading.local()
+_gen = 0
 
 
 def db():
-    global _conn, _conn_path
-    with _lock:
-        if _conn is None or _conn_path != DB:
-            _conn, _conn_path = connect(DB), DB
-        return _conn
+    c = getattr(_local, 'conn', None)
+    if c is None or getattr(_local, 'gen', None) != _gen:
+        c = _local.conn = connect(DB)
+        _local.gen = _gen
+    return c
+
+
+class _Reader:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+_read = _Reader()
 
 
 def reset(path=None):
     """Point the store at another file (tests)."""
-    global DB, _conn
+    global DB, _gen
     with _lock:
         DB = path or DB
-        _conn = None
+        _gen += 1
 
 
 # ── services ──────────────────────────────────────────────────────
@@ -223,7 +237,7 @@ def search(q=None, network=None, host=None, source=None, max_price=None,
     order = SORTS.get(sort or 'popular', SORTS['popular'])
     limit = max(1, min(int(limit or 50), 500))
     offset = max(0, int(offset or 0))
-    with _lock:
+    with _read:
         c = db()
         total = c.execute(f'SELECT COUNT(*) FROM services s {w}', args).fetchone()[0]
         rows = c.execute(
@@ -235,7 +249,7 @@ def search(q=None, network=None, host=None, source=None, max_price=None,
 
 
 def get(url):
-    with _lock:
+    with _read:
         r = db().execute(
             'SELECT s.*, (SELECT GROUP_CONCAT(source) FROM sightings g WHERE g.url=s.url) AS sources'
             ' FROM services s WHERE url=?', (url,)).fetchone()
@@ -247,7 +261,7 @@ def hosts(q=None, limit=100, offset=0):
     where, args = '', []
     if q:
         where, args = 'WHERE host LIKE ? OR name LIKE ?', [f'%{q}%', f'%{q}%']
-    with _lock:
+    with _read:
         c = db()
         total = c.execute(f'SELECT COUNT(DISTINCT host) FROM services {where}', args).fetchone()[0]
         rows = c.execute(
@@ -260,8 +274,12 @@ def hosts(q=None, limit=100, offset=0):
     return {'total': total, 'items': [dict(r) for r in rows]}
 
 
+def count():
+    return db().execute('SELECT COUNT(*) FROM services').fetchone()[0]
+
+
 def stats():
-    with _lock:
+    with _read:
         c = db()
         one = lambda sql, *a: c.execute(sql, a).fetchone()[0]  # noqa: E731
         nets = {}
@@ -318,7 +336,7 @@ def drop_source(id):
 
 
 def get_sources():
-    with _lock:
+    with _read:
         rows = db().execute(
             'SELECT s.*, (SELECT COUNT(*) FROM sightings g WHERE g.source=s.id) AS indexed'
             ' FROM sources s ORDER BY lists DESC, indexed DESC, id').fetchall()
@@ -326,7 +344,7 @@ def get_sources():
 
 
 def get_source(id):
-    with _lock:
+    with _read:
         r = db().execute('SELECT * FROM sources WHERE id=?', (id,)).fetchone()
     return dict(r) if r else None
 
@@ -355,7 +373,7 @@ def get_partners(category=None, q=None):
         where.append('(name LIKE ? OR description LIKE ? OR website LIKE ?)')
         args += [f'%{q}%'] * 3
     w = ('WHERE ' + ' AND '.join(where)) if where else ''
-    with _lock:
+    with _read:
         rows = db().execute(f'SELECT * FROM partners {w} ORDER BY category, name', args).fetchall()
     out = []
     for r in rows:
@@ -368,11 +386,11 @@ def get_partners(category=None, q=None):
 # ── meta ──────────────────────────────────────────────────────────
 
 def meta(k, v=None):
+    if v is None:
+        r = db().execute('SELECT v FROM meta WHERE k=?', (k,)).fetchone()
+        return json.loads(r[0]) if r else None
     with _lock:
         c = db()
-        if v is None:
-            r = c.execute('SELECT v FROM meta WHERE k=?', (k,)).fetchone()
-            return json.loads(r[0]) if r else None
         c.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (k, json.dumps(v)))
         c.commit()
         return v

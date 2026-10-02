@@ -45,6 +45,8 @@
   .num{text-align:right;white-space:nowrap}
   .chip{display:inline-block;border:1px solid var(--line);border-radius:10px;
         padding:0 7px;font-size:11px;color:var(--dim);margin:1px 2px 1px 0}
+  .chip{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+  .bar select{max-width:220px}
   .chip.ok{color:var(--ok);border-color:#1f4f3f}
   .chip.bad{color:var(--bad);border-color:#4f1f1f}
   .m{color:var(--accent);font-size:11px;margin-right:6px}
@@ -146,7 +148,7 @@ async function services() {
   const rows = r.items.map((s, i) => `<tr class="row" data-i="${i}">
       <td><div class="url">${s.icon ? `<img class="ic" src="${esc(s.icon)}" loading="lazy" onerror="this.remove()">` : ''}<span class="m">${esc(s.method)}</span>${esc(s.url)}</div>
           <div class="desc">${esc(s.name ? s.name + ' · ' : '')}${esc(s.description)}</div></td>
-      <td>${s.networks.slice(0, 3).map(n => `<span class="chip">${esc(n)}</span>`).join('')}${s.networks.length > 3 ? `<span class="dim">+${s.networks.length - 3}</span>` : ''}</td>
+      <td>${s.networks.slice(0, 3).map(n => `<span class="chip" title="${esc(n)}">${esc(n)}</span>`).join('')}${s.networks.length > 3 ? `<span class="dim">+${s.networks.length - 3}</span>` : ''}</td>
       <td class="num">${usd(s.price_usd)}</td>
       <td class="num">${s.calls_30d ? big(s.calls_30d) : '<span class="dim">-</span>'}</td>
       <td class="dim">${esc(s.sources.join(' '))}</td></tr>`).join('');

@@ -95,8 +95,7 @@ class Mod:
         }
 
     def health(self):
-        s = store.stats()
-        return {'ok': True, 'services': s['services'], 'syncing': Mod._syncing}
+        return {'ok': True, 'services': store.count(), 'syncing': Mod._syncing}
 
     def readme(self):
         p = os.path.join(HERE, 'README.md')
