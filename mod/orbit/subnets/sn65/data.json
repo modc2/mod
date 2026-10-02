@@ -1,0 +1,165 @@
+{
+  "netuid": 65,
+  "name": "True Performance Network",
+  "symbol": "ص",
+  "owner": "5GxEEHxLWpvcAGghL8LG7xNjrxZk4SEPW1VT43hGPZ2TP9mZ",
+  "description": "Distributed AI model compression & optimization engine",
+  "github": "https://github.com/taofu-labs/true-performance-network",
+  "url": "https://www.trueperformancenetwork.com/",
+  "discord": "https://discord.com/invite/GRVZyPYd6G",
+  "logo": "https://taofu-labs.github.io/truepn-branding/assets/img/logo-mark.png",
+  "registered_at": 4950813,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.002023373,
+    "moving_price": 0.002030265051871538,
+    "market_cap": 12167.541967607342,
+    "tao_in": 5451.106843644,
+    "alpha_in": 2694068.113865949,
+    "alpha_out": 3319426.169000996,
+    "volume": 307156.223449382,
+    "vol_24h": 408.90825207997113,
+    "emission": 0.0,
+    "change_1h": 0.18111466221719663,
+    "change_24h": -1.2666572652246022,
+    "change_7d": -9.180055613033822
+  },
+  "spark_24h": [
+    0.002049327,
+    0.002049318,
+    0.002049178,
+    0.002041896,
+    0.002053039,
+    0.002053039,
+    0.002052578,
+    0.002052577,
+    0.002052577,
+    0.002051118,
+    0.002023433,
+    0.002023426,
+    0.002023423,
+    0.002023423,
+    0.002023423,
+    0.002027134,
+    0.002027133,
+    0.002027131,
+    0.002027126,
+    0.002027123,
+    0.002027123,
+    0.002027123,
+    0.002027123,
+    0.002027122,
+    0.002034551,
+    0.002041998,
+    0.002041998,
+    0.002041954,
+    0.002041953,
+    0.002041953,
+    0.002041953,
+    0.002041952,
+    0.002041951,
+    0.00204195,
+    0.002041946,
+    0.002041946,
+    0.002019759,
+    0.002019752,
+    0.002019736,
+    0.002019735,
+    0.002019732,
+    0.002019732,
+    0.002019775,
+    0.002019715,
+    0.002019715,
+    0.002019715,
+    0.002019715,
+    0.002023373
+  ],
+  "trades_24h": {
+    "trades": 38,
+    "buys": 12,
+    "sells": 26,
+    "buy_tao": 187.073694195,
+    "sell_tao": 221.429188471,
+    "net_tao": -34.355494276,
+    "traders": 24
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5G1Td7xgaVV3qKTBngWCPhh9wvsxJYQkdmxpj8BggEV8PFK4",
+      "net_tao": 0.5256772989999945,
+      "gross_tao": 199.474322701,
+      "trades": 3
+    },
+    {
+      "coldkey": "5DkBE3KJsjds9PgxQTpz8bTUg5am3w6EsfAejGdRsu1Qd4g1",
+      "net_tao": -24.816649629,
+      "gross_tao": 34.816649629,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GniSMixvPvwKRRiwpMsQDdWZbETRwPd56DfQsf9aVKn8hPe",
+      "net_tao": 25.0,
+      "gross_tao": 25.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.03193102600000053,
+      "gross_tao": 24.029399826000002,
+      "trades": 2
+    },
+    {
+      "coldkey": "5ERjmMZZjkbtHmcGawrT3cBQnUJxW3s3cjXHaGUoDNUy1nRy",
+      "net_tao": 0.012068909999999988,
+      "gross_tao": 23.98793109,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789651497,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #8 from taofu-labs/testnet",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/ea73f1ecccb6bb804eb986e0e51acb7991ba81d2",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1789651418,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix follower loop",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/ff76ee8076ab0b54950bf5eec2d4d68228ba3302",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1789391146,
+      "kind": "commit",
+      "source": "github",
+      "title": "add pause option per competition",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/1433f8f4d633fab7a7de5a6a3e1454bb4304de7b",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1789384153,
+      "kind": "commit",
+      "source": "github",
+      "title": "Precheck command update and widen block range for model commit",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/cd0bd24268d9e8feb39187944e1ed0b9254fa405",
+      "publisher": "taofu-labs/true-performance-network"
+    },
+    {
+      "ts": 1788523076,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #7 from taofu-labs/docs/col",
+      "url": "https://github.com/taofu-labs/true-performance-network/commit/0d1429d8c2875f7c30bec17eb6cf72007fa4ec1c",
+      "publisher": "taofu-labs/true-performance-network"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

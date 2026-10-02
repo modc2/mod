@@ -1,0 +1,38 @@
+{
+  "name": "sn42",
+  "version": "1.0.0",
+  "description": "SN42 Unknown — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ס",
+  "chain": "bittensor",
+  "netuid": 42,
+  "subnet": "Unknown",
+  "symbol": "ס",
+  "owner": "5EC5HHfLqgmr8cdt2MAW5nJMG9n3jKF1QhZb1gYTgiJGNMo5",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=42",
+    "news": "/bt/news?netuid=42"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

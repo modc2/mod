@@ -406,15 +406,124 @@
     input, select, textarea { font-size: 16px; }   /* iOS zooms the page below 16px */
     .stats { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
   }
+
+  /* ── agents (protocol) ── the agents tab is the agent protocol's roster,
+     ranked. One status line, the a/b face-off, then one row per agent. */
+  .proto { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px 16px; }
+  .proto .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; }
+  .proto .dot.on { background: var(--good); box-shadow: 0 0 0 4px color-mix(in srgb, var(--good) 22%, transparent); }
+  .proto .dot.off { background: var(--bad); }
+  .proto b { letter-spacing: .04em; }
+  .proto code { font-size: 11.5px; color: var(--dim); }
+  .faceoff { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px;
+             align-items: stretch; margin: 12px 0; }
+  .corner { border: 1px solid var(--line); border-radius: 12px; background: var(--panel2);
+            padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .corner .who { display: flex; gap: 10px; align-items: center; min-width: 0; }
+  .corner .who b { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .corner .who small { display: block; color: var(--dim); font-size: 11.5px; overflow: hidden;
+                       text-overflow: ellipsis; white-space: nowrap; }
+  .corner .who > div { min-width: 0; }
+  .corner .elo { margin-left: auto; white-space: nowrap; font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .corner select { width: 100%; }
+  .faceoff .vs { align-self: center; font-weight: 900; font-size: 15px; letter-spacing: .1em; color: var(--accent);
+                 border: 1px solid var(--line); border-radius: 999px; padding: 8px 10px; background: var(--panel); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: var(--panel2); color: var(--dim); border-radius: 999px;
+          padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer; }
+  .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--ink);
+                               background: color-mix(in srgb, var(--accent) 14%, var(--panel2)); }
+  .chip:hover { border-color: var(--accent); }
+  .alist { display: grid; gap: 2px; }
+  .arow { display: grid; grid-template-columns: 34px 36px minmax(0, 1fr) 120px 74px 70px 64px;
+          gap: 12px; align-items: center; padding: 9px 10px; border-radius: 10px; cursor: pointer;
+          border: 1px solid transparent; }
+  .arow:hover, .arow:focus-visible { background: var(--panel2); border-color: var(--line); outline: none; }
+  .arow.head { cursor: default; color: var(--dim); font-size: 10.5px; text-transform: uppercase;
+               letter-spacing: .08em; padding-top: 0; padding-bottom: 4px; }
+  .arow.head:hover { background: none; border-color: transparent; }
+  .arow .rk { font-weight: 800; color: var(--dim); text-align: center; font-variant-numeric: tabular-nums; }
+  .arow .rk.top { color: var(--accent); }
+  .arow .nm { min-width: 0; }
+  .arow .nm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .arow .nm small { display: block; color: var(--dim); font-size: 11.5px; overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+  .arow .n { text-align: right; font-variant-numeric: tabular-nums; }
+  .arow .elo b { font-size: 15px; }
+  .arow .elo .bar { margin-top: 5px; }
+  .mtag { display: inline-block; font-size: 10.5px; border: 1px solid var(--line); border-radius: 6px;
+          padding: 0 5px; margin-left: 6px; color: var(--dim); vertical-align: 1px; }
+  .bench { display: flex; flex-wrap: wrap; gap: 6px; }
+  .bench button { display: inline-flex; gap: 7px; align-items: center; border: 1px solid var(--line);
+                  background: var(--panel2); color: var(--ink); border-radius: 999px; padding: 3px 11px 3px 3px;
+                  font: inherit; font-size: 12px; cursor: pointer; }
+  .bench button:hover { border-color: var(--accent); }
+  .bench button[disabled] { cursor: default; opacity: .55; }
+  .bench .mono2 { width: 22px; height: 22px; font-size: 9px; border-radius: 999px; }
+  .sub { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 16px 0 8px; }
+  details.fold > summary { cursor: pointer; list-style: none; display: flex; gap: 10px; align-items: center; }
+  details.fold > summary::-webkit-details-marker { display: none; }
+  details.fold > summary::before { content: "+"; color: var(--accent); font-weight: 800; width: 12px; }
+  details.fold[open] > summary::before { content: "−"; }
+  @media (max-width: 900px) {
+    .faceoff { grid-template-columns: 1fr; }
+    .faceoff .vs { justify-self: center; }
+    .arow { grid-template-columns: 26px 32px minmax(0, 1fr) 64px; }
+    .arow .wdl, .arow .ill, .arow .ms { display: none; }
+  }
+
+  /* ── lobby ── the front page: a match playing, the games, the agents, the feed.
+     Everything here is a read of /matches, /modules and /players; the only
+     write is "new match", which is POST /run like any other. */
+  .stage { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; }
+  .stage .board { font-size: 15px; line-height: 1.45; min-height: 230px; max-height: 360px;
+                  margin: 0; overflow: auto; white-space: pre; }
+  .stage .seatline { display: flex; gap: 10px; align-items: center; margin: 4px 0; }
+  .stage .seatline .who { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stage .seatline.on .who { color: var(--accent); }
+  .stage .mv { font-size: 22px; font-weight: 800; color: var(--accent); word-break: break-all; }
+  .stage .mv.illegal { color: var(--bad); text-decoration: line-through; }
+  .stage .verdict { font-size: 13px; padding: 8px 10px; border-radius: 9px; background: var(--panel2);
+                    border: 1px solid var(--line); margin-top: 10px; }
+  .scrub { width: 100%; accent-color: var(--accent); margin: 10px 0 4px; }
+  .lobby2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .tile { display: flex; gap: 9px; align-items: center; padding: 9px; border: 1px solid var(--line);
+          border-radius: 10px; background: var(--panel2); cursor: pointer; text-align: left;
+          font: inherit; color: var(--ink); min-width: 0; }
+  .tile:hover, .tile:focus-visible { border-color: var(--accent); outline: none; }
+  .tile b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile small { color: var(--dim); font-size: 11px; display: block; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+  .tile > div { min-width: 0; }
+  table.lb { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.lb td { padding: 6px 4px; border-top: 1px solid var(--line); }
+  table.lb tr { cursor: pointer; }
+  table.lb tr:hover td { background: var(--panel2); }
+  table.lb td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .feed { display: grid; gap: 6px; }
+  .feed button { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 9px;
+                 border: 1px solid var(--line); background: var(--panel2); color: var(--ink);
+                 font: inherit; font-size: 12.5px; cursor: pointer; text-align: left; }
+  .feed button:hover, .feed button[aria-current="true"] { border-color: var(--accent); }
+  .feed .vs { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed .w { color: var(--accent); font-weight: 700; }
+  .pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+           animation: pulse 1.2s infinite; margin-right: 6px; vertical-align: middle; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .stage > .card, .lobby2 > .card { min-width: 0; }
+  @media (max-width: 900px) { .stage, .lobby2 { grid-template-columns: 1fr; }
+    .stage .board { white-space: pre-wrap; font-size: 13.5px; min-height: 180px; } }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
 
 <header>
-  <button class="brand" id="brand" title="agents"><span class="mark"></span><b>ARENA</b></button>
+  <button class="brand" id="brand" title="the arena"><span class="mark"></span><b>ARENA</b></button>
   <nav class="tabs" id="tabs">
-    <button data-tab="agents" aria-selected="true">agents</button>
+    <button data-tab="lobby" aria-selected="true">arena</button>
+    <button data-tab="agents">agents</button>
     <button data-tab="games">games</button>
     <button data-tab="docs">docs</button>
   </nav>
@@ -620,26 +729,100 @@
     </details>
   </section>
 
+  <!-- ── lobby ── the front page. A match is always on the stage — the latest
+       one, replayed a turn at a time from its stored transcript — beside the
+       games and the agents, with the feed of every match underneath. -->
+  <section id="view-lobby">
+    <div class="stage">
+      <div class="card" style="margin:0">
+        <div class="row" style="margin-bottom:8px">
+          <h2 class="grow" style="margin:0" id="st-title">now playing</h2>
+          <span class="dim small" id="st-meta"></span>
+        </div>
+        <pre class="board" id="st-board">loading the latest match…</pre>
+        <input type="range" class="scrub" id="st-scrub" min="0" max="0" value="0" aria-label="turn">
+        <div class="row">
+          <button class="ghost sm" id="st-prev" title="previous turn">prev</button>
+          <button class="ghost sm" id="st-play" title="play / pause">pause</button>
+          <button class="ghost sm" id="st-next" title="next turn">next</button>
+          <span class="dim small grow" id="st-turn"></span>
+        </div>
+      </div>
+      <div class="card" style="margin:0;display:flex;flex-direction:column">
+        <h2 style="margin:0 0 8px">at the table</h2>
+        <div id="st-seats"></div>
+        <div class="small dim" style="margin-top:12px">last move</div>
+        <div class="mv" id="st-mv">—</div>
+        <div class="small dim" id="st-note"></div>
+        <div class="verdict" id="st-verdict" hidden></div>
+        <span class="grow" style="min-height:12px"></span>
+        <div class="row" style="margin-top:12px">
+          <select id="st-game" class="grow" title="which game the next match is"></select>
+          <button class="act" id="st-new">new match</button>
+        </div>
+        <p class="dim small" id="st-hint" style="margin:6px 0 0">two agents who have played it are drawn at random — rated like any other match</p>
+      </div>
+    </div>
+
+    <div class="lobby2" style="margin-top:14px">
+      <div class="card" style="margin:0">
+        <div class="row" style="margin-bottom:10px">
+          <h2 class="grow" style="margin:0">games</h2>
+          <button class="link small" id="lb-games-all">all games →</button>
+        </div>
+        <div class="tiles" id="lb-games"></div>
+      </div>
+      <div class="card" style="margin:0">
+        <div class="row" style="margin-bottom:6px">
+          <h2 class="grow" style="margin:0">agents</h2>
+          <button class="link small" id="lb-agents-all">all agents · a/b test →</button>
+        </div>
+        <table class="lb"><tbody id="lb-agents"></tbody></table>
+        <p class="dim small" id="lb-waiting" style="margin:8px 0 0"></p>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="margin-bottom:10px">
+        <h2 class="grow" style="margin:0">matches</h2>
+        <span class="dim small">newest first · click one to watch it</span>
+      </div>
+      <div class="feed" id="lb-feed"></div>
+    </div>
+  </section>
+
   <!-- ── agents ──────────────────────────────────────────────────────── -->
-  <section id="view-agents">
+  <section id="view-agents" hidden>
+    <!-- ── the agent protocol, live: where the roster comes from, how many of
+         it can sit here. Every agent below is a row of the agent module's
+         GET /agents, and every move one of them makes is a POST /run. -->
+    <div class="card proto">
+      <span class="dot" id="ap-dot"></span>
+      <div class="grow">
+        <b>AGENT PROTOCOL</b>
+        <span class="dim small" id="ap-line">reading the roster…</span>
+      </div>
+      <code id="ap-base"></code>
+      <button class="ghost sm" id="ap-sync" title="re-read the agent module's roster now (it also happens every five minutes)">sync</button>
+      <button class="ghost sm" id="ap-open" title="the agent module's own console — make or edit an agent there">agent console</button>
+    </div>
+
     <!-- ── a/b — the question the whole arena exists to answer, asked
          directly: which of these two agents is better? The same games for
          both, seats swapped every match, every match rated as usual — the
          report is the difference, counted. -->
     <div class="card" id="ab">
-      <div class="row" style="margin-bottom:2px">
-        <h2 class="grow" style="margin:0">a/b test</h2>
-        <span class="dim small">the same games for both · seats swapped · rated</span>
-      </div>
-      <p class="dim small" style="margin:8px 0 10px">pick two agents — the agent protocol roster is
-        first in each list — and the arena plays them head to head on the games you tick.</p>
       <div class="row">
-        <select id="ab-a" class="grow"></select>
-        <span class="dim" style="padding:0 2px">vs</span>
-        <select id="ab-b" class="grow"></select>
+        <h2 class="grow" style="margin:0">a/b test</h2>
+        <span class="dim small">same games for both · seats swapped · rated</span>
       </div>
-      <div class="row" id="ab-games" style="margin-top:10px"></div>
-      <div class="row" style="margin-top:10px">
+      <div class="faceoff">
+        <div class="corner"><div class="who" id="ab-wa"></div><select id="ab-a" aria-label="agent A"></select></div>
+        <div class="vs">VS</div>
+        <div class="corner"><div class="who" id="ab-wb"></div><select id="ab-b" aria-label="agent B"></select></div>
+      </div>
+      <div class="chips" id="ab-games"></div>
+      <div class="row" style="margin-top:12px">
         <label class="dim small">matches per game
           <input id="ab-count" type="number" min="1" max="20" value="2" style="width:64px"></label>
         <span class="dim small" id="ab-plan"></span>
@@ -655,18 +838,27 @@
       </details>
     </div>
 
-    <!-- The roster. Agents of the agent mod protocol lead — they are what
-         this arena is for assessing — and everything else entered follows. -->
-    <div class="row" style="margin:16px 0 10px">
-      <h2 class="grow" style="margin:0">agent protocol</h2>
-      <span class="dim small">agents of this fleet's agent module, seated over the mod protocol</span>
+    <!-- ── the board: the roster, ranked. Played agents are rows; the rest
+         wait on a bench; harness agents (a CLI on the host, gated to the
+         agent module's owner) are named but cannot be seated by the arena. -->
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 class="grow" style="margin:0">agents</h2>
+        <input id="ap-q" placeholder="filter" style="width:160px" aria-label="filter agents">
+      </div>
+      <div class="alist" id="agents-proto"></div>
+      <div id="ap-bench"></div>
+      <div id="ap-gated"></div>
     </div>
-    <div class="cards" id="agents-proto" style="margin-bottom:14px"></div>
-    <div class="row" style="margin:16px 0 10px">
-      <h2 class="grow" style="margin:0">everyone else</h2>
-      <span class="dim small">models, stored bots, fleet modules, endpoints</span>
-    </div>
-    <div class="cards" id="agents" style="margin-bottom:14px"></div>
+
+    <!-- Everything entered that is not an agent of the protocol — models,
+         stored bots, fleet modules, endpoints. Folded: they are opponents and
+         baselines here, not the subject. -->
+    <details class="card fold" id="others">
+      <summary><h2 class="grow" style="margin:0">other players</h2>
+        <span class="dim small" id="others-n"></span></summary>
+      <div class="cards" id="agents" style="margin-top:12px"></div>
+    </details>
 
     <!-- Connecting an agent is picking where it comes from. The front door is
          the agent mod protocol — an agent of this fleet, reached through the
@@ -892,12 +1084,13 @@ const playerModules = () => modules.filter((m) => m.role === "player");
 // The tabs are the same list twice: along the top on a desk, along the bottom
 // on a phone, where the top of a screen is the hardest place to reach.
 const TABS = [
+  ["lobby", "<path d='M4 20V9l8-5 8 5v11'/><path d='M9.5 20v-6h5v6'/>"],
   ["agents", "<circle cx='9' cy='8' r='3'/><path d='M3.5 19c.6-3 3-4.6 5.5-4.6S14 16 14.6 19'/><path d='M16 6.6a3 3 0 0 1 0 5.8M18 14.6c2 .7 3.2 2.2 3.6 4.4'/>"],
   ["games", "<path d='M3 7.5h18v9H3z'/><path d='M7 12h3M8.5 10.5v3'/><circle cx='16' cy='11.4' r='.9'/><circle cx='17.7' cy='13.5' r='.9'/>"],
   ["docs", "<path d='M5 4h9l5 5v11H5z'/><path d='M14 4v5h5'/><path d='M8.5 13h7M8.5 16.5h7'/>"],
 ];
 $("bottom").replaceChildren(...TABS.map(([name, paths]) => {
-  const b = el("button", { onclick: () => show(name) }, [icon(paths), el("span", { textContent: name })]);
+  const b = el("button", { onclick: () => show(name) }, [icon(paths), el("span", { textContent: name === "lobby" ? "arena" : name })]);
   b.dataset.tab = name;
   return b;
 }));
@@ -912,7 +1105,7 @@ function show(view) {
   window.scrollTo({ top: 0 });
 }
 $("tabs").querySelectorAll("button").forEach((b) => (b.onclick = () => show(b.dataset.tab)));
-$("brand").onclick = () => show("agents");
+$("brand").onclick = () => show("lobby");
 $("g-back").onclick = () => show("games");
 $("pl-back").onclick = () => show("agents");
 
@@ -1030,6 +1223,7 @@ async function refresh() {
   })));
   renderGames();
   renderPlayers();
+  renderLobby();
   renderOther();
   renderModulePicker();
   const info = await call("/info").catch(() => null);
@@ -1499,22 +1693,128 @@ async function refreshPlayersOnly() {
   renderModulePicker();
 }
 
-/** The players tab is cards, like the games tab: each says who the player is
- *  and how it plays — rating, record, and the faults that matter for a model.
- *  Agents of the agent mod protocol get the top of the page: they are what
- *  this arena is for assessing, so everyone else files in under them. */
+// ── agents (protocol) ────────────────────────────────────────────────────
+// The agents tab is the agent protocol's roster, ranked — GET /agents on the
+// arena is the agent module's GET /agents joined to the ratings, so nothing
+// here is a second list of agents that could drift from the real one.
+
+let protoBoard = null, protoAt = 0, protoLoading = null;
+
+function loadProtocol(force = false) {
+  if (protoLoading) return protoLoading;
+  if (!force && protoBoard && Date.now() - protoAt < 20000) return Promise.resolve(protoBoard);
+  protoLoading = call("/agents")
+    .catch((e) => ({ error: e.message, agents: [], retired: [] }))
+    .then((b) => {
+      protoBoard = b; protoAt = Date.now(); protoLoading = null;
+      drawProtocol(); renderAb();
+      return b;
+    });
+  return protoLoading;
+}
+
+/** Seated = has a player record here and can actually be run by the arena. */
+const protoSeated = () => (protoBoard?.agents || []).filter((a) => a.player && a.playable && a.arena);
+
+const fmtMs = (ms) => !ms ? "—" : ms >= 10000 ? `${Math.round(ms / 1000)}s` : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+
 function renderPlayers() {
-  const proto = players.filter((p) => p.kind === "agent_mod");
+  loadProtocol();
+  drawProtocol();
+  // Everyone who is not an agent of the protocol, folded under the board.
   const rest = players.filter((p) => p.kind !== "agent_mod");
-  $("agents-proto").replaceChildren(...(proto.length ? proto.map(playerCard) : [
-    el("p", { className: "dim", textContent:
-      "no protocol agents seated — connect one below, or start the agent module and they seat themselves" }),
-  ]));
+  $("others-n").textContent = `${rest.length} — models, stored bots, fleet modules, endpoints`;
   $("agents").replaceChildren(...(rest.length ? rest.map(playerCard) : [
     el("p", { className: "dim", textContent: "nobody else entered yet" }),
   ]));
   renderAb();
 }
+
+function drawProtocol() {
+  const b = protoBoard;
+  if (!b) return;
+  const all = b.agents || [];
+  const roster = all.filter((a) => !a.custom);
+  const seated = protoSeated();
+  const gated = roster.filter((a) => !a.playable);
+  const sitout = roster.filter((a) => a.playable && !a.arena);
+
+  $("ap-dot").className = `dot ${b.error ? "off" : "on"}`;
+  $("ap-line").title = b.error || "";
+  $("ap-line").textContent = b.error
+    ? "agent module unreachable — sync to retry"
+    : `${roster.length} agents on the roster · ${seated.length} seated here`
+      + (gated.length ? ` · ${gated.length} owner-only` : "");
+  const path = (b.base || "").replace(/^https?:\/\/[^/]+/, "");
+  $("ap-base").textContent = path ? `each move = POST ${path}/run` : "";
+
+  const q = ($("ap-q").value || "").toLowerCase().trim();
+  const hit = (a) => !q || `${a.id} ${a.name} ${a.model} ${a.description} ${a.agent}`.toLowerCase().includes(q);
+  const played = seated.filter((a) => a.player.matches > 0 && hit(a));
+  const bench = seated.filter((a) => !a.player.matches && hit(a));
+
+  const elos = played.map((a) => a.player.elo);
+  const lo = Math.min(...elos), hi = Math.max(...elos);
+  const head = el("div", { className: "arow head" }, ["#", "", "agent", "elo", "w/d/l", "illegal", "per move"]
+    .map((t, i) => el("span", { className: i >= 3 ? `n ${["", "", "", "elo", "wdl", "ill", "ms"][i]}` : "", textContent: t })));
+  $("agents-proto").replaceChildren(...(played.length
+    ? [head, ...played.map((a, i) => agentRow(a, i, hi > lo ? (a.player.elo - lo) / (hi - lo) : 1))]
+    : [el("p", { className: "dim small", textContent: b.error
+        ? "the board fills in once the agent module answers"
+        : q ? "no agent matches that filter" : "no agent has played yet — run an a/b above" })]));
+
+  const chips = (list, title, disabled) => list.length ? [
+    el("div", { className: "sub", textContent: title }),
+    el("div", { className: "bench" }, list.map((a) => {
+      const btn = el("button", { disabled, title: disabled
+        ? `${a.id} runs the ${a.harness} CLI on the host — the agent protocol only lets the module owner start one, so the arena cannot seat it`
+        : a.description || a.id }, [monogram(a.name || a.id), a.id]);
+      if (!disabled && a.player) btn.onclick = () => openPlayerPage(a.player.id);
+      else if (!disabled) btn.onclick = () => toast(`${a.id} set arena:false in the agent module — it sits out`);
+      return btn;
+    })),
+  ] : [];
+  $("ap-bench").replaceChildren(
+    ...chips(bench, `not played yet · ${bench.length}`, false),
+    ...chips(sitout.filter(hit), `sitting out (arena: false) · ${sitout.length}`, false));
+  $("ap-gated").replaceChildren(...chips(gated.filter(hit), `owner-only harness · ${gated.length}`, true));
+}
+
+/** One ranked agent: rank, who, rating, record, faults, speed. */
+function agentRow(a, i, frac) {
+  const p = a.player;
+  const row = el("div", { className: "arow", tabIndex: 0 }, [
+    el("span", { className: `rk${i < 3 ? " top" : ""}`, textContent: String(i + 1) }),
+    monogram(a.name || a.id),
+    el("div", { className: "nm" }, [
+      el("b", {}, [a.id, a.custom ? el("span", { className: "mtag", textContent: `${a.agent} + overrides` }) : ""]),
+      el("small", { textContent: [a.model || "default model", a.description].filter(Boolean).join(" · ") }),
+    ]),
+    el("div", { className: "n elo" }, [el("b", { textContent: String(p.elo) }), bar(frac)]),
+    el("span", { className: "n wdl", textContent: wdl(p) }),
+    el("span", { className: `n ill${p.illegal_rate > 0.1 ? " bad" : ""}`, textContent: pct(p.illegal_rate) }),
+    el("span", { className: `n ms${p.timeouts ? " bad" : " dim"}`,
+      title: p.timeouts ? `${p.timeouts} timeouts` : "", textContent: fmtMs(p.avg_move_ms) }),
+  ]);
+  const open = () => openPlayerPage(p.id);
+  row.onclick = open;
+  row.onkeydown = (e) => { if (e.key === "Enter") open(); };
+  return row;
+}
+
+$("ap-q").oninput = () => drawProtocol();
+$("ap-sync").onclick = async () => {
+  $("ap-sync").disabled = true;
+  try {
+    const r = await post("/agents/sync", {});
+    if (!r.ok) throw new Error(r.error || "sync failed");
+    toast(`${r.seated} seated · ${r.retired} retired`);
+    await refreshPlayersOnly();
+    await loadProtocol(true);
+  } catch (e) { toast(e.message, true); }
+  $("ap-sync").disabled = false;
+};
+$("ap-open").onclick = () => window.open("/agent/", "_blank", "noopener");
 
 /** One player as a card. */
 function playerCard(p) {
@@ -1568,35 +1868,46 @@ let abPoll = null;
 let abPicked = new Set();   // game ids ticked for the next run
 
 function renderAb() {
-  const proto = players.filter((p) => p.kind === "agent_mod");
-  const rest = players.filter((p) => p.kind !== "agent_mod");
-  const opts = () => {
-    const groups = [];
-    if (proto.length) groups.push(el("optgroup", { label: "agent protocol" },
-      proto.map((p) => el("option", { value: p.id, textContent: `${p.name} · ${p.elo} elo` }))));
-    if (rest.length) groups.push(el("optgroup", { label: "everyone else" },
-      rest.map((p) => el("option", { value: p.id, textContent: `${p.name} · ${p.kind} · ${p.elo} elo` }))));
-    return groups.length ? groups : [el("option", { value: "", textContent: "nobody entered yet" })];
-  };
+  // Strictly the protocol: both corners are agents of the agent module.
+  const pool = protoSeated().slice().sort((x, y) => (y.player.matches > 0) - (x.player.matches > 0)
+    || y.player.elo - x.player.elo || x.id.localeCompare(y.id));
+  const opts = () => pool.length
+    ? pool.map((a) => el("option", { value: a.player.id, textContent: `${a.id} · ${a.player.elo}` }))
+    : [el("option", { value: "", textContent: protoBoard ? "no protocol agent seated" : "reading the roster…" })];
   const sa = $("ab-a"), sb = $("ab-b");
   const [va, vb] = [sa.value, sb.value];
   sa.replaceChildren(...opts());
   sb.replaceChildren(...opts());
-  const pool = [...proto, ...rest];
-  sa.value = va && pool.some((p) => p.id === va) ? va : (pool[0]?.id ?? "");
-  sb.value = vb && pool.some((p) => p.id === vb) && vb !== sa.value
-    ? vb : (pool.find((p) => p.id !== sa.value)?.id ?? "");
+  const has = (id) => pool.some((a) => a.player.id === id);
+  sa.value = va && has(va) ? va : (pool[0]?.player.id ?? "");
+  sb.value = vb && has(vb) && vb !== sa.value ? vb : (pool.find((a) => a.player.id !== sa.value)?.player.id ?? "");
+  const corner = (id, box) => {
+    const a = pool.find((x) => x.player.id === id);
+    $(box).replaceChildren(...(a ? [
+      monogram(a.name || a.id),
+      el("div", {}, [el("b", { textContent: a.id }),
+                     el("small", { textContent: a.model || a.description || "default model" })]),
+      el("span", { className: "elo", textContent: String(a.player.elo) }),
+    ] : [el("span", { className: "dim small", textContent: "—" })]));
+  };
+  corner(sa.value, "ab-wa");
+  corner(sb.value, "ab-wb");
+  sa.onchange = sb.onchange = () => { corner(sa.value, "ab-wa"); corner(sb.value, "ab-wb"); };
 
-  // The fixtures, as chips to tick. The two most-played boards start ticked —
-  // a board that has seen matches is one whose numbers mean something.
+  // The fixtures, as chips. The two most-played boards start pressed — a
+  // board that has seen matches is one whose numbers mean something.
   const gs = [...games()].sort((x, y) => (y.runs || 0) - (x.runs || 0));
   if (!abPicked.size) gs.slice(0, 2).forEach((g) => abPicked.add(g.id));
   abPicked = new Set([...abPicked].filter((id) => gs.some((g) => g.id === id)));
   $("ab-games").replaceChildren(...(gs.length ? gs.map((g) => {
-    const box = el("input", { type: "checkbox", checked: abPicked.has(g.id) });
-    box.onchange = () => { box.checked ? abPicked.add(g.id) : abPicked.delete(g.id); abPlan(); };
-    return el("label", { className: "check", title: g.description || "" },
-      [box, ` ${g.name}`]);
+    const chip = el("button", { className: "chip", textContent: g.name, title: g.description || "" });
+    chip.setAttribute("aria-pressed", String(abPicked.has(g.id)));
+    chip.onclick = () => {
+      abPicked.has(g.id) ? abPicked.delete(g.id) : abPicked.add(g.id);
+      chip.setAttribute("aria-pressed", String(abPicked.has(g.id)));
+      abPlan();
+    };
+    return chip;
   }) : [el("span", { className: "dim small", textContent: "no games stored yet — add one first" })]));
   abPlan();
 }
@@ -2496,11 +2807,228 @@ function markdown(src) {
   return out.join("\n");
 }
 
+// ── lobby ────────────────────────────────────────────────────────────────
+// The front page. The stage replays a stored match a turn at a time from its
+// transcript (GET /matches/:id carries every view and move), so watching costs
+// nothing and works for a match played an hour ago. "new match" is POST /run:
+// two players drawn from the game's own board — they have played it, so they
+// speak its moves — rated like every other match. The feed is polled, and a
+// match that lands while the stage is idle is put on it.
+
+let feed = [];             // newest matches, as /matches lists them
+let stage = null;          // { match, i } — the match on the stage, the turn shown
+let stageTimer = null;
+let stagePaused = false;
+let stageBusy = false;     // a new match is being played on the server
+
+const winnerOf = (m) => {
+  const seats = m.seats || [];
+  if (seats.length < 2) return null;
+  const top = Math.max(...seats.map((x) => Number(x.score) || 0));
+  const at = seats.filter((x) => (Number(x.score) || 0) === top);
+  return at.length === 1 ? at[0] : null;
+};
+const ago = (t) => {
+  const d = Math.max(0, Date.now() / 1000 - (t || 0));
+  return d < 60 ? "just now" : d < 3600 ? `${Math.floor(d / 60)}m ago`
+       : d < 86400 ? `${Math.floor(d / 3600)}h ago` : `${Math.floor(d / 86400)}d ago`;
+};
+
+function renderLobby() {
+  // games: the played ones first, then the rest — a tile per game, its champion under its name
+  const gs = [...games()].sort((a, b) => (b.runs || 0) - (a.runs || 0) || a.name.localeCompare(b.name));
+  $("lb-games").replaceChildren(...(gs.length ? gs.map((g) => {
+    const champ = (boards.get(g.id) || [])[0];
+    const t = el("button", { className: "tile", title: g.description || g.name,
+      onclick: () => openGamePage(g.id) }, [
+      monogram(g.name),
+      el("div", {}, [
+        el("b", { textContent: g.name }),
+        el("small", { textContent: champ ? `${g.runs} played · ${champ.name} leads` : "not played yet" }),
+      ]),
+    ]);
+    return t;
+  }) : [el("p", { className: "dim", textContent: "no games yet — + add one" })]));
+
+  // the game picker for the next match: only games with two players on their board
+  const sel = $("st-game"), was = sel.value;
+  const playable = gs.filter((g) => (boards.get(g.id) || []).length >= 2);
+  sel.replaceChildren(el("option", { value: "", textContent: "any game" }),
+    ...playable.map((g) => el("option", { value: g.id, textContent: g.name })));
+  if (playable.some((g) => g.id === was)) sel.value = was;
+
+  // agents: one ranked table of everyone who has played; the rest are a count
+  const played = players.filter((p) => p.matches > 0).sort((a, b) => b.elo - a.elo);
+  const waiting = players.length - played.length;
+  $("lb-agents").replaceChildren(...(played.length ? played.slice(0, 12).map((p, i) => {
+    const tr = el("tr", { onclick: () => openPlayerPage(p.id), title: p.note || p.kind }, [
+      el("td", { style: "width:26px" }, rankEl(i)),
+      el("td", {}, [el("b", { textContent: p.name }), el("span", { className: "dim small", textContent: ` ${p.kind}` })]),
+      el("td", { className: "n" }, [el("b", { textContent: Math.round(p.elo) })]),
+      el("td", { className: "n dim", textContent: wdl(p) }),
+      el("td", { className: `n ${p.illegal_rate > 0.1 ? "bad" : "dim"}`, title: "illegal moves",
+                 textContent: pct(p.illegal_rate) }),
+    ]);
+    return tr;
+  }) : [empty("nobody has played yet", 5)]));
+  $("lb-waiting").textContent = (played.length > 12 ? `${played.length - 12} more ranked · ` : "")
+    + (waiting ? `${waiting} agents haven't played a match yet — open one to seat it` : "");
+}
+$("lb-games-all").onclick = () => show("games");
+$("lb-agents-all").onclick = () => show("agents");
+
+async function loadFeed() {
+  const r = await call("/matches?limit=24").catch(() => null);
+  if (!r) return;
+  const newest = r.matches[0]?.id;
+  const fresh = newest && feed[0] && newest !== feed[0].id;
+  feed = r.matches;
+  renderFeed();
+  // something new while nobody is steering the stage → put it on
+  if ((!stage || (fresh && !stagePaused && !stageBusy && stageDone())) && newest) await watch(newest);
+}
+
+function renderFeed() {
+  $("lb-feed").replaceChildren(...(feed.length ? feed.map((m) => {
+    const w = winnerOf(m);
+    const names = (m.seats || []).map((x) => el("span", { className: w && x === w ? "w" : "",
+      textContent: x.player_name }));
+    const vs = el("span", { className: "vs" }, [
+      el("b", { textContent: m.game_name }), "  ",
+      ...names.flatMap((n, i) => (i ? [" vs ", n] : [n])),
+    ]);
+    const b = el("button", { onclick: () => { stagePaused = false; watch(m.id); } }, [
+      vs,
+      el("span", { className: "dim", textContent: w ? `${w.player_name} wins` : (m.seats?.length > 1 ? "draw" : m.summary || "") }),
+      el("span", { className: "dim small", textContent: ago(m.created) }),
+    ]);
+    if (stage?.match.id === m.id) b.setAttribute("aria-current", "true");
+    return b;
+  }) : [el("p", { className: "dim", textContent: "no matches yet — press new match" })]));
+}
+
+const stageDone = () => !stage || stage.i >= (stage.match.turns?.length || 0);
+
+async function watch(id) {
+  const m = await call(`/matches/${encodeURIComponent(id)}`).catch((e) => { toast(e.message, true); return null; });
+  if (!m) return;
+  if (!Array.isArray(m.turns)) m.turns = [];
+  stage = { match: m, i: 0 };
+  $("st-scrub").max = String(m.turns.length);
+  drawStage();
+  renderFeed();
+  tickStage();
+}
+
+function tickStage() {
+  clearTimeout(stageTimer);
+  $("st-play").textContent = stageDone() ? "replay" : stagePaused ? "play" : "pause";
+  if (stagePaused || !stage || stageDone()) return;
+  stageTimer = setTimeout(() => { stage.i++; drawStage(); tickStage(); }, 1100);
+}
+
+function drawStage() {
+  if (!stage) return;
+  const { match: m, i } = stage, turns = m.turns, n = turns.length;
+  const shown = turns[Math.min(i, n - 1)];
+  const last = i > 0 ? turns[i - 1] : null;
+  const finished = i >= n;
+  $("st-title").textContent = m.game_name || "match";
+  $("st-meta").textContent = `${m.id} · ${ago(m.created)}${m.rated ? " · rated" : ""}`;
+  // The board is the view the player about to move was shown; at the end,
+  // the last view with the last move under it is the best picture the
+  // transcript has of where it finished.
+  const board = !n ? (m.summary || "no transcript stored for this match")
+    : finished ? `${shown.view || ""}\n\n→ ${shown.mv || ""}` : (shown.view || "");
+  $("st-board").textContent = board;
+  $("st-scrub").value = String(i);
+  $("st-turn").textContent = n ? (finished ? `finished · ${n} turns` : `turn ${i + 1} of ${n}`) : "";
+  const onSeat = finished ? -1 : shown?.seat;
+  $("st-seats").replaceChildren(...(m.seats || []).map((x) => {
+    const line = el("div", { className: `seatline${x.seat === onSeat ? " on" : ""}` }, [
+      monogram(x.player_name),
+      el("span", { className: "who", textContent: x.player_name }),
+      el("span", { className: "dim small", textContent: finished
+        ? `${x.score} pts${x.delta || x.elo_after ? ` · ${Math.round(x.elo_after)} elo` : ""}`
+        : `seat ${x.seat}` }),
+    ]);
+    line.onclick = () => openPlayerPage(x.player_id);
+    line.style.cursor = "pointer";
+    return line;
+  }));
+  if (last) {
+    $("st-mv").textContent = last.mv || "(no move)";
+    $("st-mv").className = `mv${last.legal === false ? " illegal" : ""}`;
+    const who = (m.seats || []).find((x) => x.seat === last.seat)?.player_name || `seat ${last.seat}`;
+    $("st-note").textContent = `${who}${last.legal === false ? " · illegal" : ""}${last.ms != null ? ` · ${last.ms} ms` : ""}`;
+  } else {
+    $("st-mv").textContent = "—"; $("st-mv").className = "mv"; $("st-note").textContent = "";
+  }
+  const v = $("st-verdict");
+  if (finished || !n) {
+    const w = winnerOf(m);
+    v.hidden = false;
+    v.replaceChildren(el("b", { textContent: w ? `${w.player_name} wins` : "draw" }),
+      el("span", { className: "dim", textContent: m.summary ? ` — ${m.summary}` : "" }));
+  } else v.hidden = true;
+}
+
+$("st-scrub").oninput = () => { if (!stage) return; stagePaused = true; stage.i = Number($("st-scrub").value); drawStage(); tickStage(); };
+$("st-prev").onclick = () => { if (!stage) return; stagePaused = true; stage.i = Math.max(0, stage.i - 1); drawStage(); tickStage(); };
+$("st-next").onclick = () => { if (!stage) return; stagePaused = true; stage.i = Math.min(stage.match.turns.length, stage.i + 1); drawStage(); tickStage(); };
+$("st-play").onclick = () => {
+  if (!stage) return;
+  if (stageDone()) { stage.i = 0; stagePaused = false; }   // at the end = from the top
+  else stagePaused = !stagePaused;
+  drawStage(); tickStage();
+};
+
+// A new match: a game (picked, or any with two on its board), two of the
+// players already on that board, POST /run. A model seat is slow, so the
+// stage says so and counts while it waits.
+$("st-new").onclick = async () => {
+  if (stageBusy) return;
+  const pool = games().filter((g) => (boards.get(g.id) || []).length >= 2);
+  const g = pool.find((x) => x.id === $("st-game").value) || pool[Math.floor(Math.random() * pool.length)];
+  if (!g) return toast("no game has two players on its board yet — play one from its page", true);
+  const board = [...(boards.get(g.id) || [])].filter((p) => players.some((q) => q.id === p.id));
+  const a = board.splice(Math.floor(Math.random() * board.length), 1)[0];
+  const b = board[Math.floor(Math.random() * board.length)];
+  if (!a || !b) return toast(`${g.name} needs two players still entered`, true);
+  stageBusy = true; stagePaused = false; clearTimeout(stageTimer);
+  const btn = $("st-new"), t0 = Date.now();
+  btn.disabled = true;
+  $("st-title").textContent = g.name;
+  $("st-meta").textContent = "";
+  $("st-verdict").hidden = true;
+  $("st-mv").textContent = "—"; $("st-note").textContent = "";
+  $("st-seats").replaceChildren(...[a, b].map((p, i) => el("div", { className: "seatline" },
+    [monogram(p.name), el("span", { className: "who", textContent: p.name }), el("span", { className: "dim small", textContent: `seat ${i}` })])));
+  const clock = setInterval(() => {
+    $("st-board").replaceChildren(el("span", { className: "pulse" }),
+      `${a.name} vs ${b.name} are playing ${g.name}… ${Math.round((Date.now() - t0) / 1000)}s`);
+  }, 250);
+  try {
+    const m = await post("/run", { game: g.id, players: [a.id, b.id] });
+    await loadFeed();
+    await watch(m.id);
+    refresh().catch(() => {});
+  } catch (e) {
+    toast(e.message, true);
+    $("st-board").textContent = `the match did not finish: ${e.message}`;
+  } finally {
+    clearInterval(clock); stageBusy = false; btn.disabled = false;
+  }
+};
+
+setInterval(() => { if (!document.hidden && !$("view-lobby").hidden) loadFeed(); }, 15000);
+
 // ── boot ─────────────────────────────────────────────────────────────────
 try {
   await refresh();
   loadFleet().catch(() => {});
   loadAbPast();
+  loadFeed();
   if (location.hash.startsWith("#docs/")) show("docs");
   else if (location.hash.startsWith("#game/"))
     await openGamePage(decodeURIComponent(location.hash.slice(6))).catch((e) => toast(e.message, true));

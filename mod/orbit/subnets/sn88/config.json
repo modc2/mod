@@ -1,0 +1,38 @@
+{
+  "name": "sn88",
+  "version": "1.0.0",
+  "description": "SN88 Investing — Decentralized AUM. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᛉ",
+  "chain": "bittensor",
+  "netuid": 88,
+  "subnet": "Investing",
+  "symbol": "ᛉ",
+  "owner": "5FhMsGJS7WYdwBzcgsTWxEtY7UCYLZdmBVLcNPmCxr3ppiKS",
+  "github": "https://github.com/mobiusfund/investing",
+  "url": "https://Investing88.ai",
+  "discord": null,
+  "logo": "https://Investing88.ai/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=88",
+    "news": "/bt/news?netuid=88"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

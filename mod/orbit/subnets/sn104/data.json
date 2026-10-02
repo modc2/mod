@@ -1,0 +1,165 @@
+{
+  "netuid": 104,
+  "name": "TAOstatus",
+  "symbol": "Բ",
+  "owner": "5HBb3F1bmDzdwQ5WTweXUvnKETTzu6aWNAH811vrLkvSdQAn",
+  "description": "Predictive Intelligence Layer for Bittensor",
+  "github": "https://github.com/taostatus/taostatus-subnet",
+  "url": "https://taostatus.com/",
+  "discord": "https://discord.gg/t8k9vm4KMG",
+  "logo": "https://x.com/taostatus_ai/photo",
+  "registered_at": 5528520,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.004143381,
+    "moving_price": 0.0041530143935233355,
+    "market_cap": 19353.403811385724,
+    "tao_in": 5910.321282131,
+    "alpha_in": 1426448.666434852,
+    "alpha_out": 3244471.968521413,
+    "volume": 76188.766811033,
+    "vol_24h": 10.39178308499686,
+    "emission": 0.0,
+    "change_1h": -0.00045856060241211694,
+    "change_24h": -0.3489270637094921,
+    "change_7d": -0.6987833304334279
+  },
+  "spark_24h": [
+    0.004157856,
+    0.004157802,
+    0.004157786,
+    0.004157742,
+    0.004157667,
+    0.004157667,
+    0.004157665,
+    0.004157656,
+    0.004157655,
+    0.004157491,
+    0.004157472,
+    0.004157418,
+    0.004157417,
+    0.004157416,
+    0.004157416,
+    0.004157411,
+    0.004157411,
+    0.004157398,
+    0.004157367,
+    0.004157362,
+    0.004157362,
+    0.00415736,
+    0.00415736,
+    0.004157359,
+    0.004157322,
+    0.004157322,
+    0.004157322,
+    0.004157278,
+    0.004157277,
+    0.004157275,
+    0.004157275,
+    0.004157275,
+    0.004157262,
+    0.004157261,
+    0.004157229,
+    0.004157228,
+    0.004157228,
+    0.004157191,
+    0.004157207,
+    0.004157204,
+    0.004144401,
+    0.004144401,
+    0.004144401,
+    0.004144401,
+    0.0041444,
+    0.0041444,
+    0.0041434,
+    0.004143381
+  ],
+  "trades_24h": {
+    "trades": 11,
+    "buys": 2,
+    "sells": 9,
+    "buy_tao": 0.026733542,
+    "sell_tao": 9.831100882,
+    "net_tao": -9.804367339999999,
+    "traders": 6
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GHd2gYThDz2DKPwTgthgJzZC7tdMGRxwzvQgK74jE1pvmAQ",
+      "net_tao": -3.207915085,
+      "gross_tao": 3.207915085,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DA8hMxFhjX9FX3tR6m1PmAnST3gKyNV7xyHZjYPnknsED4x",
+      "net_tao": -2.968062649,
+      "gross_tao": 2.968062649,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HT3QABWzvRkca6P2bEaQ2fttzsbX3boACpUmXbBMhaGedp3",
+      "net_tao": -2.926523401,
+      "gross_tao": 2.926523401,
+      "trades": 1
+    },
+    {
+      "coldkey": "5F9cMN1iHnXhdnEfbYgBTRYnBsNTZyCgreUpGcwYka8iZkvD",
+      "net_tao": -0.685819819,
+      "gross_tao": 0.739286903,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DrGQFDVXScy7gY3oq2UuVXUj8VBRg23RUZP4ent38JMtFdw",
+      "net_tao": -0.012237697,
+      "gross_tao": 0.012237697,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790869782,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #17 from taostatus/feat/backend-integration",
+      "url": "https://github.com/taostatus/taostatus-subnet/commit/330242d5aa061c145167797fd03e7d5a7d0a84e6",
+      "publisher": "taostatus/taostatus-subnet"
+    },
+    {
+      "ts": 1790866861,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: agent details to migrate on marketplace",
+      "url": "https://github.com/taostatus/taostatus-subnet/commit/c97ce8239b4a04c6d60c1c9d23f42425d4f96ecc",
+      "publisher": "taostatus/taostatus-subnet"
+    },
+    {
+      "ts": 1790787518,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #16 from taostatus/feat/mech",
+      "url": "https://github.com/taostatus/taostatus-subnet/commit/b2bd771c4f437dacca199aa3c8876f442c0cd155",
+      "publisher": "taostatus/taostatus-subnet"
+    },
+    {
+      "ts": 1790786359,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: split subnet into two mechanisms (mech 0 LLM-key, mech 1 securi…",
+      "url": "https://github.com/taostatus/taostatus-subnet/commit/4a740ff484fff676401a5538d5ae4f8a9be6555c",
+      "publisher": "taostatus/taostatus-subnet"
+    },
+    {
+      "ts": 1790765536,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #15 from taostatus/feat/security-validator",
+      "url": "https://github.com/taostatus/taostatus-subnet/commit/38b4d38e8f492a8b22afd0f349b7330645e22a4d",
+      "publisher": "taostatus/taostatus-subnet"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

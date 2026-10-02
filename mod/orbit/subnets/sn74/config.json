@@ -1,0 +1,38 @@
+{
+  "name": "sn74",
+  "version": "1.0.0",
+  "description": "SN74 Gittensor — autonomous software development. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ل",
+  "chain": "bittensor",
+  "netuid": 74,
+  "subnet": "Gittensor",
+  "symbol": "ل",
+  "owner": "5D1VXeeSdrfyrBdMe4SNwKnRsmzrjXES9dhx6kQkCHhJUPvS",
+  "github": "https://github.com/entrius/gittensor/tree/main",
+  "url": "https://gittensor.io",
+  "discord": " ",
+  "logo": "https://gittensor.s3.us-east-2.amazonaws.com/gt-logo-white.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=74",
+    "news": "/bt/news?netuid=74"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

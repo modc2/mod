@@ -469,6 +469,21 @@ class AgentVibeRequest(BaseModel):
     harness: Optional[str] = None
     key: Optional[str] = None
 
+class AgentScoutRequest(BaseModel):
+    """Go on the internet, come back with an agent — see /agents/scout."""
+    theme: Optional[str] = None      # omit it and a lens is picked at random
+    sources: Optional[List[str]] = None   # hn | github | arxiv | web (default all)
+    reads: int = 4                   # pages opened in full, 0-8
+    vibe: bool = True                # false = stop at the idea
+    name: Optional[str] = None
+    model: Optional[str] = None      # the scouting/drafting runs' model
+    provider: Optional[str] = None
+    free: bool = False
+    steps: int = 4
+    save: bool = False
+    harness: Optional[str] = None
+    key: Optional[str] = None
+
 class TaskSaveRequest(BaseModel):
     title: str
     prompt: str
@@ -1579,6 +1594,96 @@ def agent_vibe(req: AgentVibeRequest):
         return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
+
+def _scout_kwargs(req: AgentScoutRequest) -> dict:
+    return dict(key=req.key, theme=req.theme, sources=req.sources,
+                reads=req.reads, vibe=req.vibe, name=req.name, model=req.model,
+                provider=req.provider, free=req.free, steps=req.steps,
+                save=req.save, harness=req.harness)
+
+@app.post("/agents/scout")
+def agent_scout(req: AgentScoutRequest):
+    """Scout the internet for an agent idea and vibe it into an agent.
+
+    Searches Hacker News, new GitHub repos, arXiv and the web around a theme
+    (or a random lens), reads the best pages, has the idea-scout agent pitch
+    one agent the console lacks — citing the signals — and hands that pitch to
+    the vibe-builder. Returns the whole process. /agents/scout/stream is the
+    same run as live SSE events.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in to scout for an agent", "code": 401}
+    try:
+        return get_mod().forward('agent_scout', **_scout_kwargs(req))
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/agents/scout/stream")
+def agent_scout_stream(req: AgentScoutRequest):
+    """The scout run as SSE, one JSON event per `data:` line:
+
+        {"type": "phase", "phase": "lens|search|read|ideate|vibe", ...}
+        {"type": "source_start|source_done|source_error", "source": ...}
+        {"type": "signal", "signal": {n, source, title, url, snippet, meta}}
+        {"type": "read_start|read_done", "n", "url", "status", "preview"}
+        {"type": "token", "phase": "ideate", "text"}   — the pitch, live
+        {"type": "step", "phase": "ideate|vibe", "step": {...}}
+        {"type": "idea", "idea": {title, pitch, why_now, brief, inspired_by}}
+        {"type": "draft", "draft": {...}, "saved": bool}
+        {"type": "done", "run": {...}}  |  {"type": "error", "error": "..."}
+    """
+    events: "queue.Queue" = queue.Queue()
+    if not signed_in(req.key):
+        events.put({"type": "error", "error": "sign in to scout for an agent", "code": 401})
+        events.put(None)
+    else:
+        def worker():
+            try:
+                run = get_mod().forward('agent_scout', on_event=events.put,
+                                        **_scout_kwargs(req))
+                events.put({"type": "done", "run": {k: v for k, v in run.items()
+                                                    if k != 'log'}})
+            except PermissionError as e:
+                events.put({"type": "error", "error": str(e), "code": 403})
+            except Exception as e:
+                events.put({"type": "error", "error": str(e)})
+            finally:
+                events.put(None)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        while True:
+            try:
+                ev = events.get(timeout=15)
+            except queue.Empty:
+                yield ": ping\n\n"
+                continue
+            if ev is None:
+                break
+            yield f"data: {json.dumps(ev, default=str)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.get("/agents/scout/runs")
+def agent_scout_runs(key: Optional[str] = None, limit: int = 20):
+    """Your past scout runs, newest first (the host sees all)."""
+    try:
+        return get_mod().forward('agent_scout_runs', key=key, limit=limit)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+
+@app.get("/agents/scout/runs/{id}")
+def agent_scout_run(id: str, key: Optional[str] = None):
+    """One scout run whole: lens, signals, pages, every step, idea, draft."""
+    try:
+        return get_mod().forward('agent_scout_run', key=key, id=id)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e), "code": 404}
 
 @app.get("/agents/{name}")
 def get_agent(name: str):
@@ -2744,6 +2849,193 @@ def _start_arena():
         get_mod().arena_scheduler(True)
     except Exception as e:
         print(f"arena scheduler not started: {e}")
+
+
+# ── grow: a new tool + agent every interval (src/grow) ───────────────
+# Reading is open. Every change is the module owner's alone — the gate is
+# Mod.require_owner inside each grow_* method, not an ACL grant.
+
+class GrowConfigRequest(BaseModel):
+    enabled: Optional[bool] = None
+    interval: Optional[int] = None         # seconds between ticks (min 30)
+    engine: Optional[str] = None           # auto | local | model | scout
+    max_tools: Optional[int] = None
+    max_agents: Optional[int] = None
+    model_daily_cap: Optional[int] = None  # model runs per UTC day
+    free: Optional[bool] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    theme: Optional[str] = None
+    reset: Optional[List[str]] = None      # settings to put back to default
+    key: Optional[str] = None
+
+class GrowPruneRequest(BaseModel):
+    kind: str = "all"                      # tool | agent | all
+    count: Optional[int] = None            # oldest N; omit = every grown one
+    key: Optional[str] = None
+
+class KeyOnly(BaseModel):
+    key: Optional[str] = None
+
+def _grow_call(action: str, **kw):
+    # a keyless request would read as "the process itself" — i.e. the owner —
+    # inside forward(); over HTTP it is an anonymous stranger
+    if not signed_in(kw.get('key')):
+        return {"error": "sign in as the module owner to change the grower", "code": 401}
+    try:
+        return get_mod().forward(action, **kw)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except ValueError as e:
+        return {"error": str(e), "code": 400}
+
+@app.get("/grow")
+def grow_status():
+    """The grower: config, what it has grown, today's model use, last tick."""
+    return get_mod().forward('grow_status')
+
+@app.post("/grow/config")
+def grow_config(req: GrowConfigRequest):
+    """Owner only: change interval, engine, caps, model, theme, on/off."""
+    fields = {k: v for k, v in req.dict().items()
+              if v is not None and k not in ('key', 'reset')}
+    for k in req.reset or []:
+        fields[k] = None
+    return _grow_call('grow_config', key=req.key, **fields)
+
+@app.post("/grow/tick")
+def grow_tick(req: KeyOnly):
+    """Owner only: grow one tool + agent now (runs even while disabled)."""
+    return _grow_call('grow_tick', key=req.key)
+
+@app.post("/grow/prune")
+def grow_prune(req: GrowPruneRequest):
+    """Owner only: remove grown tools/agents, oldest first."""
+    return _grow_call('grow_prune', key=req.key, kind=req.kind, count=req.count)
+
+@app.on_event("startup")
+def _start_grow():
+    """The grow thread comes up with the API; whether a tick DOES anything is
+    the persisted `enabled` setting. GROW_SCHEDULER=0 keeps the thread down."""
+    # under pytest a TestClient boot must not start growing the real ~/.mod
+    if os.environ.get("GROW_SCHEDULER", "1") in ("0", "false", "no") \
+            or "pytest" in sys.modules:
+        return
+    try:
+        get_mod().grow_scheduler(True, _boot=True)
+    except Exception as e:
+        print(f"grow scheduler not started: {e}")
+
+
+# ── cron: run an agent every N minutes (src/cron) ────────────────────
+# Owner, or an address the owner granted 'cron' (POST /grant actions:["cron"]).
+# A grantee sees and manages its own jobs; strangers see counts + compute.
+
+class CronJobRequest(BaseModel):
+    id: Optional[str] = None               # update/rm/run: which job
+    agent: Optional[str] = None
+    prompt: Optional[str] = None           # what the agent is asked every run
+    every: Optional[int] = None            # minutes between runs (min 1)
+    enabled: Optional[bool] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    free: Optional[bool] = None
+    steps: Optional[int] = None
+    daily_cap: Optional[int] = None        # runs per UTC day (0 = no cap)
+    max_fails: Optional[int] = None        # pause after N failures in a row
+    label: Optional[str] = None
+    key: Optional[str] = None
+
+def _cron_call(action: str, **kw):
+    if not signed_in(kw.get('key')):
+        return {"error": "sign in to schedule agents", "code": 401}
+    try:
+        return get_mod().forward(action, **kw)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e).strip("'\""), "code": 404}
+    except ValueError as e:
+        return {"error": str(e), "code": 400}
+
+def _cron_fields(req: CronJobRequest) -> dict:
+    return {k: v for k, v in req.dict().items() if v is not None and k not in ('key', 'id')}
+
+@app.get("/cron")
+def cron_status(agent: Optional[str] = None, key: Optional[str] = None):
+    """Your scheduled agent runs (all of them, for the owner), the scheduler,
+    and the compute they run on. `agent=` narrows to one agent."""
+    # no key = a stranger (counts + compute), never "the process itself"
+    return get_mod().forward('cron_status', key=key if signed_in(key) else None,
+                             agent=agent)
+
+@app.get("/cron/job")
+def cron_job(id: str, key: Optional[str] = None):
+    return _cron_call('cron_job', key=key, id=id)
+
+@app.post("/cron/add")
+def cron_add(req: CronJobRequest):
+    """Owner or 'cron' grantee: run `agent` with `prompt` every `every` minutes."""
+    return _cron_call('cron_add', key=req.key, **_cron_fields(req))
+
+@app.post("/cron/update")
+def cron_update(req: CronJobRequest):
+    return _cron_call('cron_update', key=req.key, id=req.id or '', **_cron_fields(req))
+
+@app.post("/cron/rm")
+def cron_rm(req: CronJobRequest):
+    return _cron_call('cron_rm', key=req.key, id=req.id or '')
+
+@app.post("/cron/run")
+def cron_run_now(req: CronJobRequest):
+    """Run a job now (background); it lands in TASKS and on the job."""
+    return _cron_call('cron_run', key=req.key, id=req.id or '')
+
+@app.get("/compute")
+def compute_info(agent: Optional[str] = None):
+    """The compute an agent runs on: this host, and where its model runs."""
+    return get_mod().forward('compute_info', agent=agent)
+
+
+class _CronTasks:
+    """Puts scheduled runs into the TASKS registry, so the console's task
+    list shows them live like any other run."""
+
+    def start(self, job: dict) -> dict:
+        req = RunRequest(query=f"⏱ {job['prompt']}", agent=job['agent'],
+                         model=job.get('model'), provider=job.get('provider'),
+                         free=bool(job.get('free')), steps=int(job.get('steps') or 10))
+        t = _task_create(req, agent=job['agent'])
+        with TASKS_LOCK:
+            t["user"] = job.get('owner')
+            t["cron"] = job['id']
+        return t
+
+    def step(self, t: dict, st) -> None:
+        _task_step(t, st)
+
+    def finish(self, t: dict, status: str, summary: str, usage: dict) -> None:
+        with TASKS_LOCK:
+            if usage.get("priced"):
+                t["cost"] = round(usage.get("cost", 0.0), 8)
+            t["tokens"] = int(usage.get("prompt_tokens") or 0) + \
+                int(usage.get("completion_tokens") or 0)
+        _task_finish(t, status, summary)
+
+
+@app.on_event("startup")
+def _start_cron():
+    """The cron thread comes up with the API. CRON_SCHEDULER=0 keeps it down."""
+    if os.environ.get("CRON_SCHEDULER", "1") in ("0", "false", "no") \
+            or "pytest" in sys.modules:
+        return
+    try:
+        mod = get_mod()
+        mod._cron()
+        mod._cron_host.observer = _CronTasks()
+        mod.cron_scheduler(True, _boot=True)
+    except Exception as e:
+        print(f"cron scheduler not started: {e}")
 
 
 def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=None,

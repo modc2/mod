@@ -1,0 +1,165 @@
+{
+  "netuid": 41,
+  "name": "Almanac",
+  "symbol": "נ",
+  "owner": "5FCSevLkofmKZRixMawp6jyyjBty1AeSCLa7N5Fv892DYkXX",
+  "description": "Prediction market research and intelligence.",
+  "github": "https://github.com/corvxai/almanac",
+  "url": "https://almnc.ai",
+  "discord": null,
+  "logo": "https://cdn.discordapp.com/icons/1263242016695783427/19e62da4ff8eb5a7c36d1ef24b9d911e.webp?size=1024",
+  "registered_at": 3394182,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.007867111,
+    "moving_price": 0.007858858909457922,
+    "market_cap": 46174.901720343245,
+    "tao_in": 15821.915544969,
+    "alpha_in": 2011146.764816334,
+    "alpha_out": 3858212.612513317,
+    "volume": 1650293.272213852,
+    "vol_24h": 1395.1972983719315,
+    "emission": 0.0,
+    "change_1h": 0.4673382954584415,
+    "change_24h": 1.4905103777000939,
+    "change_7d": 23.631690565260865
+  },
+  "spark_24h": [
+    0.0078068,
+    0.007831618,
+    0.007801742,
+    0.007801888,
+    0.007810571,
+    0.007973606,
+    0.007976569,
+    0.007977229,
+    0.007987402,
+    0.007990572,
+    0.007946726,
+    0.007936903,
+    0.007936521,
+    0.007936689,
+    0.007911948,
+    0.007912115,
+    0.0079122,
+    0.007913586,
+    0.007911911,
+    0.00791007,
+    0.007902272,
+    0.007895891,
+    0.007896101,
+    0.007896306,
+    0.007888249,
+    0.007888451,
+    0.007887045,
+    0.007926875,
+    0.007932885,
+    0.007951179,
+    0.007981431,
+    0.007981192,
+    0.007894707,
+    0.007890694,
+    0.007890883,
+    0.007891151,
+    0.007900749,
+    0.007855212,
+    0.007856124,
+    0.007856531,
+    0.007856693,
+    0.007788643,
+    0.007754021,
+    0.007813317,
+    0.007814519,
+    0.007839155,
+    0.007853368,
+    0.007867111
+  ],
+  "trades_24h": {
+    "trades": 245,
+    "buys": 61,
+    "sells": 184,
+    "buy_tao": 715.533730367,
+    "sell_tao": 629.43902303,
+    "net_tao": 86.09470733699993,
+    "traders": 163
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FRu1T5Rr6LVw3nu2RmRhxRyYnvJJ9o98a1DNvnZAyGuNMKu",
+      "net_tao": 212.54,
+      "gross_tao": 212.54,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.02416644200000917,
+      "gross_tao": 188.051711636,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.32623783800000083,
+      "gross_tao": 120.326237838,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GJBgNJGEzbm85bDuqi6stK1uZXBrNp9T27wQPhDcRSdiGNT",
+      "net_tao": -69.838659322,
+      "gross_tao": 69.838659322,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GSKU7VbmEiUid22SfXojQkBcpXnVTXQQNCMsbz5b3xF9ZQ3",
+      "net_tao": -19.953815296000002,
+      "gross_tao": 65.903870838,
+      "trades": 5
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790794664,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #54 from corvxai/remove_gen_pool_logging",
+      "url": "https://github.com/corvxai/almanac/commit/31a4378cb4f9ba49c957f0790cfd16ba4cf284b4",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1790794646,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #53 from corvxai/burn_updates",
+      "url": "https://github.com/corvxai/almanac/commit/228278c8f4528b1565bd2b006126433defc9e609",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1790794500,
+      "kind": "commit",
+      "source": "github",
+      "title": "If general pool trading is disabled, don't print the tables in the logs",
+      "url": "https://github.com/corvxai/almanac/commit/523d459f5ece4038b3b7a930f9d722941ce5f23a",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1790792209,
+      "kind": "commit",
+      "source": "github",
+      "title": "Updates to handling excess miner emissions and burn",
+      "url": "https://github.com/corvxai/almanac/commit/281009a43dc4a9c72d6f2a8657b0c5fca9d6ead1",
+      "publisher": "corvxai/almanac"
+    },
+    {
+      "ts": 1790785089,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #52 from corvxai/hotfix/forecast_miner_check",
+      "url": "https://github.com/corvxai/almanac/commit/69ebadcff5cb17bd1fd8e443f145fe56b8d992ad",
+      "publisher": "corvxai/almanac"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

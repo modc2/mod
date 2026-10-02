@@ -1,0 +1,189 @@
+{
+  "netuid": 74,
+  "name": "Gittensor",
+  "symbol": "ل",
+  "owner": "5D1VXeeSdrfyrBdMe4SNwKnRsmzrjXES9dhx6kQkCHhJUPvS",
+  "description": "autonomous software development",
+  "github": "https://github.com/entrius/gittensor/tree/main",
+  "url": "https://gittensor.io",
+  "discord": " ",
+  "logo": "https://gittensor.s3.us-east-2.amazonaws.com/gt-logo-white.png",
+  "registered_at": 5086205,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.003391241,
+    "moving_price": 0.003305336693301797,
+    "market_cap": 17987.49788729447,
+    "tao_in": 6108.782905019,
+    "alpha_in": 1801341.118157394,
+    "alpha_out": 3502763.747080573,
+    "volume": 361577.164208506,
+    "vol_24h": 1745.787152363977,
+    "emission": 0.0,
+    "change_1h": 0.06860600852898191,
+    "change_24h": 5.364737726936752,
+    "change_7d": 4.234586456921385
+  },
+  "spark_24h": [
+    0.00321856,
+    0.003218539,
+    0.003218527,
+    0.003218509,
+    0.003218477,
+    0.003217936,
+    0.003217935,
+    0.003211251,
+    0.003210313,
+    0.003210254,
+    0.003210233,
+    0.003210213,
+    0.003210208,
+    0.003210207,
+    0.003210207,
+    0.003210205,
+    0.003355692,
+    0.003355688,
+    0.003356108,
+    0.003214117,
+    0.003214117,
+    0.003214116,
+    0.003214116,
+    0.003219509,
+    0.003219496,
+    0.003219496,
+    0.003219496,
+    0.003219388,
+    0.003219387,
+    0.003219249,
+    0.003230033,
+    0.003219237,
+    0.003219233,
+    0.003219232,
+    0.003292337,
+    0.003395818,
+    0.003395818,
+    0.003395802,
+    0.003391923,
+    0.003395005,
+    0.003392946,
+    0.003393637,
+    0.003389315,
+    0.003389143,
+    0.003388916,
+    0.003388916,
+    0.003388916,
+    0.003391241
+  ],
+  "trades_24h": {
+    "trades": 159,
+    "buys": 70,
+    "sells": 89,
+    "buy_tao": 951.907398924,
+    "sell_tao": 792.976557622,
+    "net_tao": 158.93084130199998,
+    "traders": 37
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CBDPcWDqHso5UctQ9SPrZEws93NHVgVGx7E1aNBgqMHxV5T",
+      "net_tao": 69.517522933,
+      "gross_tao": 570.482477067,
+      "trades": 41
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": -0.4152481359999993,
+      "gross_tao": 290.415248136,
+      "trades": 20
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": 59.854011087,
+      "gross_tao": 270.145988913,
+      "trades": 21
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": 49.855508814000004,
+      "gross_tao": 160.14449118599998,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": -19.627728181000002,
+      "gross_tao": 154.821285343,
+      "trades": 13
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790951941,
+      "kind": "commit",
+      "source": "github",
+      "title": "Remove compute (#1803)",
+      "url": "https://github.com/entrius/gittensor/commit/c0d9dc8ddd7e4a0f95b8028df4ca4f52e8d7f4ca",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1790951941,
+      "kind": "release",
+      "source": "github",
+      "title": "release-20261002-144641",
+      "url": "https://github.com/entrius/gittensor/releases/tag/release-20261002-144641",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1790815641,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(weights): slow sparkinfer's time decay to a 7-day midpoint with…",
+      "url": "https://github.com/entrius/gittensor/commit/ba87ddec7db7410df2fa94737e649ce029447859",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1790815641,
+      "kind": "release",
+      "source": "github",
+      "title": "release-20261001-004737",
+      "url": "https://github.com/entrius/gittensor/releases/tag/release-20261001-004737",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1790812462,
+      "kind": "commit",
+      "source": "github",
+      "title": "Raise spark-hermes emission share to 0.20 (#1802)",
+      "url": "https://github.com/entrius/gittensor/commit/5cdf813cdec7096d4b22df290630c8dc0cf050ae",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1790812462,
+      "kind": "release",
+      "source": "github",
+      "title": "release-20260930-235444",
+      "url": "https://github.com/entrius/gittensor/releases/tag/release-20260930-235444",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1790361071,
+      "kind": "commit",
+      "source": "github",
+      "title": "registry: bless qwen3.8-27b-nvfp4@8 (entrius/qwen3.8-27b-nvfp4:8@sha2…",
+      "url": "https://github.com/entrius/gittensor/commit/e850db5b29d1b034fd82c877ad01cd76e12cce5e",
+      "publisher": "entrius/gittensor"
+    },
+    {
+      "ts": 1790361071,
+      "kind": "release",
+      "source": "github",
+      "title": "release-20260925-183535",
+      "url": "https://github.com/entrius/gittensor/releases/tag/release-20260925-183535",
+      "publisher": "entrius/gittensor"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

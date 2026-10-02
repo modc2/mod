@@ -1,0 +1,191 @@
+{
+  "netuid": 51,
+  "name": "lium.io",
+  "symbol": "ת",
+  "owner": "5FqACMtcegZxxopgu1g7TgyrnyD8skurr9QDPLPhxNQzsThe",
+  "description": "revolutionizing the democratization of compute",
+  "github": "https://github.com/Datura-ai/lium-io",
+  "url": "lium.io",
+  "discord": "p383_54249",
+  "logo": "https://raw.githubusercontent.com/Datura-ai/lium-logos/refs/heads/main/Celium_Icon_FullColor.png",
+  "registered_at": 3966206,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [
+    "lium"
+  ],
+  "market": {
+    "price": 0.09360559,
+    "moving_price": 0.09372510481625795,
+    "market_cap": 564980.4571607828,
+    "tao_in": 163876.272479607,
+    "alpha_in": 1750710.359151466,
+    "alpha_out": 4285045.167423205,
+    "volume": 2201157.291356447,
+    "vol_24h": 3713.3041859213263,
+    "emission": 0.0,
+    "change_1h": 0.09608864527734795,
+    "change_24h": -0.29386840288134763,
+    "change_7d": 6.0528484394196
+  },
+  "spark_24h": [
+    0.093880975,
+    0.093873679,
+    0.093880799,
+    0.0938841,
+    0.094004847,
+    0.094341866,
+    0.094335345,
+    0.094345913,
+    0.093954132,
+    0.093414343,
+    0.093457515,
+    0.093542271,
+    0.093546575,
+    0.093557421,
+    0.093538723,
+    0.093543037,
+    0.093553132,
+    0.093560861,
+    0.093572369,
+    0.093577615,
+    0.093579826,
+    0.093578105,
+    0.093497226,
+    0.093565427,
+    0.093583351,
+    0.093359465,
+    0.093370349,
+    0.093378726,
+    0.093365382,
+    0.093319645,
+    0.093329806,
+    0.09335893,
+    0.093373141,
+    0.093355088,
+    0.093351562,
+    0.093373966,
+    0.093397153,
+    0.093406148,
+    0.09342026,
+    0.093429068,
+    0.093439894,
+    0.093492004,
+    0.093523016,
+    0.093528978,
+    0.093524714,
+    0.093500356,
+    0.093517312,
+    0.09360559
+  ],
+  "trades_24h": {
+    "trades": 460,
+    "buys": 219,
+    "sells": 241,
+    "buy_tao": 1372.272670583,
+    "sell_tao": 1962.1361596,
+    "net_tao": -589.8634890169999,
+    "traders": 233
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.5992270800000057,
+      "gross_tao": 399.40077292,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": -0.07176216399999191,
+      "gross_tao": 300.071762164,
+      "trades": 4
+    },
+    {
+      "coldkey": "5C7NvbmpfR3956shdAdV1ASbsbezANiA7sB4H5PBtUyMjUiz",
+      "net_tao": 50.424188599,
+      "gross_tao": 249.575811401,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": -0.04638814400000513,
+      "gross_tao": 200.046388144,
+      "trades": 4
+    },
+    {
+      "coldkey": "5G1Td7xgaVV3qKTBngWCPhh9wvsxJYQkdmxpj8BggEV8PFK4",
+      "net_tao": 0.10688807000000367,
+      "gross_tao": 199.89311193,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790952383,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-3980 - validator: check a present Docker Hub image's tag from the…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/5ace8c148ccc47a796622c92670354aa3894d843",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1790939004,
+      "kind": "release",
+      "source": "github",
+      "title": "validator-v2026.10.02.2",
+      "url": "https://github.com/Datura-ai/lium-io/releases/tag/validator-v2026.10.02.2",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1790937160,
+      "kind": "commit",
+      "source": "github",
+      "title": "DAH-3964 - [P1] validator: rented node inactive on host-confirmed GPU…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/eec20430b7a15255704773e213a61c2f7adf4b6a",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1790930891,
+      "kind": "release",
+      "source": "github",
+      "title": "validator-v2026.10.02",
+      "url": "https://github.com/Datura-ai/lium-io/releases/tag/validator-v2026.10.02",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1790929554,
+      "kind": "commit",
+      "source": "github",
+      "title": "NO-TICKET - [P1] validator: a shell lost mid-check sends its reason c…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/010bd5f86d0b0310b883d965f02340068687574a",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1790925301,
+      "kind": "commit",
+      "source": "github",
+      "title": "NO-TICKET - [P1] validator: report a rented node that lost a GPU on t…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/58f36cea3516d13cff5f45429d58493446a8c28f",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1790858187,
+      "kind": "commit",
+      "source": "github",
+      "title": "NO-TICKET - [P2] validator: remove INSPECTOR_ENFORCE_ENABLED, finding…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/a425a36af8a7ce975c4f70f863037c6e50de06e3",
+      "publisher": "Datura-ai/lium-io"
+    },
+    {
+      "ts": 1790848416,
+      "kind": "commit",
+      "source": "github",
+      "title": "validator: library fetch default tracks main, like the verifyx defaul…",
+      "url": "https://github.com/Datura-ai/lium-io/commit/ad5f633b4a32ac1a1c3c0753c77b97698f779fcc",
+      "publisher": "Datura-ai/lium-io"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

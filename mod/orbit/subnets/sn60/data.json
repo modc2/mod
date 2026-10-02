@@ -1,0 +1,165 @@
+{
+  "netuid": 60,
+  "name": "Bitsec.ai",
+  "symbol": "ذ",
+  "owner": "5CXLwkK1Scd1uiMUrXYjJUTTPxqqyH2FTJQNLp9uXQhA9rhR",
+  "description": "find and fix exploits in codebases",
+  "github": "https://github.com/Bitsec-AI/sandbox",
+  "url": "https://bitsec.ai",
+  "discord": "yubo",
+  "logo": null,
+  "registered_at": 4796992,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.003996296,
+    "moving_price": 0.004043852677568793,
+    "market_cap": 23143.176343232593,
+    "tao_in": 6971.23574896,
+    "alpha_in": 1744424.050053599,
+    "alpha_out": 4046732.646855887,
+    "volume": 977566.447073956,
+    "vol_24h": 1119.6417377750622,
+    "emission": 0.0,
+    "change_1h": -0.9526528769066123,
+    "change_24h": -1.1316079322400863,
+    "change_7d": -0.04577144392148291
+  },
+  "spark_24h": [
+    0.004017552,
+    0.004011921,
+    0.004011159,
+    0.004034608,
+    0.004034569,
+    0.004034569,
+    0.004035486,
+    0.00404292,
+    0.004042095,
+    0.004050261,
+    0.004050236,
+    0.004020029,
+    0.004020026,
+    0.004017633,
+    0.004028096,
+    0.004056908,
+    0.004056904,
+    0.004056903,
+    0.004056433,
+    0.004056421,
+    0.004064545,
+    0.004133287,
+    0.004071427,
+    0.00407063,
+    0.004105385,
+    0.004098861,
+    0.004098861,
+    0.004045531,
+    0.00403427,
+    0.004034269,
+    0.004057296,
+    0.004057296,
+    0.004060177,
+    0.004060177,
+    0.004056593,
+    0.003998116,
+    0.004032183,
+    0.004027562,
+    0.004027544,
+    0.004027542,
+    0.004027532,
+    0.004020899,
+    0.004005779,
+    0.004017066,
+    0.004017445,
+    0.004051988,
+    0.004034733,
+    0.003996296
+  ],
+  "trades_24h": {
+    "trades": 112,
+    "buys": 54,
+    "sells": 58,
+    "buy_tao": 540.063449015,
+    "sell_tao": 548.472623099,
+    "net_tao": -8.409174084000028,
+    "traders": 53
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": -10.262491457000001,
+      "gross_tao": 150.262491457,
+      "trades": 8
+    },
+    {
+      "coldkey": "5FFFZZhWw9y9NQYn26kwAvjHiLrneoNVF1DZCiXqjV9jffff",
+      "net_tao": 0.43402580899999776,
+      "gross_tao": 137.669129283,
+      "trades": 4
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.15691440199999995,
+      "gross_tao": 127.79792606400001,
+      "trades": 10
+    },
+    {
+      "coldkey": "5CBAS9Vj87CTB46gXT7buv4BymG2s1igKrYnyMoyGcbvAxjk",
+      "net_tao": -24.570154604,
+      "gross_tao": 84.570154604,
+      "trades": 4
+    },
+    {
+      "coldkey": "5HSowpA5x4QM83tU16MaALcdVQ5X7ucxXHKh96LJUcdAAgGR",
+      "net_tao": -15.147608557999998,
+      "gross_tao": 65.147608558,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790651319,
+      "kind": "commit",
+      "source": "github",
+      "title": "[skip ci] increment to build 61",
+      "url": "https://github.com/Bitsec-AI/sandbox/commit/3f84cb35d50c112ada0dec22f38b77e36a117790",
+      "publisher": "Bitsec-AI/sandbox"
+    },
+    {
+      "ts": 1790651302,
+      "kind": "commit",
+      "source": "github",
+      "title": "activate sentios",
+      "url": "https://github.com/Bitsec-AI/sandbox/commit/cf9acf215a7535109879f84b8b1d72377ef49b12",
+      "publisher": "Bitsec-AI/sandbox"
+    },
+    {
+      "ts": 1790091481,
+      "kind": "commit",
+      "source": "github",
+      "title": "[skip ci] increment to build 60",
+      "url": "https://github.com/Bitsec-AI/sandbox/commit/529516b7f03ca70b6377c23eb371e74217224346",
+      "publisher": "Bitsec-AI/sandbox"
+    },
+    {
+      "ts": 1790091470,
+      "kind": "commit",
+      "source": "github",
+      "title": "added endpoint for fetching answers to hidden projects",
+      "url": "https://github.com/Bitsec-AI/sandbox/commit/2c87079d1ad8651b4511c54b60053a5cbd0a0ec8",
+      "publisher": "Bitsec-AI/sandbox"
+    },
+    {
+      "ts": 1789659986,
+      "kind": "commit",
+      "source": "github",
+      "title": "[skip ci] increment to build 59",
+      "url": "https://github.com/Bitsec-AI/sandbox/commit/80d0293278e0606bc2f74c87be6f082600a97e0c",
+      "publisher": "Bitsec-AI/sandbox"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

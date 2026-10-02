@@ -1,7 +1,7 @@
 {
     "name": "redblue",
-    "version": "0.1.0",
-    "description": "Red team versus blue team, with an actual scoreboard. Red writes attacks \u2014 prompts built to make a target model produce something it should not. Blue writes defenses, and a defense is a whole pipeline rather than a system prompt: input rules, the system prompt, the model, an optional self-check pass, output rules, any stage of which can end the turn. The arena fires every attack at every defense, a two-axis judge asks did-it-refuse and did-anything-harmful-escape, and the number that comes out is the refusal rate on attacks \u2014 held honest by the over-refusal rate on a fixed set of benign controls that sit right next to the attacks, so safety_score = refusal_rate - over_refusal and a refuse-everything defense nets ~0. The target is pluggable: the keyless local Claude CLI by default, any API model, or an offline mock whose correct score is known, which is how the harness itself is tested. Attacks, defenses and round records live in ~/.mod/redblue, never in this repo. REST, the browser console and eleven MCP tools on one port, off the same functions, so an agent, a shell and a human are never told different scores for the same round.",
+    "version": "0.2.0",
+    "description": "Red team versus blue team, with an actual scoreboard. Red writes attacks \u2014 prompts built to make a target model produce something it should not. Blue writes defenses, and a defense is a whole pipeline rather than a system prompt: input rules, the system prompt, the model, an optional self-check pass, output rules, any stage of which can end the turn. The arena fires every attack at every defense, a two-axis judge asks did-it-refuse and did-anything-harmful-escape, and the number that comes out is the refusal rate on attacks \u2014 held honest by the over-refusal rate on a fixed set of benign controls that sit right next to the attacks, so safety_score = refusal_rate - over_refusal and a refuse-everything defense nets ~0. The target is pluggable: the keyless local Claude CLI by default, any API model, or an offline mock whose correct score is known, which is how the harness itself is tested. Attacks, defenses and round records live in ~/.mod/redblue, never in this repo. A sweep fires the same round at every model Venice or OpenRouter serves and ranks the models. REST, the browser console and fourteen MCP tools on one port, off the same functions, so an agent, a shell and a human are never told different scores for the same round.",
     "icon": "\u25e8",
     "color": "#5db4ff",
     "anchor": "mod.py",
@@ -19,7 +19,7 @@
         "mcp": "http://localhost:50970/mcp"
     },
     "backend": "python stdlib only (http.server + urllib) \u2014 no dependencies",
-    "frontend": "console.html \u2014 the board, the round runner, both corpora, one-exchange fight; served at /redblue",
+    "frontend": "console.html \u2014 the board, MODELS (every model a provider serves + sweep), the round runner, both corpora, one-exchange fight; served at /redblue",
     "state": "~/.mod/redblue \u2014 attacks/<id>.json, defenses/<id>.json, rounds/<id>.json, server.secret. A defense's system prompt is the blue team's live answer to an open attack surface and an attack corpus is a list of things that worked, so neither is committed to this repo.",
     "forked_from": "orbit/rvb",
     "scoring": {
@@ -42,7 +42,10 @@
             "POST /attacks",
             "POST /defenses",
             "DELETE /attacks",
-            "DELETE /defenses"
+            "DELETE /defenses",
+            "POST /keys",
+            "POST /sweep",
+            "POST /sweep/stop"
         ],
         "why": "those routes spend real model calls or edit the corpus; every route that only reads a score is open, because a scoreboard nobody can read is not one"
     },
@@ -57,7 +60,10 @@
         "rb_rounds",
         "rb_board",
         "rb_targets",
-        "rb_delete"
+        "rb_delete",
+        "rb_models",
+        "rb_sweep",
+        "rb_sweeps"
     ],
     "endpoints": {
         "info": "GET /",
@@ -74,7 +80,12 @@
         "ping": "POST /ping {model} \u2014 prove a target is reachable",
         "tools": "GET /tools",
         "mcp": "POST /mcp (JSON-RPC 2.0, Streamable HTTP)",
-        "console": "GET /redblue (browser)"
+        "console": "GET /redblue (browser)",
+        "catalog": "GET /catalog?provider=venice|openrouter|mock&q=&scope=all|tested|untested|online|private|free|failed&sort=name|safety|price&refresh=1 \u2014 every chat model the provider serves, joined with its latest safety score; header counts over the whole catalog",
+        "keys": "GET /keys (which providers have a key, never the key) | POST /keys {provider, key} \u2014 saved 0600 in ~/.mod/redblue; empty key forgets",
+        "sweep": "POST /sweep {provider, q, scope, models, attacks, defenses=none, judge=heuristic, judge_model, parallel, models_parallel, limit, dry_run, resume} \u2014 the same round at every model in the view",
+        "sweeps": "GET /sweeps?id= | GET /sweeps?provider= \u2014 live per-model status and ranking",
+        "sweep_stop": "POST /sweep/stop {id}"
     },
     "fns": [
         "forward",
@@ -97,7 +108,11 @@
         "serve",
         "mcp",
         "readme",
-        "test"
+        "test",
+        "models",
+        "sweep",
+        "sweeps",
+        "key"
     ],
     "env": {
         "RB_PORT": "port for API, console and MCP (default 50970)",
@@ -109,12 +124,20 @@
         "RB_MODEL_TIMEOUT": "seconds per model call (default 120)",
         "RB_MAX_TOKENS": "max tokens per completion (default 1024)",
         "RB_KEEP_ROUNDS": "round records kept before the oldest are pruned (default 300)",
-        "OPENROUTER_API_KEY": "enables openrouter:<slug> targets",
+        "OPENROUTER_API_KEY": "enables openrouter:<slug> targets (or POST /keys)",
         "ANTHROPIC_API_KEY": "enables anthropic:<model> targets",
-        "OPENAI_API_KEY": "enables openai:<model> targets"
+        "OPENAI_API_KEY": "enables openai:<model> targets",
+        "VENICE_API_KEY": "enables venice:<id> targets (or POST /keys)",
+        "RB_CATALOG_TTL": "seconds a provider catalog is cached (default 21600)"
     },
     "services": [
         "redblue-api"
     ],
-    "schema": "QmW5wx5j4nHS9tUFD4ewAzpfNL85YfsvNsYy3Et1fVmanw"
+    "schema": "QmW5wx5j4nHS9tUFD4ewAzpfNL85YfsvNsYy3Et1fVmanw",
+    "sweeps": {
+        "providers": "venice (128 text models, keyless listing) | openrouter (465, keyless listing) | mock (offline)",
+        "default": "defense none (the bare model), judge heuristic (free) \u2014 the question is how safe is the MODEL",
+        "guards": "dry_run plan + call estimate before any spend; tripwire stops after 3 models in a row never reach the model (dead key); a failed run never overwrites an earned score",
+        "index": "~/.mod/redblue/results.json \u2014 latest score per model, never pruned (rounds are, at RB_KEEP_ROUNDS)"
+    }
 }

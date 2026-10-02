@@ -1,0 +1,38 @@
+{
+  "name": "sn20",
+  "version": "1.0.0",
+  "description": "SN20 Witness — Decentralized models to understand video. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "υ",
+  "chain": "bittensor",
+  "netuid": 20,
+  "subnet": "Witness",
+  "symbol": "υ",
+  "owner": "5CFVA7aPkGRYhYThumb9UQkPPZv7kzm2ieREHVjxecaYqi3u",
+  "github": "https://github.com/witnessvision/witness_subnet/",
+  "url": "https://witnessvision.io/",
+  "discord": "https://discord.gg/P2Y93BRYyC",
+  "logo": "https://raw.githubusercontent.com/witnessvision/witness_subnet/main/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=20",
+    "news": "/bt/news?netuid=20"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

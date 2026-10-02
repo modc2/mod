@@ -67,6 +67,14 @@ def info():
             'POST /keys': '{provider, key, persist}',
             'POST /raw': "{provider, path, method, body} — a provider's own API",
             'GET /tools': 'the MCP tool registry',
+            'GET /oracle': 'the GPU price prediction game — indexes, sparklines, '
+                           'leaderboard (horizon=&series=)',
+            'GET /oracle/series': 'series=gpu:h100&days=7 — history + every call on it',
+            'GET /oracle/board': 'series=&horizon=1h|6h|24h|7d&days=',
+            'GET /oracle/calls': 'player=&series=&state=open|scored|void',
+            'POST /oracle/join': '{player} — mints the player key, returned once',
+            'POST /oracle/predict': '{player, key, series, horizon, value, note}',
+            'POST /oracle/tick': 'owner — read the markets now and score what is due',
             'POST /mcp': 'MCP JSON-RPC 2.0',
             f'GET {BASE}': 'browser console',
         },
@@ -125,6 +133,8 @@ def route(method, path, query, body, keys, owner=False):
 
     if path.startswith('/node'):
         return node_route(method, path, q, b, keys, arg, flag)
+    if path.startswith('/oracle'):
+        return oracle_route(method, path, arg, flag)
     if path in ('', '/'):
         return info()
     if path == '/identity':
@@ -254,6 +264,34 @@ def node_route(method, path, q, b, keys, arg, flag):
     raise ProviderError(f'no route {method} {path} — GET / lists them', status=404)
 
 
+def oracle_route(method, path, arg, flag):
+    """The price prediction game. Reads and plays are open — a call spends
+    nothing and is signed by the player's own key; forcing a tick is owner-only
+    and guarded in `route` like every other path outside auth.OPEN."""
+    import oracle
+    if path == '/oracle':
+        return oracle.state(horizon=arg('horizon'), series=arg('series'))
+    if path == '/oracle/series':
+        return oracle.detail(_need(arg('series') or arg('s'), 'series'),
+                             days=arg('days') or 7)
+    if path == '/oracle/board':
+        return oracle.leaderboard(series=arg('series'), horizon=arg('horizon'),
+                                  days=arg('days'))
+    if path == '/oracle/calls':
+        return oracle.calls(player=arg('player'), series=arg('series'),
+                            state=arg('state'), limit=arg('limit') or 50)
+    if path == '/oracle/join' and method == 'POST':
+        return oracle.join(_need(arg('player') or arg('name'), 'player'))
+    if path == '/oracle/predict' and method == 'POST':
+        return oracle.predict(_need(arg('player'), 'player'), arg('key'),
+                              _need(arg('series'), 'series'),
+                              _need(arg('horizon'), 'horizon'),
+                              _need(arg('value'), 'value'), note=arg('note'))
+    if path == '/oracle/tick' and method == 'POST':
+        return oracle.tick(force=flag('force', True))
+    raise ProviderError(f'no route {method} {path} — GET /oracle', status=404)
+
+
 def _need(v, name):
     if v in (None, ''):
         raise ProviderError(f'{name} is required')
@@ -350,6 +388,8 @@ def serve(port=PORT, base=BASE):
         def log_message(self, *a):
             pass
 
+    import oracle
+    oracle.start()
     print(f'compute on :{port} — api /, console {base}, mcp POST /mcp, '
           f'{len(REGISTRY)} providers, {len(mcp.TOOLS)} tools', flush=True)
     ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()

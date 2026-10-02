@@ -1,0 +1,189 @@
+{
+  "netuid": 25,
+  "name": "UR",
+  "symbol": "א",
+  "owner": "5HTeZ5168DjjGWZgbvzGfysEAj9fnexF24gYFKJHENU5cc8a",
+  "description": "The peer to peer privacy network and encryption layer for the internet",
+  "github": "https://github.com/urfoundation/sn",
+  "url": "https://ur.xyz/",
+  "discord": "xcolwell",
+  "logo": "https://ur.xyz/ur.svg",
+  "registered_at": 2998801,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.006673153,
+    "moving_price": 0.006687901681289077,
+    "market_cap": 40609.700405349075,
+    "tao_in": 13206.700786668,
+    "alpha_in": 1979079.403559637,
+    "alpha_out": 4106454.73680086,
+    "volume": 765823.090211974,
+    "vol_24h": 203.84254711295944,
+    "emission": 0.0,
+    "change_1h": -0.04805012790649599,
+    "change_24h": -0.4224153509212347,
+    "change_7d": -2.461272619535182
+  },
+  "spark_24h": [
+    0.00669743,
+    0.00669739,
+    0.006697159,
+    0.006699044,
+    0.006698986,
+    0.006696961,
+    0.00669696,
+    0.006696954,
+    0.006696953,
+    0.006694723,
+    0.006670762,
+    0.006670727,
+    0.00667065,
+    0.006644638,
+    0.006644637,
+    0.006644634,
+    0.006683722,
+    0.006682782,
+    0.006680847,
+    0.006680829,
+    0.006680829,
+    0.006680827,
+    0.006680827,
+    0.006680757,
+    0.006680734,
+    0.006677388,
+    0.006677388,
+    0.006677359,
+    0.006677357,
+    0.006677356,
+    0.006677355,
+    0.006677354,
+    0.006677346,
+    0.006677851,
+    0.006677831,
+    0.006677828,
+    0.006677828,
+    0.006677801,
+    0.006677516,
+    0.006677313,
+    0.00667729,
+    0.006676694,
+    0.00667666,
+    0.006676362,
+    0.006676362,
+    0.006676361,
+    0.006676361,
+    0.006673153
+  ],
+  "trades_24h": {
+    "trades": 32,
+    "buys": 8,
+    "sells": 24,
+    "buy_tao": 87.951537729,
+    "sell_tao": 114.987067286,
+    "net_tao": -27.035529557000004,
+    "traders": 20
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Djtjw5pHGbgm3fxacpcd8m57MQYTdbLrxAW3Um81M9S8uGD",
+      "net_tao": 15.065903212,
+      "gross_tao": 62.396883863999996,
+      "trades": 4
+    },
+    {
+      "coldkey": "5ENnvKCmYrZKDRkAKy9zEEGmmjYiHEGwmR7ACvddpw4TMQYw",
+      "net_tao": 0.03017176199999838,
+      "gross_tao": 59.969828238000005,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Et3gT7G3p8aRbEqXF5d8HNzXFymPyZZKanhDwYoLTVLJqQr",
+      "net_tao": -0.9107526510000007,
+      "gross_tao": 30.910752651,
+      "trades": 3
+    },
+    {
+      "coldkey": "5F6wr9DgVcAzsLZLLDF7NTrHBK61kdrV9JHFPGFumu5Ao7Xx",
+      "net_tao": -25.755228956,
+      "gross_tao": 25.755228956,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GyLSMa3VJrhsf9u3dh4Xm9q6cNVtwmwAsFGB2DHcQ9Rr8sP",
+      "net_tao": -4.269371234,
+      "gross_tao": 4.269371234,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790953017,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: map remaining mainnet implementation and qualification work",
+      "url": "https://github.com/urfoundation/sn/commit/414a0863a2e7c4318f446095534bfc89e1ab7e81",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790951056,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: record independent inventory scopes and composition failures",
+      "url": "https://github.com/urfoundation/sn/commit/3c00c3741d83a9d10a9a07dddb70330ae77ba8ef",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790948383,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(mainnet): bind independent durable owner qualification",
+      "url": "https://github.com/urfoundation/sn/commit/4a62320d5ad8d7ef612677ccdd42e661c2d0fa04",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790946848,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record bounded inventory CLI and preparation boundary",
+      "url": "https://github.com/urfoundation/sn/commit/926988b7109ea9030b7b709487bf9e33e60a7f99",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790944759,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record retained-owner qualification and remaining mainnet integration…",
+      "url": "https://github.com/urfoundation/sn/commit/19a88008f66b07446f48c1f34e59fcf967987d33",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790928841,
+      "kind": "commit",
+      "source": "github",
+      "title": "Pin final fixture integration and keep journal provisioning gaps expl…",
+      "url": "https://github.com/urfoundation/sn/commit/105e54c3acdc30ce37e32075342dc5f9421beb3f",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790928424,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bind current statistics fixture integration and immutable runner corr…",
+      "url": "https://github.com/urfoundation/sn/commit/4973dfd01e6e610e87e18babe08923e74836d0e5",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790927854,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge remote-tracking branch 'origin/main' into docs/server-model-fix…",
+      "url": "https://github.com/urfoundation/sn/commit/421613e76ff4d7cc6ea285723938d6705cae1760",
+      "publisher": "urfoundation/sn"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

@@ -1,0 +1,38 @@
+{
+  "name": "sn73",
+  "version": "1.0.0",
+  "description": "SN73 Parked — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ك",
+  "chain": "bittensor",
+  "netuid": 73,
+  "subnet": "Parked",
+  "symbol": "ك",
+  "owner": "5GHtVze5TpNih1iRriz4rK1gDJiUdHkMTSR9X9Wc6Nk6LyiT",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=73",
+    "news": "/bt/news?netuid=73"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

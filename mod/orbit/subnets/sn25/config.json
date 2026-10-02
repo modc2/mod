@@ -1,0 +1,38 @@
+{
+  "name": "sn25",
+  "version": "1.0.0",
+  "description": "SN25 UR — The peer to peer privacy network and encryption layer for the internet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "א",
+  "chain": "bittensor",
+  "netuid": 25,
+  "subnet": "UR",
+  "symbol": "א",
+  "owner": "5HTeZ5168DjjGWZgbvzGfysEAj9fnexF24gYFKJHENU5cc8a",
+  "github": "https://github.com/urfoundation/sn",
+  "url": "https://ur.xyz/",
+  "discord": "xcolwell",
+  "logo": "https://ur.xyz/ur.svg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=25",
+    "news": "/bt/news?netuid=25"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

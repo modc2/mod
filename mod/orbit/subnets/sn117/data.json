@@ -1,0 +1,189 @@
+{
+  "netuid": 117,
+  "name": "everyframe.studio",
+  "symbol": "Ⲁ",
+  "owner": "5FFDV7LGKVsVvyVbzSduzxQDPfBuJYHBM2QJPia5ikDivsXd",
+  "description": "Every frame gets craft",
+  "github": "https://github.com/everyframe-studios/everyframe-miner",
+  "url": "https://everyframe.studio/",
+  "discord": "https://discord.com/channels/799672011265015819/1544011415692644444",
+  "logo": "https://avatars.githubusercontent.com/u/327085870?s=200&v=4",
+  "registered_at": 5710859,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.002745392,
+    "moving_price": 0.002718014409765601,
+    "market_cap": 8266.61557088063,
+    "tao_in": 2995.707143018,
+    "alpha_in": 1091176.342823994,
+    "alpha_out": 1919911.170682503,
+    "volume": 238766.781694249,
+    "vol_24h": 178.8651457929809,
+    "emission": 0.0,
+    "change_1h": -0.0006556397769363898,
+    "change_24h": 3.3418893469913336,
+    "change_7d": -5.505603629718836
+  },
+  "spark_24h": [
+    0.002656581,
+    0.002656534,
+    0.00265617,
+    0.002690488,
+    0.002690423,
+    0.002690513,
+    0.002688698,
+    0.002688708,
+    0.002688707,
+    0.00268858,
+    0.002702606,
+    0.002702564,
+    0.002724996,
+    0.002729281,
+    0.002729281,
+    0.002729277,
+    0.002729272,
+    0.002729271,
+    0.002729939,
+    0.002730382,
+    0.002730382,
+    0.00273038,
+    0.00273038,
+    0.002730347,
+    0.002728436,
+    0.002728436,
+    0.002728436,
+    0.002728386,
+    0.002730211,
+    0.002730209,
+    0.00273039,
+    0.00273039,
+    0.002730378,
+    0.002730377,
+    0.002730331,
+    0.002728501,
+    0.002658427,
+    0.002705799,
+    0.002705694,
+    0.002729156,
+    0.002729138,
+    0.002746358,
+    0.002746357,
+    0.002745688,
+    0.002745687,
+    0.00274541,
+    0.00274541,
+    0.002745392
+  ],
+  "trades_24h": {
+    "trades": 38,
+    "buys": 20,
+    "sells": 18,
+    "buy_tao": 113.813774323,
+    "sell_tao": 64.015921905,
+    "net_tao": 49.797852418000005,
+    "traders": 22
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DUz5Mw39tdVB27Rn63H7X8yb6r5Tj3i7N8eLrvmEtjAtQrX",
+      "net_tao": 12.271120101000001,
+      "gross_tao": 90.42564399499999,
+      "trades": 5
+    },
+    {
+      "coldkey": "5HVZzrYNvcjtapJNR9teCY9oHEHy4EvgKaVR2EHCV6ByQ9ay",
+      "net_tao": 20.0,
+      "gross_tao": 20.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GeDZBNvyumLBNnQWQeqfKvHvnA8VcqMLeDFQ41QajDV86tu",
+      "net_tao": 0.010325188999999568,
+      "gross_tao": 19.989674811,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DhQxi4F9qhCBvemna7sHTwtPUuwqWwFBuqGGFWQmvXSNLGB",
+      "net_tao": 0.00492251300000035,
+      "gross_tao": 14.731981177,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FWZDhKBi8nABn7juLu2Ly4MJ3LVtkQWNYuV1uy7mboytmux",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790919424,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.2.2",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.2",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790918736,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #4 from everyframe-studios/fix/actionable-network-…",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/7abc463094e51dc78f6c0febdda5b60b7ca61750",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790918306,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(cli): explain cloud and balance failures safely",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/f9c34d7657ebbedfc21f1d681239e5a82522e3b8",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790917215,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #3 from everyframe-studios/fix/undeployed-workload…",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/836302eb41d9726ff803b73fa4f224569d9c031d",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790916622,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(cli): explain missing workload deployment in doctor",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/5664ead49a8c3ab3527f2c470fd42500a4a6e4ea",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790874662,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.2.1",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.1",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790874034,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #2 from everyframe-studios/fix/profile-diagnostics",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/bec185051684c09e94bdcf85b6cbbe397773527d",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790873150,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: release everycli v0.2.1",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/9ac7af3ddda1d30f5b8f29094e393ff3148bed58",
+      "publisher": "everyframe-studios/everyframe-miner"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

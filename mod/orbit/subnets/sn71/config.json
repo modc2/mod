@@ -1,0 +1,38 @@
+{
+  "name": "sn71",
+  "version": "1.0.0",
+  "description": "SN71 Leadpoet — Intent-driven AI for modern sales teams. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ㄴ",
+  "chain": "bittensor",
+  "netuid": 71,
+  "subnet": "Leadpoet",
+  "symbol": "ㄴ",
+  "owner": "5DwHzMhBXPGPSSxnPzp3J8Y12UyYmU17nppQ8oHum6yrRjSk",
+  "github": "https://github.com/leadpoet/leadpoet",
+  "url": "https://leadpoet.com",
+  "discord": null,
+  "logo": "https://leadpoet.com/leadpoet-social-logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=71",
+    "news": "/bt/news?netuid=71"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

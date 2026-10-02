@@ -1,0 +1,189 @@
+{
+  "netuid": 120,
+  "name": "Affine",
+  "symbol": "ⴷ",
+  "owner": "5EfNFhH2s9hJoVuK8qkQRx8bkpNncRifhbCHBFKs6qKqknak",
+  "description": "Reason Mining",
+  "github": "https://github.com/AffineFoundation/affine",
+  "url": "www.affine.io",
+  "discord": "consttt",
+  "logo": "https://raw.githubusercontent.com/AffineFoundation/affine/main/affine.png",
+  "registered_at": 5749344,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.046614749,
+    "moving_price": 0.046686429996043444,
+    "market_cap": 204022.54628924053,
+    "tao_in": 77195.090199111,
+    "alpha_in": 1656022.930981826,
+    "alpha_out": 2720758.037832155,
+    "volume": 1549436.131103867,
+    "vol_24h": 5684.6612826138735,
+    "emission": 0.0,
+    "change_1h": 0.0024263295760329484,
+    "change_24h": -0.8942463522284894,
+    "change_7d": 0.777590367707548
+  },
+  "spark_24h": [
+    0.046671676,
+    0.046901407,
+    0.046811801,
+    0.046690527,
+    0.046712089,
+    0.046746013,
+    0.046757579,
+    0.046869293,
+    0.046829632,
+    0.046941512,
+    0.046785443,
+    0.046798123,
+    0.046797526,
+    0.046800633,
+    0.046803035,
+    0.046807183,
+    0.046793577,
+    0.046799461,
+    0.046850477,
+    0.046856045,
+    0.046889991,
+    0.046873701,
+    0.046875019,
+    0.046845599,
+    0.046848407,
+    0.046852052,
+    0.04663347,
+    0.046528597,
+    0.046575389,
+    0.046578722,
+    0.046582826,
+    0.046710685,
+    0.046716009,
+    0.046719678,
+    0.046718697,
+    0.04642555,
+    0.046450521,
+    0.046449649,
+    0.046457097,
+    0.046461757,
+    0.046336195,
+    0.046388072,
+    0.047090179,
+    0.04694881,
+    0.046864087,
+    0.046677663,
+    0.046642268,
+    0.046614749
+  ],
+  "trades_24h": {
+    "trades": 429,
+    "buys": 205,
+    "sells": 224,
+    "buy_tao": 2469.156874482,
+    "sell_tao": 3003.359886779,
+    "net_tao": -534.203012297,
+    "traders": 196
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CBDPcWDqHso5UctQ9SPrZEws93NHVgVGx7E1aNBgqMHxV5T",
+      "net_tao": -0.11186882799999864,
+      "gross_tao": 440.111868828,
+      "trades": 7
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": -0.34448011700000336,
+      "gross_tao": 350.344480117,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.002228979999983949,
+      "gross_tao": 306.99985518,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GKHLgHnp1wdXTB1krScJMhrjqwn2XGv239XfMqSx5c2xXU8",
+      "net_tao": -300.153142379,
+      "gross_tao": 300.153142379,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HRQyueYEFpmwbUGdo8RhYQaCaZjB5ecCfQNyeDs6ercuVFL",
+      "net_tao": 0.29645288399998765,
+      "gross_tao": 299.70354711600004,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790902185,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record original I3Code Docker grading requirement in coverage matrix",
+      "url": "https://github.com/AffineFoundation/affine/commit/6b3db6d4eec1e9d881dcd771d8f1b2f9f71172be",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790901469,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reproduce per-task Pydantic proposal controls with fresh native replays",
+      "url": "https://github.com/AffineFoundation/affine/commit/be695940b9d6221e2c0f91b099e922eebbf98756",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790900756,
+      "kind": "commit",
+      "source": "github",
+      "title": "Refresh recorded RCore coverage status without expanding qualification",
+      "url": "https://github.com/AffineFoundation/affine/commit/5cc4d86879b4abd0443bfdc9ab9bc3e4070536a3",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790900559,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bind qualified native Prolog sessions into common environment dispatch",
+      "url": "https://github.com/AffineFoundation/affine/commit/85318f11282c0beab53dbb7df438f3392a4f78f8",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790899554,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record verified recovery baseline and optimizer attribution",
+      "url": "https://github.com/AffineFoundation/affine/commit/1518b0cba26877f9aa380e47d8e8a0b44d8090ba",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790889809,
+      "kind": "commit",
+      "source": "github",
+      "title": "Qualify original UUIDCTF public forensic native controls",
+      "url": "https://github.com/AffineFoundation/affine/commit/580f42e4e0a2ce582aafe41de2e8763e07b2faf8",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790888762,
+      "kind": "commit",
+      "source": "github",
+      "title": "Qualify original Wikispeedia native tool replay controls",
+      "url": "https://github.com/AffineFoundation/affine/commit/d5e9896fe160a3f8478cb543a2a69abf27e50dd2",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790887912,
+      "kind": "commit",
+      "source": "github",
+      "title": "Publish authenticated Tau2 recovery evaluation history",
+      "url": "https://github.com/AffineFoundation/affine/commit/7041c4140ee89343b374430e6d5557c51e8c9f11",
+      "publisher": "AffineFoundation/affine"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

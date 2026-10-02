@@ -1,0 +1,38 @@
+{
+  "name": "sn87",
+  "version": "1.0.0",
+  "description": "SN87 Provenonce — verified execution of agentic workflows for enterprise, delivering Proof of Assurance. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ы",
+  "chain": "bittensor",
+  "netuid": 87,
+  "subnet": "Provenonce",
+  "symbol": "Ы",
+  "owner": "5HartH15eyQoKJk98jTMwhY9nW4JRfWEznqLRD1oQJuwdBHV",
+  "github": null,
+  "url": "https://provenonce.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1521124924759080972",
+  "logo": "https://provenonce.ai/apple-touch-icon.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=87",
+    "news": "/bt/news?netuid=87"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

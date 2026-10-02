@@ -265,6 +265,32 @@ class Mod:
         """Escape hatch: call a provider's own API with that provider's key."""
         return self.hub.raw(provider, path, method=method, body=body, params=params)
 
+    # ── the oracle: a GPU price prediction game ──────────────────
+
+    def oracle(self, horizon=None, series=None):
+        """Every GPU price index (median per-GPU $/hr across every market), its
+        24h change, and the leaderboard of who calls them best."""
+        import oracle
+        return oracle.state(horizon=horizon, series=series)
+
+    def predict(self, player, series, horizon, value, key=None, note=None):
+        """Call where an index will be in 1h|6h|24h|7d. No key = new player;
+        the key comes back once — keep it."""
+        import mcp
+        return mcp.call_tool('compute_predict', {
+            'player': player, 'key': key, 'series': series, 'horizon': horizon,
+            'value': value, 'note': note})
+
+    def board(self, series=None, horizon=None, days=None):
+        """The leaderboard alone, optionally for one series, horizon or window."""
+        import oracle
+        return oracle.leaderboard(series=series, horizon=horizon, days=days)
+
+    def tick(self, force=True):
+        """Read every market now, record the indexes, score what came due."""
+        import oracle
+        return oracle.tick(force=force)
+
     # ── mcp ──────────────────────────────────────────────────────
 
     def tools(self):

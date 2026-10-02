@@ -1,0 +1,189 @@
+{
+  "netuid": 96,
+  "name": "Verathos",
+  "symbol": "᚛",
+  "owner": "5CGq1JQhmZmR8w3pXFqycUgX9mcLt8bPwMZ8YDJbEmELpw7X",
+  "description": "Verified AI inference and training subnet.",
+  "github": "https://github.com/verathos-ai/verathos",
+  "url": "https://verathos.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/verathos-ai/verathos/main/assets/logo.png",
+  "registered_at": 7692872,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.004543675,
+    "moving_price": 0.004573876271024346,
+    "market_cap": 6639.617194762369,
+    "tao_in": 2657.942519948,
+    "alpha_in": 584976.358733539,
+    "alpha_out": 876311.518318048,
+    "volume": 100641.770194048,
+    "vol_24h": 85.52348387800157,
+    "emission": 0.0,
+    "change_1h": -0.2244013584857374,
+    "change_24h": -0.8879279449068633,
+    "change_7d": -3.909232563903664
+  },
+  "spark_24h": [
+    0.004584363,
+    0.00458386,
+    0.004588297,
+    0.004588045,
+    0.004587589,
+    0.004587746,
+    0.004587735,
+    0.00456475,
+    0.00456474,
+    0.004564493,
+    0.004568717,
+    0.004568636,
+    0.004568625,
+    0.00456823,
+    0.004568228,
+    0.004568063,
+    0.00457147,
+    0.004571401,
+    0.004571268,
+    0.004570641,
+    0.004570641,
+    0.004570628,
+    0.004570628,
+    0.00462247,
+    0.00460353,
+    0.004603486,
+    0.004603486,
+    0.004603242,
+    0.004603234,
+    0.004602841,
+    0.004602834,
+    0.004602831,
+    0.004602766,
+    0.004602453,
+    0.004602323,
+    0.004602309,
+    0.004599494,
+    0.004548092,
+    0.004546304,
+    0.004545441,
+    0.004545402,
+    0.004543257,
+    0.004534777,
+    0.004532957,
+    0.004557383,
+    0.004553896,
+    0.004553894,
+    0.004543675
+  ],
+  "trades_24h": {
+    "trades": 76,
+    "buys": 11,
+    "sells": 65,
+    "buy_tao": 36.831018769,
+    "sell_tao": 44.575506373,
+    "net_tao": -7.744487604,
+    "traders": 30
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EtTJc8Z26EaysT9EEeJL54wkDvWW2jveHzuWnxm3yRY6Bxu",
+      "net_tao": 0.07493532500000022,
+      "gross_tao": 29.925064675,
+      "trades": 2
+    },
+    {
+      "coldkey": "5EKqJmGPtkNQ2ij92mcWkPEFpjhpVwaM7fSW1gQiswndTjrQ",
+      "net_tao": 8.010049576,
+      "gross_tao": 27.989950424,
+      "trades": 3
+    },
+    {
+      "coldkey": "5DhQxi4F9qhCBvemna7sHTwtPUuwqWwFBuqGGFWQmvXSNLGB",
+      "net_tao": -6.652949329,
+      "gross_tao": 6.652949329,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GjfMvGJ5X5q53VXWdFaABoMx2hVwEovBKjdCrRP3YtnbVMa",
+      "net_tao": -1.6282311100000002,
+      "gross_tao": 4.285760694,
+      "trades": 3
+    },
+    {
+      "coldkey": "5FEzAx5Cnvu5RtbX1MS2wQx6Vd9EcKRarwwVHP7i9CNEQzAV",
+      "net_tao": -1.8530749370000001,
+      "gross_tao": 1.8530749370000001,
+      "trades": 8
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790327345,
+      "kind": "release",
+      "source": "github",
+      "title": "Verathos v0.2.3 – DeepSeek Mesh Proof Compatibility",
+      "url": "https://github.com/verathos-ai/verathos/releases/tag/v0.2.3",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1790237734,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: release DeepSeek mesh proof compatibility as v0.2.3",
+      "url": "https://github.com/verathos-ai/verathos/commit/a859ff97c744eaf4b18761a8c7d9fd42d4a33573",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1790236543,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: place hyper-connection head tensors in the final stage",
+      "url": "https://github.com/verathos-ai/verathos/commit/4b969dfb0630b60cfb2e40fdae36851709ac3a12",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1788891533,
+      "kind": "release",
+      "source": "github",
+      "title": "Verathos v0.2.2 – Consistent Validator Decisions and Microtensor Support",
+      "url": "https://github.com/verathos-ai/verathos/releases/tag/v0.2.2",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1788879715,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: preserve bounded mesh snapshot recovery",
+      "url": "https://github.com/verathos-ai/verathos/commit/3135b74f4403aaaf1d847e45acec080329d1643e",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1788872936,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: align follower eligibility and add Microtensor catalogue support",
+      "url": "https://github.com/verathos-ai/verathos/commit/1ebb10658cd3a1475d9454b4b21d036011b892dd",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1788858071,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: restrict setup choices to registered models",
+      "url": "https://github.com/verathos-ai/verathos/commit/b986597248a9508544cacbbb0a2e41b0c424d9ae",
+      "publisher": "verathos-ai/verathos"
+    },
+    {
+      "ts": 1788813391,
+      "kind": "release",
+      "source": "github",
+      "title": "Verathos v0.2.1 – Sleipnir Cross-Machine Serving",
+      "url": "https://github.com/verathos-ai/verathos/releases/tag/v0.2.1",
+      "publisher": "verathos-ai/verathos"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

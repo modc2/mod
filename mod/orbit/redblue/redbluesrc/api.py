@@ -15,6 +15,11 @@ the same round. There is exactly one scoreboard.
     GET  /rounds            history, or ?id=<round> for one in full
     GET  /board             standings, blue and red
     GET  /targets           which backends can run right now
+    GET  /catalog           every model a provider serves, with its score
+    POST /keys              save a BYOK key for venice / openrouter / …
+    POST /sweep             one round fired at every model in a catalog view
+    GET  /sweeps            sweep history, or ?id=<sweep> live
+    POST /sweep/stop        cancel a running sweep
     POST /ping              prove a target is reachable
     GET  /tools             the MCP registry
     POST /mcp               MCP JSON-RPC 2.0 (Streamable HTTP)
@@ -48,10 +53,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from redbluesrc import arena, builtins as bimod, corpus, defense as defmod
-    from redbluesrc import mcp as mcpsrv, models, store
+    from redbluesrc import catalog, mcp as mcpsrv, models, store, sweep as sweepmod
 else:
     from . import arena, builtins as bimod, corpus, defense as defmod
-    from . import mcp as mcpsrv, models, store
+    from . import catalog, mcp as mcpsrv, models, store, sweep as sweepmod
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.environ.get('RB_BASE_PATH', '/redblue')
@@ -59,7 +64,8 @@ PORT = int(os.environ.get('RB_PORT', 50970))
 
 # Spending a model call or editing the corpus needs the bearer, when one is
 # set. Reading a score never does — a scoreboard nobody can read is not one.
-WRITE_ROUTES = {'/fight', '/round', '/ping', '/attacks', '/defenses'}
+WRITE_ROUTES = {'/fight', '/round', '/ping', '/attacks', '/defenses', '/keys',
+                '/sweep', '/sweep/stop'}
 
 
 class ApiError(Exception):
@@ -93,6 +99,18 @@ def info():
             'GET /board': '?rounds=8 — standings, blue and red',
             'GET /targets': 'which model backends can run right now',
             'POST /ping': '{model} — prove a target is reachable',
+            'GET /catalog': '?provider=venice|openrouter|mock &q= &scope=all|'
+                            'tested|untested|online|private|free|failed '
+                            '&sort=name|safety|price &refresh=1 — every model '
+                            'the provider serves, joined with its latest score',
+            'GET /keys': 'which BYOK backends have a key (never the key)',
+            'POST /keys': '{provider, key} — save a key (empty key forgets it)',
+            'POST /sweep': '{provider, q, scope, models, attacks, defenses, '
+                           'judge, judge_model, parallel, models_parallel, '
+                           'limit, dry_run} — one round at every model in the '
+                           'view; dry_run returns the plan and the call count',
+            'GET /sweeps': '?id= one sweep live, or history (?provider=)',
+            'POST /sweep/stop': '{id} — cancel a running sweep',
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
             f'GET {BASE}': 'the console',
@@ -188,6 +206,31 @@ def route(method, path, query, body):
             return {'ok': False, 'error': str(e),
                     'model': arg('model') or models.DEFAULT}
 
+    if path == '/catalog' and method == 'GET':
+        return catalog.listing(arg('provider', 'venice'), q=arg('q'),
+                               scope=arg('scope', 'all'),
+                               sort=arg('sort', 'name'),
+                               refresh=arg('refresh', False),
+                               limit=int(arg('limit', 0)))
+
+    if path == '/keys':
+        if method == 'GET':
+            return {'keys': {p: models.has_key(p) for p in models.KEYS}}
+        if method == 'POST':
+            return models.set_key(_need(arg('provider'), 'provider'),
+                                  b.get('key', ''))
+
+    if path == '/sweep' and method == 'POST':
+        return mcpsrv.t_sweep(b)
+
+    if path == '/sweep/stop' and method == 'POST':
+        return sweepmod.stop(_need(arg('id'), 'id'))
+
+    if path == '/sweeps' and method == 'GET':
+        if arg('id'):
+            return sweepmod.get(arg('id'))
+        return sweepmod.listing(int(arg('limit', 20)), provider=arg('provider'))
+
     if path == '/tools' and method == 'GET':
         return {'tools': mcpsrv.tool_list(), 'count': len(mcpsrv.TOOLS)}
 
@@ -211,7 +254,7 @@ def _round(b):
                   parallel=int(b.get('parallel') or 6),
                   controls=_flag(b.get('controls', True)),
                   timeout=int(b['timeout']) if b.get('timeout') else None,
-                  name=b.get('name'))
+                  name=b.get('name'), judge_model=b.get('judge_model') or None)
     if not _flag(b.get('background')):
         return mcpsrv._trim_round(arena.run_round(atks, dfns, **kwargs),
                                   verbose=bool(b.get('verbose')))
@@ -352,7 +395,8 @@ def serve(port=PORT, bind=None, base=BASE):
             except ApiError as e:
                 return self._send(e.status, {'error': str(e)})
             except (store.StoreError, defmod.DefenseError, arena.ArenaError,
-                    models.ModelError) as e:
+                    models.ModelError, catalog.CatalogError,
+                    sweepmod.SweepError) as e:
                 return self._send(400, {'error': str(e),
                                         'kind': type(e).__name__})
             except TypeError as e:

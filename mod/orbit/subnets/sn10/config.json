@@ -1,0 +1,38 @@
+{
+  "name": "sn10",
+  "version": "1.0.0",
+  "description": "SN10 Pareton — The Intelligence Layer for AI Inference. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ⱂ",
+  "chain": "bittensor",
+  "netuid": 10,
+  "subnet": "Pareton",
+  "symbol": "Ⱂ",
+  "owner": "5HK5714cfComgoVg9UfQswQHad6wJV4RnGvp6PQvTkLUUFt5",
+  "github": "https://github.com/Pareton-ai/pareton",
+  "url": "https://www.pareton.ai/",
+  "discord": null,
+  "logo": "https://www.pareton.ai/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=10",
+    "news": "/bt/news?netuid=10"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

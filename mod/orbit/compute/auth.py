@@ -8,7 +8,8 @@ this module is mounted at modc2.com/compute, those must not be a URL away.
 
 Three tiers, applied in `guard`:
 
-    open    info, health, providers, search, offer, quote, mods, tools
+    open    info, health, providers, search, offer, quote, mods, tools, and
+            the /oracle prediction game (a player's own key signs each call)
     byok    instances, status, logs, balance, keys — allowed if the caller
             brought their own provider key, because then it is their account
             being read, not the operator's
@@ -30,12 +31,16 @@ STATE = os.path.expanduser('~/.mod/compute')
 SECRET_FILE = os.path.join(STATE, 'server.secret')
 
 OPEN = {'', '/', '/health', '/providers', '/search', '/map', '/offer', '/quote',
-        '/mods', '/tools', '/console', '/index.html', '/identity'}
+        '/mods', '/tools', '/console', '/index.html', '/identity',
+        # the prediction game: a call spends nothing and carries its own player key
+        '/oracle', '/oracle/series', '/oracle/board', '/oracle/calls',
+        '/oracle/join', '/oracle/predict'}
 BYOK = {'/instances', '/status', '/logs', '/balance', '/keys'}
 
 # Tool name → tier, for the MCP endpoint, which is one URL for everything.
 OPEN_TOOLS = {'compute_providers', 'compute_search', 'compute_map',
-              'compute_offer', 'compute_quote', 'compute_mods'}
+              'compute_offer', 'compute_quote', 'compute_mods',
+              'compute_oracle', 'compute_predict'}
 BYOK_TOOLS = {'compute_instances', 'compute_status', 'compute_logs',
               'compute_balance'}
 
@@ -117,6 +122,9 @@ def _why(path):
     if path.startswith('/node') or path in ('/nodes', '/deploy'):
         return (f'{path} runs commands on machines this module manages — '
                 f'owner only')
+    if path.startswith('/oracle'):
+        return (f'{path} reads every market with the operator\'s keys — owner only; '
+                f'the game ticks on its own every 20 minutes')
     if path in BYOK:
         return f'{path} would read the operator\'s own provider accounts — owner only'
     return f'{path} spends the operator\'s credits — owner only'

@@ -172,7 +172,7 @@ class Mod:
     # ── the game ─────────────────────────────────────────────────
 
     def fight(self, attack, defense='none', model=None, judge='model',
-              timeout=None):
+              timeout=None, judge_model=None):
         """One exchange: fire one attack at one defense and score it.
 
         The fastest way to see the whole pipeline — every stage, the response,
@@ -181,11 +181,12 @@ class Mod:
         atk = self._load_attack(attack)
         dfn = self._load_defense(defense)
         rec = arena._one_match(atk, defmod.normalise(dfn), model or models.DEFAULT,
-                              judge, self._num(timeout))
+                              judge, self._num(timeout), judge_model)
         return rec
 
     def round(self, attacks=None, defenses=None, model=None, judge='model',
-              parallel=6, controls=True, timeout=None, name=None):
+              parallel=6, controls=True, timeout=None, name=None,
+              judge_model=None):
         """The tournament: every attack × every defense, scored, with controls.
 
         attacks/defenses default to the whole corpus. Pass comma-separated ids
@@ -201,7 +202,8 @@ class Mod:
         return arena.run_round(atks, dfns, model=model or models.DEFAULT,
                                judge_kind=judge, parallel=int(parallel),
                                controls=self._flag(controls),
-                               timeout=self._num(timeout), name=name)
+                               timeout=self._num(timeout), name=name,
+                               judge_model=judge_model)
 
     def rounds(self, limit=20, status=None):
         """Round history — id, model, matches, and the top defense of each."""
@@ -245,6 +247,46 @@ class Mod:
     def controls(self):
         """The fixed benign control set the over-refusal score is measured on."""
         return corpus.CONTROL_SET
+
+    # ── whole catalogs ───────────────────────────────────────────
+
+    def models(self, provider='venice', q=None, scope='all', sort='name',
+               refresh=False, limit=0):
+        """Every chat model a provider serves, with its latest safety score.
+
+        provider = venice | openrouter | mock. Listing needs no key.
+        scope = all | tested | untested | online | private | free | failed.
+        """
+        from redbluesrc import catalog
+        return catalog.listing(provider, q=q, scope=scope, sort=sort,
+                               refresh=refresh, limit=int(limit or 0))
+
+    def sweep(self, provider='venice', q=None, scope='all', models=None,
+              attacks=None, defenses='none', judge='heuristic',
+              judge_model=None, parallel=6, models_parallel=2, limit=0,
+              controls=True, dry_run=True, background=False, resume=None):
+        """Fire the same round at every model in a provider's catalog view.
+
+        dry_run defaults to TRUE here — the shell is where a 465-model sweep
+        gets started by accident. Pass dry_run=false to spend.
+        """
+        from redbluesrc import mcp as mcpsrv
+        return mcpsrv.t_sweep(dict(
+            provider=provider, q=q, scope=scope, models=models, attacks=attacks,
+            defenses=defenses, judge=judge, judge_model=judge_model,
+            parallel=parallel, models_parallel=models_parallel, limit=limit,
+            controls=controls, dry_run=dry_run, background=background,
+            resume=resume))
+
+    def sweeps(self, id=None, limit=20, provider=None):
+        """Sweep history, or one sweep with its per-model ranking."""
+        from redbluesrc import sweep as sweepmod
+        return sweepmod.get(id) if id else sweepmod.listing(int(limit), provider)
+
+    def key(self, provider, key=''):
+        """Save a BYOK key (venice | openrouter | anthropic | openai), 0600 in
+        ~/.mod/redblue. An empty key forgets it."""
+        return models.set_key(provider, key)
 
     # ── surfaces ─────────────────────────────────────────────────
 

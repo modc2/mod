@@ -1,0 +1,38 @@
+{
+  "name": "sn67",
+  "version": "1.0.0",
+  "description": "SN67 Harnyx — Deep research as a commodity. Faster, cheaper, traceable research — produced by a competitive swarm of miners on Bittensor SN67. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ط",
+  "chain": "bittensor",
+  "netuid": 67,
+  "subnet": "Harnyx",
+  "symbol": "ط",
+  "owner": "5HEAv3TU1yNei4GwiTsxfmDCDW9pMCKLeDVky9iaVJfYiVeY",
+  "github": "https://github.com/harnyx/harnyx",
+  "url": "https://harnyx.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1457737666316472351",
+  "logo": "https://harnyx.ai/favicon.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=67",
+    "news": "/bt/news?netuid=67"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

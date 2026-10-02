@@ -1,0 +1,167 @@
+{
+  "netuid": 94,
+  "name": "Cathedral",
+  "symbol": "ᚄ",
+  "owner": "5CnwnkkCxrrNDuhy8Vvptd6j6ebrv9Z6mrTzD479f7uAiYat",
+  "description": "CPU sandboxes powering reinforcement learning on Bittensor.",
+  "github": "https://github.com/cathedralai/cathedral-sandbox",
+  "url": "https://cathedral.computer/",
+  "discord": "https://discord.com/channels/799672011265015819/1526241812589711571",
+  "logo": "https://cathedral.computer/assets/favicon.png",
+  "registered_at": 6962737,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [
+    "cathedral"
+  ],
+  "market": {
+    "price": 0.005097583,
+    "moving_price": 0.005266022635623813,
+    "market_cap": 12946.184388563574,
+    "tao_in": 2443.110012163,
+    "alpha_in": 479268.256231478,
+    "alpha_out": 2060402.875864571,
+    "volume": 136097.512403526,
+    "vol_24h": 1147.9517317620048,
+    "emission": 0.0,
+    "change_1h": -0.9437540685755419,
+    "change_24h": -5.785603128661776,
+    "change_7d": 21.806656616437014
+  },
+  "spark_24h": [
+    0.005410467,
+    0.005410201,
+    0.005413146,
+    0.005432947,
+    0.005454105,
+    0.005454105,
+    0.005410585,
+    0.005410536,
+    0.00534602,
+    0.005392404,
+    0.005281578,
+    0.005169145,
+    0.005173341,
+    0.005261262,
+    0.005240097,
+    0.005324305,
+    0.0053243,
+    0.005324249,
+    0.005311509,
+    0.005242929,
+    0.005242931,
+    0.005306564,
+    0.005349209,
+    0.005349072,
+    0.005289439,
+    0.005289634,
+    0.005289638,
+    0.00531071,
+    0.005310706,
+    0.005309529,
+    0.005311031,
+    0.005314091,
+    0.005314039,
+    0.00531339,
+    0.005313269,
+    0.005314888,
+    0.005226106,
+    0.005225947,
+    0.005227893,
+    0.00522788,
+    0.005227597,
+    0.005218974,
+    0.005227276,
+    0.005191669,
+    0.005193771,
+    0.005193773,
+    0.00514615,
+    0.005097583
+  ],
+  "trades_24h": {
+    "trades": 188,
+    "buys": 83,
+    "sells": 105,
+    "buy_tao": 537.133520966,
+    "sell_tao": 613.557883107,
+    "net_tao": -76.42436214099996,
+    "traders": 75
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.018644748000002487,
+      "gross_tao": 336.018644748,
+      "trades": 12
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": 0.1310353830000004,
+      "gross_tao": 69.868964617,
+      "trades": 8
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.05133418500000135,
+      "gross_tao": 59.757487223,
+      "trades": 14
+    },
+    {
+      "coldkey": "5HeQWuhJWCw6aQNqZ8FqjEPZtiSHDq5wSSRU67mop5zqWikT",
+      "net_tao": 0.39830450000000006,
+      "gross_tao": 49.6016955,
+      "trades": 4
+    },
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": -10.36286931,
+      "gross_tao": 46.36286931,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790850560,
+      "kind": "commit",
+      "source": "github",
+      "title": "snp friend probe: an unavailable AMD verifier is inconclusive, never …",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/244f9f52eaf4b570886e6d6eab734cecd0b39d78",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790849277,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #256 from cathedralai/fix/snp-umask-and-kds-thrott…",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/de8a061e1641b8e65fc4b1c5f27ff0ae4066e502",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790848494,
+      "kind": "commit",
+      "source": "github",
+      "title": "snp: keep cached certificates when only verify attestation fails",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/6b214b4a7a41e37090404d51c6fb585c51dca8cc",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790847982,
+      "kind": "commit",
+      "source": "github",
+      "title": "snp: cache AMD certificates per chip and TCB, back off on KDS throttling",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/a57855579cd4b06182c3fdc9a519fd3884fba1b7",
+      "publisher": "cathedralai/cathedral-sandbox"
+    },
+    {
+      "ts": 1790846707,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(snp): fetch AMD certificates with an owner-only umask",
+      "url": "https://github.com/cathedralai/cathedral-sandbox/commit/c85541517e77520d5befd245e74f75453a7ae2a1",
+      "publisher": "cathedralai/cathedral-sandbox"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

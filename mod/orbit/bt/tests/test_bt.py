@@ -837,3 +837,94 @@ def test_nearest_snapshot_uses_seeks_not_a_scan(store):
     plan = ' '.join(str(r) for r in history._db().execute(
         'EXPLAIN QUERY PLAN SELECT MAX(ts) FROM snaps WHERE ts <= ?', (now,)))
     assert 'idx_snaps_ts' in plan
+
+
+# ------------------------------------------------------------ agent auth
+# A lapsed host login must never reach the user as an "answer": the agent
+# falls back to the session build's credential keeper publishes, retries a
+# run that died on auth once on it, and otherwise says where to sign in.
+
+def _auth_files(tmp_path, monkeypatch, *, host_exp_ms, keeper=None):
+    from bt import agent
+    oauth = tmp_path / 'credentials.json'
+    oauth.write_text(json.dumps({'claudeAiOauth': {
+        'accessToken': 'host-tok', 'expiresAt': host_exp_ms}}))
+    hostcred = tmp_path / 'claude_host.json'
+    if keeper is not None:
+        hostcred.write_text(json.dumps(keeper))
+    monkeypatch.setattr(agent, 'OAUTH_FILE', str(oauth))
+    monkeypatch.setattr(agent, 'HOST_CRED_FILE', str(hostcred))
+    monkeypatch.setattr(agent, 'KEY_FILE', str(tmp_path / 'anthropic.key'))
+    monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
+    return agent
+
+
+def test_auth_live_host_login_is_used_as_is(tmp_path, monkeypatch):
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000)
+    assert agent.ensure_auth()[:2] == (True, 'claude-cli')
+
+
+def test_auth_expired_host_login_falls_back_to_build_session(tmp_path, monkeypatch):
+    keeper = {'ready': True, 'source': 'owner-session', 'token': 'sk-ant-oat01-owner',
+              'expires_at': time.time() + 3600}
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() - 60) * 1000,
+                        keeper=keeper)
+    ready, method, _, extra = agent.ensure_auth()
+    assert (ready, method) == (True, 'build-session')
+    assert extra == {'CLAUDE_CODE_OAUTH_TOKEN': 'sk-ant-oat01-owner'}
+
+
+def test_auth_nothing_usable_points_at_sign_in(tmp_path, monkeypatch):
+    stale = {'ready': True, 'source': 'owner-session', 'token': 't',
+             'expires_at': time.time() - 5}
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() - 60) * 1000,
+                        keeper=stale)
+    ready, _, hint, _ = agent.ensure_auth()
+    assert not ready and agent.LOGIN_URL in hint and 'expired' in hint
+    assert agent.status()['login'] == agent.LOGIN_URL
+
+
+def test_auth_leaked_session_token_in_api_key_is_ignored(tmp_path, monkeypatch):
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000)
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-oat01-leaked')
+    monkeypatch.setenv('CLAUDE_CODE_CHILD_SESSION', '1')
+    monkeypatch.setenv('CLAUDE_CODE_SESSION_ID', 'dead-parent')
+    assert agent.ensure_auth()[1] == 'claude-cli'
+    env = agent.child_env({'CLAUDE_CODE_OAUTH_TOKEN': 'x'})
+    assert 'ANTHROPIC_API_KEY' not in env and 'CLAUDE_CODE_CHILD_SESSION' not in env
+    assert 'CLAUDE_CODE_SESSION_ID' not in env and env['CLAUDE_CODE_OAUTH_TOKEN'] == 'x'
+
+
+def _fake_cli(tmp_path):
+    """A `claude` that only answers when handed the owner session."""
+    script = tmp_path / 'claude'
+    script.write_text(
+        '#!/usr/bin/env python3\n'
+        'import json, os\n'
+        'ok = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") == "sk-ant-oat01-owner"\n'
+        'print(json.dumps({"type": "result", "session_id": "s1", "num_turns": 1,\n'
+        '  "is_error": not ok, "result": "pong" if ok else\n'
+        '  "Failed to authenticate: OAuth session expired and could not be refreshed"}))\n')
+    script.chmod(0o755)
+    return str(script)
+
+
+def test_chat_auth_failure_retries_on_build_session(tmp_path, monkeypatch, chatstore):
+    # the host file still claims to be valid — the CLI is what finds out
+    keeper = {'ready': True, 'source': 'owner-session', 'token': 'sk-ant-oat01-owner',
+              'expires_at': time.time() + 3600}
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000,
+                        keeper=keeper)
+    monkeypatch.setattr(agent, 'CLAUDE_BIN', _fake_cli(tmp_path))
+    evs = list(agent.chat('ping'))
+    kinds = [e['type'] for e in evs]
+    assert 'error' not in kinds and kinds[-1] == 'done'
+    assert evs[-1]['answer'] == 'pong'
+
+
+def test_chat_auth_failure_without_fallback_is_an_error_with_sign_in(tmp_path, monkeypatch, chatstore):
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000)
+    monkeypatch.setattr(agent, 'CLAUDE_BIN', _fake_cli(tmp_path))
+    evs = list(agent.chat('ping'))
+    assert evs[-1]['type'] == 'error' and evs[-1]['login'] == agent.LOGIN_URL
+    assert not any(e['type'] in ('done', 'text') for e in evs)   # no "COURSE CLEAR"

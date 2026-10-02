@@ -1,0 +1,157 @@
+{
+  "netuid": 38,
+  "name": "ChronoLLM",
+  "symbol": "ם",
+  "owner": "5GeWgtBAu2ezYo83sPM7VyEigAfEc3vnqqxRzbMXYVYwEV62",
+  "description": "Competitive training of chronologically consistent Large Language Models",
+  "github": "https://github.com/chronollm/sn38",
+  "url": "https://chronollm.crunchdao.com/",
+  "discord": "https://discord.com/channels/799672011265015819/1485634202895519844",
+  "logo": "https://assets.crunchdao.com/chronollm/logo-round.png",
+  "registered_at": 7284230,
+  "tempo": 1440,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.022025364,
+    "moving_price": 0.021186938509345055,
+    "market_cap": 52916.10740520594,
+    "tao_in": 8925.152764417,
+    "alpha_in": 405221.711011716,
+    "alpha_out": 1997286.025305647,
+    "volume": 276555.519903745,
+    "vol_24h": 2445.7709581499803,
+    "emission": 0.0,
+    "change_1h": 1.1141887879278611,
+    "change_24h": 10.437785193659032,
+    "change_7d": -2.8192325524467488
+  },
+  "spark_24h": [
+    0.019943795,
+    0.019946629,
+    0.019914932,
+    0.019918851,
+    0.019930184,
+    0.01993431,
+    0.020047799,
+    0.020006519,
+    0.020106053,
+    0.020326184,
+    0.020265661,
+    0.020384347,
+    0.020385316,
+    0.0214722,
+    0.021535521,
+    0.021591985,
+    0.021396695,
+    0.021401641,
+    0.021677337,
+    0.021714538,
+    0.0217188,
+    0.021464475,
+    0.02122698,
+    0.021418651,
+    0.021627572,
+    0.021429453,
+    0.021433814,
+    0.021406297,
+    0.02141186,
+    0.021461053,
+    0.021464999,
+    0.021511432,
+    0.021568185,
+    0.021647287,
+    0.021515148,
+    0.021520729,
+    0.021526466,
+    0.021580253,
+    0.021498953,
+    0.021503755,
+    0.0215094,
+    0.021492456,
+    0.021461957,
+    0.021653798,
+    0.021760122,
+    0.021763067,
+    0.021778773,
+    0.022025364
+  ],
+  "trades_24h": {
+    "trades": 254,
+    "buys": 166,
+    "sells": 88,
+    "buy_tao": 1388.996033154,
+    "sell_tao": 981.261027606,
+    "net_tao": 407.7350055480001,
+    "traders": 95
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": 29.807687806,
+      "gross_tao": 270.192312194,
+      "trades": 10
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.08904721799999749,
+      "gross_tao": 257.43234554,
+      "trades": 10
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": -0.29260117200000124,
+      "gross_tao": 210.292601172,
+      "trades": 19
+    },
+    {
+      "coldkey": "5G3mvfYwEVvzWeDcvNUzixufhdGBzfBFeWPxqzvMd8iSdL9G",
+      "net_tao": -1.1816599699999983,
+      "gross_tao": 121.18165997,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CY9b9tgGmSoec5pykbthbpG8ninVvYiZDYeznYxknqMAuix",
+      "net_tao": -0.2484995680000015,
+      "gross_tao": 110.133320352,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790060673,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: quality duels — async fix, skip private models, cache completion…",
+      "url": "https://github.com/chronollm/sn38/commit/a1f1aa75452e4e81aa75e3cafdfc1aa89b5be14f",
+      "publisher": "chronollm/sn38"
+    },
+    {
+      "ts": 1789997108,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: increase max_new_tokens from 50 to 100 for quality evaluation",
+      "url": "https://github.com/chronollm/sn38/commit/261809ce6cd0e48305f0b06f0ef2b084393722d1",
+      "publisher": "chronollm/sn38"
+    },
+    {
+      "ts": 1789390693,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update validator image to the latest version in docker-compose.valida…",
+      "url": "https://github.com/chronollm/sn38/commit/01f596b424a01d40ec14db10493d329c0d1c97be",
+      "publisher": "chronollm/sn38"
+    },
+    {
+      "ts": 1789390248,
+      "kind": "commit",
+      "source": "github",
+      "title": "Round 11: instruction following in quality evaluation (#26)",
+      "url": "https://github.com/chronollm/sn38/commit/b520da90ad0f6748bfb3982380e757cf60c183da",
+      "publisher": "chronollm/sn38"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

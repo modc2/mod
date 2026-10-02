@@ -21,10 +21,10 @@ import sys
 if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from redbluesrc import arena, builtins, corpus, defense as defmod
-    from redbluesrc import judge as judgemod, models, store
+    from redbluesrc import catalog, judge as judgemod, models, store, sweep as sweepmod
 else:
     from . import arena, builtins, corpus, defense as defmod
-    from . import judge as judgemod, models, store
+    from . import catalog, judge as judgemod, models, store, sweep as sweepmod
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
 DEFAULT_PROTOCOL_VERSION = '2025-03-26'
@@ -34,7 +34,7 @@ MAX_OUT = int(os.environ.get('RB_MAX_RESULT_CHARS', 40000))
 # Writing a round runs the target model, which spends CLI/API calls; those are
 # the gated tools.
 WRITE_TOOLS = {'rb_round', 'rb_fight', 'rb_attack', 'rb_defend',
-               'rb_delete'}
+               'rb_delete', 'rb_sweep'}
 
 INSTRUCTIONS = (
     'Red-vs-blue jailbreak game with a real scoreboard. Red team writes attacks '
@@ -147,7 +147,8 @@ def t_fight(a):
     dfn = defmod.normalise(_load_defense(a.get('defense') or 'none'))
     rec = arena._one_match(atk, dfn, a.get('model') or models.DEFAULT,
                           a.get('judge') or 'model',
-                          int(a['timeout']) if a.get('timeout') else None)
+                          int(a['timeout']) if a.get('timeout') else None,
+                          a.get('judge_model') or None)
     return rec
 
 
@@ -163,8 +164,59 @@ def t_round(a):
                           parallel=int(a.get('parallel') or 6),
                           controls=a.get('controls', True),
                           timeout=int(a['timeout']) if a.get('timeout') else None,
-                          name=a.get('name'))
+                          name=a.get('name'),
+                          judge_model=a.get('judge_model') or None)
     return _trim_round(rec, verbose=bool(a.get('verbose')))
+
+
+def t_models(a):
+    out = catalog.listing(a.get('provider') or 'venice', q=a.get('q'),
+                          scope=a.get('scope') or 'all',
+                          sort=a.get('sort') or 'name',
+                          refresh=a.get('refresh', False),
+                          limit=int(a.get('limit') or 0))
+    if not a.get('full'):
+        # An agent needs the id, the flags and the score — not 465 blurbs.
+        out['models'] = [{k: r.get(k) for k in (
+            'model', 'name', 'online', 'private', 'free', 'price_in',
+            'price_out')} | {'safety_score': (r.get('result') or {}).get(
+                'safety_score'), 'failed': (r.get('result') or {}).get('failed')}
+            for r in out['models']]
+    return out
+
+
+def t_sweep(a):
+    """Shared by REST and MCP: resolve the corpora, then plan or run."""
+    if a.get('resume'):
+        # A resumed sweep is the same experiment — same corpus, same judge —
+        # or its second half would not be comparable with its first.
+        prev = store.get('sweep', a['resume'])
+        a = dict(a, attacks=prev.get('attacks'), defenses=prev.get('defenses'),
+                 judge=prev.get('judge'), judge_model=prev.get('judge_model'),
+                 controls=prev.get('controls', True))
+    dfns = _resolve(a.get('defenses') or 'none', 'defense')
+    atks = _resolve(a.get('attacks'), 'attack')
+    rec = sweepmod.start(
+        a.get('provider') or 'venice', atks, [defmod.normalise(d) for d in dfns],
+        models_=a.get('models'), q=a.get('q'), scope=a.get('scope') or 'all',
+        judge=a.get('judge') or 'heuristic',
+        judge_model=a.get('judge_model') or None,
+        parallel=int(a.get('parallel') or 6),
+        models_parallel=int(a.get('models_parallel') or 2),
+        controls=a.get('controls', True),
+        timeout=int(a['timeout']) if a.get('timeout') else None,
+        limit=int(a.get('limit') or 0),
+        online_only=a.get('online_only', True),
+        dry_run=sweepmod._flag(a.get('dry_run', False)),
+        background=sweepmod._flag(a.get('background', True)),
+        resume=a.get('resume') or None)
+    return rec
+
+
+def t_sweeps(a):
+    if a.get('id'):
+        return sweepmod.get(a['id'])
+    return sweepmod.listing(int(a.get('limit') or 20), provider=a.get('provider'))
 
 
 def t_rounds(a):
@@ -299,6 +351,7 @@ TOOLS = {
             'model': _str('Target model, e.g. claude:haiku, mock:naive, '
                           'openrouter:<slug> (default claude:haiku)'),
             'judge': _str('model (default) or heuristic (offline)'),
+            'judge_model': _str('Grade with this model instead of the target'),
             'timeout': _num('Per-call timeout in seconds')},
             'required': ['attack']},
         'handler': t_fight,
@@ -341,10 +394,63 @@ TOOLS = {
     },
     'rb_targets': {
         'description': 'Which model backends can run right now (claude CLI, '
-                       'openrouter, anthropic, openai, mock) and how to enable '
-                       'the rest.',
+                       'openrouter, venice, anthropic, openai, mock) and how to '
+                       'enable the rest.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': t_targets,
+    },
+    'rb_models': {
+        'description': 'Every chat model a provider serves (venice, openrouter, '
+                       'or mock for offline), joined with its latest safety '
+                       'score. stats counts the whole catalog: models, online, '
+                       'private, free, tested, untested. Listing needs no key.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'provider': _str('venice (default) | openrouter | mock'),
+            'q': _str('Search terms (all must match id/name/description)'),
+            'scope': _str('all | tested | untested | online | private | free | '
+                          'failed'),
+            'sort': _str('name (default) | safety | price'),
+            'limit': _num('Rows to return (0 = all)'),
+            'refresh': _bool('Refetch the catalog instead of the 6h cache'),
+            'full': _bool('Include descriptions and full result records')}},
+        'handler': t_models,
+    },
+    'rb_sweep': {
+        'description': 'Run the same round against EVERY model in a provider '
+                       'catalog view (provider + q + scope, or an explicit '
+                       'models list) and rank them. Default defense is `none` '
+                       '(the bare model) and judge is heuristic. Always call '
+                       'with dry_run=true first: it returns the model list and '
+                       'the model-call estimate without spending anything. '
+                       'Runs in the background; poll rb_sweeps id=.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'provider': _str('venice | openrouter | mock'),
+            'q': _str('Narrow the catalog by search'),
+            'scope': _str('all | untested | free | private | … (default all)'),
+            'models': _str('Comma-separated model ids — overrides q/scope'),
+            'limit': _num('At most this many models (0 = all)'),
+            'attacks': _str('Comma-separated attack ids (default all)'),
+            'defenses': _str('Comma-separated defense ids (default none)'),
+            'judge': _str('heuristic (default, free) or model'),
+            'judge_model': _str('Grade with this model instead of the target, '
+                                'e.g. openrouter:openai/gpt-4o-mini'),
+            'parallel': _num('Matches in flight per model (default 6)'),
+            'models_parallel': _num('Models in flight at once (default 2)'),
+            'controls': _bool('Run the benign controls (default true)'),
+            'online_only': _bool('Skip models the provider marks offline '
+                                 '(default true)'),
+            'dry_run': _bool('Plan only: list + call estimate, spend nothing'),
+            'resume': _str('A sweep id — re-run the models it never finished')}},
+        'handler': t_sweep,
+    },
+    'rb_sweeps': {
+        'description': 'Sweep history, or one sweep live (id=) with per-model '
+                       'status and the ranking so far.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _str('A sweep id'),
+            'provider': _str('Filter history by provider'),
+            'limit': _num('How many (default 20)')}},
+        'handler': t_sweeps,
     },
     'rb_delete': {
         'description': 'Delete an attack or a defense (kind=attack|defense). '
@@ -396,8 +502,12 @@ def info():
                     'output rules; any stage can end the turn, and the record '
                     'says which did',
         'targets': 'model= chooses the backend: claude:haiku (default, keyless), '
-                   'openrouter:<slug>, anthropic:<model>, openai:<model>, or '
-                   'mock:naive|strict|compliant (offline, known score)',
+                   'openrouter:<slug>, venice:<id>, anthropic:<model>, '
+                   'openai:<model>, or mock:naive|strict|compliant (offline, '
+                   'known score)',
+        'sweeps': 'rb_models lists every model a provider serves; rb_sweep '
+                  'fires the same round at all of them (dry_run first) and '
+                  'ranks the models',
         'tools': sorted(TOOLS),
         'builtin_defenses': ['none', 'prompt-only', 'filtered', 'layered'],
         'state': store.DIR,
@@ -436,7 +546,7 @@ def _call(id_, params):
             'structuredContent': out if isinstance(out, dict) else None,
             'isError': False})
     except (store.StoreError, defmod.DefenseError, arena.ArenaError,
-            models.ModelError) as e:
+            models.ModelError, catalog.CatalogError, sweepmod.SweepError) as e:
         return _result(id_, {'content': [{'type': 'text',
                                           'text': json.dumps({'error': str(e)})}],
                              'isError': True})

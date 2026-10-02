@@ -5,7 +5,8 @@ Which one runs is decided by the model string, so an attack, a defense and a
 round are all portable: they name a model, not a provider.
 
     claude:haiku            the local Claude Code CLI, headless. No API key.
-    openrouter:<slug>       BYOK, ~/.mod/openrouter/key or OPENROUTER_API_KEY
+    openrouter:<slug>       BYOK, ~/.mod/redblue/openrouter.key or OPENROUTER_API_KEY
+    venice:<id>             BYOK, ~/.mod/redblue/venice.key or VENICE_API_KEY
     anthropic:<model>       ANTHROPIC_API_KEY
     openai:<model>          OPENAI_API_KEY
     mock:<behaviour>        deterministic, offline, no network
@@ -31,6 +32,8 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
+
+STATE = os.environ.get('RB_DIR', os.path.expanduser('~/.mod/redblue'))
 
 DEFAULT = os.environ.get('RB_MODEL', 'claude:haiku')
 JUDGE_MODEL = os.environ.get('RB_JUDGE_MODEL', DEFAULT)
@@ -66,17 +69,55 @@ def providers():
                      'keyless': True,
                      'note': 'binary on PATH — ping it to prove the login has '
                              'not expired'}
-    for name, env, files in (
-            ('openrouter', 'OPENROUTER_API_KEY', ['~/.mod/openrouter/key']),
-            ('anthropic', 'ANTHROPIC_API_KEY', ['~/.mod/redblue/anthropic.key']),
-            ('openai', 'OPENAI_API_KEY', ['~/.mod/redblue/openai.key'])):
+    for name, (env, files) in KEYS.items():
         key = _key(env, files)
         out[name] = {'ready': bool(key), 'keyless': False,
                      'how': f'{env} is set' if key else
-                            f'set {env} or write {files[0]}'}
+                            f'set {env}, write {files[0]} or POST /keys'}
     out['mock'] = {'ready': True, 'keyless': True,
                    'how': 'offline, deterministic — for testing the harness'}
     return out
+
+
+# Where each BYOK backend looks for its key, in order. The first file is the
+# one `set_key` writes — redblue's own state dir, 0600, never the repo. The
+# later ones are the sibling modules' key files, so a key the operator already
+# gave the openrouter or venice module works here without being pasted twice.
+KEYS = {
+    'openrouter': ('OPENROUTER_API_KEY', [f'{STATE}/openrouter.key',
+                                          '~/.mod/openrouter/key',
+                                          '~/.mod/openrouter/key.json']),
+    'venice': ('VENICE_API_KEY', [f'{STATE}/venice.key', '~/.mod/venice/key']),
+    'anthropic': ('ANTHROPIC_API_KEY', [f'{STATE}/anthropic.key']),
+    'openai': ('OPENAI_API_KEY', [f'{STATE}/openai.key']),
+}
+
+
+def set_key(provider, key):
+    """Save a BYOK key for one backend. Local file, 0600; never echoed back.
+
+    An empty key deletes the saved one, so the console has a way to forget it.
+    """
+    provider = str(provider or '').lower()
+    if provider not in KEYS:
+        raise ModelError(f'no keyed backend {provider!r} — one of {", ".join(KEYS)}')
+    path = os.path.expanduser(KEYS[provider][1][0])
+    key = str(key or '').strip()
+    if not key:
+        if os.path.isfile(path):
+            os.remove(path)
+        return {'provider': provider, 'saved': False, 'ready': has_key(provider)}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        f.write(key)
+    return {'provider': provider, 'saved': True, 'ready': True}
+
+
+def has_key(provider):
+    if provider not in KEYS:
+        return provider in ('claude', 'mock')
+    return bool(_key(*KEYS[provider]))
 
 
 def _which(binary):
@@ -92,10 +133,16 @@ def _key(env, files):
         try:
             with open(os.path.expanduser(f)) as fh:
                 v = fh.read().strip()
-                if v:
-                    return v
         except Exception:
             continue
+        if v.startswith('{'):
+            try:
+                d = json.loads(v)
+                v = str(d.get('key') or d.get('api_key') or '').strip()
+            except Exception:
+                v = ''
+        if v:
+            return v
     return None
 
 
@@ -109,8 +156,8 @@ def complete(messages, system=None, model=None, max_tokens=None, timeout=None):
     provider, name = split(model)
     max_tokens = int(max_tokens or MAX_TOKENS)
     timeout = int(timeout or TIMEOUT)
-    fn = {'claude': _claude, 'openrouter': _openrouter, 'anthropic': _anthropic,
-          'openai': _openai, 'mock': _mock}.get(provider)
+    fn = {'claude': _claude, 'openrouter': _openrouter, 'venice': _venice,
+          'anthropic': _anthropic, 'openai': _openai, 'mock': _mock}.get(provider)
     if fn is None:
         raise ModelError(f'no backend {provider!r} — one of '
                          f'{", ".join(providers())}. Models are "provider:name".')
@@ -187,10 +234,10 @@ def _chat_payload(messages, system, name, max_tokens):
 
 
 def _openrouter(messages, system, name, max_tokens, timeout):
-    key = _key('OPENROUTER_API_KEY', ['~/.mod/openrouter/key'])
+    key = _key(*KEYS['openrouter'])
     if not key:
-        raise ModelError('no OpenRouter key — set OPENROUTER_API_KEY or write '
-                         '~/.mod/openrouter/key')
+        raise ModelError('no OpenRouter key — set OPENROUTER_API_KEY or save '
+                         'one with POST /keys')
     d = _post('https://openrouter.ai/api/v1/chat/completions',
               _chat_payload(messages, system, name or 'openai/gpt-4o-mini',
                             max_tokens),
@@ -199,8 +246,30 @@ def _openrouter(messages, system, name, max_tokens, timeout):
     return _pick_chat(d)
 
 
+def _venice(messages, system, name, max_tokens, timeout):
+    """Venice, OpenAI-shaped. Two parameters are not optional here.
+
+    include_venice_system_prompt=False — Venice prepends its OWN system prompt
+    by default, so without this the score would be Venice's house prompt plus
+    the defense, not the model plus the defense. strip_thinking_response — a
+    reasoning model's <think> block is not the answer, and a judge reading
+    "I should refuse… but" inside it would score the deliberation.
+    """
+    key = _key(*KEYS['venice'])
+    if not key:
+        raise ModelError('no Venice key — set VENICE_API_KEY or save one with '
+                         'POST /keys')
+    payload = _chat_payload(messages, system, name or 'venice-uncensored',
+                            max_tokens)
+    payload['venice_parameters'] = {'include_venice_system_prompt': False,
+                                    'strip_thinking_response': True}
+    d = _post('https://api.venice.ai/api/v1/chat/completions', payload,
+              {'authorization': f'Bearer {key}'}, timeout)
+    return _pick_chat(d)
+
+
 def _openai(messages, system, name, max_tokens, timeout):
-    key = _key('OPENAI_API_KEY', ['~/.mod/redblue/openai.key'])
+    key = _key(*KEYS['openai'])
     if not key:
         raise ModelError('no OpenAI key — set OPENAI_API_KEY')
     d = _post('https://api.openai.com/v1/chat/completions',
@@ -209,15 +278,21 @@ def _openai(messages, system, name, max_tokens, timeout):
     return _pick_chat(d)
 
 
+THINK = re.compile(r'<think>.*?</think>\s*', re.S | re.I)
+
+
 def _pick_chat(d):
     try:
-        return (d['choices'][0]['message'].get('content') or '').strip()
+        text = d['choices'][0]['message'].get('content') or ''
     except Exception:
         raise ModelError(f'unreadable completion: {json.dumps(d)[:300]}')
+    # Reasoning models on either gateway can inline their deliberation; only
+    # the answer is what the target said.
+    return THINK.sub('', text).strip()
 
 
 def _anthropic(messages, system, name, max_tokens, timeout):
-    key = _key('ANTHROPIC_API_KEY', ['~/.mod/redblue/anthropic.key'])
+    key = _key(*KEYS['anthropic'])
     if not key:
         raise ModelError('no Anthropic key — set ANTHROPIC_API_KEY')
     payload = {'model': name or 'claude-haiku-4-5-20251001',

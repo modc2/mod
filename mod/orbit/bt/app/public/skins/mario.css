@@ -628,6 +628,8 @@ html[data-theme="dark"] .msg.you .bub { color: #241c00; }
 .chat-status { font-family: var(--pixel); font-size: 8px; color: var(--ink3); line-height: 1.8; }
 .chat-foot { font-family: var(--pixel); font-size: 8px; color: var(--ink3); line-height: 1.8; }
 .chat-err { color: var(--bad); font-size: 13.5px; }
+.chat-signin { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.chat-signin a { text-decoration: none; }
 .chat-form { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }
 .chat-form textarea {
   flex: 1; font-family: inherit; font-size: 14.5px; line-height: 1.5;

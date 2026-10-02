@@ -1,0 +1,38 @@
+{
+  "name": "sn49",
+  "version": "1.0.0",
+  "description": "SN49 Nepher Robotics — Pioneering Simulation-First Robotics Development. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ר",
+  "chain": "bittensor",
+  "netuid": 49,
+  "subnet": "Nepher Robotics",
+  "symbol": "ר",
+  "owner": "5FL781vfkLNnYBUi58JnhZ3r2waHDMiehxRhzcMaMWvKDfXf",
+  "github": "https://github.com/nepher-ai/nepher-subnet",
+  "url": "https://www.nepher.ai/",
+  "discord": "https://discord.gg/qZUc3vdjVq",
+  "logo": "https://avatars.githubusercontent.com/u/243286101?s=200&v=4",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=49",
+    "news": "/bt/news?netuid=49"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

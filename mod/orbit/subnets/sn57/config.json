@@ -1,0 +1,38 @@
+{
+  "name": "sn57",
+  "version": "1.0.0",
+  "description": "SN57 gaia — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ح",
+  "chain": "bittensor",
+  "netuid": 57,
+  "subnet": "gaia",
+  "symbol": "ح",
+  "owner": "5HdpnCSYczg52ZaiBKmgwJPFnVpyyu27o1GHgLcj8217xxr7",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=57",
+    "news": "/bt/news?netuid=57"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

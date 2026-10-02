@@ -1,0 +1,165 @@
+{
+  "netuid": 22,
+  "name": "Desearch",
+  "symbol": "χ",
+  "owner": "5DFuaMasyQtPhXcsuoYEyJmCVSRtzKxsTKFTA4SrpcGXBxJn",
+  "description": "Decentralized search engine",
+  "github": "https://github.com/datura-ai/desearch",
+  "url": "https://desearch.ai",
+  "discord": "https://discord.gg/P44zrJmdFy",
+  "logo": "https://desearch.ai/assets/logo-icon-C18R0lAC.png",
+  "registered_at": 2009702,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.002946844,
+    "moving_price": 0.0029591836500912905,
+    "market_cap": 18206.685085973757,
+    "tao_in": 7450.369075479,
+    "alpha_in": 2528253.706734171,
+    "alpha_out": 3650113.755531817,
+    "volume": 272561.176194302,
+    "vol_24h": 498.2562054590089,
+    "emission": 0.0,
+    "change_1h": -0.2592314172637389,
+    "change_24h": -0.23052809520955897,
+    "change_7d": -1.446442820861149
+  },
+  "spark_24h": [
+    0.002953646,
+    0.002953668,
+    0.002953674,
+    0.002996891,
+    0.003017176,
+    0.003001419,
+    0.003001446,
+    0.003001491,
+    0.003001531,
+    0.003001988,
+    0.003001994,
+    0.003013937,
+    0.003013935,
+    0.003013948,
+    0.00301399,
+    0.00296599,
+    0.002965988,
+    0.002965986,
+    0.002965993,
+    0.002962041,
+    0.002962041,
+    0.002962047,
+    0.002962054,
+    0.002962054,
+    0.00296205,
+    0.002962055,
+    0.00296206,
+    0.002962758,
+    0.002962763,
+    0.002954812,
+    0.002954817,
+    0.002954822,
+    0.002954828,
+    0.002954841,
+    0.002954835,
+    0.002954834,
+    0.002954842,
+    0.002954837,
+    0.002954833,
+    0.002954846,
+    0.002954773,
+    0.002954458,
+    0.00295457,
+    0.002954484,
+    0.002954493,
+    0.002954503,
+    0.00294684,
+    0.002946844
+  ],
+  "trades_24h": {
+    "trades": 64,
+    "buys": 24,
+    "sells": 40,
+    "buy_tao": 244.344888409,
+    "sell_tao": 252.903566663,
+    "net_tao": -8.558678254,
+    "traders": 21
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HjdRywCocBBd2PNkertftFAfD9SterMCNVg75RJSWmgLCiB",
+      "net_tao": 0.3447496340000028,
+      "gross_tao": 119.655250366,
+      "trades": 5
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": -0.10579380699999774,
+      "gross_tao": 100.105793807,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": -0.1318061660000005,
+      "gross_tao": 60.131806166000004,
+      "trades": 5
+    },
+    {
+      "coldkey": "5HeQWuhJWCw6aQNqZ8FqjEPZtiSHDq5wSSRU67mop5zqWikT",
+      "net_tao": -0.10407810099999892,
+      "gross_tao": 60.104078101,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Ge57pPLDUKApt49W9ZFDsrjEMVMD1Xsn1euc8EJVHECU6Jn",
+      "net_tao": 0.10491089199999948,
+      "gross_tao": 59.895089108,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790862027,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #380 from Desearch-ai/develop",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/a88c51d510b9f69186ee221dac0c1ae7be54e29f",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1790861992,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: update version to 0.0.232",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/7845cb041b2b647ed78a59c4f7bead01d27de0e4",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1790861991,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(validators): take an upload before waiting on its seed, so parall…",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/fbf05aa791c323b9b87e7ef3c73bd140a29ded0f",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1790861827,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #379 from Desearch-ai/develop",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/e923cf6ba3592ba0543b21d78fa1e20dac050427",
+      "publisher": "datura-ai/desearch"
+    },
+    {
+      "ts": 1790861690,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: update version to 0.0.231",
+      "url": "https://github.com/Desearch-ai/subnet-22/commit/25af053b349ff1f0196a7eb75e29de493a727e9b",
+      "publisher": "datura-ai/desearch"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

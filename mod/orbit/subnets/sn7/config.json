@@ -1,0 +1,38 @@
+{
+  "name": "sn7",
+  "version": "1.0.0",
+  "description": "SN7 Allways — universal transaction layer. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "η",
+  "chain": "bittensor",
+  "netuid": 7,
+  "subnet": "Allways",
+  "symbol": "η",
+  "owner": "5CAc19iETJmWD2rYVX1ht58ghCpyHq86MoBNdx5TzLfinzcx",
+  "github": "https://github.com/entrius/allways",
+  "url": "https://all-ways.io/",
+  "discord": " ",
+  "logo": " https://allways-905418005698-us-east-2-an.s3.us-east-2.amazonaws.com/sn7-light.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=7",
+    "news": "/bt/news?netuid=7"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

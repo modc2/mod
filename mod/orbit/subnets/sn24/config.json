@@ -1,0 +1,38 @@
+{
+  "name": "sn24",
+  "version": "1.0.0",
+  "description": "SN24 Quasar — Bittensor subnet built to crush the long-context barrier. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ω",
+  "chain": "bittensor",
+  "netuid": 24,
+  "subnet": "Quasar",
+  "symbol": "ω",
+  "owner": "5ELutYW7EdFUS38CPGkDnbwkeMrpppi6ujEC825jTP7maAuL",
+  "github": "https://github.com/SILX-LABS/QUASAR-SUBNET/",
+  "url": "https://silxinc.com/",
+  "discord": "https://discordapp.com/channels/799672011265015819/1214246819886931988",
+  "logo": "https://silxinc.com/_next/image?url=%2Flogo-white.png&w=640&q=75",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=24",
+    "news": "/bt/news?netuid=24"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -7,7 +7,7 @@ no SSE stream and nothing to keep open: a client that can send one HTTP request
 can drive all of it.
 
 The server is `arena`, protocol `2025-06-18`. It offers **tools** (the
-forty below), **resources** (these pages) and no prompts of its own —
+forty-two below), **resources** (these pages) and no prompts of its own —
 the per-module servers have those. The full tool reference at the foot of this
 page is generated from the server's own tool table every time the page is
 read, so it cannot fall behind the code.
@@ -74,6 +74,7 @@ function; the console's upload box and `put_class` are one function.
 | a repo as a game | `harvest_repo` |
 | players | `list_players`, `get_player`, `enter_player`, `remove_player` |
 | playing | `run_match`, `play_move`, `record_match` |
+| the agent protocol | `agent_board`, `agent_sync` |
 | a/b experiments | `ab_test`, `ab_report`, `ab_reports` |
 | results | `list_matches`, `get_match`, `leaderboard`, `arcade` |
 | the modules' own servers | `module_tool` |

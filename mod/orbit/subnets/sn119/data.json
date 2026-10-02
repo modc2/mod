@@ -1,0 +1,133 @@
+{
+  "netuid": 119,
+  "name": "CapabilityForge Next",
+  "symbol": "Ⲃ",
+  "owner": "5GbLENPLG8Takn1puaz5HorPmrFtDT7i2PojiJsqutbaGwWu",
+  "description": "CapabilityForge Next rewards traceable training-data improvements that measurably enhance the accuracy, reasoning, clarity, age appropriateness, and safety of learning-oriented AI through reproducible evaluation.",
+  "github": "https://github.com/capabilityforge-next/capabilityforge",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1381660350818029578",
+  "logo": "https://raw.githubusercontent.com/capabilityforge-next/capabilityforge/refs/heads/main/images/logo.png",
+  "registered_at": 5740660,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.002234284,
+    "moving_price": 0.0022338887210935354,
+    "market_cap": 6749.4511094675145,
+    "tao_in": 3052.456405253,
+    "alpha_in": 1366189.636247391,
+    "alpha_out": 1654666.758672643,
+    "volume": 73743.960614522,
+    "vol_24h": 39.893601071002195,
+    "emission": 0.0,
+    "change_1h": -0.0031776508209291343,
+    "change_24h": 0.9160786665955989,
+    "change_7d": -6.699806157364129
+  },
+  "spark_24h": [
+    0.002213983,
+    0.002213948,
+    0.002238582,
+    0.002238553,
+    0.002238501,
+    0.002238501,
+    0.0022385,
+    0.002238492,
+    0.002238491,
+    0.00223841,
+    0.002238409,
+    0.002238382,
+    0.002238378,
+    0.002238377,
+    0.002238377,
+    0.002238374,
+    0.002238369,
+    0.002238366,
+    0.002238347,
+    0.002238334,
+    0.002234839,
+    0.002234838,
+    0.002234838,
+    0.002234837,
+    0.002234818,
+    0.002234818,
+    0.002234818,
+    0.002234792,
+    0.00223479,
+    0.002234789,
+    0.002234788,
+    0.002234788,
+    0.002234781,
+    0.00223478,
+    0.002234765,
+    0.002234762,
+    0.002234762,
+    0.002234739,
+    0.002234605,
+    0.002234603,
+    0.002234591,
+    0.00223459,
+    0.002234589,
+    0.002234356,
+    0.002234355,
+    0.002234355,
+    0.002234355,
+    0.002234284
+  ],
+  "trades_24h": {
+    "trades": 9,
+    "buys": 3,
+    "sells": 6,
+    "buy_tao": 26.896584439,
+    "sell_tao": 12.514337394,
+    "net_tao": 14.382247045000002,
+    "traders": 7
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CaHYbPMfSJP7ycqrnY1Wq2o1qZXaTcbAT8W48QCshcmAEB1",
+      "net_tao": -0.008280776999999517,
+      "gross_tao": 20.008280777,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GjoDduJujeACNfPDRVBBpdEqwRRY8vAygUWjQNwwDAn5EE9",
+      "net_tao": 14.081747,
+      "gross_tao": 14.081747,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GgMXDVL3ZSnUhWzZuySXWSuBemDCCHNiLwx8RXpkKj6TkRi",
+      "net_tao": 2.814837439,
+      "gross_tao": 2.814837439,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CRykJQiznhfP6RKBpe21ihpEFG4c8c5u7oyZWnfv2cxZtct",
+      "net_tao": -2.38514501,
+      "gross_tao": 2.38514501,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Ebyse8FeC7RWT5QtTaSzUYjY1nDqxDRPxX6dmSeuM1v2TGJ",
+      "net_tao": -0.077078001,
+      "gross_tao": 0.077078001,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1788946215,
+      "kind": "commit",
+      "source": "github",
+      "title": "Initial commit",
+      "url": "https://github.com/capabilityforge-next/capabilityforge/commit/33e2ade40c368bf291d221dfe9bcd71a957d4aba",
+      "publisher": "capabilityforge-next/capabilityforge"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

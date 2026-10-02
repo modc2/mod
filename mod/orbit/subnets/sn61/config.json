@@ -1,0 +1,38 @@
+{
+  "name": "sn61",
+  "version": "1.0.0",
+  "description": "SN61 RedTeam — \"The RedTeam subnet by Innerworks is a decentralized platform designed to drive innovation in cybersecurity through competitive programming challenges. The subnet incentivizes miners to develop and submit code solutions to various technical challenges, with a focus on enhancing security. These solutions can be integrated into real-world products to improve their security features.\". Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ر",
+  "chain": "bittensor",
+  "netuid": 61,
+  "subnet": "RedTeam",
+  "symbol": "ر",
+  "owner": "5ECEsYL82fbXx9KfTZy7G2KXSurnScciJyAVMHZjekc8jUbn",
+  "github": "https://github.com/RedTeamSubnet/RedTeam",
+  "url": "https://www.theredteam.io/",
+  "discord": "https://discord.com/channels/799672011265015819/1319313447435108413",
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=61",
+    "news": "/bt/news?netuid=61"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

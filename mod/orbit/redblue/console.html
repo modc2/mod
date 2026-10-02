@@ -66,6 +66,38 @@
   .err{color:var(--red)}
   .muted{color:var(--dim)}
   .flash{color:var(--warn)}
+  /* MODELS — header strip after the hub's: counts · scope capsule · search */
+  .mstats{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;
+          font-size:15px;color:var(--dim);margin:10px 0}
+  .mstats b{color:var(--ink);font-weight:700}
+  .mstats .dot{color:#3a4756}
+  .mstats .on b,.mstats .on{color:var(--good)}
+  .mstats .pv b,.mstats .pv{color:#c4a5ff}
+  .mstats .fr b,.mstats .fr{color:var(--warn)}
+  .mstats .ts b,.mstats .ts{color:var(--blue)}
+  .seg{display:inline-flex;gap:2px;border:1px solid var(--line);border-radius:12px;
+       padding:3px;background:#0a0f15}
+  .seg button{border:1px solid transparent;border-radius:9px;background:none;
+              padding:4px 12px;color:var(--dim)}
+  .seg button.on{border-color:#2f6a5a;background:#123029;color:#e6fff6}
+  .seg button .n{margin-left:6px;padding:0 6px;border-radius:7px;
+                 background:#16202b;color:var(--dim);font-size:11px}
+  .seg button.on .n{background:#1d4a3f;color:#bff5e3}
+  .seg .kd{display:inline-block;width:7px;height:7px;border-radius:50%;
+           background:#3a4756;margin-right:6px;vertical-align:middle}
+  .seg .kd.ok{background:var(--good)}
+  .msearch{flex:1;min-width:220px;border:1px solid #3b2a63;background:#140f24;
+           border-radius:10px;padding:7px 12px;color:#e7dcff;font-size:14px}
+  .msearch::placeholder{color:#7d6aa8}
+  .flag{font-size:10.5px;padding:0 5px;border-radius:3px;margin-right:3px;
+        border:1px solid var(--line);color:var(--dim)}
+  .flag.pv{color:#c4a5ff;border-color:#3b2a63}
+  .flag.fr{color:var(--warn);border-color:#4a3a12}
+  .flag.off{color:var(--red);border-color:#4a1a1a}
+  .mname{color:var(--ink)} .mid{color:var(--dim);font-size:11px}
+  td.sc{min-width:110px}
+  .warnbox{border:1px solid #4a3a12;background:#1a1408;border-radius:4px;
+           padding:8px 10px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -74,6 +106,7 @@
   <div class="tag" id="sub">jailbreak attacks × defense pipelines, judged on two axes</div>
   <nav>
     <button data-tab="board" class="on">BOARD</button>
+    <button data-tab="models">MODELS</button>
     <button data-tab="rounds">ROUNDS</button>
     <button data-tab="attacks">RED</button>
     <button data-tab="defenses">BLUE</button>
@@ -105,6 +138,59 @@
         <h2 style="color:var(--red)">red — attacks</h2>
         <div id="red-board" class="muted">no completed rounds yet.</div>
       </div>
+    </div>
+  </section>
+
+  <!-- MODELS ------------------------------------------------------------ -->
+  <section id="models">
+    <div class="panel">
+      <div class="row">
+        <label>provider</label>
+        <div class="seg" id="m-prov"></div>
+        <span id="m-key" class="row" style="margin:0"></span>
+        <span class="muted" id="m-src" style="margin-left:auto"></span>
+      </div>
+      <div class="mstats" id="m-stats">—</div>
+      <div class="row">
+        <div class="seg" id="m-scope"></div>
+        <input class="msearch" id="m-q" placeholder="&#8981; search models" autocomplete="off">
+        <select id="m-sort"><option value="name">sort: name</option>
+          <option value="safety">sort: safety</option>
+          <option value="price">sort: price</option></select>
+        <button id="m-refresh" title="refetch the provider's list">REFETCH</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>sweep — the same round at every model in this view</h2>
+      <p class="note">Every model listed below gets the identical round: same
+        attacks, same defense, same controls, same judge, so the scores compare
+        across labs. Defense <b>none</b> scores the bare model. Nothing is spent
+        until you confirm the estimate.</p>
+      <div class="row">
+        <label>defense</label><select id="s-def"></select>
+        <label>judge</label>
+        <select id="s-judge"><option value="heuristic">heuristic (free)</option>
+          <option value="model">model</option></select>
+        <input type="text" id="s-jm" placeholder="judge model (default: the target)" size="30">
+        <label>parallel</label><input type="text" class="sm" id="s-par" value="6">
+        <label>models at once</label><input type="text" class="sm" id="s-mpar" value="2">
+        <label>max</label><input type="text" class="sm" id="s-lim" value="0" title="0 = every model in the view">
+      </div>
+      <div class="row">
+        <button class="go" id="s-plan">SWEEP</button>
+        <span id="s-confirm"></span>
+        <span id="s-status" class="flash"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div id="m-list" class="muted">loading…</div>
+    </div>
+
+    <div class="panel">
+      <h2>sweeps</h2>
+      <div id="s-list" class="muted">—</div>
     </div>
   </section>
 
@@ -239,7 +325,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('section').forEach(x => x.classList.remove('on'));
   b.classList.add('on');
   $('#' + b.dataset.tab).classList.add('on');
-  ({board: loadBoard, rounds: loadRounds, attacks: loadAttacks,
+  ({board: loadBoard, models: loadModels, rounds: loadRounds, attacks: loadAttacks,
     defenses: loadDefenses, fight: loadPickers, about: loadAbout}[b.dataset.tab])();
 });
 
@@ -349,6 +435,208 @@ async function poll(id, total) {
   await loadRounds();
   if (r.status === 'running') { setTimeout(() => poll(id, total), 1500); }
   else { showRound(id); loadBoard(); }
+}
+
+// ── models ─────────────────────────────────────────────────────
+// One view of a provider's whole catalog; the sweep runs exactly this view,
+// so what you see filtered is what gets spent on.
+const LS = 'redblue:models';
+const MS = Object.assign({provider: 'venice', scope: 'all', q: '', sort: 'name'},
+  JSON.parse(localStorage.getItem(LS) || '{}'));
+const saveMS = () => localStorage.setItem(LS, JSON.stringify(MS));
+const PROVIDERS = ['venice', 'openrouter', 'mock'];
+const SCOPES = [['all', 'models'], ['tested', 'tested'], ['untested', 'untested'],
+                ['free', 'free'], ['private', 'private']];
+let mCat = null, mKeys = {}, mSweep = null, mTimer = null;
+const fmt = n => Number(n || 0).toLocaleString();
+const usd = v => v == null ? '—' : v === 0 ? 'free' : '$' + (v < 1 ? v.toFixed(2) : v.toFixed(1));
+
+function drawProviders() {
+  $('#m-prov').innerHTML = PROVIDERS.map(p => `<button data-p="${p}"
+    class="${p === MS.provider ? 'on' : ''}"><span class="kd ${
+      p === 'mock' || mKeys[p] ? 'ok' : ''}"></span>${p}</button>`).join('');
+  document.querySelectorAll('#m-prov button').forEach(b => b.onclick = () => {
+    MS.provider = b.dataset.p; MS.scope = 'all'; MS.q = ''; saveMS(); viewChanged(); });
+  const p = MS.provider;
+  $('#m-key').innerHTML = p === 'mock' ? '<span class="muted">offline, no key</span>'
+    : mKeys[p] ? `<span class="pill" style="color:var(--good)">key saved</span>
+        <button id="k-forget">forget</button>`
+    : `<input type="password" id="k-val" placeholder="${p} api key (to sweep)" size="26" title="browsing needs no key; running a sweep does. Stored 0600 on this box, never sent anywhere but ${p}.">
+       <button class="go" id="k-save">SAVE KEY</button>`;
+  if ($('#k-save')) $('#k-save').onclick = () => saveKey($('#k-val').value);
+  if ($('#k-forget')) $('#k-forget').onclick = () => saveKey('');
+}
+
+async function saveKey(key) {
+  try {
+    await post('/keys', {provider: MS.provider, key: key.trim()});
+    mKeys = (await api('/keys')).keys; drawProviders();
+  } catch (e) { $('#m-key').insertAdjacentHTML('beforeend',
+    ' <span class="err">' + esc(e.message) + '</span>'); }
+}
+
+async function loadModels(refresh) {
+  if (!Object.keys(mKeys).length) mKeys = (await api('/keys').catch(() => ({keys: {}}))).keys;
+  drawProviders();
+  $('#m-q').value = MS.q; $('#m-sort').value = MS.sort;
+  const qs = new URLSearchParams({provider: MS.provider, scope: MS.scope,
+    q: MS.q, sort: MS.sort});
+  if (refresh) qs.set('refresh', '1');
+  try { mCat = await api('/catalog?' + qs); }
+  catch (e) { $('#m-list').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; return; }
+  const st = mCat.stats;
+  $('#m-stats').innerHTML = `<span><b>${fmt(st.models)}</b> models</span><span class="dot">•</span>
+    <span class="on"><b>${fmt(st.online)}</b> online</span><span class="dot">•</span>
+    ${MS.provider === 'openrouter' ? '' : `<span class="pv"><b>${fmt(st.private)}</b> private</span><span class="dot">•</span>`}
+    <span class="fr"><b>${fmt(st.free)}</b> free</span><span class="dot">•</span>
+    <span class="ts"><b>${fmt(st.tested)}</b> tested</span>
+    ${st.failed ? `<span class="dot">•</span><span class="err"><b>${st.failed}</b> failed</span>` : ''}`;
+  const count = {all: st.models, tested: st.tested, untested: st.untested,
+                 free: st.free, private: st.private};
+  $('#m-scope').innerHTML = SCOPES.filter(([k]) =>
+      !(k === 'private' && MS.provider === 'openrouter')).map(([k]) =>
+    `<button data-s="${k}" class="${k === MS.scope ? 'on' : ''}">${k}<span class="n">${fmt(count[k])}</span></button>`).join('');
+  document.querySelectorAll('#m-scope button').forEach(b => b.onclick = () => {
+    MS.scope = b.dataset.s; saveMS(); viewChanged(); });
+  $('#m-src').textContent = (mCat.source || '') + (mCat.fetched
+    ? ' · ' + new Date(mCat.fetched * 1000).toLocaleTimeString() : '') +
+    (mCat.error ? ' · offline: ' + mCat.error.slice(0, 60) : '');
+  $('#s-plan').textContent = `SWEEP ${fmt(mCat.models.filter(m => m.online).length)} MODELS`;
+  drawModelTable();
+  if (!$('#s-def').options.length) {
+    const {defenses} = await api('/defenses');
+    $('#s-def').innerHTML = defenses.map(d =>
+      `<option value="${esc(d.id)}">${esc(d.id)}</option>`).join('');
+  }
+  loadSweeps();
+}
+
+function drawModelTable() {
+  const rows = mCat.models;
+  if (!rows.length) { $('#m-list').innerHTML = '<span class="muted">nothing matches.</span>'; return; }
+  const live = {};
+  (mSweep && mSweep.models || []).forEach(e => live[e.model] = e.status);
+  $('#m-list').innerHTML = `<table>
+    <tr><th>model</th><th></th><th class="num">ctx</th><th class="num">$/M in · out</th>
+      <th>safety</th><th class="num">refusal</th><th class="num">over-refusal</th>
+      <th>tested</th><th></th></tr>
+    ${rows.map(m => { const r = m.result;
+      const sc = r && !r.failed ? r.safety_score : null;
+      const col = sc == null ? '#3a4756' : sc >= .6 ? 'var(--good)' : sc >= .3 ? 'var(--warn)' : 'var(--red)';
+      return `<tr><td><div class="mname">${esc(m.name)}</div><div class="mid">${esc(m.id)}</div></td>
+      <td>${m.online ? '' : '<span class="flag off">offline</span>'}${
+        m.private ? '<span class="flag pv">private</span>' : ''}${
+        m.free ? '<span class="flag fr">free</span>' : ''}${
+        m.reasoning ? '<span class="flag">reasons</span>' : ''}</td>
+      <td class="num muted">${m.context ? Math.round(m.context / 1000) + 'k' : '—'}</td>
+      <td class="num muted">${usd(m.price_in)} · ${usd(m.price_out)}</td>
+      <td class="sc">${sc == null ? (r && r.failed
+          ? `<span class="err" title="${esc(r.round)}">failed</span>` : '<span class="muted">—</span>')
+        : `${sc.toFixed(2)}${r.bare ? '' : ' <span class="muted">(' + esc(r.defense) + ')</span>'}
+           <div class="bar"><i style="width:${Math.max(0, sc) * 100}%;background:${col}"></i></div>`}</td>
+      <td class="num">${r && !r.failed ? pct(r.refusal_rate) : '—'}</td>
+      <td class="num">${r && !r.failed ? pct(r.over_refusal) : '—'}</td>
+      <td class="muted">${live[m.model] && live[m.model] !== 'done'
+          ? `<span class="flash">${esc(live[m.model])}</span>`
+          : r ? `<a href="#" data-round="${esc(r.round)}">${new Date(r.at * 1000).toLocaleDateString()}</a>` : ''}</td>
+      <td><button data-one="${esc(m.model)}" title="sweep just this model">TEST</button></td></tr>`;
+    }).join('')}</table>
+    <p class="note" style="margin-top:8px">showing ${fmt(rows.length)} of ${fmt(mCat.stats.models)}</p>`;
+  document.querySelectorAll('#m-list a[data-round]').forEach(a => a.onclick = ev => {
+    ev.preventDefault(); document.querySelector('nav button[data-tab=rounds]').click();
+    showRound(a.dataset.round); });
+  document.querySelectorAll('#m-list button[data-one]').forEach(b =>
+    b.onclick = () => plan([b.dataset.one]));
+}
+
+// A plan is only good for the view it was made from — any change to the view
+// drops it, so CONFIRM can never spend on a list that is no longer on screen.
+function viewChanged() { $('#s-confirm').innerHTML = ''; loadModels(); }
+let mDeb;
+$('#m-q').oninput = () => { clearTimeout(mDeb); mDeb = setTimeout(() => {
+  MS.q = $('#m-q').value.trim(); saveMS(); viewChanged(); }, 250); };
+$('#m-sort').onchange = () => { MS.sort = $('#m-sort').value; saveMS(); loadModels(); };
+$('#m-refresh').onclick = () => loadModels(true);
+$('#s-plan').onclick = () => plan(null);
+['#s-def', '#s-judge', '#s-lim'].forEach(id =>
+  $(id).addEventListener('change', () => $('#s-confirm').innerHTML = ''));
+
+function sweepBody(models, dry) {
+  return {provider: MS.provider, q: MS.q, scope: MS.scope, models,
+    defenses: $('#s-def').value || 'none', judge: $('#s-judge').value,
+    judge_model: $('#s-jm').value.trim() || null,
+    parallel: Number($('#s-par').value) || 6,
+    models_parallel: Number($('#s-mpar').value) || 2,
+    limit: Number($('#s-lim').value) || 0, dry_run: dry, background: true};
+}
+
+// Two steps, inline: the first press only plans (dry_run) and shows what it
+// will cost; the second spends. No native confirm() — it blocks the tab.
+async function plan(models) {
+  $('#s-confirm').innerHTML = ''; $('#s-status').textContent = 'planning…';
+  try {
+    const p = await post('/sweep', sweepBody(models, true));
+    $('#s-status').textContent = '';
+    const e = p.estimate;
+    const keyless = MS.provider !== 'mock' && !mKeys[MS.provider];
+    $('#s-confirm').innerHTML = `<span class="warnbox">${fmt(e.models)} model${
+      e.models === 1 ? '' : 's'} × ${e.matches_per_model} matches ≈ <b>${fmt(e.calls)}</b> model calls${
+      keyless ? ` — <span class="err">save a ${esc(MS.provider)} key first</span>` : ''}
+      <button class="go" id="s-go" ${keyless ? 'disabled' : ''}>CONFIRM</button>
+      <button id="s-cancel">cancel</button></span>`;
+    $('#s-cancel').onclick = () => $('#s-confirm').innerHTML = '';
+    $('#s-go').onclick = () => go(models);
+  } catch (e) { $('#s-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+}
+
+async function go(models) {
+  $('#s-confirm').innerHTML = '';
+  try {
+    const s = await post('/sweep', sweepBody(models, false));
+    watchSweep(s.id);
+  } catch (e) { $('#s-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+}
+
+async function watchSweep(id) {
+  clearTimeout(mTimer);
+  const s = await api('/sweeps?id=' + encodeURIComponent(id)).catch(() => null);
+  if (!s) return;
+  mSweep = s;
+  const running = s.status === 'running';
+  $('#s-status').innerHTML = `${esc(s.id)} — ${s.done}/${s.total} models ${esc(s.status)}${
+    s.failed ? ` · <span class="err">${s.failed} failed</span>` : ''}${
+    s.error ? ` · <span class="err">${esc(s.error)}</span>` : ''}${
+    running ? ' <button id="s-stop">STOP</button>' : ''}`;
+  if ($('#s-stop')) $('#s-stop').onclick = () => post('/sweep/stop', {id});
+  if ($('#models').classList.contains('on')) await loadModels();
+  if (running) mTimer = setTimeout(() => watchSweep(id), 2500);
+}
+
+async function loadSweeps() {
+  const {sweeps} = await api('/sweeps?limit=12');
+  $('#s-list').innerHTML = sweeps.length ? `<table>
+    <tr><th>sweep</th><th>provider</th><th>status</th><th class="num">models</th>
+      <th>view</th><th>defense</th><th>safest</th><th></th></tr>
+    ${sweeps.map(s => `<tr><td>${esc(s.id)}</td><td>${esc(s.provider)}</td>
+      <td>${s.status === 'done' ? 'done' : `<span class="flash">${esc(s.status)}</span>`}</td>
+      <td class="num">${s.done}/${s.total}${s.failed ? ` <span class="err">(${s.failed}✕)</span>` : ''}</td>
+      <td class="muted">${esc(s.scope)}${s.q ? ' · "' + esc(s.q) + '"' : ''}</td>
+      <td class="muted">${esc((s.defenses || []).join(','))}</td>
+      <td>${s.leader ? esc(s.leader.model) + ' · ' + (s.leader.safety_score || 0).toFixed(2) : '—'}</td>
+      <td>${s.status === 'running' ? `<button data-watch="${esc(s.id)}">watch</button>`
+        : ['interrupted', 'stopped', 'error'].includes(s.status)
+          ? `<button data-resume="${esc(s.id)}">resume</button>` : ''}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no sweeps yet.</span>';
+  document.querySelectorAll('#s-list button[data-watch]').forEach(b =>
+    b.onclick = () => watchSweep(b.dataset.watch));
+  document.querySelectorAll('#s-list button[data-resume]').forEach(b =>
+    b.onclick = async () => {
+      try { const s = await post('/sweep', {resume: b.dataset.resume,
+        judge: $('#s-judge').value, background: true}); watchSweep(s.id); }
+      catch (e) { $('#s-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+    });
+  const live = sweeps.find(s => s.status === 'running');
+  if (live && (!mSweep || mSweep.id !== live.id)) watchSweep(live.id);
 }
 
 // ── corpora ────────────────────────────────────────────────────

@@ -1,0 +1,149 @@
+{
+  "netuid": 50,
+  "name": "Synth",
+  "symbol": "ש",
+  "owner": "5DxyiWpGqN5xXiczXcEGph51BcgTqcYKD5GKZqoACuc2sJkD",
+  "description": "Predictive intelligence for financial markets and beyond",
+  "github": "https://github.com/mode-network/synth-subnet",
+  "url": "https://synthdata.co",
+  "discord": null,
+  "logo": "https://taostats.io/images/subnets/50.webp?w=96&q=75",
+  "registered_at": 4763204,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.004004552,
+    "moving_price": 0.003996729152277112,
+    "market_cap": 23474.34848226406,
+    "tao_in": 10201.155485084,
+    "alpha_in": 2547389.480848786,
+    "alpha_out": 3314526.779013507,
+    "volume": 1232845.693158292,
+    "vol_24h": 297.80328698293306,
+    "emission": 0.0,
+    "change_1h": 0.07139474647617217,
+    "change_24h": 1.1550649498272891,
+    "change_7d": 0.8831347858770933
+  },
+  "spark_24h": [
+    0.003958815,
+    0.003965811,
+    0.003958248,
+    0.00395823,
+    0.003961874,
+    0.003974218,
+    0.003973595,
+    0.003984544,
+    0.003984473,
+    0.003984425,
+    0.00398415,
+    0.003984134,
+    0.003984114,
+    0.003984019,
+    0.003987637,
+    0.003986589,
+    0.003986606,
+    0.00398613,
+    0.003985812,
+    0.003981559,
+    0.003981559,
+    0.003981541,
+    0.003981541,
+    0.004012905,
+    0.004012894,
+    0.004011472,
+    0.004011294,
+    0.00401052,
+    0.004010516,
+    0.004010515,
+    0.004009551,
+    0.004009551,
+    0.004009484,
+    0.004009484,
+    0.004009475,
+    0.004009467,
+    0.004009389,
+    0.004009368,
+    0.003998792,
+    0.003994883,
+    0.003994876,
+    0.003994163,
+    0.003997286,
+    0.003997154,
+    0.003998008,
+    0.003998007,
+    0.004001695,
+    0.004004552
+  ],
+  "trades_24h": {
+    "trades": 93,
+    "buys": 19,
+    "sells": 74,
+    "buy_tao": 176.54091418,
+    "sell_tao": 118.928003225,
+    "net_tao": 57.61291095499999,
+    "traders": 69
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": 0.030160747000000043,
+      "gross_tao": 59.969839253,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D7VZAtf48QjnCfUNMdTxAsg2TrzVs31eUg3RSAQ5WnR8dry",
+      "net_tao": 0.016910830000000487,
+      "gross_tao": 33.98308917,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HVZzrYNvcjtapJNR9teCY9oHEHy4EvgKaVR2EHCV6ByQ9ay",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FnGsoZGVFe3Xh4PxFat3kpb5VmXCKTTbahgdrDFFHuvbBDR",
+      "net_tao": 0.007462684000000053,
+      "gross_tao": 29.676216004,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HKjAKbm5ZhexBrGC4wCYPusf3rQge9ZucqZLbQ7kLAatKfQ",
+      "net_tao": 25.0,
+      "gross_tao": 25.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790082512,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.13.0",
+      "url": "https://github.com/synthdataco/synth-subnet/releases/tag/v1.13.0",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1789401779,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator): add a volatility CRPS term to the crypto-1h score (#…",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/2cfb24b29b745c37a143984e3e86e6c54f342293",
+      "publisher": "mode-network/synth-subnet"
+    },
+    {
+      "ts": 1788426096,
+      "kind": "commit",
+      "source": "github",
+      "title": "base miner: gzip-compress axon responses (#319)",
+      "url": "https://github.com/synthdataco/synth-subnet/commit/a91a1f044f620d277cfa87eeb3b02d91ea79ad78",
+      "publisher": "mode-network/synth-subnet"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

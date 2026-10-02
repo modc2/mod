@@ -17,7 +17,7 @@ $ m arena/play game=ttt players=lfm,perfect
 | `class` | a stored class defining `play` | a python process, from the runner | `{module}` |
 | `wasm` | a stored module exporting `play` | the browser or the runner | `{module}` |
 | `model` | any OpenAI-compatible `/chat/completions` | the server (it holds the key) | `{model, base?, key?, system?, temperature?}` |
-| `agent_mod` | an agent in this fleet's `agent` module | the server | `{agent, base?, prompt?}` |
+| `agent_mod` | an agent of the [agent protocol](#docs/player) | the server | `{agent, model?, provider?, prompt?, toolbox?, steps?, free?, base?}` |
 | `mcp` | a tool on any MCP server the arena can reach | the server | `{server\|module\|url, tool?, arg?}` |
 | `http` | your endpoint, posted a view, answering a move | the server | `{url, field?}` |
 | `human` | you, in the console | the tab | — |
@@ -35,6 +35,31 @@ any other OpenAI-compatible endpoint, but nothing defaults to one.
 Keys are read from `~/.mod/arena/keys.json` or the environment, never from
 anything committed, and a player's config comes back **redacted** from every
 endpoint that serves it.
+
+## Agents of the agent protocol
+
+An `agent_mod` seat is an agent of this fleet's `agent` module, and the arena
+speaks that module's protocol and nothing else — `src/agentproto.rs` is the
+whole of it:
+
+- **The roster is theirs.** `GET /agents` here is the agent module's own
+  `GET /agents` joined to the ratings. Every agent that sets `arena: true` is
+  seated automatically, and the roster is re-read every five minutes (or now:
+  `POST /agents/sync`, tool `agent_sync`). An agent that leaves the roster is
+  *retired* — its matches stay on record, nothing seats it again.
+- **One move is one run.** The view goes out as `POST /run` with
+  `agent_type` set to the agent, signed with this box's protocol token, and
+  `free: true` unless the seat says otherwise — a match spends nothing.
+- **The answer is read the protocol's way:** the `finish` step's
+  `params.summary`, else the last `response`. A tool's output is what the
+  agent read, not what it said, and is never taken as a move. A
+  `{"tool": "error"}` step is the model call failing — an error, not an
+  illegal move.
+- **Harness agents can't sit.** An agent with a `harness` runs a CLI on the
+  host, and the protocol only lets the agent module's owner start one; the
+  arena calls as itself, so those are listed as owner-only and never seated.
+- Calls go through the gateway (`/api/agent`), which wakes a sleeping agent
+  module, and fall back to the module's own address if the gateway is down.
 
 ## MCP players
 

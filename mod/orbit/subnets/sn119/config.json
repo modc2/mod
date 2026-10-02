@@ -1,0 +1,38 @@
+{
+  "name": "sn119",
+  "version": "1.0.0",
+  "description": "SN119 CapabilityForge Next — CapabilityForge Next rewards traceable training-data improvements that measurably enhance the accuracy, reasoning, clarity, age appropriateness, and safety of learning-oriented AI through reproducible evaluation. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ⲃ",
+  "chain": "bittensor",
+  "netuid": 119,
+  "subnet": "CapabilityForge Next",
+  "symbol": "Ⲃ",
+  "owner": "5GbLENPLG8Takn1puaz5HorPmrFtDT7i2PojiJsqutbaGwWu",
+  "github": "https://github.com/capabilityforge-next/capabilityforge",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1381660350818029578",
+  "logo": "https://raw.githubusercontent.com/capabilityforge-next/capabilityforge/refs/heads/main/images/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=119",
+    "news": "/bt/news?netuid=119"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

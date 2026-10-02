@@ -114,6 +114,22 @@ runs will find, and `toolbox` snaps a bundle on mid-run — so an agent that
 discovers it needs version control asks for those tools instead of failing and
 being re-run with a bigger loadout.
 
+## Agents from the internet
+
+`+ AGENT` opens with a **vibe** box: describe an agent and the vibe-builder
+drafts the whole thing. Under it, **scout the web** writes the description for
+you. The box becomes a theme, or leave it blank for a random one. It searches
+Hacker News, GitHub repos created this month, arXiv and DuckDuckGo (all
+keyless, robots.txt honored), reads the best pages, has the `idea-scout` agent
+pitch one agent this console doesn't have yet with the numbered signals it
+came from, and hands that pitch to the vibe-builder. Every phase streams into
+the panel (lens, search, read, ideate, vibe), the draft lands in the form, and
+nothing is saved until you click create. Each run is kept so it can be
+reopened: `POST /agents/scout` (`/stream` for SSE), `GET /agents/scout/runs`,
+MCP `agent_scout`. It runs fine on the local model; a stronger model writes
+sharper pitches. Adding a source means adding one function to
+`src/scout/mod.py` `SOURCES`.
+
 ## Connecting agents
 
 A graph connects agents; it does not build one. Every node on the hub's **FLOW**
@@ -196,3 +212,4 @@ The `docs/` directory is the protocol reference, and it is served live:
 - `docs/models.md` — free models, including WebGPU runs in the visitor's tab
 - `docs/privacy.md` — module sealing
 - `docs/uploads.md` — the file format the upload panel accepts
+- `docs/grow.md` — the grower: a new tool and agent on a timer, owner-only

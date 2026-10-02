@@ -1,0 +1,38 @@
+{
+  "name": "sn72",
+  "version": "1.0.0",
+  "description": "SN72 StreetVision by NATIX — Powered by NATIX’s Internet of Cameras, StreetVision is advancing autonomous driving, Physical AI, and map-making. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ق",
+  "chain": "bittensor",
+  "netuid": 72,
+  "subnet": "StreetVision by NATIX",
+  "symbol": "ق",
+  "owner": "5FjP8fFbMb6pEHfRZyRegsmwRUMDuLFNcaBu1TerWMPEKgNh",
+  "github": "https://github.com/natixnetwork/streetvision-subnet",
+  "url": "https://www.natix.network/?utm_source=bittensor",
+  "discord": "https://discord.com/channels/799672011265015819/1349122541754515538",
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=72",
+    "news": "/bt/news?netuid=72"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

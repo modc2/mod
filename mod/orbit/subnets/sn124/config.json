@@ -1,0 +1,38 @@
+{
+  "name": "sn124",
+  "version": "1.0.0",
+  "description": "SN124 Swarm — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "𑀁",
+  "chain": "bittensor",
+  "netuid": 124,
+  "subnet": "Swarm",
+  "symbol": "𑀁",
+  "owner": "5HKYqfJrUFKYPMRFZZ7kfhUNEyHUbY2ZyEjQqKJf2RKVpeXM",
+  "github": "https://github.com/swarm-subnet/swarm",
+  "url": "www.swarm124.com",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/swarm-subnet/swarm/refs/heads/main/swarm/assets/Swarm.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=124",
+    "news": "/bt/news?netuid=124"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

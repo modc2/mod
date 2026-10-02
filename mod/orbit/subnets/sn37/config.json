@@ -1,0 +1,38 @@
+{
+  "name": "sn37",
+  "version": "1.0.0",
+  "description": "SN37 Aurelius — Decentralized Alignment of Artificial Intelligence. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ל",
+  "chain": "bittensor",
+  "netuid": 37,
+  "subnet": "Aurelius",
+  "symbol": "ל",
+  "owner": "5GRBbS3aDep7cvR1NRm9Awp5HAF1o4HC7t59Y8HoheLZ6ZaP",
+  "github": "https://github.com/Aurelius-Protocol/Aurelius-Protocol",
+  "url": "https://aureliusaligned.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/Aurelius-Protocol/aurelius-whitepaper/main/aurelius_logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=37",
+    "news": "/bt/news?netuid=37"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

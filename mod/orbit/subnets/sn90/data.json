@@ -1,0 +1,173 @@
+{
+  "netuid": 90,
+  "name": "KubeTEE",
+  "symbol": "テ",
+  "owner": "5C9y6fnLPSzBeh1Np7f4DnGen42xV29nL9qZTDuwpVC4iTEE",
+  "description": "KubeTEE AI Factory: Confidential Computing TEE Multi-Cluster K8s",
+  "github": "https://github.com/KubeTEE-AI/kubetee-subnet",
+  "url": "https://kubetee.ai",
+  "discord": "https://discord.gg/KUeXm9XQG4",
+  "logo": "https://kubetee.ai/logo.png",
+  "registered_at": 8618670,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.022819173,
+    "moving_price": 0.022790371673181653,
+    "market_cap": 12932.696999798989,
+    "tao_in": 3615.164983657,
+    "alpha_in": 158426.64586559,
+    "alpha_out": 408320.317304328,
+    "volume": 97729.72355718,
+    "vol_24h": 671.3193273240031,
+    "emission": 0.0,
+    "change_1h": 0.7151387092362071,
+    "change_24h": 3.276514105765882,
+    "change_7d": 6.711882906353428
+  },
+  "spark_24h": [
+    0.022040494,
+    0.022091378,
+    0.02205786,
+    0.022114719,
+    0.022591958,
+    0.022463549,
+    0.022499237,
+    0.022498481,
+    0.02249831,
+    0.0230174,
+    0.022827499,
+    0.022923887,
+    0.022923127,
+    0.02289976,
+    0.023234047,
+    0.02330064,
+    0.023557594,
+    0.023629585,
+    0.023587934,
+    0.023399229,
+    0.023239256,
+    0.023096608,
+    0.023040205,
+    0.022904169,
+    0.02289951,
+    0.02289951,
+    0.022819096,
+    0.022728362,
+    0.022727387,
+    0.022630177,
+    0.022629917,
+    0.022629834,
+    0.022606702,
+    0.0226065,
+    0.022603163,
+    0.022833409,
+    0.022833371,
+    0.022815056,
+    0.022682743,
+    0.022900176,
+    0.022769644,
+    0.022748675,
+    0.022675719,
+    0.02262258,
+    0.022622438,
+    0.022659246,
+    0.022657143,
+    0.022819173
+  ],
+  "trades_24h": {
+    "trades": 142,
+    "buys": 65,
+    "sells": 77,
+    "buy_tao": 368.451542871,
+    "sell_tao": 292.545168508,
+    "net_tao": 75.906374363,
+    "traders": 68
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5G3mvfYwEVvzWeDcvNUzixufhdGBzfBFeWPxqzvMd8iSdL9G",
+      "net_tao": -0.2216699540000011,
+      "gross_tao": 60.221669954,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": -0.03679278599999947,
+      "gross_tao": 40.036792786,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FnGsoZGVFe3Xh4PxFat3kpb5VmXCKTTbahgdrDFFHuvbBDR",
+      "net_tao": 0.14119215500000148,
+      "gross_tao": 39.510548674999995,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GSKU7VbmEiUid22SfXojQkBcpXnVTXQQNCMsbz5b3xF9ZQ3",
+      "net_tao": 37.934292400000004,
+      "gross_tao": 37.934292400000004,
+      "trades": 3
+    },
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": -15.535446554,
+      "gross_tao": 35.535446554,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790240368,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(attestation): TLS-possession proof on client-facing attestation",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/c9cb76085cdbf8171a8d507a85965e5f931ad352",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1790234860,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(saygm): record the mimo-v2.6-pro-ultraspeed declare (2026-09-24)",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/51aca950594a5c03105cc938c3a8c5449302d802",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1789985973,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(roadmap): mark Images + Videos live; MiniMax-H3 catalogue entry",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/e0e1f5ce3717d1aa19f3f137abf75c60996d6a76",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1789985871,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs(SN28): add models + license eligibility section",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/fd1780a05c61e35859e79d81a93b48d08391839c",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1789985807,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: record MiniMax H3 authorization; strip michigan endpoint details",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/commit/b0b136b25400ec1ebbc94a986f7b1a2257be8f99",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    },
+    {
+      "ts": 1789487648,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.2.0",
+      "url": "https://github.com/KubeTEE-AI/kubetee-subnet/releases/tag/v1.2.0",
+      "publisher": "KubeTEE-AI/kubetee-subnet"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

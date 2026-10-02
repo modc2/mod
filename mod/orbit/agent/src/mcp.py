@@ -137,6 +137,37 @@ def _mod():
         return _STANDALONE_MOD
 
 
+def _t_grow(a, key):
+    op = str(a.get('op') or 'status').lower()
+    if op == 'status':
+        return _fwd('grow_status', key)
+    if op == 'config':
+        keys = _mod()._grow_keys()
+        return _fwd('grow_config', key, **{k: v for k, v in a.items() if k in keys})
+    if op == 'tick':
+        return _fwd('grow_tick', key)
+    if op == 'prune':
+        return _fwd('grow_prune', key, kind=a.get('kind', 'all'), count=a.get('count'))
+    raise ValueError(f"unknown op: {op} (status | config | tick | prune)")
+
+
+def _t_cron(a, key):
+    op = str(a.get('op') or 'status').lower()
+    keys = _mod()._cron_keys()
+    fields = {k: v for k, v in a.items() if k in keys and v is not None}
+    if op == 'status':
+        return _fwd('cron_status', key, agent=a.get('agent'))
+    if op == 'compute':
+        return _fwd('compute_info', key, agent=a.get('agent'))
+    if op == 'add':
+        return _fwd('cron_add', key, **fields)
+    if op in ('job', 'rm', 'run'):
+        return _fwd(f'cron_{op}', key, id=a.get('id', ''))
+    if op == 'update':
+        return _fwd('cron_update', key, id=a.get('id', ''), **fields)
+    raise ValueError(f"unknown op: {op} (status | compute | add | update | job | rm | run)")
+
+
 def _fwd(action: str, key=None, **kw):
     """One forward() call, with the module's own permission gate in front."""
     return _mod().forward(action, key=key, **kw)
@@ -420,6 +451,20 @@ def _t_vibe(a: dict, key):
                        provider=a.get('provider'), free=bool(a.get('free')),
                        steps=a.get('steps') or 4, save=bool(a.get('save')),
                        harness=a.get('harness')))
+
+
+def _t_scout(a: dict, key):
+    out = _fwd('agent_scout', key, theme=a.get('theme'),
+               sources=a.get('sources'), reads=a.get('reads', 4),
+               vibe=a.get('vibe', True), name=a.get('name'),
+               model=a.get('model'), provider=a.get('provider'),
+               free=bool(a.get('free')), steps=a.get('steps') or 4,
+               save=bool(a.get('save')), harness=a.get('harness'))
+    # the log is the console's replay; an MCP caller wants the outcome and
+    # can fetch the rest with agent_scout_run
+    if isinstance(out, dict) and not a.get('full'):
+        out = {k: v for k, v in out.items() if k != 'log'}
+    return _clean(out)
 
 
 def _t_task_vibe(a: dict, key):
@@ -838,6 +883,116 @@ TOOLS: Dict[str, dict] = {
             'key': _KEY,
         }, 'required': ['description']},
         'handler': _t_vibe,
+    },
+    'agent_scout': {
+        'auth': True,
+        'description': 'Go on the internet and come back with a new agent. '
+                       'Searches Hacker News, GitHub repos created this month, '
+                       'arXiv and the web (DuckDuckGo) around a theme — or a '
+                       'random lens when none is given — reads the best pages, '
+                       'has the idea-scout agent pitch ONE agent this console '
+                       'does not have yet (citing the numbered signals it came '
+                       'from), then hands the pitch to the vibe-builder exactly '
+                       'like agent_vibe. Returns the whole process: lens, '
+                       'signals, pages read, idea, draft. vibe=false stops at '
+                       'the idea; save=true files the agent. Keyless sources; '
+                       'two model runs, so it answers to run policy.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'theme': _str('what to scout around — omit for a random lens'),
+            'sources': {'type': 'array', 'items': {'type': 'string'},
+                        'description': 'hn | github | arxiv | web (default all)'},
+            'reads': _num('pages opened in full, 0-8 (default 4)'),
+            'vibe': _bool('draft the agent from the idea (default true)'),
+            'name': _str('the new agent\'s name — omit to mint an untaken one'),
+            'save': _bool('create the agent now instead of returning a draft'),
+            'model': _str("the scouting/drafting runs' model"),
+            'provider': _str('openrouter | venice | liquidai | …'),
+            'free': _bool('run on a zero-cost model'),
+            'steps': _num('each run\'s step budget (default 4, max 8)'),
+            'harness': _str('hand the model runs to an agent CLI (build | '
+                            'claude | codex) — host / console-owner only'),
+            'full': _bool('include the event log'),
+            'key': _KEY,
+        }},
+        'handler': _t_scout,
+    },
+    'agent_grow': {
+        # watching is open; every op that changes the grower needs a token,
+        # and inside it is owner-only (Mod.require_owner, not an ACL grant)
+        'auth': ['config', 'tick', 'prune'],
+        'description': 'The grower: this console adds a new tool AND a new '
+                       'agent built to wield it every `interval` seconds '
+                       '(default 60). op=status (default) shows the config, '
+                       'how much has grown, today\'s model use and the last '
+                       'tick. Owner only: op=config changes enabled / interval '
+                       '/ engine (auto = local recipe catalog first, no model; '
+                       'then model drafts | local | model | scout) / max_tools '
+                       '/ max_agents / model_daily_cap / free / model / '
+                       'provider / theme; op=tick grows one pair now; '
+                       'op=prune removes grown items oldest first (never '
+                       'anything the grower did not make).',
+        'inputSchema': {'type': 'object', 'properties': {
+            'op': _str('status | config | tick | prune'),
+            'enabled': _bool('config: grow on the timer'),
+            'interval': _num('config: seconds between ticks (min 30)'),
+            'engine': _str('config: auto | local | model | scout'),
+            'max_tools': _num('config: stop adding tools past this many'),
+            'max_agents': _num('config: stop adding agents past this many'),
+            'model_daily_cap': _num('config: model runs per UTC day'),
+            'free': _bool('config: model engines use zero-cost models'),
+            'model': _str('config: drafting model'),
+            'provider': _str('config: drafting provider'),
+            'theme': _str('config: aim model/scout ideas at a theme'),
+            'kind': _str('prune: tool | agent | all'),
+            'count': _num('prune: oldest N (omit = all grown)'),
+            'key': _KEY,
+        }},
+        'handler': lambda a, key: _clean(_t_grow(a, key)),
+    },
+    'agent_cron': {
+        # status/compute are open (a stranger sees counts only); every other
+        # op needs a token, and inside it the owner or a 'cron' grantee
+        'auth': ['add', 'update', 'job', 'rm', 'run'],
+        'description': 'Scheduled agents: run an agent with a prompt every N '
+                       'minutes. op=status (default) lists your jobs (all of '
+                       'them for the owner), the scheduler and the host compute; '
+                       'op=compute shows where an agent runs (this host for the '
+                       'loop + tools, and where its model runs). Owner or an '
+                       'address the owner granted \'cron\': op=add (agent, '
+                       'prompt, every) / update (id + fields) / job / rm / run '
+                       '(now, in the background). Jobs pause after max_fails '
+                       'failures in a row, when daily_cap is hit for the day, or '
+                       'when their author loses the grant.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'op': _str('status | compute | add | update | job | rm | run'),
+            'id': _str('job id (update / job / rm / run)'),
+            'agent': _str('agent to run (add/update); status/compute: filter'),
+            'prompt': _str('what the agent is asked every run'),
+            'every': _num('minutes between runs (min 1)'),
+            'enabled': _bool('update: pause (false) / resume (true)'),
+            'model': _str('model override (default: the agent\'s own)'),
+            'provider': _str('provider override'),
+            'free': _bool('zero-cost models only'),
+            'steps': _num('max steps per run (default 10)'),
+            'daily_cap': _num('runs per UTC day (default 96, 0 = no cap)'),
+            'max_fails': _num('pause after N failures in a row (default 3)'),
+            'label': _str('a short name for the job'),
+            'key': _KEY,
+        }},
+        'handler': lambda a, key: _clean(_t_cron(a, key)),
+    },
+    'agent_scout_run': {
+        'auth': True,
+        'description': 'One past scout run whole — every signal, page, model '
+                       'step, the idea and the draft. Omit id to list your '
+                       'recent runs instead.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': _str('run id (sc-…) — omit to list runs'),
+            'key': _KEY,
+        }},
+        'handler': lambda a, key: _clean(
+            _fwd('agent_scout_run', key, id=a['id']) if a.get('id')
+            else _fwd('agent_scout_runs', key, limit=20)),
     },
     'agent_task_vibe': {
         'auth': True,

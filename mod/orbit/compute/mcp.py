@@ -44,6 +44,8 @@ INSTRUCTIONS = (
     '(fan-out, cheapest first), compute_map (the same fan-out answered as places on a map — where the machines physically are), compute_quote (cost for N hours + cheaper '
     'alternatives), compute_rent (spend-guarded), compute_instances / '
     'compute_logs, and compute_stop — stopping is what ends the billing. '
+    'compute_oracle / compute_predict are a game: call where a GPU\'s price '
+    'index will be in 1h-7d and climb a leaderboard against baseline bots. '
     'Every call spends the caller\'s own credits on their own provider account; '
     'there is no shared key. compute_raw is the escape hatch to a provider\'s '
     'native API when the normalized surface is not enough.'
@@ -189,6 +191,33 @@ def _t_node_push(a):
 def _t_node_rm(a):
     keys = a.pop('keys', None)
     return N.destroy(a['node'], release=bool(a.get('release')), keys=keys)
+
+
+def _t_oracle(a):
+    import oracle
+    if a.get('series') and a.get('detail'):
+        return oracle.detail(a['series'], days=a.get('days') or 7)
+    if a.get('player'):
+        return oracle.calls(player=a['player'], series=a.get('series'),
+                            state=a.get('state'), limit=a.get('limit') or 50)
+    got = oracle.state(horizon=a.get('horizon'), series=a.get('series'))
+    for s in got['series']:
+        s.pop('spark', None)            # a model wants the number, not 96 points
+    return got
+
+
+def _t_predict(a):
+    import oracle
+    minted = None
+    if not a.get('key'):
+        minted = oracle.join(a['player'])
+        a['key'] = minted['key']
+    out = oracle.predict(a['player'], a['key'], a['series'], a['horizon'],
+                         a['value'], note=a.get('note'))
+    if minted:
+        out = {'call': out, 'player_key': minted['key'],
+               'note': 'new player — pass this key on every later call'}
+    return out
 
 
 def _str(desc, **kw):
@@ -501,6 +530,44 @@ TOOLS = {
             'release': {'type': 'boolean', 'description': 'also stop the rental'}},
             'required': ['node']},
         'handler': _t_node_rm,
+    },
+    'compute_oracle': {
+        'description': 'The GPU price prediction game. Each tracked card (gpu:h100, '
+                       'gpu:4090, ...) has an index — the median per-GPU $/hr across '
+                       'every market, re-read every 20 minutes — and players call '
+                       'where it will be in 1h, 6h, 24h or 7d. Returns every index '
+                       'with its 24h change, the leaderboard (players and the '
+                       'naive/mean/drift/ewma baseline bots, ranked by mean score) '
+                       'and the scoring rule. series+detail=true gives one index\'s '
+                       'history and every call on it; player= lists that player\'s calls.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'series': _str('one index, e.g. gpu:h100'),
+            'horizon': _str('leaderboard for one horizon', enum=['1h', '6h', '24h', '7d']),
+            'detail': {'type': 'boolean', 'description': 'with series: full history '
+                       'and open/scored calls'},
+            'days': _num('history window for detail (default 7)'),
+            'player': _str('list this player\'s calls instead'),
+            'state': _str('with player: open | scored | void'),
+            'limit': _num('max calls (default 50)'),
+        }},
+        'handler': _t_oracle,
+    },
+    'compute_predict': {
+        'description': 'Call where a GPU price index will be at a horizon from now. '
+                       'Scored when the time comes against the real index: 100 if '
+                       'exact, halving every 5% of error. One open call per '
+                       '(player, series, horizon); calls cannot be edited. Without '
+                       'a key a new player is created and its key returned once — '
+                       'keep it for every later call. Spends nothing.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'player': _str('player name, 2-24 chars a-z 0-9 _ . -'),
+            'key': _str('the key returned when the player was created'),
+            'series': _str('index to call, e.g. gpu:h100 — see compute_oracle'),
+            'horizon': _str('how far ahead', enum=['1h', '6h', '24h', '7d']),
+            'value': _num('your predicted median per-GPU $/hr at that time'),
+            'note': _str('optional reasoning, 140 chars, shown on the board'),
+        }, 'required': ['player', 'series', 'horizon', 'value']},
+        'handler': _t_predict,
     },
 }
 

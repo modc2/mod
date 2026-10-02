@@ -61,6 +61,7 @@ fn info() -> Value {
         "play": "POST /play {player, view, seat} — one move from a server-driven player",
         "matches": "GET /matches | POST /matches (record one) | GET /matches/:id",
         "run": "POST /run {game, players[]} — play one headlessly via the node runner",
+        "agents": "GET /agents — the agent protocol's roster joined to the ratings | POST /agents/sync — re-read it now",
         "ab": "POST /ab {a, b, games?, count?} — A/B test two agents head to head, seats swapped | GET /ab | GET /ab/:id | DELETE /ab/:id",
         "leaderboard": "GET /leaderboard?game=",
         "arcade": "GET /arcade?game= — score-per-game hi-score tables, no Elo; without a game, the marquee",
@@ -468,6 +469,14 @@ fn vibe_response(out: Result<Value, String>) -> Response {
 
 // ── a/b experiments ──────────────────────────────────────────────────────
 
+async fn agent_board() -> Response {
+    via_tool("agent_board", json!({})).await
+}
+
+async fn agent_sync() -> Response {
+    via_tool("agent_sync", json!({})).await
+}
+
 async fn ab_list() -> Json<Value> {
     Json(crate::ab::list())
 }
@@ -576,6 +585,8 @@ fn api_routes() -> Router {
         .route("/matches/:id", get(get_match))
         .route("/run", post(run))
         .route("/ab", get(ab_list).post(ab_start))
+        .route("/agents", get(agent_board))
+        .route("/agents/sync", post(agent_sync))
         .route("/ab/:id", get(ab_get).delete(ab_delete))
         .route("/leaderboard", get(leaderboard))
         .route("/arcade", get(arcade))
@@ -597,10 +608,8 @@ pub async fn serve(port: u16) {
     if seated > 0 {
         println!("arena: {seated} Liquid AI agent(s) seated");
     }
-    let fleet_seated = arena::plant_fleet_agents().await;
-    if fleet_seated > 0 {
-        println!("arena: {fleet_seated} fleet agent(s) seated");
-    }
+    // The agent protocol's roster, now and every five minutes after.
+    crate::agentproto::sync_forever();
     // From here on an upload pushes itself to the store; what was planted
     // before now, and anything older without a cid, goes in one pass.
     storelink::backfill_later();

@@ -1,7 +1,7 @@
 {
     "name": "compute",
     "version": "1.0.0",
-    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Every market that publishes a location comes back placed, so the console draws the world and an agent can ask compute_map where the cheap H100s physically are. Twenty-three MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
+    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Every market that publishes a location comes back placed, so the console draws the world and an agent can ask compute_map where the cheap H100s physically are. A prediction game rides on top: every 20 minutes each popular card gets a price index (median per-GPU $/hr across every market), players and baseline bots call where it will be in 1h to 7d, and a leaderboard scores them against what the market actually did. Twenty-five MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
     "icon": "\u25a6",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -56,7 +56,9 @@
         "compute_node_mods",
         "compute_node_call",
         "compute_node_push",
-        "compute_node_rm"
+        "compute_node_rm",
+        "compute_oracle",
+        "compute_predict"
     ],
     "endpoints": {
         "info": "GET /",
@@ -88,7 +90,14 @@
         "node_call": "POST /node/call {node, mod, fn, args, kwargs}",
         "node_push": "POST /node/push {node, mod} \u2014 send a local module to the node",
         "node_tunnel": "POST /node/tunnel {node, port} \u2014 bring a port back to this browser",
-        "node_rm": "POST /node/rm {node, release} \u2014 release=1 also stops the rental"
+        "node_rm": "POST /node/rm {node, release} \u2014 release=1 also stops the rental",
+        "oracle": "GET /oracle?horizon=&series= \u2014 every GPU price index with a sparkline, the leaderboard and the scoring rule",
+        "oracle_series": "GET /oracle/series?series=gpu:h100&days=7 \u2014 one index, every call on it",
+        "oracle_board": "GET /oracle/board?series=&horizon=&days=",
+        "oracle_calls": "GET /oracle/calls?player=&series=&state=",
+        "oracle_join": "POST /oracle/join {player} \u2014 mints a player key, returned once",
+        "oracle_predict": "POST /oracle/predict {player, key, series, horizon, value, note}",
+        "oracle_tick": "POST /oracle/tick \u2014 owner; read the markets now and score what is due"
     },
     "fns": [
         "info",
@@ -115,6 +124,10 @@
         "set_key",
         "keys",
         "raw",
+        "oracle",
+        "predict",
+        "board",
+        "tick",
         "tools",
         "mcp_call",
         "mcp_config",
@@ -154,7 +167,10 @@
         "TARGON_API_KEY / LIUM_API_KEY / VAST_API_KEY / CATHEDRAL_API_KEY / PRIME_API_KEY / SHADEFORM_API_KEY / POLARIS_KEY": "per-provider keys, checked before the keystore",
         "COMPUTE_MOD_HOST": "host the sibling modules answer on (default 127.0.0.1)",
         "COMPUTE_MOD_TIMEOUT": "seconds a sibling module gets in the mod lane (default 12)",
-        "COMPUTE_TEST_LIVE": "0 to skip the tests that touch live catalogs"
+        "COMPUTE_TEST_LIVE": "0 to skip the tests that touch live catalogs",
+        "COMPUTE_TICK_SEC": "seconds between price-index ticks for the prediction game (default 1200)",
+        "COMPUTE_ORACLE": "0 to keep the ticker from running in the API server",
+        "COMPUTE_ORACLE_DB": "where the game lives (default ~/.mod/compute/oracle.db)"
     },
     "schema": "QmYEnXsm3BxiHYiqSVL692brCN4imHRVXc4DGvt2yk5bBL",
     "mod_lane": {
@@ -179,7 +195,7 @@
         "ssh_key": "~/.mod/compute/id_ed25519 \u2014 generated on first need, public half handed to markets at rent time"
     },
     "auth": {
-        "open": "info, health, providers, search, offer, quote, mods, tools \u2014 reading a market spends nothing",
+        "open": "info, health, providers, search, offer, quote, mods, tools \u2014 reading a market spends nothing, and the /oracle game (each call signed by the player's own key)",
         "byok": "instances, status, logs, balance, keys \u2014 allowed when the caller brings their own provider key",
         "owner": "rent, stop, exec, raw, set_key and every /node route",
         "proof": "Authorization: Bearer `m compute/token`, or a request from localhost that did not pass through the gateway",
@@ -190,5 +206,21 @@
         "gazetteer": "geo/*.json \u2014 GeoNames cities5000 + Natural Earth 110m, baked in by geo/build.py. Offline, no key, no dependency.",
         "precision": "city | state | region (a cloud's own anchor) | country \u2014 reported, never faked; a country code draws a dot on the country centroid and says so",
         "unplaced": "a market that sells a catalogue rather than a located machine (runpod, nosana, aleph, akash, polaris, cathedral, targon) is counted in `unplaced`, never guessed onto the map"
+    },
+    "oracle": {
+        "what": "a GPU price prediction game with a leaderboard, played against this module's own market reads",
+        "index": "gpu:<model> = median per-GPU $/hr of every available offer across every market; 5+ priced offers to be indexed, top 16 cards",
+        "horizons": [
+            "1h",
+            "6h",
+            "24h",
+            "7d"
+        ],
+        "score": "100 x 0.5^(abs % error / 5%) per call; rank = mean over scored calls, ranked after 3",
+        "fair": "base value locked at the call, no edits, one open call per (player, series, horizon), void if no tick near the target",
+        "bots": "bot.naive, bot.mean, bot.drift, bot.ewma play every series and horizon by the same rules",
+        "players": "name + key minted on first call, stored sha256 \u2014 no account, no email",
+        "engine": "forecast.py knows nothing about compute; oracle.py feeds it",
+        "store": "~/.mod/compute/oracle.db (sqlite, stdlib)"
     }
 }

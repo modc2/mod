@@ -66,6 +66,7 @@ import SelectionTray from "./SelectionTray";
 import Workspace from "./Workspace";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
 import ScoreMarket from "./ScoreMarket";
+import ScoreStratsPanel from "./ScoreStratsPanel";
 import Sparkline from "./Sparkline";
 import StratChat from "./StratChat";
 import StratLab from "./StratLab";
@@ -452,6 +453,20 @@ export default function StratsTab() {
         );
       })()}
 
+      {/* ── SCORE STRATS — every score function is a strat: copy its top N ──
+          Each row is also a card in MY STRATS below (id scorefn-*), kept
+          ranked and backtested out of sample by useScoreStrats. */}
+      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+        <SectionHeader label="SCORE STRATS" hint="each score function copies its top N traders · backtested on picks made before the test window" />
+        <ScoreStratsPanel
+          indexes={indexes}
+          activeId={activeId}
+          select={select}
+          owner={auth.address ?? null}
+          running={liveStratIds}
+        />
+      </section>
+
       {/* ── MY STRATS — the management list ── */}
       <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
         <SectionHeader label="MY STRATS" hint="every strat you saved · money on it first · click = active" />
@@ -531,6 +546,9 @@ export default function StratsTab() {
                       {idx.name}
                       {idx.identity && (
                         <span className="ml-1.5 text-[9px] tracking-[0.1em] text-cyan-400"> ID</span>
+                      )}
+                      {idx.scoreFn && (
+                        <span className="ml-1.5 text-[9px] tracking-[0.1em] text-amber-300/90" title={`Roster = the top ${idx.scoreFn.topN} of the "${idx.scoreFn.fnName}" score function, re-ranked from SCORE STRATS`}> ƒ</span>
                       )}
                     </span>
                   )}
@@ -631,7 +649,12 @@ export default function StratsTab() {
 
                   {/* BACKTEST column */}
                   <div className="px-2 py-1.5">
-                    <div className="text-[8.5px] font-semibold tracking-[0.18em] text-pixel-gray mb-1">BACKTEST</div>
+                    <div
+                      className="text-[8.5px] font-semibold tracking-[0.18em] text-pixel-gray mb-1"
+                      title={idx.scoreFn?.oos ? `Out of sample: traders picked by "${idx.scoreFn.fnName}" on the board from ${idx.scoreFn.oos.testDays}d ago, traded the ${idx.scoreFn.oos.testDays}d since` : undefined}
+                    >
+                      BACKTEST{idx.scoreFn?.oos && idx.lastBacktestAt === idx.scoreFn.oos.at ? ` · OOS ${idx.scoreFn.oos.testDays}D` : ""}
+                    </div>
                     {hasBt ? (
                       <>
                         <div className={`text-[11px] font-mono font-semibold tabular-nums ${(idx.lastPnl ?? 0) >= 0 ? "text-green-400" : "text-red-400"}`}>

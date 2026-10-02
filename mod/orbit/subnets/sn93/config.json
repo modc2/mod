@@ -1,0 +1,38 @@
+{
+  "name": "sn93",
+  "version": "1.0.0",
+  "description": "SN93 Bitcast — The Decentralized Creators Economy. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚃ",
+  "chain": "bittensor",
+  "netuid": 93,
+  "subnet": "Bitcast",
+  "symbol": "ᚃ",
+  "owner": "5EbY1SebUuz189w1G96JN4mmHnShAECA6JefCRYhSLqyYg2c",
+  "github": "https://github.com/bitcast-network/bitcast",
+  "url": "https://stats.bitcast.network/",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/bitcast-network/brand-assets/main/bitcast/multi_logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=93",
+    "news": "/bt/news?netuid=93"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

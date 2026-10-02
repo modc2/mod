@@ -1,0 +1,157 @@
+{
+  "netuid": 23,
+  "name": "Trishool",
+  "symbol": "ψ",
+  "owner": "5CqTRwoFmme25YAbbwovR9rEic1UY7hYBLHxSk1PSfZ2jpmN",
+  "description": "Trishool is the AI alignment protocol built on Bittensor",
+  "github": "https://github.com/TrishoolAI/trishool-phase2",
+  "url": "https://trishool.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1437447445176127618",
+  "logo": "https://trishool.ai/_next/image?url=%2Ftrishool-logo-small.png&w=96&q=75",
+  "registered_at": 2063528,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.005200165,
+    "moving_price": 0.005323409102857113,
+    "market_cap": 31871.392725510992,
+    "tao_in": 8243.540216004,
+    "alpha_in": 1585245.906129013,
+    "alpha_out": 4543673.604215561,
+    "volume": 627458.834849308,
+    "vol_24h": 802.4248069160385,
+    "emission": 0.0,
+    "change_1h": -0.003711282953999806,
+    "change_24h": -5.792149655291745,
+    "change_7d": -7.394575631299649
+  },
+  "spark_24h": [
+    0.005519861,
+    0.00551326,
+    0.005508341,
+    0.005509606,
+    0.005434491,
+    0.005378605,
+    0.005378604,
+    0.005366051,
+    0.00537349,
+    0.00539966,
+    0.005339851,
+    0.005337442,
+    0.00533815,
+    0.005362876,
+    0.005363516,
+    0.00536332,
+    0.00536332,
+    0.005337733,
+    0.005328802,
+    0.005323615,
+    0.005323615,
+    0.005329995,
+    0.005329995,
+    0.005394016,
+    0.005341887,
+    0.005341472,
+    0.005341472,
+    0.00533847,
+    0.005338468,
+    0.005338467,
+    0.005338466,
+    0.005338465,
+    0.005374291,
+    0.00537429,
+    0.005374268,
+    0.005374961,
+    0.005370041,
+    0.005370013,
+    0.005369988,
+    0.005369986,
+    0.005315255,
+    0.005314678,
+    0.005141656,
+    0.005141656,
+    0.005141708,
+    0.005137498,
+    0.005200358,
+    0.005200165
+  ],
+  "trades_24h": {
+    "trades": 92,
+    "buys": 29,
+    "sells": 63,
+    "buy_tao": 276.363114862,
+    "sell_tao": 525.126008739,
+    "net_tao": -248.762893877,
+    "traders": 57
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5G3mvfYwEVvzWeDcvNUzixufhdGBzfBFeWPxqzvMd8iSdL9G",
+      "net_tao": 0.07829689399999751,
+      "gross_tao": 69.921703106,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Fr2MJUr4FibNHfkc3a4DjSKBRWicQGjDjwSMZyfFaQWpa7n",
+      "net_tao": -66.409936614,
+      "gross_tao": 66.409936614,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.0836363699999989,
+      "gross_tao": 61.872202536,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": -41.805759615,
+      "gross_tao": 41.805759615,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": -0.033523655999999846,
+      "gross_tao": 40.033523656,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790790119,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' of https://github.com/TrishoolAI/trishool-phase2",
+      "url": "https://github.com/TrishoolAI/trishool-phase2/commit/d67f9ce48656d0ba497d4ad33105512f3704f033",
+      "publisher": "TrishoolAI/trishool-phase2"
+    },
+    {
+      "ts": 1790781183,
+      "kind": "commit",
+      "source": "github",
+      "title": "Remove example exploit markdown file due to safety concerns and compl…",
+      "url": "https://github.com/TrishoolAI/trishool-phase2/commit/c6a7ef7609537ca6c9fe9f41af8c2d1657f0a43c",
+      "publisher": "TrishoolAI/trishool-phase2"
+    },
+    {
+      "ts": 1790699185,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #58 from TrishoolAI/tightening-judge",
+      "url": "https://github.com/TrishoolAI/trishool-phase2/commit/a4459bd432f58ba20d924866f79c40745b8c1124",
+      "publisher": "TrishoolAI/trishool-phase2"
+    },
+    {
+      "ts": 1790690988,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update version numbers to 2.0.31 in configuration files and modify qu…",
+      "url": "https://github.com/TrishoolAI/trishool-phase2/commit/8056c0214bea4259eca32843bf1488fbb923f5dc",
+      "publisher": "TrishoolAI/trishool-phase2"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

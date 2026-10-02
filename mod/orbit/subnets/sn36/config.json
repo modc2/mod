@@ -1,0 +1,38 @@
+{
+  "name": "sn36",
+  "version": "1.0.0",
+  "description": "SN36 Epago — THE OPEN INTELLIGENCE LAYER FOR HUMANS AND AGENTS. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "כ",
+  "chain": "bittensor",
+  "netuid": 36,
+  "subnet": "Epago",
+  "symbol": "כ",
+  "owner": "5DCjvVt6LbtM5YhMd3McczwSQpu4w85Gq5ENqSsyXjwgJxpZ",
+  "github": "https://github.com/EpagoFoundation/epago",
+  "url": "https://epago.ai/",
+  "discord": null,
+  "logo": "https://epago.ai/assets/epago-logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=36",
+    "news": "/bt/news?netuid=36"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

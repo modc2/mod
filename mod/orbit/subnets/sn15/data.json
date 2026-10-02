@@ -1,0 +1,189 @@
+{
+  "netuid": 15,
+  "name": "ORO",
+  "symbol": "ο",
+  "owner": "5EHdase3QHY1FSU2KoxzpbnkzGhxBZEVcWU85zyjrxG62KTK",
+  "description": "AI commerce agents",
+  "github": "https://github.com/ORO-AI/oro",
+  "url": "https://oroagents.com",
+  "discord": "https://discord.gg/MHqAVWTdka",
+  "logo": "https://raw.githubusercontent.com/ORO-AI/oro/main/brand/profile-snowcap.png",
+  "registered_at": 7366897,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.024394295,
+    "moving_price": 0.024316181428730488,
+    "market_cap": 53802.09371605265,
+    "tao_in": 13998.653703184,
+    "alpha_in": 573849.763112636,
+    "alpha_out": 1631669.753481414,
+    "volume": 600072.367045256,
+    "vol_24h": 1159.4603087250143,
+    "emission": 0.0,
+    "change_1h": -0.21760104400071478,
+    "change_24h": 2.797825115260588,
+    "change_7d": 0.2309301908683059
+  },
+  "spark_24h": [
+    0.023730891,
+    0.023733268,
+    0.023741067,
+    0.023824194,
+    0.023827151,
+    0.023831165,
+    0.023836859,
+    0.023783352,
+    0.023788205,
+    0.023933896,
+    0.024022892,
+    0.023974236,
+    0.023975688,
+    0.024013875,
+    0.024026166,
+    0.02404755,
+    0.024052314,
+    0.024056567,
+    0.024095431,
+    0.024074945,
+    0.024031754,
+    0.023956311,
+    0.024143626,
+    0.024149155,
+    0.024104555,
+    0.024105029,
+    0.024203575,
+    0.024652878,
+    0.024542614,
+    0.024669046,
+    0.024671605,
+    0.024667396,
+    0.024669793,
+    0.024670749,
+    0.02466983,
+    0.024738704,
+    0.024738988,
+    0.024739544,
+    0.024738722,
+    0.024739383,
+    0.024623518,
+    0.024605177,
+    0.024599729,
+    0.024553577,
+    0.024460425,
+    0.024350165,
+    0.024447307,
+    0.024394295
+  ],
+  "trades_24h": {
+    "trades": 170,
+    "buys": 70,
+    "sells": 100,
+    "buy_tao": 637.15386067,
+    "sell_tao": 452.132600172,
+    "net_tao": 185.02126049799995,
+    "traders": 90
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": -0.09127741,
+      "gross_tao": 120.09127741,
+      "trades": 6
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": 0.013534646000000095,
+      "gross_tao": 99.986465354,
+      "trades": 5
+    },
+    {
+      "coldkey": "5G3mvfYwEVvzWeDcvNUzixufhdGBzfBFeWPxqzvMd8iSdL9G",
+      "net_tao": 0.0501937450000014,
+      "gross_tao": 99.949806255,
+      "trades": 2
+    },
+    {
+      "coldkey": "5H8U5WxdG2Y2WZfanELvYQvFcynUcRodFsbyfDuohqu5yEL6",
+      "net_tao": 0.22796386000000268,
+      "gross_tao": 97.80369818,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HKoypCpPUn6rPsKBEBrj72uuPrL8TH4Cd22AS1XGTmMFPBX",
+      "net_tao": 18.322331411999997,
+      "gross_tao": 55.886291756,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790886962,
+      "kind": "commit",
+      "source": "github",
+      "title": "Composed situation tasks: validator, proxy and local testing",
+      "url": "https://github.com/ORO-AI/oro/commit/8737b4c6e6989193f58ba0a129d865cbb35bcaca",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790886962,
+      "kind": "release",
+      "source": "github",
+      "title": "v2.0.40: Composed situation tasks: validator, proxy and local testing",
+      "url": "https://github.com/ORO-AI/oro/releases/tag/v2.0.40",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790733173,
+      "kind": "commit",
+      "source": "github",
+      "title": "Pin the JDK used by the search index builder and base image",
+      "url": "https://github.com/ORO-AI/oro/commit/9eb8525194ccb320733efa2eeada77026c637540",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790729059,
+      "kind": "commit",
+      "source": "github",
+      "title": "Translate live Chutes model IDs on OpenRouter runs (#345)",
+      "url": "https://github.com/ORO-AI/oro/commit/d1ca50d692abd9397b9d411267cac04573720467",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790729059,
+      "kind": "release",
+      "source": "github",
+      "title": "v2.0.39: Translate live Chutes model IDs on OpenRouter runs (#345)",
+      "url": "https://github.com/ORO-AI/oro/releases/tag/v2.0.39",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790708441,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(agent): retry a 200 inference response whose body is not JSON (#348)",
+      "url": "https://github.com/ORO-AI/oro/commit/a8b890d8ef25f6af8d355f6851b05c7f6cb18d1e",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790708441,
+      "kind": "release",
+      "source": "github",
+      "title": "v2.0.38: fix(agent): retry a 200 inference response whose body is not JSON (#348)",
+      "url": "https://github.com/ORO-AI/oro/releases/tag/v2.0.38",
+      "publisher": "ORO-AI/oro"
+    },
+    {
+      "ts": 1790672225,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(proxy): sum inference counters across ProxyClient instances (#347)",
+      "url": "https://github.com/ORO-AI/oro/commit/bc9a2d54672b2a3369f7416e61e1e404e2a2820b",
+      "publisher": "ORO-AI/oro"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

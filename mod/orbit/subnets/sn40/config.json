@@ -1,0 +1,38 @@
+{
+  "name": "sn40",
+  "version": "1.0.0",
+  "description": "SN40 Ralph — The same model, small enough to run on your phone. Compress the frontier models into GGUFs. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ן",
+  "chain": "bittensor",
+  "netuid": 40,
+  "subnet": "Ralph",
+  "symbol": "ן",
+  "owner": "5HeKCDfdTyk5gttniUXWVGvf6xSpbJJG86thJcZnqNZjThoU",
+  "github": "https://github.com/RalphLabsAI/ralph",
+  "url": "https://ralphlabs.ai",
+  "discord": null,
+  "logo": "https://ralphlabs.ai/brand/ralph-logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=40",
+    "news": "/bt/news?netuid=40"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "netuid": 8,
+  "name": "Vanta",
+  "symbol": "θ",
+  "owner": "5F6tnxzAAxbhaWRmeUmB63JEM3VXBNSmqb3AwYJVDStQjw8y",
+  "description": "The first decentralized & trustless liquidity and execution engine for prop firms and traders",
+  "github": "https://github.com/taoshidev/vanta-network",
+  "url": "https://www.vantanetwork.io/",
+  "discord": "tl_arrash",
+  "logo": "https://website-git-ken-vanta-taoshi.vercel.app/black-white.png",
+  "registered_at": 1477264,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.029562632,
+    "moving_price": 0.028986214427277446,
+    "market_cap": 182806.57105939605,
+    "tao_in": 82172.392862829,
+    "alpha_in": 2779603.399687674,
+    "alpha_out": 3404100.779946808,
+    "volume": 1441044.631213313,
+    "vol_24h": 3448.067694545025,
+    "emission": 0.0,
+    "change_1h": 0.11047745059871161,
+    "change_24h": 3.714446364144708,
+    "change_7d": 3.7567697370554543
+  },
+  "spark_24h": [
+    0.028504022,
+    0.028505119,
+    0.028506742,
+    0.028508085,
+    0.028494304,
+    0.028492965,
+    0.028494282,
+    0.028495943,
+    0.028504672,
+    0.028442217,
+    0.028430099,
+    0.028365923,
+    0.028366333,
+    0.028367758,
+    0.028384444,
+    0.028385807,
+    0.028386641,
+    0.028399208,
+    0.028401888,
+    0.028402295,
+    0.028403699,
+    0.028411218,
+    0.028411839,
+    0.028413205,
+    0.028413104,
+    0.02841476,
+    0.028420015,
+    0.028418066,
+    0.028419788,
+    0.029302475,
+    0.029300324,
+    0.029302008,
+    0.02930372,
+    0.029305463,
+    0.029306865,
+    0.029349016,
+    0.029329208,
+    0.029330663,
+    0.029335923,
+    0.029337703,
+    0.029340305,
+    0.029345173,
+    0.029350458,
+    0.029351431,
+    0.029351095,
+    0.029373889,
+    0.029531138,
+    0.029562632
+  ],
+  "trades_24h": {
+    "trades": 165,
+    "buys": 81,
+    "sells": 84,
+    "buy_tao": 2347.710146796,
+    "sell_tao": 974.199760353,
+    "net_tao": 1373.5103864430002,
+    "traders": 98
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EEaGzqfwxCchopgEDfL1ecLATHZ4M32Fx6H47wMrqYmGsCr",
+      "net_tao": 1252.0,
+      "gross_tao": 1252.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FHrVdo8mq68NvHA3ERm7GgJEhEwgGGN4FunAmAa7s8rkd53",
+      "net_tao": 0.0940373259999987,
+      "gross_tao": 293.905962674,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": 0.11968966000000592,
+      "gross_tao": 241.88031034,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": 0.2663525379999996,
+      "gross_tao": 219.733647462,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FWBn1ZnmgxwrsL9jofXJBQ5ErkMKxr11LFe5ogBXYNeXtho",
+      "net_tao": 200.5,
+      "gross_tao": 200.5,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790803957,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix to Reduce REST API Lags Due to Lock Contention (#935)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/1d090d2473bef0de4d70a450578bb4dbdafbeadd",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1790787632,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #927 from taoshidev/development",
+      "url": "https://github.com/taoshidev/vanta-network/commit/747411e04e9221da2a7f01ec707e56e254d95248",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1790785258,
+      "kind": "commit",
+      "source": "github",
+      "title": "increase timeout for chain calls, prevent double slash from repeated …",
+      "url": "https://github.com/taoshidev/vanta-network/commit/acc6cd517e0f9294da9d4ef40d2d7728afc664be",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1790636979,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add EOD HWM Endpoint (#929)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/bb71cd98e92f738fe56ab0d57113313b6c6ce45d",
+      "publisher": "taoshidev/vanta-network"
+    },
+    {
+      "ts": 1790612752,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix immediate trigger path (#938)",
+      "url": "https://github.com/taoshidev/vanta-network/commit/9753793ab069deca79981bdfd6637f8c7289dc66",
+      "publisher": "taoshidev/vanta-network"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

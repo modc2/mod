@@ -7,6 +7,7 @@ import type { LibItem } from './components/Library'
 import Market from './components/Market'
 import Builder from './components/Builder'
 import AgentEditor from './components/AgentEditor'
+import SchedulePanel from './components/SchedulePanel'
 import CreditsSidebar, { CreditsInfo } from './components/Credits'
 import AuthGate, { type AuthNeed } from './components/AuthGate'
 import Select from './components/Select'
@@ -3480,6 +3481,11 @@ export default function Home() {
               title="The full gallery — prompt, model, memory, tools, FLOW wiring">
               hub →
             </button>
+          </div>
+          {/* agents on a timer: the builder (a new agent every N minutes),
+              scheduled runs, and the compute they run on */}
+          <div className="mt-3">
+            <SchedulePanel token={auth?.token} isHost={isHost} />
           </div>
         </div>
       ) : !currentTask ? (

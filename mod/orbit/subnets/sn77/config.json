@@ -1,0 +1,38 @@
+{
+  "name": "sn77",
+  "version": "1.0.0",
+  "description": "SN77 Liquidity — Supply liquidity on external chains via uniswap, incentivize any project. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ه",
+  "chain": "bittensor",
+  "netuid": 77,
+  "subnet": "Liquidity",
+  "symbol": "ه",
+  "owner": "5GxxsUeYRyJSJKCuPeG1jZZiCummHJttmTNsfgDRSfxVnhGi",
+  "github": "https://github.com/creativebuilds/sn77",
+  "url": "https://sn77.xyz",
+  "discord": "CreativeBuilds",
+  "logo": "https://sn77.xyz/assets/Logo.svg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=77",
+    "news": "/bt/news?netuid=77"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

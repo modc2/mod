@@ -35,8 +35,11 @@ picked up days later. The transcript the console renders lives in
 :mod:`bt.chats`, not in the CLI.
 
 Auth resolves in order: ANTHROPIC_API_KEY env → ~/.mod/bt/anthropic.key →
-Claude CLI OAuth (~/.claude/.credentials.json). If none exist, the key file
-is created empty (0600) and status()/chat() say where to paste a key.
+Claude CLI OAuth (~/.claude/.credentials.json) while it is unexpired → the
+session the build console's credential keeper publishes
+(~/.mod/build/private/claude_host.json). If none is usable, status()/chat()
+say so and carry ``login`` — the page that fixes it — and a run that still
+dies on auth is retried once on the keeper's session before giving up.
 """
 from __future__ import annotations
 
@@ -64,6 +67,11 @@ PREVIEW_CHARS = 220
 
 KEY_FILE = os.path.expanduser('~/.mod/bt/anthropic.key')
 OAUTH_FILE = os.path.expanduser('~/.claude/.credentials.json')
+HOST_CRED_FILE = os.path.expanduser(
+    os.environ.get('BT_HOST_CRED', '~/.mod/build/private/claude_host.json'))
+LOGIN_URL = os.environ.get('BT_LOGIN_URL', '/build/auth')
+# a credential this close to expiry is treated as already gone
+EXPIRY_MARGIN = 120
 
 # The agent gets every read-only tool; on-chain writes are explicitly denied
 # so a question can never sign anything.
@@ -125,9 +133,36 @@ STARTERS: List[str] = [
 
 # ------------------------------------------------------------------- auth
 
+def _oauth_expires_at() -> Optional[float]:
+    """Root's CLI login expiry (epoch secs); 0 = no login, None = unknown."""
+    try:
+        o = json.load(open(OAUTH_FILE)).get('claudeAiOauth') or {}
+    except (OSError, ValueError):
+        return 0
+    if not o.get('accessToken'):
+        return 0
+    ms = o.get('expiresAt')
+    return ms / 1000 if isinstance(ms, (int, float)) and ms > 0 else None
+
+
+def host_session() -> Optional[str]:
+    """The owner session build publishes when root's login has lapsed."""
+    try:
+        v = json.load(open(HOST_CRED_FILE))
+    except (OSError, ValueError):
+        return None
+    tok = v.get('token') if v.get('source') == 'owner-session' else None
+    if tok and (v.get('expires_at') or 0) > time.time() + EXPIRY_MARGIN:
+        return tok
+    return None
+
+
 def ensure_auth() -> Tuple[bool, Optional[str], Optional[str], Dict[str, str]]:
     """(ready, method, hint, extra_env) — creates KEY_FILE if nothing exists."""
-    if os.environ.get('ANTHROPIC_API_KEY'):
+    env_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    # an inherited sk-ant-oat… here is a leaked Claude Code session token, not
+    # a key — it expires, and the CLI rejects it as one; never trust it
+    if env_key and not env_key.startswith('sk-ant-oat'):
         return True, 'api-key-env', None, {}
     try:
         key = open(KEY_FILE).read().strip()
@@ -135,21 +170,52 @@ def ensure_auth() -> Tuple[bool, Optional[str], Optional[str], Dict[str, str]]:
         key = ''
     if key:
         return True, 'api-key-file', None, {'ANTHROPIC_API_KEY': key}
-    if os.path.exists(OAUTH_FILE):
+    exp = _oauth_expires_at()
+    if exp is None or (exp and exp > time.time() + EXPIRY_MARGIN):
         return True, 'claude-cli', None, {}
-    os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)
+    tok = host_session()
+    if tok:
+        return True, 'build-session', None, {'CLAUDE_CODE_OAUTH_TOKEN': tok}
     if not os.path.exists(KEY_FILE):
+        os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)
         with open(KEY_FILE, 'w'):
             pass
         os.chmod(KEY_FILE, 0o600)
+    why = ('The Claude login on this host has expired' if exp
+           else 'No Claude login on this host')
     return False, None, (
-        f'No Anthropic auth configured — paste an API key into {KEY_FILE} '
-        f'(created, 0600) or run `claude login` on this host.'), {}
+        f'{why} — sign in with Claude at {LOGIN_URL} (or paste an API key '
+        f'into {KEY_FILE}).'), {}
+
+
+def child_env(extra: Dict[str, str]) -> Dict[str, str]:
+    """A clean env for the CLI. When this server was started from inside a
+    Claude Code session it inherits that session's wiring — CHILD_SESSION,
+    SESSION_ID, a messaging socket to a parent long gone, sometimes its token
+    — and a CLI that believes it is someone's child leaves token refresh to
+    that parent, so root's login silently lapses. Strip all of it."""
+    env = {k: v for k, v in os.environ.items()
+           if not (k.startswith('CLAUDE_CODE_') or k in ('CLAUDECODE', 'CLAUDE_PID'))}
+    if env.get('ANTHROPIC_API_KEY', '').startswith('sk-ant-oat'):
+        env.pop('ANTHROPIC_API_KEY')
+    env.update(extra)
+    return env
+
+
+AUTH_FAIL = ('failed to authenticate', 'oauth session expired',
+             'invalid api key', 'authentication_error', 'please run /login',
+             'oauth token has expired', 'invalid bearer token')
+
+
+def is_auth_failure(text: str) -> bool:
+    t = (text or '').lower()
+    return any(m in t for m in AUTH_FAIL)
 
 
 def status() -> Dict:
     ready, method, hint, _ = ensure_auth()
     return {'ready': ready, 'method': method, 'hint': hint,
+            'login': None if ready else LOGIN_URL,
             'model': MODEL, 'max_turns': MAX_TURNS,
             'token_streaming': STREAM_PARTIAL,
             'tools': len(ALLOWED_TOOLS), 'denied': len(DISALLOWED_TOOLS),
@@ -332,7 +398,8 @@ class _Run:
         elif t == 'assistant':
             for c in msg.get('message', {}).get('content', []):
                 kind = c.get('type')
-                if kind == 'text' and not self.streamed and c.get('text', '').strip():
+                if kind == 'text' and not self.streamed and c.get('text', '').strip() \
+                        and not (not self.text and is_auth_failure(c['text'])):
                     # a second answer block after a tool call is a new
                     # paragraph, not a continuation of the last sentence
                     text = ('\n\n' if self.text else '') + c['text']
@@ -377,6 +444,12 @@ class _Run:
             self.cost = float(msg.get('total_cost_usd') or 0.0)
             self.ms = msg.get('duration_ms') or 0
             answer = msg.get('result') or ''.join(self.text)
+            if is_auth_failure(answer) and not self.tools:
+                # the CLI reports a dead login as a one-line "answer" — it is
+                # an error, and one the caller can act on
+                yield {'type': 'error', 'error': answer, 'auth': True,
+                       'login': LOGIN_URL}
+                return
             if msg.get('is_error') and not answer:
                 yield {'type': 'error', 'error': msg.get('subtype') or 'run failed'}
                 return
@@ -421,7 +494,7 @@ def chat(message: str, chat_id: Optional[str] = None,
         return
     ready, _, hint, extra = ensure_auth()
     if not ready:
-        yield {'type': 'error', 'error': hint}
+        yield {'type': 'error', 'error': hint, 'auth': True, 'login': LOGIN_URL}
         return
 
     if chat_id and chats.exists(chat_id):
@@ -433,13 +506,45 @@ def chat(message: str, chat_id: Optional[str] = None,
                  meta={'context': context} if context else None)
     yield {'type': 'chat', 'chat': chat_id, 'session': session}
 
-    env = {**os.environ, **extra}
-    # keep the child from thinking it's nested inside a Claude Code session
-    env.pop('CLAUDECODE', None)
-    env.pop('CLAUDE_CODE_ENTRYPOINT', None)
     prompt = context_line(context) + message
+    run = _Run()
     try:
-        proc = subprocess.Popen(build_cmd(prompt, session), cwd=ROOT, env=env,
+        # Two attempts at most: the second only when the first died on auth
+        # and the build keeper has a session the first did not use.
+        for attempt in (0, 1):
+            run = _Run()
+            retry = None
+            for ev in _spawn(prompt, session, extra, chat_id, run):
+                if ev.get('auth') and attempt == 0:
+                    tok = host_session()
+                    if tok and extra.get('CLAUDE_CODE_OAUTH_TOKEN') != tok:
+                        retry = {'CLAUDE_CODE_OAUTH_TOKEN': tok}
+                        continue
+                if ev.get('auth'):
+                    ev['error'] = (f'{ev["error"]} — sign in with Claude at '
+                                   f'{LOGIN_URL} and ask again.')
+                yield ev
+            if not retry:
+                break
+            extra = retry
+            yield {'type': 'status', 'chat': chat_id,
+                   'status': 'host login expired — retrying on the build session'}
+    finally:
+        if run.answer or run.tools:
+            chats.append(chat_id, 'assistant', run.answer, tools=run.tools,
+                         meta={'views': run.views, 'turns': run.turns,
+                               'ms': run.ms, 'cost_usd': run.cost,
+                               'model': run.model or MODEL})
+        chats.finish_turn(chat_id, session=run.session, model=run.model,
+                          turns=run.turns, cost_usd=run.cost)
+
+
+def _spawn(prompt: str, session: Optional[str], extra: Dict[str, str],
+           chat_id: str, run: '_Run') -> Generator[Dict, None, None]:
+    """One CLI process for one attempt at a turn, streamed as events."""
+    try:
+        proc = subprocess.Popen(build_cmd(prompt, session), cwd=ROOT,
+                                env=child_env(extra),
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 text=True, bufsize=1)
     except FileNotFoundError:
@@ -449,7 +554,6 @@ def chat(message: str, chat_id: Optional[str] = None,
 
     with _runs_lock:
         _runs[chat_id] = proc
-    run = _Run()
     watchdog = threading.Timer(TIMEOUT_SEC, proc.kill)
     watchdog.start()
     finished = False
@@ -470,10 +574,13 @@ def chat(message: str, chat_id: Optional[str] = None,
         if not finished:
             err = (proc.stderr.read() or '')[-400:].strip()
             stopped = proc.returncode in (-9, -15, 137)
-            yield {'type': 'error', 'chat': chat_id,
-                   'error': 'stopped' if stopped else
-                   (err or f'agent exited early (code {proc.returncode})'),
-                   'stopped': stopped}
+            ev = {'type': 'error', 'chat': chat_id,
+                  'error': 'stopped' if stopped else
+                  (err or f'agent exited early (code {proc.returncode})'),
+                  'stopped': stopped}
+            if not stopped and is_auth_failure(err):
+                ev.update(auth=True, login=LOGIN_URL)
+            yield ev
     finally:
         watchdog.cancel()
         if proc.poll() is None:
@@ -481,13 +588,6 @@ def chat(message: str, chat_id: Optional[str] = None,
         with _runs_lock:
             if _runs.get(chat_id) is proc:
                 _runs.pop(chat_id, None)
-        if run.answer or run.tools:
-            chats.append(chat_id, 'assistant', run.answer, tools=run.tools,
-                         meta={'views': run.views, 'turns': run.turns,
-                               'ms': run.ms, 'cost_usd': run.cost,
-                               'model': run.model or MODEL})
-        chats.finish_turn(chat_id, session=run.session, model=run.model,
-                          turns=run.turns, cost_usd=run.cost)
 
 
 def ask(question: str, chat_id: Optional[str] = None,

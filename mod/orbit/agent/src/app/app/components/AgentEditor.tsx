@@ -16,13 +16,20 @@
 //   tools                      — the exact loadout (empty = every tool)
 //   harness                    — hand the run to a CLI instead of this loop
 //
-// New agents POST /agents; an existing one PUTs, using the explicit clear_*
-// flags so emptying a field means "unset" rather than "not passed".
+// A brand-new agent has no form at all: you say what you want, the
+// vibe-builder designs it and it is saved and selected in one go
+// (POST /agents/vibe with save=true). The fields below are for changing an
+// agent that already exists, or a copy of one — never for making one.
+//
+// Existing agents PUT, using the explicit clear_* flags so emptying a field
+// means "unset" rather than "not passed".
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
 import { useDraftEngines } from './useDraftEngines'
+import ScoutPanel, { type ScoutDraft } from './ScoutPanel'
+import SchedulePanel from './SchedulePanel'
 
 type ToolInfo = { description?: string; kind?: string }
 type Toolbox = { name: string; description?: string; tools: string[]; builtin?: boolean }
@@ -98,6 +105,8 @@ export default function AgentEditor({
   const [copy, setCopy] = useState(!!from)
   const stored = !!name        // an agent that exists on the server
   const isNew = !stored || copy
+  // a from-nothing agent: made by prompt alone, no fields
+  const fresh = !stored && !from
 
   // ── the agent being written ──
   const [slug, setSlug] = useState(name || '')
@@ -242,6 +251,54 @@ export default function AgentEditor({
   const [vibeEngine, setVibeEngine] = useState('')
   const engines = useDraftEngines(token)
 
+  // a draft — from vibe, or from the scout — lands in the form, never saved
+  const applyDraft = useCallback((d: ScoutDraft, dropped: string[]) => {
+    if (d.name) setSlug(d.name)
+    if (d.icon) setIcon(d.icon)
+    if (d.description) setDescription(d.description)
+    if (d.goal) setGoal(d.goal)
+    setTools(Array.isArray(d.tools) ? d.tools : [])
+    if (d.model) setModel(d.model)
+    flash(true, `drafted "${d.name}" — review it, then create${
+      dropped.length ? ` · dropped unknown tools: ${dropped.join(', ')}` : ''}`)
+  }, [])
+
+  // a fresh agent is done the moment it exists: refresh the list, set the
+  // default if that was ticked, and start talking to it
+  const finishCreate = async (s: string | undefined, dropped: string[]) => {
+    if (!s) { flash(false, 'the agent was created but came back without a name'); return }
+    if (makeDefault && onMakeDefault) await onMakeDefault(s)
+    flash(true, `created "${s}"${dropped.length ? ` · dropped unknown tools: ${dropped.join(', ')}` : ''}`)
+    if (onUse) onUse(s)
+    else onSaved(s)
+  }
+
+  // the scout hands back a draft, not an agent — in fresh mode it is filed
+  // as-is, because there is no form for it to land in
+  const createFromDraft = useCallback(async (d: ScoutDraft, dropped: string[]) => {
+    if (!token) { flash(false, 'sign in to create an agent'); return }
+    if (!d?.name || !d?.goal) { flash(false, 'the scout came back without a whole agent — try again'); return }
+    setVibing(true)
+    try {
+      const res = await fetch(`${API_URL}/agents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: slugify(d.name), description: d.description || '', goal: d.goal,
+          icon: d.icon || '✦', tools: d.tools?.length ? d.tools : null,
+          model: d.model || null, key: token,
+        }),
+      })
+      const data = await res.json()
+      if (data?.error) { flash(false, data.error); return }
+      await finishCreate(slugify(d.name), dropped)
+    } catch (e: any) {
+      flash(false, e?.message || 'create failed')
+    } finally {
+      setVibing(false)
+    }
+  }, [token, makeDefault, onMakeDefault, onUse, onSaved])
+
   const vibe = useCallback(async () => {
     const brief = vibeText.trim()
     if (brief.length < 8) { flash(false, 'describe the agent in a sentence or two first'); return }
@@ -261,27 +318,20 @@ export default function AgentEditor({
           // drafter only mints one when the field is empty
           name: slugify(slug) || null,
           harness: vibeEngine || null,
+          save: fresh,
           key: token,
         }),
       })
       const data = await res.json()
       if (data?.error) { flash(false, data.error); return }
-      const d = data.draft || {}
-      if (d.name) setSlug(d.name)
-      if (d.icon) setIcon(d.icon)
-      if (d.description) setDescription(d.description)
-      if (d.goal) setGoal(d.goal)
-      setTools(Array.isArray(d.tools) ? d.tools : [])
-      if (d.model) setModel(d.model)
-      const dropped = (data.tools_dropped || []) as string[]
-      flash(true, `drafted "${d.name}" — review it, then create${
-        dropped.length ? ` · dropped unknown tools: ${dropped.join(', ')}` : ''}`)
+      if (fresh && data.saved) { await finishCreate(data.draft?.name, data.tools_dropped || []); return }
+      applyDraft(data.draft || {}, data.tools_dropped || [])
     } catch (e: any) {
       flash(false, e?.name === 'TimeoutError' ? 'the draft timed out — try again' : e?.message || 'vibe failed')
     } finally {
       setVibing(false)
     }
-  }, [vibeText, token, slug, vibeEngine])
+  }, [vibeText, token, slug, vibeEngine, applyDraft, fresh, makeDefault, onMakeDefault, onUse, onSaved])
 
   const save = useCallback(async (thenUse: boolean) => {
     const s = isNew ? slugify(slug) : name!
@@ -384,41 +434,56 @@ export default function AgentEditor({
 
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-xs text-gray-600">loading…</div>
-      ) : (
-      <div className="flex-1 overflow-y-auto min-h-0 p-2.5 space-y-3">
-        {/* vibe — one box that fills the whole form. Create-mode only: an
-            existing agent is edited, not re-imagined out from under itself */}
-        {isNew && (
-          <div className="border border-violet-400/20 rounded-md p-2 bg-violet-500/[0.04]">
-            <div className={legend}>
-              ✧ vibe
-              <span className="text-gray-700 normal-case tracking-normal">· describe it, the rest is drafted</span>
-            </div>
-            <textarea value={vibeText} onChange={e => setVibeText(e.target.value)} rows={3}
-              disabled={vibing}
-              placeholder="an agent that reviews python diffs for security bugs and writes a report…"
-              className={`${field} resize-y leading-relaxed ${vibing ? 'opacity-60' : ''}`} />
-            <div className="flex items-center gap-1.5 mt-1.5">
-              <span className="text-[9px] text-gray-600 min-w-0">
-                tools come from the live MCP catalog; leave the name blank and an untaken one is made up
-              </span>
-              {/* who drafts it — this module's loop, or a harness CLI this
-                  caller may hand a run to (the build console, Claude Code) */}
-              {engines.length > 0 && (
-                <Select value={vibeEngine} accent="violet" size="sm"
-                  className="ml-auto w-36 shrink-0" title="Which agent drafts it"
-                  onChange={setVibeEngine}
-                  options={[{ value: '', label: 'vibe-builder' },
-                            ...engines.map(e => ({ value: e.name, label: e.label }))]} />
-              )}
-              <button onClick={vibe} disabled={vibing || loading}
-                className={`${engines.length ? '' : 'ml-auto '}shrink-0 text-[10px] uppercase tracking-wider px-2 py-1 rounded border border-violet-400/30 text-violet-300 hover:bg-violet-500/10 disabled:opacity-50 transition`}>
-                {vibing ? 'vibing…' : '✧ vibe'}
-              </button>
-            </div>
+      ) : fresh ? (
+      // a new agent is one sentence: say what it's for, it gets built, saved
+      // and selected. No fields — the details are there afterwards under ✎
+      <div className="flex-1 overflow-y-auto min-h-0 p-2.5 space-y-2.5">
+        <div>
+          <div className="text-[11px] text-gray-300 mb-1">What should your agent do?</div>
+          <textarea value={vibeText} onChange={e => setVibeText(e.target.value)} rows={5}
+            autoFocus disabled={vibing}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); vibe() } }}
+            placeholder="reviews my python diffs for security bugs and writes a short report…"
+            className={`${field} resize-y leading-relaxed text-[13px] ${vibing ? 'opacity-60' : ''}`} />
+          <div className="text-[9px] text-gray-600 mt-1">
+            it picks the name, prompt and tools for you · you can still tweak it later
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {/* who builds it — this module's loop, or a harness CLI this
+              caller may hand a run to (the build console, Claude Code) */}
+          {engines.length > 0 && (
+            <Select value={vibeEngine} accent="violet" size="sm"
+              className="w-36 shrink-0" title="Which agent builds it"
+              onChange={setVibeEngine}
+              options={[{ value: '', label: 'vibe-builder' },
+                        ...engines.map(e => ({ value: e.name, label: e.label }))]} />
+          )}
+          <button onClick={vibe} disabled={vibing || vibeText.trim().length < 8}
+            className="ml-auto shrink-0 text-[11px] uppercase tracking-wider px-3 py-1.5 rounded-md border border-violet-400/40 text-violet-200 bg-violet-500/10 hover:bg-violet-500/20 disabled:opacity-40 transition">
+            {vibing ? 'building…' : '✧ create agent'}
+          </button>
+        </div>
+        {vibing && (
+          <div className="text-[10px] text-violet-300/80">
+            designing it against the live tool catalog — this takes a minute
           </div>
         )}
-
+        {msg && (
+          <div className={`text-[10px] px-2 py-1.5 rounded-md border ${
+            msg.ok ? 'border-emerald-500/25 text-emerald-300 bg-emerald-500/[0.07]'
+                   : 'border-red-500/25 text-red-300 bg-red-500/[0.07]'
+          }`}>
+            {msg.text}
+          </div>
+        )}
+        {/* no idea yet? the scout goes looking and builds one */}
+        <ScoutPanel token={token} theme={vibeText} engine={vibeEngine}
+          onDraft={createFromDraft}
+          onIdea={i => setVibeText(`${i.title}: ${i.pitch}\n\n${i.brief}`)} />
+      </div>
+      ) : (
+      <div className="flex-1 overflow-y-auto min-h-0 p-2.5 space-y-3">
         {/* identity */}
         <div>
           <div className={legend}>name</div>
@@ -615,6 +680,14 @@ export default function AgentEditor({
           )}
         </div>
 
+        {/* schedule — run this agent every N minutes, and the compute it runs on */}
+        {stored && !copy && (
+          <div>
+            <div className={legend}>schedule · compute</div>
+            <SchedulePanel token={token} agent={name} isHost={isHost} />
+          </div>
+        )}
+
         {/* harness — the run leaves this loop entirely, so it's host-gated */}
         {isHost && (
           <div>
@@ -674,7 +747,7 @@ export default function AgentEditor({
             )}
           </div>
         )}
-        <div className="px-2.5 py-2 flex items-center gap-1.5">
+        {!fresh && <div className="px-2.5 py-2 flex items-center gap-1.5">
           <button onClick={() => save(false)} disabled={saving || loading}
             className="flex-1 px-2 py-1.5 rounded-md text-[10px] uppercase tracking-wider border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50 transition">
             {saving ? '…' : !stored ? 'create' : copy ? 'save as new' : 'save'}
@@ -686,7 +759,8 @@ export default function AgentEditor({
               save + use
             </button>
           )}
-        </div>
+        </div>}
+        {fresh && <div className="pb-2" />}
       </div>
     </div>
   )

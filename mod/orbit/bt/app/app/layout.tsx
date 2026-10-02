@@ -5,6 +5,7 @@ import './styles/news.css';
 import './styles/tx.css';
 import './styles/subnet.css';
 import './styles/market.css';
+import './styles/dock.css';
 import './globals.css';
 
 export const metadata: Metadata = {

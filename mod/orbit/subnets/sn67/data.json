@@ -1,0 +1,189 @@
+{
+  "netuid": 67,
+  "name": "Harnyx",
+  "symbol": "ط",
+  "owner": "5HEAv3TU1yNei4GwiTsxfmDCDW9pMCKLeDVky9iaVJfYiVeY",
+  "description": "Deep research as a commodity. Faster, cheaper, traceable research — produced by a competitive swarm of miners on Bittensor SN67.",
+  "github": "https://github.com/harnyx/harnyx",
+  "url": "https://harnyx.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1457737666316472351",
+  "logo": "https://harnyx.ai/favicon.png",
+  "registered_at": 7236936,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.003581262,
+    "moving_price": 0.0036250315606594086,
+    "market_cap": 6209.720311018421,
+    "tao_in": 2699.988026265,
+    "alpha_in": 753920.906586853,
+    "alpha_out": 980026.598794887,
+    "volume": 69113.827082422,
+    "vol_24h": 25.528906830993947,
+    "emission": 0.0,
+    "change_1h": 0.010165047985166709,
+    "change_24h": -1.5913771665281295,
+    "change_7d": -5.907034754048047
+  },
+  "spark_24h": [
+    0.00363907,
+    0.003638862,
+    0.003638911,
+    0.003638766,
+    0.003638613,
+    0.003638656,
+    0.003638598,
+    0.003638613,
+    0.003638833,
+    0.003637272,
+    0.003637216,
+    0.003637229,
+    0.003637224,
+    0.003637215,
+    0.003637275,
+    0.003637323,
+    0.003637442,
+    0.003637522,
+    0.003635544,
+    0.00363555,
+    0.003635676,
+    0.003635752,
+    0.00363547,
+    0.003635526,
+    0.003635575,
+    0.003635643,
+    0.003635712,
+    0.003632719,
+    0.003631534,
+    0.003630983,
+    0.003631163,
+    0.003628431,
+    0.003628482,
+    0.003628399,
+    0.003627031,
+    0.003623951,
+    0.003624134,
+    0.003623869,
+    0.003623528,
+    0.003621242,
+    0.00362034,
+    0.003619535,
+    0.003616785,
+    0.003615856,
+    0.003601532,
+    0.003580683,
+    0.003581177,
+    0.003581262
+  ],
+  "trades_24h": {
+    "trades": 159,
+    "buys": 0,
+    "sells": 159,
+    "buy_tao": 0,
+    "sell_tao": 13.392446005,
+    "net_tao": -13.392446005,
+    "traders": 19
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CknxoDyxrzkHaco16xo4MRLTkrMLPXpu8SgE4frj4nAX7Js",
+      "net_tao": -5.417175554,
+      "gross_tao": 5.417175554,
+      "trades": 23
+    },
+    {
+      "coldkey": "5HgdE5CbgaPKhQnKXv3KxajZamPfJVQh5ZJBUFhaH7mE9Y59",
+      "net_tao": -1.648722915,
+      "gross_tao": 1.648722915,
+      "trades": 10
+    },
+    {
+      "coldkey": "5EviUp7mgr7fZTioPAzvr26VMmkAuz5emLB8iZj8ZiAnjskz",
+      "net_tao": -1.056611711,
+      "gross_tao": 1.056611711,
+      "trades": 5
+    },
+    {
+      "coldkey": "5DRppueiUwcfHhGpuzBi98KX4SEdpGLdpc8bTbEKqMrDNueu",
+      "net_tao": -1.041709185,
+      "gross_tao": 1.041709185,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GbiKZuktSM8dD9uthPgyDe8RL1tH3eKYE1NhMiMpS8EoPR3",
+      "net_tao": -0.8832250819999999,
+      "gross_tao": 0.8832250819999999,
+      "trades": 20
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790913728,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261002.post1",
+      "url": "https://github.com/harnyx/harnyx/commit/f015c036a3986b1080a66067e641b825ba6d6559",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1790913364,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20261002.post0",
+      "url": "https://github.com/harnyx/harnyx/commit/03366abd6f64ec156d3dc583e840f6bf1e31fd8b",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1790913313,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add marketing consent preferences and Resend contact synchronization …",
+      "url": "https://github.com/harnyx/harnyx/commit/f8c980074f8531bfa7ff33c2a236576a03d0a8ce",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1790148323,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20260923.post2",
+      "url": "https://github.com/harnyx/harnyx/commit/a8fd4998d0aadda1e5099faeaacba9948a8de6b5",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1790148242,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add MiMo-V2.6 hosted models to miner tools (#1609)",
+      "url": "https://github.com/harnyx/harnyx/commit/2aceec3bea4cdc36d7099723a8272aeb9090e3dd",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1790144665,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20260923.post1",
+      "url": "https://github.com/harnyx/harnyx/commit/96c18cf5993cfa877887c6ea344a4ecc17a6e648",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1790144253,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document miner provider API key uniqueness (#1607)",
+      "url": "https://github.com/harnyx/harnyx/commit/066921857f4a27e8b3e71e1db2c101cc0ab170d1",
+      "publisher": "harnyx/harnyx"
+    },
+    {
+      "ts": 1790144001,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(validator): bump repo-owned validator version to 20260923.post0",
+      "url": "https://github.com/harnyx/harnyx/commit/572043f39eb3c7eaeb0999f86c70a2a24727491f",
+      "publisher": "harnyx/harnyx"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

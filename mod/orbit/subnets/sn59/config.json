@@ -1,0 +1,38 @@
+{
+  "name": "sn59",
+  "version": "1.0.0",
+  "description": "SN59 agent-arena — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "د",
+  "chain": "bittensor",
+  "netuid": 59,
+  "subnet": "agent-arena",
+  "symbol": "د",
+  "owner": "5GzrQ2febBKynmJ4BrNFiEgnsMvVpz5bZtGcucGCKgfaRXep",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=59",
+    "news": "/bt/news?netuid=59"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -1,0 +1,181 @@
+{
+  "netuid": 13,
+  "name": "Data Universe",
+  "symbol": "ν",
+  "owner": "5HBswBt1A9Ahx6U76abXXGd7VmabmCNBGhSK2vrP71GSxtgZ",
+  "description": "Scraping the world's social media data",
+  "github": "https://github.com/macrocosm-os/data-universe",
+  "url": "https://datauniverse.macrocosmos.ai/",
+  "discord": "https://discord.gg/adsQPnFRY",
+  "logo": "https://www.macrocosmos.ai/images/mc_logo_black.png",
+  "registered_at": 1907637,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.004715667,
+    "moving_price": 0.004718085052445531,
+    "market_cap": 29098.442921129114,
+    "tao_in": 18348.560286863,
+    "alpha_in": 3890978.155796978,
+    "alpha_out": 2279610.844895631,
+    "volume": 972099.356815891,
+    "vol_24h": 32.11984965193551,
+    "emission": 0.0,
+    "change_1h": -8.482355958738808e-05,
+    "change_24h": -0.11469828314780717,
+    "change_7d": -7.044424903208801
+  },
+  "spark_24h": [
+    0.004721075,
+    0.004721062,
+    0.004721056,
+    0.004721045,
+    0.004721026,
+    0.004720513,
+    0.004720564,
+    0.004720538,
+    0.004720538,
+    0.004719544,
+    0.004719532,
+    0.004719521,
+    0.004719521,
+    0.00471952,
+    0.004719775,
+    0.004719774,
+    0.00471975,
+    0.004719495,
+    0.004719464,
+    0.004719112,
+    0.004719112,
+    0.004719114,
+    0.004719003,
+    0.004718756,
+    0.0047187,
+    0.0047187,
+    0.004718683,
+    0.004718649,
+    0.004718649,
+    0.004718648,
+    0.004718618,
+    0.004718618,
+    0.004718598,
+    0.004718597,
+    0.004718025,
+    0.004716878,
+    0.004716879,
+    0.00471687,
+    0.004716862,
+    0.004716861,
+    0.004716518,
+    0.004715828,
+    0.004715861,
+    0.004715733,
+    0.004715737,
+    0.004715738,
+    0.004715671,
+    0.004715667
+  ],
+  "trades_24h": {
+    "trades": 247,
+    "buys": 8,
+    "sells": 239,
+    "buy_tao": 10.751642039,
+    "sell_tao": 20.774310892,
+    "net_tao": -10.022668852999999,
+    "traders": 136
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EkTozeFV7BekpQb92LwtRRY184sMmoV1eCbLb5UjVMjfkQb",
+      "net_tao": 0.010065680000000299,
+      "gross_tao": 19.98993432,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FCowSkUArnCe6SvDms3Gj1EcCwDFxjkUQ3Wj56oNXgf4tag",
+      "net_tao": -1.864895356,
+      "gross_tao": 1.864895356,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -1.342538183,
+      "gross_tao": 1.342538183,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EvDWeQyTZivfC6JAPdW9p7xobY9noLgsPw5hr3MyoMNSgZA",
+      "net_tao": -0.999442315,
+      "gross_tao": 0.999442315,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FcMruLkD5Yz7qstmpNJYwFfNvjFa83wYzFmSAr3hevRj57W",
+      "net_tao": 0.0020413930000000285,
+      "gross_tao": 0.987563699,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790858856,
+      "kind": "release",
+      "source": "github",
+      "title": "Release v1.18.73",
+      "url": "https://github.com/macrocosm-os/data-universe/releases/tag/v1.18.73",
+      "publisher": "macrocosm-os/data-universe"
+    },
+    {
+      "ts": 1790858813,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #921 from macrocosm-os/dev",
+      "url": "https://github.com/macrocosm-os/data-universe/commit/af8442153cc3f956b90d3e6aa179a14cb9cd6cb8",
+      "publisher": "macrocosm-os/data-universe"
+    },
+    {
+      "ts": 1790852593,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #919 from macrocosm-os/fix/job-window-full-scan",
+      "url": "https://github.com/macrocosm-os/data-universe/commit/ffa8c3ef22130f3a5a0c95e52a71b6396c852d51",
+      "publisher": "macrocosm-os/data-universe"
+    },
+    {
+      "ts": 1790852489,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(s3): run the job-window scan only on locally cached files",
+      "url": "https://github.com/macrocosm-os/data-universe/commit/15e731b7eeb37b5ea1e70e6ed138905d0d740828",
+      "publisher": "macrocosm-os/data-universe"
+    },
+    {
+      "ts": 1790852343,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #920 from macrocosm-os/docs/agents-md",
+      "url": "https://github.com/macrocosm-os/data-universe/commit/673f187e720fcc241c35a44960741cd5278a5c7a",
+      "publisher": "macrocosm-os/data-universe"
+    },
+    {
+      "ts": 1790852290,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #916 from macrocosm-os/improve-gravity-logging",
+      "url": "https://github.com/macrocosm-os/data-universe/commit/8ea25391a773d295adaad4cd25688c9ef2a6827f",
+      "publisher": "macrocosm-os/data-universe"
+    },
+    {
+      "ts": 1788363810,
+      "kind": "release",
+      "source": "github",
+      "title": "Release v1.18.72",
+      "url": "https://github.com/macrocosm-os/data-universe/releases/tag/v1.18.72",
+      "publisher": "macrocosm-os/data-universe"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

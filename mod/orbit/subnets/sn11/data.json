@@ -1,0 +1,189 @@
+{
+  "netuid": 11,
+  "name": "TrajectoryRL",
+  "symbol": "λ",
+  "owner": "5D2Jhtbnm7iAdKfjRk6DisXBnr1MEsYat8kXqaPNrVqJP3uE",
+  "description": "Agentic RL as a Service, Optimize agent trajectories to make agents cheaper, safer, and more reliable.",
+  "github": "https://github.com/trajectoryRL/trajectoryRL",
+  "url": "https://trajrl.com",
+  "discord": null,
+  "logo": "https://pbs.twimg.com/profile_images/2018928039716089856/2PZ-Bhm2_400x400.jpg",
+  "registered_at": 2918568,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.00765761,
+    "moving_price": 0.007663054391741753,
+    "market_cap": 46401.49822216412,
+    "tao_in": 20185.927367298,
+    "alpha_in": 2636060.852870845,
+    "alpha_out": 3423466.626612195,
+    "volume": 1019589.206218598,
+    "vol_24h": 222.2612593009835,
+    "emission": 0.0,
+    "change_1h": -0.19451200867927065,
+    "change_24h": 0.3931368920566669,
+    "change_7d": -3.690121458752682
+  },
+  "spark_24h": [
+    0.007627629,
+    0.007627585,
+    0.00762999,
+    0.007630116,
+    0.00763022,
+    0.007630346,
+    0.007630495,
+    0.007650787,
+    0.007627516,
+    0.007627582,
+    0.007638953,
+    0.007639074,
+    0.007639038,
+    0.007639159,
+    0.007639292,
+    0.007639422,
+    0.007639572,
+    0.007639716,
+    0.007639849,
+    0.007639986,
+    0.007640113,
+    0.007640264,
+    0.007640414,
+    0.007663305,
+    0.007675116,
+    0.00767526,
+    0.007675435,
+    0.007674236,
+    0.007666754,
+    0.007666902,
+    0.007659433,
+    0.007659612,
+    0.007659784,
+    0.00765996,
+    0.007660091,
+    0.007660385,
+    0.007660562,
+    0.00766072,
+    0.007660876,
+    0.007673913,
+    0.007668918,
+    0.00766851,
+    0.007668734,
+    0.007668703,
+    0.007668423,
+    0.007672387,
+    0.007657375,
+    0.00765761
+  ],
+  "trades_24h": {
+    "trades": 67,
+    "buys": 13,
+    "sells": 54,
+    "buy_tao": 121.150216521,
+    "sell_tao": 90.349229298,
+    "net_tao": 30.800987223000007,
+    "traders": 21
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EbzkUvWzMZEu8qomSAtmVYaEUVAxuKskw733t7DeXVGAYMG",
+      "net_tao": 66.978832311,
+      "gross_tao": 66.978832311,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CvbGZZiiTzdu2jeGE1EQEg9TuFDAFgHximJtFk2eG4Sm1Bz",
+      "net_tao": -30.875805779,
+      "gross_tao": 30.875805779,
+      "trades": 2
+    },
+    {
+      "coldkey": "5EtTJc8Z26EaysT9EEeJL54wkDvWW2jveHzuWnxm3yRY6Bxu",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5H8U5WxdG2Y2WZfanELvYQvFcynUcRodFsbyfDuohqu5yEL6",
+      "net_tao": -20.148573132,
+      "gross_tao": 20.148573132,
+      "trades": 2
+    },
+    {
+      "coldkey": "5C82jb9nEUXBQUttvfunMtY7nqLio18wwMebrLW3Kp6UTvPg",
+      "net_tao": -19.999828624,
+      "gross_tao": 19.999828624,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789972772,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.7.3",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/releases/tag/v0.7.3",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789972714,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): bump version to 0.7.3 (SPEC 26: drop 6 low-signal sce…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/f20a623aabd7c150ac8f07bd50c00b3d9d9ed130",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789972682,
+      "kind": "commit",
+      "source": "github",
+      "title": "[coding-agent] SPEC 26: drop 6 low-signal/high-cost scenarios (26 -> …",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/989c7cc766ef11c3bb904bcbdb3341a13fc10c92",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789968278,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.7.2",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/releases/tag/v0.7.2",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789968276,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): bump version to 0.7.2 (own-container resolution, vali…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/405be66921b854f9403353425b042b238d41cd82",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789968273,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator): report health on the heartbeat, and never blame a mi…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/772601dae7825ca62e39562d4712ccf891360bfd",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789965048,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(harness): resolve own container when Watchtower left a stale host…",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/commit/14fc57a5deeaf639b9788249ce2ee69c93213d1f",
+      "publisher": "trajectoryRL/trajectoryRL"
+    },
+    {
+      "ts": 1789901809,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.7.1",
+      "url": "https://github.com/trajectoryRL/trajectoryRL/releases/tag/v0.7.1",
+      "publisher": "trajectoryRL/trajectoryRL"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

@@ -1,0 +1,38 @@
+{
+  "name": "sn97",
+  "version": "1.0.0",
+  "description": "SN97 Albedo — Alchemical intelligence. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ა",
+  "chain": "bittensor",
+  "netuid": 97,
+  "subnet": "Albedo",
+  "symbol": "ა",
+  "owner": "5GnW8owmMGn83WqL9JNYytmw458UYrTT6Ra5fH8TTUkzEbTb",
+  "github": "https://github.com/unarbos/albedo",
+  "url": "https://us-east-1.hippius.com/albedo/index.html",
+  "discord": "@arbos",
+  "logo": "https://us-east-1.hippius.com/albedo/favicon.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=97",
+    "news": "/bt/news?netuid=97"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "sn56",
+  "version": "1.0.0",
+  "description": "SN56 Gradients — Best AutoML plaftorm in the world. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ج",
+  "chain": "bittensor",
+  "netuid": 56,
+  "subnet": "Gradients",
+  "symbol": "ج",
+  "owner": "5EJ1zbdwhumTRYFx3VCGnR6SW7CJWP28tEJCo2gw1dFbVL5g",
+  "github": "https://github.com/gradients-ai/G.O.D",
+  "url": "https://www.gradients.io/",
+  "discord": "None",
+  "logo": "https://gradients-public.s3.eu-central-003.backblazeb2.com/gradientslogo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=56",
+    "news": "/bt/news?netuid=56"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -99,6 +99,17 @@ direct lane reads v3 fine. Use it when asked "is the lium/targon/cathedral
 module working", or before trusting a number that came from one of them.
 Renting always goes direct: mod-lane ids are the upstream's own.
 
+## Oracle — predict GPU prices, climb the leaderboard
+
+`compute_oracle` lists every GPU price index (`gpu:h100` = median per-GPU $/hr
+across every market, re-read every 20 min) with its 24h change, and the
+leaderboard. `compute_predict player= series= horizon=1h|6h|24h|7d value=`
+makes a call; with no `key` a player is created and its key returned ONCE —
+keep it. Score = 100 x 0.5^(abs % error / 5%); ranked by mean after 3 scored
+calls; one open call per (player, series, horizon), no edits. The `bot.*`
+players are baselines; "beat naive" = % of calls closer than "nothing changes".
+Spends nothing. Owner can force a market read: `m compute/tick`.
+
 ## Nodes — setting up a container and driving it
 
 A rental is not a machine you can use until something installs on it. That is

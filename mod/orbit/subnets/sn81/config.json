@@ -1,0 +1,38 @@
+{
+  "name": "sn81",
+  "version": "1.0.0",
+  "description": "SN81 Reliquary — The RL layer of Bittensor. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚠ",
+  "chain": "bittensor",
+  "netuid": 81,
+  "subnet": "Reliquary",
+  "symbol": "ᚠ",
+  "owner": "5GnpQR4Nt3f5AQqBXuhf7GkkaEHhAVQrVk4EsK4daZDmkAQT",
+  "github": "https://github.com/reliquadotai/reliquary",
+  "url": "https://www.reliqua.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1493247592551678012",
+  "logo": "https://www.reliqua.ai/reliquary-logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=81",
+    "news": "/bt/news?netuid=81"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

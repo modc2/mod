@@ -1,0 +1,38 @@
+{
+  "name": "sn90",
+  "version": "1.0.0",
+  "description": "SN90 KubeTEE — KubeTEE AI Factory: Confidential Computing TEE Multi-Cluster K8s. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "テ",
+  "chain": "bittensor",
+  "netuid": 90,
+  "subnet": "KubeTEE",
+  "symbol": "テ",
+  "owner": "5C9y6fnLPSzBeh1Np7f4DnGen42xV29nL9qZTDuwpVC4iTEE",
+  "github": "https://github.com/KubeTEE-AI/kubetee-subnet",
+  "url": "https://kubetee.ai",
+  "discord": "https://discord.gg/KUeXm9XQG4",
+  "logo": "https://kubetee.ai/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=90",
+    "news": "/bt/news?netuid=90"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

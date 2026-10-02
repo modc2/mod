@@ -1,0 +1,38 @@
+{
+  "name": "sn76",
+  "version": "1.0.0",
+  "description": "SN76 Ormas — Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ن",
+  "chain": "bittensor",
+  "netuid": 76,
+  "subnet": "Ormas",
+  "symbol": "ن",
+  "owner": "5CLWmDjLwkDtLQ86y9aiwfzrUCrtnnSWS9oEXianj2jMDCAo",
+  "github": "https://github.com/heroncovelabs/ormas-subnet",
+  "url": "https://ormas.ai",
+  "discord": "ormasheroncovelabs_43871",
+  "logo": "https://ormas.ai/brand/ormas-mark-v3.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=76",
+    "news": "/bt/news?netuid=76"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

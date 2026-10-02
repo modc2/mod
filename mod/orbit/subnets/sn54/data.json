@@ -1,0 +1,165 @@
+{
+  "netuid": 54,
+  "name": "Yanez",
+  "symbol": "ت",
+  "owner": "5FUfruyVDoDsCty1Sh7tCmHVdpoC3XV1nUZYjhcpfe31Defk",
+  "description": "Yanez SN54 generates synthetic identities for challenging Yanez humanhood, presence, and uniqueness detection models.",
+  "github": "https://github.com/yanez-compliance/MIID-subnet",
+  "url": "www.yanez.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1351934165964296232",
+  "logo": "https://raw.githubusercontent.com/yanez-compliance/MIID-subnet/main/Yanez%20AI%20Logo%20-%20Icon%20-%20Outline%20Glow.png",
+  "registered_at": 4742549,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.00626799,
+    "moving_price": 0.006206335267052054,
+    "market_cap": 37602.71874783886,
+    "tao_in": 10016.864670079,
+    "alpha_in": 1598098.235360626,
+    "alpha_out": 4401068.762008364,
+    "volume": 956361.420758591,
+    "vol_24h": 1514.0938890480902,
+    "emission": 0.0,
+    "change_1h": 0.04608064703803816,
+    "change_24h": -0.3662990853331882,
+    "change_7d": -3.6599590753985
+  },
+  "spark_24h": [
+    0.006291009,
+    0.006293046,
+    0.006362869,
+    0.00630195,
+    0.006309584,
+    0.006335065,
+    0.00633719,
+    0.006337872,
+    0.006321245,
+    0.006337413,
+    0.006242674,
+    0.006240661,
+    0.006240596,
+    0.006250554,
+    0.006250553,
+    0.006241406,
+    0.006241316,
+    0.00624131,
+    0.006238766,
+    0.006240798,
+    0.006243063,
+    0.006250742,
+    0.006263242,
+    0.00627107,
+    0.006209274,
+    0.006274631,
+    0.00626759,
+    0.006268567,
+    0.006268554,
+    0.006199977,
+    0.006199968,
+    0.006221108,
+    0.006215827,
+    0.006215826,
+    0.0062082,
+    0.00627306,
+    0.006180037,
+    0.006212133,
+    0.006191533,
+    0.00619551,
+    0.00619548,
+    0.006164092,
+    0.006095014,
+    0.006165277,
+    0.006165185,
+    0.006299529,
+    0.006265103,
+    0.00626799
+  ],
+  "trades_24h": {
+    "trades": 205,
+    "buys": 99,
+    "sells": 106,
+    "buy_tao": 748.035567376,
+    "sell_tao": 764.632250628,
+    "net_tao": -16.596683251999934,
+    "traders": 105
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": 0.728698283,
+      "gross_tao": 199.271301717,
+      "trades": 7
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": 100.0,
+      "gross_tao": 100.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 0.009196508000000492,
+      "gross_tao": 79.990803492,
+      "trades": 7
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.06495381000000044,
+      "gross_tao": 72.209353378,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.1050861160000025,
+      "gross_tao": 70.105086116,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790699402,
+      "kind": "blog",
+      "source": "site",
+      "title": "Give Your Agent a Pulse",
+      "url": "https://www.yanez.ai/post/give-your-agent-a-pulse",
+      "publisher": "www.yanez.ai"
+    },
+    {
+      "ts": 1790347399,
+      "kind": "commit",
+      "source": "github",
+      "title": "uav -> partner when empty (#114)",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/a0218c09a7a9737071aa08cf19e934782196982c",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1790345056,
+      "kind": "commit",
+      "source": "github",
+      "title": "uav -> partner when empty",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/e989f2ee36e9a2336c0d8859cb9c6d7adf305026",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1790265719,
+      "kind": "commit",
+      "source": "github",
+      "title": "starting of the phase 4 cycle 6 sandbox (#113)",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/ef3498f423eb2f2da44ba4708b1a478450451df3",
+      "publisher": "yanez-compliance/MIID-subnet"
+    },
+    {
+      "ts": 1790261012,
+      "kind": "commit",
+      "source": "github",
+      "title": "starting of the sandbox",
+      "url": "https://github.com/yanez-compliance/MIID-subnet/commit/b92b18c90e121d52d374cadfe36094468e1aa080",
+      "publisher": "yanez-compliance/MIID-subnet"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

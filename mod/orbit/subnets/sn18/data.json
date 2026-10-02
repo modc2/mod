@@ -1,0 +1,149 @@
+{
+  "netuid": 18,
+  "name": "Zeus",
+  "symbol": "σ",
+  "owner": "5GgvCi6h7dNsC489T8UnUMv912SoEXpEUDVt71VJU1Td7WKh",
+  "description": "Pushing weather forecasts beyond state-of-the-art",
+  "github": "https://github.com/Orpheus-AI/Zeus",
+  "url": "https://www.zeussubnet.com/",
+  "discord": "wouter_orpheusai",
+  "logo": "https://raw.githubusercontent.com/Orpheus-AI/Zeus/refs/heads/main/static/zeus-icon.png",
+  "registered_at": 1604679,
+  "tempo": 1800,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.004017999,
+    "moving_price": 0.00401406642049551,
+    "market_cap": 23578.833619238503,
+    "tao_in": 10174.40528233,
+    "alpha_in": 2532206.894861212,
+    "alpha_out": 3336095.615726396,
+    "volume": 887539.020482795,
+    "vol_24h": 286.2428707209183,
+    "emission": 0.0,
+    "change_1h": -0.2881420286330427,
+    "change_24h": -0.2426155806772523,
+    "change_7d": 8.997563966231926
+  },
+  "spark_24h": [
+    0.004027754,
+    0.004027723,
+    0.004031087,
+    0.004022737,
+    0.00402306,
+    0.00402306,
+    0.004023293,
+    0.004023289,
+    0.004023334,
+    0.004021545,
+    0.004021642,
+    0.004021624,
+    0.004021621,
+    0.004037529,
+    0.004021715,
+    0.004022161,
+    0.004012688,
+    0.004006832,
+    0.004001871,
+    0.004001864,
+    0.004001864,
+    0.004001877,
+    0.004001311,
+    0.004001309,
+    0.003994994,
+    0.00399356,
+    0.003994076,
+    0.003994052,
+    0.003994048,
+    0.003995469,
+    0.003996436,
+    0.003996653,
+    0.003996703,
+    0.003996702,
+    0.003996694,
+    0.004001196,
+    0.003990469,
+    0.00399045,
+    0.00400103,
+    0.004001026,
+    0.004001018,
+    0.004000667,
+    0.004017434,
+    0.004017152,
+    0.004017178,
+    0.004017539,
+    0.00402961,
+    0.004017999
+  ],
+  "trades_24h": {
+    "trades": 137,
+    "buys": 87,
+    "sells": 50,
+    "buy_tao": 136.970204871,
+    "sell_tao": 148.641676345,
+    "net_tao": -11.671471474000015,
+    "traders": 77
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": 0.03016079400000038,
+      "gross_tao": 59.969839206,
+      "trades": 2
+    },
+    {
+      "coldkey": "5H1LrDBGzU8KVkry4vB3pa2zL2RU1aCooPtnHesZV6U3PSHp",
+      "net_tao": 0.020121807999998964,
+      "gross_tao": 39.979878192,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FTxpwqiFezw6bK89PePi8DXKTjuGRewsLBfjPqGZk9JHV46",
+      "net_tao": 0.029667611000000704,
+      "gross_tao": 29.970332389,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CUK3oMpcW4oTxpQPTJ5oM5Kcwb2g9afWZu5hnQpaEGBQrne",
+      "net_tao": 20.0,
+      "gross_tao": 20.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FeS4iHH8aj2Wcy8TVTeuFdMo62DPsios4TSch1jmBy1XVGc",
+      "net_tao": -16.008252734,
+      "gross_tao": 16.008252734,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1788773186,
+      "kind": "release",
+      "source": "github",
+      "title": "Release 2.1.4",
+      "url": "https://github.com/Orpheus-AI/Zeus/releases/tag/v2.1.4",
+      "publisher": "Orpheus-AI/Zeus"
+    },
+    {
+      "ts": 1788769521,
+      "kind": "commit",
+      "source": "github",
+      "title": "Stop emissions for non-participating miners (#88)",
+      "url": "https://github.com/Orpheus-AI/Zeus/commit/024eb19eeca724aaad135b4492091abf658694ce",
+      "publisher": "Orpheus-AI/Zeus"
+    },
+    {
+      "ts": 1788422604,
+      "kind": "commit",
+      "source": "github",
+      "title": "HOTFIX : Punish negative SSRD only for challenges with start_timestam…",
+      "url": "https://github.com/Orpheus-AI/Zeus/commit/f9e505478aa6f078f6e5ade4ff4a77ab60294c31",
+      "publisher": "Orpheus-AI/Zeus"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

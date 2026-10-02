@@ -1,0 +1,38 @@
+{
+  "name": "sn23",
+  "version": "1.0.0",
+  "description": "SN23 Trishool — Trishool is the AI alignment protocol built on Bittensor. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ψ",
+  "chain": "bittensor",
+  "netuid": 23,
+  "subnet": "Trishool",
+  "symbol": "ψ",
+  "owner": "5CqTRwoFmme25YAbbwovR9rEic1UY7hYBLHxSk1PSfZ2jpmN",
+  "github": "https://github.com/TrishoolAI/trishool-phase2",
+  "url": "https://trishool.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1437447445176127618",
+  "logo": "https://trishool.ai/_next/image?url=%2Ftrishool-logo-small.png&w=96&q=75",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=23",
+    "news": "/bt/news?netuid=23"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

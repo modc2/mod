@@ -62,11 +62,19 @@ per-turn price before the round runs. Against the local CLI (~5s a call) a full
 seed round is ~80 calls — minutes. Use `model=mock:naive` to exercise the
 plumbing for free.
 
+## Whole catalogs: rb_models → rb_sweep
+
+`rb_models provider=venice|openrouter` lists every chat model with its latest
+score (no key needed). `rb_sweep` fires one round at every model in a
+provider+q+scope view — call it with `dry_run=true` first and read
+`estimate.calls`; it needs that provider's key (`POST /keys`). Default is
+defense `none`, judge `heuristic`. Poll `rb_sweeps id=`.
+
 ## The mock target is the test harness
 
 `mock:strict` refuses everything, `mock:compliant` answers everything,
 `mock:naive` falls for roleplay framing. Their correct scores are known in
-advance, which is how the arithmetic is tested offline — `m redblue/test`, 51
+advance, which is how the arithmetic is tested offline — `m redblue/test`, 65
 tests, under a second, no network. If you change scoring, that suite is the
 thing to keep green.
 

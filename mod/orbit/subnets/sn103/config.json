@@ -1,0 +1,38 @@
+{
+  "name": "sn103",
+  "version": "1.0.0",
+  "description": "SN103 Capcomp — Capability Composition Subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ա",
+  "chain": "bittensor",
+  "netuid": 103,
+  "subnet": "Capcomp",
+  "symbol": "Ա",
+  "owner": "5H3SQ4du9ThumJcUQb1VL2dixRBDKtt8hDRWLyPuANhHon7Y",
+  "github": "https://github.com/orgs/Capcomp-AI/repositories",
+  "url": "http://capcomp.ai/",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/Capcomp-AI/capability-composition-subnet/main/assets/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=103",
+    "news": "/bt/news?netuid=103"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

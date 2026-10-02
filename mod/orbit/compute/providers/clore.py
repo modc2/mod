@@ -16,12 +16,17 @@ from .base import Provider, ProviderError, gi, instance, num, offer
 BASE = 'https://api.clore.ai/v1'
 
 
+# Clore quotes every rig per DAY (the site says "$/day"; a 4090 at "10" is
+# $10/day, not $10/hr). Read raw, a whole market sorted 24x too expensive.
+HOURS_PER_PRICE = 24
+
+
 def _usd_hr(row):
     """The cheapest coin you could actually pay, in USD/hr. None if unpriced."""
     usd = (row.get('price') or {}).get('usd') or {}
     cands = [num(usd.get(k)) for k in ('on_demand_usd', 'on_demand_clore', 'on_demand_btc')]
     cands = [c for c in cands if c is not None and c > 0]
-    return min(cands) if cands else None
+    return round(min(cands) / HOURS_PER_PRICE, 6) if cands else None
 
 
 def _gpu_name(row):
@@ -140,5 +145,5 @@ class Clore(Provider):
             ssh = f"ssh -p {str(o['tcp_ports'][0]).split(':')[-1]} root@{o['pub_cluster'][0]}"
         return instance(self.name, o.get('id'), name=o.get('image'),
                         status='running' if not o.get('expired') else 'expired',
-                        usd_hr=num((o.get('price') or 0)) or None,
+                        usd_hr=(num(o.get('price') or 0) or 0) / HOURS_PER_PRICE or None,
                         gpu=gpu, gpus=gpus, ssh=ssh, created=o.get('ct'), raw=o)

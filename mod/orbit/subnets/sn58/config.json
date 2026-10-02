@@ -1,0 +1,38 @@
+{
+  "name": "sn58",
+  "version": "1.0.0",
+  "description": "SN58 dippy-speach — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "خ",
+  "chain": "bittensor",
+  "netuid": 58,
+  "subnet": "dippy-speach",
+  "symbol": "خ",
+  "owner": "5DCsuLtioCCfgiNQvfe3kiUBDXMs6X4y9PrEiAX7rMZ2e5E3",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=58",
+    "news": "/bt/news?netuid=58"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

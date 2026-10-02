@@ -1,0 +1,165 @@
+{
+  "netuid": 97,
+  "name": "Albedo",
+  "symbol": "ა",
+  "owner": "5GnW8owmMGn83WqL9JNYytmw458UYrTT6Ra5fH8TTUkzEbTb",
+  "description": "Alchemical intelligence",
+  "github": "https://github.com/unarbos/albedo",
+  "url": "https://us-east-1.hippius.com/albedo/index.html",
+  "discord": "@arbos",
+  "logo": "https://us-east-1.hippius.com/albedo/favicon.png",
+  "registered_at": 7735450,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.016179622,
+    "moving_price": 0.01627296325750649,
+    "market_cap": 30433.784187583184,
+    "tao_in": 11587.499216029,
+    "alpha_in": 716178.960905709,
+    "alpha_out": 1164815.798278602,
+    "volume": 540395.095511058,
+    "vol_24h": 785.661351597053,
+    "emission": 0.0,
+    "change_1h": 0.41069429907758526,
+    "change_24h": -2.4985363892942147,
+    "change_7d": -5.865205949108887
+  },
+  "spark_24h": [
+    0.016593512,
+    0.016334957,
+    0.016319248,
+    0.016306042,
+    0.016264725,
+    0.01630863,
+    0.016265324,
+    0.016150881,
+    0.016096722,
+    0.016058051,
+    0.016203994,
+    0.016181722,
+    0.016182018,
+    0.016371076,
+    0.01636599,
+    0.016367721,
+    0.016369611,
+    0.016371579,
+    0.016373165,
+    0.016375236,
+    0.016355063,
+    0.016272433,
+    0.016232521,
+    0.016234306,
+    0.016235937,
+    0.016237661,
+    0.016239913,
+    0.016226059,
+    0.016201483,
+    0.016202712,
+    0.016204763,
+    0.016206819,
+    0.016208713,
+    0.016210722,
+    0.016204128,
+    0.016205983,
+    0.016208154,
+    0.016209482,
+    0.016211159,
+    0.016202116,
+    0.016204231,
+    0.016197213,
+    0.016152443,
+    0.016149966,
+    0.016112385,
+    0.016130201,
+    0.016113789,
+    0.016179622
+  ],
+  "trades_24h": {
+    "trades": 85,
+    "buys": 32,
+    "sells": 53,
+    "buy_tao": 286.144688207,
+    "sell_tao": 444.05753087,
+    "net_tao": -157.912842663,
+    "traders": 46
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GKHLgHnp1wdXTB1krScJMhrjqwn2XGv239XfMqSx5c2xXU8",
+      "net_tao": -150.495302799,
+      "gross_tao": 150.495302799,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": 20.007641779000004,
+      "gross_tao": 149.992358221,
+      "trades": 9
+    },
+    {
+      "coldkey": "5EuxqP2Jx9moa2aGCNijvkyNgY6WHU9onYbt6rYVB9X1FPrN",
+      "net_tao": 50.0,
+      "gross_tao": 50.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": 0.08648661300000171,
+      "gross_tao": 49.913513386999995,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FZUmyxyGnuNq4hc2P2mqdo83FjXTQu3ma9WacS6L5Bthc6e",
+      "net_tao": 0.025655154000000735,
+      "gross_tao": 29.974344846,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790778708,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: Display on website nonet bench runs if avaiable",
+      "url": "https://github.com/unarbos/albedo/commit/b99ca91a7c25b8cdd13324466063c384627e708c",
+      "publisher": "unarbos/albedo"
+    },
+    {
+      "ts": 1790723064,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: eval reads a command including the tag",
+      "url": "https://github.com/unarbos/albedo/commit/7f331a7996325b5cfbb9f440bc4a5ebaa9a920d9",
+      "publisher": "unarbos/albedo"
+    },
+    {
+      "ts": 1790722455,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: pre-eval counts only submits it doesn't accept, 4 wrong in a row…",
+      "url": "https://github.com/unarbos/albedo/commit/5ea0c190e5c6806132bfb73e391a6a2bbd19b36e",
+      "publisher": "unarbos/albedo"
+    },
+    {
+      "ts": 1790703199,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: copy check compares an upload with models from earlier blocks",
+      "url": "https://github.com/unarbos/albedo/commit/8c5184a6341382548b26e5b9be73a4e700eb32b4",
+      "publisher": "unarbos/albedo"
+    },
+    {
+      "ts": 1790703136,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: copy check puts shuffled experts back in order",
+      "url": "https://github.com/unarbos/albedo/commit/234049fd7e019127e30d2e48adcf7c6163d23d7d",
+      "publisher": "unarbos/albedo"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

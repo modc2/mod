@@ -1,0 +1,38 @@
+{
+  "name": "sn14",
+  "version": "1.0.0",
+  "description": "SN14 Cacheon — A competition where miners submit optimized kernels to compete on end-to-end inference speed against target models. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ㄷ",
+  "chain": "bittensor",
+  "netuid": 14,
+  "subnet": "Cacheon",
+  "symbol": "ㄷ",
+  "owner": "5CKhH8nKAhXLmqxwaXzFtVFgxqwwnyckXG8qLpmGtzVJH9Ri",
+  "github": "https://github.com/latent-to/cacheon",
+  "url": "https://cacheon.ai",
+  "discord": "https://discord.gg/SFt8s4gJD",
+  "logo": "https://cacheon.ai/icon-192.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=14",
+    "news": "/bt/news?netuid=14"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

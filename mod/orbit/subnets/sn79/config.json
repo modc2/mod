@@ -1,0 +1,38 @@
+{
+  "name": "sn79",
+  "version": "1.0.0",
+  "description": "SN79 MVTRX — Building a SOTA Exchange for dTAO and Beyond. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ي",
+  "chain": "bittensor",
+  "netuid": 79,
+  "subnet": "MVTRX",
+  "symbol": "ي",
+  "owner": "5Fxp7QBG81X7PLdMkAe1RLCvqqfQSw9rJC5ppEQs9FP8qez9",
+  "github": "https://github.com/taos-im/sn-79",
+  "url": "https://taos.im",
+  "discord": null,
+  "logo": "https://assets.mvtrx.fi/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=79",
+    "news": "/bt/news?netuid=79"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

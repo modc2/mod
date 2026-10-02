@@ -1,0 +1,40 @@
+{
+  "name": "sn51",
+  "version": "1.0.0",
+  "description": "SN51 lium.io — revolutionizing the democratization of compute. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ת",
+  "chain": "bittensor",
+  "netuid": 51,
+  "subnet": "lium.io",
+  "symbol": "ת",
+  "owner": "5FqACMtcegZxxopgu1g7TgyrnyD8skurr9QDPLPhxNQzsThe",
+  "github": "https://github.com/Datura-ai/lium-io",
+  "url": "lium.io",
+  "discord": "p383_54249",
+  "logo": "https://raw.githubusercontent.com/Datura-ai/lium-logos/refs/heads/main/Celium_Icon_FullColor.png",
+  "related": [
+    "lium"
+  ],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=51",
+    "news": "/bt/news?netuid=51"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

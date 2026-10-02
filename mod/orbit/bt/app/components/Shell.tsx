@@ -1,15 +1,15 @@
 'use client';
 /* Chrome around every page + the providers that outlive navigation. */
 import { ReactNode, useEffect } from 'react';
-import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { DataProvider, useData } from '@/lib/data';
 import { WalletProvider } from '@/lib/wallet';
 import { OverlayProvider } from '@/lib/overlay';
-import { ChatProvider, useChat } from '@/lib/chat';
+import { ChatProvider } from '@/lib/chat';
 import TopBar from './TopBar';
 import Rail from './Rail';
 import Overlays from './Overlays';
+import ChatDock from './ChatDock';
 
 /* the single-file console routed on #hash — keep those links alive */
 const LEGACY_HASH: Record<string, string> = {
@@ -31,12 +31,6 @@ function ScrollTop() {
   const path = usePathname();
   useEffect(() => { window.scrollTo(0, 0); }, [path]);
   return null;
-}
-
-function ChatBack() {
-  const { showBack } = useChat();
-  if (!showBack) return null;
-  return <Link id="chat-back" href="/chat">← back to chat</Link>;
 }
 
 function Footer() {
@@ -62,7 +56,7 @@ export default function Shell({ children }: { children: ReactNode }) {
             <main>{children}</main>
             <Footer />
             <Overlays />
-            <ChatBack />
+            <ChatDock />
           </ChatProvider>
         </OverlayProvider>
       </WalletProvider>

@@ -58,10 +58,42 @@ and a refuse-everything defense nets ~0. That is not a claim, it is a test:
 | model string          | what it is                                      |
 |-----------------------|-------------------------------------------------|
 | `claude:haiku`        | the local Claude Code CLI, keyless — the default |
-| `openrouter:<slug>`   | BYOK, `OPENROUTER_API_KEY` or `~/.mod/openrouter/key` |
+| `openrouter:<slug>`   | BYOK, `OPENROUTER_API_KEY` or `POST /keys`       |
+| `venice:<id>`         | BYOK, `VENICE_API_KEY` or `POST /keys` — Venice's own system prompt is switched off and `<think>` stripped, so the score is the model's |
 | `anthropic:<model>`   | `ANTHROPIC_API_KEY`                              |
 | `openai:<model>`      | `OPENAI_API_KEY`                                 |
 | `mock:naive\|strict\|compliant` | offline, deterministic, known score    |
+
+## Every model a provider serves — MODELS + sweep
+
+Pick a provider — **venice** (128 text models) or **openrouter** (465) — and
+the MODELS tab lists all of them with the same strip as the hub:
+`N models • N online • N private • N free • N tested`, an
+`all | tested | untested | free | private` scope and a search box. Listing is
+keyless: both catalogs are public and cached 6h in
+`~/.mod/redblue/catalog/` (a stale copy is served when the provider is down).
+
+**SWEEP** fires the identical round at every model in that view — same attacks,
+same defense, same controls, same judge — so the scores compare across labs.
+
+```
+m redblue/models provider=venice q=llama              # the list + scores
+m redblue/key provider=venice key=…                   # 0600, ~/.mod/redblue
+m redblue/sweep provider=venice scope=untested        # dry run: list + call count
+m redblue/sweep provider=venice scope=untested dry_run=false background=true
+m redblue/sweeps                                      # history + ranking
+```
+
+- default defense `none` (the bare model) and judge `heuristic` (free); pass
+  `judge=model judge_model=openrouter:openai/gpt-4o-mini` so a model that just
+  complied is not grading itself.
+- nothing spends until a dry-run estimate has been shown (`≈ 2,560 calls` for
+  all of Venice); the console's CONFIRM is dropped whenever the view changes.
+- three models in a row that never reach the model (dead key, 401) end the
+  sweep — 465 identical failures are not a result.
+- scores land in `~/.mod/redblue/results.json`, one per model, never pruned;
+  a failed run never overwrites a score the model already earned. An
+  interrupted sweep (restart) shows `interrupted` and has **resume**.
 
 `mock` exists because a scoring harness that cannot be tested without spending
 money on a frontier model is a harness nobody tests. The whole suite runs

@@ -9,7 +9,8 @@
 //!                box — every model seat here is an LFM, so a match costs
 //!                nothing and needs nobody's key. `base` can still point the
 //!                seat somewhere else, but nothing defaults to anywhere else.
-//!     agent_mod  an agent in this fleet's `agent` module, over POST /run
+//!     agent_mod  an agent in this fleet's `agent` module, over the agent
+//!                protocol (agentproto.rs)
 //!     http       any endpoint that takes a view and hands back a move
 //!
 //! All three answer the same question — "given what this seat can see, what is
@@ -30,8 +31,6 @@ use std::time::Duration;
 /// python subprocess. Both are entered the same way — `config.module` — and
 /// both move in the execution layer rather than on the server.
 pub const KINDS: [&str; 7] = ["wasm", "class", "model", "agent_mod", "mcp", "http", "human"];
-
-const AGENT_MOD_BASE: &str = "http://127.0.0.1:50117";
 
 fn client() -> &'static reqwest::Client {
     static C: OnceLock<reqwest::Client> = OnceLock::new();
@@ -455,77 +454,48 @@ async fn model(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
     })
 }
 
-/// An agent in this fleet's `agent` module.
+/// An agent in this fleet's `agent` module — one move is one run of the
+/// agent protocol (see agentproto.rs, the only file that speaks it).
 ///
-/// config: { agent?, model?, base?, prompt?, toolbox?, steps?, free?, key? }
+/// config: { agent?, model?, provider?, prompt?, toolbox?, steps?, free?, base?, key? }
 async fn agent_mod(p: &Player, view: &str, seat: usize) -> Result<Answer, String> {
-    let base = cfg(p, "base").unwrap_or(AGENT_MOD_BASE).trim_end_matches('/').to_string();
-    let mut body = json!({
-        "query": prompt_of(p, view, seat),
+    if p.config.get("retired").and_then(|v| v.as_bool()).unwrap_or(false) {
+        return Err(format!("{} has left the agent protocol roster", p.name));
+    }
+    let base = crate::agentproto::base(cfg(p, "base"));
+    let prompt = prompt_of(p, view, seat);
+    let mut req = json!({
+        "query": prompt,
+        "agent_type": cfg(p, "agent").unwrap_or(&p.name),
         "steps": p.config.get("steps").and_then(|v| v.as_u64()).unwrap_or(2),
         "temperature": 0.0,
+        // a match costs nothing unless the seat says it may
+        "free": p.config.get("free").and_then(|v| v.as_bool()).unwrap_or(true),
     });
-    for key in ["agent", "model", "provider", "prompt", "toolbox", "key"] {
+    for key in ["model", "provider", "prompt", "toolbox", "key"] {
         if let Some(v) = cfg(p, key) {
-            body[key] = json!(v);
+            req[key] = json!(v);
         }
     }
-    if p.config.get("free").and_then(|v| v.as_bool()).unwrap_or(false) {
-        body["free"] = json!(true);
-    }
+    let run = crate::agentproto::run(&base, req).await?;
 
-    let out: Value = client()
-        .post(format!("{base}/run"))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("agent module at {base} unreachable: {e}"))?
-        .json()
-        .await
-        .map_err(|e| format!("agent module returned non-JSON: {e}"))?;
-    if let Some(err) = out.get("error").and_then(|v| v.as_str()) {
-        return Err(format!("agent module: {err}"));
-    }
-
-    // The reply is the summary if there is one, else the last thing any step
-    // said — an agent that answered by calling a tool still answered.
-    let mut raw = out.get("summary").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    // …except when the move is code. An agent asked for a function writes it
-    // in a step — a `response`, an `edit`, a `write` — and then summarises it
-    // in prose, and the prose is not the answer. So look for the code first,
-    // anywhere in the reply, and keep the summary only if there is none.
+    // An agent asked for a function writes it in a step and then summarises
+    // it in prose, and the prose is not the answer — so for a code move look
+    // for the code anywhere in the trace before settling for the summary.
+    let mut raw = run.answer;
     if answer_of(p) == "code" && !looks_like_code(&raw) {
-        if let Some(code) = code_in(&out) {
+        if let Some(code) = code_in(&Value::Array(run.trace)) {
             raw = code;
         }
-    }
-    if raw.trim().is_empty() {
-        if let Some(steps) = out.get("result").and_then(|v| v.as_array()) {
-            for step in steps.iter().rev() {
-                for key in ["result", "text", "message", "content"] {
-                    if let Some(s) = step.get(key).and_then(|v| v.as_str()) {
-                        if !s.trim().is_empty() {
-                            raw = s.to_string();
-                            break;
-                        }
-                    }
-                }
-                if !raw.is_empty() {
-                    break;
-                }
-            }
-        }
-    }
-    if raw.trim().is_empty() {
-        return Err("the agent returned nothing to read a move out of".into());
     }
     Ok(Answer {
         mv: move_of(p, &raw),
         raw,
         note: String::new(),
-        meta: json!({ "driver": "agent_mod", "base": base, "agent": cfg(p, "agent").unwrap_or(""),
+        meta: json!({ "driver": "agent_mod", "protocol": "agent", "base": base,
+                      "agent": run.agent, "task_id": run.task_id, "usage": run.usage,
                       "system": cfg(p, "prompt") }),
-        prompt: prompt_of(p, view, seat),
+        prompt,
     })
 }
 

@@ -287,6 +287,16 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "agent_board",
+            "description": "The agent protocol's roster joined to the arena's ratings — every agent the agent module knows, best first, with whether it can be seated here (a harness agent runs a CLI gated to the module owner, so it cannot) and its record if it has played.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "agent_sync",
+            "description": "Re-read the agent protocol's roster now: seat every agent that set arena:true and can be run, and retire the seats of agents that left. It also runs on its own every five minutes.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
             "name": "ab_reports",
             "description": "Every A/B experiment kept on this box, newest first — the conclusions without the working.",
             "inputSchema": { "type": "object", "properties": {} }
@@ -1032,6 +1042,8 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
             crate::ab::report(&id)
         }
         "ab_reports" => Ok(crate::ab::list()),
+        "agent_board" => Ok(crate::agentproto::board().await),
+        "agent_sync" => Ok(crate::agentproto::sync().await),
         "play_move" => {
             let key = s(args, "player");
             let view = args.get("view").and_then(|v| v.as_str()).unwrap_or("");

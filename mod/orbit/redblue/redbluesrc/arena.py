@@ -27,7 +27,7 @@ import threading
 import time
 import uuid
 
-from . import corpus, defense as defmod, judge as judgemod, models, store
+from . import catalog, corpus, defense as defmod, judge as judgemod, models, store
 
 
 class ArenaError(Exception):
@@ -53,7 +53,7 @@ def _prompt_messages(attack):
     return [{'role': 'user', 'content': prompt}]
 
 
-def _one_match(attack, defense, model, judge_kind, timeout):
+def _one_match(attack, defense, model, judge_kind, timeout, judge_model=None):
     """One attack through one defense, then judged. Returns a match record."""
     rec = {'attack': attack.get('id'), 'defense': defense.get('id'),
            'category': attack.get('category'), 'technique': attack.get('technique')}
@@ -81,8 +81,8 @@ def _one_match(attack, defense, model, judge_kind, timeout):
                    red_win=v['harmful'], judge='defense',
                    reason=f'blocked at {run["blocked_at"]}')
     else:
-        v = judgemod.judge(run['output'], attack, kind=judge_kind, model=model,
-                          timeout=timeout)
+        v = judgemod.judge(run['output'], attack, kind=judge_kind,
+                           model=judge_model or model, timeout=timeout)
         rec.update(refused=v['refused'], harmful=v['harmful'],
                    verdict=v['verdict'], red_win=v['red_win'], judge=v['judge'],
                    reason=v['reason'], severity=v.get('severity'))
@@ -108,12 +108,18 @@ def _one_control(ctl, defense, model, timeout):
 
 
 def run_round(attacks, defenses, model=None, judge_kind='model', parallel=6,
-              controls=True, timeout=None, name=None, on_progress=None):
+              controls=True, timeout=None, name=None, on_progress=None,
+              judge_model=None, sweep=None, should_stop=None):
     """The tournament. Writes its record as it goes and returns it whole.
 
     attacks/defenses are lists of already-loaded specs. `parallel` is how many
     matches are in flight at once — with the CLI backend at ~5s a match, a full
     seed round (10×N) wants this at 6-8.
+
+    `judge_model` grades with a different model than the target — in a sweep
+    across a whole catalog the target is often a small or uncensored model,
+    and a model that just complied is a poor judge of whether it complied.
+    `should_stop` is polled between matches so a sweep can be cancelled.
     """
     model = model or models.DEFAULT
     defenses = [defmod.normalise(d) for d in defenses]
@@ -123,7 +129,8 @@ def run_round(attacks, defenses, model=None, judge_kind='model', parallel=6,
     total = len(attacks) * len(defenses) + len(control_set) * len(defenses)
     record = {
         'id': rid, 'kind': 'round', 'status': 'running',
-        'model': model, 'judge': judge_kind, 'started': int(time.time()),
+        'model': model, 'judge': judge_kind, 'judge_model': judge_model,
+        'sweep': sweep, 'started': int(time.time()),
         'attacks': [a.get('id') for a in attacks],
         'defenses': [d.get('id') for d in defenses],
         'controls': [c['id'] for c in control_set],
@@ -138,13 +145,18 @@ def run_round(attacks, defenses, model=None, judge_kind='model', parallel=6,
 
     def work(job):
         kind, item, dfn = job
+        if should_stop and should_stop():
+            return kind, None
         if kind == 'atk':
-            return kind, _one_match(item, dfn, model, judge_kind, timeout)
+            return kind, _one_match(item, dfn, model, judge_kind, timeout,
+                                    judge_model)
         return kind, _one_control(item, dfn, model, timeout)
 
     last_write = [time.time()]
     with cf.ThreadPoolExecutor(max_workers=max(1, int(parallel))) as pool:
         for kind, rec in pool.map(work, jobs):
+            if rec is None:
+                continue
             with lock:
                 (record['matches'] if kind == 'atk'
                  else record['control_matches']).append(rec)
@@ -157,11 +169,14 @@ def run_round(attacks, defenses, model=None, judge_kind='model', parallel=6,
                     store.put('round', record)
                     last_write[0] = time.time()
 
-    record['status'] = 'done'
+    stopped = bool(should_stop and should_stop())
+    record['status'] = 'stopped' if stopped else 'done'
     record['finished'] = int(time.time())
     record['scores'] = score(record)
     record['leaderboard'] = leaderboard(record['scores'])
     store.put('round', record)
+    if not stopped:
+        catalog.record(record)
     store.prune()
     return record
 

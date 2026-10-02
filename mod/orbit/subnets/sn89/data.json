@@ -1,0 +1,165 @@
+{
+  "netuid": 89,
+  "name": "InfiniteQuant",
+  "symbol": "ᛒ",
+  "owner": "5Dc5NmEUptDeMLrxDSvg8kfCToxJkiF47apAYSVTycAVvDN4",
+  "description": "Proof of Edge - Trading signals",
+  "github": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet",
+  "url": "https://infinitequant.app",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/DeltaCompute24/InfiniteQuant-Subnet/master/docs/assets/iq_logo.png",
+  "registered_at": 5313364,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.003013701,
+    "moving_price": 0.003034495050087571,
+    "market_cap": 15023.988405758279,
+    "tao_in": 6148.038535271,
+    "alpha_in": 2040029.019856542,
+    "alpha_out": 2945199.576397127,
+    "volume": 189320.941034783,
+    "vol_24h": 34.29743147100089,
+    "emission": 0.0,
+    "change_1h": -0.013669029661467214,
+    "change_24h": -0.8667617747202261,
+    "change_7d": -1.0709297268019613
+  },
+  "spark_24h": [
+    0.003040038,
+    0.003040016,
+    0.003039508,
+    0.003039514,
+    0.003039491,
+    0.003039491,
+    0.003039491,
+    0.003039441,
+    0.003039463,
+    0.003038648,
+    0.003038632,
+    0.003038615,
+    0.003038613,
+    0.003038612,
+    0.003038612,
+    0.003038366,
+    0.003038362,
+    0.003041174,
+    0.003041134,
+    0.003041125,
+    0.003041125,
+    0.003041125,
+    0.00304064,
+    0.00304064,
+    0.003040628,
+    0.00304026,
+    0.00304026,
+    0.003039929,
+    0.003039904,
+    0.003039236,
+    0.003039455,
+    0.003038845,
+    0.003038369,
+    0.003038368,
+    0.003038358,
+    0.003032072,
+    0.003031976,
+    0.003031962,
+    0.003030457,
+    0.003030456,
+    0.003030366,
+    0.003030148,
+    0.003030098,
+    0.003029333,
+    0.003029333,
+    0.003028089,
+    0.003014113,
+    0.003013701
+  ],
+  "trades_24h": {
+    "trades": 58,
+    "buys": 2,
+    "sells": 56,
+    "buy_tao": 3.465558396,
+    "sell_tao": 30.098402515,
+    "net_tao": -26.632844119,
+    "traders": 35
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FjFwQuTGDmWMpbJmKunET2y1wAiXW8Fi12VkRYTUWTGYpVK",
+      "net_tao": -17.195374226,
+      "gross_tao": 22.916884226,
+      "trades": 3
+    },
+    {
+      "coldkey": "5HpxxmDXLzLY8TcGCSSqcmcSX8QeUMTNNZLCdp4xLc7CTFLX",
+      "net_tao": -1.514839554,
+      "gross_tao": 1.514839554,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CP7UkWRHxpGB2BHh7fGEV1WCVj4jcRazzmGDAnZ76QznCCk",
+      "net_tao": -1.3591858399999999,
+      "gross_tao": 1.3591858399999999,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CFWKRNA8at5xChqSBdf4HSfhsxz2Uu8kN7eD3diyHsazAP5",
+      "net_tao": -0.680185863,
+      "gross_tao": 0.680185863,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DvXRc8fbUFHF5QaSHdQNovVH26twSS2rEMhwNB2XBZZzQbG",
+      "net_tao": 0.604803396,
+      "gross_tao": 0.604803396,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789948831,
+      "kind": "commit",
+      "source": "github",
+      "title": "bands: flip the live board to cryptoalts21-20260921",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/bd25eabe0dd5fd813aa0faf1e7f882576c920c6d",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1789723476,
+      "kind": "commit",
+      "source": "github",
+      "title": "bands: list 21 crypto alts on HF (board v5) and LF, effective 2026-09…",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/b643025709dfe6b962dac535e9709746138385d1",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1789624007,
+      "kind": "commit",
+      "source": "github",
+      "title": "limit_watcher: one chain handle per process for LF submits",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/3997ef513d2514f770d2c1fc25fb642bb9c28ca4",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1789312304,
+      "kind": "commit",
+      "source": "github",
+      "title": "ops: issue script gains --only and a capped --allow-evict for a full 496",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/070878269a7af76fb57b04f87186dd0bccd23c4e",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    },
+    {
+      "ts": 1789006021,
+      "kind": "commit",
+      "source": "github",
+      "title": "ops: re-register beta keys pruned from testnet 496",
+      "url": "https://github.com/DeltaCompute24/InfiniteQuant-Subnet/commit/cc25a72e0cfeceaa131fe8cdef19b1db7e087bb3",
+      "publisher": "DeltaCompute24/InfiniteQuant-Subnet"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

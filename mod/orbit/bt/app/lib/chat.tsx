@@ -21,12 +21,13 @@ export interface Msg {
   role: 'user' | 'bot'; text: string;
   tools: ToolChip[]; views: ViewAction[];
   status?: string; error?: string;
+  login?: string;   // set on auth failures: the page that signs this host in
   done?: { turns?: number; ms?: number; cost_usd?: number };
 }
 export interface ChatSummary { id: string; title: string; turns?: number; updated_at?: number }
 export interface AgentStatus {
   ready: boolean; model?: string; tools?: number; denied?: number; method?: string;
-  hint?: string; starters?: string[];
+  hint?: string; login?: string | null; starters?: string[];
 }
 
 const CHAT_KEY = 'bt.chat.id';
@@ -52,6 +53,7 @@ interface ChatCtx {
   send: (text: string) => Promise<void>; stop: () => void;
   newChat: () => void; openChat: (id: string, nav?: boolean) => Promise<void>;
   deleteChat: (id: string) => Promise<void>; applyView: (a: ViewAction) => void;
+  recheck: () => void;
 }
 
 const Ctx = createContext<ChatCtx | null>(null);
@@ -111,8 +113,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [loadChats, router]);
 
   /* boot: agent status, then the last conversation unless one was started */
-  useEffect(() => {
+  /* re-read auth after a sign-in elsewhere or an auth failure here */
+  const recheck = useCallback(() => {
     getJSON<AgentStatus>('agent/status').then(setAgent).catch(() => setAgent({ ready: false }));
+  }, []);
+
+  useEffect(() => {
+    recheck();
     let last: string | null = null;
     try { last = localStorage.getItem(CHAT_KEY); } catch { /* */ }
     (async () => {
@@ -183,8 +190,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           tools: m.tools.map(t => (t.state === 'pending' ? { ...t, state: 'done' } : t)),
           done: { turns: ev.turns, ms: ev.ms, cost_usd: ev.cost_usd } })); break;
         case 'error': patchBot(m => ({
-          ...m, status: '', error: ev.error,
-          tools: m.tools.map(t => (t.state === 'pending' ? { ...t, state: 'done' } : t)) })); break;
+          ...m, status: '', error: ev.error, login: ev.login,
+          tools: m.tools.map(t => (t.state === 'pending' ? { ...t, state: 'done' } : t)) }));
+          if (ev.login) recheck();   // let the banner say it too
+          break;
       }
     };
 
@@ -235,7 +244,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   }, [newChat, loadChats]);
 
   return (
-    <Ctx.Provider value={{ id, msgs, running, chats, agent, showBack, send, stop, newChat,
+    <Ctx.Provider value={{ id, msgs, running, chats, agent, showBack, send, stop, newChat, recheck,
                            openChat, deleteChat, applyView }}>
       {children}
     </Ctx.Provider>

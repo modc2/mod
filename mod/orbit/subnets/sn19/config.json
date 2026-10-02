@@ -1,0 +1,38 @@
+{
+  "name": "sn19",
+  "version": "1.0.0",
+  "description": "SN19 blockmachine — Harnessing Bittensor's incentive layer to forge self-optimizing infrastructure. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "t",
+  "chain": "bittensor",
+  "netuid": 19,
+  "subnet": "blockmachine",
+  "symbol": "t",
+  "owner": "5FWh37LfVV5LE9dZA91STzbtebh6vxYa3MH71c621sYafo1L",
+  "github": "https://github.com/taostat/blockmachine/",
+  "url": "blockmachine.io",
+  "discord": null,
+  "logo": "https://blockmachine.io/logo.svg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=19",
+    "news": "/bt/news?netuid=19"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -17,6 +17,7 @@ import subprocess
 import signal
 import threading
 import time
+import uuid
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -485,6 +486,10 @@ RULES:
     _path = _run_local('path')
     _failed_calls = _run_local('failed_calls')
     _done_calls = _run_local('done_calls')
+    # the signed-in caller behind this run — what a tool that acts on the
+    # caller's behalf (make_agent) files under. Never read off the wire by a
+    # tool: run() sets it from the key the run was authorized with.
+    _run_key = _run_local('run_key')
     del _run_local
 
     def _clear_run_state(self) -> None:
@@ -492,7 +497,7 @@ RULES:
         on a thread that last ran a sandboxed guest would otherwise still
         think it is sandboxed."""
         for name in ('on_step', 'on_usage', 'on_live', 'images', 'allowed_paths',
-                     'path', 'failed_calls', 'done_calls'):
+                     'path', 'failed_calls', 'done_calls', 'run_key'):
             try:
                 delattr(self._tl(), name)
             except AttributeError:
@@ -1185,6 +1190,7 @@ RULES:
         self._on_step = on_step
         self._on_usage = on_usage
         self._on_live = on_live
+        self._run_key = key
         self._images = [i for i in (images or []) if isinstance(i, str) and i.strip()][:8]
         model = self._model_for(prov, model)
         # FREE MODE resolves the model here rather than letting the provider
@@ -2211,6 +2217,18 @@ class Mod(Agent):
                                 # and, being a model run, run policy — exactly
                                 # like a task draft
                                 'agent_vibe',
+                                # scouting is vibe with the internet in front
+                                # of it — same self-gating; reading runs back
+                                # is filtered to the caller's own
+                                'agent_scout', 'agent_scout_runs', 'agent_scout_run',
+                                # watching the grower is open; changing it is
+                                # owner-only, enforced inside each grow_* method
+                                'grow_status',
+                                # cron: every cron_* gates itself (owner or a
+                                # 'cron' grant; a grantee only its own jobs) —
+                                # status filters what a stranger sees
+                                'cron_status', 'cron_job', 'cron_add', 'cron_update',
+                                'cron_rm', 'cron_run', 'compute_info',
                                 # the openarena schema: the board next door is
                                 # public too, and each write here enforces its
                                 # own sign-in / authorship
@@ -3098,6 +3116,11 @@ class Mod(Agent):
             tool_add    - Create a custom tool (name=, command=, params=)
             tool_rm     - Remove a custom tool (name=)
             tool_run    - Execute a custom tool (name=, params={...})
+            grow_status    - The grower: config, counts, last tick (public)
+            grow_config    - Owner: enabled/interval/engine/caps/model (see src/grow)
+            grow_tick      - Owner: grow one tool + agent now
+            grow_prune     - Owner: remove grown items (kind=tool|agent|all, count=)
+            grow_scheduler - Owner: start/stop the grow thread (on=)
             remember    - Store a durable memory fact (name=, content=)
             forget      - Remove a fact (id=)
             memory_serve- Start the memory service as its own process (:50119)
@@ -3307,6 +3330,42 @@ class Mod(Agent):
                 free=bool(kwargs.get('free')), steps=kwargs.get('steps', 4),
                 save=bool(kwargs.get('save')),
                 harness=kwargs.get('harness'), key=key),
+            # go on the internet, come back with an agent idea (and, unless
+            # vibe=false, the agent itself) — see agent_scout
+            'agent_scout': lambda: self.agent_scout(
+                theme=kwargs.get('theme'), sources=kwargs.get('sources'),
+                reads=kwargs.get('reads', 4),
+                vibe=kwargs.get('vibe', True) is not False,
+                name=kwargs.get('name'), model=kwargs.get('model'),
+                provider=kwargs.get('provider'), free=bool(kwargs.get('free')),
+                steps=kwargs.get('steps', 4), save=bool(kwargs.get('save')),
+                harness=kwargs.get('harness'), key=key,
+                on_event=kwargs.get('on_event')),
+            'agent_scout_runs': lambda: self.agent_scout_runs(
+                limit=kwargs.get('limit', 20), key=key),
+            'agent_scout_run': lambda: self.agent_scout_run(
+                kwargs.get('id', ''), key=key),
+            # grow: a new tool + agent every interval (see src/grow)
+            'grow_status': lambda: self.grow_status(),
+            'grow_config': lambda: self.grow_config(key=key, **{
+                k: v for k, v in kwargs.items() if k in self._grow_keys()}),
+            'grow_tick': lambda: self.grow_tick(key=key),
+            'grow_prune': lambda: self.grow_prune(
+                kind=kwargs.get('kind', 'all'), count=kwargs.get('count'), key=key),
+            'grow_scheduler': lambda: self.grow_scheduler(
+                on=kwargs.get('on', True) is not False, key=key),
+            # cron: run an agent every N minutes (see src/cron)
+            'cron_status': lambda: self.cron_status(agent=kwargs.get('agent'), key=key),
+            'cron_job': lambda: self.cron_job(kwargs.get('id', ''), key=key),
+            'cron_add': lambda: self.cron_add(key=key, **{
+                k: v for k, v in kwargs.items() if k in self._cron_keys()}),
+            'cron_update': lambda: self.cron_update(kwargs.get('id', ''), key=key, **{
+                k: v for k, v in kwargs.items() if k in self._cron_keys()}),
+            'cron_rm': lambda: self.cron_rm(kwargs.get('id', ''), key=key),
+            'cron_run': lambda: self.cron_run(kwargs.get('id', ''), key=key),
+            'cron_scheduler': lambda: self.cron_scheduler(
+                on=kwargs.get('on', True) is not False, key=key),
+            'compute_info': lambda: self.compute_info(agent=kwargs.get('agent')),
             'arena_task_rm': lambda: self.arena_task_rm(kwargs.get('slug', ''), key=key),
             # the openarena schema: a statement plus graded cases, stored and
             # judged next door (see arena/openarena.py)
@@ -4036,7 +4095,7 @@ class Mod(Agent):
     def _draft_trace(self, query: str, agent_type: str, harness: str = None,
                      model: str = None, provider: str = None,
                      free: bool = False, steps: int = 4, key=None,
-                     path: str = None) -> list:
+                     path: str = None, on_step=None, on_live=None) -> list:
         """One drafting run: this module's loop by default, a harness CLI when
         the caller named one. The harness path keeps _run_harness's own gate —
         the host, or the harnessed console's own owner."""
@@ -4048,11 +4107,12 @@ class Mod(Agent):
                 goal = None
             return self._run_harness(
                 harness, goal=goal, query=query, key=key, path=path,
-                agent_type=agent_type, timeout=self.DRAFT_HARNESS_TIMEOUT)
+                agent_type=agent_type, timeout=self.DRAFT_HARNESS_TIMEOUT,
+                on_step=on_step)
         return self._run(
             query=query, agent_type=agent_type, model=model,
             provider=provider, steps=max(2, min(int(steps or 4), 8)),
-            free=free, key=key, path=path)
+            free=free, key=key, path=path, on_step=on_step, on_live=on_live)
 
     @staticmethod
     def _spec_scan(trace: list, parse) -> Optional[Dict[str, Any]]:
@@ -4270,7 +4330,8 @@ class Mod(Agent):
 
     def agent_vibe(self, description: str, name: str = None, model: str = None,
                    provider: str = None, free: bool = False, steps: int = 4,
-                   save: bool = False, harness: str = None, key=None) -> dict:
+                   save: bool = False, harness: str = None, key=None,
+                   on_step=None, on_live=None, direct: bool = False) -> dict:
         """Vibecode an agent: a plain description in, a whole agent out.
 
         The vibe-builder agent designs it — name, icon, prompt — with the
@@ -4309,16 +4370,31 @@ class Mod(Agent):
                  f"TOOL CATALOG (pick only these exact names):\n{tool_lines}\n\n"
                  f"TOOLBOXES (a name here in \"tools\" takes the bundle):\n"
                  f"{box_lines or '  (none)'}")
-        trace = self._draft_trace(
-            query=query,
-            agent_type=self.VIBE_BUILDER, harness=harness, model=model,
-            provider=provider, steps=steps, free=free, key=key,
-            # the agent has no file tools, but a stray write must not land in
-            # whatever directory the API happens to be running from
-            path=str(Path.home() / '.mod' / 'agent'),
-        )
-        answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
-        spec = self._parse_agent_json(answer)
+        spec, trace, answer = None, None, ''
+        if direct and not harness:
+            # `direct` (the scout's path): one tools-off completion first, the
+            # loop only if it didn't land a spec
+            try:
+                answer = self._scout_complete(
+                    query, provider=provider, model=model, free=free,
+                    agent_type=self.VIBE_BUILDER,
+                    on_token=(lambda t: on_live({'event': 'token', 'text': t}))
+                    if on_live else None)
+                spec = self._parse_agent_json(answer)
+            except Exception as e:
+                print(f"[agent] direct vibe draft failed, using the loop: {e}")
+        if spec is None:
+            trace = self._draft_trace(
+                query=query,
+                agent_type=self.VIBE_BUILDER, harness=harness, model=model,
+                provider=provider, steps=steps, free=free, key=key,
+                # the agent has no file tools, but a stray write must not land
+                # in whatever directory the API happens to be running from
+                path=str(Path.home() / '.mod' / 'agent'),
+                on_step=on_step, on_live=on_live,
+            )
+            answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
+            spec = self._parse_agent_json(answer)
         if spec is None and isinstance(trace, list):
             spec = self._spec_scan(trace, self._parse_agent_json)
         if spec is None:
@@ -4366,6 +4442,433 @@ class Mod(Agent):
             if isinstance(out, dict) and (out.get('prompt') or out.get('goal')):
                 return out
         return None
+
+    # ── scout: go on the internet, come back with an agent idea ──────
+    # Vibe needs a description; scout writes one. Five phases, each an event
+    # on `on_event` so a console can show the whole process as it happens:
+    #   lens → search → read   src/scout (no model, no key, polite crawler)
+    #   ideate                 the idea-scout agent pitches ONE agent off the
+    #                          numbered digest, citing the signals it used
+    #   vibe                   the pitch is handed to agent_vibe unchanged —
+    #                          same drafter, same catalog check, same naming
+
+    IDEA_SCOUT = 'idea-scout'
+
+    def _scout(self):
+        # lazy: the API boots without touching the network, and test mods
+        # built via __new__ get one on first use
+        if getattr(self, '_scout_inst', None) is None:
+            from .scout.mod import Scout
+            self._scout_inst = Scout()
+        return self._scout_inst
+
+    def agent_scout(self, theme: str = None, sources: List[str] = None,
+                    reads: int = 4, vibe: bool = True, name: str = None,
+                    model: str = None, provider: str = None, free: bool = False,
+                    steps: int = 4, save: bool = False, harness: str = None,
+                    key=None, on_event=None) -> dict:
+        """Go on the internet and come back with a new agent.
+
+        `theme` aims the scout ("local-first tools", "bittensor"); omit it and
+        a lens is picked at random. `sources` narrows hn/github/arxiv/web.
+        `reads` is how many pages get opened in full (0-8). `vibe=False`
+        stops at the idea; otherwise the idea's brief goes through
+        agent_vibe, and `save=True` files the agent like vibe does.
+
+        The return value is the whole process — lens, signals, pages read,
+        the idea with the signals it cites, the agent draft — and is kept
+        under ~/.mod/agent/scout so it can be reopened later.
+        """
+        self.identity.require_signed_in(key, operation="scout for an agent idea")
+        self.require_allowed(key, 'run')
+        scout = self._scout()
+        started = time.time()
+        log: List[Dict[str, Any]] = []
+
+        def emit(ev):
+            ev = {"t": round(time.time() - started, 2), **ev}
+            if ev.get("type") not in ("token",):
+                log.append(ev)
+            if on_event:
+                try:
+                    on_event(ev)
+                except Exception:
+                    pass
+
+        def phase(name, **kw):
+            emit({"type": "phase", "phase": name, **kw})
+
+        run: Dict[str, Any] = {"id": f"sc-{uuid.uuid4().hex[:8]}",
+                               "owner": self.identity.addr(key),
+                               "started": started}
+        try:
+            lens = scout.lens(theme)
+            run["lens"] = lens
+            phase("lens", **lens)
+
+            phase("search", sources=sources or [s['name'] for s in scout.sources()])
+            signals = scout.gather(lens["theme"], sources=sources, on_event=emit)
+            run["signals"] = signals
+            if not signals:
+                raise RuntimeError("the internet came back empty for "
+                                   f"\"{lens['theme']}\" — try another theme")
+
+            phase("read", count=max(0, min(int(reads or 0), 8)))
+            pages = scout.read(signals, limit=reads, on_event=emit)
+            run["pages"] = [{k: v for k, v in p.items() if k != 'text'} for p in pages]
+
+            phase("ideate", agent=self.IDEA_SCOUT)
+            # a model on this box reads a long digest at minutes per step —
+            # give it half, the loudest signals come first anyway
+            try:
+                small = self.compact_prompt(
+                    self.PROVIDERS.get(provider, provider) if provider
+                    else getattr(self, '_provider', None), model)
+            except Exception:
+                small = False
+            digest_chars = 7000 if small else 16000
+            existing = []
+            for n in sorted(self.agents.ls()):
+                try:
+                    d = str(self.agents.get(n).get('description') or '')[:90]
+                except Exception:
+                    d = ''
+                existing.append(f"  {n} — {d}")
+            query = (f"THEME: {lens['theme']}\n\n"
+                     f"EXISTING AGENTS (do not pitch these):\n"
+                     + '\n'.join(existing[:80]) +
+                     f"\n\nDIGEST ({len(signals)} signals, "
+                     f"{sum(1 for p in pages if p['status'] == 'ok')} read in full):\n"
+                     f"{scout.digest(signals, pages, limit=digest_chars)}")
+            idea = None
+            if not harness:
+                # pitching needs no tools, and a small local model handed a
+                # tool loop reads `owner/repo` lines as calls to make — one
+                # plain completion is faster and lands far more often
+                emit({"type": "model_start", "phase": "ideate"})
+                answer = self._scout_complete(
+                    query, provider=provider, model=model, free=free,
+                    on_token=lambda t: emit({"type": "token", "phase": "ideate",
+                                             "text": t}))
+                run["ideate_raw"] = answer[-4000:]
+                idea = self._parse_idea_json(answer)
+            if idea is None:
+                # a harness CLI, or a model that wandered off the JSON: the
+                # idea-scout agent's own loop, which can think before it answers
+                trace = self._draft_trace(
+                    query=query, agent_type=self.IDEA_SCOUT, harness=harness,
+                    model=model, provider=provider, steps=steps, free=free,
+                    key=key, path=str(Path.home() / '.mod' / 'agent' / 'scout'),
+                    on_step=lambda st: emit({"type": "step", "phase": "ideate",
+                                             "step": st}))
+                answer = self._answer_text([trace] if isinstance(trace, list) else [])
+                idea = self._parse_idea_json(answer)
+                if idea is None and isinstance(trace, list):
+                    idea = self._spec_scan(trace, self._parse_idea_json)
+            if idea is None:
+                raise RuntimeError("the idea-scout did not pitch an idea — "
+                                   "run it again, or give it a theme")
+            idea = self._clean_idea(idea, signals)
+            run["idea"] = idea
+            emit({"type": "idea", "idea": idea})
+
+            if vibe:
+                phase("vibe", agent=self.VIBE_BUILDER)
+                brief = (f"{idea['title']}: {idea['pitch']}\n\n{idea['brief']}")
+                out = self.agent_vibe(
+                    brief, name=name, model=model, provider=provider, free=free,
+                    steps=steps, save=save, harness=harness, key=key,
+                    direct=True,
+                    on_step=lambda st: emit({"type": "step", "phase": "vibe",
+                                             "step": st}),
+                    on_live=lambda ev: emit({"type": "token", "phase": "vibe",
+                                             "text": ev.get('text', '')})
+                    if ev.get('event') == 'token' else None)
+                if out.get('error'):
+                    run["vibe_error"] = out['error']
+                    emit({"type": "vibe_error", "error": out['error']})
+                else:
+                    run["draft"] = out.get('draft')
+                    for k in ('tools_dropped', 'agent', 'saved'):
+                        if k in out:
+                            run[k] = out[k]
+                    emit({"type": "draft", "draft": out.get('draft'),
+                          "saved": bool(out.get('saved'))})
+            run["status"] = "done"
+        except PermissionError:
+            raise
+        except Exception as e:
+            run["status"] = "error"
+            run["error"] = str(e)
+            emit({"type": "error", "error": str(e)})
+        run["elapsed"] = round(time.time() - started, 2)
+        run["log"] = log[-300:]
+        scout.record(run)
+        return run
+
+    def _scout_complete(self, query: str, provider: str = None,
+                        model: str = None, free: bool = False,
+                        on_token=None, agent_type: str = None) -> str:
+        """One tools-off completion with a drafter agent's goal (the
+        idea-scout's by default) as the system prompt — the provider client a
+        run would use, resolved per call. Drafters answer with one JSON block,
+        so a loop buys them nothing and costs a small model its way."""
+        client = self._client(provider)
+        if client is None:
+            raise RuntimeError("no model configured — add or unlock a key in "
+                               "the Builder (model node), or pick liquidai")
+        path = self.PROVIDERS.get(provider, provider) if provider else self._provider
+        mdl = self._model_for(path, model)
+        goal = self.agents.get(agent_type or self.IDEA_SCOUT).get('goal') or ''
+        out = client.forward(f"{goal}\n\n---\n\n{query}\n\n---\n\n"
+                             f"Answer now, in English, with the ```json "
+                             f"block only.",
+                             stream=True, model=mdl, max_tokens=1200,
+                             temperature=0.5, free=free)
+        if isinstance(out, str):
+            if on_token:
+                on_token(out)
+            return out
+        parts = []
+        for chunk in out:
+            chunk = str(chunk)
+            parts.append(chunk)
+            if on_token:
+                on_token(chunk)
+        return ''.join(parts)
+
+    def agent_scout_runs(self, limit: int = 20, key=None) -> dict:
+        """Past scout runs, newest first, without their logs. Yours only —
+        the host sees everyone's."""
+        self.identity.require_signed_in(key, operation="read scout runs")
+        owner = None if self.is_owner(key) else self.identity.addr(key)
+        runs = self._scout().runs(owner=owner, limit=limit)
+        keep = ('id', 'owner', 'started', 'elapsed', 'status', 'error', 'lens',
+                'idea', 'draft', 'saved')
+        return {"runs": [{k: r.get(k) for k in keep if k in r} for r in runs]}
+
+    def agent_scout_run(self, id: str, key=None) -> dict:
+        """One scout run whole — every signal, page and step it took."""
+        self.identity.require_signed_in(key, operation="read a scout run")
+        run = self._scout().run(str(id or ''))
+        if not run or (not self.is_owner(key)
+                       and run.get('owner') != self.identity.addr(key)):
+            raise ValueError(f"no scout run {id}")
+        return run
+
+    @staticmethod
+    def _parse_idea_json(text: str) -> Optional[Dict[str, Any]]:
+        """The pitch out of the idea-scout's answer. The field that cannot be
+        missing is the `brief` (or a `pitch`) — that is what vibe builds from."""
+        text = str(text or '')
+        candidates = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        # a small model sometimes closes a string with a typographic quote —
+        # strict first, then once more with those straightened
+        smart = str.maketrans({'\u201c': '"', '\u201d': '"', '\uff02': '"'})
+        for raw in candidates + [c.translate(smart) for c in candidates]:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(out, dict) and (out.get('brief') or out.get('pitch')):
+                return out
+        return None
+
+    @staticmethod
+    def _clean_idea(idea: Dict[str, Any], signals: List[Dict]) -> Dict[str, Any]:
+        """Citations held to the digest: a number that isn't a signal is
+        dropped, and each kept one carries its title and url so the idea can
+        be traced back without the digest in hand."""
+        by_n = {s['n']: s for s in signals}
+        cited = idea.get('inspired_by') or []
+        if not isinstance(cited, list):
+            cited = [cited]
+        refs = []
+        for c in cited:
+            try:
+                n = int(str(c).strip('[] '))
+            except ValueError:
+                continue
+            if n in by_n and n not in [r['n'] for r in refs]:
+                s = by_n[n]
+                refs.append({'n': n, 'source': s['source'],
+                             'title': s.get('title', ''), 'url': s['url']})
+        s = lambda k, n=600: str(idea.get(k) or '').strip()[:n]
+        pitch = s('pitch', 300)
+        return {'title': s('title', 80) or 'untitled idea', 'pitch': pitch,
+                'why_now': s('why_now', 400), 'brief': s('brief', 1600) or pitch,
+                'novelty': s('novelty', 300), 'inspired_by': refs}
+
+    # ── grow: a new tool and a new agent every interval ──────────────
+    # The engine lives in src/grow (config, guards, recipes, scheduler);
+    # these are its owner gates. Reading is open; every change — config,
+    # a manual tick, pruning, the thread on/off — is the owner's alone:
+    # require_owner, not require_allowed, so an ACL grant does not reach it.
+
+    def _grow(self):
+        if getattr(self, '_grow_inst', None) is None:
+            from .grow.mod import Grow, ModHost, Scheduler
+            self._grow_inst = Grow()
+            self._grow_host = ModHost(self)
+            self._grow_sched = Scheduler(self._grow_inst, self._grow_host)
+        return self._grow_inst
+
+    @staticmethod
+    def _grow_keys():
+        from .grow.mod import DEFAULTS
+        return tuple(DEFAULTS)
+
+    def grow_status(self) -> dict:
+        g = self._grow()
+        return {**g.status(self._grow_host, self._grow_sched),
+                "owner": self._owner}
+
+    def grow_config(self, key=None, **changes) -> dict:
+        """Change how the console grows. Owner only."""
+        self.require_owner(key, 'grow_config')
+        self._grow().set_config(**changes)
+        return self.grow_status()
+
+    def grow_tick(self, key=None) -> dict:
+        """Grow one pair now, even while disabled. Owner only."""
+        self.require_owner(key, 'grow_tick')
+        return self._grow().tick(self._grow_host, force=True)
+
+    def grow_prune(self, kind: str = 'all', count: int = None, key=None) -> dict:
+        """Remove grown tools/agents, oldest first. Owner only; never
+        touches anything the grower did not make."""
+        self.require_owner(key, 'grow_prune')
+        return self._grow().prune(self._grow_host, kind=kind, count=count)
+
+    def grow_scheduler(self, on: bool = True, key=None, delay: float = 20.0,
+                       _boot: bool = False) -> dict:
+        """Start/stop the thread. The API starts it at boot (_boot) and the
+        persisted `enabled` decides whether ticks do anything; by hand it is
+        owner only."""
+        if not _boot:
+            self.require_owner(key, 'grow_scheduler')
+        self._grow()
+        s = self._grow_sched
+        return s.start(delay=delay) if on else s.stop()
+
+    # ── cron: run an agent every N minutes ───────────────────────────
+    # The engine lives in src/cron (jobs, guards, scheduler, compute probe).
+    # Scheduling is for the owner and for addresses the owner granted 'cron'
+    # (or '*'); a grantee sees and manages only its own jobs. Everyone else
+    # gets counts and the compute card — prompts are not public.
+
+    def _cron(self):
+        if getattr(self, '_cron_inst', None) is None:
+            from .cron.mod import Cron, ModHost as CronHost, Scheduler as CronScheduler
+            self._cron_inst = Cron()
+            self._cron_host = CronHost(self)
+            self._cron_sched = CronScheduler(self._cron_inst, self._cron_host)
+        return self._cron_inst
+
+    @staticmethod
+    def _cron_keys():
+        from .cron.mod import JOB_FIELDS
+        return JOB_FIELDS
+
+    def _cron_caller(self, key=None) -> str:
+        """The verified address behind a cron request ('' = nobody)."""
+        if key is None:
+            return ''
+        return (self._resolve_address(key, verified=True) or '').lower()
+
+    def _cron_job_for(self, job_id: str, key=None) -> dict:
+        """The job, if this caller may touch it: the owner any, a grantee its own."""
+        c, addr = self._cron(), self._cron_caller(key)
+        job = c.get(job_id)
+        if not (self.is_owner(key) or (addr and job['owner'] == addr
+                                       and self._cron_host.may(addr))):
+            raise PermissionError("not your cron job")
+        return job
+
+    def cron_status(self, agent: str = None, key=None) -> dict:
+        """Jobs this caller may see, the scheduler, and this host's compute."""
+        c, host = self._cron(), self._cron_host
+        addr = self._cron_caller(key)
+        owner = bool(addr) and self.is_owner(key)
+        allowed = owner or (bool(addr) and host.may(addr))
+        jobs = c.jobs()
+        if agent:
+            jobs = [j for j in jobs if j['agent'] == agent]
+        mine = jobs if owner else [j for j in jobs if allowed and j['owner'] == addr]
+        from .cron import compute
+        return {
+            'jobs': [c.view(j) for j in sorted(mine, key=lambda j: j.get('next_at') or 0)],
+            'total': len(jobs),
+            'enabled': sum(1 for j in jobs if j.get('enabled')),
+            'running': len(c.running),
+            'you': {'address': addr or None, 'owner': owner, 'can_schedule': allowed},
+            'permission': 'cron',
+            'scheduler': self._cron_sched.status(),
+            'compute': (host.agent_compute(agent) if agent else
+                        {'host': compute.host()}),
+        }
+
+    def cron_job(self, id: str, key=None) -> dict:
+        job = self._cron_job_for(id, key)
+        return {**self._cron().view(job, full=True),
+                'compute': self._cron_host.agent_compute(job['agent'], job.get('provider'),
+                                                         job.get('model'))}
+
+    def cron_add(self, key=None, **fields) -> dict:
+        """Schedule an agent. Owner, or an address granted 'cron'."""
+        addr = self._cron_caller(key)
+        if not addr:
+            raise PermissionError("sign in to schedule an agent")
+        host = self._cron_host
+        if not host.may(addr):
+            raise PermissionError("scheduling needs the owner's grant: "
+                                  "ask them to grant your address 'cron'")
+        if fields.get('agent') and fields['agent'] not in host.agents():
+            raise ValueError(f"no agent named {fields['agent']!r}")
+        return self._cron().add(addr, host.is_host(addr), **fields)
+
+    def cron_update(self, id: str, key=None, **fields) -> dict:
+        self._cron_job_for(id, key)
+        if fields.get('agent') and fields['agent'] not in self._cron_host.agents():
+            raise ValueError(f"no agent named {fields['agent']!r}")
+        return self._cron().update(id, **fields)
+
+    def cron_rm(self, id: str, key=None) -> dict:
+        self._cron_job_for(id, key)
+        return self._cron().remove(id)
+
+    def cron_run(self, id: str, key=None) -> dict:
+        """Run a job now, in the background; the result lands on the job."""
+        self._cron_job_for(id, key)
+        c = self._cron()
+        if id in c.running:
+            return {'skipped': 'already running', 'id': id}
+        import threading
+        threading.Thread(target=c.run, args=(self._cron_host, id, True),
+                         name=f'cron-now-{id}', daemon=True).start()
+        return {'started': id}
+
+    def cron_scheduler(self, on: bool = True, key=None, delay: float = 20.0,
+                       _boot: bool = False) -> dict:
+        """Start/stop the cron thread. The API starts it at boot; by hand,
+        owner only. Each job's `enabled` decides whether it runs."""
+        if not _boot:
+            self.require_owner(key, 'cron_scheduler')
+        self._cron()
+        s = self._cron_sched
+        return s.start(delay=delay) if on else s.stop()
+
+    def compute_info(self, agent: str = None) -> dict:
+        """The compute an agent runs on: this host (loop + tools) and where
+        its model runs. Public — it describes the box, not anyone's work."""
+        self._cron()
+        if agent:
+            return self._cron_host.agent_compute(agent)
+        from .cron import compute
+        return {'host': compute.host()}
 
     # ── arena (one runner, every match) ──────────────────────────────
 

@@ -471,6 +471,42 @@
   .nodecard h4{margin:0 0 5px;font:9px/1.6 var(--px);color:var(--ink)}
   .nodecard .meta{font-size:10px;color:var(--dim);display:flex;gap:8px;flex-wrap:wrap}
   .nodecard .meta.badv{color:var(--badv)}
+
+  /* ── ORACLE: the price prediction game ─────────────────────────────── */
+  .ix{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:12px}
+  .ixc{background:linear-gradient(180deg,var(--panel3),var(--bg2));border:3px solid var(--edge);
+       box-shadow:inset 0 2px 0 rgba(255,255,255,.07),0 3px 0 var(--edge);padding:7px 9px 5px;
+       cursor:pointer;text-align:left;color:var(--ink);font:inherit;display:flex;flex-direction:column;gap:2px}
+  .ixc:hover{box-shadow:inset 0 0 0 2px var(--inset),0 3px 0 var(--edge)}
+  .ixc.on{box-shadow:inset 0 0 0 2px var(--gold),0 3px 0 var(--edge)}
+  .ixc .m{font:9px/1.6 var(--px);color:var(--gold)}
+  .ixc .v{font-size:15px;font-weight:600}
+  .ixc .d{font-size:10px;display:flex;justify-content:space-between;color:var(--faint)}
+  .ixc svg{width:100%;height:28px;display:block;margin-top:2px}
+  .ixc svg path{fill:none;stroke:var(--gold);stroke-width:2;vector-effect:non-scaling-stroke}
+  .ogrid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:14px;align-items:start}
+  @media(max-width:1000px){.ogrid{grid-template-columns:1fr}}
+  .ochart{position:relative;background:var(--well);border:3px solid var(--edge);
+          box-shadow:inset 0 0 0 2px var(--inset);height:240px;touch-action:none}
+  .ochart svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+  .ochart .grid{stroke:var(--rule);stroke-width:1}
+  .ochart .lbl{fill:var(--faint);font-size:9px;font-family:ui-monospace,Menlo,monospace}
+  .ochart .line{fill:none;stroke:var(--gold);stroke-width:2;stroke-linejoin:round}
+  .ochart .area{fill:var(--gold);opacity:.08}
+  .ochart .future{fill:var(--panel3);opacity:.55}
+  .ochart .now{stroke:var(--hot);stroke-width:2;stroke-dasharray:3 3}
+  .ochart .call{fill:var(--accent);stroke:var(--well);stroke-width:2}
+  .ochart .call.mine{fill:var(--hot)}
+  .ochart .call.bot{fill:var(--faint)}
+  .ochart .hair{stroke:var(--dim);stroke-width:1;display:none}
+  .ochart .dot{fill:var(--gold-hi);stroke:var(--well);stroke-width:2;display:none}
+  .hz{display:flex;gap:5px}
+  .nudge{display:flex;gap:4px;flex-wrap:wrap}
+  .nudge button{min-width:0;padding:5px 7px}
+  tr.me td{background:var(--sel)}
+  .bot{font:9px/1 ui-monospace,Menlo,monospace;color:var(--faint);border:1px solid var(--inset);padding:1px 3px;margin-left:5px;letter-spacing:.06em}
+  .pts{color:var(--gold);font-weight:600}
+  .feed td{font-size:11px}
   .pane{background:linear-gradient(180deg,var(--panel),var(--bg));border:3px solid var(--edge);
         box-shadow:inset 0 3px 0 rgba(255,255,255,.08),0 3px 0 var(--edge)}
   .pane .head{display:flex;gap:8px;align-items:center;padding:9px 11px;
@@ -545,6 +581,7 @@
   </div>
   <nav>
     <button data-tab="market" class="on">MARKET</button>
+    <button data-tab="oracle">ORACLE</button>
     <button data-tab="nodes">NODES</button>
     <button data-tab="running">RUNNING</button>
     <button data-tab="providers">PROVIDERS</button>
@@ -591,6 +628,65 @@
   <div id="m-more" class="more"></div>
 </section>
 <div class="tip" id="tip"></div>
+
+<!-- ── ORACLE ─────────────────────────────────────────────────────────── -->
+<section id="oracle">
+  <div class="bar">
+    <span class="dimtxt">Call where GPU prices go. Every 20 minutes each card gets an index &mdash;
+      the median per-GPU $/hr across every market &mdash; and every call is scored against it.</span>
+    <span class="grow" style="flex:1"></span>
+    <span class="flash" id="o-flash"></span>
+  </div>
+  <div class="ix" id="o-ix"></div>
+  <div class="ogrid">
+    <div class="pane">
+      <div class="head"><span class="pipe" aria-hidden="true"></span><b id="o-title">CALL IT</b>
+        <span class="faint" id="o-sub"></span></div>
+      <div class="body">
+        <div class="ochart" id="o-chart"></div>
+        <div class="axis"><span>7 days ago</span><span class="hotv">now</span><span>+7d</span></div>
+        <div class="bar" style="margin-top:12px">
+          <input id="o-player" placeholder="your name" style="width:140px" autocomplete="off">
+          <input id="o-key" placeholder="player key" style="width:170px;display:none" autocomplete="off">
+          <div class="hz" id="o-hz"></div>
+        </div>
+        <div class="bar">
+          <span class="range"><label>$/hr per gpu</label>
+            <input id="o-val" type="number" step="0.001" min="0" style="width:90px"></span>
+          <div class="nudge" id="o-nudge"></div>
+          <button class="go" onclick="oracleCall()">CALL IT</button>
+        </div>
+        <input id="o-note" placeholder="why (optional, shown on the board)" style="width:100%">
+        <p class="note" id="o-rule"></p>
+      </div>
+    </div>
+    <div class="pane">
+      <div class="head"><span class="pipe" aria-hidden="true"></span><b>LEADERBOARD</b>
+        <span class="grow" style="flex:1"></span>
+        <select id="o-bscope" onchange="oracleBoard()" style="min-width:0">
+          <option value="">all cards</option><option value="sel">this card</option></select>
+        <select id="o-bhz" onchange="oracleBoard()" style="min-width:0">
+          <option value="">all horizons</option><option>1h</option><option>6h</option>
+          <option>24h</option><option>7d</option></select>
+      </div>
+      <div class="body" style="padding:0">
+        <table><thead><tr><th>#</th><th>player</th><th title="mean points per scored call">score</th>
+          <th title="scored / open">calls</th><th title="mean abs % error">err</th>
+          <th title="% of calls closer than 'nothing changes'">beat naive</th></tr></thead>
+          <tbody id="o-board"></tbody></table>
+      </div>
+    </div>
+  </div>
+  <div class="pane" style="margin-top:14px">
+    <div class="head"><span class="pipe" aria-hidden="true"></span><b>CALLS</b>
+      <span class="faint" id="o-callsub"></span></div>
+    <div class="body" style="padding:0">
+      <table class="feed"><thead><tr><th>player</th><th>card</th><th>in</th><th>called</th>
+        <th>was</th><th>actual</th><th>points</th><th>due</th></tr></thead>
+        <tbody id="o-calls"></tbody></table>
+    </div>
+  </div>
+</section>
 
 <!-- ── NODES ──────────────────────────────────────────────────────────── -->
 <section id="nodes">
@@ -749,7 +845,7 @@ const ago = t => { if (!t) return ''; const s = Date.now()/1000 - t;
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
-  ({nodes: loadNodes, running, providers, keys: keysPanel, mcp: tools}[b.dataset.tab] || (() => {}))();
+  ({oracle, nodes: loadNodes, running, providers, keys: keysPanel, mcp: tools}[b.dataset.tab] || (() => {}))();
 });
 document.querySelectorAll('.subnav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.subnav button').forEach(x => x.classList.toggle('on', x === b));
@@ -1619,6 +1715,209 @@ async function stop(id) {
   if (!confirm('stop ' + id + '? this ends the rental and its billing.')) return;
   try { await post('/stop', {id}); running() } catch (e) { alert(e.message) }
 }
+
+// ── oracle: the price prediction game ──
+// The player's name and key live in this browser only; the server keeps a hash.
+const OP = 'compute_oracle_player';
+let O = null, OSEL = null, OHZ = '24h', ODET = null;
+const me = () => { try { return JSON.parse(localStorage.getItem(OP) || '{}') } catch { return {} } };
+const opct = v => v == null ? '-' : (v > 0 ? '+' : '') + Number(v).toFixed(1) + '%';
+const until = t => { const s = t - Date.now()/1000; if (s <= 0) return 'due';
+  return s < 3600 ? Math.round(s/60)+'m' : s < 86400 ? Math.round(s/3600)+'h' : Math.round(s/86400)+'d' };
+const per = v => v == null ? '-' : '$' + Number(v).toFixed(v < 1 ? 3 : 2);
+
+async function oracle() {
+  const f = document.getElementById('o-flash');
+  const p = me();
+  document.getElementById('o-player').value = p.player || '';
+  try {
+    O = await call('/oracle');
+    f.textContent = O.ticker.last_error ? 'ticker: ' + O.ticker.last_error : '';
+  } catch (e) { f.textContent = e.message; return }
+  if (!O.series.length) {
+    document.getElementById('o-ix').innerHTML = '<p class="note">No index yet &mdash; the first ' +
+      'market read lands a few seconds after the server starts. The owner can force one: ' +
+      '<code>m compute/tick</code>.</p>';
+    return;
+  }
+  if (!OSEL || !O.series.find(s => s.series === OSEL)) OSEL = O.series[0].series;
+  document.getElementById('o-hz').innerHTML = O.horizons.map(h =>
+    `<button class="ghost ${h === OHZ ? 'on' : ''}" onclick="oracleHz('${h}')">${h}</button>`).join('');
+  document.getElementById('o-nudge').innerHTML = [-10, -5, 0, 5, 10].map(n =>
+    `<button class="ghost" onclick="oracleNudge(${n})">${n > 0 ? '+' : ''}${n ? n + '%' : 'flat'}</button>`).join('');
+  document.getElementById('o-rule').innerHTML =
+    `Exact scores <b class="pts">100</b>, 5% off scores 50, 10% off 25. Ranked by the mean after ` +
+    `${O.min_ranked} scored calls. One open call per card and horizon; no edits. ` +
+    `The <span class="bot">BOT</span> players are baselines &mdash; beat <i>bot.naive</i> ` +
+    `("nothing changes") and you are actually forecasting.`;
+  drawIx(); oracleBoard(); oraclePick(OSEL, true);
+}
+
+function spark(pts) {
+  if (!pts || pts.length < 2) return '<svg></svg>';
+  const vs = pts.map(p => p[1]), lo = Math.min(...vs), hi = Math.max(...vs), r = hi - lo || 1;
+  const t0 = pts[0][0], tr = (pts[pts.length-1][0] - t0) || 1;
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + ((p[0]-t0)/tr*100).toFixed(2) + ' ' +
+    (26 - (p[1]-lo)/r*24).toFixed(2)).join(' ');
+  return `<svg viewBox="0 0 100 28" preserveAspectRatio="none"><path d="${d}"/></svg>`;
+}
+
+function drawIx() {
+  document.getElementById('o-ix').innerHTML = O.series.map(s => `
+    <button class="ixc ${s.series === OSEL ? 'on' : ''}" onclick="oraclePick('${s.series}')"
+            title="${esc((s.meta.markets || []).join(', '))}">
+      <span class="m">${esc(s.model)}</span>
+      <span class="v">${per(s.value)}<span class="faint" style="font-size:10px">/hr</span></span>
+      <span class="d"><span class="${s.change_24h_pct > 0 ? 'warnv' : s.change_24h_pct < 0 ? 'hotv' : ''}">
+        ${s.change_24h_pct == null ? 'new' : opct(s.change_24h_pct) + ' 24h'}</span>
+        <span>${s.meta.offers || 0} offers</span></span>
+      ${spark(s.spark)}
+    </button>`).join('');
+}
+
+async function oraclePick(series, quiet) {
+  OSEL = series;
+  if (!quiet) { drawIx(); blip('jump') }
+  const s = O.series.find(x => x.series === series);
+  document.getElementById('o-title').textContent = 'CALL ' + s.model;
+  document.getElementById('o-sub').textContent =
+    `now ${per(s.value)}/gpu/hr - ${s.meta.offers || 0} offers on ${(s.meta.markets || []).length} markets - ` +
+    `cheapest ${per(s.meta.cheapest)}, middle half ${per(s.meta.p25)} to ${per(s.meta.p75)}`;
+  document.getElementById('o-val').value = s.value;
+  try { ODET = await call('/oracle/series?series=' + encodeURIComponent(series)) }
+  catch (e) { document.getElementById('o-flash').textContent = e.message; return }
+  drawChart(); drawCalls();
+  if (document.getElementById('o-bscope').value === 'sel') oracleBoard();
+}
+
+function oracleHz(h) {
+  OHZ = h; document.querySelectorAll('#o-hz button').forEach(b => b.classList.toggle('on', b.textContent === h));
+}
+function oracleNudge(n) {
+  const s = O.series.find(x => x.series === OSEL);
+  document.getElementById('o-val').value = +(s.value * (1 + n / 100)).toFixed(4);
+}
+
+// History on the left of "now", the next 7 days on the right, where every
+// open call sits as a dot at the time and price it bet on.
+function drawChart() {
+  const el = document.getElementById('o-chart');
+  const W = el.clientWidth || 600, H = el.clientHeight || 240, L = 46, R = 8, T = 10, B = 18;
+  const now = Date.now() / 1000, t0 = now - 7 * 86400, t1 = now + 7 * 86400;
+  const hist = ODET.history.filter(p => p[0] >= t0);
+  const mine = me().player;
+  const calls = ODET.open.filter(c => c.target <= t1);
+  const vs = hist.map(p => p[1]).concat(calls.map(c => c.value));
+  let lo = Math.min(...vs), hi = Math.max(...vs);
+  const pad = (hi - lo) * .12 || hi * .05 || 1; lo = Math.max(0, lo - pad); hi += pad;
+  const x = t => L + (t - t0) / (t1 - t0) * (W - L - R);
+  const y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const ticks = [0, .5, 1].map(k => lo + (hi - lo) * k);
+  const line = hist.map((p, i) => (i ? 'L' : 'M') + x(p[0]).toFixed(1) + ' ' + y(p[1]).toFixed(1)).join(' ');
+  const area = hist.length ? line + ` L${x(hist[hist.length-1][0]).toFixed(1)} ${H-B} L${x(hist[0][0]).toFixed(1)} ${H-B} Z` : '';
+  const days = [-6,-4,-2,2,4,6].map(d => now + d * 86400);
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
+    <rect class="future" x="${x(now)}" y="${T}" width="${W - R - x(now)}" height="${H - T - B}"/>
+    ${ticks.map(v => `<line class="grid" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/>
+      <text class="lbl" x="${L-6}" y="${y(v)+3}" text-anchor="end">${per(v)}</text>`).join('')}
+    ${days.map(t => `<text class="lbl" x="${x(t)}" y="${H-4}" text-anchor="middle">${t < now ? '' : '+'}${Math.round((t-now)/86400)}d</text>`).join('')}
+    <path class="area" d="${area}"/><path class="line" d="${line}"/>
+    <line class="now" x1="${x(now)}" x2="${x(now)}" y1="${T}" y2="${H-B}"/>
+    <line class="hair" id="o-hair" y1="${T}" y2="${H-B}"/><circle class="dot" id="o-dot" r="4"/>
+    ${calls.map((c, i) => `<circle class="call ${c.player === mine ? 'mine' : c.player.startsWith('bot.') ? 'bot' : ''}"
+      data-i="${i}" cx="${x(c.target)}" cy="${y(c.value)}" r="${c.player === mine ? 6 : 4.5}"/>`).join('')}
+  </svg>`;
+  const tip = document.getElementById('tip'), svg = el.querySelector('svg');
+  const hair = document.getElementById('o-hair'), dot = document.getElementById('o-dot');
+  const show = (e, html) => { tip.innerHTML = html; tip.style.display = 'block';
+    tip.style.left = Math.min(e.clientX + 14, innerWidth - 240) + 'px'; tip.style.top = (e.clientY + 14) + 'px' };
+  el.onpointerleave = () => { tip.style.display = 'none'; hair.style.display = dot.style.display = 'none' };
+  el.onpointermove = e => {
+    const r = el.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W, py = (e.clientY - r.top) / r.height * H;
+    // the nearest call within reach wins over the line: they are the small targets
+    let best = null, bd = 14 * 14;
+    calls.forEach(c => { const d = (x(c.target) - px) ** 2 + (y(c.value) - py) ** 2; if (d < bd) { bd = d; best = c } });
+    if (best) {
+      hair.style.display = dot.style.display = 'none';
+      return show(e, `<b>${esc(best.player)}</b> calls ${per(best.value)} in ${best.horizon}<br>` +
+        `was ${per(best.base)} (${opct((best.value / best.base - 1) * 100)}) - due in ${until(best.target)}` +
+        (best.note ? `<br><span class="dimtxt">${esc(best.note)}</span>` : ''));
+    }
+    if (!hist.length || px > x(now)) { tip.style.display = 'none'; hair.style.display = dot.style.display = 'none'; return }
+    let h = hist[0]; for (const p of hist) if (Math.abs(x(p[0]) - px) < Math.abs(x(h[0]) - px)) h = p;
+    hair.setAttribute('x1', x(h[0])); hair.setAttribute('x2', x(h[0])); hair.style.display = 'block';
+    dot.setAttribute('cx', x(h[0])); dot.setAttribute('cy', y(h[1])); dot.style.display = 'block';
+    show(e, `<b>${per(h[1])}</b>/gpu/hr<br>${new Date(h[0] * 1000).toLocaleString()}`);
+  };
+}
+
+function drawCalls() {
+  const mine = me().player;
+  const rows = ODET.open.filter(c => !c.player.startsWith('bot.') || c.horizon === OHZ)
+    .concat(ODET.scored.slice(0, 40)).sort((a, b) => b.made - a.made).slice(0, 60);
+  document.getElementById('o-callsub').textContent = `on ${OSEL} - ${ODET.open.length} open, ` +
+    `latest ${ODET.scored.length} scored`;
+  document.getElementById('o-calls').innerHTML = rows.map(c => `<tr class="${c.player === mine ? 'me' : ''}">
+    <td>${esc(c.player)}${c.player.startsWith('bot.') ? '<span class="bot">BOT</span>' : ''}</td>
+    <td>${esc(c.series.split(':')[1].toUpperCase())}</td><td>${c.horizon}</td>
+    <td class="price">${per(c.value)}</td><td class="dimtxt">${per(c.base)}</td>
+    <td>${c.actual == null ? '<span class="faint">-</span>' : per(c.actual)}</td>
+    <td>${c.points == null ? '<span class="faint">-</span>' : `<span class="pts">${Math.round(c.points)}</span>` +
+      (c.beat_naive ? ' <span class="hotv" title="closer than nothing-changes">+</span>' : '')}</td>
+    <td class="dimtxt">${c.state === 'open' ? until(c.target) : c.state}</td></tr>`).join('') ||
+    '<tr><td colspan="8" class="dimtxt">no calls yet - be first</td></tr>';
+}
+
+async function oracleBoard() {
+  const scope = document.getElementById('o-bscope').value, hz = document.getElementById('o-bhz').value;
+  const q = new URLSearchParams();
+  if (scope === 'sel' && OSEL) q.set('series', OSEL);
+  if (hz) q.set('horizon', hz);
+  let d; try { d = await call('/oracle/board?' + q) } catch (e) { return }
+  const mine = me().player;
+  document.getElementById('o-board').innerHTML = d.board.map(r => `<tr class="${r.player === mine ? 'me' : ''}">
+    <td class="${r.rank === 1 ? 'pts' : 'dimtxt'}">${r.rank || '-'}</td>
+    <td>${esc(r.player)}${r.bot ? '<span class="bot">BOT</span>' : ''}</td>
+    <td>${r.score == null ? '<span class="faint">-</span>' : `<span class="pts">${r.score.toFixed(1)}</span>`}</td>
+    <td class="dimtxt">${r.n} / ${r.open}</td>
+    <td class="dimtxt">${r.mape == null ? '-' : r.mape.toFixed(1) + '%'}</td>
+    <td class="${(r.beat || 0) >= 50 ? 'hotv' : 'dimtxt'}">${r.beat == null ? '-' : r.beat.toFixed(0) + '%'}</td>
+  </tr>`).join('') || '<tr><td colspan="6" class="dimtxt">nobody has been scored yet - the first ' +
+    '1h calls resolve an hour after they are made</td></tr>';
+}
+
+async function oracleCall() {
+  const f = document.getElementById('o-flash');
+  const name = document.getElementById('o-player').value.trim().toLowerCase();
+  const keyIn = document.getElementById('o-key');
+  if (!name) { f.textContent = 'pick a name first'; document.getElementById('o-player').focus(); return }
+  let p = me();
+  if (p.player !== name) {
+    if (keyIn.style.display !== 'none' && keyIn.value.trim()) p = {player: name, key: keyIn.value.trim()};
+    else try {
+      const j = await post('/oracle/join', {player: name});
+      p = {player: j.player, key: j.key};
+    } catch (e) {
+      if (/taken/.test(e.message)) {
+        keyIn.style.display = ''; keyIn.focus();
+        f.textContent = name + ' is taken - paste its key, or pick another name'; blip('bad'); return;
+      }
+      f.textContent = e.message; blip('bad'); return;
+    }
+    localStorage.setItem(OP, JSON.stringify(p)); keyIn.style.display = 'none'; keyIn.value = '';
+  }
+  try {
+    const c = await post('/oracle/predict', {player: p.player, key: p.key, series: OSEL, horizon: OHZ,
+      value: Number(document.getElementById('o-val').value), note: document.getElementById('o-note').value || null});
+    f.textContent = `called ${per(c.value)} for ${c.series.split(':')[1].toUpperCase()} in ${c.horizon} - scored in ${until(c.target)}`;
+    document.getElementById('o-note').value = '';
+    blip('coin'); oraclePick(OSEL, true); oracleBoard();
+  } catch (e) {
+    if (/wrong key/.test(e.message)) { localStorage.removeItem(OP); keyIn.style.display = '' }
+    f.textContent = e.message; blip('bad');
+  }
+}
+addEventListener('resize', () => { if (ODET && document.getElementById('oracle').classList.contains('on')) drawChart() });
 
 // ── providers ──
 async function providers() {

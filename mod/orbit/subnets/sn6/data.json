@@ -1,0 +1,165 @@
+{
+  "netuid": 6,
+  "name": "Numinous",
+  "symbol": "ζ",
+  "owner": "5CfSg4e23Z3aTXvc2XZie8ZE1xkqRPoyVRFdWUuyyjGxJrMA",
+  "description": "Numinous is a forecasting protocol whose goal is to aggregate agents into superhuman LLM forecasters.",
+  "github": "https://github.com/numinouslabs/numinous",
+  "url": "https://numinouslabs.io/",
+  "discord": "amedeo_ma",
+  "logo": "https://numinouslabs.io/numinous-logo.svg",
+  "registered_at": 3219949,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.002294245,
+    "moving_price": 0.0022986014373600483,
+    "market_cap": 13543.995746288163,
+    "tao_in": 7444.468873273,
+    "alpha_in": 3244843.606131208,
+    "alpha_out": 2658621.693472001,
+    "volume": 704792.212701351,
+    "vol_24h": 145.71254700003192,
+    "emission": 0.0,
+    "change_1h": 0.005230752465523736,
+    "change_24h": -0.4643920537938273,
+    "change_7d": -2.288562934948346
+  },
+  "spark_24h": [
+    0.002301856,
+    0.002301564,
+    0.002301177,
+    0.00230117,
+    0.002301158,
+    0.002301158,
+    0.002298075,
+    0.002298073,
+    0.002286447,
+    0.002286426,
+    0.002286423,
+    0.002285339,
+    0.002285338,
+    0.002285336,
+    0.002285336,
+    0.002297649,
+    0.002297648,
+    0.002297647,
+    0.002297222,
+    0.002308642,
+    0.002308642,
+    0.00230864,
+    0.00230864,
+    0.00230864,
+    0.002308635,
+    0.002308332,
+    0.002308332,
+    0.002308327,
+    0.002308327,
+    0.002308326,
+    0.002308026,
+    0.002308026,
+    0.002307769,
+    0.002306771,
+    0.002306767,
+    0.002306767,
+    0.002294374,
+    0.002294368,
+    0.002294363,
+    0.002294363,
+    0.00229436,
+    0.002294185,
+    0.002294185,
+    0.002294125,
+    0.002294125,
+    0.002294125,
+    0.002294125,
+    0.002294245
+  ],
+  "trades_24h": {
+    "trades": 35,
+    "buys": 5,
+    "sells": 30,
+    "buy_tao": 57.243552651,
+    "sell_tao": 69.446639522,
+    "net_tao": -12.203086870999996,
+    "traders": 21
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DkBE3KJsjds9PgxQTpz8bTUg5am3w6EsfAejGdRsu1Qd4g1",
+      "net_tao": -0.06887269199999935,
+      "gross_tao": 40.068872692,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.025602612000000136,
+      "gross_tao": 37.407190412,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FWSrvUejJ1NX1fcWgZVBNSpsrHr5C2AzZAUviosPEyUjVs9",
+      "net_tao": -0.09747716499999992,
+      "gross_tao": 37.202994667,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Horx9x1KoEPa7EQhAoCaimgJ8C66mY3Nv149AgJxhttYBG5",
+      "net_tao": -4.99413627,
+      "gross_tao": 4.99413627,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D7c2UWFiZ3ss8wNfhGEZjGRn86N7fftuPH9DiWKU6mmrhEV",
+      "net_tao": -2.5625270799999997,
+      "gross_tao": 2.5625270799999997,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790100477,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #55 from numinouslabs/sync-main-2026-09-22-17-30",
+      "url": "https://github.com/numinouslabs/numinous/commit/e32cf9dfa0e3f3cb627e262b9f4547e490e08b76",
+      "publisher": "numinouslabs/numinous"
+    },
+    {
+      "ts": 1790098251,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release 2026-09-22-17-30 from main",
+      "url": "https://github.com/numinouslabs/numinous/commit/316a0e4c27187f85453c4ed3721581e4e0771e01",
+      "publisher": "numinouslabs/numinous"
+    },
+    {
+      "ts": 1789728491,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #54 from numinouslabs/docs-reasoning-trajectories-…",
+      "url": "https://github.com/numinouslabs/numinous/commit/4f6e55bce3b01db0af8a25395672dcd80c513a7f",
+      "publisher": "numinouslabs/numinous"
+    },
+    {
+      "ts": 1789728427,
+      "kind": "commit",
+      "source": "github",
+      "title": "Reference the WorldReasoner paper in the reasoning scoring doc",
+      "url": "https://github.com/numinouslabs/numinous/commit/b0b0761ef022fde6ca9144ff675a7dffd89f2a83",
+      "publisher": "numinouslabs/numinous"
+    },
+    {
+      "ts": 1789728378,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document reasoning scoring against hindsight ledgers",
+      "url": "https://github.com/numinouslabs/numinous/commit/2e8dd0fee10aab54c3e5ab02ce1725eb46366808",
+      "publisher": "numinouslabs/numinous"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

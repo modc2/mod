@@ -29,6 +29,7 @@
 #![recursion_limit = "512"]
 
 mod ab;
+mod agentproto;
 mod arena;
 mod blobs;
 mod docs;

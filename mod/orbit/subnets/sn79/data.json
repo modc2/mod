@@ -1,0 +1,165 @@
+{
+  "netuid": 79,
+  "name": "MVTRX",
+  "symbol": "ي",
+  "owner": "5Fxp7QBG81X7PLdMkAe1RLCvqqfQSw9rJC5ppEQs9FP8qez9",
+  "description": "Building a SOTA Exchange for dTAO and Beyond",
+  "github": "https://github.com/taos-im/sn-79",
+  "url": "https://taos.im",
+  "discord": null,
+  "logo": "https://assets.mvtrx.fi/logo.png",
+  "registered_at": 5173967,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.003094886,
+    "moving_price": 0.003096293890848756,
+    "market_cap": 16255.271373207232,
+    "tao_in": 6987.465897961,
+    "alpha_in": 2257745.893078995,
+    "alpha_out": 2994554.635343452,
+    "volume": 489950.749823992,
+    "vol_24h": 386.2006114360411,
+    "emission": 0.0,
+    "change_1h": 0.00407139810518764,
+    "change_24h": 0.08838501846448743,
+    "change_7d": 0.8519780587543879
+  },
+  "spark_24h": [
+    0.003092143,
+    0.003109899,
+    0.003109199,
+    0.00310923,
+    0.003109235,
+    0.003091511,
+    0.003091553,
+    0.003091596,
+    0.003091659,
+    0.003091614,
+    0.003091511,
+    0.003091544,
+    0.003091595,
+    0.003091594,
+    0.003097839,
+    0.003097837,
+    0.003097883,
+    0.003097928,
+    0.003098013,
+    0.003098053,
+    0.003097931,
+    0.003098034,
+    0.003098081,
+    0.003097402,
+    0.003110438,
+    0.003097447,
+    0.003098332,
+    0.003097617,
+    0.003097672,
+    0.003096573,
+    0.003096572,
+    0.003096522,
+    0.003096481,
+    0.003096335,
+    0.003096442,
+    0.003096469,
+    0.00309658,
+    0.003096725,
+    0.003096713,
+    0.003095692,
+    0.003095376,
+    0.00309544,
+    0.00309468,
+    0.003094613,
+    0.003094737,
+    0.003094737,
+    0.00309476,
+    0.003094886
+  ],
+  "trades_24h": {
+    "trades": 128,
+    "buys": 9,
+    "sells": 119,
+    "buy_tao": 190.863441,
+    "sell_tao": 191.002174172,
+    "net_tao": -0.13873317200000201,
+    "traders": 26
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EbzkUvWzMZEu8qomSAtmVYaEUVAxuKskw733t7DeXVGAYMG",
+      "net_tao": -0.9043784250000044,
+      "gross_tao": 200.904378425,
+      "trades": 3
+    },
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": 0.732319669999999,
+      "gross_tao": 59.267680330000005,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HjdRywCocBBd2PNkertftFAfD9SterMCNVg75RJSWmgLCiB",
+      "net_tao": 0.022169003999998438,
+      "gross_tao": 39.977830996,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DhQxi4F9qhCBvemna7sHTwtPUuwqWwFBuqGGFWQmvXSNLGB",
+      "net_tao": 0.18012092000000024,
+      "gross_tao": 29.81987908,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": 0.3523917409999999,
+      "gross_tao": 19.647608259000002,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790684816,
+      "kind": "commit",
+      "source": "github",
+      "title": "20260929 - 0.6.2 pool pay vector and slot reset",
+      "url": "https://github.com/taos-im/sn-79/commit/47932d4c7bca8403f9a2942903d153a39caa7f5f",
+      "publisher": "taos-im/sn-79"
+    },
+    {
+      "ts": 1790603046,
+      "kind": "commit",
+      "source": "github",
+      "title": "20260928 - 0.6.2 skill floor basis",
+      "url": "https://github.com/taos-im/sn-79/commit/77fcb3098e6f6da059f4c9d4368ff5046a4357c4",
+      "publisher": "taos-im/sn-79"
+    },
+    {
+      "ts": 1790341495,
+      "kind": "commit",
+      "source": "github",
+      "title": "20260925 - 0.6.2 making pool",
+      "url": "https://github.com/taos-im/sn-79/commit/c05768ce2740eb3d9c7f09f41be5198208820fcd",
+      "publisher": "taos-im/sn-79"
+    },
+    {
+      "ts": 1790176377,
+      "kind": "commit",
+      "source": "github",
+      "title": "20260923 - 0.6.2",
+      "url": "https://github.com/taos-im/sn-79/commit/2564fa5bb6a1b62cb95f3af546b09080a0577819",
+      "publisher": "taos-im/sn-79"
+    },
+    {
+      "ts": 1790005408,
+      "kind": "commit",
+      "source": "github",
+      "title": "20260921 - 0.6.1 final rung",
+      "url": "https://github.com/taos-im/sn-79/commit/7a3cad796062a3279e16f7ee9d3b7d48b201ac88",
+      "publisher": "taos-im/sn-79"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

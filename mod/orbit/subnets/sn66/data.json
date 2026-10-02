@@ -1,0 +1,181 @@
+{
+  "netuid": 66,
+  "name": "conjectures",
+  "symbol": "ض",
+  "owner": "5CJCRGep3iyMUoaRb1FVNqXSuU8bcijfDBwVvZiQHSmGPTjT",
+  "description": "Incentivizing breakthroughs on decades-old open mathematical conjectures",
+  "github": "https://github.com/conjectures-io/conjectures-validator",
+  "url": "https://conjectures.io",
+  "discord": "wejh",
+  "logo": "https://conjectures.io/favicon.svg",
+  "registered_at": 4958013,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.003415205,
+    "moving_price": 0.003348378464579582,
+    "market_cap": 20181.032356715787,
+    "tao_in": 7183.02012763,
+    "alpha_in": 2103246.632558251,
+    "alpha_out": 3805924.956472506,
+    "volume": 1423512.161584532,
+    "vol_24h": 398.1377641558647,
+    "emission": 0.0,
+    "change_1h": 0.0064129106239319,
+    "change_24h": 2.134284017347743,
+    "change_7d": 7.744894334315333
+  },
+  "spark_24h": [
+    0.003343845,
+    0.003338471,
+    0.003338502,
+    0.003343417,
+    0.00335278,
+    0.00335278,
+    0.003352779,
+    0.003352775,
+    0.003338722,
+    0.003338727,
+    0.003338708,
+    0.003338568,
+    0.003338567,
+    0.003338532,
+    0.003334871,
+    0.003334872,
+    0.003334872,
+    0.003331928,
+    0.003326545,
+    0.003325924,
+    0.003325924,
+    0.003331551,
+    0.003331551,
+    0.00336921,
+    0.003320968,
+    0.003320969,
+    0.00332097,
+    0.003320951,
+    0.00332095,
+    0.003320949,
+    0.003321126,
+    0.003321127,
+    0.003321123,
+    0.003321123,
+    0.003321116,
+    0.003321116,
+    0.003321117,
+    0.003321105,
+    0.003321105,
+    0.00335117,
+    0.003344541,
+    0.003358301,
+    0.003363015,
+    0.003362895,
+    0.0033629,
+    0.003362914,
+    0.003414992,
+    0.003415205
+  ],
+  "trades_24h": {
+    "trades": 56,
+    "buys": 18,
+    "sells": 38,
+    "buy_tao": 235.556774937,
+    "sell_tao": 160.677073757,
+    "net_tao": 74.87970118000001,
+    "traders": 38
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.09183828199999944,
+      "gross_tao": 76.621711592,
+      "trades": 6
+    },
+    {
+      "coldkey": "5FWBn1ZnmgxwrsL9jofXJBQ5ErkMKxr11LFe5ogBXYNeXtho",
+      "net_tao": 50.0,
+      "gross_tao": 50.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": 0.0882726740000006,
+      "gross_tao": 49.911727326,
+      "trades": 4
+    },
+    {
+      "coldkey": "5EyeUKdGtEKmxvqEJwKoHZXThKmgQRuoj7KzfwMhcn1MHTo3",
+      "net_tao": -0.04805462899999924,
+      "gross_tao": 30.048054629,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HeQWuhJWCw6aQNqZ8FqjEPZtiSHDq5wSSRU67mop5zqWikT",
+      "net_tao": 25.0,
+      "gross_tao": 25.0,
+      "trades": 3
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790799736,
+      "kind": "commit",
+      "source": "github",
+      "title": "Remove open Green targets from catalog while retaining solved entries",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/d24e86cab809e69d388417b9114ce8d34a2256fc",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1790600255,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #109 from conjectures-io/chore/remove-legacy-scoring",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/c1df92801a7a389ee9ec251f5edc8c67632aa034",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1790599782,
+      "kind": "commit",
+      "source": "github",
+      "title": "Delete the superseded platform-side competition scorer",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/5bb74bcffeee07157b008175d9103013b10cb35d",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1790597389,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #108 from conjectures-io/docs/frontier-only-policy",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/a17a8ada3a0035f04dc486ac88bb0d6eea8e4d08",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1790596920,
+      "kind": "commit",
+      "source": "github",
+      "title": "Show the frontier-only policy in the competition API examples",
+      "url": "https://github.com/conjectures-io/conjectures-validator/commit/330ac2237c1ba7955fa83ec6237bdc63eb2084bd",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1789562902,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.0.4",
+      "url": "https://github.com/conjectures-io/conjectures-validator/releases/tag/v1.0.4",
+      "publisher": "conjectures-io/conjectures-validator"
+    },
+    {
+      "ts": 1788770904,
+      "kind": "release",
+      "source": "github",
+      "title": "v.1.0.3: Web submissions, payouts, contributions...",
+      "url": "https://github.com/conjectures-io/conjectures-validator/releases/tag/v1.0.3",
+      "publisher": "conjectures-io/conjectures-validator"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

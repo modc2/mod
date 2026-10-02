@@ -178,6 +178,44 @@ The gazetteer is GeoNames `cities5000` and Natural Earth 110m, baked into
 dependency — the same rules as the rest of the module. Re-run
 `python3 geo/build.py` to refresh it.
 
+## Oracle — a GPU price prediction game with a leaderboard
+
+Every 20 minutes the API server reads every market once and turns it into a
+price **index** per card: `gpu:h100`, `gpu:4090`, … = the **median per-GPU
+$/hr of every available offer, across every market**. Median, because the
+cheapest row is usually a $0.02 junk listing; per-GPU, because an 8x node and a
+1x box are the same card. A card needs 5+ priced offers to be indexed (top 16).
+
+Players call where an index will be in **1h, 6h, 24h or 7d**. When the time
+comes the call is scored against the tick nearest its target:
+
+    points = 100 x 0.5 ^ (abs % error / 5%)      exact 100 · 5% off 50 · 10% off 25
+
+The leaderboard ranks the mean, after 3 scored calls. It also shows **beat
+naive** — how often you were closer than "nothing changes", the honest skill
+number. Four baseline bots play every card and horizon by the same rules:
+`bot.naive` (persistence), `bot.mean` (24h mean), `bot.drift` (24h trend line),
+`bot.ewma` (6h half-life). Beat them and you are actually forecasting.
+
+Fair by construction: the current value is locked into the call, calls cannot
+be edited, one open call per (player, card, horizon), and a call whose target
+had no tick nearby is **void**, never scored against a guess. A player is a name
+plus a key minted on first call (stored sha256) — no account, no email.
+
+    m compute/oracle                                   # indexes + leaderboard
+    m compute/predict player=me series=gpu:h100 horizon=24h value=2.5   # key comes back once
+    m compute/board horizon=1h                         # leaderboard alone
+    m compute/tick                                     # owner: read the markets now
+
+REST `/oracle*` and MCP `compute_oracle` / `compute_predict` are open — a call
+spends nothing and is signed by the player's own key. `/oracle/tick` is
+owner-only. The console's **ORACLE** tab has the cards, a 7-day chart with every
+open call plotted where it bets, the form and the board.
+
+`forecast.py` is the game and knows nothing about GPUs — a series is a name and
+timestamped values — so it lifts into any module unchanged. `oracle.py` is the
+compute half. State: `~/.mod/compute/oracle.db` (sqlite, stdlib).
+
 ## Nodes — the rented box, running mod
 
 A market hands you an SSH line and a bill. `compute/deploy` turns that into a
@@ -348,11 +386,13 @@ providers/
   targon.py lium.py akash.py vast.py clore.py nosana.py aleph.py
   cathedral.py prime.py polaris.py hyperbolic.py runpod.py fluence.py
   shadeform.py local.py
+forecast.py     the prediction game: ticks, players, calls, scoring, bots — any series
+oracle.py       GPU price indexes from one fan-out, the ticker, the game's surface
 mods.py         the mod lane: the same markets read through their own modules
 node.py         transports, bootstrap, node registry — the rented box, running mod
 modctl.py       what gets uploaded: JSON in, JSON out, on the far side
 auth.py         open / byok / owner, and the token
-mcp.py          22 tools + JSON-RPC 2.0 (stdio and Streamable HTTP)
+mcp.py          25 tools + JSON-RPC 2.0 (stdio and Streamable HTTP)
 api.py          REST + /mcp + console, stdlib only
 console.html    zero-dependency browser console (market, nodes, terminal),
                 drawn 8-bit: ten cabinet palettes, castle by default, CSS-only, no assets

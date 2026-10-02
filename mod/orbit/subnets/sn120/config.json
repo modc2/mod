@@ -1,0 +1,38 @@
+{
+  "name": "sn120",
+  "version": "1.0.0",
+  "description": "SN120 Affine — Reason Mining. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ⴷ",
+  "chain": "bittensor",
+  "netuid": 120,
+  "subnet": "Affine",
+  "symbol": "ⴷ",
+  "owner": "5EfNFhH2s9hJoVuK8qkQRx8bkpNncRifhbCHBFKs6qKqknak",
+  "github": "https://github.com/AffineFoundation/affine",
+  "url": "www.affine.io",
+  "discord": "consttt",
+  "logo": "https://raw.githubusercontent.com/AffineFoundation/affine/main/affine.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=120",
+    "news": "/bt/news?netuid=120"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

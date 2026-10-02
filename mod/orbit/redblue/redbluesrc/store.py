@@ -8,6 +8,10 @@ can keep and argue with.
     ~/.mod/redblue/attacks/<id>.json      red team: one prompt, one goal
     ~/.mod/redblue/defenses/<id>.json     blue team: one pipeline
     ~/.mod/redblue/rounds/<id>.json       one tournament, written as it goes
+    ~/.mod/redblue/sweeps/<id>.json       one round fired at a whole catalog
+    ~/.mod/redblue/results.json           latest score per model (catalog.py)
+    ~/.mod/redblue/catalog/<p>.json       cached provider model lists
+    ~/.mod/redblue/<provider>.key         BYOK keys, 0600 (models.set_key)
     ~/.mod/redblue/server.secret          optional bearer for the write routes
 
 None of this is committed. A defense's system prompt is the blue team's
@@ -26,10 +30,12 @@ DIR = os.environ.get('RB_DIR', os.path.expanduser('~/.mod/redblue'))
 ATTACKS = os.path.join(DIR, 'attacks')
 DEFENSES = os.path.join(DIR, 'defenses')
 ROUNDS = os.path.join(DIR, 'rounds')
+SWEEPS = os.path.join(DIR, 'sweeps')
 KEEP = int(os.environ.get('RB_KEEP_ROUNDS', 300))
 ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$')
 
-KINDS = {'attack': ATTACKS, 'defense': DEFENSES, 'round': ROUNDS}
+KINDS = {'attack': ATTACKS, 'defense': DEFENSES, 'round': ROUNDS,
+         'sweep': SWEEPS}
 
 
 class StoreError(Exception):

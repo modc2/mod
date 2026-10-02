@@ -1,0 +1,38 @@
+{
+  "name": "sn80",
+  "version": "1.0.0",
+  "description": "SN80 OpenRoboto — An open competition on Bittensor for continuously improving robotics models and collecting egocentric data. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ى",
+  "chain": "bittensor",
+  "netuid": 80,
+  "subnet": "OpenRoboto",
+  "symbol": "ى",
+  "owner": "5CG1eFiaZkWTCUEjD23i7Uiu6AjTkLkgkCu3EyXKFFAkkT2T",
+  "github": "https://github.com/openroboto-ai/openroboto-subnet",
+  "url": "https://www.openroboto.ai/",
+  "discord": "https://discord.gg/N4F7UhEBY",
+  "logo": "https://www.openroboto.ai/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=80",
+    "news": "/bt/news?netuid=80"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

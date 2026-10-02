@@ -1,0 +1,38 @@
+{
+  "name": "sn106",
+  "version": "1.0.0",
+  "description": "SN106 Nodexo — tokenized ai compute. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Դ",
+  "chain": "bittensor",
+  "netuid": 106,
+  "subnet": "Nodexo",
+  "symbol": "Դ",
+  "owner": "5CTdHCps1vJ9LrZ3SPM8ZweXWtgg6vgEqEb5W8xzuZHQHXpA",
+  "github": "https://github.com/nodexo-ai/nodexo",
+  "url": "https://nodexo.ai",
+  "discord": "https://discord.gg/fwjBwxUcdX",
+  "logo": "https://nodexo.ai/icons/nodexo-icon-512.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=106",
+    "news": "/bt/news?netuid=106"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

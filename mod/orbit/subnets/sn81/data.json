@@ -1,0 +1,189 @@
+{
+  "netuid": 81,
+  "name": "Reliquary",
+  "symbol": "ᚠ",
+  "owner": "5GnpQR4Nt3f5AQqBXuhf7GkkaEHhAVQrVk4EsK4daZDmkAQT",
+  "description": "The RL layer of Bittensor",
+  "github": "https://github.com/reliquadotai/reliquary",
+  "url": "https://www.reliqua.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1493247592551678012",
+  "logo": "https://www.reliqua.ai/reliquary-logo.png",
+  "registered_at": 5203057,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.006077202,
+    "moving_price": 0.00602180021815002,
+    "market_cap": 33796.61067031556,
+    "tao_in": 17885.510749206,
+    "alpha_in": 2943050.237308948,
+    "alpha_out": 2618162.088744317,
+    "volume": 947142.624694774,
+    "vol_24h": 4166.295449243044,
+    "emission": 0.0,
+    "change_1h": -0.6200208434278487,
+    "change_24h": 1.4489168179919742,
+    "change_7d": 1.4185102571642183
+  },
+  "spark_24h": [
+    0.005963325,
+    0.006117425,
+    0.006040609,
+    0.006011891,
+    0.006016367,
+    0.005975455,
+    0.006022693,
+    0.00602269,
+    0.005999915,
+    0.005999123,
+    0.005965451,
+    0.005955428,
+    0.005955386,
+    0.005955385,
+    0.005955345,
+    0.005955343,
+    0.005995668,
+    0.00599232,
+    0.005959022,
+    0.00596574,
+    0.00596574,
+    0.005985945,
+    0.005985843,
+    0.005984225,
+    0.006024535,
+    0.006024535,
+    0.006027241,
+    0.006037322,
+    0.006037321,
+    0.006017349,
+    0.006017283,
+    0.006017279,
+    0.006017252,
+    0.006017251,
+    0.006017239,
+    0.006024398,
+    0.005990601,
+    0.005981215,
+    0.005981633,
+    0.005981632,
+    0.005981621,
+    0.005981195,
+    0.006018276,
+    0.006142686,
+    0.006079312,
+    0.006023677,
+    0.006115117,
+    0.006077202
+  ],
+  "trades_24h": {
+    "trades": 215,
+    "buys": 96,
+    "sells": 119,
+    "buy_tao": 2147.728086868,
+    "sell_tao": 2006.559674384,
+    "net_tao": 141.1684124840001,
+    "traders": 80
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HBT4UHjgUuu5sHaXuW8kAFyhKUP43szcNQ7bSHBwiC1xeoZ",
+      "net_tao": -63.803492799999994,
+      "gross_tao": 383.8034928,
+      "trades": 8
+    },
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": -49.758824853,
+      "gross_tao": 319.758824853,
+      "trades": 10
+    },
+    {
+      "coldkey": "5HRQyueYEFpmwbUGdo8RhYQaCaZjB5ecCfQNyeDs6ercuVFL",
+      "net_tao": 291.0,
+      "gross_tao": 291.0,
+      "trades": 7
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.4823751290000011,
+      "gross_tao": 270.482375129,
+      "trades": 9
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": -102.317292183,
+      "gross_tao": 202.317292183,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790920569,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #297 from reliquadotai/perf/corpus-tasks-instant",
+      "url": "https://github.com/reliquadotai/reliquary/commit/dfa575d388e49427e737855c310d467bb08b3158",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790920161,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf(corpus): /corpus/tasks never waits on the registry",
+      "url": "https://github.com/reliquadotai/reliquary/commit/1266c0101a8ea986a07546a4d31a19625cb02f3e",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790893353,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #296 from reliquadotai/perf/corpus-settle-without-…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/2b3a5ea6ab2050bd9ba14db6fe6931a8dab2f413",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790892901,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(corpus): loosen the loop-gap bound so a busy box does not flake it",
+      "url": "https://github.com/reliquadotai/reliquary/commit/1e4e345a61943a5afe63adcd1dc8583e6be56844",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790892679,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf(corpus): settle from the auditor's feed, list off the serving loop",
+      "url": "https://github.com/reliquadotai/reliquary/commit/622d1b844e463156a77ab5fc0397f3e63e589791",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790889361,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #295 from reliquadotai/perf/corpus-ledger-group-co…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/06de000af66c7218d09df7d166a0a04db6e16b82",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790888893,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(corpus): a taken submission keeps its record write past a hang-up",
+      "url": "https://github.com/reliquadotai/reliquary/commit/35d83976951698c61cac413467a16e729f058338",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790888468,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf(corpus): group-commit the ledger turn, one CAS write per batch",
+      "url": "https://github.com/reliquadotai/reliquary/commit/c46a8a67904003b5fc0205bf8d6e29df63f5a2e7",
+      "publisher": "reliquadotai/reliquary"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

@@ -1,0 +1,189 @@
+{
+  "netuid": 14,
+  "name": "Cacheon",
+  "symbol": "ㄷ",
+  "owner": "5CKhH8nKAhXLmqxwaXzFtVFgxqwwnyckXG8qLpmGtzVJH9Ri",
+  "description": "A competition where miners submit optimized kernels to compete on end-to-end inference speed against target models.",
+  "github": "https://github.com/latent-to/cacheon",
+  "url": "https://cacheon.ai",
+  "discord": "https://discord.gg/SFt8s4gJD",
+  "logo": "https://cacheon.ai/icon-192.png",
+  "registered_at": 4848444,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.008811593,
+    "moving_price": 0.008830505888909101,
+    "market_cap": 53207.551065376654,
+    "tao_in": 24659.501811527,
+    "alpha_in": 2798529.233687888,
+    "alpha_out": 3239828.537191527,
+    "volume": 2664152.938529214,
+    "vol_24h": 104.22743964381516,
+    "emission": 0.0,
+    "change_1h": 0.0030642390478785586,
+    "change_24h": -0.5715706186027125,
+    "change_7d": -0.9015429573191347
+  },
+  "spark_24h": [
+    0.00886223,
+    0.00886233,
+    0.008862548,
+    0.008862239,
+    0.008862412,
+    0.008862271,
+    0.008862504,
+    0.00886188,
+    0.008862118,
+    0.008822167,
+    0.008822028,
+    0.008822131,
+    0.008822189,
+    0.008822073,
+    0.008822286,
+    0.008822593,
+    0.008822518,
+    0.008822749,
+    0.008822686,
+    0.008823038,
+    0.008823041,
+    0.008823277,
+    0.008822728,
+    0.008822959,
+    0.008823163,
+    0.008823164,
+    0.008822087,
+    0.008822109,
+    0.008822374,
+    0.008822595,
+    0.008822681,
+    0.008822828,
+    0.008822894,
+    0.008823159,
+    0.008823179,
+    0.008823188,
+    0.008823271,
+    0.00882349,
+    0.008823839,
+    0.008823876,
+    0.00882413,
+    0.008823789,
+    0.008824053,
+    0.008816317,
+    0.008816356,
+    0.008816626,
+    0.008811368,
+    0.008811593
+  ],
+  "trades_24h": {
+    "trades": 65,
+    "buys": 1,
+    "sells": 64,
+    "buy_tao": 0.03030564,
+    "sell_tao": 78.490703043,
+    "net_tao": -78.460397403,
+    "traders": 20
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GNAZz4s7C8vGEsfe2usEbKahRZ27A2QBKC7yQW6WiSRMwMm",
+      "net_tao": -14.760257449,
+      "gross_tao": 14.760257449,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HQftMAnSdo4F6hXpRRVRkm765ZumvKWGr4GiRLcTXit4bDN",
+      "net_tao": -14.299049069,
+      "gross_tao": 14.299049069,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HK45QZLwjAjYwBCpwfTapNE4fRKMVxwdZwR4roZ98GgRPTk",
+      "net_tao": -14.100511544,
+      "gross_tao": 14.100511544,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CUinZxGv38Pa6VeHMx8o3YAYxchZZTAeKJgvUF2EeHzyqyK",
+      "net_tao": -12.813994733,
+      "gross_tao": 12.813994733,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DqPPP1RKZpnHVA4JDPf1xd5NVr8xuFQY9Wu37Srr5Ms8iEt",
+      "net_tao": -6.676149496,
+      "gross_tao": 6.676149496,
+      "trades": 40
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790906743,
+      "kind": "commit",
+      "source": "github",
+      "title": "Show consumed evaluation credits in dashboard fee labels (#136)",
+      "url": "https://github.com/latent-to/cacheon/commit/76bb51f36584e0966de5a8226a5ddbd3e670bf46",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790906687,
+      "kind": "commit",
+      "source": "github",
+      "title": "Separate worker observations from CPU relay heartbeats (#137)",
+      "url": "https://github.com/latent-to/cacheon/commit/ad53f729e27138d1e26ee8befa561bf6aaa7f512",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790886961,
+      "kind": "release",
+      "source": "github",
+      "title": "GLM crowned baseline source — 2026-10-01",
+      "url": "https://github.com/latent-to/cacheon/releases/tag/glm-baseline-20261001",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790869427,
+      "kind": "commit",
+      "source": "github",
+      "title": "Replay eval, prefix-cache target, and retirement of the batch-cell er…",
+      "url": "https://github.com/latent-to/cacheon/commit/0fb3faf8c88da6e21621ab8c65e8ebd6b001a5b2",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790434522,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #128 from latent-to/codex/admission-baseline-cutoff",
+      "url": "https://github.com/latent-to/cacheon/commit/bd10ec730cbc7f7ab3b188c5d37a6d0ac0a18bda",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790434353,
+      "kind": "commit",
+      "source": "github",
+      "title": "Enforce baseline cutoff at admission and explain lost potential winners",
+      "url": "https://github.com/latent-to/cacheon/commit/f7a29a3d189e0edafabb9e98ae423b1bc54d37bc",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790433481,
+      "kind": "commit",
+      "source": "github",
+      "title": "Show potential winners and link scoring baselines (#127)",
+      "url": "https://github.com/latent-to/cacheon/commit/df26a04663fbe3da0b9134ca14d332c2bb3ae8b0",
+      "publisher": "latent-to/cacheon"
+    },
+    {
+      "ts": 1790431994,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #126 from latent-to/codex/score-against-previous-best",
+      "url": "https://github.com/latent-to/cacheon/commit/c764f2028bd17a15c86c0245748efec5458d96c8",
+      "publisher": "latent-to/cacheon"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

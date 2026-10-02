@@ -726,6 +726,8 @@ pre.out {
 }
 .chat-status, .chat-foot { font-family: var(--mono); font-size: 11px; color: var(--ink3); line-height: 1.7; }
 .chat-err { color: var(--bad); font-size: 13.5px; }
+.chat-signin { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.chat-signin a { text-decoration: none; }
 .chat-form {
   display: flex; gap: 8px; align-items: flex-end; margin-top: 16px; padding: 6px;
   border: 1px solid var(--line2); border-radius: 12px; background: var(--card); box-shadow: var(--shadow);

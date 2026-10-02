@@ -1,0 +1,157 @@
+{
+  "netuid": 33,
+  "name": "ReadyAI",
+  "symbol": "ט",
+  "owner": "5HinUfk5SqBUAbkMtgdNoum3VJvwrLgdvwW5sbXA1UPYZ8uB",
+  "description": null,
+  "github": "https://github.com/afterpartyai/bittensor-conversation-genome-project",
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "registered_at": 2943950,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.003900371,
+    "moving_price": 0.003914340632036328,
+    "market_cap": 21355.534588410203,
+    "tao_in": 13378.413715732,
+    "alpha_in": 3430036.069120508,
+    "alpha_out": 2045221.179077215,
+    "volume": 914059.989361305,
+    "vol_24h": 91.29787256103009,
+    "emission": 0.0,
+    "change_1h": -0.000846066202375706,
+    "change_24h": -1.2030299921603205,
+    "change_7d": -11.30864158228524
+  },
+  "spark_24h": [
+    0.003947882,
+    0.003947893,
+    0.003947135,
+    0.003947149,
+    0.003947184,
+    0.003946241,
+    0.003946271,
+    0.003946297,
+    0.003946356,
+    0.00394664,
+    0.003946657,
+    0.003946105,
+    0.003946134,
+    0.003916473,
+    0.003916502,
+    0.00391653,
+    0.003916597,
+    0.003916624,
+    0.003915647,
+    0.0039157,
+    0.003915729,
+    0.003915757,
+    0.003910072,
+    0.00391013,
+    0.003909297,
+    0.003908244,
+    0.003908273,
+    0.003908314,
+    0.003908343,
+    0.003902674,
+    0.003901682,
+    0.003901711,
+    0.003901736,
+    0.003901793,
+    0.003901815,
+    0.003901323,
+    0.00390112,
+    0.003901167,
+    0.003901181,
+    0.003901209,
+    0.003901233,
+    0.003900302,
+    0.003900365,
+    0.003900303,
+    0.003900332,
+    0.00390039,
+    0.003900404,
+    0.003900371
+  ],
+  "trades_24h": {
+    "trades": 161,
+    "buys": 4,
+    "sells": 157,
+    "buy_tao": 2.0436347,
+    "sell_tao": 85.652377523,
+    "net_tao": -83.608742823,
+    "traders": 25
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5F6wr9DgVcAzsLZLLDF7NTrHBK61kdrV9JHFPGFumu5Ao7Xx",
+      "net_tao": -50.685554602,
+      "gross_tao": 50.685554602,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EyXVdRDspacS8UGnFKHHj6qB5WnY1k87PLHHJe8ky16qwt3",
+      "net_tao": -19.536292175,
+      "gross_tao": 19.536292175,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CqaPgF9r417UHACz3kUq2iQEnC8tK7kT7LcxbEna9RTQBrQ",
+      "net_tao": -1.852644896,
+      "gross_tao": 1.852644896,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FqVJ7yHt5op9o5sWdLFPe681JBeaTVWuWGYja57Z5Us75XT",
+      "net_tao": 1.46771,
+      "gross_tao": 1.46771,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GVs7eqqV2KEaYaZCpTvgoKjNa6ZZBs8UhUcj6UAtSRzQw1i",
+      "net_tao": -1.454161391,
+      "gross_tao": 1.454161391,
+      "trades": 18
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790255965,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #138 from afterpartyai/bump-docker-image-version",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/92b3e701058379a2cf772befdcff86868ae55afb",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    },
+    {
+      "ts": 1790132299,
+      "kind": "commit",
+      "source": "github",
+      "title": "Dockerfile",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/d3775435d953576f87885dfe447490bfdff4617e",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    },
+    {
+      "ts": 1790008564,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #137 from afterpartyai/adjust-put-task-ordering",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/412ce25185dc3fb7acf05d52050b214d9a7e0c5a",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    },
+    {
+      "ts": 1790004351,
+      "kind": "commit",
+      "source": "github",
+      "title": "Buffer tasks and send them at the end of the validation loop",
+      "url": "https://github.com/afterpartyai/bittensor-conversation-genome-project/commit/5b0707c5854da666dc41019b8ec3e3f301832451",
+      "publisher": "afterpartyai/bittensor-conversation-genome-project"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

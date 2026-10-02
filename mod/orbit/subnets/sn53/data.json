@@ -1,0 +1,165 @@
+{
+  "netuid": 53,
+  "name": "engy",
+  "symbol": "ب",
+  "owner": "5H8SFVCxk52ag1YSC5bQw7B84NRNhAtYWAP81jEPfuJ3VL8Q",
+  "description": "Verified inference for frontier open models.",
+  "github": "https://github.com/hanlinai/engy",
+  "url": "https://engy.ai",
+  "discord": null,
+  "logo": "https://engy.ai/icon.svg",
+  "registered_at": 4203869,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.033704363,
+    "moving_price": 0.03540477203205228,
+    "market_cap": 206515.52652249607,
+    "tao_in": 37730.566933167,
+    "alpha_in": 1119456.528814568,
+    "alpha_out": 5007807.36644125,
+    "volume": 1746682.015818623,
+    "vol_24h": 9704.685021359008,
+    "emission": 0.0,
+    "change_1h": 0.7397525141701111,
+    "change_24h": -6.144100670005392,
+    "change_7d": -7.27030760867764
+  },
+  "spark_24h": [
+    0.035909915,
+    0.035827254,
+    0.035760353,
+    0.035481833,
+    0.035619396,
+    0.0358263,
+    0.035908731,
+    0.035820296,
+    0.035837414,
+    0.036128132,
+    0.036135329,
+    0.036505448,
+    0.036295247,
+    0.036531733,
+    0.03654682,
+    0.036725158,
+    0.036387498,
+    0.036387656,
+    0.036407702,
+    0.036409997,
+    0.036432557,
+    0.036444381,
+    0.036421612,
+    0.036507169,
+    0.036370047,
+    0.036296976,
+    0.036297635,
+    0.036204723,
+    0.036236338,
+    0.036267041,
+    0.036272764,
+    0.036372737,
+    0.036265756,
+    0.035912632,
+    0.035916614,
+    0.035915725,
+    0.035932855,
+    0.035886039,
+    0.035637494,
+    0.035627635,
+    0.035562464,
+    0.035161489,
+    0.034325437,
+    0.034190948,
+    0.033889777,
+    0.033763215,
+    0.033457778,
+    0.033704363
+  ],
+  "trades_24h": {
+    "trades": 824,
+    "buys": 445,
+    "sells": 379,
+    "buy_tao": 4093.4533824,
+    "sell_tao": 5446.871702142,
+    "net_tao": -1353.4183197419998,
+    "traders": 452
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -1.26708583300001,
+      "gross_tao": 643.312092911,
+      "trades": 6
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -49.080130065,
+      "gross_tao": 449.080130065,
+      "trades": 9
+    },
+    {
+      "coldkey": "5CSbzMEDmvLnLGkQnGikH64D9m418tvAGse74JykmBiHVd9o",
+      "net_tao": 6.420279936,
+      "gross_tao": 418.936066284,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": 1.9997894720000033,
+      "gross_tao": 398.000210528,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": -50.644180469999995,
+      "gross_tao": 390.64418047,
+      "trades": 8
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790675105,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #51 from hanlinai/docs/miner-provider-docs-pointer",
+      "url": "https://github.com/hanlinai/engy/commit/647c767e5994c1b041a014c51e76b0cfbc3cc936",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1790675096,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: point MINER.md at the provider onboarding guide",
+      "url": "https://github.com/hanlinai/engy/commit/5087bf45262373f3f21ddc7aa7181ba0a6e37d4d",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1790672680,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #50 from hanlinai/docs/miner-lb-endpoint",
+      "url": "https://github.com/hanlinai/engy/commit/d96784d7aa8c336f624b5938aad5ac64b0bcd0db",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1790672632,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: recommend wss://lb.engy.ai/gw as the miner endpoint",
+      "url": "https://github.com/hanlinai/engy/commit/ba18a8aa3b4f0eaa3d0dc374f5f12b4f4a1833ef",
+      "publisher": "hanlinai/engy"
+    },
+    {
+      "ts": 1789272779,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #45 from hanlinai/fix/tee-miner-kv-pool-retry",
+      "url": "https://github.com/hanlinai/engy/commit/9dc14b4ac2aeb66a35c430e5bca650ceae08a6ff",
+      "publisher": "hanlinai/engy"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

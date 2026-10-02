@@ -1,0 +1,181 @@
+{
+  "netuid": 34,
+  "name": "BitMind",
+  "symbol": "י",
+  "owner": "5DthmKBR83sUdudSfgFnsxBkTYtYTFLJUgovNfb1TSKVLiTH",
+  "description": "Deepfake Detection",
+  "github": "https://github.com/BitMind-AI/bitmind-subnet",
+  "url": "https://www.bitmind.ai",
+  "discord": null,
+  "logo": "https://pbs.twimg.com/profile_images/1920233157942521856/M8Z87zIL_400x400.jpg",
+  "registered_at": 3493948,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.011865202,
+    "moving_price": 0.011862091021612287,
+    "market_cap": 68632.07857433018,
+    "tao_in": 34987.224039886,
+    "alpha_in": 2948725.414017163,
+    "alpha_out": 2835590.653617436,
+    "volume": 639032.203162726,
+    "vol_24h": 125.52206094702706,
+    "emission": 0.0,
+    "change_1h": 0.018005463343118144,
+    "change_24h": 0.1679060739045113,
+    "change_7d": 2.031962247182806
+  },
+  "spark_24h": [
+    0.011845361,
+    0.011845694,
+    0.011846122,
+    0.011846523,
+    0.011846173,
+    0.011846553,
+    0.011842328,
+    0.011842778,
+    0.011843227,
+    0.011843923,
+    0.011844275,
+    0.011845035,
+    0.011846286,
+    0.011846779,
+    0.011847196,
+    0.011848251,
+    0.011848712,
+    0.011849367,
+    0.011849804,
+    0.011850245,
+    0.011850994,
+    0.011851456,
+    0.011854107,
+    0.011874844,
+    0.011875276,
+    0.011875723,
+    0.01187311,
+    0.011874524,
+    0.011875072,
+    0.011875489,
+    0.011875792,
+    0.011876291,
+    0.011876782,
+    0.011877279,
+    0.011877671,
+    0.011878582,
+    0.011879066,
+    0.011879405,
+    0.011879869,
+    0.011868213,
+    0.011868696,
+    0.011868453,
+    0.011869639,
+    0.011869795,
+    0.011870214,
+    0.011862649,
+    0.011863253,
+    0.011865202
+  ],
+  "trades_24h": {
+    "trades": 99,
+    "buys": 15,
+    "sells": 84,
+    "buy_tao": 41.508685613,
+    "sell_tao": 36.863241016,
+    "net_tao": 4.645444596999994,
+    "traders": 34
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EtTJc8Z26EaysT9EEeJL54wkDvWW2jveHzuWnxm3yRY6Bxu",
+      "net_tao": 30.0,
+      "gross_tao": 30.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Fq2UPygfVyFZ4rDUE9vKNYKRUU4DYHpJKhSvaj944sbFto8",
+      "net_tao": -8.962472565,
+      "gross_tao": 8.962472565,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CfcM2cMK31WjCYGdrymPNWwtFiUpLkZ9BZ8ay3RDXpzt2sk",
+      "net_tao": -7.860391861,
+      "gross_tao": 7.860391861,
+      "trades": 38
+    },
+    {
+      "coldkey": "5DA7rBheAH6JymVZtFkApCR57TZFHwpdorhaR8rGhDXUjhcY",
+      "net_tao": -5.241883181,
+      "gross_tao": 5.241883181,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DenCvTFpxPuG2mHoecENKfw3z6UpQrMR8aKxgaict3LomY3",
+      "net_tao": -3.573499178,
+      "gross_tao": 3.573499178,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790630299,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #468 from BitMind-AI/testnet",
+      "url": "https://github.com/BitMind-AI/bitmind-subnet/commit/5fd96727b8f41d8376348f6dd8a11cd5069bce45",
+      "publisher": "BitMind-AI/bitmind-subnet"
+    },
+    {
+      "ts": 1790628809,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bump version to 5.0.10",
+      "url": "https://github.com/BitMind-AI/bitmind-subnet/commit/2b095971a1be12d8b9bcc443bd1f01d889e3b0fa",
+      "publisher": "BitMind-AI/bitmind-subnet"
+    },
+    {
+      "ts": 1790628703,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #467 from BitMind-AI/feat/generator-performance-ch…",
+      "url": "https://github.com/BitMind-AI/bitmind-subnet/commit/3792985282280f2fc2e69ac2668bd97326e5ad9b",
+      "publisher": "BitMind-AI/bitmind-subnet"
+    },
+    {
+      "ts": 1790628128,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep commit and reveal markers visible on separate event tracks",
+      "url": "https://github.com/BitMind-AI/bitmind-subnet/commit/50145fafb46390866efe392d36db1cc8467a6900",
+      "publisher": "BitMind-AI/bitmind-subnet"
+    },
+    {
+      "ts": 1790619669,
+      "kind": "commit",
+      "source": "github",
+      "title": "Show recent chain-verified reveals alongside validator submissions",
+      "url": "https://github.com/BitMind-AI/bitmind-subnet/commit/2974b113387e371c340b1ff3034d77218b1c1dc4",
+      "publisher": "BitMind-AI/bitmind-subnet"
+    },
+    {
+      "ts": 1789516811,
+      "kind": "release",
+      "source": "github",
+      "title": "5.0.5 — Generator Qualification & Paid Resubmissions",
+      "url": "https://github.com/BitMind-AI/bitmind-subnet/releases/tag/v5.0.5",
+      "publisher": "BitMind-AI/bitmind-subnet"
+    },
+    {
+      "ts": 1788736770,
+      "kind": "release",
+      "source": "github",
+      "title": "5.0.0 — King of the Hill",
+      "url": "https://github.com/BitMind-AI/bitmind-subnet/releases/tag/v5.0.0",
+      "publisher": "BitMind-AI/bitmind-subnet"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

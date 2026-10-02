@@ -305,6 +305,38 @@ export interface MomentumParams {
   };
 }
 
+/** Which score function picked a SCORE STRAT's roster, and when. */
+export interface ScoreStratMeta {
+  fnId: string;
+  fnName: string;
+  builtin: boolean;
+  topN: number;
+  /** Hash of the listing source the roster was ranked with. */
+  sourceHash: string;
+  rankedAt: number;
+  /** Board window (days) the ranking read. */
+  boardDays: number;
+  /** address (lowercase) → its score at rank time. */
+  scores: Record<string, number>;
+  /** Last OUT-OF-SAMPLE grade of the rule: picked on the board `testDays`
+      ago, replayed over the days since. */
+  oos?: {
+    scanId: number;
+    testDays: number;
+    picks: number;
+    pnl: number;
+    roi: number;
+    trades: number;
+    capital: number;
+    curve: number[];
+    note?: string;
+    /** $ of the exit value valued at a last print rather than a known
+        resolution — the part of `pnl` that is still a hypothesis. */
+    markedUsd?: number;
+    at: number;
+  };
+}
+
 export interface SavedIndex {
   id: string;
   name: string;
@@ -406,6 +438,10 @@ export interface SavedIndex {
   // The watchlist is that single trader at weight 1; the field marks the
   // strat's class so the UI can badge it and keep the roster single-trader.
   identity?: string;
+  // SCORE STRAT: this strat's roster is the top N of a score function's
+  // ranking (lib/scoreStrats.ts). The stamp is how a re-rank finds it again
+  // and how the card shows which rule picked who.
+  scoreFn?: ScoreStratMeta;
   // Sharing class. Absent/"private" = only this account sees it (the
   // default for every strat); "public" = also published, PLAINTEXT, to the
   // server's community gallery where anyone can view and fork it. Forks and

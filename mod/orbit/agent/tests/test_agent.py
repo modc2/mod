@@ -33,8 +33,8 @@ from src.memory.memory import Memory
 from src.memory.registry import Memories
 from src.toolbox.mod import Toolboxes
 
-BUILTIN_COUNT = 26  # 23 that act on the world + recall/remember/toolbox, which
-                    # act on the agent's own sub-components
+BUILTIN_COUNT = 27  # 23 that act on the world + recall/remember/toolbox, which
+                    # act on the agent's own sub-components, + make_agent
 # shipped agents. Custom agents live in the same directory, so counts are
 # lower bounds — a host with their own agents installed still passes.
 AGENT_COUNT = 9
@@ -2559,7 +2559,12 @@ class TestAgentSnap:
     @pytest.fixture
     def agent(self):
         from src.mod import Agent
-        return Agent()
+        from src.tools.mod import Tools
+        a = Agent()
+        # the host's real tools.json grows (src/grow adds one a minute), so
+        # counting the default loadout must not read it
+        a.tools = Tools(path=TOOLS_PATH)
+        return a
 
     def test_default_unfiltered(self, agent):
         assert agent.active_tools() is None

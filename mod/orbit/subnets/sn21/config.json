@@ -1,0 +1,38 @@
+{
+  "name": "sn21",
+  "version": "1.0.0",
+  "description": "SN21 AdTAO — Counterfactual impact prediction for advertising interventions. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "φ",
+  "chain": "bittensor",
+  "netuid": 21,
+  "subnet": "AdTAO",
+  "symbol": "φ",
+  "owner": "5HjCYVfrWSkzTfJM5rkWBW3qTTJqXEFUzZrKty5hodpgfjyW",
+  "github": "https://github.com/ippcteam/SN21-adtao",
+  "url": "https://adtao.io",
+  "discord": null,
+  "logo": "https://www.ppcrebel.com/i/adtao.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=21",
+    "news": "/bt/news?netuid=21"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

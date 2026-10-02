@@ -1,0 +1,165 @@
+{
+  "netuid": 3,
+  "name": "Teutonic",
+  "symbol": "γ",
+  "owner": "5GsGUrd21bnkNxQsH2grv474y4gcDwCmp5xJ72KeokspZ2bg",
+  "description": "Coordinated Learning",
+  "github": "https://github.com/unarbos/teutonic",
+  "url": "https://www.teutonic.ai/",
+  "discord": "@unarbos",
+  "logo": "https://teutonic.ai/favicon.png",
+  "registered_at": 4165565,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.025499086,
+    "moving_price": 0.02625511330552399,
+    "market_cap": 157672.61254737442,
+    "tao_in": 75697.456649061,
+    "alpha_in": 2968634.074281916,
+    "alpha_out": 3214827.268111863,
+    "volume": 3562349.711022975,
+    "vol_24h": 10381.889357333072,
+    "emission": 0.0,
+    "change_1h": -0.35400216509205995,
+    "change_24h": -7.505195855155633,
+    "change_7d": -14.421454873990303
+  },
+  "spark_24h": [
+    0.027568179,
+    0.02757059,
+    0.027572439,
+    0.027561546,
+    0.027556727,
+    0.027558057,
+    0.027401662,
+    0.027299945,
+    0.027301534,
+    0.027316694,
+    0.027317924,
+    0.027319268,
+    0.027319655,
+    0.027320984,
+    0.027322449,
+    0.027323751,
+    0.027324833,
+    0.027326347,
+    0.027327889,
+    0.027356617,
+    0.027357947,
+    0.027354128,
+    0.027355726,
+    0.027357247,
+    0.025775478,
+    0.025315078,
+    0.025356096,
+    0.025626427,
+    0.025477234,
+    0.025504676,
+    0.025468458,
+    0.025474064,
+    0.025476941,
+    0.025478794,
+    0.025810682,
+    0.025722979,
+    0.025725091,
+    0.025710759,
+    0.025727177,
+    0.025708736,
+    0.025710393,
+    0.025691122,
+    0.025627426,
+    0.025408332,
+    0.025414599,
+    0.025593336,
+    0.025589933,
+    0.025499086
+  ],
+  "trades_24h": {
+    "trades": 291,
+    "buys": 162,
+    "sells": 129,
+    "buy_tao": 3554.001654473,
+    "sell_tao": 6685.506052357,
+    "net_tao": -3131.504397884,
+    "traders": 134
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FzgVzhugpPZPKwW9iDXawhXKL5nFkjnMVPbPK9eZjV1VsLz",
+      "net_tao": -2481.251719869,
+      "gross_tao": 2481.251719869,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EEaGzqfwxCchopgEDfL1ecLATHZ4M32Fx6H47wMrqYmGsCr",
+      "net_tao": -630.757648962,
+      "gross_tao": 630.757648962,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CTjYbJhBYbPRSDfe1Cz4RzptRFcyspFMyunfpY5BECvXdZE",
+      "net_tao": -622.753089449,
+      "gross_tao": 622.753089449,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CcaG2hHHrkmeEWuoXUKkVwSa871Y2dKy2AnCqMNGBXLgkwx",
+      "net_tao": -392.71137851,
+      "gross_tao": 392.71137851,
+      "trades": 16
+    },
+    {
+      "coldkey": "5CBDPcWDqHso5UctQ9SPrZEws93NHVgVGx7E1aNBgqMHxV5T",
+      "net_tao": 0.17539428700000315,
+      "gross_tao": 359.824605713,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790249525,
+      "kind": "commit",
+      "source": "github",
+      "title": "Code benchmarks naming change",
+      "url": "https://github.com/unarbos/teutonic/commit/5479810a8c8b8635ede24e5be93515ffa9db4c6f",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1790249281,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add code benchmarks to dashboard",
+      "url": "https://github.com/unarbos/teutonic/commit/3c8631ed7ea5a4549e746c9f73749e45c325d47e",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1790083628,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update benchmark specifications and improve key handling in dashboard",
+      "url": "https://github.com/unarbos/teutonic/commit/124c66bc5db5ae6531cf3cf1b5e706fb0e6ca505",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1789999195,
+      "kind": "commit",
+      "source": "github",
+      "title": "Adjust delta and sample count",
+      "url": "https://github.com/unarbos/teutonic/commit/544b99bea10254f44072399263adc3469e064354",
+      "publisher": "unarbos/teutonic"
+    },
+    {
+      "ts": 1789993888,
+      "kind": "commit",
+      "source": "github",
+      "title": "Set loss chart scale from the initial value",
+      "url": "https://github.com/unarbos/teutonic/commit/a90d314da0302fe5f70121aaba1f5f1e110b4866",
+      "publisher": "unarbos/teutonic"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}

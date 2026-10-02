@@ -1,0 +1,38 @@
+{
+  "name": "sn39",
+  "version": "1.0.0",
+  "description": "SN39 deprecated — deprecated. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "מ",
+  "chain": "bittensor",
+  "netuid": 39,
+  "subnet": "deprecated",
+  "symbol": "מ",
+  "owner": "5DkwfxC9mZTTCsRUt6nrnwQEWVrhsmY13SBRparj6cpAVxVY",
+  "github": "https://github.com/deprecated/deprecated",
+  "url": null,
+  "discord": "deprecated",
+  "logo": "https://deprecated.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-02",
+  "urls": {
+    "bt": "/bt/markets?sn=39",
+    "news": "/bt/news?netuid=39"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

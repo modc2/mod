@@ -1,0 +1,165 @@
+{
+  "netuid": 114,
+  "name": "SOMA",
+  "symbol": "Є",
+  "owner": "5FHrQMjzzAhmL5zS9ys87ZrGCwG3vsVT9hXAUWZQ8SNdRqig",
+  "description": "Context compression layer delivered through MCP infrastructure",
+  "github": "https://github.com/DendriteHQ/SOMA",
+  "url": "https://thesoma.ai",
+  "discord": "https://discord.gg/durr4Sg6sM",
+  "logo": "https://thesoma.ai/images/1200x1200.png",
+  "registered_at": 7312241,
+  "tempo": 360,
+  "active": true,
+  "block": 9195968,
+  "related": [],
+  "market": {
+    "price": 0.019849548,
+    "moving_price": 0.02066536503843963,
+    "market_cap": 46250.329663847624,
+    "tao_in": 8707.838744445,
+    "alpha_in": 438692.232857521,
+    "alpha_out": 1891352.242908256,
+    "volume": 269827.344245104,
+    "vol_24h": 2472.7672402570024,
+    "emission": 0.0,
+    "change_1h": 2.3816262213929296,
+    "change_24h": -4.047494526352901,
+    "change_7d": 13.79564885979323
+  },
+  "spark_24h": [
+    0.020826738,
+    0.021183414,
+    0.021134486,
+    0.020983283,
+    0.02099682,
+    0.020992957,
+    0.020997594,
+    0.02100211,
+    0.021006935,
+    0.021416556,
+    0.021265884,
+    0.021398392,
+    0.021360319,
+    0.021317068,
+    0.021307328,
+    0.021303022,
+    0.021307665,
+    0.021336514,
+    0.021346852,
+    0.021338981,
+    0.02134319,
+    0.02134816,
+    0.021520307,
+    0.021651977,
+    0.021378073,
+    0.021387842,
+    0.021397266,
+    0.021495944,
+    0.021449523,
+    0.021460266,
+    0.021476497,
+    0.021485827,
+    0.02149029,
+    0.021430585,
+    0.02143209,
+    0.021640736,
+    0.021530988,
+    0.021463934,
+    0.021464424,
+    0.020568465,
+    0.020455691,
+    0.020200746,
+    0.020040222,
+    0.019515378,
+    0.019265403,
+    0.019633716,
+    0.019388756,
+    0.019849548
+  ],
+  "trades_24h": {
+    "trades": 358,
+    "buys": 120,
+    "sells": 238,
+    "buy_tao": 1095.181527329,
+    "sell_tao": 1320.62300788,
+    "net_tao": -225.44148055100004,
+    "traders": 184
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HinyU1VsBUu51mSdeWCm8FUkuVGXCJMQj2QMpTSYtoqW1fn",
+      "net_tao": -105.794783432,
+      "gross_tao": 305.79478343200003,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": -0.25606956600000075,
+      "gross_tao": 150.256069566,
+      "trades": 12
+    },
+    {
+      "coldkey": "5ERREqQUHqyhBf9wfgXLzQZ5ACMDjcQDxNuttuGteXVSKfgs",
+      "net_tao": 120.0,
+      "gross_tao": 120.0,
+      "trades": 6
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.03836919700000152,
+      "gross_tao": 110.03836919700001,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": 9.978284535,
+      "gross_tao": 100.021715465,
+      "trades": 9
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790844640,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #226 from DendriteHQ/fix/sbx-space-clear",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/5d6ddb596d4260fe8aa71591cc6c5938d70d28f4",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1790844523,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(sandbox): clean up abandoned Copilot run directories",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/fddf7fa7ac585186f1f87e1bc59f08e0ebd54861",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1790606434,
+      "kind": "commit",
+      "source": "github",
+      "title": "Ignore agent changes to baked-in test files",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/e83a8df8b4b5e7f0ee48c4014f153ed611dc37b0",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1789545305,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: describe complexity incentive layers",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/83b828d695ae9551c1d4cd105a9965d29e778d75",
+      "publisher": "DendriteHQ/SOMA"
+    },
+    {
+      "ts": 1789382520,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #225 from DendriteHQ/dev",
+      "url": "https://github.com/DendriteHQ/SOMA/commit/f6037f883c384e33d25b20a673bd98b22e82a39c",
+      "publisher": "DendriteHQ/SOMA"
+    }
+  ],
+  "updated": 1790954409,
+  "updated_day": "2026-10-02"
+}
