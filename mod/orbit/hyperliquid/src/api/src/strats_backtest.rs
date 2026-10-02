@@ -8,8 +8,9 @@
 // ONE fills call per strat however many windows are asked for.
 //
 // Nothing new is invented here: each cell is the trader-page backtest,
-// compacted. Its data checks travel with it as `flags`, and only `ok`
-// cells (no failed check) count toward the per-window summary and leaders.
+// compacted. Its data checks travel with it as `flags`, and only trusted
+// cells (no failed check, no dust basis) count toward the per-window summary,
+// the leaders and the green-window ranking.
 //
 // Cost control: rows run at a small concurrency (HL's /info punishes
 // bursts), and whole reports are cached for REPORT_TTL keyed by
@@ -96,9 +97,17 @@ pub struct StratBacktest {
     pub green_windows: usize,
 }
 
+/// A cell the roll-ups may count: no check failed AND the ROI wasn't scaled
+/// off a dust basis. A dust basis is only a caveat on the row itself, but
+/// left in it turns a $40 wallet's lucky week into "+3,000,000% best strat"
+/// and drags every mean with it.
+pub fn trusted(c: &Cell) -> bool {
+    c.available && c.ok && c.roi_pct.is_some() && !c.flags.iter().any(|f| f == "basis:warn")
+}
+
 /// Trusted windows that ended in the green.
 fn green(cells: &[Cell]) -> usize {
-    cells.iter().filter(|c| c.ok && c.roi_pct.unwrap_or(0.0) > 0.0).count()
+    cells.iter().filter(|c| trusted(c) && c.roi_pct.unwrap_or(0.0) > 0.0).count()
 }
 
 /// One horizon across the whole board.
@@ -107,7 +116,7 @@ pub struct WindowSummary {
     pub days: u32,
     /// Rows with anything to replay.
     pub tested: usize,
-    /// Rows whose checks all passed or only warned.
+    /// Rows with no failed check and a non-dust basis (see `trusted`).
     pub trusted: usize,
     /// Trusted rows that made money.
     pub in_green: usize,
@@ -156,7 +165,7 @@ pub fn summarize(rows: &[StratBacktest], windows: &[u32]) -> Vec<WindowSummary> 
             .filter_map(|r| r.cells.get(i).map(|c| (r, c))).collect();
         let tested = cells.iter().filter(|(_, c)| c.available).count();
         let trusted: Vec<(&StratBacktest, f64)> = cells.iter()
-            .filter(|(_, c)| c.available && c.ok)
+            .filter(|(_, c)| trusted(c))
             .filter_map(|(r, c)| c.roi_pct.map(|x| (*r, x)))
             .collect();
         let mut rois: Vec<f64> = trusted.iter().map(|(_, x)| *x).collect();
@@ -187,7 +196,7 @@ pub fn summarize(rows: &[StratBacktest], windows: &[u32]) -> Vec<WindowSummary> 
 /// up at every horizon outranks one that spiked once.
 pub fn rank(rows: &mut [StratBacktest]) {
     let longest = |r: &StratBacktest| r.cells.last()
-        .filter(|c| c.ok).and_then(|c| c.roi_pct).unwrap_or(f64::NEG_INFINITY);
+        .filter(|c| trusted(c)).and_then(|c| c.roi_pct).unwrap_or(f64::NEG_INFINITY);
     rows.sort_by(|a, b| b.green_windows.cmp(&a.green_windows)
         .then(longest(b).partial_cmp(&longest(a)).unwrap_or(std::cmp::Ordering::Equal)));
 }
@@ -294,7 +303,7 @@ mod tests {
         }
     }
     fn row(id: &str, cells: Vec<Cell>) -> StratBacktest {
-        let green_windows = cells.iter().filter(|c| c.ok && c.roi_pct.unwrap_or(0.0) > 0.0).count();
+        let green_windows = green(&cells);
         StratBacktest {
             kind: "trader", id: id.into(), name: id.into(), by: id.into(),
             strat_capital: 1e5, rec_score: None, cells, green_windows,
@@ -326,6 +335,18 @@ mod tests {
         assert_eq!(s[1].median_roi_pct, Some(2.0));
         assert_eq!(s[1].mean_roi_pct, Some(0.33));
         assert_eq!(s[1].best_id.as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn a_dust_basis_cell_never_wins_the_window() {
+        let mut dust = cell(30, Some(3_000_000.0), true);
+        dust.flags = vec!["basis:warn".into()];
+        let rows = vec![row("dust", vec![dust]), row("real", vec![cell(30, Some(12.0), true)])];
+        let s = summarize(&rows, &[30]);
+        assert_eq!(s[0].trusted, 1);
+        assert_eq!(s[0].best_id.as_deref(), Some("real"));
+        assert_eq!(s[0].mean_roi_pct, Some(12.0));
+        assert_eq!(rows[0].green_windows, 0);
     }
 
     #[test]

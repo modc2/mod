@@ -37,13 +37,17 @@ function CellView({ c, capital }: { c: BacktestCell | undefined; capital: number
     return <span className="text-dim" title={c?.note ?? "nothing to replay"}>—</span>;
   }
   const warned = c.flags.some((f) => f.endsWith(":warn"));
+  // Same rule as the server's `trusted`: a dust basis prints, but dimmed —
+  // it is left out of the medians and the green count.
+  const dust = c.flags.includes("basis:warn");
   const title = [
     `$${capital} → ${c.final_value != null ? fmtUsd(c.final_value) : "—"} over ${c.days}d`,
     `worst fall ${c.max_drawdown_pct ?? 0}% · realised fills ${pct(c.realized_roi_pct)}`,
     c.flags.length ? `checks: ${c.flags.join(", ")}` : "all data checks passed",
   ].join("\n");
   return (
-    <span title={title} className={`num ${c.ok ? tone(c.roi_pct) : "text-dim line-through"}`}>
+    <span title={dust ? `${title}\ntiny equity at window start — not counted` : title}
+      className={`num ${!c.ok ? "text-dim line-through" : dust ? "text-dim" : tone(c.roi_pct)}`}>
       {pct(c.roi_pct)}
       {c.ok && warned && <sup className="text-warn ml-0.5">!</sup>}
     </span>
@@ -121,7 +125,8 @@ export default function StratsBacktest({ kind }: { kind: "all" | "trader" | "vau
             </button>
             <span className="text-dim">
               Equity model: your money riding each book (realised + unrealised). Struck-through = a data
-              check failed, not counted. <sup className="text-warn">!</sup> = a caveat. Hover a cell for detail,
+              check failed, not counted. Grey = trader had tiny equity at the window start, not counted.
+              <sup className="text-warn">!</sup> = a caveat. Hover a cell for detail,
               click a row for its checks. A replay, not a forecast.
             </span>
           </div>
