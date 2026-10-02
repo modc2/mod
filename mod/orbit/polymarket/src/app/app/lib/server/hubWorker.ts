@@ -34,9 +34,10 @@ import { API_BASE, serverAuthHeaders, setServerAuthToken } from "../polymarket";
 import { DEFAULT_STRATS, templateRoster } from "../defaultStrats";
 import { WORKER_TAPE_BUDGET } from "../momentumTape";
 import {
-  HUB_BACKTEST_DAYS, backtestOne, backtestTemplate, templateBacktestKey,
+  HUB_BACKTEST_DAYS, HUB_WINDOWS, backtestOne, backtestTemplate, templateBacktestKey,
   type HubBacktest, type TraderFeed,
 } from "../hubReplay";
+import { MAX_LOOKBACK_DAYS } from "../polymarket";
 import type { SavedIndex } from "../types";
 import { autoCopyWarmAddresses, runAutoCopyPass } from "./autoCopy";
 import { coverage, pruneFeeds, writeAtomic, type FeedCoverage } from "./feedStore";
@@ -131,31 +132,37 @@ function mergeStrats(deskStrats: SavedIndex[], manifest: HubManifest): SavedInde
   return [...deskStrats, ...manifest.strats.filter((s) => !seen.has(s.id))];
 }
 
-/** Windows a single pass will replay, at most. Each one costs a full replay of
-    every strat, and the console picks the list — so it's bounded here. A window
-    that doesn't fit isn't lost: the hub replays anything the worker doesn't
-    cover in the browser (lib/hubBacktest.ts), which is what it did for all of
-    them before this worker existed. */
-const MAX_WINDOWS = 3;
+/** The windows EVERY pass replays — the whole 1/3/7/14/30 ladder, so each
+    strat card can show all five at once (lib/hubBacktest.ts `useStratWindows`)
+    instead of only the one a browser tab happened to be looking at.
+    `POLYMARKET_HUB_WINDOWS=1,3,7` narrows it on a box that can't afford the CPU. */
+const PASS_WINDOWS: number[] = (() => {
+  const env = (process.env.POLYMARKET_HUB_WINDOWS ?? "")
+    .split(",").map(Number).filter((d) => Number.isFinite(d) && d > 0 && d <= MAX_LOOKBACK_DAYS);
+  return env.length ? env : HUB_WINDOWS;
+})();
 
-/** The windows one pass replays — ALWAYS including HUB_BACKTEST_DAYS.
+/** The windows one pass replays — ALWAYS including HUB_BACKTEST_DAYS and the
+ * full ladder above, plus anything the console asked for on top.
  *
  * The manifest's `days` is whichever window the console happened to be LOOKING
  * at when it last published. That made the worker's coverage a side effect of
  * where someone left a browser tab: leave the hub on 3D and it stops producing
- * 1-day numbers entirely, which is exactly how every owned strat ended up
- * either with a 1D card most of a day old or with none at all. So the default
- * window is not negotiable — the pass always replays it, and the console's
- * window is an EXTRA on top. */
+ * 1-day numbers entirely. So the ladder is not negotiable. Ascending, so the
+ * 1-day window runs FIRST: it gets first claim on the pass's resolution budget,
+ * and a pass that dies halfway still leaves the short windows every card leads with. */
 function manifestWindows(m: HubManifest): number[] {
   const asked = [...(m.windows ?? []), m.days]
     .map(Number)
-    .filter((d) => Number.isFinite(d) && d > 0);
-  // Ascending, so the mandatory 1-day window runs FIRST: it gets first claim on
-  // the pass's resolution budget, and a pass that dies halfway still leaves the
-  // window every card defaults to.
-  return [...new Set([HUB_BACKTEST_DAYS, ...asked])].sort((a, b) => a - b).slice(0, MAX_WINDOWS);
+    .filter((d) => Number.isFinite(d) && d > 0 && d <= MAX_LOOKBACK_DAYS);
+  return [...new Set([HUB_BACKTEST_DAYS, ...PASS_WINDOWS, ...asked])].sort((a, b) => a - b);
 }
+
+/** A walk-forward needs the window BEFORE this one too. Past half the feed's
+    30-day ceiling that prior window is mostly data that doesn't exist, so the
+    verdict would be fiction — skip it (the card says "untested", honestly)
+    and save the CPU. */
+const forwardFits = (days: number) => FORWARD_CHECK && 2 * days <= MAX_LOOKBACK_DAYS;
 
 /** What the fetch loop did, for the console's status line. */
 export interface FeedStatus {
@@ -498,7 +505,7 @@ export async function runPass(): Promise<HubCacheFile> {
     for (const days of windows) {
       for (const idx of strats) {
         const bt = await backtestOne(idx, days, feeds, session.load, resolve, {
-          forward: FORWARD_CHECK,
+          forward: forwardFits(days),
           holdout: HOLDOUT_CHECK,
           holdoutLookbackDays: HOLDOUT_LOOKBACK_DAYS,
           // Origination strats replay off a price tape, and the worker is the
@@ -511,7 +518,7 @@ export async function runPass(): Promise<HubCacheFile> {
       for (const t of DEFAULT_STRATS) {
         const roster = rosters.get(t.slug) ?? [];
         const bt = await backtestTemplate(t, days, feeds, {
-          loader: session.load, roster, resolve, forward: FORWARD_CHECK,
+          loader: session.load, roster, resolve, forward: forwardFits(days),
           holdout: HOLDOUT_CHECK,
           holdoutLookbackDays: HOLDOUT_LOOKBACK_DAYS,
           tapeBudget: WORKER_TAPE_BUDGET,

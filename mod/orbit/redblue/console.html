@@ -129,6 +129,39 @@
   td.sc{min-width:110px}
   .warnbox{border:1px solid #4a3a12;background:#1a1408;border-radius:4px;
            padding:8px 10px;margin-top:8px}
+  /* LIBRARY — shared shelf of red & blue prompts */
+  .lbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .seg button.r.on{border-color:#5a2026;background:#2a1215;color:#ffd6d6}
+  .seg button.b.on{border-color:#2a4058;background:#14202d;color:#d6ecff}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .tg{border:1px solid var(--line);border-radius:10px;padding:1px 9px;font-size:11px;
+      color:var(--dim);cursor:pointer;background:none}
+  .tg.on{color:#fff;border-color:var(--blue)}
+  .libwrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,520px);gap:14px;
+           align-items:start}
+  @media (max-width:1000px){.libwrap{grid-template-columns:1fr}}
+  .cards{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--blue);
+        border-radius:5px;padding:9px 11px;cursor:pointer;min-width:0}
+  .card.red{border-left-color:var(--red)}
+  .card:hover{border-color:#33465c}
+  .card.sel{box-shadow:0 0 0 1px var(--blue)}
+  .card.red.sel{box-shadow:0 0 0 1px var(--red)}
+  .card h3{margin:0;font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;
+           text-overflow:ellipsis}
+  .card .by{color:var(--dim);font-size:11px;margin:2px 0 6px}
+  .card .tx{color:#a9b8c6;font-size:11.5px;max-height:5.6em;overflow:hidden;
+            white-space:pre-wrap;word-break:break-word}
+  .card .ft{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;font-size:10.5px;color:var(--dim)}
+  .sidechip{font-size:10px;letter-spacing:.1em;padding:0 6px;border-radius:3px;
+            border:1px solid #2a4058;color:var(--blue)}
+  .sidechip.red{border-color:#5a2026;color:var(--red)}
+  .mine{color:var(--good)}
+  .ed{position:sticky;top:70px}
+  .ed .row input[type=text]{flex:1;min-width:120px}
+  .lab-seg button{padding:4px 16px;letter-spacing:.1em}
+  .hist{font-size:11.5px;border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
+  .hist div{display:flex;gap:8px;align-items:center;padding:2px 0}
 </style>
 </head>
 <body>
@@ -146,6 +179,7 @@
     <button data-tab="models">MODELS</button>
     <button data-tab="rounds">ROUNDS</button>
     <span class="gap"></span>
+    <button data-tab="library">LIBRARY</button>
     <button data-tab="attacks" class="red">RED</button>
     <button data-tab="defenses" class="blue">BLUE</button>
     <span class="gap"></span>
@@ -259,6 +293,63 @@
       <h2>round</h2>
       <div id="round-body"></div>
     </div>
+  </section>
+
+  <!-- LIBRARY --------------------------------------------------------- -->
+  <section id="library">
+    <div class="lbar">
+      <div class="seg" id="lib-side">
+        <button data-s="all" class="on">ALL<span class="n" id="n-all">0</span></button>
+        <button data-s="red" class="r">RED<span class="n" id="n-red">0</span></button>
+        <button data-s="blue" class="b">BLUE<span class="n" id="n-blue">0</span></button>
+        <button data-s="mine">MINE<span class="n" id="n-mine">0</span></button>
+      </div>
+      <input class="msearch" id="lib-q" placeholder="search prompts, authors, tags…">
+      <select id="lib-sort">
+        <option value="new">newest</option><option value="forks">most forked</option>
+        <option value="score">best score</option><option value="name">name</option>
+      </select>
+      <button class="go" id="lib-new">+ SUBMIT</button>
+    </div>
+    <div class="tags" id="lib-tags"></div>
+    <div class="libwrap">
+      <div id="lib-cards" class="cards"><span class="muted">—</span></div>
+      <div class="panel ed" id="lib-ed">
+        <h2 id="ed-title">submit a prompt</h2>
+        <p class="note" id="ed-sub">Anyone can submit. It joins the corpus at once —
+          playable in rounds, duels and sweeps.</p>
+        <div class="row">
+          <div class="seg lab-seg" id="ed-side">
+            <button data-s="red" class="r on">RED</button>
+            <button data-s="blue" class="b">BLUE</button>
+          </div>
+          <span class="muted" id="ed-side-note" style="font-size:11px"></span>
+        </div>
+        <div class="row"><input type="text" id="ed-name" placeholder="name"></div>
+        <div class="row">
+          <input type="text" id="ed-author" placeholder="your handle (optional)">
+          <input type="text" id="ed-tags" placeholder="tags, comma separated">
+        </div>
+        <div class="row" id="ed-goal-row"><input type="text" id="ed-goal" placeholder="goal — what a breach would obtain"></div>
+        <textarea id="ed-text" style="min-height:220px" placeholder="the attack prompt"></textarea>
+        <div class="note" id="ed-extra"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="go" id="ed-save">SUBMIT</button>
+          <button id="ed-fork" style="display:none">FORK</button>
+          <button id="ed-lab" style="display:none" title="load into the LAB bench">TRY IN LAB</button>
+          <button id="ed-del" style="display:none">DELETE</button>
+          <span id="ed-status" class="flash"></span>
+        </div>
+        <div id="ed-ask"></div>
+        <div id="ed-meta" class="note"></div>
+        <div id="ed-hist" class="hist" style="display:none"></div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:14px">You can edit what you submitted or
+      forked from this browser — it keeps each record's edit key locally.
+      Anything else: <b>fork</b> it, and the copy is yours. Operator key
+      <input type="password" id="lib-bearer" placeholder="optional" style="width:160px">
+      <span id="lib-who" class="muted"></span></p>
   </section>
 
   <!-- ATTACKS ----------------------------------------------------------- -->
@@ -404,6 +495,9 @@ const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
 const pct = n => (n == null ? '—' : (n * 100).toFixed(0) + '%');
 
 async function api(path, opts) {
+  opts = opts || {};
+  const bearer = localStorage.getItem('redblue.bearer');
+  if (bearer) opts.headers = {...(opts.headers || {}), authorization: 'Bearer ' + bearer};
   const r = await fetch(API + path, opts);
   const body = await r.json().catch(() => ({error: r.statusText}));
   if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
@@ -417,7 +511,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('section').forEach(x => x.classList.remove('on'));
   b.classList.add('on');
   $('#' + b.dataset.tab).classList.add('on');
-  ({board: loadBoard, models: loadModels, rounds: loadRounds, attacks: loadAttacks,
+  ({library: loadLibrary, board: loadBoard, models: loadModels, rounds: loadRounds, attacks: loadAttacks,
     defenses: loadDefenses, fight: loadPickers, lab: loadLab, about: loadAbout}[b.dataset.tab])();
 });
 
@@ -949,6 +1043,228 @@ $('#l-go').onclick = async () => {
   } catch (e) {
     $('#l-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
   } finally { btn.disabled = false; }
+};
+
+
+// ── library ────────────────────────────────────────────────────
+// Edit keys live in this browser only: {"red:<id>": token}. That is what
+// "mine" means — no login, no server-side account.
+const LIB = {side: 'all', tag: null, sel: null, edSide: 'red', owner: false,
+             cur: null, timer: null};
+const toks = () => JSON.parse(localStorage.getItem('redblue.tokens') || '{}');
+const setTok = (k, t) => { const o = toks(); if (t) o[k] = t; else delete o[k];
+  localStorage.setItem('redblue.tokens', JSON.stringify(o)); };
+const ago = t => { if (!t) return ''; const d = Date.now() / 1000 - t;
+  return d < 3600 ? Math.max(1, d / 60 | 0) + 'm' : d < 86400 ? (d / 3600 | 0) + 'h'
+    : (d / 86400 | 0) + 'd'; };
+
+function scoreTxt(c) {
+  if (!c.score) return '';
+  return c.side === 'red' ? `breach ${pct(c.score.breach_rate)}`
+                          : `safety ${(c.score.safety_score * 100).toFixed(0)}`;
+}
+
+async function loadLibrary() {
+  $('#ed-author').value ||= localStorage.getItem('redblue.author') || '';
+  $('#lib-bearer').value = localStorage.getItem('redblue.bearer') || '';
+  api('/library/whoami').then(w => { LIB.owner = w.owner;
+    $('#lib-who').textContent = w.owner ? '· you can edit everything' : ''; }).catch(() => {});
+  const mine = Object.keys(toks());
+  const qs = new URLSearchParams({sort: $('#lib-sort').value, limit: 300});
+  const q = $('#lib-q').value.trim(); if (q) qs.set('q', q);
+  if (LIB.tag) qs.set('tag', LIB.tag);
+  if (LIB.side === 'mine') qs.set('ids', mine.join(',') || '-:-');
+  else qs.set('side', LIB.side);
+  const lib = await api('/library?' + qs);
+  if (LIB.side !== 'mine') {
+    $('#n-all').textContent = lib.counts.all; $('#n-red').textContent = lib.counts.red;
+    $('#n-blue').textContent = lib.counts.blue;
+  }
+  $('#n-mine').textContent = mine.length;
+  $('#lib-tags').innerHTML = lib.tags.map(([t, n]) =>
+    `<button class="tg ${LIB.tag === t ? 'on' : ''}" data-t="${esc(t)}">#${esc(t)} ${n}</button>`).join('');
+  document.querySelectorAll('#lib-tags .tg').forEach(b => b.onclick = () => {
+    LIB.tag = LIB.tag === b.dataset.t ? null : b.dataset.t; loadLibrary(); });
+  const my = toks();
+  $('#lib-cards').innerHTML = lib.items.length ? lib.items.map(c => {
+    const k = c.side + ':' + c.id;
+    return `<div class="card ${c.side === 'red' ? 'red' : ''} ${LIB.sel === k ? 'sel' : ''}"
+        data-k="${esc(k)}">
+      <h3><span class="sidechip ${c.side === 'red' ? 'red' : ''}">${c.side.toUpperCase()}</span>
+        ${esc(c.name)}</h3>
+      <div class="by">${esc(c.author)}${my[k] ? ' <span class="mine">· yours</span>' : ''}
+        · ${esc(c.source)}${c.forked_from ? ' of ' + esc(c.forked_from.name || c.forked_from.id) : ''}
+        · ${ago(c.updated || c.created)}</div>
+      <div class="tx">${esc(c.text)}</div>
+      <div class="ft">${c.tags.map(t => '#' + esc(t)).join(' ')}
+        ${c.forks ? `<span>${c.forks} fork${c.forks > 1 ? 's' : ''}</span>` : ''}
+        ${c.versions > 1 ? `<span>v${c.versions}</span>` : ''}
+        ${scoreTxt(c) ? `<span>${scoreTxt(c)}</span>` : ''}</div></div>`;
+  }).join('') : `<span class="muted">${LIB.side === 'mine'
+      ? 'nothing yet — submit or fork something and it shows up here.'
+      : 'nothing matches.'}</span>`;
+  document.querySelectorAll('#lib-cards .card').forEach(el => el.onclick = () => {
+    const [side, ...rest] = el.dataset.k.split(':'); openItem(side, rest.join(':')); });
+}
+
+function setEdSide(side) {
+  LIB.edSide = side;
+  document.querySelectorAll('#ed-side button').forEach(b =>
+    b.classList.toggle('on', b.dataset.s === side));
+  $('#ed-goal-row').style.display = side === 'red' ? '' : 'none';
+  $('#ed-text').placeholder = side === 'red' ? 'the attack prompt'
+    : 'the defense system prompt';
+  const cur = LIB.cur;
+  $('#ed-side-note').textContent = cur && cur.side !== side
+    ? (canEdit(cur) ? `save moves it to ${side}; fork copies it as ${side}`
+                    : `fork copies it as ${side}`) : '';
+}
+document.querySelectorAll('#ed-side button').forEach(b => b.onclick = () => setEdSide(b.dataset.s));
+
+const canEdit = c => c && !c.builtin && (LIB.owner || !!toks()[c.side + ':' + c.id]);
+
+function newItem() {
+  LIB.cur = null; LIB.sel = null;
+  $('#ed-title').textContent = 'submit a prompt';
+  $('#ed-sub').textContent = 'Anyone can submit. It joins the corpus at once — playable in rounds, duels and sweeps.';
+  ['#ed-name', '#ed-tags', '#ed-goal', '#ed-text'].forEach(s => $(s).value = '');
+  $('#ed-extra').textContent = ''; $('#ed-meta').innerHTML = '';
+  $('#ed-hist').style.display = 'none'; $('#ed-ask').innerHTML = '';
+  $('#ed-save').textContent = 'SUBMIT'; $('#ed-save').style.display = '';
+  ['#ed-fork', '#ed-lab', '#ed-del'].forEach(s => $(s).style.display = 'none');
+  $('#ed-status').textContent = '';
+  setEdSide(LIB.side === 'blue' ? 'blue' : 'red');
+  document.querySelectorAll('#lib-cards .card').forEach(e => e.classList.remove('sel'));
+}
+$('#lib-new').onclick = () => { newItem(); $('#ed-name').focus(); };
+
+async function openItem(side, id) {
+  const c = await api(`/library/item?side=${side}&id=${encodeURIComponent(id)}`);
+  LIB.cur = c; LIB.sel = side + ':' + id;
+  document.querySelectorAll('#lib-cards .card').forEach(e =>
+    e.classList.toggle('sel', e.dataset.k === LIB.sel));
+  const mine = canEdit(c);
+  $('#ed-title').textContent = c.name;
+  $('#ed-sub').textContent = c.builtin ? 'built-in — fork it to make your own version.'
+    : mine ? 'yours to edit — every save keeps the previous version.'
+           : `by ${c.author} — fork it to make your own version.`;
+  $('#ed-name').value = c.name || ''; $('#ed-tags').value = (c.tags || []).join(', ');
+  $('#ed-goal').value = c.goal || ''; $('#ed-text').value = c.text || '';
+  $('#ed-extra').textContent = c.side === 'blue' && (c.rules || c.self_check)
+    ? `${c.rules} rule(s)${c.self_check ? ' + self-check' : ''} ride along — kept on save and fork.`
+    : (c.multi_turn ? 'multi-turn attack — saving replaces the turns with this text.' : '');
+  $('#ed-save').textContent = 'SAVE'; $('#ed-save').style.display = mine ? '' : 'none';
+  $('#ed-del').style.display = mine ? '' : 'none';
+  $('#ed-fork').style.display = ''; $('#ed-lab').style.display = '';
+  $('#ed-fork').className = mine ? '' : 'go';
+  $('#ed-status').textContent = ''; $('#ed-ask').innerHTML = '';
+  const up = (c.lineage || []).map(p => `<a href="#" data-k="${esc(p.side + ':' + p.id)}">${esc(p.name || p.id)}</a> by ${esc(p.author || '?')}`).join(' ← ');
+  const down = (c.children || []).map(p => `<a href="#" data-k="${esc(p.side + ':' + p.id)}">${esc(p.name || p.id)}</a>`).join(', ');
+  $('#ed-meta').innerHTML = `${esc(c.side)}:${esc(c.id)} · ${esc(c.source)} · v${c.versions}`
+    + (scoreTxt(c) ? ' · ' + scoreTxt(c) : '')
+    + (up ? `<br>forked from ${up}` : '') + (down ? `<br>forks: ${down}` : '');
+  $('#ed-meta').querySelectorAll('a').forEach(a => a.onclick = ev => {
+    ev.preventDefault(); const [s, ...r] = a.dataset.k.split(':'); openItem(s, r.join(':')); });
+  const h = c.history || [];
+  $('#ed-hist').style.display = h.length ? '' : 'none';
+  $('#ed-hist').innerHTML = '<label>earlier versions</label>' + h.map((v, i) => {
+    const n = h.length - i;
+    const t = (v.prompt || v.system_prompt || '').slice(0, 70);
+    return `<div><span class="muted">v${n}</span> <span class="muted">${ago(v.at)}</span>
+      <span style="flex:1">${esc(v.side !== c.side ? '[' + v.side + '] ' : '')}${esc(t)}</span>
+      ${mine ? `<button data-v="${n}">restore</button>` : ''}</div>`; }).join('');
+  $('#ed-hist').querySelectorAll('button[data-v]').forEach(b => b.onclick = async () => {
+    try {
+      await post('/library/revert', {side: c.side, id: c.id, version: +b.dataset.v,
+        edit_token: toks()[c.side + ':' + c.id]});
+      openItem(c.side, c.id); loadLibrary();
+    } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  });
+  setEdSide(c.side);
+}
+
+function edBody() {
+  const author = $('#ed-author').value.trim();
+  if (author) localStorage.setItem('redblue.author', author);
+  const b = {name: $('#ed-name').value.trim(), text: $('#ed-text').value,
+             tags: $('#ed-tags').value, author: author || undefined};
+  if (LIB.edSide === 'red') b.goal = $('#ed-goal').value.trim();
+  return b;
+}
+
+$('#ed-save').onclick = async () => {
+  const c = LIB.cur;
+  try {
+    let out;
+    if (!c) {
+      out = await post('/library', {side: LIB.edSide, ...edBody()});
+      $('#ed-status').textContent = 'submitted.';
+    } else {
+      const k = c.side + ':' + c.id;
+      const body = {side: c.side, id: c.id, edit_token: toks()[k], ...edBody()};
+      delete body.author;
+      if (LIB.edSide !== c.side) body.relabel = LIB.edSide;
+      out = await post('/library/edit', body);
+      if (out.relabelled && toks()[k]) {
+        setTok(out.item.side + ':' + out.item.id, toks()[k]); setTok(k, null); }
+      $('#ed-status').textContent = out.relabelled ? `saved — now ${out.item.side}.` : 'saved.';
+    }
+    if (out.edit_token) setTok(out.item.side + ':' + out.item.id, out.edit_token);
+    await loadLibrary(); openItem(out.item.side, out.item.id);
+  } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+$('#ed-fork').onclick = async () => {
+  const c = LIB.cur; if (!c) return;
+  try {
+    const b = edBody();
+    // a fork carries whatever is in the editor now, so "edit then fork" works
+    const out = await post('/library/fork', {side: c.side, id: c.id, as_side: LIB.edSide,
+      ...b, name: b.name === c.name ? undefined : b.name,
+      text: b.text === c.text && LIB.edSide === c.side ? undefined : b.text});
+    setTok(out.item.side + ':' + out.item.id, out.edit_token);
+    await loadLibrary(); await openItem(out.item.side, out.item.id);
+    $('#ed-status').textContent = `forked as ${out.item.side} — it's yours.`;
+  } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+// no native confirm() — an inline ask row instead
+$('#ed-del').onclick = () => {
+  const c = LIB.cur; if (!c) return;
+  $('#ed-ask').innerHTML = `<div class="warnbox row">delete “${esc(c.name)}”? forks keep
+    their copy. <button id="ed-del-yes">DELETE</button><button id="ed-del-no">keep</button></div>`;
+  $('#ed-del-no').onclick = () => $('#ed-ask').innerHTML = '';
+  $('#ed-del-yes').onclick = async () => {
+    try {
+      const k = c.side + ':' + c.id;
+      await post('/library/delete', {side: c.side, id: c.id, edit_token: toks()[k]});
+      setTok(k, null); newItem(); loadLibrary();
+    } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  };
+};
+
+$('#ed-lab').onclick = async () => {
+  const c = LIB.cur; if (!c) return;
+  document.querySelector('nav button[data-tab=lab]').click();
+  await loadLab();
+  if (c.side === 'red') {
+    LAB.red = {id: c.id}; $('#l-red').value = c.text; $('#l-red-note').textContent = 'from the library: ' + c.name;
+  } else {
+    LAB.blue = {id: c.id}; $('#l-blue').value = c.text; $('#l-blue-note').textContent = 'from the library: ' + c.name;
+  }
+};
+
+document.querySelectorAll('#lib-side button').forEach(b => b.onclick = () => {
+  LIB.side = b.dataset.s;
+  document.querySelectorAll('#lib-side button').forEach(x => x.classList.toggle('on', x === b));
+  loadLibrary();
+});
+$('#lib-q').oninput = () => { clearTimeout(LIB.timer); LIB.timer = setTimeout(loadLibrary, 200); };
+$('#lib-sort').onchange = loadLibrary;
+$('#lib-bearer').onchange = () => {
+  const v = $('#lib-bearer').value.trim();
+  if (v) localStorage.setItem('redblue.bearer', v); else localStorage.removeItem('redblue.bearer');
+  loadLibrary(); if (LIB.cur) openItem(LIB.cur.side, LIB.cur.id);
 };
 
 // ── about ──────────────────────────────────────────────────────

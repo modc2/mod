@@ -72,6 +72,8 @@ import StratChat from "./StratChat";
 import StratLab from "./StratLab";
 import StratVibe, { focusVibe } from "./StratVibe";
 import UserStratsPanel, { USER_STRATS_CHANGED_EVENT } from "./UserStratsPanel";
+import WindowStrip from "./WindowStrip";
+import { useStratWindows } from "../lib/hubBacktest";
 
 function timeSince(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -121,6 +123,8 @@ export default function StratsTab() {
   const moneyOn = (id: string) => moneyOnStrat(liveStats[id], liveStratIds.has(id));
   // 7-day PnL curves per strat, from the server sidecar's 10-min samples.
   const pnlHistory = useStratPnlHistory();
+  // Every strat backtested over 1/3/7/14/30 days (the worker's ladder).
+  const ladder = useStratWindows(indexes);
 
   // STRATS = the manager (everything below) · TRADES = the account's actual
   // fills as positions, each with its own P&L (PositionsHistoryPanel — the
@@ -679,6 +683,9 @@ export default function StratsTab() {
                     )}
                   </div>
                 </div>
+
+                {/* ── Backtest ladder: 1D · 3D · 7D · 14D · 30D ── */}
+                <WindowStrip row={ladder.byId[idx.id]} loading={ladder.loading} running={ladder.worker?.running} />
 
                 {/* ── Action strip — mt-auto pins it so cards in a grid row
                     stay equal-height with actions on the bottom edge ── */}

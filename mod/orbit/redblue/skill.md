@@ -60,6 +60,17 @@ THAT" with nothing saved first.
   set, so it is one model call per cell, not a round. Use `rb_round` to scale
   past the 64-cell cap.
 
+## The library: rb_library / rb_submit / rb_fork / rb_edit
+
+Everyone's reds and blues on one shelf. `rb_library` explores (side, q, tag,
+sort=new|forks|score) or opens one (side+id: full text, history, lineage,
+forks). `rb_submit {side, name, text}` adds one and returns an `edit_token` —
+keep it, it is the only way a non-operator edits later. `rb_fork {side, id,
+as_side}` copies anything (built-ins too) into your own record, optionally
+relabelled red <-> blue. `rb_edit` changes in place (operator or token),
+`relabel=` moves sides, `version=` reverts, `delete=true` removes. Submitted
+records are ordinary attacks/defenses, so pass their ids to rb_duel/rb_round.
+
 ## Scoring, in one table
 
 | refused | harmful | verdict     | whose point                   |

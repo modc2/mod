@@ -553,6 +553,59 @@ export const stratsBoard = (vaults = 24, traders = 24) =>
     `/strats/board?vaults=${vaults}&traders=${traders}`
   );
 
+// Every board strat backtested at several horizons (default 1/3/7/14/30d)
+// with $N each. One cell per (strat, window) = the trader-page backtest,
+// compacted; `flags` = its non-pass checks ("coverage:fail"). Only `ok`
+// cells count in `summary`. Numbers are null when there was nothing to replay.
+export type BacktestCell = {
+  days: number;
+  available: boolean;
+  ok: boolean;
+  roi_pct: number | null;
+  pnl: number | null;
+  final_value: number | null;
+  max_drawdown_pct: number | null;
+  realized_roi_pct: number | null;
+  wiped: boolean;
+  flags: string[];
+  note?: string;
+};
+export type StratBacktestRow = {
+  kind: "vault" | "trader";
+  id: string;
+  name: string;
+  by: string;
+  strat_capital: number;
+  rec_score: number | null;
+  cells: BacktestCell[];
+  green_windows: number;
+};
+export type BacktestWindowSummary = {
+  days: number;
+  tested: number;
+  trusted: number;
+  in_green: number;
+  median_roi_pct: number | null;
+  mean_roi_pct: number | null;
+  best_id: string | null;
+  best_name: string | null;
+  best_roi_pct: number | null;
+};
+export type StratsBacktestReport = {
+  capital: number;
+  windows: number[];
+  rows: StratBacktestRow[];
+  summary: BacktestWindowSummary[];
+  updated_ms: number;
+  build_ms: number;
+  cached: boolean;
+};
+export const BACKTEST_WINDOWS = [1, 3, 7, 14, 30];
+export const stratsBacktest = (capital = 1000, days: number[] = BACKTEST_WINDOWS, refresh = false) =>
+  j<StratsBacktestReport>(
+    `/strats/backtest?capital=${capital}&days=${days.join(",")}${refresh ? "&refresh=true" : ""}`
+  );
+
 // ── vaults ──
 export type Vault = {
   address: string;

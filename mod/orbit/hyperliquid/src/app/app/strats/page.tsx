@@ -7,6 +7,7 @@ import {
 } from "../lib/api";
 import { Field, Freshness, Identicon, Kpi, PageHead } from "../components/BoardBits";
 import StratSpark, { type SparkLeg } from "../components/StratSpark";
+import StratsBacktest from "../components/StratsBacktest";
 import { useCurves } from "../lib/curves";
 
 // Two strat types for now — copy a trader, or an HL vault. More come later.
@@ -283,6 +284,9 @@ export default function StratsPage() {
           value={search} onChange={(e) => setSearch(e.target.value)} />
         <span className="text-[10px] text-muted uppercase tracking-wider pb-1">{filtered.length} shown</span>
       </div>
+
+      {/* $N on every strat at 1/3/7/14/30d — follows the kind pills above */}
+      <StratsBacktest kind={kind} />
 
       {/* Grid — already in recommendation order */}
       {loading && rows.length === 0 ? (

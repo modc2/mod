@@ -70,6 +70,37 @@ m redblue/vibe side=blue against=seed-roleplay-dan          # compose a defense
   no matter what the judge said. The password game and the prompt-extraction
   game have an exact answer, so the lab does not ask a model to approximate it.
 
+## The library: everyone's reds and blues
+
+The LIBRARY tab (and `GET /library`) is a shared shelf of red and blue prompts
+that **anyone can submit to** — no account. A submitted red *is* an attack and
+a submitted blue *is* a defense (same files, `attacks/` and `defenses/`), so it
+is playable in a round, a duel or a sweep the moment it lands.
+
+- **explore** — ALL / RED / BLUE / MINE, search, tag chips, sort by newest,
+  most forked, best score (red: breach rate, blue: safety score) or name.
+- **submit** — `POST /library {side, name, text, author, tags}`. Returns a
+  one-time `edit_token`; only its sha256 is stored.
+- **fork** — `POST /library/fork {side, id, as_side}`: copy anyone's record
+  (built-ins included) into a new one of your own. `as_side` labels the copy
+  red or blue — the text moves across (a red prompt becomes a blue system
+  prompt). Lineage is kept both ways: forked-from up, forks down.
+- **edit** — `POST /library/edit {side, id, edit_token, …}`. Allowed for the
+  operator (the `server.secret` bearer, or anyone on a box with no secret) or
+  whoever holds that record's edit token. `relabel: red|blue` moves it to the
+  other side. The last 20 versions are kept; `POST /library/revert` restores
+  one. `POST /library/delete` removes it (its forks keep their copy).
+
+The console keeps the tokens it was handed in `localStorage`, which is what
+MINE is — local-first, nothing to sign up for. Open writes (submit/fork/token
+edits) are throttled to 30 per 10 minutes per caller. **Before exposing the
+port publicly, write `~/.mod/redblue/server.secret`** — with no secret every
+caller counts as the operator and can edit anything; with one, the public can
+submit and fork but only edits what it wrote.
+
+MCP: `rb_library`, `rb_submit`, `rb_fork`, `rb_edit` (relabel / version= revert
+/ delete=true). fn: `library`, `submit`, `fork`, `edit`.
+
 ## Why there is a control set
 
 Refusal rate alone is trivially gamed: a defense that refuses everything scores

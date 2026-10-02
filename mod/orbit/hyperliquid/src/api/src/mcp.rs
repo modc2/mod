@@ -297,6 +297,24 @@ pub fn tools() -> &'static [Tool] {
                 ("traders", p("integer", "trader rows to include, 0-500 (default 24)")),
                 ("min_tvl", p("number", "minimum vault TVL in USD (default 10000)")),
             ], &[]),
+        tool("hl_backtest_strats", "backtest_strats", "GET", "/strats/backtest", true,
+            "Backtest EVERY strat on the board (copy-traders and vaults) at \
+             several horizons at once — default 1, 3, 7, 14 and 30 days — with \
+             $N on each. Each row has one cell per window: equity-model roi_pct \
+             / pnl / final_value / max_drawdown_pct (your $N riding the book, \
+             realised + unrealised), realized_roi_pct (fills mirror), and \
+             `flags` = every non-pass data check (e.g. coverage:fail). Only \
+             `ok` cells count in `summary` (per window: tested, trusted, \
+             in_green, median/mean roi, best strat). Rows sort by trusted green \
+             windows, then longest-window roi. Cached 10 min; a cold build \
+             takes ~1-2 min. Past performance is a replay, not a forecast.",
+            vec![
+                ("days", p("string", "comma-separated windows in days, each 1-90 (default \"1,3,7,14,30\")")),
+                ("capital", p("number", "hypothetical USD on EACH strat (default 1000)")),
+                ("vaults", p("integer", "vault rows from the board, 0-100 (default 24)")),
+                ("traders", p("integer", "trader rows from the board, 0-100 (default 24)")),
+                ("refresh", p("boolean", "skip the 10-minute report cache")),
+            ], &[]),
         tool("hl_list_indexes", "list_indexes", "GET", "/indexes", true,
             "All saved indexes (a.k.a. strats): weighted baskets of traders to \
              mirror, with legs, window and any linked vault.",

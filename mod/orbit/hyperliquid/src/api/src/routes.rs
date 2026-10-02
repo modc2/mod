@@ -96,6 +96,7 @@ pub fn router() -> Router<AppState> {
         // The unified strats board: baskets + vaults + copyable traders,
         // one row shape, trailing 24h/7d APR each.
         .route("/strats/board", get(strats_board))
+        .route("/strats/backtest", get(strats_backtest))
         .route("/indexes", get(list_indexes).post(create_index))
         .route("/indexes/:id", get(get_index).patch(update_index).delete(delete_index))
         .route("/indexes/:id/perf", get(index_perf))
@@ -369,7 +370,7 @@ async fn info(State(s): State<AppState>) -> Json<Value> {
         "endpoints": {
             // `crate::auth::is_public` is the authority; mcp::tools() carries
             // the same flag per tool and a test holds the two in agreement.
-            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/traders/market", "/trader/:addr/analyze", "/trader/:addr/backtest", "/user/:addr/*", "/vaults", "/strats/board", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
+            "public": ["/health", "/status", "/mids", "/market/meta", "/orderbook/:coin", "/candles/:coin", "/leaderboard", "/traders/top", "/traders/market", "/trader/:addr/analyze", "/trader/:addr/backtest", "/user/:addr/*", "/vaults", "/strats/board", "/strats/backtest", "/indexes", "/indexes/:id", "/indexes/:id/perf", "POST /indexes/auto", "/deposit/chains", "/deposit/balances", "/deposit/status", "/ask/status", "/wallet/config", "/mcp", "/mcp/schema"],
             "gated": ["/auth/me", "/follows", "/signals", "/signer/*", "/trade", "/live/*", "/intent/*", "/exchange/relay", "/action", "/deposit/quote", "POST /indexes", "PATCH|DELETE /indexes/:id"],
         },
         // The mod-protocol fn surface is also an MCP tool server; /mcp/schema
@@ -1067,6 +1068,28 @@ async fn strats_board(State(s): State<AppState>, Query(q): Query<StratsBoardQ>) 
         q.min_tvl,
     ).await;
     Json(serde_json::to_value(b).unwrap_or_else(|_| json!({"rows": []})))
+}
+
+#[derive(Deserialize)]
+struct StratsBacktestQ {
+    days: Option<String>, capital: Option<f64>,
+    vaults: Option<usize>, traders: Option<usize>, refresh: Option<bool>,
+}
+/// Every board strat backtested at several horizons (default 1,3,7,14,30d)
+/// with $N each — one compact cell per (strat, window), data-check flags
+/// attached, plus a per-window roll-up over the trusted cells. Public read;
+/// cached 10 min and single-flight, so a crowd costs one build.
+async fn strats_backtest(State(s): State<AppState>, Query(q): Query<StratsBacktestQ>) -> Json<Value> {
+    let capital = q.capital.filter(|c| c.is_finite() && *c > 0.0).unwrap_or(1_000.0);
+    let r = crate::strats_backtest::report(
+        &s,
+        capital,
+        crate::strats_backtest::parse_windows(q.days.as_deref()),
+        q.vaults.unwrap_or(24).clamp(0, 100),
+        q.traders.unwrap_or(24).clamp(0, 100),
+        q.refresh.unwrap_or(false),
+    ).await;
+    Json(serde_json::to_value(r).unwrap_or_else(|_| json!({"rows": []})))
 }
 
 // ── vaults ──

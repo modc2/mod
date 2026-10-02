@@ -22,9 +22,11 @@ if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from redbluesrc import arena, builtins, corpus, defense as defmod
     from redbluesrc import catalog, judge as judgemod, models, store, sweep as sweepmod
+    from redbluesrc import library
 else:
     from . import arena, builtins, corpus, defense as defmod
     from . import catalog, judge as judgemod, models, store, sweep as sweepmod
+    from . import library
 
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-06-18', '2025-03-26', '2024-11-05')
 DEFAULT_PROTOCOL_VERSION = '2025-03-26'
@@ -123,8 +125,10 @@ def t_attack(a):
 def t_defenses(a):
     if a.get('id'):
         bi = _builtins()
-        return bi[a['id']] if a['id'] in bi else store.get('defense', a['id'])
-    return {'defenses': list(_builtins().values()) + store.listing('defense')}
+        return bi[a['id']] if a['id'] in bi else \
+            library.public(store.get('defense', a['id']))
+    return {'defenses': list(_builtins().values()) +
+            [library.public(d) for d in store.listing('defense')]}
 
 
 def t_defend(a):
@@ -269,6 +273,39 @@ def t_delete(a):
     if kind == 'defense' and a['id'] in _builtins():
         raise store.StoreError(f'{a["id"]!r} is a built-in defense')
     return store.delete(kind, a['id'])
+
+
+# The library over MCP. MCP carries no bearer, so "operator" here means the box
+# has no server.secret; anyone else edits with the record's edit_token.
+def _mcp_owner():
+    return store.secret() is None
+
+
+def t_library(a):
+    if a.get('id') and a.get('side') in ('red', 'blue'):
+        return library.item(a['side'], a['id'])
+    ids = a.get('ids')
+    return library.explore(
+        side=a.get('side') or 'all', q=a.get('q'), tag=a.get('tag'),
+        author=a.get('author'), source=a.get('source'),
+        sort=a.get('sort') or 'new', limit=int(a.get('limit') or 50),
+        ids=ids.split(',') if isinstance(ids, str) else ids)
+
+
+def t_submit(a):
+    return library.submit(a, caller='mcp', owner=_mcp_owner())
+
+
+def t_fork(a):
+    return library.fork(a, caller='mcp', owner=_mcp_owner())
+
+
+def t_edit(a):
+    if a.get('delete'):
+        return library.remove(a, owner=_mcp_owner())
+    if a.get('version'):
+        return library.revert(a, caller='mcp', owner=_mcp_owner())
+    return library.edit(a, caller='mcp', owner=_mcp_owner())
 
 
 def _resolve(spec, kind):
@@ -519,6 +556,85 @@ TOOLS = {
             'limit': _num('How many (default 20)')}},
         'handler': t_sweeps,
     },
+    'rb_library': {
+        'description': 'The shared library of red (attack) and blue (defense) '
+                       'prompts anyone can submit to. Without id: explore — '
+                       'cards filtered by side/q/tag/author/source and sorted '
+                       'new|forks|score|name, plus side counts and top tags. '
+                       'With side+id: one in full with its text, edit history, '
+                       'lineage (what it was forked from) and its forks.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'side': _str('red | blue | all (default all)'),
+            'id': _str('One record (needs side)'),
+            'q': _str('Search terms (all must match)'),
+            'tag': _str('Only this tag'),
+            'author': _str('Author contains'),
+            'source': _str('submitted | fork | operator | seed | builtin'),
+            'sort': _str('new (default) | forks | score | name'),
+            'ids': _str('Comma list of side:id — e.g. your own'),
+            'limit': _num('Cards to return (default 50, 0 = all)')}},
+        'handler': t_library,
+    },
+    'rb_submit': {
+        'description': 'Submit a red or blue prompt to the library. side=red: '
+                       'text is the attack prompt (or pass turns); side=blue: '
+                       'text is the system prompt (input_rules/output_rules/'
+                       'self_check optional). It is immediately playable in '
+                       'rb_round / rb_duel. Returns a one-time edit_token — the '
+                       'only way for a non-operator to edit it later.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'side': _str('red or blue'),
+            'name': _str('A short name'),
+            'text': _str('The prompt (red) or the system prompt (blue)'),
+            'author': _str('Who wrote it — any handle'),
+            'tags': _str('Comma-separated labels'),
+            'goal': _str('Red: what a breach would obtain'),
+            'technique': _str('Red: roleplay / override / …'),
+            'markers': _str('Red: comma list of strings that mean it landed'),
+            'description': _str('Blue: what it defends'),
+            'input_rules': _arr('Blue: input rules'),
+            'output_rules': _arr('Blue: output rules'),
+            'self_check': _bool('Blue: add a self-review pass')},
+            'required': ['side', 'name']},
+        'handler': t_submit,
+    },
+    'rb_fork': {
+        'description': 'Fork any library record (including built-ins and other '
+                       "people's) into a new one of your own. as_side relabels "
+                       'it red <-> blue (the text moves across: a red prompt '
+                       'becomes a blue system prompt and vice versa). Any field '
+                       'passed (name, text, tags, …) is applied to the copy. '
+                       'The parent is untouched; lineage is recorded.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'side': _str('Side of the record being forked'),
+            'id': _str('Its id'),
+            'as_side': _str('Label the fork red or blue (default: same)'),
+            'name': _str('Name of the fork'),
+            'text': _str('New text for the fork'),
+            'author': _str('Your handle'),
+            'tags': _str('Comma-separated labels')},
+            'required': ['side', 'id']},
+        'handler': t_fork,
+    },
+    'rb_edit': {
+        'description': 'Edit a library record in place (operator, or with its '
+                       'edit_token). relabel=red|blue moves it to the other '
+                       'side. version=N reverts to that history entry. '
+                       'delete=true removes it. Every edit keeps the previous '
+                       'version in history. Built-ins cannot be edited — fork.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'side': _str('red or blue'),
+            'id': _str('The record'),
+            'edit_token': _str('The token from submit/fork'),
+            'name': _str('New name'),
+            'text': _str('New text'),
+            'tags': _str('New comma-separated labels'),
+            'relabel': _str('red or blue — move it to that side'),
+            'version': _num('Revert to this history version (1 = oldest)'),
+            'delete': _bool('Delete it')},
+            'required': ['side', 'id']},
+        'handler': t_edit,
+    },
     'rb_delete': {
         'description': 'Delete an attack or a defense (kind=attack|defense). '
                        'Built-in defenses cannot be deleted.',
@@ -579,6 +695,10 @@ def info():
         'sweeps': 'rb_models lists every model a provider serves; rb_sweep '
                   'fires the same round at all of them (dry_run first) and '
                   'ranks the models',
+        'library': 'rb_library explores every red and blue anyone submitted; '
+                   'rb_submit adds one (returns an edit_token); rb_fork copies '
+                   'any into your own, optionally relabelled red <-> blue; '
+                   'rb_edit changes/relabels/reverts/deletes with the token',
         'tools': sorted(TOOLS),
         'builtin_defenses': ['none', 'prompt-only', 'filtered', 'layered'],
         'state': store.DIR,

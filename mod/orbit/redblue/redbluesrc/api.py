@@ -43,6 +43,7 @@ WHY A ROUND CAN RUN IN THE BACKGROUND
     python3 -m redbluesrc.api [--port 50970] [--bind 127.0.0.1]
 """
 
+import hmac
 import json
 import os
 import sys
@@ -54,9 +55,11 @@ if __package__ in (None, ''):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from redbluesrc import arena, builtins as bimod, corpus, defense as defmod
     from redbluesrc import catalog, mcp as mcpsrv, models, store, sweep as sweepmod
+    from redbluesrc import library
 else:
     from . import arena, builtins as bimod, corpus, defense as defmod
     from . import catalog, mcp as mcpsrv, models, store, sweep as sweepmod
+    from . import library
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = os.environ.get('RB_BASE_PATH', '/redblue')
@@ -116,6 +119,20 @@ def info():
                            'view; dry_run returns the plan and the call count',
             'GET /sweeps': '?id= one sweep live, or history (?provider=)',
             'POST /sweep/stop': '{id} — cancel a running sweep',
+            'GET /library': '?side=all|red|blue &q= &tag= &author= &source= '
+                            '&sort=new|forks|score|name &ids=red:x,blue:y — '
+                            'the shared shelf of red and blue prompts',
+            'GET /library/item': '?side=&id= — one in full: text, history, '
+                                 'lineage up, forks down',
+            'POST /library': '{side, name, text, author, tags, …} — submit; '
+                             'open to anyone, returns a one-time edit_token',
+            'POST /library/fork': '{side, id, as_side, name, author, text, …} '
+                                  '— copy into a new record, optionally '
+                                  'relabelled red ⇄ blue',
+            'POST /library/edit': '{side, id, edit_token, relabel, …fields} — '
+                                  'operator or token holder; keeps history',
+            'POST /library/revert': '{side, id, version, edit_token}',
+            'POST /library/delete': '{side, id, edit_token}',
             'GET /tools': 'the MCP tool registry',
             'POST /mcp': 'MCP JSON-RPC 2.0',
             f'GET {BASE}': 'the console',
@@ -134,10 +151,16 @@ def info():
 
 # ── routing ──────────────────────────────────────────────────────
 
-def route(method, path, query, body):
-    """One request → one JSON answer. Raises ApiError for a caller's mistake."""
+def route(method, path, query, body, owner=None, caller=None):
+    """One request → one JSON answer. Raises ApiError for a caller's mistake.
+
+    `owner` is whether the caller holds the operator bearer (always true on a
+    box with no server.secret); `caller` keys the library's open-write
+    throttle. Both come from the HTTP handler."""
     q = {k: v[0] for k, v in urllib.parse.parse_qs(query).items()}
     b = body if isinstance(body, dict) else {}
+    if owner is None:
+        owner = store.secret() is None
 
     def arg(name, default=None):
         v = b.get(name, q.get(name, default))
@@ -152,9 +175,10 @@ def route(method, path, query, body):
     if path == '/attacks':
         if method == 'GET':
             if arg('id'):
-                return store.get('attack', arg('id'))
-            return {'attacks': store.listing('attack', category=arg('category'),
-                                             limit=int(arg('limit', 200)))}
+                return library.public(store.get('attack', arg('id')))
+            return {'attacks': [library.public(r) for r in store.listing(
+                'attack', category=arg('category'),
+                limit=int(arg('limit', 200)))]}
         if method == 'POST':
             return mcpsrv.t_attack(b)
         if method == 'DELETE':
@@ -241,6 +265,31 @@ def route(method, path, query, body):
         if arg('id'):
             return sweepmod.get(arg('id'))
         return sweepmod.listing(int(arg('limit', 20)), provider=arg('provider'))
+
+    if path == '/library':
+        if method == 'GET':
+            ids = arg('ids')
+            return library.explore(
+                side=arg('side', 'all'), q=arg('q'), tag=arg('tag'),
+                author=arg('author'), source=arg('source'),
+                sort=arg('sort', 'new'), limit=int(arg('limit', 300)),
+                ids=[i for i in ids.split(',') if i] if isinstance(ids, str)
+                else ids)
+        if method == 'POST':
+            return library.submit(b, caller=caller, owner=owner)
+    if path == '/library/item' and method == 'GET':
+        return library.item(_need(arg('side'), 'side'), _need(arg('id'), 'id'))
+    if path == '/library/fork' and method == 'POST':
+        return library.fork(b, caller=caller, owner=owner)
+    if path == '/library/edit' and method == 'POST':
+        return library.edit(b, caller=caller, owner=owner)
+    if path == '/library/revert' and method == 'POST':
+        return library.revert(b, caller=caller, owner=owner)
+    if path == '/library/delete' and method == 'POST':
+        return library.remove(b, owner=owner)
+    if path == '/library/whoami' and method == 'GET':
+        return {'owner': bool(owner),
+                'gate': 'secret set' if store.secret() else 'open (no secret)'}
 
     if path == '/tools' and method == 'GET':
         return {'tools': mcpsrv.tool_list(), 'count': len(mcpsrv.TOOLS)}
@@ -369,15 +418,22 @@ def serve(port=PORT, bind=None, base=BASE):
                 return p[len(base):], query
             return p, query
 
-        def _authed(self, path, method):
+        def _owner(self):
             secret = store.secret()
             if not secret:
                 return True
-            if method == 'GET' or path not in WRITE_ROUTES:
-                return True
             auth = (self.headers.get('authorization') or '').strip()
             token = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
-            return token == secret
+            return bool(token) and hmac.compare_digest(token, secret)
+
+        def _authed(self, path, method):
+            if method == 'GET' or path not in WRITE_ROUTES:
+                return True
+            return self._owner()
+
+        def _caller(self):
+            fwd = (self.headers.get('x-forwarded-for') or '').split(',')[0]
+            return fwd.strip() or self.client_address[0]
 
         def _dispatch(self):
             p, query = self._path()
@@ -402,9 +458,13 @@ def serve(port=PORT, bind=None, base=BASE):
                                         'or edits the corpus — send the bearer '
                                         'from ~/.mod/redblue/server.secret'})
             try:
-                return self._send(200, route(self.command, p, query, body))
+                return self._send(200, route(self.command, p, query, body,
+                                             owner=self._owner(),
+                                             caller=self._caller()))
             except ApiError as e:
                 return self._send(e.status, {'error': str(e)})
+            except library.Forbidden as e:
+                return self._send(403, {'error': str(e), 'kind': 'Forbidden'})
             except (store.StoreError, defmod.DefenseError, arena.ArenaError,
                     models.ModelError, catalog.CatalogError,
                     sweepmod.SweepError) as e:

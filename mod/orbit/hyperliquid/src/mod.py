@@ -87,7 +87,7 @@ class Hyperliquid(m.Mod):
         "top_traders", "score_market", "analyze_trader", "trader_curve",
         "backtest_trader", "leaderboard",
         # indexes / strats
-        "strats_board",
+        "strats_board", "backtest_strats",
         "list_indexes", "get_index", "create_index", "update_index",
         "delete_index", "index_perf", "auto_index",
         # follows
@@ -646,6 +646,21 @@ class Hyperliquid(m.Mod):
         q = {k: v for k, v in {"vaults": vaults, "traders": traders,
                                "min_tvl": min_tvl}.items() if v is not None}
         return self._get("/strats/board", **q)
+
+    def backtest_strats(self, days: str = "1,3,7,14,30", capital: float = 1000.0,
+                        vaults: Optional[int] = None, traders: Optional[int] = None,
+                        refresh: bool = False) -> Any:
+        """Backtest every strat on the board (traders + vaults) at each window
+        in `days` with `capital` dollars on each. Rows carry one `cells` entry
+        per window (equity-model roi_pct/pnl/final_value/max_drawdown_pct,
+        realised fills-mirror roi, and `flags` = non-pass data checks);
+        `summary` rolls each window up over the trusted (`ok`) cells only.
+        Cached 10 min server-side; `refresh=True` rebuilds."""
+        q = {k: v for k, v in {"days": days, "capital": capital, "vaults": vaults,
+                               "traders": traders,
+                               "refresh": "true" if refresh else None}.items()
+             if v is not None}
+        return self._get("/strats/backtest", **q)
 
     def list_indexes(self) -> Any: return self._get("/indexes")
     def get_index(self, id: str) -> Any: return self._get(f"/indexes/{id}")

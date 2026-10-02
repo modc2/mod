@@ -34,7 +34,7 @@ import {
   type ForwardCheck, type ForwardVerdict, type HoldoutCheck, type HubBacktest, type TraderFeed,
   type WinRecord,
 } from "./hubReplay";
-import { fetchWorkerBacktests, publishHubManifest, type WorkerStatus } from "./hubCache";
+import { fetchWorkerBacktests, publishHubManifest, requestWorkerPass, type WorkerStatus } from "./hubCache";
 
 export { HUB_BACKTEST_DAYS, HUB_WINDOWS, templateBacktestKey, forwardVerdict };
 export type { HubBacktest, ForwardCheck, ForwardVerdict, HoldoutCheck, WinRecord };
@@ -228,4 +228,89 @@ export function useHubBacktests(
   }, [sigs, days, nonce, loading, withTemplates]);
 
   return { results, pending, loading, worker, refresh };
+}
+
+// ── THE WINDOW LADDER ───────────────────────────────────────────
+//
+// The hook above answers "every card, over ONE window". The /strats cards ask
+// the other question — "this strat, over 1, 3, 7, 14 AND 30 days" — because a
+// strat that only works over one of them is a strat fitted to that window.
+//
+// Read-only on purpose: five windows × every strat is a server job (the worker
+// replays the whole ladder every pass, out of its feed cache), not something
+// to grind through in a browser tab. This hook publishes the roster so the
+// worker knows the strats exist, reads its cache for EVERY window at once,
+// folds in whatever this browser already replayed, and nudges a pass when a
+// strat has no numbers at all.
+
+/** One strat's results by window (days → replay). */
+export type WindowRow = Record<number, HubBacktest & { stale?: boolean }>;
+
+export interface StratWindowsState {
+  /** strat id → its ladder. A window absent from the row hasn't been run. */
+  byId: Record<string, WindowRow>;
+  loading: boolean;
+  worker: WorkerStatus | null;
+}
+
+/** Poll faster while the worker is mid-pass — the long windows land minutes
+    after the short ones, and the strip should fill in as they do. */
+const LADDER_POLL_RUNNING_MS = 30_000;
+const LADDER_POLL_IDLE_MS = 5 * 60_000;
+
+export function useStratWindows(indexes: SavedIndex[]): StratWindowsState {
+  const [raw, setRaw] = useState<Record<string, HubBacktest>>({});
+  const [loading, setLoading] = useState(true);
+  const [worker, setWorker] = useState<WorkerStatus | null>(null);
+  const nudged = useRef(false);
+
+  // Publish the roster — the worker can only replay strats it has been told
+  // about, and they live in this browser.
+  const sigs = indexes.map((i) => `${i.id}:${signature(i, HUB_BACKTEST_DAYS)}`).join("|");
+  useEffect(() => {
+    if (indexes.length > 0) void publishHubManifest(indexes, HUB_BACKTEST_DAYS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sigs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = async () => {
+      const cache = await fetchWorkerBacktests(0); // 0 = every window, keys `<id>@<N>d`
+      if (cancelled) return;
+      const merged: Record<string, HubBacktest> = { ...loadSnapshots() };
+      for (const [k, v] of Object.entries(cache?.results ?? {})) {
+        if (!merged[k] || merged[k].at < v.at) merged[k] = v;
+      }
+      setRaw(merged);
+      setWorker(cache?.status ?? null);
+      setLoading(false);
+      timer = setTimeout(load, cache?.status?.running ? LADDER_POLL_RUNNING_MS : LADDER_POLL_IDLE_MS);
+    };
+    void load();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, []);
+
+  const byId: Record<string, WindowRow> = {};
+  for (const idx of indexes) {
+    const row: WindowRow = {};
+    for (const d of HUB_WINDOWS) {
+      const bt = raw[snapKey(idx.id, d)];
+      // Edited since the replay → the number belongs to a different strat.
+      // Kept (it's still the nearest thing we have) but marked.
+      if (bt) row[d] = bt.sig && bt.sig !== signature(idx, d) ? { ...bt, stale: true } : bt;
+    }
+    byId[idx.id] = row;
+  }
+
+  // A strat with no numbers in ANY window is one the worker has never seen
+  // (new, or the manifest was stale). Don't make it wait a full interval.
+  const missing = !loading && indexes.some((i) => Object.keys(byId[i.id] ?? {}).length === 0);
+  useEffect(() => {
+    if (!missing || nudged.current || worker?.running) return;
+    nudged.current = true;
+    void requestWorkerPass();
+  }, [missing, worker?.running]);
+
+  return { byId, loading, worker };
 }

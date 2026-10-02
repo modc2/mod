@@ -81,6 +81,18 @@ export async function fetchWorkerBacktests(days: number): Promise<WorkerCache | 
   }
 }
 
+/** Ask the worker for a pass now instead of at its next tick — used when a
+    card is missing a window entirely. A no-op server-side while one is
+    already running, so calling it twice costs nothing. */
+export async function requestWorkerPass(): Promise<boolean> {
+  try {
+    const res = await fetch(`${HUB_API}?run=1`, { method: "POST", headers: authHeaders() });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Publish the roster the worker should keep warm. Strats are the user's own
     saved ones — params only, no keys and no wallet state.
 

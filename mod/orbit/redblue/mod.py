@@ -325,6 +325,39 @@ class Mod:
         ~/.mod/redblue. An empty key forgets it."""
         return models.set_key(provider, key)
 
+    # ── library — everyone's reds and blues ──────────────────────
+    # The shell is the operator, so these run with owner=True.
+
+    def library(self, side='all', id=None, q=None, tag=None, author=None,
+                sort='new', limit=50):
+        """Explore the shared red/blue library, or one record (side + id) with
+        its history, lineage and forks."""
+        from redbluesrc import library
+        if id:
+            return library.item(side, id)
+        return library.explore(side=side, q=q, tag=tag, author=author,
+                               sort=sort, limit=self._num(limit) or 0)
+
+    def submit(self, side, name, text, author=None, tags=None, **extra):
+        """Add a red (attack prompt) or blue (system prompt) to the library."""
+        from redbluesrc import library
+        return library.submit(dict(extra, side=side, name=name, text=text,
+                                   author=author, tags=tags), owner=True)
+
+    def fork(self, side, id, as_side=None, name=None, author=None, **extra):
+        """Copy any library record into a new one, optionally labelled the
+        other side (red <-> blue)."""
+        from redbluesrc import library
+        return library.fork(dict(extra, side=side, id=id, as_side=as_side,
+                                 name=name, author=author), owner=True)
+
+    def edit(self, side, id, relabel=None, **fields):
+        """Edit a library record in place (history kept); relabel=red|blue
+        moves it to the other side."""
+        from redbluesrc import library
+        return library.edit(dict(fields, side=side, id=id, relabel=relabel),
+                            owner=True)
+
     # ── surfaces ─────────────────────────────────────────────────
 
     def serve(self, port=None, bind=None, background=False):

@@ -234,13 +234,25 @@ pub fn shape(
     // The equity the scaling divides by: the trader's account value where
     // the window opens. Zero or missing makes every scaled number undefined.
     let av = parse_history(chosen.and_then(|s| s.get("accountValueHistory")));
-    let basis = value_at(&av, t0).unwrap_or(0.0);
+    let mut basis = value_at(&av, t0).unwrap_or(0.0);
+    // Unified-margin accounts: HL publishes the perp book's PnL but an
+    // all-zero perp accountValueHistory, because the collateral lives in the
+    // unified (combined) account. The perp PnL curve is still the right
+    // numerator; the account's own equity is the honest denominator.
+    let mut unified = false;
+    if basis <= 0.0 && source == "perp" {
+        let cav = parse_history(combined.and_then(|s| s.get("accountValueHistory")));
+        let cb = value_at(&cav, t0).unwrap_or(0.0);
+        if cb > 0.0 { basis = cb; unified = true; }
+    }
     if basis <= 0.0 {
         checks.push(Check::fail("basis", "no account equity at the window start — nothing to scale your capital against".into()));
         return Backtest::unavailable(address, days, capital, "no account equity at the window start to scale against", checks);
     }
     if basis < MIN_BASIS_USD {
         checks.push(Check::warn("basis", format!("trader equity at window start was only ${basis:.0} — ROI scaled off a dust basis is unstable")));
+    } else if unified {
+        checks.push(Check::pass("basis", format!("scaled against ${basis:.0} of account equity at window start — this wallet margins perps from a unified account, so its perp slot carries no equity of its own")));
     } else {
         checks.push(Check::pass("basis", format!("scaled against ${basis:.0} of trader equity at window start")));
     }
@@ -353,31 +365,45 @@ pub fn shape(
 /// spends, so a backtest costs nothing new. Never errors — bad input or a
 /// silent exchange degrades to `available: false` with the reason.
 pub async fn run(hl: Arc<Client>, address: &str, days: u32, capital: f64) -> Backtest {
+    run_windows(hl, address, &[days], capital).await.pop()
+        .unwrap_or_else(|| Backtest::unavailable(address, days, capital, "no window asked for", vec![]))
+}
+
+/// The same replay over several windows at once, one result per entry of
+/// `windows` in the order given.
+///
+/// One portfolio payload carries every period slot and one fills tape
+/// fetched back to the LONGEST window covers every shorter one, so N windows
+/// cost exactly the two upstream calls one window does — which is what makes
+/// backtesting a whole board at five horizons affordable on /info's budget.
+pub async fn run_windows(hl: Arc<Client>, address: &str, windows: &[u32], capital: f64) -> Vec<Backtest> {
+    let every = |note: &str, check: Check| -> Vec<Backtest> {
+        windows.iter().map(|d| Backtest::unavailable(address, *d, capital, note, vec![check.clone()])).collect()
+    };
+    if windows.is_empty() { return vec![]; }
     if !crate::curve::is_wallet(address) {
-        return Backtest::unavailable(address, days, capital,
-            "not a wallet address (0x + 40 hex characters)",
-            vec![Check::fail("input", "not a wallet address (0x + 40 hex characters)".into())]);
+        let n = "not a wallet address (0x + 40 hex characters)";
+        return every(n, Check::fail("input", n.into()));
     }
     if !capital.is_finite() || capital <= 0.0 {
-        return Backtest::unavailable(address, days, capital,
-            "capital must be a positive USD amount",
-            vec![Check::fail("input", "capital must be a positive USD amount".into())]);
+        let n = "capital must be a positive USD amount";
+        return every(n, Check::fail("input", n.into()));
     }
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let cutoff = now_ms - (days as i64) * 86_400_000;
+    let longest = windows.iter().copied().max().unwrap_or(1);
+    let cutoff = now_ms - (longest as i64) * 86_400_000;
     let portfolio = match hl.user_pnl(address).await {
         Ok(v) => v,
         Err(e) => {
-            return Backtest::unavailable(address, days, capital,
-                "hyperliquid would not answer for this wallet right now — try again shortly",
-                vec![Check::fail("history", format!("portfolio fetch failed: {e}"))]);
+            return every("hyperliquid would not answer for this wallet right now — try again shortly",
+                Check::fail("history", format!("portfolio fetch failed: {e}")));
         }
     };
     // Fills are decoration on the equity model — a failed tape costs the
     // mirror, not the backtest.
     let fills = hl.user_fills_by_time(address, cutoff).await
         .map(|v| parse_fills(&v)).unwrap_or_default();
-    shape(address, days, capital, &portfolio, &fills, now_ms)
+    windows.iter().map(|d| shape(address, *d, capital, &portfolio, &fills, now_ms)).collect()
 }
 
 #[cfg(test)]
@@ -565,6 +591,29 @@ mod tests {
         assert!(b.available, "numbers still come back");
         assert!(!b.ok, "but the coverage check fails the result");
         assert_eq!(check(&b, "coverage").status, "fail");
+    }
+
+    #[test]
+    fn unified_account_takes_basis_from_combined_equity() {
+        // HL's unified-margin shape: perp pnl moves, perp equity is all zero.
+        let span = 7 * DAY;
+        let n = 3i64;
+        let row = |pnl: &[f64], eq: &[f64]| {
+            let pts = |xs: &[f64]| xs.iter().enumerate()
+                .map(|(i, x)| json!([NOW - span + span * i as i64 / (n - 1), x.to_string()]))
+                .collect::<Vec<_>>();
+            json!({ "accountValueHistory": pts(eq), "pnlHistory": pts(pnl), "vlm": "0" })
+        };
+        let p = json!([
+            ["week", row(&[0.0, 50.0, 100.0], &[1000.0, 1050.0, 1100.0])],
+            ["perpWeek", row(&[0.0, 50.0, 100.0], &[0.0, 0.0, 0.0])],
+        ]);
+        let b = shape("0xabc", 7, 1_000.0, &p, &[], NOW);
+        assert!(b.available, "{:?}", b.note);
+        assert_eq!(b.source, "perp");
+        assert_eq!(b.basis_equity, 1000.0);
+        assert_eq!(b.roi_pct, 10.0);
+        assert!(check(&b, "basis").detail.contains("unified"));
     }
 
     #[test]

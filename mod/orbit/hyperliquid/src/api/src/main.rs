@@ -11,6 +11,7 @@ mod copytrade;
 mod indexes;
 mod store;
 mod strats_board;
+mod strats_backtest;
 mod sync;
 mod mcp;
 mod routes;

@@ -215,6 +215,8 @@ pub fn is_public(method: &Method, path: &str) -> bool {
         | "/wallet/config" | "/indexes" | "/vaults" | "/market/meta"
         // The unified strats board is browse-surface, like /indexes and /vaults.
         | "/strats/board"
+        // Its multi-window backtest is the same browse-surface, replayed.
+        | "/strats/backtest"
         // MCP discovery: the tool schema is the module's public fn surface.
         | "/mcp/schema"
         // Agent readiness (is a model key configured, how many tools). Asking
