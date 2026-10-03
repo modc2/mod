@@ -8,6 +8,8 @@ import { ReactNode } from 'react'
 // here and it appears everywhere at once (same pattern as openhouse).
 export const ROUTES = [
   { href: '/', label: 'Overview', blurb: 'What a member-owned mutual is, and the live numbers.' },
+  { href: '/ask', label: 'Ask', blurb: 'Ask the guide anything: what a term means, or design your pool in one sentence.' },
+  { href: '/create', label: 'Create a pool', blurb: 'Pick a starter, set the numbers, see if it can pay, open it.' },
   { href: '/pools', label: 'Pools', blurb: 'Every off-chain pool on this node: members, money, claims.' },
   { href: '/contract', label: 'On chain', blurb: 'The contract, its guarantees, and a live pool read off the chain.' },
   { href: '/preset', label: 'Templates', blurb: 'The US health mutual and the other presets, term by term.' },

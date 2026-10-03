@@ -12,6 +12,10 @@
     GET  /preset?preset=health&decimals=6
     GET  /onchain?address=0x..  a live pool, read off the chain
     GET  /onchain/claim?address=0x..&claim=1
+    GET  /guide                 every explainer + the starter pools
+    GET  /agents · /agents/<id> the agent roster (fleet agent contract)
+    POST /run  /run/stream      ask the agent in plain English (JSON | SSE)
+    GET  /.well-known/agent.json   agent/1.0 card
 
 Standard library only. Reads are open; the tools that move money on the
 off-chain ledger need the keys they always needed, and an on-chain deploy
@@ -28,6 +32,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
+import agent as A                                            # noqa: E402
+import guide as G                                            # noqa: E402
 import mcp as M                                              # noqa: E402
 import onchain as O                                          # noqa: E402
 import pool as P                                             # noqa: E402
@@ -100,6 +106,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {'tools': M.tool_list()})
         if path == '/mcp':
             return self._send(405, {'error': 'POST JSON-RPC 2.0 to /mcp'})
+        if path == '/guide':
+            return self._send(200, {'topics': G.topics(), 'templates': G.templates(),
+                                    'examples': A.EXAMPLES, 'brains': A.brains()})
+        if path == '/.well-known/agent.json':
+            host = self.headers.get('host') or 'localhost:50850'
+            return self._send(200, A.card(f'http://{host}'))
+        if path == '/agents':
+            return self._send(200, A.agents())
+        if path.startswith('/agents/'):
+            try:
+                return self._send(200, A.agent(path.split('/', 2)[2]))
+            except KeyError as e:
+                return self._send(404, {'error': str(e)})
+        if path in ('/run', '/run/stream'):
+            return self._send(405, {'error': f'POST {path} with {{"query": "..."}}',
+                                    'try': A.EXAMPLES})
         if path == '/pools':
             return self._run(lambda: P.pools(q=q.get('q'), state=q.get('state'),
                                              limit=q.get('limit', 100)))
@@ -124,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._run(lambda: M.call_tool('si_onchain', dict(q)))
         if path == '/onchain/claim':
             return self._run(lambda: M.call_tool('si_onchain_claim', dict(q)))
-        self._send(404, {'error': f'no route {path}', 'see': __doc__.strip().splitlines()[2:16]})
+        self._send(404, {'error': f'no route {path}', 'see': __doc__.strip().splitlines()[2:21]})
 
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path.rstrip('/')
@@ -141,7 +163,42 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/tools/'):
             name = path[7:]
             return self._run(lambda: M.call_tool(name, self._body()))
+        if path in ('/run', '/run/stream'):
+            return self._agent_run(path)
         self._send(404, {'error': f'no route {path}'})
+
+
+    def _agent_run(self, path):
+        try:
+            body = self._body()
+        except SelfInsureError as e:
+            return self._send(e.status, e.dict())
+        query = str(body.get('query') or body.get('message') or '').strip()
+        if not query:
+            return self._send(400, {'error': 'a run needs a `query`', 'try': A.EXAMPLES})
+        hist = body.get('history')
+        kw = {'agent': body.get('agent_type') or body.get('agent'),
+              'brain': body.get('brain') or 'auto', 'model': body.get('model'),
+              'history': [h for h in hist if isinstance(h, dict)][-12:]
+              if isinstance(hist, list) else None,
+              # Same gate as POST /tools/*: open. Pool writes still need the
+              # owner/member keys pool.py always asked for.
+              'can_write': True}
+        if path == '/run':
+            return self._run(lambda: A.run(query, **kw))
+        self.send_response(200)
+        self.send_header('content-type', 'text/event-stream')
+        self.send_header('cache-control', 'no-cache')
+        self.send_header('access-control-allow-origin', '*')
+        self.send_header('connection', 'close')
+        self.end_headers()
+        try:
+            for ev in A.run_stream(query, **kw):
+                self.wfile.write(f'data: {json.dumps(ev, default=str)}\n\n'.encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass                        # the caller hung up mid-run
+        self.close_connection = True
 
 
 def serve(port=None):

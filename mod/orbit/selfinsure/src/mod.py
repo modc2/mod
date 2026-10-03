@@ -92,6 +92,21 @@ mutual template with a 0% operator fee."""
         return self._mcp().call_tool('si_stats', {})
 
     # ── agents ──────────────────────────────────────────────
+    def ask(self, query, brain='rules', create=False):
+        """Ask the guide in plain English. create=True lets a query ending in
+        'confirm' actually open the pool it drafts."""
+        import agent
+        return agent.run(query, brain=brain, can_write=bool(create),
+                         agent=None if create else 'selfinsure-reader')
+
+    def agents(self):
+        import agent
+        return agent.agents()
+
+    def guide(self):
+        import guide
+        return {'topics': guide.topics(), 'templates': guide.templates()}
+
     def tools(self):
         return self._mcp().tool_list()
 

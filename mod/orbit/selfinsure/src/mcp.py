@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""selfinsure mcp — twenty-six tools, and the adjudicator's seat is the point.
+"""selfinsure mcp — twenty-nine tools, and the adjudicator's seat is the point.
 
 An agent is not a spectator here. `si_queue` is a work queue of claims waiting
 on a decision, `si_claim` is the case file, and `si_vote` is the decision — with
@@ -228,6 +228,45 @@ def _t_onchain(a):
 def _t_onchain_claim(a):
     return O.claim(a['address'], a['claim'], network=a.get('network'),
                    decimals=a.get('decimals'))
+
+
+# ── the guide: meaning, drafting, asking ─────────────────────────
+
+def _t_explain(a):
+    import guide as G
+    q = (a.get('topic') or a.get('q') or '').strip()
+    if not q or q in ('all', 'glossary', 'list'):
+        return {'topics': G.topics()}
+    t = G.topic(q)
+    if t:
+        return {'topic': {k: t[k] for k in ('id', 'title', 'text', 'link') if k in t},
+                'related': []}
+    out = G.explain(q)
+    if not out['topic']:
+        out['hint'] = 'no explainer matched — call with topic=all for the glossary'
+    return out
+
+
+def _t_draft(a):
+    import guide as G
+    if a.get('template') and not a.get('text'):
+        t = G.template(a['template'])
+        if not t:
+            raise SelfInsureError(f'no template {a["template"]!r} — '
+                                  f'{", ".join(x["id"] for x in G.TEMPLATES)}', status=404)
+        return {'create_args': t['terms'], 'template': t['id'], 'stated': [],
+                'assumed': [], 'check': G.check(t['terms'], a.get('members')),
+                'templates': [x['id'] for x in G.TEMPLATES]}
+    if a.get('terms'):
+        return {'check': G.check(a['terms'], a.get('members'))}
+    return G.draft(a.get('text') or '', members=a.get('members'))
+
+
+def _t_ask(a):
+    import agent as A
+    return A.run(a.get('query') or a.get('q') or '', brain=a.get('brain') or 'rules',
+                 agent='selfinsure-reader' if not a.get('allow_create') else None,
+                 can_write=bool(a.get('allow_create')))
 
 
 TOOLS = {
@@ -616,6 +655,45 @@ TOOLS = {
             'network': _str(''), 'decimals': _num('')},
             'required': ['address', 'claim']},
         'handler': _t_onchain_claim,
+    },
+
+    'si_explain': {
+        'description': 'What a term or idea means here, in plain words: mutual, '
+                       'premium, coverage, deductible, waiting period, operator fee, '
+                       'adjudicators, quorum, unfunded claims, surplus, oracles, on '
+                       'chain vs on this node, how to create your own pool. Pass a '
+                       'question or a topic id; topic=all returns the whole glossary.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'topic': _str('a question ("what is the operator fee?"), a topic id, or all')}},
+        'handler': _t_explain,
+    },
+    'si_draft': {
+        'description': 'Design a pool without creating it. text = one plain sentence '
+                       '("a pool for 20 couriers covering bike theft, $8 a month, up '
+                       'to $600, 2 votes") → create_args ready for si_create_pool, which '
+                       'terms you stated vs which were filled in, and a could-it-pay '
+                       'check (members x premium per year vs the per-claim cap, with '
+                       'plain warnings). Or template = bike|phone|pet|income|weather|'
+                       'health|custom for a starter, or terms = {...} to check your own.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'text': _str('the pool, described in one sentence'),
+            'template': _str('a starter: bike, phone, pet, income, weather, health, custom'),
+            'terms': {'type': 'object', 'description': 'create_pool terms to check'},
+            'members': _num('how many members you expect (default: from text, else 10)')}},
+        'handler': _t_draft,
+    },
+    'si_ask': {
+        'description': 'Ask the selfinsure guide anything in plain English and get a '
+                       'plain answer back — it explains, reads the live pools and '
+                       'drafts pools. Read-only unless allow_create=true and the query '
+                       'ends with "confirm".',
+        'inputSchema': {'type': 'object', 'properties': {
+            'query': _str('the question'),
+            'brain': _str('rules (default, local, free) or llm if the node has one',
+                          enum=['rules', 'llm', 'auto']),
+            'allow_create': _bool('let a confirmed draft actually open the pool')},
+            'required': ['query']},
+        'handler': _t_ask,
     },
 }
 

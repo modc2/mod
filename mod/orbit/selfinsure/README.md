@@ -29,11 +29,43 @@ src/
   pool.py       the same mutual off-chain (cents, JSON ledger) — for pools that are not on a chain yet
   chain.py      the bridge to the eth / solana modules (this module holds no keys)
   onchain.py    source · abi · presets · deploy through the eth module · read a live pool back
-  mcp.py        26 MCP tools (si_*) for agents — adjudicating claims is the point
+  guide.py      explainers, starter pools, sentence → pool terms, could-it-pay check
+  agent.py      the guide agent: rules brain (local) + optional local LLM; /agents /run
+  mcp.py        29 MCP tools (si_*) for agents — adjudicating claims is the point
   api.py        one port: REST + POST /mcp + the transparency page
   mod.py        the mod-protocol entry point
   console.html  the transparency page
 ```
+
+## Ask the guide, create your own pool
+
+`src/guide.py` + `src/agent.py` — an agent that runs on this node with no
+outside service. It explains every term in plain words, reads the live pools,
+and turns one sentence into a pool:
+
+```
+"a pool for 20 couriers covering bike theft, $8 a month, up to $600"
+→ terms (from the bike starter where you did not say) + "could it pay?":
+  20 members x 8 USD / 30 days ≈ 1,947 USD a year, enough for 3.2 full claims
+```
+
+Drafting never creates. A pool opens only from the app's **Create** button or a
+query that ends in "confirm" (and never through `selfinsure-reader`). The owner
+key comes back once.
+
+| where | what |
+|---|---|
+| app `/selfinsure/ask` | chat with the guide; drafts hand off to Create |
+| app `/selfinsure/create` | starter or sentence → form with hints → live could-it-pay check → open |
+| `GET /agents`, `POST /run`, `POST /run/stream` (SSE) | fleet agent contract (same events as orbit/agent) |
+| `GET /guide` | every explainer + the starter pools |
+| MCP `si_explain` · `si_draft` · `si_ask` | the same, for other agents |
+
+Two brains: **rules** (default — no model, no network, free) and **llm**
+(optional — set `SELFINSURE_AGENT_LLM=http://127.0.0.1:11434/v1` for a local
+ollama/llama-server, `SELFINSURE_AGENT_MODEL`, optional `_KEY`; it then answers
+open-ended questions too). If the model fails, the run falls back to rules and
+says so.
 
 ## What the contract guarantees, in code
 

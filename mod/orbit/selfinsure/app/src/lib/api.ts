@@ -14,6 +14,17 @@ export async function api<T = any>(path: string): Promise<T> {
   return body as T
 }
 
+export async function post<T = any>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${API}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  })
+  const data = await r.json().catch(() => null)
+  if (!r.ok) throw new Error(data?.error || `${r.status} on ${path}`)
+  return data as T
+}
+
 export function useResource<T = any>(path: string | null) {
   const [data, setData] = useState<T | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -113,6 +124,61 @@ export interface Preset {
   decimals: number
   terms: (number | boolean)[]
   why: Record<string, string>
+}
+
+// ── the guide + agent (src/guide.py, src/agent.py) ──
+
+export interface PoolTerms {
+  name: string
+  about: string
+  premium: number
+  period_days: number
+  coverage: number
+  deductible: number
+  annual_cap?: number | null
+  waiting_days: number
+  quorum: number
+  threshold: number
+  fee_bps: number
+  agent_policy: 'open' | 'approved'
+  reserve_floor: number
+  unit: string
+}
+
+export interface Check {
+  level: 'ok' | 'warn' | 'bad'
+  members: number
+  members_assumed: boolean
+  into_pool_per_year: number
+  full_claims_per_year: number | null
+  headline: string
+  notes: string[]
+}
+
+export interface Draft {
+  create_args: PoolTerms
+  template: string | null
+  stated: string[]
+  assumed: string[]
+  check: Check
+}
+
+export interface Topic { id: string; title: string; text: string; link?: string }
+export interface Template { id: string; title: string; terms: PoolTerms }
+export interface Guide { topics: Topic[]; templates: Template[]; examples: string[]; brains: any }
+
+export interface Created { id: string; name: string; owner_key: string }
+
+export interface RunResult {
+  result: string
+  brain: string
+  fallback?: string | null
+  steps: { tool: string; params: any; error?: string }[]
+  draft?: Draft
+  created?: Created
+  links?: string[]
+  topics?: string[]
+  suggestions?: string[]
 }
 
 // ── formatting ──

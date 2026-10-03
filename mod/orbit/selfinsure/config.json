@@ -1,14 +1,15 @@
 {
     "name": "selfinsure",
     "description": "Member-owned insurance mutuals as an Ethereum contract: operator fee capped at 10% and published on chain, 7-day fee notice, pro-rata surplus rebates, FIFO unfunded queue, agent-adjudicated claims, optional oracle for real data (advisory / required / automatic), and a US health mutual template with a 0% operator fee",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "port": 50850,
     "app_port": 50851,
     "route": true,
     "urls": {
         "api": "http://localhost:50850",
         "app": "http://localhost:50851",
-        "mcp": "http://localhost:50850/mcp"
+        "mcp": "http://localhost:50850/mcp",
+        "agent": "http://localhost:50850/run"
     },
     "contracts": {
         "source": "contracts/src/SelfInsure.sol",
@@ -57,6 +58,9 @@
         "pools",
         "pool",
         "stats",
+        "ask",
+        "agents",
+        "guide",
         "tools",
         "call",
         "serve"
@@ -66,7 +70,15 @@
         "transport": "streamable-http",
         "stdio": "python3 src/mcp.py",
         "auth": "none",
-        "docs": "26 tools. Off-chain pools: si_pools, si_pool, si_create_pool, si_set_terms, si_quote, si_join, si_premium, si_donate, si_member, si_register_agent, si_admit_agent, si_agents, si_claim_file, si_queue, si_claim, si_vote, si_withdraw_claim, si_distribute, si_withdraw_fees, si_ledger, si_stats. On-chain: si_contract (describe/source/abi/compile/calls), si_preset (health/parametric/mutual terms scaled to an asset), si_deploy (through the eth module keystore), si_onchain (a live pool: money, the provider's profit share, solvency), si_onchain_claim."
+        "docs": "29 tools. Guide: si_explain (what a term means), si_draft (a pool from one sentence + could-it-pay check, never creates), si_ask (plain-English questions to the guide agent). Off-chain pools: si_pools, si_pool, si_create_pool, si_set_terms, si_quote, si_join, si_premium, si_donate, si_member, si_register_agent, si_admit_agent, si_agents, si_claim_file, si_queue, si_claim, si_vote, si_withdraw_claim, si_distribute, si_withdraw_fees, si_ledger, si_stats. On-chain: si_contract (describe/source/abi/compile/calls), si_preset (health/parametric/mutual terms scaled to an asset), si_deploy (through the eth module keystore), si_onchain (a live pool: money, the provider's profit share, solvency), si_onchain_claim."
     },
-    "schema": "QmXqR3BFQedqZikvVMmL52d6QHwJYu3GSHHjjvQR18joAZ"
+    "schema": "QmbVtj52oBzbYbTCT4P5nFHa1PmPY6rUknCpBa6JCy5vLC",
+    "agent": {
+        "roster": "GET /agents",
+        "run": "POST /run",
+        "stream": "POST /run/stream",
+        "card": "/.well-known/agent.json",
+        "brains": "rules (default: local, free, no model) | llm (optional: SELFINSURE_AGENT_LLM = any OpenAI-compatible url, local first)",
+        "app": "/selfinsure/ask"
+    }
 }
