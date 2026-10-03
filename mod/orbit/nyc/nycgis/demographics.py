@@ -193,7 +193,9 @@ def _derive(s: Dict[str, Any]) -> Dict[str, Any]:
         return round(a / b * scale, nd) if a is not None and b else None
 
     pop, land = s.get('population') or 0, s.get('land_sqmi') or 0
-    s['density'] = round(pop / land) if land > 0.005 else None
+    # Zero residents is "nobody lives here" (a park, an airport), not the
+    # bottom of the density scale — it gets the no-data class.
+    s['density'] = round(pop / land) if land > 0.005 and pop > 0 else None
     s['vacancy_pct'] = ratio('vacant_units', 'housing_units')
     s['renter_pct'] = ratio('renter_households', 'households')
     denom = (s.get('rb_total') or 0) - (s.get('rb_nc') or 0)
@@ -281,17 +283,65 @@ def _exact(whole: Dict[str, Any], area: Dict[str, Any], name: str) -> None:
         area['medians'] = 'exact'
 
 
+def _median(xs: List[float]) -> Optional[float]:
+    xs = sorted(xs)
+    n = len(xs)
+    if not n:
+        return None
+    return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+
+def home_sales(since: str) -> Dict[str, Any]:
+    """
+    Median home sale per NTA, per borough and citywide — with BULK DEEDS
+    REMOVED, which is why this is computed here rather than with SoQL
+    ``median()``.
+
+    When one deed conveys many units (a developer selling a block of condos,
+    a co-op portfolio), DOF records the deed's *total* price on every unit's
+    row. A 40-unit, $90M transfer becomes forty "$90M condo sales" — enough
+    to make the Bronx's Bedford Park read as a $2.2M-median neighbourhood.
+    Rows sharing (borough, block, date, price) are such a deed; they are
+    dropped, since no per-unit price can be recovered from them.
+    """
+    def fetch():
+        rows = S.soql_all(
+            P.DOMAIN, P.DATASET, max_rows=250_000,
+            select='borough,nta,block,sale_date,sale_price',
+            where=P._where('nta', since, None, SALE_TYPE))
+        seen: Dict[tuple, int] = {}
+        for r in rows:
+            k = (r.get('borough'), r.get('block'), r.get('sale_date'), r.get('sale_price'))
+            seen[k] = seen.get(k, 0) + 1
+        by_nta: Dict[str, List[float]] = {}
+        by_boro: Dict[str, List[float]] = {}
+        city: List[float] = []
+        bulk = 0
+        for r in rows:
+            k = (r.get('borough'), r.get('block'), r.get('sale_date'), r.get('sale_price'))
+            if seen[k] > 1:
+                bulk += 1
+                continue
+            v = P._num(r.get('sale_price'))
+            if v is None:
+                continue
+            by_nta.setdefault(str(r.get('nta')), []).append(v)
+            by_boro.setdefault(P.BOROUGH_CODES.get(str(r.get('borough')), ''), []).append(v)
+            city.append(v)
+        pack = lambda d: {k: {'median_price': _median(v), 'sales': len(v)} for k, v in d.items()}
+        return {'nta': pack(by_nta), 'borough': pack(by_boro),
+                'city': {'median_price': _median(city), 'sales': len(city)},
+                'bulk_rows_dropped': bulk, 'rows': len(rows)}
+    return S.cached(f'demo-homesales-{since}-v1', 3 * S.DAY, fetch)
+
+
 def _sales(geography: str, since: str) -> Dict[str, Dict[str, Any]]:
     """DOF median home sale price per area — best-effort."""
     try:
-        if geography == 'nta':
-            return P.aggregate('nta', since=since, property_type=SALE_TYPE)
-        if geography in ('borough', 'city'):
-            stats = P.aggregate('borough', since=since, property_type=SALE_TYPE)
-            return {P.BOROUGH_CODES.get(k, k): v for k, v in stats.items()}
+        hs = home_sales(since)
+        return hs['city'] if geography == 'city' else hs.get(geography, {})
     except Exception:
-        pass        # prices are a garnish here; demographics must still load
-    return {}
+        return {}   # prices are a garnish here; demographics must still load
 
 
 def stats(geography: str = 'nta', since: str = '2025-01-01') -> Dict[str, Any]:
@@ -313,7 +363,16 @@ def stats(geography: str = 'nta', since: str = '2025-01-01') -> Dict[str, Any]:
             areas = _rollup(rows, lambda r: r.get(j))
             names = {r.get(j): r for r in rows}
             sales = _sales(geography, since)
+            ntatype = {}
+            if geography == 'nta':
+                from . import layers as L
+                ntatype = {f['properties'].get('nta2020'): f['properties'].get('ntatype')
+                           for f in L.neighborhoods()['features']}
             for k, a in areas.items():
+                # NTA types other than 0 are parks, airports, cemeteries and
+                # Rikers Island — real places, but not neighbourhoods to rank.
+                if geography == 'nta':
+                    a['residential'] = str(ntatype.get(k, '0')) == '0'
                 src = names.get(k, {})
                 a['name'] = src.get(GEOS[geography]['name']) or k
                 a['borough'] = src.get('boroname')
@@ -327,19 +386,15 @@ def stats(geography: str = 'nta', since: str = '2025-01-01') -> Dict[str, Any]:
         city = _rollup(rows, lambda r: 'NYC')['NYC']
         city.update(name='New York City', medians='approx')
         _exact(meta['whole'], city, 'NYC')
-        city['sales'] = sum(v.get('sales', 0) for v in _sales('city', since).values())
-        try:     # one more grouped call; a citywide median, not a mean of five
-            row = S.soql(P.DOMAIN, P.DATASET, select='median(sale_price) as m',
-                         where=P._where('borough', since, None, SALE_TYPE))
-            city['median_sale_price'] = P._num(row[0].get('m')) if row else None
-        except Exception:
-            pass
+        cs = _sales('city', since)
+        city['sales'] = cs.get('sales', 0)
+        city['median_sale_price'] = cs.get('median_price')
         _derive(city)
         meta.pop('whole', None)
         return {'geography': geography, 'since': since, 'areas': areas,
                 'city': city, **meta, 'sources': SOURCES,
                 'notes': NOTES}
-    return S.cached(f'demo-stats-{geography}-{since}-v3', S.DAY, fetch)
+    return S.cached(f'demo-stats-{geography}-{since}-v5', S.DAY, fetch)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -407,8 +462,13 @@ def choropleth(metric: str = 'density', geography: str = 'tract') -> dict:
     # the breaks or they flatten the bottom of the scale.
     if metric in ('density', 'population'):
         values = [v for v in values if v]
+    # The map's step expression wants the minimum as the first stop.
+    br = quantile_breaks(values)
+    if br['stops']:
+        br['stops'] = [br['min']] + br['stops']
+    br['metric'] = metric
     return {'type': 'FeatureCollection', 'features': feats,
-            'breaks': quantile_breaks(values),
+            'breaks': br,
             'meta': {'metric': metric, 'geography': geography,
                      'label': METRICS[metric]['label'],
                      'format': METRICS[metric]['format'],
@@ -435,5 +495,5 @@ NOTES = [
     'New homes = net units completed 2020 to date (DCP Housing Database); '
     'pipeline = units filed, approved or permitted but not finished.',
     'Sale price = median recorded sale of a house, condo or co-op (DOF), $50k+ '
-    'only; whole rental-building sales are excluded.',
+    'only; whole rental-building sales and multi-unit bulk deeds are excluded.',
 ]

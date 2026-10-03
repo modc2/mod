@@ -17,7 +17,7 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
@@ -25,12 +25,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 import mod as m
 from nycgis import layers as L
 from nycgis import mcp_server as mcp
+from nycgis import scene
 from nycgis import tools
 from nycgis.mcp_server import INSTRUCTIONS, PROTOCOL_VERSION, SERVER_INFO
 
@@ -122,6 +123,45 @@ def sales(
     """Individual recorded sales as points."""
     return geo(nyc().sales(since=since, until=until, property_type=property_type,
                            limit=limit, min_price=min_price, max_price=max_price))
+
+
+@app.get('/layers/population')
+def population(metric: str = Query('density'), geography: str = Query('tract')):
+    """Population density / census / housing-cost choropleth with class breaks."""
+    out = nyc().population(metric=metric, geography=geography)
+    if isinstance(out, dict) and out.get('error'):
+        raise HTTPException(status_code=400, detail=out)
+    return geo(out)
+
+
+@app.get('/stats')
+def stats(geography: str = Query('borough'), since: str = Query('2025-01-01'),
+          sort: str = Query(''), limit: int = Query(0, ge=0, le=5000)):
+    """Population and housing statistics per tract, neighborhood or borough."""
+    try:
+        return geo(nyc().stats(geography=geography, since=since, sort=sort, limit=limit))
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/report', response_class=HTMLResponse)
+def report(since: str = Query('2025-01-01')):
+    """The shareable brief: one self-contained HTML page — save it, email it, print it."""
+    from nycgis import report as RP
+    return HTMLResponse(RP.html_report(since), headers={'Cache-Control': LAYER_CACHE})
+
+
+@app.get('/report.csv')
+def report_csv(geography: str = Query('nta'), since: str = Query('2025-01-01')):
+    """Every statistic as CSV, per tract, neighborhood or borough."""
+    from nycgis import report as RP
+    try:
+        body = RP.csv(geography, since)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return PlainTextResponse(body, media_type='text/csv', headers={
+        'Content-Disposition': f'attachment; filename="nyc-{geography}-stats.csv"',
+        'Cache-Control': LAYER_CACHE})
 
 
 @app.get('/layers/{layer_id}')
@@ -358,7 +398,19 @@ CHAT_SYSTEM = (
     'short and concrete: lead with the figure, name the neighborhood, and '
     'cite the dataset it came from. Plain text only — no markdown tables, '
     'no headers; short paragraphs and simple "-" lists render best in the '
-    'chat panel.')
+    'chat panel. '
+    'YOU ALSO DRIVE THE USER\'S MAP. The user is looking at a live map beside '
+    'this chat, and each message starts with what it shows right now. Whenever '
+    'a question or request is about places, show it: call nyc_map to switch '
+    'layers, set housing filters, dim, outline or hide areas (`only` keeps just '
+    'the matching boroughs / neighborhoods), fly the camera, or '
+    'draw any open dataset as an overlay (find it with nyc_find_datasets, read '
+    'columns with nyc_dataset, then overlay with a SoQL where clause; prefer '
+    'mode "areas" by zip with per_capita for comparisons, "heat" for density). '
+    'When the answer has numbers, call nyc_infographic once with the headline '
+    'stats, a ranked bar list and the sources. Requests like "only Brooklyn", '
+    '"make it darker", "zoom into Harlem", "now by ZIP" are map edits — apply '
+    'them with nyc_map against the current state and confirm in one line.')
 
 # Tools the headless agent may touch: our MCP server, nothing else. The CLI
 # denies everything outside this list, so the chat agent cannot reach the
@@ -385,6 +437,43 @@ def _chat_mcp_config() -> str:
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    # What the user's map shows right now, so "only Brooklyn" or "now by ZIP"
+    # can be read against it. Sent by the page each turn; never trusted for
+    # anything but prompt context.
+    map_state: Optional[Dict[str, Any]] = None
+
+
+# The display tools: their results are directives for the page, forwarded on
+# the stream as `display` events once the tool has validated them.
+DISPLAY_TOOLS = {'mcp__nyc__nyc_map', 'mcp__nyc__nyc_infographic'}
+
+
+def _tool_result_json(block: dict) -> Optional[dict]:
+    """The JSON a display tool returned, out of a stream-json tool_result."""
+    if block.get('is_error'):
+        return None
+    content = block.get('content')
+    texts = [content] if isinstance(content, str) else [
+        c.get('text', '') for c in (content or []) if isinstance(c, dict)]
+    for t in texts:
+        try:
+            out = json.loads(t)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(out, dict) and isinstance(out.get('directive'), dict):
+            return out['directive']
+    return None
+
+
+@app.get('/overlay')
+def overlay(spec: str):
+    """GeoJSON for an agent overlay (the spec nyc_map validated), cached."""
+    try:
+        return scene.overlay_data(json.loads(spec))
+    except (ValueError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f'{type(e).__name__}: {e}')
 
 
 @app.get('/chat/health')
@@ -426,6 +515,9 @@ def chat(req: ChatRequest):
            '--max-turns', '25']
     if req.session_id:
         cmd += ['--resume', req.session_id]
+    if req.map_state:
+        state = json.dumps(req.map_state, default=str)[:3000]
+        message = f'[The user\'s map right now: {state}]\n\n{message}'
 
     def sse(event: dict) -> str:
         return f'data: {json.dumps(event)}\n\n'
@@ -438,6 +530,7 @@ def chat(req: ChatRequest):
         # A hung agent must not pin the connection open forever.
         watchdog = threading.Timer(CHAT_TIMEOUT, proc.kill)
         watchdog.start()
+        display_ids: set = set()
         try:
             proc.stdin.write(message)
             proc.stdin.close()
@@ -460,10 +553,20 @@ def chat(req: ChatRequest):
                             # Only surface real data tools — the CLI also emits
                             # harness plumbing (ToolSearch) nobody needs to see.
                             name = str(block.get('name', ''))
+                            if name in DISPLAY_TOOLS:
+                                display_ids.add(block.get('id'))
                             if name.startswith('mcp__nyc__'):
                                 yield sse({'type': 'tool',
                                            'name': name.replace('mcp__nyc__', ''),
                                            'input': block.get('input') or {}})
+                elif t == 'user':
+                    for block in (ev.get('message') or {}).get('content', []) or []:
+                        if not isinstance(block, dict) or block.get('type') != 'tool_result':
+                            continue
+                        if block.get('tool_use_id') in display_ids:
+                            d = _tool_result_json(block)
+                            if d:
+                                yield sse({'type': 'display', 'directive': d})
                 elif t == 'result':
                     err = ev.get('subtype') != 'success'
                     out = {'type': 'done', 'ms': ev.get('duration_ms'),

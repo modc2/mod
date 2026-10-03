@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import layers as L
 from . import prices as P
+from . import scene as SC
 from . import sources as S
 
 DISCOVERY = 'https://api.us.socrata.com/api/catalog/v1'
@@ -241,6 +242,8 @@ TITLES = {
     'nyc_traffic': 'Traffic speeds and when to drive',
     'nyc_dataset': 'Describe a dataset',
     'nyc_query': 'Query any dataset (SoQL)',
+    'nyc_map': 'Change the map on screen',
+    'nyc_infographic': 'Pin an infographic card',
 }
 
 
@@ -386,6 +389,24 @@ TOOLS: List[Tool] = [
           'search': _p('string', 'Filter by address/neighborhood substring')},
          _sales_table),
 
+    # ── people ───────────────────────────────────────────────────────────
+    Tool('nyc_population',
+         'Population and housing statistics for NYC per borough, neighborhood '
+         '(NTA) or census tract: population, density (people/sq mi), median '
+         'household income, median rent, rent burden (30%+/50%+), renter share, '
+         'vacancy, poverty, median home sale, price-to-income, new homes since '
+         '2020 and the construction pipeline. Census ACS 5-year + DCP + DOF. '
+         'Sort by any field to rank areas.',
+         'people',
+         {'geography': _p('string', 'borough, nta or tract', 'borough'),
+          'sort': _p('string', 'Field to rank by, descending (e.g. density, '
+                     'rent_burden_pct, new_units_per_1k)'),
+          'limit': _p('integer', 'Max areas returned (0 = all)', 25),
+          'since': _p('string', 'Sales window start, YYYY-MM-DD', '2025-01-01')},
+         lambda geography='borough', sort='', limit=25, since='2025-01-01':
+             get_nyc().stats(geography=geography, since=since, sort=sort,
+                             limit=limit)),
+
     # ── traffic ──────────────────────────────────────────────────────────
     Tool('nyc_traffic',
          'When to drive in NYC. Returns the hour-by-hour traffic profile of '
@@ -455,6 +476,67 @@ TOOLS: List[Tool] = [
           'limit': _p('integer', 'Max rows (≤1000)', 100),
           'domain': _p('string', '"nyc" or "nys"', 'nyc')},
          query_dataset),
+
+    # ── display: the agent drives the user's map ─────────────────────────
+    Tool('nyc_map',
+         'Change what the user\'s map shows, as they talk. Every argument is '
+         'optional; pass only what should change. Layers: `layers` replaces the '
+         'visible set, `add`/`remove` adjust it (ids from nyc_layers). Housing '
+         'choropleth filters: metric, geography, since, until, property_type '
+         '(turns the choropleth on). `min_value`/`max_value` dim areas outside '
+         'a range of the current metric. `highlight` outlines areas by name, '
+         'code or borough (e.g. ["Brooklyn"] or ["Harlem","BK0101"]; [] clears); `only` hides every area that '
+         'does not match. '
+         '`focus` flies the camera to a place name (or pass lat+lng+zoom). '
+         '`overlay` draws ANY open dataset: {"dataset":"erm2-nwe9","where":'
+         '"complaint_type=\'Rodent\' AND created_date>\'2026-01-01\'",'
+         '"mode":"heat"|"points"|"areas","by":"zip"|"borough",'
+         '"value":"count(*)","per_capita":true,"label":"<column>",'
+         '"title":"Rat complaints 2026"} — read columns with nyc_dataset first. '
+         '`reset` returns to the default map. The result says what was drawn.',
+         'display',
+         {'layers': _p('array', 'Replace the visible layer set with these ids'),
+          'add': _p('array', 'Layer ids to switch on'),
+          'remove': _p('array', 'Layer ids to switch off'),
+          'basemap': _p('string', f'One of: {", ".join(SC.BASEMAPS)}'),
+          'metric': _p('string', f'Housing metric: {", ".join(P.METRICS)}'),
+          'geography': _p('string', f'Housing geography: {", ".join(P.GEOGRAPHIES)}'),
+          'since': _p('string', 'Housing window start, YYYY-MM-DD'),
+          'until': _p('string', 'Housing window end, YYYY-MM-DD ("" = today)'),
+          'property_type': _p('string', f'One of: {", ".join(P.PROPERTY_TYPES)}'),
+          'min_value': _p('number', 'Dim areas below this value of the current metric'),
+          'max_value': _p('number', 'Dim areas above this value of the current metric'),
+          'highlight': _p('array', 'Area names / codes / boroughs to outline; [] clears'),
+          'only': _p('array', 'Show ONLY areas matching these names / codes / boroughs '
+                              '(e.g. ["Brooklyn"]); hides the rest; [] shows all'),
+          'focus': _p('string', 'Place to fly to (geocoded), e.g. "Astoria"'),
+          'lat': _p('number', 'Camera latitude (with lng)'),
+          'lng': _p('number', 'Camera longitude (with lat)'),
+          'zoom': _p('number', 'Camera zoom, 10 = city, 14 = neighborhood'),
+          'overlay': _p('object', 'Draw an open dataset: dataset, where, mode, by, '
+                                  'value, per_capita, column, lat, lng, label, limit, '
+                                  'domain, title'),
+          'clear_overlay': _p('boolean', 'Remove the agent overlay'),
+          'reset': _p('boolean', 'Back to the default map before applying the rest'),
+          'caption': _p('string', 'One line shown on the map explaining the view')},
+         SC.map_directive),
+    Tool('nyc_infographic',
+         'Pin an infographic card on the user\'s map: headline stats, a ranked '
+         'bar list, a small time series, takeaways and sources. Use it whenever '
+         'an answer has numbers worth seeing — after you have looked them up. '
+         'stats: [{"label","value","note"}] (value is display text, e.g. '
+         '"$1.2M"); bars: {"title","unit","items":[{"label","value"}]}; '
+         'series: {"title","unit","points":[{"x":"2019","y":123}]}; bullets: '
+         '["..."]; sources: [{"name","url"}]. Calling it again replaces the card.',
+         'display',
+         {'title': _p('string', 'Card title', required=True),
+          'subtitle': _p('string', 'One line under the title'),
+          'stats': _p('array', 'Up to 6 headline numbers'),
+          'bars': _p('object', 'Ranked bar list, up to 12 items'),
+          'series': _p('object', 'Time series, up to 60 points'),
+          'bullets': _p('array', 'Up to 6 short takeaways'),
+          'sources': _p('array', 'Datasets the numbers came from')},
+         SC.infographic),
 ]
 
 _BY_NAME = {t.name: t for t in TOOLS}

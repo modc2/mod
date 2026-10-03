@@ -6,6 +6,9 @@ engine is an MCP server: 17 read-only tools, plus SoQL access to every dataset
 NYC and NY State publish.
 
 **Ports:** API `50310`, app `50311` at `/nyc`. Start with `m nyc/serve`.
+**ASK agent drives the map:** `nyc_map` / `nyc_infographic` (`nycgis/scene.py`)
+return validated directives; `/chat` emits them as `display` SSE events;
+`app/src/lib/scene.ts` applies them; `/overlay` draws any dataset.
 **Docs:** `/nyc/docs` (generated from `GET /tools`).
 
 ## MCP
@@ -108,6 +111,15 @@ number:
   `refresh_seconds` in its `LAYERS` entry gets a matching `max-age` via
   `layers.cache_control()` and is re-polled by `page.tsx`. Served with the
   catalogue's default hour, a "live" layer sits frozen on screen.
+
+## Population & the brief (`nycgis/demographics.py`, `nycgis/report.py`)
+
+- Tool `nyc_population` (geography=borough|nta|tract, sort=<field>, limit).
+  HTTP: `/layers/population`, `/stats`, `/report` (self-contained HTML), `/report.csv`.
+- Census ACS comes from the **bulk table files**, not the API (keyless API calls
+  are redirected). Add a table by adding it to `ACS_TABLES`; bump the cache key.
+- City/borough medians are exact Census values; NTA medians are approximate.
+- Home-sale medians drop multi-unit bulk deeds; keep that if you touch it.
 
 ## Adding a layer
 

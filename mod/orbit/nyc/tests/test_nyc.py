@@ -171,7 +171,7 @@ def test_geographies_and_metrics_are_wired_to_boundaries():
 
 
 def test_every_catalog_layer_is_loadable_or_parameterised():
-    parameterised = {'housing_prices', 'sales'}
+    parameterised = {'housing_prices', 'sales', 'population'}
     for layer in L.LAYERS:
         assert layer['id'] in L.LOADERS or layer['id'] in parameterised, \
             f'{layer["id"]} has no loader'
@@ -630,3 +630,62 @@ def test_speed_snapshot_never_goes_backwards_in_time(monkeypatch, tmp_path):
               'meta': {'as_of': '2026-08-27T15:10:00.000', 'links_reporting': 12}}
     monkeypatch.setattr(TR, '_fetch_speeds', lambda *a, **k: newest)
     assert TR.speeds()['meta']['as_of'] == newest['meta']['as_of']
+
+
+# ── agent display directives (nyc_map / nyc_infographic) ────────────────────
+
+from nycgis import scene as SC          # noqa: E402
+
+
+def test_map_directive_validates_layers_and_turns_choropleth_on():
+    out = SC.map_directive(metric='price_change', geography='zip', highlight='Brooklyn')
+    d = out['directive']
+    assert d['housing'] == {'metric': 'price_change', 'geography': 'zip'}
+    assert 'housing_prices' in d['add']           # a filter on a hidden layer is a no-op
+    assert d['highlight'] == ['Brooklyn']
+    with pytest.raises(ValueError):
+        SC.map_directive(layers=['not_a_layer'])
+    with pytest.raises(ValueError):
+        SC.map_directive(metric='vibes')
+    with pytest.raises(ValueError):
+        SC.map_directive()                         # nothing to change
+
+
+def test_map_directive_explicit_camera_needs_no_geocoder():
+    d = SC.map_directive(lat=40.7, lng=-73.9, zoom=12, focus='here')['directive']
+    assert d['focus'] == {'lat': 40.7, 'lng': -73.9, 'zoom': 12.0, 'label': 'here'}
+
+
+def test_overlay_spec_rejects_injection():
+    ok = SC.normalize_overlay({'dataset': 'ERM2-NWE9', 'mode': 'areas', 'by': 'zip',
+                               'value': 'sum(number_injured)'})
+    assert ok['dataset'] == 'erm2-nwe9' and ok['value'] == 'sum(number_injured)'
+    for bad in ({'dataset': '../etc'}, {'dataset': 'erm2-nwe9', 'mode': 'areas',
+                                        'value': 'count(*) FROM x'},
+                {'dataset': 'erm2-nwe9', 'domain': 'evil.com'},
+                {'dataset': 'erm2-nwe9', 'mode': 'areas', 'by': 'planet'}):
+        with pytest.raises(ValueError):
+            SC.normalize_overlay(bad)
+    assert SC.normalize_overlay({'dataset': 'erm2-nwe9', 'mode': 'heat'})['limit'] == SC.MAX_POINTS
+    assert SC.normalize_overlay({'dataset': 'erm2-nwe9', 'limit': 10**9})['limit'] == SC.MAX_POINTS
+
+
+def test_coords_drop_zero_and_out_of_region_points():
+    assert SC._coords({'latitude': '40.7', 'longitude': '-73.9'}, 'latitude', 'longitude', None) == [-73.9, 40.7]
+    assert SC._coords({'latitude': '0', 'longitude': '0'}, 'latitude', 'longitude', None) is None
+    assert SC._coords({'loc': {'type': 'Point', 'coordinates': [-73.95, 40.65]}}, None, None, 'loc') == [-73.95, 40.65]
+
+
+def test_infographic_caps_and_strips_unsafe_links():
+    card = SC.infographic(title='T', stats=[{'label': 'a', 'value': '1'}] * 9,
+                          bars='{"items":[{"label":"x","value":"3"}]}',
+                          sources=[{'name': 'n', 'url': 'javascript:alert(1)'}])['directive']
+    assert len(card['stats']) == 6
+    assert card['bars']['items'] == [{'label': 'x', 'value': 3.0}]
+    assert 'url' not in card['sources'][0]
+
+
+def test_display_tools_are_registered():
+    from nycgis import tools as T
+    names = {t['name'] for t in T.list_tools()}
+    assert {'nyc_map', 'nyc_infographic'} <= names

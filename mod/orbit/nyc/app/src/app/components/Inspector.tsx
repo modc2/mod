@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { api, type Catalog, type TrendPoint } from '@/lib/api'
-import { count, percent, titleCase, usd, usdExact } from '@/lib/format'
+import { byFormat, count, percent, titleCase, usd, usdExact } from '@/lib/format'
 import HourChart, { hourLabel } from './HourChart'
 import TrendChart from './TrendChart'
 
@@ -140,6 +140,35 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
               ['Borough', p.borough],
               ['ZIP', p.zip],
             ]} />
+          </div>
+        )}
+
+        {selection.layerId === 'population' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Residents" value={byFormat(p.population, 'int')} big />
+              <Stat label="Per sq mi" value={byFormat(p.density, 'int')} big />
+              <Stat label="Median income" value={byFormat(p.median_income, 'usd')} />
+              <Stat label="Median rent" value={byFormat(p.median_rent, 'usd')} />
+              <Stat label="Rent 30%+ of income" value={byFormat(p.rent_burden_pct, 'pct')} />
+              <Stat label="Rent 50%+ of income" value={byFormat(p.severe_burden_pct, 'pct')} />
+            </div>
+            <Meta rows={[
+              ['Neighborhood', p.nta],
+              ['Borough', p.borough],
+              ['Households that rent', byFormat(p.renter_pct, 'pct')],
+              ['Homes', byFormat(p.housing_units, 'int')],
+              ['Vacant', byFormat(p.vacancy_pct, 'pct')],
+              ['Below poverty', byFormat(p.poverty_pct, 'pct')],
+              ['Median home sale', byFormat(p.median_sale_price, 'usd')],
+              ['Sale price / income', p.price_to_income != null ? `${p.price_to_income}x` : null],
+              ['New homes since 2020', byFormat(p.new_units_since_2020, 'int')],
+              ['Homes in pipeline', byFormat(p.pipeline_units, 'int')],
+              ['Land', p.land_sqmi != null ? `${Number(p.land_sqmi).toFixed(2)} sq mi` : null],
+            ]} />
+            <p className="text-[10px] leading-snug text-nes-ink3">
+              ACS 5-year survey estimates; small areas carry wide margins of error.
+            </p>
           </div>
         )}
 
@@ -317,7 +346,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
 }
 
 const KNOWN = [
-  'housing_prices', 'sales', 'subway_stations', 'subway_ridership',
+  'housing_prices', 'population', 'sales', 'subway_stations', 'subway_ridership',
   'affordable_housing', 'collisions', 'parks', 'bike_routes',
   'evacuation_zones', 'boroughs', 'neighborhoods',
   'traffic_speeds', 'traffic_volume',
@@ -376,6 +405,7 @@ function headline(sel: Selection): string {
   const p = sel.props
   switch (sel.layerId) {
     case 'housing_prices': return p.name || p.area
+    case 'population': return p.name || p.key
     case 'sales': return titleCase(p.address || 'Sale')
     case 'subway_stations': return p.name
     case 'subway_ridership': return p.name

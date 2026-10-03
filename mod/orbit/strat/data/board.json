@@ -26,5 +26,37 @@
     "trades_simulated": 36,
     "days": 3,
     "at": 1790702412
+  },
+  "copytensor.steady": {
+    "roi_pct": -0.0462,
+    "final_pnl": -0.4617,
+    "trades_simulated": 1,
+    "days": 7,
+    "currency": "TAO",
+    "at": 1791046436
+  },
+  "copytensor.top_n": {
+    "roi_pct": -0.1851,
+    "final_pnl": -1.8512,
+    "trades_simulated": 5,
+    "days": 7,
+    "currency": "TAO",
+    "at": 1791046436
+  },
+  "polymarket.copytrader": {
+    "roi_pct": -1.1621,
+    "final_pnl": -11.6212,
+    "trades_simulated": 168,
+    "days": 7,
+    "currency": "USDC",
+    "at": 1791046438
+  },
+  "polymarket.example_ev_strat": {
+    "roi_pct": -1.1621,
+    "final_pnl": -11.6212,
+    "trades_simulated": 168,
+    "days": 7,
+    "currency": "USDC",
+    "at": 1791046439
   }
 }

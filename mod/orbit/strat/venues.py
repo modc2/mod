@@ -76,6 +76,8 @@ class Peer:
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
+        # Public venue APIs behind Cloudflare 403 the default Python-urllib UA.
+        req.add_header("User-Agent", "mod-strat/1 (+local)")
         if token:
             req.add_header("Authorization", token if token.startswith("Bearer ")
                            else f"Bearer {token}")
@@ -310,7 +312,11 @@ class Hyperliquid(Venue):
                     trader=trader, timestamp=ts, symbol=str(f.get("coin") or ""),
                     side=OrderSide.BUY if str(f.get("side", "B")).upper().startswith("B") else OrderSide.SELL,
                     size=float(f.get("sz") or 0), price=float(f.get("px") or 0),
-                    extras={"dir": f.get("dir")}))
+                    # closed_pnl/fee: the exchange's realised numbers — the
+                    # hyperliquid native backtest model is built on them.
+                    extras={"dir": f.get("dir"),
+                            "closed_pnl": float(f.get("closedPnl") or 0),
+                            "fee": float(f.get("fee") or 0)}))
             return out
         except Exception:
             return []
@@ -352,27 +358,41 @@ class Bittensor(Venue):
             return None
 
     def trades(self, trader, since_ms, token=None):
+        """Flows inferred from the bt index (snapshot deltas). bt's MCP tool
+        takes `address`/`hours`; copytensor serves the same index over REST
+        and is the fallback. Ids follow copytensor's flow_to_trade() rule
+        (trader:ts_ms:netuid:SIDE) so they dedupe across both paths."""
+        hours = max(1, min(24 * 365, int((_now_ms() - since_ms) / 3_600_000) + 1))
+        items = []
         try:
-            r = self.peer.mcp("bt_trader_flows", {"coldkey": trader}, token)
+            r = self.peer.mcp("bt_trader_flows",
+                              {"address": trader, "hours": hours, "limit": 1000}, token)
             items = r if isinstance(r, list) else (r or {}).get("flows") or []
-            out = []
-            for i, f in enumerate(items):
-                ts = int(f.get("timestamp") or f.get("ts") or 0)
-                ts = ts * 1000 if ts and ts < 10**12 else ts
-                if ts < since_ms:
-                    continue
-                side_s = str(f.get("side") or f.get("direction") or "buy").lower()
-                out.append(VenueTrade(
-                    id=str(f.get("id") or f"{trader}:{ts}:{f.get('netuid')}:{side_s}"),
-                    venue=self.name, trader=trader, timestamp=ts,
-                    symbol=f"SN{f.get('netuid')}",
-                    side=OrderSide.BUY if "buy" in side_s or "stake" in side_s else OrderSide.SELL,
-                    size=float(f.get("alpha") or f.get("amount") or 0),
-                    price=float(f.get("price") or 0),
-                    extras={"tao_value": f.get("tao_value"), "block": f.get("block")}))
-            return out
         except Exception:
-            return []
+            items = []
+        if not items:
+            try:
+                r = Peer("copytensor", "STRAT_COPYTENSOR_URL").get(
+                    f"/traders/{trader}/flows?hours={hours}&limit=1000")
+                items = (r or {}).get("flows") or []
+            except Exception:
+                items = []
+        out = []
+        for f in items:
+            ts = int(f.get("ts") or f.get("timestamp") or 0)
+            ts = ts * 1000 if ts and ts < 10**12 else ts
+            if ts < since_ms:
+                continue
+            side = OrderSide.BUY if str(f.get("side") or "").lower() == "buy" else OrderSide.SELL
+            netuid = int(f.get("netuid") or 0)
+            out.append(VenueTrade(
+                id=f"{trader}:{ts}:{netuid}:{side.value}",
+                venue=self.name, trader=trader, timestamp=ts, symbol=f"SN{netuid}",
+                side=side, size=float(f.get("alpha") or 0),
+                price=float(f.get("price") or 0),
+                extras={"tao_value": float(f.get("tao_value") or 0),
+                        "block": int(f.get("block") or 0)}))
+        return out
 
     def _place(self, order, token, dry_run):
         if dry_run:
@@ -401,26 +421,39 @@ class Polymarket(Venue):
     mod = "polymarket"
     currency = "USDC"
 
+    # The polymarket module's API is owner-gated end to end, and its own
+    # engines read trader tape from the public data-api — so does this.
+    DATA = os.environ.get("STRAT_POLYMARKET_DATA_URL",
+                          "https://data-api.polymarket.com")
+
     def trades(self, trader, since_ms, token=None):
+        out = []
         try:
-            r = self.peer.get(f"/trader/{trader}/trades?since={since_ms}", token=token)
-            items = r if isinstance(r, list) else (r or {}).get("trades") or []
-            out = []
-            for t in items:
-                ts = int(t.get("timestamp") or 0)
-                ts = ts * 1000 if ts and ts < 10**12 else ts
-                if ts < since_ms:
-                    continue
-                out.append(VenueTrade(
-                    id=str(t.get("id") or t.get("transactionHash") or ts),
-                    venue=self.name, trader=trader, timestamp=ts,
-                    symbol=str(t.get("asset") or t.get("token_id") or ""),
-                    side=OrderSide.BUY if str(t.get("side", "BUY")).upper() == "BUY" else OrderSide.SELL,
-                    size=float(t.get("size") or 0), price=float(t.get("price") or 0),
-                    extras={"market": t.get("market") or t.get("title")}))
-            return out
+            for offset in range(0, 2000, 500):
+                page = self.peer._req(
+                    "GET", f"{self.DATA}/trades?user={trader}&limit=500"
+                           f"&offset={offset}&takerOnly=false", timeout=20)
+                page = page if isinstance(page, list) else []
+                for t in page:
+                    ts = int(t.get("timestamp") or 0)
+                    ts = ts * 1000 if ts and ts < 10**12 else ts
+                    if ts < since_ms:
+                        continue
+                    side = OrderSide.BUY if str(t.get("side", "BUY")).upper() == "BUY" else OrderSide.SELL
+                    out.append(VenueTrade(
+                        id=f"{t.get('transactionHash') or ts}:{t.get('asset')}:{side.value}",
+                        venue=self.name, trader=trader, timestamp=ts,
+                        symbol=str(t.get("asset") or ""), side=side,
+                        size=float(t.get("size") or 0), price=float(t.get("price") or 0),
+                        extras={"market": t.get("slug") or t.get("title") or "",
+                                "condition_id": t.get("conditionId") or "",
+                                "outcome": t.get("outcome")}))
+                oldest = min((int(t.get("timestamp") or 0) for t in page), default=0)
+                if len(page) < 500 or oldest * 1000 < since_ms:
+                    break
         except Exception:
-            return []
+            pass
+        return out
 
     def _place(self, order, token, dry_run):
         if dry_run:
@@ -444,6 +477,10 @@ class Polymarket(Venue):
     def stop_copy(self, session: str, token: Optional[str] = None) -> Any:
         """Stop a session. Never confirm-gated — exits must always work."""
         return self.peer.post("/live/stop", {"session": session}, token)
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
 
 
 def registry() -> dict[str, Venue]:

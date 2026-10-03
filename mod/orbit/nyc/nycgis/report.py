@@ -192,7 +192,8 @@ MIN_POP = 2000      # an NTA smaller than this is a park, cemetery or airport
 
 def findings(city: Dict[str, Any], areas: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Ranked neighbourhood lists, each with the rule that produced it."""
-    res = [a for a in areas if (a.get('population') or 0) >= MIN_POP]
+    res = [a for a in areas if (a.get('population') or 0) >= MIN_POP
+           and a.get('residential', True)]
 
     def top(key, n=12, rev=True, where=lambda a: True):
         xs = [a for a in res if a.get(key) is not None and where(a)]
@@ -224,7 +225,9 @@ def findings(city: Dict[str, Any], areas: List[Dict[str, Any]]) -> List[Dict[str
                   ('median_rent', 'Median rent', 'usd')]},
         {'title': 'Least affordable to buy, relative to local income',
          'rule': ('Median home sale price divided by median household income, '
-                  'neighborhoods with 20+ sales.'),
+                  'neighborhoods with 20+ sales. This prices what sold, not what residents '
+                  'occupy: where nearly everyone rents, the few sales are mostly 2-3 family '
+                  'houses, so the ratio reads as how far ownership is out of local reach.'),
          'rows': top('price_to_income', where=lambda a: (a.get('sales') or 0) >= 20),
          'cols': [('price_to_income', 'Price / income', 'x'),
                   ('median_sale_price', 'Median sale', 'usd'),
@@ -273,7 +276,7 @@ table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:
 th,td{padding:6px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
 th{font-weight:600;color:var(--ink2);background:#f6f6f3;position:sticky;top:0}
 th:first-child,td:first-child{text-align:left}tbody tr:hover{background:#f3f6fb}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px 26px}
+.grid2{display:grid;grid-template-columns:1fr;gap:6px}
 details summary{cursor:pointer;color:var(--acc);margin:10px 0}ul.notes{color:var(--ink2);font-size:12.5px}
 a{color:var(--acc)}
 @media (max-width:760px){.maps,.grid2{grid-template-columns:1fr}}
@@ -323,9 +326,10 @@ def html_report(since: str = '2025-01-01') -> str:
 
     finds = ''
     for f in findings(c, list(nta['areas'].values())):
-        finds += (f'<h3>{html.escape(f["title"])}</h3><p class="rule">{html.escape(f["rule"])}</p>'
+        finds += (f'<section><h3>{html.escape(f["title"])}</h3>'
+                  f'<p class="rule">{html.escape(f["rule"])}</p>'
                   + (_table(f['rows'], cols=[], name_col='Neighborhood', extra=f['cols'])
-                     if f['rows'] else '<p class="muted">None.</p>'))
+                     if f['rows'] else '<p class="muted">None.</p>') + '</section>')
 
     src = ''.join(f'<li><a href="{s["url"]}">{html.escape(s["name"])}</a></li>'
                   for s in nta['sources'])
@@ -349,7 +353,8 @@ Planning Housing Database. Compiled {today}. Hover any area on a map for its val
 <h2>By borough</h2>{_table(boroughs + [city_row], name_col='Borough')}
 
 <h2>What stands out</h2>
-<p class="rule">Lists below rank neighborhoods with at least {MIN_POP:,} residents.
+<p class="rule">Lists below rank residential neighborhoods (not parks, airports,
+cemeteries or Rikers Island) with at least {MIN_POP:,} residents.
 Each rule is stated in full; the complete table follows.</p>
 <div class="grid2">{finds}</div>
 

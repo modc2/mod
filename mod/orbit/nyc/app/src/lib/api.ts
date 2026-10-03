@@ -1,6 +1,6 @@
 /** Typed client for the nyc GIS API. */
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || '/nyc/api'
+export const BASE = process.env.NEXT_PUBLIC_API_URL || '/nyc/api'
 
 export type LayerDef = {
   id: string
@@ -91,6 +91,8 @@ export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'done'; ms?: number; session_id?: string }
   | { type: 'error'; error: string }
+  /** A validated nyc_map / nyc_infographic call, for the page to apply. */
+  | { type: 'display'; directive: import('./scene').Directive }
 
 /**
  * Ask the NYC agent a question, yielding SSE events as they stream in.
@@ -100,11 +102,12 @@ export type ChatEvent =
 export async function* chatStream(
   message: string,
   sessionId?: string,
+  mapState?: Record<string, any>,
 ): AsyncGenerator<ChatEvent> {
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ message, session_id: sessionId ?? null }),
+    body: JSON.stringify({ message, session_id: sessionId ?? null, map_state: mapState ?? null }),
   })
   if (!res.ok || !res.body) {
     let detail = res.statusText
@@ -175,6 +178,13 @@ export type McpSurface = {
   }
 }
 
+/** The population layer: which census statistic, at which grain. */
+export type PopulationQuery = { metric: string; geography: string }
+
+/** The full brief — one self-contained HTML page, safe to save and send. */
+export const REPORT_URL = `${BASE}/report`
+export const reportCsv = (geography: string) => `${BASE}/report.csv?geography=${geography}`
+
 export const api = {
   catalog: () => get<Catalog>('/layers'),
   tools: () => get<McpSurface>('/tools'),
@@ -182,6 +192,7 @@ export const api = {
   view: () => get<any>('/view'),
   layer: (id: string) => get<GeoJSON.FeatureCollection>(`/layers/${id}`),
   housing: (q: HousingQuery) => get<Choropleth>('/layers/housing_prices', q),
+  population: (q: PopulationQuery) => get<Choropleth>('/layers/population', q),
   sales: (q: Partial<HousingQuery> & { limit?: number }) =>
     get<GeoJSON.FeatureCollection>('/layers/sales', q),
   prices: (q: { since: string; until?: string; property_type: string }) =>

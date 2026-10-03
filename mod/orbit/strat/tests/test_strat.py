@@ -217,6 +217,191 @@ def test_venues_registry_shape():
     assert vs["bittensor"]["module"] == "bt"
 
 
+
+# ── Bridge: module strats on the unified protocol (offline) ────────
+
+bridge = sys.modules["bridge"]
+SRC_PRESENT = {m: s.available() for m, s in bridge.SOURCES.items()}
+
+
+def _bridged(name, watchlist, params=None, capital=1000.0):
+    cls = MOD._class(name)
+    return cls(proto.StratConfig(name=name, capital=capital,
+                                 params=dict(params or {}), watchlist=watchlist,
+                                 max_order_size=1e9))
+
+
+def test_bridge_sources_load_without_drift():
+    """Every shipped strat package loads by path and the codec maps every
+    native dataclass field — a schema change in polymarket / hyperliquid /
+    copytensor fails HERE, before a bridged strat silently drops data."""
+    for mod, present in SRC_PRESENT.items():
+        if not present:
+            continue
+        info = bridge.SOURCES[mod].info()
+        assert "error" not in info, info
+        assert info["strats"], f"{mod} shipped no strats"
+        assert info["drift"] == [], f"{mod} drift: {info['drift']}"
+
+
+def test_bridge_detects_drift():
+    """The drift check is real: a codec that names the wrong instrument
+    field must report the native one as unmapped."""
+    if not SRC_PRESENT.get("hyperliquid"):
+        return
+    class Broken(bridge.HyperliquidSource):
+        symbol_field = "ticker"
+    src = Broken()
+    src._pkg = bridge.SOURCES["hyperliquid"].package()
+    src.pkg_name = bridge.SOURCES["hyperliquid"].pkg_name
+    assert any("coin" in d for d in src.drift())
+
+
+def test_bridged_strats_register_and_verify():
+    reg = MOD._registry()
+    for mod, present in SRC_PRESENT.items():
+        if not present:
+            continue
+        names = [n for n, e in reg.items() if e["origin"] == "bridge"
+                 and e["strat"]["source"] == mod]
+        assert names, f"no bridged strats from {mod}"
+        for n in names:
+            v = MOD.verify(n)
+            assert v["ok"], (n, v)
+            assert issubclass(MOD._class(n), proto.Strat)
+            assert MOD.code(n).strip()      # the module's own source, read
+
+
+def test_bridge_codec_roundtrip():
+    S = proto.OrderSide
+    cases = {
+        "polymarket": proto.VenueTrade(id="p1", venue="polymarket", trader="0xa",
+            timestamp=1, symbol="12345", side=S.BUY, size=10, price=0.4,
+            extras={"market": "m", "condition_id": "0xc", "outcome": "Yes"}),
+        "hyperliquid": proto.VenueTrade(id="h1", venue="hyperliquid", trader="0xa",
+            timestamp=1, symbol="BTC", side=S.SELL, size=1, price=100,
+            extras={"closed_pnl": 5.0, "fee": 0.1, "dir": "Close Long"}),
+        "copytensor": proto.VenueTrade(id="c1", venue="bittensor", trader="5Fa",
+            timestamp=1, symbol="SN8", side=S.BUY, size=3, price=0.2,
+            extras={"tao_value": 0.6, "block": 9}),
+    }
+    for mod, vt in cases.items():
+        if not SRC_PRESENT.get(mod):
+            continue
+        src = bridge.SOURCES[mod]
+        nt = src.trade_in(vt)
+        assert getattr(nt, src.symbol_field) == src.sym_in(vt.symbol)
+        for native_f, extra_k in src.trade_extras.items():
+            assert getattr(nt, native_f) == vt.extras[extra_k], (mod, native_f)
+        o = proto.Order(venue=src.venue, symbol=vt.symbol, side=vt.side,
+                        size=vt.size, price=vt.price, source_trade_id=vt.id)
+        back = src.order_out(src.order_in(o))
+        assert (back.venue, back.symbol, back.side, back.source_trade_id) == \
+               (o.venue, o.symbol, o.side, o.source_trade_id), mod
+
+
+def test_bridged_hyperliquid_native_signal_and_backtest():
+    """The NATIVE hyperliquid mirror runs (size_pct, closed_pnl model)."""
+    if not SRC_PRESENT.get("hyperliquid"):
+        return
+    S = proto.OrderSide
+    s = _bridged("hyperliquid.copy_wallets",
+                 [{"venue": "hyperliquid", "address": "0xabc", "weight": 1.0}],
+                 params={"size_pct": 50, "min_order_size": 1})
+    tape = [
+        proto.VenueTrade(id="a", venue="hyperliquid", trader="0xabc", timestamp=1,
+                         symbol="ETH", side=S.BUY, size=2, price=100),
+        proto.VenueTrade(id="b", venue="hyperliquid", trader="0xabc", timestamp=2,
+                         symbol="ETH", side=S.SELL, size=2, price=110,
+                         extras={"closed_pnl": 20.0, "fee": 1.0}),
+        proto.VenueTrade(id="x", venue="bittensor", trader="5F", timestamp=3,
+                         symbol="SN1", side=S.BUY, size=9, price=1),  # other venue
+    ]
+    orders = s.signal(proto.SyncResult(timestamp=3, trades=tape, cash=1e6))
+    assert [o.symbol for o in orders] == ["ETH", "ETH"]
+    assert all(o.venue == "hyperliquid" and abs(o.size - 1.0) < 1e-9 for o in orders)
+    bt = s.backtest(tape)
+    # half-size mirror of a +20 close with 1 fee -> +10 - 0.5
+    assert abs(bt.final_pnl - 9.5) < 1e-9, bt
+    assert bt.notes[0].startswith("native hyperliquid model")
+
+
+def test_bridged_copytensor_native_mark_to_market():
+    if not SRC_PRESENT.get("copytensor"):
+        return
+    S = proto.OrderSide
+    ss58 = "5FCaseSensitiveKey"
+    s = _bridged("copytensor.copy_coldkeys",
+                 [{"venue": "bittensor", "address": ss58, "weight": 1.0}],
+                 params={"size_pct": 100, "min_order_size": 0.01})
+    tape = [
+        proto.VenueTrade(id="1", venue="bittensor", trader=ss58, timestamp=1,
+                         symbol="SN8", side=S.BUY, size=10, price=1.0),
+        proto.VenueTrade(id="2", venue="bittensor", trader="5Other", timestamp=2,
+                         symbol="SN8", side=S.BUY, size=1, price=2.0),  # price obs
+    ]
+    orders = s.signal(proto.SyncResult(timestamp=2, trades=tape, cash=100))
+    assert len(orders) == 1 and orders[0].symbol == "SN8"
+    assert orders[0].source_trader == ss58          # never lowercased
+    bt = s.backtest(tape)
+    assert bt.final_pnl > 0                          # re-marked at 2.0
+
+
+def test_bridged_polymarket_native_fifo():
+    if not SRC_PRESENT.get("polymarket"):
+        return
+    S = proto.OrderSide
+    s = _bridged("polymarket.copytrader",
+                 [{"venue": "polymarket", "address": "0xabc", "weight": 1.0}],
+                 capital=100.0)
+    tape = [
+        proto.VenueTrade(id="1", venue="polymarket", trader="0xabc", timestamp=1,
+                         symbol="777", side=S.BUY, size=100, price=0.30),
+        proto.VenueTrade(id="2", venue="polymarket", trader="0xabc", timestamp=2,
+                         symbol="777", side=S.SELL, size=100, price=0.60),
+    ]
+    orders = s.signal(proto.SyncResult(timestamp=2, trades=tape, cash=1000))
+    assert orders and all(o.venue == "polymarket" and o.symbol == "777" for o in orders)
+    bt = s.backtest(tape)
+    assert bt.trades_simulated == 2 and bt.final_pnl > 0, bt
+
+
+def test_bridged_execute_keeps_native_dedupe_in_step():
+    if not SRC_PRESENT.get("hyperliquid"):
+        return
+    S = proto.OrderSide
+    s = _bridged("hyperliquid.copy_wallets",
+                 [{"venue": "hyperliquid", "address": "0xabc", "weight": 1.0}],
+                 params={"size_pct": 100, "min_order_size": 1})
+    s.config.place_order = lambda o: proto.ExecutionResult(
+        order=o, success=True, filled_size=o.size, filled_price=o.price)
+    t = proto.VenueTrade(id="z", venue="hyperliquid", trader="0xabc", timestamp=1,
+                         symbol="SOL", side=S.BUY, size=1, price=100)
+    snap = proto.SyncResult(timestamp=1, trades=[t], cash=1e6)
+    s.execute(s.signal(snap))
+    assert s.signal(snap) == []                     # native won't re-fire it
+
+
+def test_fork_bridged_strat():
+    if not SRC_PRESENT.get("hyperliquid"):
+        return
+    d = os.path.join(SELF, "strats", "tmpbridgefork")
+    shutil.rmtree(d, ignore_errors=True)
+    try:
+        f = MOD.fork("hyperliquid.copy_wallets", "tmpbridgefork")
+        assert f["verify"]["ok"], f
+        e = MOD._entry("tmpbridgefork")
+        assert e["origin"] == "builtin" and e["strat"]["source"] == "hyperliquid"
+        cls = MOD._class("tmpbridgefork")
+        assert issubclass(cls, bridge.Bridged)
+        s = _mk("tmpbridgefork", params={"size_pct": 100, "min_order_size": 1})
+        t = proto.VenueTrade(id="q", venue="hyperliquid", trader="0xabc",
+                             timestamp=1, symbol="BTC", side=proto.OrderSide.BUY,
+                             size=1, price=100)
+        assert s.signal(proto.SyncResult(timestamp=1, trades=[t], cash=1e6))
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
 if __name__ == "__main__":
     fns = [(k, v) for k, v in sorted(globals().items())
            if k.startswith("test_") and callable(v)]

@@ -1,66 +1,94 @@
 {
-    "name": "strat",
-    "description": "Marketplace of trading strategies as mods \u2014 one class-defined Strat protocol across raydium, uniswap, hyperliquid, bittensor and polymarket. Discover, verify, fork, backtest and board strat mods; execution is delegated to the fleet module that owns each chain, keys never held here.",
-    "version": "1.0.0",
-    "strat_protocol": {
-        "version": 1,
-        "methods": [
-            "setup",
-            "sync",
-            "signal",
-            "execute",
-            "tick",
-            "backtest",
-            "teardown",
-            "state"
-        ],
-        "venues": {
-            "raydium": {
-                "module": "solana",
-                "currency": "USDC",
-                "symbol": "<mint>/<mint> pair"
-            },
-            "uniswap": {
-                "module": "defi",
-                "currency": "USDC",
-                "symbol": "<sell>/<buy> token pair"
-            },
-            "hyperliquid": {
-                "module": "hyperliquid",
-                "currency": "USDC",
-                "symbol": "coin, e.g. BTC"
-            },
-            "bittensor": {
-                "module": "bt",
-                "currency": "TAO",
-                "symbol": "SN<netuid>"
-            },
-            "polymarket": {
-                "module": "polymarket",
-                "currency": "USDC",
-                "symbol": "CLOB outcome token id"
-            }
-        },
-        "mod_contract": "a strat mod = directory with config.json carrying a `strat` block {protocol, class: 'strat.py:ClassName', venues, params} and a strat.py defining one subclass of protocol.Strat"
+  "name": "strat",
+  "description": "Marketplace of trading strategies as mods \u2014 one class-defined Strat protocol across raydium, uniswap, hyperliquid, bittensor and polymarket, with adapters that mount the strats shipped inside the polymarket, hyperliquid and copytensor modules onto it unchanged. Discover, verify, fork, backtest, plan and board strats; execution is delegated to the module that owns each chain, keys never held here.",
+  "version": "1.1.0",
+  "strat_protocol": {
+    "version": 1,
+    "methods": [
+      "setup",
+      "sync",
+      "signal",
+      "execute",
+      "tick",
+      "backtest",
+      "teardown",
+      "state"
+    ],
+    "venues": {
+      "raydium": {
+        "module": "solana",
+        "currency": "USDC",
+        "symbol": "<mint>/<mint> pair"
+      },
+      "uniswap": {
+        "module": "defi",
+        "currency": "USDC",
+        "symbol": "<sell>/<buy> token pair"
+      },
+      "hyperliquid": {
+        "module": "hyperliquid",
+        "currency": "USDC",
+        "symbol": "coin, e.g. BTC"
+      },
+      "bittensor": {
+        "module": "bt",
+        "currency": "TAO",
+        "symbol": "SN<netuid>"
+      },
+      "polymarket": {
+        "module": "polymarket",
+        "currency": "USDC",
+        "symbol": "CLOB outcome token id"
+      }
     },
-    "fns": {
-        "info": "Overview: protocol version, venues, registered strats.",
-        "schema": "Machine-readable protocol contract (methods + dataclass fields).",
-        "venues": "The five venues and which fleet module signs for each; check=true pings them.",
-        "strats": "Marketplace listing; venue= filters.",
-        "strat": "One strat's full card (config + verification).",
-        "code": "A strat's source \u2014 the class IS the strategy.",
-        "verify": "Check a mod against the protocol contract.",
-        "new": "Scaffold a new strat mod (orbit=true makes it a first-class orbit module).",
-        "fork": "Copy an existing strat mod under a new name.",
-        "publish": "Promote a builtin strat to a first-class orbit module.",
-        "backtest": "Replay a strat over watched traders' venue history. Read-only.",
-        "tick": "One live sync->signal->execute cycle. DRY RUN by default; live needs dry_run=false + confirm=true + a token the peer accepts.",
-        "board": "The marketplace board: every strat, verified, with cached backtest perf."
+    "mod_contract": "a strat mod = directory with config.json carrying a `strat` block {protocol, class: 'strat.py:ClassName', venues, params} and a strat.py defining one subclass of protocol.Strat",
+    "sources": {
+      "polymarket": {
+        "package": "polymarket/src/strats",
+        "venue": "polymarket",
+        "currency": "USDC",
+        "instrument": "token_id",
+        "backtest": "FIFO cost basis, 2% fee + gas"
+      },
+      "hyperliquid": {
+        "package": "hyperliquid/src/strats",
+        "venue": "hyperliquid",
+        "currency": "USDC",
+        "instrument": "coin",
+        "backtest": "exchange closed_pnl x size ratio"
+      },
+      "copytensor": {
+        "package": "copytensor/src/strats",
+        "venue": "bittensor",
+        "currency": "TAO",
+        "instrument": "netuid",
+        "backtest": "mark-to-market alpha book"
+      }
     },
-    "schema": "QmaWgbBbXtnEwwTKe47CCfXs2Uz2DwPisaHxvNRjSLNzcM",
-    "urls": {
-        "api": "http://localhost:50097"
-    },
-    "port": 50097
+    "bridge_contract": "bridged strats are named <module>.<strat>; the module's package is loaded read-only by path, its native signal()/backtest() run unchanged, and drift() pins every native dataclass field to the codec"
+  },
+  "fns": {
+    "info": "Overview: protocol version, venues, registered strats.",
+    "schema": "Machine-readable protocol contract (methods + dataclass fields).",
+    "venues": "The five venues and which fleet module signs for each; check=true pings them.",
+    "sources": "The modules whose own strat packages are bridged here (polymarket, hyperliquid, copytensor): strats shipped, native backtest model, schema drift.",
+    "catalog": "The strat catalogs each module serves from its own API (read-only; polymarket needs token=).",
+    "strats": "Marketplace listing \u2014 builtin, orbit and bridged (<module>.<strat>) strats; venue= / origin= filters.",
+    "strat": "One strat's full card (config + verification).",
+    "code": "A strat's source \u2014 the class IS the strategy.",
+    "verify": "Check a mod against the protocol contract.",
+    "new": "Scaffold a new strat mod (orbit=true makes it a first-class orbit module).",
+    "fork": "Copy a strat mod under a new name; forking a bridged strat makes a strat mod that subclasses it.",
+    "publish": "Promote a builtin strat to a first-class orbit module.",
+    "backtest": "Replay a strat over watched traders' venue history. Bridged strats pick their own leaders when traders= is omitted and run their NATIVE backtest model. Read-only.",
+    "tick": "One live sync->signal->execute cycle. DRY RUN by default; live needs dry_run=false + confirm=true + a token the peer accepts.",
+    "plan": "Bridged strats: the exact config the owning module's live engine would consume (hl live_start body / copytensor sleeves / polymarket /live/start, autoExecute false). Pure data.",
+    "board": "The marketplace board: every strat, verified, with cached backtest perf.",
+    "whitepaper": "The design document of the unified strat framework."
+  },
+  "schema": "Qmez1V5pKZ46zQ8XT2ktfcyfYGYB1JHD6quzCjWPwxEz9r",
+  "urls": {
+    "api": "http://localhost:50097"
+  },
+  "port": 50097
 }

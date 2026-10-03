@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import maplibregl, { Map as MLMap } from 'maplibre-gl'
 import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import { NARROW } from '@/lib/layout'
+import { matchExpression, matchesHighlight, type AgentOverlay, type ValueFilter } from '@/lib/scene'
 import {
   DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL, SPEED_BAND, ZONE_COLOR,
   divergingExpression, stepExpression,
@@ -77,16 +78,28 @@ type Props = {
   opacity: Record<string, number>
   housing: Choropleth | null
   housingMetric: string
+  population: Choropleth | null
+  populationMetric: string
   layerData: Record<string, GeoJSON.FeatureCollection>
   basemap: Basemap
   flyTo: { lng: number; lat: number; zoom?: number; nonce: number } | null
   onFeatureClick: (payload: { layerId: string; props: Record<string, any> } | null) => void
   onMapReady: (map: MLMap) => void
+  /** What the chat agent drew: any open dataset, outlined areas, a range filter. */
+  agentOverlay?: AgentOverlay | null
+  highlight?: { names: string[]; nonce: number }
+  valueFilter?: ValueFilter
+  /** Show only areas matching these names / codes / boroughs. */
+  only?: string[]
+  /** Fit the camera to these areas (once per nonce, as soon as they are drawn). */
+  frame?: { names: string[]; nonce: number }
 }
 
 export default function MapView({
-  catalog, active, opacity, housing, housingMetric, layerData,
+  catalog, active, opacity, housing, housingMetric, population, populationMetric, layerData,
   basemap, flyTo, onFeatureClick, onMapReady,
+  agentOverlay = null, highlight = { names: [], nonce: 0 }, valueFilter = null, only = [],
+  frame = { names: [], nonce: 0 },
 }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<MLMap | null>(null)
@@ -205,7 +218,28 @@ export default function MapView({
   useEffect(() => {
     redraw()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalog, active, opacity, housing, housingMetric, layerData])
+  }, [catalog, active, opacity, housing, housingMetric, population, populationMetric, layerData,
+      agentOverlay, highlight, valueFilter, only])
+
+  // Outlining or keeping areas without an explicit camera move frames them.
+  // The choropleth often lands after the directive (a new metric is a new
+  // query), so the frame waits for data and is spent once it has been used.
+  const framed = useRef(0)
+  useEffect(() => {
+    const m = map.current
+    if (!m || !frame.names.length || framed.current === frame.nonce) return
+    const b = new maplibregl.LngLatBounds()
+    for (const fc of [housing, population, agentOverlay?.data]) {
+      for (const f of fc?.features ?? []) {
+        if (f.geometry?.type !== 'Point'
+            && matchesHighlight((f.properties as any) || {}, frame.names)) extend(b, f.geometry)
+      }
+    }
+    if (b.isEmpty()) return
+    framed.current = frame.nonce
+    const c = m.getContainer()
+    m.fitBounds(b, { padding: framePadding(c.clientWidth, c.clientHeight), duration: 900, maxZoom: 14 })
+  }, [frame, housing, population, agentOverlay])
 
   useEffect(() => {
     if (!flyTo || !map.current) return
@@ -251,6 +285,8 @@ export default function MapView({
       try {
         if (def.id === 'housing_prices') {
           if (housing) order.push(...addChoropleth(m, housing, housingMetric, alpha))
+        } else if (def.id === 'population') {
+          if (population) order.push(...addChoropleth(m, population, populationMetric, alpha, 'population'))
         } else {
           const data = layerData[def.id]
           if (data) order.push(...addOverlay(m, def, data, alpha))
@@ -259,6 +295,12 @@ export default function MapView({
         // A single malformed layer must not take the whole map down.
         console.error(`nyc: failed to draw ${def.id}`, err)
       }
+    }
+    try {
+      order.push(...drawAgent(m, { overlay: agentOverlay, highlight: highlight.names,
+        valueFilter, only, metric: housingMetric, sources: [housing, population] }))
+    } catch (err) {
+      console.error('nyc: failed to draw the agent view', err)
     }
     // Topmost layer first, so a click on a station beats the polygon under it.
     clickOrder.current = order.reverse()
@@ -269,8 +311,9 @@ export default function MapView({
 
 // ── choropleth ────────────────────────────────────────────────────────────
 
-function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number): string[] {
-  const src = 'nyc-housing'
+function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number,
+                       id = 'housing_prices'): string[] {
+  const src = `nyc-${id}`
   m.addSource(src, { type: 'geojson', data: fc as any })
   const stops = fc.breaks?.stops ?? []
   const diverging = metric === 'price_change'
@@ -285,13 +328,13 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
   const fill: any = ['case', ['==', ['get', metric], null], NO_DATA, color]
 
   m.addLayer({
-    id: 'housing_prices--fill',
+    id: `${id}--fill`,
     type: 'fill',
     source: src,
     paint: { 'fill-color': fill, 'fill-opacity': 0.78 * alpha },
   })
   m.addLayer({
-    id: 'housing_prices--line',
+    id: `${id}--line`,
     type: 'line',
     source: src,
     paint: {
@@ -299,7 +342,7 @@ function addChoropleth(m: MLMap, fc: Choropleth, metric: string, alpha: number):
       'line-width': 0.6,
     },
   })
-  return ['housing_prices--fill']
+  return [`${id}--fill`]
 }
 
 // ── overlays ──────────────────────────────────────────────────────────────
@@ -569,3 +612,117 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
 /** Fixed price classes for the sales point layer, in dollars. */
 const SALE_BREAKS = [0, 400_000, 700_000, 1_000_000, 1_500_000, 2_500_000, 5_000_000]
 export { SALE_BREAKS }
+
+// ── the agent's view ──────────────────────────────────────────────────────
+
+const HIGHLIGHT = '#fbd000'   // the HUD's coin yellow: chrome, never a data class
+const AGENT_POINT = '#22d3ee'
+
+function extend(b: maplibregl.LngLatBounds, g: any) {
+  const walk = (c: any) => {
+    if (typeof c?.[0] === 'number') b.extend([c[0], c[1]])
+    else for (const x of c ?? []) walk(x)
+  }
+  walk(g?.coordinates)
+}
+
+/**
+ * Everything the chat agent asked for, drawn over the user's own layers:
+ * a range filter that dims the housing choropleth outside it, an overlay of
+ * any open dataset, and a bright outline around the areas it is talking about.
+ */
+function drawAgent(m: MLMap, a: {
+  overlay: AgentOverlay | null
+  highlight: string[]
+  valueFilter: ValueFilter
+  only: string[]
+  metric: string
+  sources: (GeoJSON.FeatureCollection | null)[]
+}): string[] {
+  const ids: string[] = []
+
+  const vf = a.valueFilter
+  if (vf && m.getLayer('housing_prices--fill')) {
+    const v: any = ['coalesce', ['get', a.metric], -1e15]
+    const inside: any[] = ['all']
+    if (vf.min !== null) inside.push(['>=', v, vf.min])
+    if (vf.max !== null) inside.push(['<=', v, vf.max])
+    m.setPaintProperty('housing_prices--fill', 'fill-opacity', ['case', inside, 0.85, 0.12])
+  }
+
+  const ov = a.overlay
+  const onlyFilter = a.only.length ? matchExpression(a.only) : null
+
+  if (ov?.data) {
+    m.addSource('nyc-agent', { type: 'geojson', data: ov.data as any })
+    if (ov.spec.mode === 'areas') {
+      const stops = ov.data.breaks?.stops ?? []
+      m.addLayer({
+        id: 'agent--fill', type: 'fill', source: 'nyc-agent',
+        paint: {
+          'fill-color': ['case', ['==', ['get', 'value'], null], NO_DATA,
+            stops.length ? stepExpression('value', stops, SEQUENTIAL) : SEQUENTIAL[3]] as any,
+          'fill-opacity': 0.8,
+        },
+      })
+      m.addLayer({ id: 'agent--line', type: 'line', source: 'nyc-agent',
+        paint: { 'line-color': 'rgba(255,255,255,0.22)', 'line-width': 0.6 } })
+      ids.push('agent--fill')
+    } else if (ov.spec.mode === 'heat') {
+      m.addLayer({
+        id: 'agent--heat', type: 'heatmap', source: 'nyc-agent', maxzoom: 16,
+        paint: {
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.5],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 6, 15, 22],
+          'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+            ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
+          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0.9, 16, 0.2],
+        },
+      })
+      m.addLayer({
+        id: 'agent--circle', type: 'circle', source: 'nyc-agent', minzoom: 14,
+        paint: { 'circle-radius': 4, 'circle-color': HEAT[4][1] as string,
+                 'circle-stroke-color': '#000', 'circle-stroke-width': 1 },
+      })
+      ids.push('agent--circle')
+    } else {
+      m.addLayer({
+        id: 'agent--circle', type: 'circle', source: 'nyc-agent',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 2.5, 14, 5, 17, 8],
+          'circle-color': AGENT_POINT, 'circle-opacity': 0.9,
+          'circle-stroke-color': '#000', 'circle-stroke-width': 1,
+        },
+      })
+      ids.push('agent--circle')
+    }
+  }
+
+  // "Only Brooklyn": every area layer drops what does not match. Point layers
+  // carry no borough, so they are left alone rather than emptied.
+  if (onlyFilter) {
+    for (const id of ['housing_prices--fill', 'housing_prices--line', 'population--fill',
+                      'population--line', 'agent--fill', 'agent--line']) {
+      if (m.getLayer(id)) m.setFilter(id, onlyFilter as any)
+    }
+  }
+
+  if (a.highlight.length) {
+    const feats: GeoJSON.Feature[] = []
+    for (const fc of [...a.sources, ov?.data ?? null]) {
+      for (const f of fc?.features ?? []) {
+        if (f.geometry?.type !== 'Point' && matchesHighlight((f.properties as any) || {}, a.highlight)) feats.push(f)
+      }
+    }
+    // Nothing on the map to outline (the choropleth is off): fall back to
+    // nothing rather than guessing; the camera move still says where.
+    if (feats.length) {
+      m.addSource('nyc-agent-hl', { type: 'geojson', data: { type: 'FeatureCollection', features: feats } as any })
+      m.addLayer({ id: 'agent-hl--glow', type: 'line', source: 'nyc-agent-hl',
+        paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.6 } })
+      m.addLayer({ id: 'agent-hl--line', type: 'line', source: 'nyc-agent-hl',
+        paint: { 'line-color': HIGHLIGHT, 'line-width': 2.5 } })
+    }
+  }
+  return ids
+}

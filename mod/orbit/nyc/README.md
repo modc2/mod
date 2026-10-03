@@ -50,6 +50,19 @@ The last three are the important ones: they reach *every* dataset on NYC Open
 Data and NY State Open Data via Socrata Discovery + SoQL — 311, crime, schools,
 health, budgets, permits — not just the layers the map draws.
 
+**Display tools** — `nyc_map`, `nyc_infographic`. These are how the in-app
+ASK agent *shows* an answer: switch layers, set the housing filters, dim areas
+outside a value range, outline or keep `only` some areas, fly the camera, and
+overlay **any** open dataset as points, a heatmap or a ZIP / borough
+choropleth (optionally per 10k residents) — then pin a card of headline
+numbers, a ranked bar list, a small time series and sources. Both tools are
+pure validators (`nycgis/scene.py`): the browser holds the map, the API reads
+the validated result out of the agent's stream and forwards it as a `display`
+event, and the page sends the current view back with every turn so "only
+Brooklyn" or "now by ZIP" edit what is on screen. Overlay data is served from
+the same cache at `GET /overlay?spec=<json>`. Over plain MCP they just return
+the directive JSON.
+
 **Prompts** — `neighborhood_report`, `compare_areas`, `explore_open_data`:
 recipes that tell a model which tools to reach for and in what order.
 
@@ -67,6 +80,7 @@ documents itself everywhere at once.
 
 | Layer | Kind | Source |
 | --- | --- | --- |
+| **Population density & census** | choropleth (tract / NTA / borough) | Census ACS 5-year bulk files + DCP tracts (`63ge-mke6`) + DCP Housing Database (`nahe-je7c`) |
 | **Housing prices** | choropleth | DOF Citywide Rolling Sales (`w2pb-icbu`) |
 | **Individual sales** | points, coloured by price | same |
 | **Affordable housing built** | graduated circles | HPD Affordable Housing Production (`hg8x-zxpr`) |
@@ -84,6 +98,32 @@ documents itself everywhere at once.
 Basemaps are CARTO's free raster tiles (dark/light) and OpenStreetMap's own
 tiles; geocoding is OpenStreetMap Nominatim; the renderer is MapLibre GL
 (BSD-3).
+
+## Population, density and the shareable brief
+
+`nycgis/demographics.py` joins three key-free sources on the 2020 census tract:
+Census ACS 5-year estimates (population, income, rent, home value, vacancy,
+rent burden, poverty), DCP's tract polygons (shoreline-clipped, tagged with
+NTA), and DCP's Housing Database (net new homes since 2020 and the pipeline).
+DOF deeds add the median home sale. `nycgis/report.py` turns it into one
+self-contained HTML brief (inline SVG maps, no JS, no CDN) and CSVs.
+
+- **The Census API now demands a key; the bulk files don't.** Keyless API calls
+  302 to a "missing key" page. The table-based summary files at
+  `www2.census.gov/.../table-based-SF/data/5YRData/` are plain pipe-delimited
+  downloads; each is national (18-46 MB), so they are *streamed* and filtered
+  to NYC rows, then cached 30 days.
+- **City and borough medians are the Census's own** (county and place rows from
+  the same files). A household-weighted roll-up of tract medians overstated the
+  city's median income by 14% ($91.8k vs $80.5k). NTA medians are that roll-up
+  and are labelled approximate.
+- **Bulk deeds are dropped from home-sale medians.** DOF writes a multi-unit
+  deed's *total* price on every unit; rows sharing (borough, block, date,
+  price) are such a deed. Left in, they made Bedford Park a $2.2M neighbourhood.
+  Sales use the `homes` property type (houses, condos, co-ops), not whole rental
+  buildings.
+- Zero-population tracts are "no residents" (grey), not the lowest density class.
+  Rankings skip non-residential NTAs (`ntatype != 0`: parks, airports, Rikers).
 
 ## Traffic: when to drive
 
@@ -189,6 +229,9 @@ m nyc/prices                           # city-wide summary + top/bottom areas
 m nyc/trend area=BK0101                # one neighborhood's price history
 m nyc/sales since=2025-06-01           # individual sales as points
 m nyc/traffic street="cross bronx"     # when to drive it, and what's slow now
+m nyc/population metric=density geography=tract   # density / census choropleth
+m nyc/stats geography=nta sort=rent_burden_pct     # every stat per area
+m nyc/report                           # write the HTML brief + CSVs to ~/.mod/nyc/report
 m nyc/where "Prospect Park"            # geocode a place
 m nyc/boroughs                         # the five boroughs
 m nyc/warm                             # pre-fetch every layer into the cache
@@ -205,6 +248,10 @@ m nyc/kill                             # stop both
 | `GET /layers/{id}` | any layer as GeoJSON |
 | `GET /layers/housing_prices?metric=&geography=&since=&property_type=` | choropleth + quantile breaks |
 | `GET /layers/sales?since=&property_type=&limit=` | individual sales as points |
+| `GET /layers/population?metric=&geography=` | density / census choropleth + breaks |
+| `GET /stats?geography=&sort=&limit=` | population + housing stats per tract, NTA or borough |
+| `GET /report` | the shareable brief: one self-contained HTML page |
+| `GET /report.csv?geography=` | the same numbers as CSV |
 | `GET /traffic?street=&borough=&hour=` | hourly volume profiles + the live speed picture |
 | `GET /boundary/{borough\|nta\|zip}` | boundary geometry |
 | `GET /prices` | city-wide summary |

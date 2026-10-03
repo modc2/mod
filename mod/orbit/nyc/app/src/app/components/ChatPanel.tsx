@@ -2,18 +2,28 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { chatStream } from '@/lib/api'
+import type { Directive } from '@/lib/scene'
 import { Coin, QuestionBlock } from './Sprites'
 
 type ToolCall = { name: string; input: Record<string, any> }
 type Message =
   | { role: 'user'; text: string }
-  | { role: 'agent'; text: string; tools: ToolCall[]; error?: string }
+  | { role: 'agent'; text: string; tools: ToolCall[]; error?: string; shown?: Directive[] }
 
-type Props = { open: boolean; onClose: () => void }
+type Props = {
+  open: boolean
+  onClose: () => void
+  /** Apply a map / infographic directive the agent issued. */
+  onDisplay?: (d: Directive) => void
+  /** What the map shows right now, sent along with each question. */
+  mapState?: () => Record<string, any>
+}
 
 // Openers that show off the range: curated housing stats, a map layer, and
 // the portal-wide SoQL path. ASCII + upper case for Press Start 2P.
 const STARTERS = [
+  'Map rat complaints per resident by ZIP this year',
+  'Show me only Brooklyn neighborhoods under $800K',
   'Where are prices rising fastest?',
   'Which neighborhoods have the most traffic injuries?',
   'What do people complain to 311 about the most?',
@@ -25,7 +35,7 @@ const STARTERS = [
  * this module serves over MCP. Every consulted tool is shown as a chip above
  * the answer, so a number can always be traced to its dataset.
  */
-export default function ChatPanel({ open, onClose }: Props) {
+export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -52,13 +62,17 @@ export default function ChatPanel({ open, onClose }: Props) {
       })
 
     try {
-      for await (const ev of chatStream(q, session)) {
+      for await (const ev of chatStream(q, session, mapState?.())) {
         if (ev.type === 'session') setSession(ev.id)
         else if (ev.type === 'tool') patch((l) => ({ ...l, tools: [...l.tools, ev] }))
         else if (ev.type === 'text')
           patch((l) => ({ ...l, text: l.text ? `${l.text}\n\n${ev.text}` : ev.text }))
         else if (ev.type === 'done' && ev.session_id) setSession(ev.session_id)
         else if (ev.type === 'error') patch((l) => ({ ...l, error: ev.error }))
+        else if (ev.type === 'display') {
+          onDisplay?.(ev.directive)
+          patch((l) => ({ ...l, shown: [...(l.shown ?? []), ev.directive] }))
+        }
       }
     } catch (e: any) {
       patch((l) => ({ ...l, error: String(e?.message ?? e).slice(0, 200) }))
@@ -136,13 +150,23 @@ export default function ChatPanel({ open, onClose }: Props) {
             </div>
           ) : (
             <div key={i} className="space-y-1.5">
-              {msg.tools.map((t, j) => (
+              {msg.tools.filter((t) => t.name !== 'nyc_map' && t.name !== 'nyc_infographic').map((t, j) => (
                 <div key={j}
                      className="pixel inline-flex items-center gap-1.5 border-2 border-black bg-black/40 px-2 py-1.5 text-[6.5px] text-nes-coin"
                      title={JSON.stringify(t.input)}>
                   <span aria-hidden>&gt;</span>
                   <span>{t.name.toUpperCase()}</span>
                 </div>
+              ))}
+              {msg.shown?.map((d, j) => (
+                <button key={`d${j}`} onClick={() => onDisplay?.(d)}
+                        title="Show this again"
+                        className="btn tap flex w-full items-center gap-2 px-2.5 py-2 text-left">
+                  <span className="pixel shrink-0 text-[6.5px] text-nes-coin">
+                    {d.kind === 'map' ? 'MAP' : 'CARD'}
+                  </span>
+                  <span className="min-w-0 truncate text-[11.5px] text-nes-ink2">{describe(d)}</span>
+                </button>
               ))}
               {msg.text && (
                 <div className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-nes-ink2">
@@ -184,4 +208,23 @@ export default function ChatPanel({ open, onClose }: Props) {
       </form>
     </aside>
   )
+}
+
+/** One line saying what a directive did, for its chip in the transcript. */
+function describe(d: Directive): string {
+  if (d.kind === 'infographic') return d.title
+  const parts: string[] = []
+  if (d.reset) parts.push('reset')
+  if (d.overlay) parts.push(d.overlay.title)
+  if (d.overlay === null) parts.push('overlay cleared')
+  if (d.housing) parts.push(Object.values(d.housing).filter(Boolean).join(' '))
+  if (d.layers) parts.push(`layers: ${d.layers.join(', ')}`)
+  if (d.add?.length) parts.push(`+${d.add.join(', +')}`)
+  if (d.remove?.length) parts.push(`-${d.remove.join(', -')}`)
+  if (d.filter) parts.push(`range ${d.filter.min ?? ''} to ${d.filter.max ?? ''}`)
+  if (d.highlight) parts.push(d.highlight.length ? `outline ${d.highlight.join(', ')}` : 'outline cleared')
+  if (d.only) parts.push(d.only.length ? `only ${d.only.join(', ')}` : 'all areas')
+  if (d.focus) parts.push(`fly to ${d.focus.label || 'point'}`)
+  if (d.basemap) parts.push(`${d.basemap} basemap`)
+  return d.caption || parts.join(' / ') || 'map updated'
 }

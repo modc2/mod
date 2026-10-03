@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
+from . import demographics as DM
 from . import prices as P
 from . import rents as R
 from . import sources as S
@@ -380,6 +381,27 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('HPD Affordable Housing Production by Building', 'hg8x-zxpr'),
     },
 
+    # ── People ───────────────────────────────────────────────────────────
+    {
+        'id': 'population',
+        'title': 'Population density & census',
+        'category': 'People',
+        'kind': 'choropleth',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': ('People per square mile by census tract, or switch to '
+                        'income, rent, rent burden, vacancy, poverty, new homes '
+                        'since 2020 and price-to-income. Full brief at /report.'),
+        'controls': {'metric': list(DM.METRICS), 'geography': list(DM.GEOS)},
+        'metrics': DM.METRICS,
+        'geographies': {k: {'label': v['label']} for k, v in DM.GEOS.items()},
+        'endpoint': '/layers/population',
+        'report': '/report',
+        'source': {'name': 'US Census ACS 5-year + NYC DCP + NYC DOF',
+                   'dataset': 'acs5', 'portal': 'census.gov',
+                   'url': 'https://www2.census.gov/programs-surveys/acs/summary_file/'},
+    },
+
     # ── Transit ──────────────────────────────────────────────────────────
     {
         'id': 'subway_lines',
@@ -531,8 +553,8 @@ LAYERS: List[Dict[str, Any]] = [
     },
 ]
 
-# id → loader for every layer served straight from a source (housing_prices and
-# sales are parameterised, so they're handled by the API rather than here).
+# id → loader for every layer served straight from a source (housing_prices,
+# sales and population are parameterised, so they're handled by the API rather than here).
 LOADERS: Dict[str, Callable[[], dict]] = {
     'subway_lines': subway_lines,
     'subway_stations': subway_stations,

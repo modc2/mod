@@ -8,6 +8,9 @@ and whose strat.py defines one subclass of the canonical Strat class
 under this module's strats/ and any orbit module that declares a strat
 block — so publishing a strategy to the marketplace is just shipping a mod.
 
+The strats shipped INSIDE polymarket, hyperliquid and copytensor are mounted
+too, unchanged, as `<module>.<strat>` through bridge.py's adapters.
+
 Execution is delegated to the fleet module that owns each chain (venues.py)
 — this module holds no keys, forwards auth verbatim, and defaults every
 run to dry-run.
@@ -44,6 +47,13 @@ if "strat_venues" not in sys.modules:
     venues_mod = _load_file(os.path.join(SELF, "venues.py"), "strat_venues")
 else:
     venues_mod = sys.modules["strat_venues"]
+# bridge.py mounts the strats shipped inside polymarket / hyperliquid /
+# copytensor onto this protocol. Registered as `bridge` too, so a forked
+# bridged strat's strat.py can `from bridge import bridged`.
+if "bridge" not in sys.modules or not hasattr(sys.modules.get("bridge"), "bridged"):
+    bridge = _load_file(os.path.join(SELF, "bridge.py"), "bridge")
+else:
+    bridge = sys.modules["bridge"]
 
 STRAT_TEMPLATE = '''"""{name} — {description}"""
 
@@ -91,9 +101,11 @@ class Mod:
             "strats": sorted(reg.keys()),
             "count": len(reg),
             "methods": proto.METHODS,
-            "fns": ["info", "schema", "venues", "strats", "strat", "code",
-                    "verify", "new", "fork", "publish", "backtest", "tick",
-                    "board", "readme"],
+            "sources": sorted(bridge.SOURCES),
+            "fns": ["info", "schema", "venues", "sources", "catalog", "strats",
+                    "strat", "code", "verify", "new", "fork", "publish",
+                    "backtest", "tick", "plan", "board", "readme",
+                    "whitepaper"],
         }
 
     def schema(self):
@@ -105,6 +117,18 @@ class Mod:
         whether that module is reachable right now."""
         return {name: v.info(check=bool(check))
                 for name, v in venues_mod.registry().items()}
+
+    def sources(self):
+        """The modules whose own strat packages are bridged onto this
+        protocol: what each ships, its native backtest model, and `drift`
+        — native schema fields the bridge does not map (empty = lossless)."""
+        return {mod: src.info() for mod, src in bridge.SOURCES.items()}
+
+    def catalog(self, token=None, limit=20):
+        """The strat catalogs each module SERVES from its own API (hyperliquid
+        /strats/board, copytensor /strats, polymarket /strats — the last is
+        owner-gated, pass token=). Read-only."""
+        return bridge.catalog(token=token, limit=int(limit))
 
     # ── Registry: mods ARE strats ───────────────────────────────────
 
@@ -136,6 +160,9 @@ class Mod:
                 if name not in found:   # builtins win name collisions
                     found[name] = {"dir": d, "config": cfg, "strat": block,
                                    "origin": origin}
+        # Strats shipped inside other modules, named <module>.<strat>.
+        for name, e in bridge.entries().items():
+            found.setdefault(name, e)
         return found
 
     def _entry(self, name):
@@ -147,18 +174,23 @@ class Mod:
     def _class(self, name):
         """Import the strat mod's file and return its declared class."""
         e = self._entry(name)
+        if e["origin"] == "bridge":
+            return bridge.bridged(name)
         file_name, _, cls_name = e["strat"]["class"].partition(":")
         path = os.path.join(e["dir"], file_name or "strat.py")
         module = _load_file(path, f"strat_mod_{name}_{abs(hash(path)) % 10**6}")
         cls = getattr(module, cls_name)
         return cls
 
-    def strats(self, venue=None):
-        """The marketplace listing. Optionally filtered to one venue."""
+    def strats(self, venue=None, origin=None):
+        """The marketplace listing. Optionally filtered to one venue and/or
+        one origin (builtin | orbit | bridge)."""
         out = []
         for name, e in sorted(self._registry().items()):
             venues = e["strat"].get("venues", proto.VENUES)
             if venue and venue not in venues:
+                continue
+            if origin and e["origin"] != origin:
                 continue
             out.append({
                 "name": name,
@@ -167,6 +199,8 @@ class Mod:
                 "venues": venues,
                 "params": e["strat"].get("params", {}),
                 "origin": e["origin"],
+                "source": e["strat"].get("source"),
+                "selects": bool(e["strat"].get("selects")),
                 "dir": e["dir"],
             })
         return out
@@ -181,8 +215,12 @@ class Mod:
     def code(self, name):
         """The strat's source — the class IS the strategy."""
         e = self._entry(name)
-        file_name = e["strat"]["class"].partition(":")[0] or "strat.py"
-        with open(os.path.join(e["dir"], file_name)) as f:
+        if e["origin"] == "bridge":
+            path = e["file"]    # the module's own file, read, never written
+        else:
+            path = os.path.join(e["dir"], e["strat"]["class"].partition(":")[0]
+                                or "strat.py")
+        with open(path) as f:
             return f.read()
 
     def verify(self, name):
@@ -204,6 +242,9 @@ class Mod:
         bad = [v for v in e["strat"].get("venues", []) if v not in proto.VENUES]
         if bad:
             issues.append(f"unknown venues: {bad}")
+        if e["origin"] == "bridge":
+            issues += [f"drift: {d}" for d in
+                       bridge.SOURCES[e["strat"]["source"]].drift()]
         return {"ok": not issues, "issues": issues,
                 "protocol": e["strat"].get("protocol"),
                 "class": e["strat"]["class"]}
@@ -257,6 +298,8 @@ class Mod:
                               new_name)
         if os.path.exists(target):
             raise ValueError(f"{target} already exists")
+        if e["origin"] == "bridge":
+            return self._fork_bridged(e, name, new_name, target, orbit)
         shutil.copytree(e["dir"], target,
                         ignore=shutil.ignore_patterns("__pycache__", "data"))
         cfg_path = os.path.join(target, "config.json")
@@ -272,11 +315,40 @@ class Mod:
         return {"forked": name, "as": new_name, "dir": target,
                 "verify": self.verify(new_name)}
 
+    def _fork_bridged(self, e, name, new_name, target, orbit):
+        """A module's strat can't be copied out (its relative imports and
+        schema live in that module) — so the fork is a strat mod whose class
+        SUBCLASSES the bridged one: native logic by default, yours to
+        override."""
+        cls_name = "".join(p.capitalize()
+                           for p in new_name.replace("_", "-").split("-"))
+        os.makedirs(target)
+        block = dict(e["strat"])
+        block.update(protocol=proto.PROTOCOL_VERSION,
+                     **{"class": f"strat.py:{cls_name}"})
+        with open(os.path.join(target, "config.json"), "w") as f:
+            json.dump({"name": new_name, "version": "0.1.0",
+                       "description": f"fork of {name}: "
+                                      f"{e['config'].get('description', '')}",
+                       "forked_from": name, "strat": block}, f, indent=4)
+        with open(os.path.join(target, "strat.py"), "w") as f:
+            f.write(bridge.FORK_TEMPLATE.format(
+                name=new_name, src=name, mod=e["strat"]["source"], cls=cls_name))
+        if orbit:
+            with open(os.path.join(target, "mod.py"), "w") as f:
+                f.write(self._orbit_mod_py(new_name))
+        return {"forked": name, "as": new_name, "dir": target,
+                "verify": self.verify(new_name)}
+
     def publish(self, name):
         """Promote a builtin strat to a first-class orbit module."""
         e = self._entry(name)
         if e["origin"] == "orbit":
             return {"published": name, "dir": e["dir"], "already": True}
+        if e["origin"] == "bridge":
+            return {"published": name, "already": True,
+                    "note": "bridged strats are published by their own module; "
+                            "fork it to remix"}
         if os.path.exists(os.path.join(ORBIT, name)):
             # Name collision with an existing orbit module — publish suffixed.
             return self.fork(name, f"{name}-strat", orbit=True)
@@ -338,10 +410,18 @@ class Mod:
 
     # ── Running: backtest / tick / board ────────────────────────────
 
+    RISK_KEYS = ("min_order_size", "max_order_size", "max_slippage_bps",
+                 "scan_minutes")
+
     def _mount(self, name, capital, traders=None, token=None,
-               dry_run=True, confirm=False):
+               dry_run=True, confirm=False, params=None, max_leaders=5):
         e = self._entry(name)
         cls = self._class(name)
+        params = {**dict(e["strat"].get("params") or {}),
+                  **{k: v for k, v in (params or {}).items() if v is not None}}
+        # Drop unset native defaults (None) so native constructors keep theirs.
+        params = {k: v for k, v in params.items() if v is not None}
+        risk = {k: params[k] for k in self.RISK_KEYS if k in params}
         adapters = venues_mod.registry()
         watchlist = []
         for t in traders or []:
@@ -355,7 +435,8 @@ class Mod:
             name=name, capital=float(capital),
             venues=e["strat"].get("venues", list(proto.VENUES)),
             watchlist=watchlist,
-            params=dict(e["strat"].get("params", {})),
+            params=params,
+            **risk,
             fetch_trades=lambda venue, addr, since: (
                 adapters[venue].trades(addr, since, token) if venue in adapters
                 else [t for v in adapters.values()
@@ -364,34 +445,47 @@ class Mod:
             place_order=lambda o: adapters[o.venue].place(
                 o, token=token, confirm=confirm, dry_run=dry_run),
         )
-        return cls(cfg)
+        strat = cls(cfg)
+        # No traders named? A strat that can pick its own leaders (every
+        # bridged one) resolves its watchlist from its module — read-only.
+        if not watchlist and callable(getattr(strat, "resolve_watchlist", None)):
+            strat.resolve_watchlist(max_leaders=int(max_leaders))
+        return strat
 
-    def backtest(self, name, days=7, capital=1000.0, traders=None, token=None):
+    def backtest(self, name, days=7, capital=1000.0, traders=None, token=None,
+                 params=None, max_leaders=5):
         """Replay the strat over each watched trader's recent venue history.
-        Pure read — nothing is placed anywhere."""
-        strat = self._mount(name, capital, traders=traders, token=token)
+        Pure read — nothing is placed anywhere. With no traders, strats that
+        select their own leaders (bridged ones) pick up to max_leaders."""
+        strat = self._mount(name, capital, traders=traders, token=token,
+                            params=params, max_leaders=max_leaders)
         since = int(time.time() * 1000) - int(days) * 86_400_000
         history = []
         for w in strat.config.watchlist:
             history.extend(strat.config.fetch_trades(
                 w.get("venue", ""), w["address"], since))
+        history = [t for t in history if t.venue in strat.config.venues]
         if not history:
             return {"strat": name, "days": days, "trades": 0,
                     "note": "no upstream history — pass traders=['venue:address', ...] "
                             "and make sure that venue's module is running"}
         r = strat.backtest(history)
         return {"strat": name, "days": days, "capital": capital,
+                "currency": (venues_mod.registry()[strat.config.venues[0]].currency
+                             if len(strat.config.venues) == 1 else "mixed"),
+                "leaders": [w["address"] for w in strat.config.watchlist],
                 "trades_seen": len(history), "trades_simulated": r.trades_simulated,
                 "final_pnl": round(r.final_pnl, 4), "roi_pct": round(r.roi_pct, 4),
                 "curve": r.pnl_curve[-200:], "notes": r.notes}
 
     def tick(self, name, capital=100.0, traders=None, token=None,
-             dry_run=True, confirm=False):
+             dry_run=True, confirm=False, params=None, max_leaders=5):
         """One live cycle: sync -> signal -> execute through the venue
         modules. DRY RUN by default; a real order needs dry_run=False AND
         confirm=True AND a token the peer module accepts."""
         strat = self._mount(name, capital, traders=traders, token=token,
-                            dry_run=dry_run, confirm=confirm)
+                            dry_run=dry_run, confirm=confirm, params=params,
+                            max_leaders=max_leaders)
         strat.setup()
         r = strat.tick()
         return {
@@ -404,8 +498,26 @@ class Mod:
             "state": strat.state(),
         }
 
+    def plan(self, name, capital=100.0, traders=None, params=None,
+             max_leaders=5, eoa=None, hotkey=None):
+        """For a bridged strat: the exact config its OWN module's live engine
+        would consume (hyperliquid live_start body, copytensor POST /copy
+        sleeve rows, polymarket /live/start body with autoExecute false).
+        Pure data — starting it stays with that module and its gates."""
+        e = self._entry(name)
+        src = e["strat"].get("source")
+        if e["origin"] != "bridge" and not src:
+            raise ValueError(f"{name!r} is not a bridged strat — plan() is for "
+                             f"strats that run on their module's own engine")
+        strat = self._mount(name, capital, traders=traders, params=params,
+                            max_leaders=max_leaders)
+        out = strat.plan(eoa=eoa, hotkey=hotkey)
+        out["strat"] = name
+        out["leaders"] = strat.config.watchlist
+        return out
+
     def board(self, days=7, capital=1000.0, traders=None, refresh=False,
-              token=None):
+              token=None, max_leaders=3):
         """The marketplace board: every strat, verified, with cached backtest
         performance when history is available."""
         os.makedirs(DATA, exist_ok=True)
@@ -424,13 +536,19 @@ class Mod:
             row = dict(s)
             row["ok"] = self.verify(s["name"])["ok"]
             perf = cache.get(s["name"])
-            if traders and (refresh or not perf):
+            # A strat that selects its own leaders (bridged) is boarded on
+            # them when refresh=True even without traders=.
+            if refresh and not traders and s.get("source") and not s["selects"]:
+                perf = {"note": "takes a fixed leader list — board it with traders="}
+            elif (traders or (refresh and s["selects"])) and (refresh or not perf):
                 try:
                     bt = self.backtest(s["name"], days=days, capital=capital,
-                                       traders=traders, token=token)
+                                       traders=traders, token=token,
+                                       max_leaders=max_leaders)
                     if bt.get("roi_pct") is not None:
                         perf = {k: bt.get(k) for k in
-                                ("roi_pct", "final_pnl", "trades_simulated", "days")}
+                                ("roi_pct", "final_pnl", "trades_simulated",
+                                 "days", "currency")}
                         perf["at"] = int(time.time())
                         cache[s["name"]] = perf
                     elif perf:
@@ -457,6 +575,14 @@ class Mod:
                 "strats": rows}
 
     # ── Misc ────────────────────────────────────────────────────────
+
+    def whitepaper(self):
+        """WHITEPAPER.md — the design of the unified strat framework."""
+        p = os.path.join(SELF, "WHITEPAPER.md")
+        if os.path.exists(p):
+            with open(p) as f:
+                return f.read()
+        return None
 
     def readme(self):
         p = os.path.join(SELF, "README.md")
