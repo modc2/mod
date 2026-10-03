@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006077 | -0.62% | +1.45% | +1.42% | 33,797 | 17,886 | 4,166 |
+| 0.006037 | +0.00% | +0.32% | +1.07% | 33,597 | 17,826 | 1,703 |
 
 ## Last 24h flow
 
-215 trades by 80 coldkeys · 96 buys (2,148 τ) / 119 sells (2,007 τ) · net 141.17 τ
+103 trades by 55 coldkeys · 41 buys (865.67 τ) / 62 sells (835.93 τ) · net 29.73 τ
 
 ## News
 
-- 2026-10-02 · commit · [Merge pull request #297 from reliquadotai/perf/corpus-tasks-instant](https://github.com/reliquadotai/reliquary/commit/dfa575d388e49427e737855c310d467bb08b3158) — reliquadotai/reliquary
-- 2026-10-02 · commit · [perf(corpus): /corpus/tasks never waits on the registry](https://github.com/reliquadotai/reliquary/commit/1266c0101a8ea986a07546a4d31a19625cb02f3e) — reliquadotai/reliquary
-- 2026-10-01 · commit · [Merge pull request #296 from reliquadotai/perf/corpus-settle-without-…](https://github.com/reliquadotai/reliquary/commit/2b3a5ea6ab2050bd9ba14db6fe6931a8dab2f413) — reliquadotai/reliquary
-- 2026-10-01 · commit · [test(corpus): loosen the loop-gap bound so a busy box does not flake it](https://github.com/reliquadotai/reliquary/commit/1e4e345a61943a5afe63adcd1dc8583e6be56844) — reliquadotai/reliquary
-- 2026-10-01 · commit · [perf(corpus): settle from the auditor's feed, list off the serving loop](https://github.com/reliquadotai/reliquary/commit/622d1b844e463156a77ab5fc0397f3e63e589791) — reliquadotai/reliquary
-- 2026-10-01 · commit · [Merge pull request #295 from reliquadotai/perf/corpus-ledger-group-co…](https://github.com/reliquadotai/reliquary/commit/06de000af66c7218d09df7d166a0a04db6e16b82) — reliquadotai/reliquary
-- 2026-10-01 · commit · [fix(corpus): a taken submission keeps its record write past a hang-up](https://github.com/reliquadotai/reliquary/commit/35d83976951698c61cac413467a16e729f058338) — reliquadotai/reliquary
-- 2026-10-01 · commit · [perf(corpus): group-commit the ledger turn, one CAS write per batch](https://github.com/reliquadotai/reliquary/commit/c46a8a67904003b5fc0205bf8d6e29df63f5a2e7) — reliquadotai/reliquary
+- 2026-10-03 · commit · [Merge pull request #306 from reliquadotai/fix/corpus-judge-pass-speed](https://github.com/reliquadotai/reliquary/commit/423cefe751e7360aa4529ba6339059a3918df36b) — reliquadotai/reliquary
+- 2026-10-03 · commit · [perf(corpus): a math pass in ~75 s: no listing per pass, one re-audit…](https://github.com/reliquadotai/reliquary/commit/af69280e0ef115fedc6d3ae7840815a6c6ca7d72) — reliquadotai/reliquary
+- 2026-10-03 · commit · [Merge pull request #305 from reliquadotai/fix/corpus-judge-drand-bound](https://github.com/reliquadotai/reliquary/commit/782e5906643c16fb3a8cb83d6224acc6880c2cc8) — reliquadotai/reliquary
+- 2026-10-02 · commit · [fix(corpus): bound a pass's siblings, race each drand round once, pac…](https://github.com/reliquadotai/reliquary/commit/a27e17743663eef7eb404185c2178fdbd90347d0) — reliquadotai/reliquary
+- 2026-10-02 · commit · [Merge pull request #303 from reliquadotai/fix/corpus-judge-seed-metadata](https://github.com/reliquadotai/reliquary/commit/124e9241b56b8624eff1d86494427152ae8603e8) — reliquadotai/reliquary
+- 2026-10-02 · commit · [Merge pull request #300 from reliquadotai/feat/corpus-split-processes](https://github.com/reliquadotai/reliquary/commit/674e0a2b0f580a71f610c93721f51aad55d43297) — reliquadotai/reliquary
+- 2026-10-02 · commit · [test(corpus): check pass counts while the judges run; the final stop …](https://github.com/reliquadotai/reliquary/commit/0f84bd4bf5a0ce3f64b4d3c15efed30a3f5c5a26) — reliquadotai/reliquary
+- 2026-10-02 · commit · [test(corpus): give the crash tests' first verdicts 360 s on a loaded box](https://github.com/reliquadotai/reliquary/commit/5d3e4a1115331658742327b389106d61e8d68096) — reliquadotai/reliquary
 
 ## Use
 

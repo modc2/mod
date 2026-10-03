@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9195968,
+  "block": 9200279,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6868765.633185887,
-    "tao_in": 5482450.121774049,
-    "alpha_in": 1386315.511411838,
-    "alpha_out": 5482450.121774049,
-    "volume": 58683515.76396635,
-    "vol_24h": 50239.328581891954,
+    "market_cap": 6868798.372503952,
+    "tao_in": 5489630.527969923,
+    "alpha_in": 1379167.844534029,
+    "alpha_out": 5489630.527969923,
+    "volume": 58710549.01395509,
+    "vol_24h": 41075.22732091695,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,14 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1790956995,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Quant, Sui, and Bittensor in Focus as Key Altcoins to Monitor in October 2026",
+      "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxPRnVYcE9qN3ZOZWFwWVhDMmNCRVpnVUZGY09Ldm50UVhhRWktRnVicG5TSHNfNWFIamRfQmlYOUUzdDVhZDZBRFFxMFNkVGZlZDVLVHVSYmEyUzRQTC1nWVVYNzJMMXJCdFREcTdZV2c1c05MYm9qSUFhdWdBUGE0ZzBwM3NSYVcxVkFBQjNITkx3VzJOejVfWUtadExaZ1hJSXJaNkZKc1NYTU5UZFE?oc=5",
+      "publisher": "KuCoin"
+    },
+    {
       "ts": 1790942880,
       "kind": "news",
       "source": "gnews",
@@ -135,16 +143,8 @@
       "title": "Bittensor adoption grows as AI subnets find paying customers, Yuma CRO says",
       "url": "https://news.google.com/rss/articles/CBMifkFVX3lxTE5ramdOUm00SnR0ZF9zc3R1Rm5OdjE1YmRiTGhoNS1PNDN6dV9hYWpHblBxTjJXcjdrbEE5ZTF5Vk05LTdnZjZ2NG5hc0RhalU4YlozMkZWWEVUd3pYMklGbjE2cjhLdXVWMHNmdjVkM25nbGdxTEdlLUl6T0tuZw?oc=5",
       "publisher": "Crypto News"
-    },
-    {
-      "ts": 1790695557,
-      "kind": "release",
-      "source": "feeds",
-      "title": "Runtime 469",
-      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v469",
-      "publisher": "subtensor releases"
     }
   ],
-  "updated": 1790954368,
-  "updated_day": "2026-10-02"
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
 }

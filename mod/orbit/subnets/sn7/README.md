@@ -2,7 +2,7 @@
 
 universal transaction layer
 
-Bittensor subnet **7** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **7** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/entrius/allways) · [url](https://all-ways.io/) · discord ` `
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/entrius/allways) · [url](https://all-ways.io
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002493 | +0.01% | +0.01% | +1.38% | 13,427 | 5,623 | 4.74 |
+| 0.002482 | +0.00% | -0.46% | +0.97% | 13,377 | 5,610 | 18.49 |
 
 ## Last 24h flow
 
-13 trades by 9 coldkeys · 3 buys (2.54 τ) / 10 sells (1.87 τ) · net 0.67 τ
+15 trades by 11 coldkeys · 4 buys (2.78 τ) / 11 sells (15.51 τ) · net -12.73 τ
 
 ## News
 

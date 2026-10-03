@@ -2,7 +2,7 @@
 
 Software Engineering Agents
 
-Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.ai/) · [discord](https://discord.gg/WeDvTnYDad)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.010402 | -0.04% | -0.14% | -3.00% | 58,617 | 29,669 | 516.84 |
+| 0.010390 | -0.03% | -0.16% | -2.71% | 58,601 | 29,659 | 162.74 |
 
 ## Last 24h flow
 
-259 trades by 96 coldkeys · 198 buys (218.48 τ) / 61 sells (257.12 τ) · net -38.63 τ
+187 trades by 89 coldkeys · 130 buys (40.20 τ) / 57 sells (82.07 τ) · net -41.87 τ
 
 ## News
 
+- 2026-10-02 · commit · [Merge pull request #517 from ridgesai/update/remove-time-limit-credits](https://github.com/ridgesai/ridges/commit/02a12dac06e3f60b47dd482e8791ccc46c56a257) — ridgesai/ridges
+- 2026-10-02 · commit · [update tests](https://github.com/ridgesai/ridges/commit/e11c7e9f34802682809d9866c415b86088b1b9a3) — ridgesai/ridges
+- 2026-10-02 · commit · [return remaining time properly](https://github.com/ridgesai/ridges/commit/df4b7fdce441ad39bbf0e66a82643bbbbe49d703) — ridgesai/ridges
+- 2026-10-02 · commit · [allow credit uploads to skip time enforcement](https://github.com/ridgesai/ridges/commit/d45290e4e8e3a6343fd2966f1c3f32743768796a) — ridgesai/ridges
 - 2026-10-01 · release · [v0.3.9](https://github.com/ridgesai/ridges/releases/tag/v0.3.9) — ridgesai/ridges
 - 2026-10-01 · commit · [Merge pull request #516 from ridgesai/update/preference-to-inprocess-…](https://github.com/ridgesai/ridges/commit/f3f2107639caa356b45dd9efbdc0fce08b728049) — ridgesai/ridges
 - 2026-10-01 · release · [v0.3.8](https://github.com/ridgesai/ridges/releases/tag/v0.3.8) — ridgesai/ridges
 - 2026-10-01 · commit · [Merge branch 'main' into update/preference-to-inprocess-valis](https://github.com/ridgesai/ridges/commit/8eb058f2592ec9518e8e80c5dc5004626b7ad578) — ridgesai/ridges
-- 2026-10-01 · commit · [give in process valis preference](https://github.com/ridgesai/ridges/commit/915454ed775d765d0ff579d0e5df806ccdc6c6af) — ridgesai/ridges
-- 2026-09-29 · commit · [Merge pull request #515 from ridgesai/feat/use-api-key-coingecko](https://github.com/ridgesai/ridges/commit/096feb7d18fe72de3f70847551d6a2327be06cee) — ridgesai/ridges
-- 2026-09-29 · commit · [update config](https://github.com/ridgesai/ridges/commit/d37b15630f601dc4494b292db6ef1747d6e4d9e8) — ridgesai/ridges
-- 2026-09-29 · commit · [update env example](https://github.com/ridgesai/ridges/commit/afa2cacecea441c898bd0633dfe8931357a36ea3) — ridgesai/ridges
 
 ## Use
 

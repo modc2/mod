@@ -2,7 +2,7 @@
 
 CPU sandboxes powering reinforcement learning on Bittensor.
 
-Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **94** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/cathedralai/cathedral-sandbox) · [url](https://cathedral.computer/) · [discord](https://discord.com/channels/799672011265015819/1526241812589711571)
 
@@ -12,19 +12,22 @@ Fleet mods for this subnet: `cathedral`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005098 | -0.94% | -5.79% | +21.81% | 12,946 | 2,443 | 1,148 |
+| 0.004972 | +0.21% | -6.36% | +5.24% | 12,649 | 2,413 | 1,322 |
 
 ## Last 24h flow
 
-188 trades by 75 coldkeys · 83 buys (537.13 τ) / 105 sells (613.56 τ) · net -76.42 τ
+199 trades by 81 coldkeys · 93 buys (620.27 τ) / 106 sells (699.62 τ) · net -79.35 τ
 
 ## News
 
+- 2026-10-02 · commit · [Merge pull request #267 from cathedralai/fix/tdx-image-identity-v2](https://github.com/cathedralai/cathedral-sandbox/commit/a22fb1df124ed3e4414335f109f30624152ff548) — cathedralai/cathedral-sandbox
+- 2026-10-02 · commit · [Check the verdict's v1 and v2 audit values against the quote in admis…](https://github.com/cathedralai/cathedral-sandbox/commit/c47a6f733ebe8a8a6b09bfac70209d24f8178e57) — cathedralai/cathedral-sandbox
+- 2026-10-02 · commit · [Store the GCP quote fixtures as .bin; *.quote is ignored for live evi…](https://github.com/cathedralai/cathedral-sandbox/commit/e1d6f49c70eb6a92d2bc80c09af4ea042cae7418) — cathedralai/cathedral-sandbox
+- 2026-10-02 · commit · [Merge remote-tracking branch 'origin/main' into fix/tdx-image-identit…](https://github.com/cathedralai/cathedral-sandbox/commit/9eb29b09542a4310a93ac7402f310ed2fe5958aa) — cathedralai/cathedral-sandbox
+- 2026-10-02 · commit · [Add the v2 TDX image identity that leaves out host-set owner fields (…](https://github.com/cathedralai/cathedral-sandbox/commit/428a963a188fc6ed4bfe03da99bc37cc190527c8) — cathedralai/cathedral-sandbox
 - 2026-10-01 · commit · [snp friend probe: an unavailable AMD verifier is inconclusive, never …](https://github.com/cathedralai/cathedral-sandbox/commit/244f9f52eaf4b570886e6d6eab734cecd0b39d78) — cathedralai/cathedral-sandbox
 - 2026-10-01 · commit · [Merge pull request #256 from cathedralai/fix/snp-umask-and-kds-thrott…](https://github.com/cathedralai/cathedral-sandbox/commit/de8a061e1641b8e65fc4b1c5f27ff0ae4066e502) — cathedralai/cathedral-sandbox
 - 2026-10-01 · commit · [snp: keep cached certificates when only verify attestation fails](https://github.com/cathedralai/cathedral-sandbox/commit/6b214b4a7a41e37090404d51c6fb585c51dca8cc) — cathedralai/cathedral-sandbox
-- 2026-10-01 · commit · [snp: cache AMD certificates per chip and TCB, back off on KDS throttling](https://github.com/cathedralai/cathedral-sandbox/commit/a57855579cd4b06182c3fdc9a519fd3884fba1b7) — cathedralai/cathedral-sandbox
-- 2026-10-01 · commit · [fix(snp): fetch AMD certificates with an owner-only umask](https://github.com/cathedralai/cathedral-sandbox/commit/c85541517e77520d5befd245e74f75453a7ae2a1) — cathedralai/cathedral-sandbox
 
 ## Use
 

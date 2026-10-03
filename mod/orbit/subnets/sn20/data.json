@@ -11,52 +11,23 @@
   "registered_at": 1970929,
   "tempo": 360,
   "active": true,
-  "block": 9195968,
+  "block": 9200279,
   "related": [],
   "market": {
-    "price": 0.00227475,
-    "moving_price": 0.002276055281981826,
-    "market_cap": 13714.982787199955,
-    "tao_in": 6382.891679754,
-    "alpha_in": 2805975.030238198,
-    "alpha_out": 3223251.384620559,
-    "volume": 288559.027605589,
-    "vol_24h": 10.588056789012626,
+    "price": 0.002273135,
+    "moving_price": 0.0022738475818187,
+    "market_cap": 13714.403092490837,
+    "tao_in": 6380.782671456,
+    "alpha_in": 2807040.743769239,
+    "alpha_out": 3226214.250980671,
+    "volume": 288562.900878654,
+    "vol_24h": 7.146966030006297,
     "emission": 0.0,
-    "change_1h": -0.0001318824505380789,
-    "change_24h": -0.2319259591287537,
-    "change_7d": -0.5138423415011362
+    "change_1h": 0.0,
+    "change_24h": -0.10134299241334466,
+    "change_7d": -0.24036562609168755
   },
   "spark_24h": [
-    0.002280032,
-    0.002280022,
-    0.002276451,
-    0.002276443,
-    0.002276428,
-    0.002276428,
-    0.002276427,
-    0.002276426,
-    0.002276426,
-    0.002275443,
-    0.002275439,
-    0.002275431,
-    0.00227543,
-    0.00227543,
-    0.00227543,
-    0.002275429,
-    0.002275428,
-    0.002275426,
-    0.002275419,
-    0.002275169,
-    0.002275169,
-    0.002275169,
-    0.002275311,
-    0.002275311,
-    0.002275305,
-    0.002275448,
-    0.002275448,
-    0.002275442,
-    0.002275441,
     0.002275441,
     0.002275441,
     0.002275441,
@@ -65,7 +36,7 @@
     0.002275431,
     0.002275716,
     0.002275716,
-    0.00227571,
+    0.002275711,
     0.002275705,
     0.002275704,
     0.002275701,
@@ -73,25 +44,54 @@
     0.002275639,
     0.002275603,
     0.002275603,
+    0.002274436,
     0.002274431,
     0.002274753,
-    0.00227475
+    0.00227475,
+    0.002274892,
+    0.002274884,
+    0.002275024,
+    0.002275167,
+    0.002275166,
+    0.002273013,
+    0.002273013,
+    0.002273012,
+    0.002273012,
+    0.002273012,
+    0.002273148,
+    0.002273148,
+    0.002273148,
+    0.002273147,
+    0.002273147,
+    0.002273147,
+    0.002273147,
+    0.002273139,
+    0.002273142,
+    0.002273142,
+    0.002273142,
+    0.002273142,
+    0.002273142,
+    0.002273137,
+    0.002273137,
+    0.002273137,
+    0.002273135,
+    0.002273135
   ],
   "trades_24h": {
-    "trades": 18,
-    "buys": 6,
-    "sells": 12,
-    "buy_tao": 0.536042518,
-    "sell_tao": 8.753839907,
-    "net_tao": -8.217797389,
-    "traders": 14
+    "trades": 14,
+    "buys": 5,
+    "sells": 9,
+    "buy_tao": 0.50472635,
+    "sell_tao": 5.0518732029999995,
+    "net_tao": -4.547146852999999,
+    "traders": 11
   },
   "top_traders_24h": [
     {
-      "coldkey": "5CVGch1pd8C1uHZEd4VW7QKZHvCsReB4iGMQQHERquPFB2ua",
-      "net_tao": -4.993577964,
-      "gross_tao": 4.993577964,
-      "trades": 1
+      "coldkey": "5G1G2f93eezKQ48jFFmynqGdTYsK8yk6ecTSDb8uU22111ht",
+      "net_tao": -3.0193960669999997,
+      "gross_tao": 3.0193960669999997,
+      "trades": 3
     },
     {
       "coldkey": "5CXcaXj8WzLnXwh44L1Eh5mCq2j4eiYvWkHyNMAdegx1dTrq",
@@ -100,25 +100,41 @@
       "trades": 1
     },
     {
-      "coldkey": "5GvVKcVXgL8nDYJc4whZtqqy5iaQnKbb6L2rhNhcjDC5As8t",
-      "net_tao": -1.343035428,
-      "gross_tao": 1.343035428,
-      "trades": 1
-    },
-    {
-      "coldkey": "5D9hGQGVohC3QyT33DfRgerzkiPEqpkwmbu39J9kf3C9fYfW",
-      "net_tao": -0.348539003,
-      "gross_tao": 0.348539003,
-      "trades": 1
-    },
-    {
       "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
       "net_tao": -0.285346026,
       "gross_tao": 0.285346026,
       "trades": 1
+    },
+    {
+      "coldkey": "5DtJHvfkRNPWUgw6xB8cSazcykjJcsYyHxtWyigfxH7am78a",
+      "net_tao": 0.200317906,
+      "gross_tao": 0.200317906,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D4oZz7veairyteK4Je26zbEKxPu9vuZRfB3gdLv6BEsnh9M",
+      "net_tao": 0.152432648,
+      "gross_tao": 0.152432648,
+      "trades": 2
     }
   ],
   "news": [
+    {
+      "ts": 1790961588,
+      "kind": "commit",
+      "source": "github",
+      "title": "Wait for active model prefetch before compression preflight",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/4770712a5bd37a50377715a0a2973f7f4a80b8bf",
+      "publisher": "witnessvision/witness_subnet"
+    },
+    {
+      "ts": 1790957195,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add private rotating model access audit logs and separate telemetry m…",
+      "url": "https://github.com/witnessvision/witness_subnet/commit/fc170dce8a9918e110aee263ee7299687b93819b",
+      "publisher": "witnessvision/witness_subnet"
+    },
     {
       "ts": 1790932208,
       "kind": "commit",
@@ -166,16 +182,8 @@
       "title": "Keep weight submission time separate from reveal observation",
       "url": "https://github.com/witnessvision/witness_subnet/commit/9fe23760e68ed5e15a47673e5482d6c5b2b95280",
       "publisher": "witnessvision/witness_subnet"
-    },
-    {
-      "ts": 1790875404,
-      "kind": "commit",
-      "source": "github",
-      "title": "Retry connection establishment and classify visual review outages as …",
-      "url": "https://github.com/witnessvision/witness_subnet/commit/e05e2cab877756ebf9a5de98861d69c7de33e38f",
-      "publisher": "witnessvision/witness_subnet"
     }
   ],
-  "updated": 1790954409,
-  "updated_day": "2026-10-02"
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
 }

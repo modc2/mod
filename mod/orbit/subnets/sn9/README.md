@@ -2,7 +2,7 @@
 
 Bringing liquid training to the world
 
-Bittensor subnet **9** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **9** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/macrocosm-os/iota) · [url](https://iota.macrocosmos.ai/) · [discord](https://discord.gg/adsQPnFRY)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/macrocosm-os/iota) · [url](https://iota.macr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.024153 | -0.27% | +0.63% | -2.77% | 150,069 | 52,938 | 3,606 |
+| 0.024273 | -0.00% | +0.70% | -1.78% | 150,933 | 53,083 | 1,837 |
 
 ## Last 24h flow
 
-275 trades by 145 coldkeys · 85 buys (1,791 τ) / 190 sells (1,715 τ) · net 76.24 τ
+233 trades by 140 coldkeys · 53 buys (922.52 τ) / 180 sells (823.11 τ) · net 99.41 τ
 
 ## News
 

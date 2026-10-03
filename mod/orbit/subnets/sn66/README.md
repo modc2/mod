@@ -2,7 +2,7 @@
 
 Incentivizing breakthroughs on decades-old open mathematical conjectures
 
-Bittensor subnet **66** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **66** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/conjectures-io/conjectures-validator) · [url](https://conjectures.io) · discord `wejh`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/conjectures-io/conjectures-validator) · [url
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003415 | +0.01% | +2.13% | +7.74% | 20,181 | 7,183 | 398.14 |
+| 0.003450 | +0.00% | +3.89% | +8.30% | 20,402 | 7,220 | 534.52 |
 
 ## Last 24h flow
 
-56 trades by 38 coldkeys · 18 buys (235.56 τ) / 38 sells (160.68 τ) · net 74.88 τ
+64 trades by 38 coldkeys · 45 buys (335.01 τ) / 19 sells (198.66 τ) · net 136.35 τ
 
 ## News
 

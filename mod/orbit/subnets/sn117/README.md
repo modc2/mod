@@ -2,7 +2,7 @@
 
 Every frame gets craft
 
-Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url](https://everyframe.studio/) · [discord](https://discord.com/channels/799672011265015819/1544011415692644444)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002745 | -0.00% | +3.34% | -5.51% | 8,267 | 2,996 | 178.87 |
+| 0.002757 | +0.00% | +0.99% | -5.00% | 8,310 | 3,002 | 115.33 |
 
 ## Last 24h flow
 
-38 trades by 22 coldkeys · 20 buys (113.81 τ) / 18 sells (64.02 τ) · net 49.80 τ
+20 trades by 15 coldkeys · 9 buys (65.07 τ) / 11 sells (49.52 τ) · net 15.55 τ
 
 ## News
 
+- 2026-10-02 · release · [everycli v0.2.3](https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.3) — everyframe-studios/everyframe-miner
+- 2026-10-02 · commit · [Merge pull request #6 from everyframe-studios/release/everycli-v0.2.3](https://github.com/everyframe-studios/everyframe-miner/commit/38a9a5e279a23077be220ceb41f2821ffbad750a) — everyframe-studios/everyframe-miner
+- 2026-10-02 · commit · [chore: release everycli v0.2.3](https://github.com/everyframe-studios/everyframe-miner/commit/7fcd9caafcf467648ba9bdd674bc1e1266e24a85) — everyframe-studios/everyframe-miner
+- 2026-10-02 · commit · [Merge pull request #5 from everyframe-studios/fix/actionable-readines…](https://github.com/everyframe-studios/everyframe-miner/commit/6b476d37c0a41aaca2cac795531171d29419ff90) — everyframe-studios/everyframe-miner
+- 2026-10-02 · commit · [fix: replace approval catch-all with actionable readiness diagnostics](https://github.com/everyframe-studios/everyframe-miner/commit/e36e0e4a4de43a0360214730f2ee39ff26495df9) — everyframe-studios/everyframe-miner
 - 2026-10-02 · release · [everycli v0.2.2](https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.2) — everyframe-studios/everyframe-miner
 - 2026-10-02 · commit · [Merge pull request #4 from everyframe-studios/fix/actionable-network-…](https://github.com/everyframe-studios/everyframe-miner/commit/7abc463094e51dc78f6c0febdda5b60b7ca61750) — everyframe-studios/everyframe-miner
 - 2026-10-02 · commit · [fix(cli): explain cloud and balance failures safely](https://github.com/everyframe-studios/everyframe-miner/commit/f9c34d7657ebbedfc21f1d681239e5a82522e3b8) — everyframe-studios/everyframe-miner
-- 2026-10-02 · commit · [Merge pull request #3 from everyframe-studios/fix/undeployed-workload…](https://github.com/everyframe-studios/everyframe-miner/commit/836302eb41d9726ff803b73fa4f224569d9c031d) — everyframe-studios/everyframe-miner
-- 2026-10-02 · commit · [fix(cli): explain missing workload deployment in doctor](https://github.com/everyframe-studios/everyframe-miner/commit/5664ead49a8c3ab3527f2c470fd42500a4a6e4ea) — everyframe-studios/everyframe-miner
-- 2026-10-01 · release · [everycli v0.2.1](https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.1) — everyframe-studios/everyframe-miner
-- 2026-10-01 · commit · [Merge pull request #2 from everyframe-studios/fix/profile-diagnostics](https://github.com/everyframe-studios/everyframe-miner/commit/bec185051684c09e94bdcf85b6cbbe397773527d) — everyframe-studios/everyframe-miner
-- 2026-10-01 · commit · [chore: release everycli v0.2.1](https://github.com/everyframe-studios/everyframe-miner/commit/9ac7af3ddda1d30f5b8f29094e393ff3148bed58) — everyframe-studios/everyframe-miner
 
 ## Use
 

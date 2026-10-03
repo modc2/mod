@@ -2,7 +2,7 @@
 
 Coordinated Learning
 
-Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teutonic.ai/) · discord `@unarbos`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teuton
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.025499 | -0.35% | -7.51% | -14.42% | 157,673 | 75,697 | 10,382 |
+| 0.025612 | +0.12% | +0.42% | -13.76% | 158,492 | 75,879 | 4,513 |
 
 ## Last 24h flow
 
-291 trades by 134 coldkeys · 162 buys (3,554 τ) / 129 sells (6,686 τ) · net -3,132 τ
+235 trades by 135 coldkeys · 127 buys (2,204 τ) / 108 sells (2,173 τ) · net 31.61 τ
 
 ## News
 

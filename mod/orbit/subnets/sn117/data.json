@@ -11,52 +11,23 @@
   "registered_at": 5710859,
   "tempo": 360,
   "active": true,
-  "block": 9195968,
+  "block": 9200279,
   "related": [],
   "market": {
-    "price": 0.002745392,
-    "moving_price": 0.002718014409765601,
-    "market_cap": 8266.61557088063,
-    "tao_in": 2995.707143018,
-    "alpha_in": 1091176.342823994,
-    "alpha_out": 1919911.170682503,
-    "volume": 238766.781694249,
-    "vol_24h": 178.8651457929809,
+    "price": 0.002757343,
+    "moving_price": 0.002745060482993722,
+    "market_cap": 8309.604150252499,
+    "tao_in": 3002.220120964,
+    "alpha_in": 1088809.158981259,
+    "alpha_out": 1924818.144641286,
+    "volume": 238776.404878357,
+    "vol_24h": 115.32901675597532,
     "emission": 0.0,
-    "change_1h": -0.0006556397769363898,
-    "change_24h": 3.3418893469913336,
-    "change_7d": -5.505603629718836
+    "change_1h": 0.0,
+    "change_24h": 0.9938433284777837,
+    "change_7d": -5.001298877590599
   },
   "spark_24h": [
-    0.002656581,
-    0.002656534,
-    0.00265617,
-    0.002690488,
-    0.002690423,
-    0.002690513,
-    0.002688698,
-    0.002688708,
-    0.002688707,
-    0.00268858,
-    0.002702606,
-    0.002702564,
-    0.002724996,
-    0.002729281,
-    0.002729281,
-    0.002729277,
-    0.002729272,
-    0.002729271,
-    0.002729939,
-    0.002730382,
-    0.002730382,
-    0.00273038,
-    0.00273038,
-    0.002730347,
-    0.002728436,
-    0.002728436,
-    0.002728436,
-    0.002728386,
-    0.002730211,
     0.002730209,
     0.00273039,
     0.00273039,
@@ -65,45 +36,62 @@
     0.002730331,
     0.002728501,
     0.002658427,
-    0.002705799,
+    0.002705807,
     0.002705694,
-    0.002729156,
+    0.002729157,
     0.002729138,
     0.002746358,
-    0.002746357,
+    0.002746358,
     0.002745688,
-    0.002745687,
+    0.002745688,
     0.00274541,
     0.00274541,
-    0.002745392
+    0.00274541,
+    0.002745392,
+    0.002745392,
+    0.002745348,
+    0.002745333,
+    0.002760139,
+    0.002760132,
+    0.002760131,
+    0.002760131,
+    0.002759141,
+    0.002758207,
+    0.002758207,
+    0.002758173,
+    0.002758173,
+    0.002758173,
+    0.002758172,
+    0.002758172,
+    0.002758172,
+    0.002757442,
+    0.002757395,
+    0.002757385,
+    0.002757385,
+    0.002757383,
+    0.002757383,
+    0.002757383,
+    0.002757364,
+    0.002757364,
+    0.002757343,
+    0.002757343,
+    0.002757343
   ],
   "trades_24h": {
-    "trades": 38,
-    "buys": 20,
-    "sells": 18,
-    "buy_tao": 113.813774323,
-    "sell_tao": 64.015921905,
-    "net_tao": 49.797852418000005,
-    "traders": 22
+    "trades": 20,
+    "buys": 9,
+    "sells": 11,
+    "buy_tao": 65.073075565,
+    "sell_tao": 49.518635333999995,
+    "net_tao": 15.554440231000001,
+    "traders": 15
   },
   "top_traders_24h": [
     {
       "coldkey": "5DUz5Mw39tdVB27Rn63H7X8yb6r5Tj3i7N8eLrvmEtjAtQrX",
-      "net_tao": 12.271120101000001,
-      "gross_tao": 90.42564399499999,
-      "trades": 5
-    },
-    {
-      "coldkey": "5HVZzrYNvcjtapJNR9teCY9oHEHy4EvgKaVR2EHCV6ByQ9ay",
-      "net_tao": 20.0,
-      "gross_tao": 20.0,
-      "trades": 1
-    },
-    {
-      "coldkey": "5GeDZBNvyumLBNnQWQeqfKvHvnA8VcqMLeDFQ41QajDV86tu",
-      "net_tao": 0.010325188999999568,
-      "gross_tao": 19.989674811,
-      "trades": 2
+      "net_tao": -0.04071925399999898,
+      "gross_tao": 78.11380464,
+      "trades": 3
     },
     {
       "coldkey": "5DhQxi4F9qhCBvemna7sHTwtPUuwqWwFBuqGGFWQmvXSNLGB",
@@ -116,9 +104,61 @@
       "net_tao": 10.0,
       "gross_tao": 10.0,
       "trades": 1
+    },
+    {
+      "coldkey": "5GzfkTD7b4sHtiAeCncXRmqbq2z51iXARwqiw1333kQwMTpC",
+      "net_tao": 5.346860829,
+      "gross_tao": 5.346860829,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HYYMyRXHB2KvLDUoWKTtzqYGbTYbdd4D3QTYdqoGscmmndg",
+      "net_tao": 1.546148472,
+      "gross_tao": 1.546148472,
+      "trades": 1
     }
   ],
   "news": [
+    {
+      "ts": 1790983922,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.3",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790983022,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #6 from everyframe-studios/release/everycli-v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/38a9a5e279a23077be220ceb41f2821ffbad750a",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790982983,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: release everycli v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/7fcd9caafcf467648ba9bdd674bc1e1266e24a85",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790982049,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #5 from everyframe-studios/fix/actionable-readines…",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/6b476d37c0a41aaca2cac795531171d29419ff90",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790981238,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: replace approval catch-all with actionable readiness diagnostics",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/e36e0e4a4de43a0360214730f2ee39ff26495df9",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
     {
       "ts": 1790919424,
       "kind": "release",
@@ -142,48 +182,8 @@
       "title": "fix(cli): explain cloud and balance failures safely",
       "url": "https://github.com/everyframe-studios/everyframe-miner/commit/f9c34d7657ebbedfc21f1d681239e5a82522e3b8",
       "publisher": "everyframe-studios/everyframe-miner"
-    },
-    {
-      "ts": 1790917215,
-      "kind": "commit",
-      "source": "github",
-      "title": "Merge pull request #3 from everyframe-studios/fix/undeployed-workload…",
-      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/836302eb41d9726ff803b73fa4f224569d9c031d",
-      "publisher": "everyframe-studios/everyframe-miner"
-    },
-    {
-      "ts": 1790916622,
-      "kind": "commit",
-      "source": "github",
-      "title": "fix(cli): explain missing workload deployment in doctor",
-      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/5664ead49a8c3ab3527f2c470fd42500a4a6e4ea",
-      "publisher": "everyframe-studios/everyframe-miner"
-    },
-    {
-      "ts": 1790874662,
-      "kind": "release",
-      "source": "github",
-      "title": "everycli v0.2.1",
-      "url": "https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.1",
-      "publisher": "everyframe-studios/everyframe-miner"
-    },
-    {
-      "ts": 1790874034,
-      "kind": "commit",
-      "source": "github",
-      "title": "Merge pull request #2 from everyframe-studios/fix/profile-diagnostics",
-      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/bec185051684c09e94bdcf85b6cbbe397773527d",
-      "publisher": "everyframe-studios/everyframe-miner"
-    },
-    {
-      "ts": 1790873150,
-      "kind": "commit",
-      "source": "github",
-      "title": "chore: release everycli v0.2.1",
-      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/9ac7af3ddda1d30f5b8f29094e393ff3148bed58",
-      "publisher": "everyframe-studios/everyframe-miner"
     }
   ],
-  "updated": 1790954409,
-  "updated_day": "2026-10-02"
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
 }

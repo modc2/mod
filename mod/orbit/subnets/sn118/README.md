@@ -2,7 +2,7 @@
 
 Open-Source Claude Cowork
 
-Bittensor subnet **118** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **118** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/orgs/ditto-assistant/repositories) · [url](https://heyditto.ai) · [discord](https://discord.gg/qNKYZEMpkD)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/orgs/ditto-assistant/repositories) · [url](h
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007234 | +2.68% | +2.25% | +2.52% | 22,879 | 6,314 | 864.64 |
+| 0.007026 | +0.39% | +3.05% | -8.55% | 22,256 | 6,227 | 901.46 |
 
 ## Last 24h flow
 
-109 trades by 61 coldkeys · 64 buys (467.37 τ) / 45 sells (379.43 τ) · net 87.94 τ
+104 trades by 56 coldkeys · 71 buys (496.37 τ) / 33 sells (387.46 τ) · net 108.91 τ
 
 ## Use
 

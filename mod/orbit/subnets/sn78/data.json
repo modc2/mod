@@ -11,53 +11,24 @@
   "registered_at": 7966145,
   "tempo": 360,
   "active": true,
-  "block": 9195968,
+  "block": 9200279,
   "related": [],
   "market": {
-    "price": 0.004277306,
-    "moving_price": 0.004176356829702854,
-    "market_cap": 6320.426290497116,
-    "tao_in": 1553.62955836,
-    "alpha_in": 363226.25095981,
-    "alpha_out": 1114438.96413051,
-    "volume": 183504.588896244,
-    "vol_24h": 3351.437075757014,
+    "price": 0.004945907,
+    "moving_price": 0.00468187197111547,
+    "market_cap": 7330.231810527199,
+    "tao_in": 1671.162003677,
+    "alpha_in": 337887.938044428,
+    "alpha_out": 1144192.459044963,
+    "volume": 186670.158946384,
+    "vol_24h": 3812.9612923380046,
     "emission": 0.0,
-    "change_1h": -3.8413714202469973,
-    "change_24h": 22.553398027653195,
-    "change_7d": -0.9593772626685815
+    "change_1h": -0.13612917047017836,
+    "change_24h": 18.19334749640944,
+    "change_7d": 22.414320121198905
   },
   "spark_24h": [
-    0.003489938,
-    0.003494412,
-    0.003494369,
-    0.003715214,
-    0.003641653,
-    0.003759562,
-    0.004086413,
-    0.004018665,
-    0.004256693,
-    0.004279377,
-    0.004139241,
-    0.004221117,
-    0.00396804,
-    0.003879754,
-    0.003963497,
-    0.004061684,
-    0.004149968,
-    0.00416256,
-    0.004247886,
-    0.004349894,
-    0.004416616,
-    0.004578935,
-    0.004547039,
-    0.004345669,
-    0.004559413,
-    0.004492824,
-    0.004404766,
-    0.004268376,
-    0.004274628,
-    0.00418459,
+    0.004184587,
     0.004173206,
     0.004171903,
     0.004171794,
@@ -65,60 +36,129 @@
     0.004229446,
     0.004489559,
     0.004364641,
-    0.004305382,
+    0.004305418,
     0.004379675,
-    0.004379646,
-    0.004442933,
-    0.004590822,
-    0.004551647,
-    0.00434585,
-    0.004377433,
+    0.004379661,
+    0.004445831,
+    0.00460488,
+    0.004551744,
+    0.004346571,
+    0.004377441,
     0.00445476,
-    0.004448083,
-    0.004277306
+    0.004448554,
+    0.004444831,
+    0.004277306,
+    0.004278483,
+    0.004348182,
+    0.004558967,
+    0.004620402,
+    0.004623839,
+    0.004853966,
+    0.005085275,
+    0.004957365,
+    0.004860898,
+    0.004885205,
+    0.004918143,
+    0.004746895,
+    0.004781584,
+    0.004963007,
+    0.005134604,
+    0.005179428,
+    0.00518262,
+    0.004862306,
+    0.005070514,
+    0.005069941,
+    0.005128935,
+    0.004909577,
+    0.004887818,
+    0.004949415,
+    0.004982842,
+    0.004959861,
+    0.004952649,
+    0.004945907
   ],
   "trades_24h": {
-    "trades": 929,
-    "buys": 402,
-    "sells": 527,
-    "buy_tao": 1751.213607806,
-    "sell_tao": 1587.242000396,
-    "net_tao": 163.97160740999993,
-    "traders": 309
+    "trades": 755,
+    "buys": 384,
+    "sells": 371,
+    "buy_tao": 1974.431575598,
+    "sell_tao": 1826.656072711,
+    "net_tao": 147.77550288700013,
+    "traders": 188
   },
   "top_traders_24h": [
     {
       "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
-      "net_tao": -0.1879471639999903,
-      "gross_tao": 803.210751066,
-      "trades": 42
+      "net_tao": -1.7950349880000138,
+      "gross_tao": 1591.225889912,
+      "trades": 40
     },
     {
-      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
-      "net_tao": -0.20728573800000039,
-      "gross_tao": 164.207285738,
-      "trades": 36
+      "coldkey": "5HeQWuhJWCw6aQNqZ8FqjEPZtiSHDq5wSSRU67mop5zqWikT",
+      "net_tao": -2.2749011759999997,
+      "gross_tao": 132.334901176,
+      "trades": 14
+    },
+    {
+      "coldkey": "5CY9b9tgGmSoec5pykbthbpG8ninVvYiZDYeznYxknqMAuix",
+      "net_tao": 8.485349303,
+      "gross_tao": 125.51465069700001,
+      "trades": 23
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": -0.7396731019999994,
+      "gross_tao": 110.739673102,
+      "trades": 11
     },
     {
       "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
-      "net_tao": 17.638691378,
-      "gross_tao": 160.361308622,
-      "trades": 28
-    },
-    {
-      "coldkey": "5Ge57pPLDUKApt49W9ZFDsrjEMVMD1Xsn1euc8EJVHECU6Jn",
-      "net_tao": -2.0509480510000007,
-      "gross_tao": 112.050948051,
-      "trades": 9
-    },
-    {
-      "coldkey": "5GGytrSQNFCi9mRQc5RTFR8cbSyEwusCcybqnT7NvDM9cdbz",
-      "net_tao": -0.146228582,
-      "gross_tao": 97.44735875800001,
-      "trades": 11
+      "net_tao": -2.583758076999999,
+      "gross_tao": 110.583758077,
+      "trades": 23
     }
   ],
   "news": [
+    {
+      "ts": 1790968175,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #205 from Umi-BitSign/codex/heartbeat-successor-st…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/69610837511b8e9fe40649ff50679b891c488c86",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790968144,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix successor heartbeat status compatibility",
+      "url": "https://github.com/Umi-BitSign/umi/commit/71f234072c283a230148b0efbaeda109eb1fd514",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790964417,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #204 from Umi-BitSign/codex/c6-automatic-model-review",
+      "url": "https://github.com/Umi-BitSign/umi/commit/86dc6a9c4f700476e58714044904d06f29dbac05",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790963236,
+      "kind": "commit",
+      "source": "github",
+      "title": "Format automatic model review changes",
+      "url": "https://github.com/Umi-BitSign/umi/commit/c4cc8c470084033c3303d34546275e295bc2f20e",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790962093,
+      "kind": "commit",
+      "source": "github",
+      "title": "Automate model artifact review and staging cleanup",
+      "url": "https://github.com/Umi-BitSign/umi/commit/75e6d5a85d0a54e578f8eca1278812d50d3d372a",
+      "publisher": "Umi-BitSign/umi"
+    },
     {
       "ts": 1790945011,
       "kind": "commit",
@@ -142,48 +182,8 @@
       "title": "Format stale container recovery",
       "url": "https://github.com/Umi-BitSign/umi/commit/38bdab9c44cc175a14c5fc5e4188eea3deddb4d8",
       "publisher": "Umi-BitSign/umi"
-    },
-    {
-      "ts": 1790931425,
-      "kind": "commit",
-      "source": "github",
-      "title": "Recover stale created container metadata",
-      "url": "https://github.com/Umi-BitSign/umi/commit/c14ddce5e4e1400277caa7baa186c3d7eeb8e033",
-      "publisher": "Umi-BitSign/umi"
-    },
-    {
-      "ts": 1790926878,
-      "kind": "commit",
-      "source": "github",
-      "title": "Fail over missing finalized headers",
-      "url": "https://github.com/Umi-BitSign/umi/commit/be278790f37450e8611a3e65cf47cee62bb8929c",
-      "publisher": "Umi-BitSign/umi"
-    },
-    {
-      "ts": 1790925804,
-      "kind": "commit",
-      "source": "github",
-      "title": "Bind successor health to the current service invocation",
-      "url": "https://github.com/Umi-BitSign/umi/commit/fb53f02f04a4aaa4268c669720252ce659f23a00",
-      "publisher": "Umi-BitSign/umi"
-    },
-    {
-      "ts": 1790919822,
-      "kind": "commit",
-      "source": "github",
-      "title": "Point C5 miner upgrade at enrollment runtime (#202)",
-      "url": "https://github.com/Umi-BitSign/umi/commit/142531fbf3c724ced6fd4e1df8237c77b86effb5",
-      "publisher": "Umi-BitSign/umi"
-    },
-    {
-      "ts": 1790913226,
-      "kind": "commit",
-      "source": "github",
-      "title": "Merge pull request #201 from Umi-BitSign/codex/c5-publication-schema-…",
-      "url": "https://github.com/Umi-BitSign/umi/commit/84d34dd3fa72f7a362d3b3d1055633f11619adb6",
-      "publisher": "Umi-BitSign/umi"
     }
   ],
-  "updated": 1790954409,
-  "updated_day": "2026-10-02"
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
 }

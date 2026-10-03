@@ -2,7 +2,7 @@
 
 Scraping the world's social media data
 
-Bittensor subnet **13** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **13** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/macrocosm-os/data-universe) · [url](https://datauniverse.macrocosmos.ai/) · [discord](https://discord.gg/adsQPnFRY)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/macrocosm-os/data-universe) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004716 | -0.00% | -0.11% | -7.04% | 29,098 | 18,349 | 32.12 |
+| 0.004712 | -0.00% | -0.14% | -6.75% | 29,097 | 18,342 | 39.02 |
 
 ## Last 24h flow
 
-247 trades by 136 coldkeys · 8 buys (10.75 τ) / 239 sells (20.77 τ) · net -10.02 τ
+375 trades by 135 coldkeys · 7 buys (13.21 τ) / 368 sells (25.43 τ) · net -12.23 τ
 
 ## News
 
@@ -24,7 +24,6 @@ Links: [github](https://github.com/macrocosm-os/data-universe) · [url](https://
 - 2026-10-01 · commit · [fix(s3): run the job-window scan only on locally cached files](https://github.com/macrocosm-os/data-universe/commit/15e731b7eeb37b5ea1e70e6ed138905d0d740828) — macrocosm-os/data-universe
 - 2026-10-01 · commit · [Merge pull request #920 from macrocosm-os/docs/agents-md](https://github.com/macrocosm-os/data-universe/commit/673f187e720fcc241c35a44960741cd5278a5c7a) — macrocosm-os/data-universe
 - 2026-10-01 · commit · [Merge pull request #916 from macrocosm-os/improve-gravity-logging](https://github.com/macrocosm-os/data-universe/commit/8ea25391a773d295adaad4cd25688c9ef2a6827f) — macrocosm-os/data-universe
-- 2026-09-02 · release · [Release v1.18.72](https://github.com/macrocosm-os/data-universe/releases/tag/v1.18.72) — macrocosm-os/data-universe
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Alchemical intelligence
 
-Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hippius.com/albedo/index.html) · discord `@arbos`
 
@@ -10,19 +10,22 @@ Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hi
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.016180 | +0.41% | -2.50% | -5.87% | 30,434 | 11,587 | 785.66 |
+| 0.016253 | +0.02% | +0.31% | -2.83% | 30,665 | 11,638 | 267.89 |
 
 ## Last 24h flow
 
-85 trades by 46 coldkeys · 32 buys (286.14 τ) / 53 sells (444.06 τ) · net -157.91 τ
+42 trades by 28 coldkeys · 17 buys (109.25 τ) / 25 sells (105.39 τ) · net 3.85 τ
 
 ## News
 
+- 2026-10-02 · commit · [fix: the simulator stops inventing git history for git show and git log](https://github.com/unarbos/albedo/commit/7cf5f2a45df149a1b6fc76af4db3713a90f2d8d9) — unarbos/albedo
+- 2026-10-02 · commit · [fix: swesmith tasks are served as one upstream commit, and git show r…](https://github.com/unarbos/albedo/commit/0e29f5cb6174c58db9a887536fffdf24a95fdf54) — unarbos/albedo
+- 2026-10-02 · commit · [fix: repo-context grounds chains stage by stage and replays the overl…](https://github.com/unarbos/albedo/commit/a27382f828a1064d065083c5019c0a0cb6fd753f) — unarbos/albedo
+- 2026-10-02 · commit · [fix: pre-eval keeps the model's reasoning in each turn like eval and …](https://github.com/unarbos/albedo/commit/8eb80024fc0ab53ff9fde2fb4bd2d9d23e779578) — unarbos/albedo
+- 2026-10-02 · commit · [fix: pre-eval redraws a sample whose micro-task can't be generated in…](https://github.com/unarbos/albedo/commit/1cd927a6c1ecf681fcdb89b7ad8afd9180f0d0d3) — unarbos/albedo
+- 2026-10-02 · commit · [fix: pre-eval stops counting wrong submits across the trajectory and …](https://github.com/unarbos/albedo/commit/1c6895a8347d3b33c0f80021ad3936d50c162969) — unarbos/albedo
 - 2026-09-30 · commit · [fix: Display on website nonet bench runs if avaiable](https://github.com/unarbos/albedo/commit/b99ca91a7c25b8cdd13324466063c384627e708c) — unarbos/albedo
 - 2026-09-29 · commit · [fix: eval reads a command including the tag](https://github.com/unarbos/albedo/commit/7f331a7996325b5cfbb9f440bc4a5ebaa9a920d9) — unarbos/albedo
-- 2026-09-29 · commit · [fix: pre-eval counts only submits it doesn't accept, 4 wrong in a row…](https://github.com/unarbos/albedo/commit/5ea0c190e5c6806132bfb73e391a6a2bbd19b36e) — unarbos/albedo
-- 2026-09-29 · commit · [fix: copy check compares an upload with models from earlier blocks](https://github.com/unarbos/albedo/commit/8c5184a6341382548b26e5b9be73a4e700eb32b4) — unarbos/albedo
-- 2026-09-29 · commit · [fix: copy check puts shuffled experts back in order](https://github.com/unarbos/albedo/commit/234049fd7e019127e30d2e48adcf7c6163d23d7d) — unarbos/albedo
 
 ## Use
 

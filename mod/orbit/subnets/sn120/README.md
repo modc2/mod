@@ -2,7 +2,7 @@
 
 Reason Mining
 
-Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www.affine.io) · discord `consttt`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.046615 | +0.00% | -0.89% | +0.78% | 204,023 | 77,195 | 5,685 |
+| 0.046380 | -0.13% | -0.43% | +0.85% | 203,220 | 77,037 | 4,423 |
 
 ## Last 24h flow
 
-429 trades by 196 coldkeys · 205 buys (2,469 τ) / 224 sells (3,003 τ) · net -534.20 τ
+377 trades by 173 coldkeys · 198 buys (1,931 τ) / 179 sells (2,287 τ) · net -355.86 τ
 
 ## News
 
-- 2026-10-02 · commit · [Record original I3Code Docker grading requirement in coverage matrix](https://github.com/AffineFoundation/affine/commit/6b3db6d4eec1e9d881dcd771d8f1b2f9f71172be) — AffineFoundation/affine
-- 2026-10-02 · commit · [Reproduce per-task Pydantic proposal controls with fresh native replays](https://github.com/AffineFoundation/affine/commit/be695940b9d6221e2c0f91b099e922eebbf98756) — AffineFoundation/affine
-- 2026-10-02 · commit · [Refresh recorded RCore coverage status without expanding qualification](https://github.com/AffineFoundation/affine/commit/5cc4d86879b4abd0443bfdc9ab9bc3e4070536a3) — AffineFoundation/affine
-- 2026-10-02 · commit · [Bind qualified native Prolog sessions into common environment dispatch](https://github.com/AffineFoundation/affine/commit/85318f11282c0beab53dbb7df438f3392a4f78f8) — AffineFoundation/affine
-- 2026-10-02 · commit · [Record verified recovery baseline and optimizer attribution](https://github.com/AffineFoundation/affine/commit/1518b0cba26877f9aa380e47d8e8a0b44d8090ba) — AffineFoundation/affine
-- 2026-10-01 · commit · [Qualify original UUIDCTF public forensic native controls](https://github.com/AffineFoundation/affine/commit/580f42e4e0a2ce582aafe41de2e8763e07b2faf8) — AffineFoundation/affine
-- 2026-10-01 · commit · [Qualify original Wikispeedia native tool replay controls](https://github.com/AffineFoundation/affine/commit/d5e9896fe160a3f8478cb543a2a69abf27e50dd2) — AffineFoundation/affine
-- 2026-10-01 · commit · [Publish authenticated Tau2 recovery evaluation history](https://github.com/AffineFoundation/affine/commit/7041c4140ee89343b374430e6d5557c51e8c9f11) — AffineFoundation/affine
+- 2026-10-03 · commit · [Document live open subnet admission and public miner discovery](https://github.com/AffineFoundation/affine/commit/d4a6fc1fa631cea92494f3e1c376090f5024c41a) — AffineFoundation/affine
+- 2026-10-03 · commit · [Allow all activated subnet miners at fresh epoch boundaries](https://github.com/AffineFoundation/affine/commit/d0a3d2b4a8768bd975865d598d9755886df19a7d) — AffineFoundation/affine
+- 2026-10-03 · commit · [Record natural empty freeze and miner-side R2 bootstrap admission](https://github.com/AffineFoundation/affine/commit/87d7122ddc7de6d8c7a15acec337af1036165df0) — AffineFoundation/affine
+- 2026-10-03 · commit · [Document qualified source URL contract and guarded epoch recovery](https://github.com/AffineFoundation/affine/commit/9fe5865ec4210af177746553db2288a44042a2ab) — AffineFoundation/affine
+- 2026-10-03 · commit · [Record public bootstrap descriptor mismatch and recovery gate](https://github.com/AffineFoundation/affine/commit/14d45bc20f1bc077b0238c2cf897c5c2c61989ec) — AffineFoundation/affine
+- 2026-10-02 · commit · [Record pinned Qwen CPU context audit and bounded corpus gates](https://github.com/AffineFoundation/affine/commit/0258230d1196f8f116f501ca368abc02ff6abed1) — AffineFoundation/affine
+- 2026-10-02 · commit · [Record qualified replacement and recovery controller activation](https://github.com/AffineFoundation/affine/commit/1aabb4d837372d4f8e93496f0aa75561f3c9ec2e) — AffineFoundation/affine
+- 2026-10-02 · commit · [Wait for the verifier coordinator before starting workers](https://github.com/AffineFoundation/affine/commit/adc9a4733dba182da86e13609e05c9e98a00e41c) — AffineFoundation/affine
 
 ## Use
 

@@ -7,7 +7,7 @@
   "netuid": 86,
   "subnet": "kaunan",
   "symbol": "ᚳ",
-  "owner": "5F4XAWGzcwpHjGdLUDfWiCvKnqeNPQHn3SwooBQcYcP7mWXJ",
+  "owner": "5DGneGQEeBfbGu3Ab2bmkwtWbWE2agcruA4SVb2TxjD7hCxA",
   "github": null,
   "url": null,
   "discord": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-02",
+  "updated": "2026-10-03",
   "urls": {
     "bt": "/bt/markets?sn=86",
     "news": "/bt/news?netuid=86"
@@ -34,5 +34,14 @@
     "snapshot",
     "readme",
     "refresh"
+  ],
+  "previous": [
+    {
+      "subnet": "kaunan",
+      "owner": "5F4XAWGzcwpHjGdLUDfWiCvKnqeNPQHn3SwooBQcYcP7mWXJ",
+      "github": null,
+      "url": null,
+      "updated": "2026-10-02"
+    }
   ]
 }

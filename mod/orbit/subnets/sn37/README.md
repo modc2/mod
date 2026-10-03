@@ -2,7 +2,7 @@
 
 Decentralized Alignment of Artificial Intelligence
 
-Bittensor subnet **37** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **37** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/Aurelius-Protocol/Aurelius-Protocol) · [url](https://aureliusaligned.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Aurelius-Protocol/Aurelius-Protocol) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002751 | -0.00% | -0.05% | -3.74% | 16,946 | 7,234 | 2.35 |
+| 0.002729 | +0.00% | -0.86% | -4.48% | 16,817 | 7,204 | 51.04 |
 
 ## Last 24h flow
 
-8 trades by 8 coldkeys · 1 buys (0.32 τ) / 7 sells (1.68 τ) · net -1.36 τ
+9 trades by 8 coldkeys · 2 buys (10.00 τ) / 7 sells (40.80 τ) · net -30.79 τ
 
 ## Use
 

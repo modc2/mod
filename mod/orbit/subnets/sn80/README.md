@@ -2,7 +2,7 @@
 
 An open competition on Bittensor for continuously improving robotics models and collecting egocentric data
 
-Bittensor subnet **80** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **80** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/openroboto-ai/openroboto-subnet) · [url](https://www.openroboto.ai/) · [discord](https://discord.gg/N4F7UhEBY)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/openroboto-ai/openroboto-subnet) · [url](htt
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.026724 | -1.16% | -2.30% | -2.45% | 64,865 | 5,412 | 5,690 |
+| 0.027573 | +0.76% | +5.59% | +4.88% | 67,079 | 5,531 | 3,715 |
 
 ## Last 24h flow
 
-943 trades by 237 coldkeys · 549 buys (2,740 τ) / 394 sells (2,847 τ) · net -107.11 τ
+697 trades by 195 coldkeys · 384 buys (1,858 τ) / 313 sells (1,758 τ) · net 99.41 τ
 
 ## News
 

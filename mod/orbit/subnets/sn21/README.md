@@ -2,7 +2,7 @@
 
 Counterfactual impact prediction for advertising interventions
 
-Bittensor subnet **21** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **21** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/ippcteam/SN21-adtao) · [url](https://adtao.io)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/ippcteam/SN21-adtao) · [url](https://adtao.i
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003475 | +0.05% | -0.11% | +3.42% | 21,204 | 7,573 | 100.06 |
+| 0.003471 | -0.10% | -0.55% | +2.85% | 21,193 | 7,569 | 547.65 |
 
 ## Last 24h flow
 
-55 trades by 34 coldkeys · 16 buys (47.93 τ) / 39 sells (76.87 τ) · net -28.94 τ
+68 trades by 44 coldkeys · 21 buys (263.37 τ) / 47 sells (283.88 τ) · net -20.51 τ
 
 ## News
 

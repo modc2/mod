@@ -2,7 +2,7 @@
 
 "The RedTeam subnet by Innerworks is a decentralized platform designed to drive innovation in cybersecurity through competitive programming challenges. The subnet incentivizes miners to develop and submit code solutions to various technical challenges, with a focus on enhancing security. These solutions can be integrated into real-world products to improve their security features."
 
-Bittensor subnet **61** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **61** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/RedTeamSubnet/RedTeam) · [url](https://www.theredteam.io/) · [discord](https://discord.com/channels/799672011265015819/1319313447435108413)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/RedTeamSubnet/RedTeam) · [url](https://www.t
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.010834 | -1.01% | -0.96% | +3.03% | 67,302 | 13,744 | 2,044 |
+| 0.010908 | +0.02% | +0.33% | +1.57% | 67,811 | 13,797 | 1,468 |
 
 ## Last 24h flow
 
-189 trades by 93 coldkeys · 93 buys (940.85 τ) / 96 sells (987.24 τ) · net -46.39 τ
+137 trades by 72 coldkeys · 65 buys (713.06 τ) / 72 sells (709.98 τ) · net 3.08 τ
 
 ## News
 

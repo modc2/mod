@@ -1,6 +1,6 @@
 # sn33 — ReadyAI ט
 
-Bittensor subnet **33** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **33** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/afterpartyai/bittensor-conversation-genome-project)
 
@@ -8,11 +8,11 @@ Links: [github](https://github.com/afterpartyai/bittensor-conversation-genome-pr
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003900 | -0.00% | -1.20% | -11.31% | 21,356 | 13,378 | 91.30 |
+| 0.003892 | -0.15% | -0.28% | -11.75% | 21,325 | 13,365 | 27.53 |
 
 ## Last 24h flow
 
-161 trades by 25 coldkeys · 4 buys (2.04 τ) / 157 sells (85.65 τ) · net -83.61 τ
+148 trades by 24 coldkeys · 2 buys (1.53 τ) / 146 sells (22.66 τ) · net -21.14 τ
 
 ## News
 

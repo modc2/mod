@@ -2,7 +2,7 @@
 
 GPUForge is a Bittensor subnet for verifiable GPU training. Miners execute signed, immutable training workloads on eligible NVIDIA H100 GPUs, while validators verify correctness, freshness, attestation, and useful training throughput before scoring work.
 
-Bittensor subnet **47** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-02 (block 9195968).
+Bittensor subnet **47** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
 
 Links: [github](https://github.com/forgenet47/gpuforge) · [url](https://gpuforge-gpuforge.static.hf.space/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/forgenet47/gpuforge) · [url](https://gpuforg
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001961 | -0.00% | -1.86% | -2.62% | 4,139 | 1,057 | 9.95 |
+| 0.001953 | +0.00% | -2.00% | -2.98% | 4,131 | 1,055 | 40.41 |
 
 ## Last 24h flow
 
-13 trades by 6 coldkeys · 0 buys (0.00 τ) / 13 sells (9.35 τ) · net -9.35 τ
+34 trades by 14 coldkeys · 1 buys (14.85 τ) / 33 sells (25.03 τ) · net -10.18 τ
 
 ## News
 
