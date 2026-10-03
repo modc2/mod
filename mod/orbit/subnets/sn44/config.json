@@ -1,0 +1,38 @@
+{
+  "name": "sn44",
+  "version": "1.0.0",
+  "description": "SN44 Score — Making every camera intelligent. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ף",
+  "chain": "bittensor",
+  "netuid": 44,
+  "subnet": "Score",
+  "symbol": "ף",
+  "owner": "5CaCekuxb9pKQyLoxh3jbkEXig8fxjkeS4AQ6UmZa12xfQ9H",
+  "github": "https://github.com/score-technologies/turbovision",
+  "url": "https://www.wearescore.com/",
+  "discord": null,
+  "logo": "https://www.wearescore.com/android-chrome-512x512.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=44",
+    "news": "/bt/news?netuid=44"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

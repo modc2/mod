@@ -1,0 +1,189 @@
+{
+  "netuid": 1,
+  "name": "Apex",
+  "symbol": "α",
+  "owner": "5HCFWvRqzSHWRPecN7q8J6c7aKQnrCZTMHstPv39xL1wgDHh",
+  "description": "The general intelligence platform",
+  "github": "https://github.com/macrocosm-os/apex",
+  "url": "https://apex.macrocosmos.ai",
+  "discord": "https://discord.gg/bvBDat3Gy",
+  "logo": "https://www.macrocosmos.ai/images/mc_logo_black.png",
+  "registered_at": 1497824,
+  "tempo": 99,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.006649344,
+    "moving_price": 0.006644020089879632,
+    "market_cap": 40161.774461282104,
+    "tao_in": 23177.168299436,
+    "alpha_in": 3485632.35700429,
+    "alpha_out": 2554328.045297366,
+    "volume": 840599.172746166,
+    "vol_24h": 193.08370465994813,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.04882563440598009,
+    "change_7d": -1.265192368486745
+  },
+  "spark_24h": [
+    0.006646099,
+    0.006646041,
+    0.006646041,
+    0.006646065,
+    0.006646065,
+    0.006645994,
+    0.006646279,
+    0.006646279,
+    0.006646274,
+    0.006646255,
+    0.006646255,
+    0.006646246,
+    0.006645866,
+    0.006645293,
+    0.006645129,
+    0.006645129,
+    0.006644787,
+    0.006644841,
+    0.006644446,
+    0.006645247,
+    0.006644649,
+    0.006633346,
+    0.00662898,
+    0.006628471,
+    0.006628589,
+    0.0066287,
+    0.006628487,
+    0.006628263,
+    0.006628263,
+    0.006626338,
+    0.006626208,
+    0.006643414,
+    0.006647183,
+    0.006647183,
+    0.006646844,
+    0.006646844,
+    0.006646902,
+    0.006648016,
+    0.006648077,
+    0.006648249,
+    0.006648249,
+    0.006648249,
+    0.006649396,
+    0.006649967,
+    0.006649926,
+    0.006649917,
+    0.006649344,
+    0.006649344
+  ],
+  "trades_24h": {
+    "trades": 176,
+    "buys": 107,
+    "sells": 69,
+    "buy_tao": 99.392605281,
+    "sell_tao": 93.169288061,
+    "net_tao": 6.223317219999998,
+    "traders": 32
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.027080988000001582,
+      "gross_tao": 75.67229155000001,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FWSrvUejJ1NX1fcWgZVBNSpsrHr5C2AzZAUviosPEyUjVs9",
+      "net_tao": 41.96,
+      "gross_tao": 41.96,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": -14.930071275,
+      "gross_tao": 14.930071275,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": -0.005151072999999978,
+      "gross_tao": 9.605151073,
+      "trades": 22
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": -0.09377286299999962,
+      "gross_tao": 8.293772863000001,
+      "trades": 47
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790965933,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.4.12",
+      "url": "https://github.com/macrocosm-os/apex/releases/tag/v4.4.12",
+      "publisher": "macrocosm-os/apex"
+    },
+    {
+      "ts": 1790965929,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release v4.4.12 (#973)",
+      "url": "https://github.com/macrocosm-os/apex/commit/da4a308ea7e097a1e357937e5a322a54bba9cc41",
+      "publisher": "macrocosm-os/apex"
+    },
+    {
+      "ts": 1790692108,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.4.11",
+      "url": "https://github.com/macrocosm-os/apex/releases/tag/v4.4.11",
+      "publisher": "macrocosm-os/apex"
+    },
+    {
+      "ts": 1790692104,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release v4.4.11 (#972)",
+      "url": "https://github.com/macrocosm-os/apex/commit/96d5978b823cf15f2b418d49b68da21431723197",
+      "publisher": "macrocosm-os/apex"
+    },
+    {
+      "ts": 1790365774,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.4.10",
+      "url": "https://github.com/macrocosm-os/apex/releases/tag/v4.4.10",
+      "publisher": "macrocosm-os/apex"
+    },
+    {
+      "ts": 1790365770,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release v4.4.10 (#971)",
+      "url": "https://github.com/macrocosm-os/apex/commit/dbb3831c13a6d21762256522bcbf2cab9d9b1e5f",
+      "publisher": "macrocosm-os/apex"
+    },
+    {
+      "ts": 1790247525,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.4.9",
+      "url": "https://github.com/macrocosm-os/apex/releases/tag/v4.4.9",
+      "publisher": "macrocosm-os/apex"
+    },
+    {
+      "ts": 1790247522,
+      "kind": "commit",
+      "source": "github",
+      "title": "Release v4.4.9 (#970)",
+      "url": "https://github.com/macrocosm-os/apex/commit/b19daed573d2ba4194f2a67d6651d07acda91b0a",
+      "publisher": "macrocosm-os/apex"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

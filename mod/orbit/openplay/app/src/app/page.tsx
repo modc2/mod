@@ -144,7 +144,7 @@ export default function Page() {
       const L = (await import('leaflet')).default
       if (cancelled || !mapRef.current) return
       if (tileRef.current) mapRef.current.removeLayer(tileRef.current)
-      tileRef.current = L.tileLayer(tileUrlFor(theme), { maxZoom: 19 })
+      tileRef.current = L.tileLayer(tileUrlFor(theme), { maxZoom: 19, maxNativeZoom: 16 })
       tileRef.current.addTo(mapRef.current)
       tileRef.current.bringToBack()
     })()
@@ -194,7 +194,7 @@ export default function Page() {
     <main>
       {/* HUD — the status bar off the top of the screen */}
       <Hud handle={handle} signedIn={signedIn} coins={stats?.upcoming ?? 0}
-           players={stats?.players_going ?? 0} world={activeCity?.label || '—'} />
+           players={stats?.players_going ?? 0} world={activeCity?.label || '—'} tz={activeCity?.tz} />
 
       {/* Nav — filters, world select & create all live up here */}
       <nav className="nav">
@@ -209,12 +209,15 @@ export default function Page() {
           </div>
 
           <div className="nav-spacer" />
-          {(!!stats?.agent_requests_pending || !!adminSecret) && (
-            <button className="chip" onClick={() => setShowAgents(true)}
-                    title="Games an agent wants to put on the board">
-              🤖 {stats?.agent_requests_pending ? `${stats.agent_requests_pending} waiting` : 'Agents'}
-            </button>
-          )}
+          <button className={`agent-btn ${stats?.agent_requests_pending ? 'has-pending' : ''}`}
+                  onClick={() => setShowAgents(true)}
+                  title="Games an agent wants to put on the board">
+            <span className="agent-btn__bot">🤖</span>
+            <span className="agent-btn__label">AGENT</span>
+            {!!stats?.agent_requests_pending && (
+              <span className="agent-btn__count">{stats.agent_requests_pending}</span>
+            )}
+          </button>
           <SkinPicker />
           {signedIn ? (
             <button className="who" onClick={() => setShowAccount(true)} title="Your account">
@@ -302,22 +305,10 @@ export default function Page() {
           {/* the brick floor the hero stands on */}
           <div className="ground" />
 
-          <div className="wrap" style={{ paddingTop: 26, paddingBottom: 70 }}>
-            <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
-              <button className="chip active" onClick={() => setCityOpen(true)}>
-                📍 {activeCity?.label || 'Pick a city'} ▾
-              </button>
-              <span className="muted" style={{ fontSize: 13 }}>{activeCity?.venues ?? 0} venue{activeCity?.venues !== 1 ? 's' : ''}</span>
-              {filter !== 'all' && (
-                <button className="chip" onClick={() => setFilter('all')}>
-                  {sportMeta[filter]?.emoji} {sportMeta[filter]?.label} ✕
-                </button>
-              )}
-            </div>
-
-            <div className="op-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.05fr)', gap: 22, alignItems: 'start' }}>
+          <div className="wrap" style={{ paddingTop: 22, paddingBottom: 64 }}>
+            <div className="op-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1.05fr)', gap: 22, alignItems: 'stretch' }}>
               {/* Map */}
-              <div className="card map-card map-frame" style={{ height: 560, position: 'sticky', top: 88 }}>
+              <div className="card map-card map-frame" style={{ height: 520, position: 'sticky', top: 88 }}>
                 <div className="map-label">↳ {activeCity?.label || 'the city'}, right now</div>
                 <div className="map-overlay" />
                 <div className="map-glow" />
@@ -325,17 +316,24 @@ export default function Page() {
               </div>
 
               {/* Feed */}
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
                   <h2 className="section-title">What&rsquo;s on</h2>
-                  <span className="muted" style={{ fontSize: 13 }}>{games.length} game{games.length !== 1 ? 's' : ''} upcoming</span>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    {filter !== 'all' && (
+                      <button className="chip" onClick={() => setFilter('all')}>
+                        {sportMeta[filter]?.emoji} {sportMeta[filter]?.label} ✕
+                      </button>
+                    )}
+                    <span className="muted" style={{ fontSize: 13 }}>{games.length} game{games.length !== 1 ? 's' : ''}</span>
+                  </div>
                 </div>
                 {loading && <div className="muted">Reading the city…</div>}
                 {!loading && games.length === 0 && (
-                  <div className="card empty">
+                  <div className="card empty" style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                     <div className="big">🌆</div>
                     <div className="font-display" style={{ fontSize: 15, marginBottom: 10 }}>IT&rsquo;S QUIET IN {(activeCity?.label || 'THIS CITY').toUpperCase()}</div>
-                    <div className="muted" style={{ fontSize: 15, marginBottom: 20 }}>Be the one who starts something — or switch city.</div>
+                    <div className="muted" style={{ fontSize: 15, marginBottom: 20 }}>No games on the board yet — be the one who starts something.</div>
                     <div style={{ display: 'flex', gap: 9, justifyContent: 'center', flexWrap: 'wrap' }}>
                       <button className="btn btn-primary" onClick={openCreate}>+ Start the first game</button>
                       <button className="btn" onClick={() => setCityOpen(true)}>📍 Switch city</button>
@@ -384,23 +382,37 @@ export default function Page() {
           onUpdate={(a) => setAccount(a)}
           onSignOut={() => { clearAccount(); setAccount(null); setShowAccount(false); toast.info('Signed out on this device. Your name & key are safe — sign back in any time.') }} />
       )}
+
+      {showAgents && (
+        <AgentPanel
+          secret={adminSecret}
+          onSecret={(s) => { setAdminSecret(s); try { localStorage.setItem('openplay_admin_secret', s) } catch {} }}
+          onClose={() => setShowAgents(false)}
+          onChanged={refresh} />
+      )}
     </main>
   )
 }
 
 // ── HUD — the status bar off the top of the screen ────────────────
 // Coins are games on the board, WORLD is the city you're looking at, and
-// TIME is the real clock, because a pickup board is about what's on now.
-function Hud({ handle, signedIn, coins, players, world }: {
-  handle: string; signedIn: boolean; coins: number; players: number; world: string
+// TIME is the real clock in the WORLD you're looking at — a Toronto board seen
+// from London still shows Toronto time, because that's when the games are on.
+function Hud({ handle, signedIn, coins, players, world, tz }: {
+  handle: string; signedIn: boolean; coins: number; players: number; world: string; tz?: string | null
 }) {
   const [clock, setClock] = useState('')
   useEffect(() => {
-    const tick = () => setClock(new Date().toLocaleTimeString(undefined, { hour12: false }))
+    const tick = () => {
+      const opts: Intl.DateTimeFormatOptions = { hour12: false }
+      if (tz) opts.timeZone = tz
+      try { setClock(new Date().toLocaleTimeString(undefined, opts)) }
+      catch { setClock(new Date().toLocaleTimeString(undefined, { hour12: false })) }
+    }
     tick()
     const t = setInterval(tick, 1000)
     return () => clearInterval(t)
-  }, [])
+  }, [tz])
   const pad = (n: number) => String(Math.min(n, 999999)).padStart(6, '0')
   return (
     <div className="hud">

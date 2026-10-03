@@ -68,7 +68,7 @@ own owner token from that secret — reading it already means being the operator
 
 ## Running one
 
-**In the browser.** `/run` with the BROWSER switch loads the model's ONNX build
+**In the browser.** `/chat` with the BROWSER switch loads the model's ONNX build
 into a module worker via transformers.js and generates on WebGPU (wasm where
 WebGPU is missing). The weights come from HuggingFace to the tab and are cached
 by the browser; the prompt and the tokens never reach this server. A 350M q4 is
@@ -83,7 +83,9 @@ the usable range.
 **Images, speech and vectors.** A vision turn carries its images as content
 parts (`{"type":"image","image":"data:…"}`) on the same `/chat` call; the server
 hands them to the model's processor and a text-only model gets them stripped
-rather than a 500. `/embed` mean-pools an encoder's hidden states and returns
+rather than a 500. `/embed` runs on either paid-for runtime — `runtime=server`
+mean-pools an encoder's hidden states on this box, `runtime=cloud` asks
+inference.liquid.ai on your key — and either way returns
 the cosine matrix between the lines — the matrix is the point, since a bare
 vector says nothing on a screen. `/transcribe` takes a file upload.
 
@@ -111,9 +113,12 @@ m liquidai/pulls                             # download progress
 m liquidai/load repo=LiquidAI/LFM2.5-350M    # make it resident
 m liquidai/chat prompt="why are LFMs small?" # server-side, streamed, with stats
 m liquidai/embed texts="a cat|a kitten|a bus" # vectors + the pairwise matrix
-m liquidai/games                             # what the arena plays
+m liquidai/games                             # what the local arena plays
 m liquidai/play game=arithmetic models=LiquidAI/LFM2.5-350M
-m liquidai/board                             # the leaderboard
+m liquidai/board                             # the local leaderboard
+m liquidai/fleet_games                       # the arena module's games
+m liquidai/fleet_play game=ttt models=LiquidAI/LFM2.5-350M vs=minimax
+m liquidai/fleet_board                       # arena Elo, model seats only
 m liquidai/auth                              # who owns this box, who signed in
 m liquidai/disown                            # release the claim
 m liquidai/set_key key=sk-...                # cloud BYOK
@@ -141,14 +146,19 @@ m liquidai/status                            # services + health
 | POST   | `/auth/verify`      | signature → session token                                 |
 | GET    | `/auth/me`          | who this bearer is                                        |
 | GET    | `/auth/owner`       | who claimed this box                                      |
-| POST   | `/embed`            | vectors + the cosine matrix between the lines             |
+| POST   | `/embed`            | vectors + the cosine matrix (`runtime=server\|cloud`)      |
 | POST   | `/transcribe`       | multipart audio → text                                    |
 | GET`|`POST | `/arena/games` | every game / write one                                    |
 | POST   | `/arena/match`      | up to 4 models through a game, scored per round           |
 | GET    | `/arena/leaderboard`| best run per model per game                               |
+| GET    | `/arena/fleet`      | is the arena module up, and how big it is                 |
+| GET    | `/arena/fleet/games`| the arena module's stored games                           |
+| POST   | `/arena/fleet/match`| seat LFMs at an arena game, run it, Elo-rated             |
+| GET    | `/arena/fleet/board`| the arena module's Elo board (`?lfm_only=1`)              |
+| GET    | `/arena/fleet/matches` | recent arena matches / one in full at `/{id}`          |
 | GET    | `/v1/models`        | OpenAI-shaped model list                                  |
 | POST   | `/v1/chat/completions` | OpenAI chat completions                                |
-| POST   | `/v1/embeddings`    | OpenAI embeddings                                         |
+| POST   | `/v1/embeddings`    | OpenAI embeddings — `input` or `texts`, `runtime=` too    |
 
 Writes (`/local/*`, `POST /keys`) want an owner token; `/chat`, `/embed`,
 `/transcribe` and the arena want any session. Reads are open.
@@ -181,23 +191,30 @@ curl -N localhost:50460/chat -H 'content-type: application/json' -d '{
 
 ## The console
 
-Four boards, all wearing copytensor's 8-bit cabinet (ten skins, same tokens,
+Three tabs, all wearing copytensor's 8-bit cabinet (ten skins, same tokens,
 same rules: nothing is round, every edge is hard, pressing moves the pixel).
 
-- **CATALOG** — every model, one line each, filtered by runtime / task /
+- **MODELS** — every model, one line each, filtered by runtime / task /
   generation, sortable, with a stat strip that answers "what is everyone
   actually pulling" before you've read a row.
-- **RUN** — the board changes with the model's task: a transcript for text and
+- **CHAT** — the board changes with the model's task: a transcript for text and
   vision (attach or paste an image), a similarity grid for embeddings, an
   upload for speech. The rail collapses (▤), turns can be edited (⚒) or forked
   (⋔), and the stats strip says where it actually ran, time to first token and
-  chunks/sec.
-- **ARENA** — models play scored games. A game is rounds, and a round is a
-  prompt plus a check (`contains`, `equals`, `number`, `regex`, `lines`,
-  `absent`) — no judge model, no rubric, which is what makes two runs
-  comparable. Four ship; write your own with ✚ NEW GAME, or fork a built-in.
-- **LOCAL** — every server-runnable model with its disk state, PULL/LOAD/FREE
-  inline; the cloud key; what this box is.
+  chunks/sec. The rail also carries the box: pick SERVER and it shows the
+  selected repo's disk state with PULL/LOAD/FREE inline; pick CLOUD and it
+  shows the key field. Those were a LOCAL tab until they moved next to the
+  switch that makes them matter — you only pull weights or paste a key because
+  the runtime you just chose can't run the model you just chose.
+- **ARENA** — two boards behind one tab. LOCAL is this module's own games:
+  rounds, each a prompt plus a check (`contains`, `equals`, `number`, `regex`,
+  `lines`, `absent`) — no judge model, no rubric, which is what makes two
+  runs comparable. Four ship; write your own with ✚ NEW GAME, or fork a
+  built-in. FLEET is the arena *module's* games — wasm and class games with
+  seats, turns and Elo, refereed over there (:50470) while every move a
+  seated LFM makes is answered back through this module's /v1. The two
+  modules already trusted each other in one direction (every `model` seat in
+  the arena is an LFM); FLEET is the other one.
 - **MODEL** — one model's formats, plus the commands to run it under
   transformers, transformers.js and llama.cpp, because this board is a front
   door, not a lock-in.
@@ -258,6 +275,6 @@ Both services run under pm2 (`liquidai-api`, `liquidai-app`) and the module is
 registered with the gateway, so `/liquidai` and `/api/liquidai` both answer.
 
 Not built: browser-side arena entries (`POST /arena/result` exists and is
-scored, but the RUN board doesn't drive a game through the tab yet), and
+scored, but the CHAT board doesn't drive a game through the tab yet), and
 speech through any Liquid audio model — that one is blocked upstream on
 `liquid-audio`, not on this module.

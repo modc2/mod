@@ -1,0 +1,189 @@
+{
+  "netuid": 81,
+  "name": "Reliquary",
+  "symbol": "ᚠ",
+  "owner": "5GnpQR4Nt3f5AQqBXuhf7GkkaEHhAVQrVk4EsK4daZDmkAQT",
+  "description": "The RL layer of Bittensor",
+  "github": "https://github.com/reliquadotai/reliquary",
+  "url": "https://www.reliqua.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1493247592551678012",
+  "logo": "https://www.reliqua.ai/reliquary-logo.png",
+  "registered_at": 5203057,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.006036576,
+    "moving_price": 0.006036576582118869,
+    "market_cap": 33596.749943246665,
+    "tao_in": 17825.676055625,
+    "alpha_in": 2952944.601086675,
+    "alpha_out": 2612586.246739421,
+    "volume": 947246.121608375,
+    "vol_24h": 1702.5390077269403,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.319526090309874,
+    "change_7d": 1.0706675402071708
+  },
+  "spark_24h": [
+    0.006017349,
+    0.006017283,
+    0.006017279,
+    0.006017252,
+    0.006017251,
+    0.006017239,
+    0.006024398,
+    0.005983859,
+    0.005981217,
+    0.005981633,
+    0.005981632,
+    0.005981622,
+    0.005981195,
+    0.006014935,
+    0.006171033,
+    0.006079312,
+    0.006019296,
+    0.006115117,
+    0.006114454,
+    0.006077202,
+    0.00607714,
+    0.006077129,
+    0.006063553,
+    0.00606355,
+    0.006047763,
+    0.006039185,
+    0.006039181,
+    0.00603918,
+    0.00603918,
+    0.006039048,
+    0.006039029,
+    0.006046017,
+    0.006045862,
+    0.006045862,
+    0.006045862,
+    0.006045798,
+    0.006045798,
+    0.006045786,
+    0.006046771,
+    0.006046771,
+    0.006036604,
+    0.006036604,
+    0.006036604,
+    0.006036592,
+    0.006036592,
+    0.006036577,
+    0.006036576,
+    0.006036576
+  ],
+  "trades_24h": {
+    "trades": 103,
+    "buys": 41,
+    "sells": 62,
+    "buy_tao": 865.666138431,
+    "sell_tao": 835.931455057,
+    "net_tao": 29.734683374000042,
+    "traders": 55
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HBT4UHjgUuu5sHaXuW8kAFyhKUP43szcNQ7bSHBwiC1xeoZ",
+      "net_tao": -0.8537941409999945,
+      "gross_tao": 240.85379414099998,
+      "trades": 5
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.17678060900000148,
+      "gross_tao": 210.176780609,
+      "trades": 7
+    },
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": -152.317292183,
+      "gross_tao": 152.317292183,
+      "trades": 1
+    },
+    {
+      "coldkey": "5EUDeQTsLvNeTHWQKtJrFTeCSnaDJLt47ZSz8FXqhn9FyZ66",
+      "net_tao": 149.191216,
+      "gross_tao": 149.191216,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": -0.005780551000000855,
+      "gross_tao": 100.005780551,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790993647,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #306 from reliquadotai/fix/corpus-judge-pass-speed",
+      "url": "https://github.com/reliquadotai/reliquary/commit/423cefe751e7360aa4529ba6339059a3918df36b",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790992109,
+      "kind": "commit",
+      "source": "github",
+      "title": "perf(corpus): a math pass in ~75 s: no listing per pass, one re-audit…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/af69280e0ef115fedc6d3ae7840815a6c6ca7d72",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790986589,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #305 from reliquadotai/fix/corpus-judge-drand-bound",
+      "url": "https://github.com/reliquadotai/reliquary/commit/782e5906643c16fb3a8cb83d6224acc6880c2cc8",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790985014,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(corpus): bound a pass's siblings, race each drand round once, pac…",
+      "url": "https://github.com/reliquadotai/reliquary/commit/a27e17743663eef7eb404185c2178fdbd90347d0",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790981266,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #303 from reliquadotai/fix/corpus-judge-seed-metadata",
+      "url": "https://github.com/reliquadotai/reliquary/commit/124e9241b56b8624eff1d86494427152ae8603e8",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790970531,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #300 from reliquadotai/feat/corpus-split-processes",
+      "url": "https://github.com/reliquadotai/reliquary/commit/674e0a2b0f580a71f610c93721f51aad55d43297",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790969336,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(corpus): check pass counts while the judges run; the final stop …",
+      "url": "https://github.com/reliquadotai/reliquary/commit/0f84bd4bf5a0ce3f64b4d3c15efed30a3f5c5a26",
+      "publisher": "reliquadotai/reliquary"
+    },
+    {
+      "ts": 1790966986,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(corpus): give the crash tests' first verdicts 360 s on a loaded box",
+      "url": "https://github.com/reliquadotai/reliquary/commit/5d3e4a1115331658742327b389106d61e8d68096",
+      "publisher": "reliquadotai/reliquary"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

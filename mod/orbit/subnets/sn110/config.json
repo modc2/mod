@@ -1,0 +1,38 @@
+{
+  "name": "sn110",
+  "version": "1.0.0",
+  "description": "SN110 Green Compute — Enterprise Inference Hardware, 100% Green Energy. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ѐ",
+  "chain": "bittensor",
+  "netuid": 110,
+  "subnet": "Green Compute",
+  "symbol": "Ѐ",
+  "owner": "5D53sX6AwAzXUB24G85Ch35hYr5rCpXjYFWpFTe4uzBb75sL",
+  "github": null,
+  "url": "https://www.green-compute.com/",
+  "discord": null,
+  "logo": "https://www.green-compute.com/green.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=110",
+    "news": "/bt/news?netuid=110"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

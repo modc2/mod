@@ -1,0 +1,133 @@
+{
+  "netuid": 17,
+  "name": "404—GEN",
+  "symbol": "ρ",
+  "owner": "5E7a4a7QETrNjoZ2SbVSJMaavrQeyTEaHgjBPDUDxBKjUaMZ",
+  "description": "a decentralized 3D content generation competition",
+  "github": "https://github.com/404-Repo/404-gen-subnet",
+  "url": "https://www.404.xyz",
+  "discord": null,
+  "logo": "https://avatars.githubusercontent.com/u/154099142?s=200&v=4",
+  "registered_at": 2840556,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.008418594,
+    "moving_price": 0.008436927339062095,
+    "market_cap": 51575.73715491027,
+    "tao_in": 24935.786851416,
+    "alpha_in": 2961989.395137547,
+    "alpha_out": 3164418.073248536,
+    "volume": 683109.30545207,
+    "vol_24h": 220.8816710059764,
+    "emission": 0.0,
+    "change_1h": 0.004169516132979112,
+    "change_24h": -0.7697989946372497,
+    "change_7d": -3.7027335375664494
+  },
+  "spark_24h": [
+    0.008483935,
+    0.008484127,
+    0.008484357,
+    0.00848457,
+    0.008484757,
+    0.00848497,
+    0.008485177,
+    0.008485366,
+    0.008485552,
+    0.008485732,
+    0.008425136,
+    0.008425349,
+    0.00842495,
+    0.00842518,
+    0.008425162,
+    0.008425389,
+    0.008425613,
+    0.008420358,
+    0.008420649,
+    0.008414574,
+    0.008414738,
+    0.008414911,
+    0.008415123,
+    0.008415326,
+    0.008415551,
+    0.008438172,
+    0.008438354,
+    0.008436418,
+    0.00841628,
+    0.008414861,
+    0.008414988,
+    0.008415212,
+    0.008415442,
+    0.008415629,
+    0.008415853,
+    0.00841608,
+    0.008416267,
+    0.008416475,
+    0.00841667,
+    0.008416874,
+    0.008417074,
+    0.008417286,
+    0.008417453,
+    0.00841765,
+    0.008417911,
+    0.008418052,
+    0.008418243,
+    0.008418594
+  ],
+  "trades_24h": {
+    "trades": 29,
+    "buys": 10,
+    "sells": 19,
+    "buy_tao": 47.313563779,
+    "sell_tao": 149.674485183,
+    "net_tao": -102.36092140400001,
+    "traders": 20
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HDzo8KFi4GBajTw641tgursEcQwdAPcyVMnEMzNhjWaz5Qm",
+      "net_tao": -74.888783067,
+      "gross_tao": 74.888783067,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HeQWuhJWCw6aQNqZ8FqjEPZtiSHDq5wSSRU67mop5zqWikT",
+      "net_tao": 0.050311483000001544,
+      "gross_tao": 59.949688517,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": -0.013975385000000173,
+      "gross_tao": 20.013975385000002,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": -14.867033871,
+      "gross_tao": 14.867033871,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DRy4XC89WVFSxKgRMitcbRsHpdTvp1MWQAJQZwMHuCv4AFP",
+      "net_tao": -9.254756434,
+      "gross_tao": 9.254756434,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1788552620,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: report the initial-attempts budget as replacements_remaining dur…",
+      "url": "https://github.com/404-Repo/404-gen-subnet/commit/c4dc2262c8d95b2630131a2f9e7d56ed089d3fdf",
+      "publisher": "404-Repo/404-gen-subnet"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

@@ -1,0 +1,81 @@
+/* ------------------------------------------------------------- chat dock
+ * components/ChatDock: launcher → corner window (.dock.float) or right
+ * sidebar (.dock.side). Side mode pads the page by --dock so nothing hides
+ * under it. Thread styles (.msg/.chip/.chat-form) come from sleek.css. */
+.dock-fab {
+  position: fixed; right: 20px; bottom: 20px; z-index: 110;   /* above .ovl (100): chat stays usable over a subnet */
+  display: inline-flex; align-items: center; gap: 9px; height: 42px; padding: 0 18px 0 15px;
+  border-radius: 999px; border: 1px solid var(--line2); cursor: pointer;
+  background: var(--ink); color: var(--bg); font-size: 13.5px; font-weight: 500;
+  box-shadow: var(--shadow-lg); transition: transform .15s, box-shadow .15s;
+}
+.dock-fab:hover { transform: translateY(-1px); }
+.dock-fab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.dock-fab.live .dock-fab-dot, .dock-fab-dot.live { animation: breathe 1.2s ease-in-out infinite; }
+
+.dock {
+  position: fixed; z-index: 110; display: flex; flex-direction: column; min-height: 0;
+  background: var(--card); border: 1px solid var(--line2); box-shadow: var(--shadow-lg);
+}
+.dock.float {
+  right: 20px; bottom: 20px; width: min(420px, calc(100vw - 32px)); height: min(620px, calc(100vh - 96px));
+  border-radius: 16px; overflow: hidden; transform-origin: bottom right; animation: dock-pop .16s ease-out both;
+}
+@keyframes dock-pop { from { opacity: 0; transform: scale(.94) translateY(8px); } }
+.dock.side {
+  top: 0; right: 0; bottom: 0; border-width: 0 0 0 1px; box-shadow: none;
+  animation: dock-slide .18s ease-out both;
+}
+@keyframes dock-slide { from { transform: translateX(24px); opacity: 0; } }
+@media (min-width: 900px) {
+  html[data-dock="side"] body { padding-right: var(--dock); }
+  html[data-dock="side"] .ovl { right: var(--dock); }   /* overlays open beside the chat, not under it */
+}
+.dock-grip {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 2;
+}
+.dock-grip:hover, .dock-grip:active { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+.dock-head {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  height: var(--bar); padding: 0 8px 0 12px; border-bottom: 1px solid var(--line);
+}
+.dock-title {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 8px;
+  border: none; border-radius: 8px; background: none; color: var(--ink); cursor: pointer; font-size: 13.5px; font-weight: 500;
+}
+.dock-title:hover { background: var(--raise); }
+.dock-title .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-title .caret { color: var(--ink3); font-size: 10px; }
+.dock-acts { display: flex; gap: 2px; }
+.dock-acts button, .dock-acts a {
+  width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: 8px; background: none; color: var(--ink2); cursor: pointer; font-size: 15px;
+}
+.dock-acts button:hover, .dock-acts a:hover { background: var(--raise); color: var(--ink); }
+.dock-acts button:disabled { opacity: .35; cursor: default; }
+.dock-hist {
+  flex: none; max-height: 40%; overflow: auto; padding: 6px; border-bottom: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 1px; background: var(--bg);
+}
+.dock-hist .muted { padding: 8px 10px; }
+
+/* the thread fills the dock; the composer sticks to its bottom */
+.chat-body.compact { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 14px 12px; }
+.chat-body.compact .chat-thread { flex: 1; min-height: 0; max-height: none; gap: 16px; }
+.chat-body.compact .chat-form { margin-top: 10px; }
+.chat-body.compact .chat-form textarea { font-size: 14px; min-height: 36px; }
+.chat-body.compact .chat-sugg { margin-top: 0; margin-bottom: 4px; }
+.chat-body.compact .msg.bot .bub { font-size: 14px; }
+.chat-body.compact .msg.you .bub { max-width: 90%; }
+.chat-body.compact .md table { display: block; overflow-x: auto; max-width: 100%; }
+
+/* phones: either mode is a bottom sheet */
+@media (max-width: 699px) {
+  .dock.float, .dock.side {
+    left: 0; right: 0; bottom: 0; top: auto; width: auto !important; height: 82vh;
+    border-radius: 16px 16px 0 0; border-width: 1px 0 0;
+  }
+  .dock-grip { display: none; }
+  .dock-fab { right: 14px; bottom: 14px; }
+}

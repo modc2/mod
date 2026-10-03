@@ -1,0 +1,6 @@
+{
+  "name": "trades",
+  "description": "A trading game: two proposed trades a round, pick the one the score function ranks higher for potential ROI. Reading the trade-offs right is understanding the function; the rated board reads as \"can it rank trades\" and nothing else.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "trades", "trading", "scoring"]
+}

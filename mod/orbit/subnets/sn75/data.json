@@ -1,0 +1,167 @@
+{
+  "netuid": 75,
+  "name": "Hippius",
+  "symbol": "م",
+  "owner": "5DAQpczEK4vzBn1waHkC4BZGqGPZ1dwPxKVsj36JDofHAw3a",
+  "description": "Blockchain-backed cloud: storage, VMs, and apps with unmatched transparency, trust, and power.",
+  "github": "https://github.com/thenervelab/thebrain",
+  "url": "https://hippius.com/",
+  "discord": null,
+  "logo": "https://hippius.com/logo.png",
+  "registered_at": 5102795,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [
+    "hippius"
+  ],
+  "market": {
+    "price": 0.016576524,
+    "moving_price": 0.016400968888774514,
+    "market_cap": 94737.60889385559,
+    "tao_in": 32796.18333403,
+    "alpha_in": 1978471.636873116,
+    "alpha_out": 3736695.722330514,
+    "volume": 1578719.361835902,
+    "vol_24h": 3189.6139901841525,
+    "emission": 0.0,
+    "change_1h": 0.016815760983757144,
+    "change_24h": 2.6791625371655137,
+    "change_7d": -3.2530371376130685
+  },
+  "spark_24h": [
+    0.016144192,
+    0.016145671,
+    0.016146599,
+    0.016148098,
+    0.016149952,
+    0.016149952,
+    0.016207472,
+    0.01622346,
+    0.016145586,
+    0.016156677,
+    0.01615235,
+    0.016154049,
+    0.016043993,
+    0.016049302,
+    0.016048385,
+    0.016050382,
+    0.016092721,
+    0.016104613,
+    0.016091002,
+    0.016040945,
+    0.016042468,
+    0.016037579,
+    0.016043395,
+    0.016045439,
+    0.016503417,
+    0.016598976,
+    0.016601515,
+    0.016614563,
+    0.016527819,
+    0.016526001,
+    0.016449643,
+    0.016450866,
+    0.016502574,
+    0.016503593,
+    0.01646245,
+    0.016463679,
+    0.016475034,
+    0.016480026,
+    0.016480227,
+    0.016479951,
+    0.01667895,
+    0.016679292,
+    0.016680275,
+    0.016620553,
+    0.016563154,
+    0.016569964,
+    0.016573737,
+    0.016576524
+  ],
+  "trades_24h": {
+    "trades": 210,
+    "buys": 110,
+    "sells": 100,
+    "buy_tao": 1726.118492392,
+    "sell_tao": 1375.775160041,
+    "net_tao": 350.3433323510001,
+    "traders": 98
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EZa5ydnhPLPQWfmNSZVRaUsuGW4AMf3nvY497NSXzvgJPc3",
+      "net_tao": 410.151785874,
+      "gross_tao": 410.151785874,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CBDPcWDqHso5UctQ9SPrZEws93NHVgVGx7E1aNBgqMHxV5T",
+      "net_tao": -0.8231313560000046,
+      "gross_tao": 400.823131356,
+      "trades": 9
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": 0.4158811180000015,
+      "gross_tao": 299.584118882,
+      "trades": 7
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": 40.43853707,
+      "gross_tao": 259.56146293,
+      "trades": 8
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": -1.3945560700000001,
+      "gross_tao": 201.39455607,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790371942,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #60 from thenervelab/feat/marketplace-compute-usage",
+      "url": "https://github.com/thenervelab/thebrain/commit/6c42aa9da10027cfdf89527e805390000761905b",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1790291059,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(marketplace): price compute billing proof size at FRAME's unbound…",
+      "url": "https://github.com/thenervelab/thebrain/commit/dc8f2b5bc6baebb89f71bf5b9bba31ff5cc61176",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1790289660,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(marketplace): charge hourly compute usage once per account and p…",
+      "url": "https://github.com/thenervelab/thebrain/commit/cc94609226a34ddcb4298a672bb2e59ad7753bf7",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1788966248,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #59 from thenervelab/feat/s3-hourly-price",
+      "url": "https://github.com/thenervelab/thebrain/commit/3187525a9317ff70f7157c930124e19858dfe235",
+      "publisher": "thenervelab/thebrain"
+    },
+    {
+      "ts": 1788964049,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(marketplace): price S3 storage per hour separately from Drive",
+      "url": "https://github.com/thenervelab/thebrain/commit/888c6424ff961230a778b734d52d168380b0ff0a",
+      "publisher": "thenervelab/thebrain"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

@@ -148,7 +148,7 @@ export default function PositionsHistoryPanel() {
     // Resolve the V2 deposit wallet — that's where trades live, not the EOA.
     let wallet: string | null = null;
     try {
-      const r = await fetch(`/api/polymarket/deposit-wallet/info?eoa=${eoa}`, {
+      const r = await fetch(`/polymarket/api/deposit-wallet/info?eoa=${eoa}`, {
         cache: "no-store",
       });
       if (r.ok) wallet = ((await r.json()) as { depositWallet?: string }).depositWallet ?? null;

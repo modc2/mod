@@ -1,0 +1,189 @@
+{
+  "netuid": 91,
+  "name": "cascade",
+  "symbol": "ᚁ",
+  "owner": "5HEe7NjS4exuP9SptWZdwWqWrMrGTTEHf5ieQH8yZXA3zXtW",
+  "description": "SOTA Time Series Foundation Models",
+  "github": "https://github.com/TensorLink-AI/cascade",
+  "url": "cascadesub.net",
+  "discord": "christensor_49068",
+  "logo": "https://raw.githubusercontent.com/TensorLink-AI/cascade/main/cascade/website/favicon-512.png",
+  "registered_at": 7633645,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.00577384,
+    "moving_price": 0.005557960830628872,
+    "market_cap": 10675.210517662515,
+    "tao_in": 3553.746802272,
+    "alpha_in": 615491.053783194,
+    "alpha_out": 1233401.627285647,
+    "volume": 191413.170219189,
+    "vol_24h": 2321.806963295996,
+    "emission": 0.0,
+    "change_1h": 0.03390574618369335,
+    "change_24h": 14.859293466465573,
+    "change_7d": 3.321223382952976
+  },
+  "spark_24h": [
+    0.005026881,
+    0.00502678,
+    0.005041962,
+    0.005041869,
+    0.005041859,
+    0.005034751,
+    0.005080411,
+    0.005067957,
+    0.005140105,
+    0.005147811,
+    0.005233835,
+    0.005368613,
+    0.005590854,
+    0.005738041,
+    0.005727887,
+    0.005732012,
+    0.005775708,
+    0.005707559,
+    0.00570688,
+    0.005687354,
+    0.005687354,
+    0.005751247,
+    0.005743981,
+    0.005776765,
+    0.005790253,
+    0.005632269,
+    0.005632269,
+    0.005638685,
+    0.005685355,
+    0.005689519,
+    0.005689443,
+    0.005684331,
+    0.005693964,
+    0.005693964,
+    0.005679609,
+    0.005712165,
+    0.005712528,
+    0.005713198,
+    0.005713076,
+    0.005712992,
+    0.005713315,
+    0.005713315,
+    0.005738764,
+    0.005779609,
+    0.00580489,
+    0.005771779,
+    0.005771883,
+    0.00577384
+  ],
+  "trades_24h": {
+    "trades": 439,
+    "buys": 260,
+    "sells": 179,
+    "buy_tao": 1279.484564905,
+    "sell_tao": 1037.180378669,
+    "net_tao": 242.30418623600008,
+    "traders": 136
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.2738775399999962,
+      "gross_tao": 461.719636306,
+      "trades": 108
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.2505479840000002,
+      "gross_tao": 294.250547984,
+      "trades": 48
+    },
+    {
+      "coldkey": "5EvHxAn5RBbMXSpgv5fYPikdtgwox9b8vynpVbNm1qPanR57",
+      "net_tao": -0.20418111399999983,
+      "gross_tao": 176.204181114,
+      "trades": 24
+    },
+    {
+      "coldkey": "5HTGyVdqmeRLQuVBXohbwYnvemK68uNzVi9xktzqfzBt73xg",
+      "net_tao": -3.2861644909999987,
+      "gross_tao": 125.286164491,
+      "trades": 8
+    },
+    {
+      "coldkey": "5HjdRywCocBBd2PNkertftFAfD9SterMCNVg75RJSWmgLCiB",
+      "net_tao": -0.6198998699999994,
+      "gross_tao": 74.61989987,
+      "trades": 7
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790934708,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #349 from TensorLink-AI/fix/scrape-kings-archive-key",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/b89417935dec0f637a7c2c06c729e99f60069faa",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1790917521,
+      "kind": "commit",
+      "source": "github",
+      "title": "scrape-kings: pass the dedicated KING_ARCHIVE_S3_* key to the scraper",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/eb2c53dace751fce0e8cda64507a5058fe02379e",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1790917152,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #348 from TensorLink-AI/fix/receipt-forward-compat",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/e9f4f84b630d76aa9fea544ae1be754a5c3283ee",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1790916694,
+      "kind": "commit",
+      "source": "github",
+      "title": "test_margin_v2: drop Yoda comparisons (ruff SIM300, red on main since…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/8f0d0ee6168bd69e2e35a7684230640f2ce8586b",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1790916552,
+      "kind": "commit",
+      "source": "github",
+      "title": "king sync (finney): vault/direct@sha256:4500367f1004fc38ca7c1fac18532…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/04a97108e5cd9b9f507d88ef2d10b6458c916806",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1790916441,
+      "kind": "commit",
+      "source": "github",
+      "title": "Receipts verify across code versions; a stale receipt king is never s…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/a680c8ff9894f6afe44fb8592cb5a8807867c9cd",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1790854943,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #347 from TensorLink-AI/fix/validator-startup-rest…",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/a6e6dc4c2590b598b3ed67c69f205fde9115e0d1",
+      "publisher": "TensorLink-AI/cascade"
+    },
+    {
+      "ts": 1790854805,
+      "kind": "commit",
+      "source": "github",
+      "title": "validator: restore a chain-decided rollover before the forfeiture at …",
+      "url": "https://github.com/TensorLink-AI/cascade/commit/22e734badd80aa4dd4c2b93d144909a3f53f48af",
+      "publisher": "TensorLink-AI/cascade"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

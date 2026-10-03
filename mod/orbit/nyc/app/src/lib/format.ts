@@ -35,7 +35,13 @@ export function byFormat(v: number | null | undefined, fmt: string): string {
     case 'percent':
       return percent(v)
     case 'count':
+    case 'int':
       return count(v)
+    // A level, not a change: no leading + sign, unlike `percent`.
+    case 'pct':
+      return v === null || v === undefined ? '—' : `${v.toFixed(1)}%`
+    case 'num':
+      return v === null || v === undefined ? '—' : v.toFixed(1)
     default:
       return v === null || v === undefined ? '—' : String(v)
   }

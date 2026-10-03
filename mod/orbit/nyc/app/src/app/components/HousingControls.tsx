@@ -80,7 +80,7 @@ export default function HousingControls({ options, query, onChange, busy }: Prop
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="pixel mb-1.5 block text-[7px] leading-none text-nes-ink3">
@@ -91,7 +91,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function Select({ value, onChange, items }: {
+export function Select({ value, onChange, items }: {
   value: string
   onChange: (v: string) => void
   items: [string, string][]

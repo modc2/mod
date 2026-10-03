@@ -1,0 +1,38 @@
+{
+  "name": "sn2",
+  "version": "1.0.0",
+  "description": "SN2 DSperse — Verifiable and distributed inference on Bittensor. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "β",
+  "chain": "bittensor",
+  "netuid": 2,
+  "subnet": "DSperse",
+  "symbol": "β",
+  "owner": "5EcYQ3W77ndrmMWdvVQusoFqY8doxfP3U2zrh7xZQiaz7avY",
+  "github": "https://github.com/inference-labs-inc/subnet-2",
+  "url": "https://subnet2.inferencelabs.com",
+  "discord": null,
+  "logo": "https://dsperse.inferencelabs.com/logo-512.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=2",
+    "news": "/bt/news?netuid=2"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

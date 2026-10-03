@@ -1,0 +1,40 @@
+# sn111 — Claims Ё
+
+Turning scientific literature into a structured claim-evidence graph
+
+Bittensor subnet **111** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+
+Links: [github](https://github.com/DeSciClaims/Claims) · [discord](https://discord.com/channels/799672011265015819/1515007366016401599)
+
+## Market
+
+| price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
+|---|---|---|---|---|---|---|
+| 0.004370 | +0.00% | -0.06% | -2.75% | 21,416 | 5,611 | 146.09 |
+
+## Last 24h flow
+
+43 trades by 33 coldkeys · 10 buys (71.52 τ) / 33 sells (73.60 τ) · net -2.07 τ
+
+## News
+
+- 2026-10-02 · release · [v1.0.1](https://github.com/DeSciClaims/Claims/releases/tag/v1.0.1) — DeSciClaims/Claims
+- 2026-09-29 · commit · [feat(validator): wait for due canonical batches](https://github.com/DeSciClaims/Claims/commit/e3bceb9503171a23912ce472cb0653bfc9499757) — DeSciClaims/Claims
+- 2026-09-29 · commit · [fix(silver): reduce adjudication batch size to four](https://github.com/DeSciClaims/Claims/commit/a85c4f55461e134c575191e4c7e35124c8287b96) — DeSciClaims/Claims
+- 2026-09-29 · commit · [fix(silver): raise appellate output limit](https://github.com/DeSciClaims/Claims/commit/05eab72d194b5e78c72367fed748a648730581df) — DeSciClaims/Claims
+- 2026-09-29 · commit · [fix(sources): isolate consensus PDF failures](https://github.com/DeSciClaims/Claims/commit/23655b86e4285f1f1fddcf5a4700ca301b4d8164) — DeSciClaims/Claims
+- 2026-09-28 · commit · [fix(silver): make eligibility appeals evidence-grounded](https://github.com/DeSciClaims/Claims/commit/a6403733b9f6459b4c8688c960d84a40609d63eb) — DeSciClaims/Claims
+- 2026-09-28 · release · [v1.0.0](https://github.com/DeSciClaims/Claims/releases/tag/v1.0.0) — DeSciClaims/Claims
+- 2026-09-14 · release · [v0.2.0](https://github.com/DeSciClaims/Claims/releases/tag/v0.2.0) — DeSciClaims/Claims
+
+## Use
+
+```bash
+m subnets.sn111/info        # live identity + market (snapshot if bt is down)
+m subnets.sn111/news        # scraped news
+m subnets.sn111/trades      # 24h alpha tape
+m subnets.sn111/daily       # daily candles
+python3 orbit/subnets/sn111/mod.py  # or import it: Mod().info()
+```
+
+_config.json, README.md and data.json are regenerated every day — put hand-written code in a new file next to mod.py._

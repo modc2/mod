@@ -1,0 +1,38 @@
+{
+  "name": "sn107",
+  "version": "1.0.0",
+  "description": "SN107 Minos — The Foundational Layer of Genomics. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ミ",
+  "chain": "bittensor",
+  "netuid": 107,
+  "subnet": "Minos",
+  "symbol": "ミ",
+  "owner": "5DA2vLrSXZxnT9G4Yrywx1Fpi4RXwMH1Ah7r8DTTWS7UZZBM",
+  "github": "https://github.com/minos-protocol/minos_subnet",
+  "url": "https://theminos.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1467949024769478793",
+  "logo": "https://theminos.ai/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=107",
+    "news": "/bt/news?netuid=107"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

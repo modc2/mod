@@ -1,0 +1,165 @@
+{
+  "netuid": 63,
+  "name": "Enigma",
+  "symbol": "س",
+  "owner": "5CqTmNfgDchxULD1bfoz8jvj9rDYSoq76kiq98oBUUEDpWqX",
+  "description": "Breaking today to build tomorrow",
+  "github": "https://github.com/qbittensor-labs/enigma",
+  "url": "https://www.qbittensorlabs.com/",
+  "discord": "qbittensorlabs",
+  "logo": "https://www.qbittensorlabs.com/63.png",
+  "registered_at": 4885578,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.003999076,
+    "moving_price": 0.00401258678175509,
+    "market_cap": 24357.659365226013,
+    "tao_in": 10833.870064936,
+    "alpha_in": 2709092.893656328,
+    "alpha_out": 3381728.927490861,
+    "volume": 1243541.647788806,
+    "vol_24h": 231.89406294981018,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.23736679762362822,
+    "change_7d": -3.1514533302528402
+  },
+  "spark_24h": [
+    0.003989605,
+    0.003989605,
+    0.003989605,
+    0.003989619,
+    0.003989619,
+    0.00398961,
+    0.003989609,
+    0.003989609,
+    0.003989599,
+    0.003989585,
+    0.003989585,
+    0.003989577,
+    0.003989325,
+    0.003989325,
+    0.003989226,
+    0.003989226,
+    0.003989226,
+    0.003989226,
+    0.003989226,
+    0.003985965,
+    0.003985965,
+    0.003985957,
+    0.003985952,
+    0.003985952,
+    0.00398595,
+    0.003985651,
+    0.003985651,
+    0.003985651,
+    0.00398565,
+    0.004057786,
+    0.004057773,
+    0.004057773,
+    0.004057773,
+    0.00402795,
+    0.00402795,
+    0.00402795,
+    0.00402795,
+    0.004028373,
+    0.004028372,
+    0.004028372,
+    0.004028371,
+    0.004028371,
+    0.004028371,
+    0.004028363,
+    0.004028585,
+    0.004028574,
+    0.003999076,
+    0.003999076
+  ],
+  "trades_24h": {
+    "trades": 23,
+    "buys": 13,
+    "sells": 10,
+    "buy_tao": 122.39124833,
+    "sell_tao": 109.178337901,
+    "net_tao": 13.21291042899999,
+    "traders": 11
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": -0.15422023800000062,
+      "gross_tao": 80.154220238,
+      "trades": 3
+    },
+    {
+      "coldkey": "5G3mvfYwEVvzWeDcvNUzixufhdGBzfBFeWPxqzvMd8iSdL9G",
+      "net_tao": 0.13796802699999944,
+      "gross_tao": 79.862031973,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.029679129999999887,
+      "gross_tao": 48.003327304,
+      "trades": 6
+    },
+    {
+      "coldkey": "5H9hmk3No7xkyZyBJMUYViSDuUYJxutMNBMBb12wCet5szAf",
+      "net_tao": 17.467471877999998,
+      "gross_tao": 17.467471877999998,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GyLSMa3VJrhsf9u3dh4Xm9q6cNVtwmwAsFGB2DHcQ9Rr8sP",
+      "net_tao": -4.413120871,
+      "gross_tao": 4.413120871,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789570284,
+      "kind": "commit",
+      "source": "github",
+      "title": "[create-pull-request] automated change (#44)",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/feafea5a481712228268b70db54ab31f304b7e89",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1789420659,
+      "kind": "commit",
+      "source": "github",
+      "title": "[create-pull-request] automated change (#43)",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/2d5efee5460e3a68493cca0019964e78114324ee",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1789109293,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add initial burn sync code and adjust when weights are set",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/b1fbd3548149400fab530cc034bbc5eccde1fac3",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1789052719,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fix issue with migrated validator db",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/6863ee28db97b7f6591a51f7d8e2cc9b752f09a9",
+      "publisher": "qbittensor-labs/enigma"
+    },
+    {
+      "ts": 1788929276,
+      "kind": "commit",
+      "source": "github",
+      "title": "Test hardening and cleanup",
+      "url": "https://github.com/qbittensor-labs/enigma/commit/343a5d091b1336f41012fcd9e816553533aeea2b",
+      "publisher": "qbittensor-labs/enigma"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

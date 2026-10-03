@@ -23,6 +23,9 @@ CLI:
     m nyc/housing metric=median_ppsf   # a housing choropleth
     m nyc/prices                       # city-wide price summary
     m nyc/trend area=BK0101            # a neighborhood's price history
+    m nyc/population metric=density    # density / census choropleth (tract|nta|borough)
+    m nyc/stats geography=borough      # population + housing stats per area
+    m nyc/report                       # write the shareable HTML brief + CSVs
     m nyc/where "Prospect Park"        # geocode an address or place
     m nyc/tools                        # the MCP tool registry
     m nyc/tool nyc_query id=erm2-nwe9 select="complaint_type, count(*)"
@@ -49,11 +52,14 @@ MODULE_DIR = Path(__file__).parent
 if str(MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MODULE_DIR))
 
+from nycgis import demographics as DM
 from nycgis import layers as L
 from nycgis import prices as P
+from nycgis import report as RP
 from nycgis import rents as R
 from nycgis import sources as S
 from nycgis import tools as T
+from nycgis import traffic as TR
 
 # The five boroughs — kept from this module's original scaffold, and still the
 # right thing to hand a client that just wants to know what NYC is made of.
@@ -184,6 +190,49 @@ class Mod:
                 'count': len(vals),
                 'diverging': metric == 'price_change'}
 
+    # ── population, density and the housing brief ───────────────────────
+
+    def population(self, metric: str = 'density', geography: str = 'tract') -> dict:
+        """
+        A population / housing-cost choropleth: density, income, rent, rent
+        burden, vacancy, new homes and more (ACS + DCP + DOF), with breaks.
+        """
+        if geography not in DM.GEOS:
+            return {'error': f'unknown geography {geography!r}', 'known': list(DM.GEOS)}
+        if metric not in DM.METRICS:
+            return {'error': f'unknown metric {metric!r}', 'known': list(DM.METRICS)}
+        return DM.choropleth(metric, geography)
+
+    def stats(self, geography: str = 'borough', since: str = '2025-01-01',
+              sort: str = '', limit: int = 0) -> dict:
+        """Population, density, income, rent, burden, prices, construction per area."""
+        st = DM.stats(geography, since)
+        if sort or limit:
+            rows = [dict(v, key=k) for k, v in st['areas'].items()]
+            if sort:
+                rows = sorted((r for r in rows if r.get(sort) is not None),
+                              key=lambda r: r[sort], reverse=True)
+            st = {**st, 'areas': rows[:int(limit)] if limit else rows}
+        return st
+
+    def report(self, since: str = '2025-01-01', out: str = '') -> dict:
+        """
+        Write the shareable brief — one self-contained HTML file (maps inline)
+        plus neighborhood and tract CSVs — and return where they are.
+        """
+        d = Path(out or os.path.expanduser('~/.mod/nyc/report'))
+        d.mkdir(parents=True, exist_ok=True)
+        files = {'html': d / 'nyc-population-housing.html',
+                 'csv_nta': d / 'nyc-neighborhoods.csv',
+                 'csv_tract': d / 'nyc-census-tracts.csv',
+                 'csv_borough': d / 'nyc-boroughs.csv'}
+        files['html'].write_text(RP.html_report(since))
+        files['csv_nta'].write_text(RP.csv('nta', since))
+        files['csv_tract'].write_text(RP.csv('tract', since))
+        files['csv_borough'].write_text(RP.csv('borough', since))
+        return {k: str(v) for k, v in files.items()} | {
+            'url': '/nyc/api/report', 'city': DM.stats('nta', since)['city']}
+
     def prices(self, since: str = '2024-01-01', until: Optional[str] = None,
                property_type: str = 'residential') -> dict:
         """City-wide price summary: totals, and the top/bottom neighborhoods."""
@@ -211,6 +260,16 @@ class Mod:
         """Individual recorded sales as map points."""
         return P.sales_points(since=since, until=until, property_type=property_type,
                               limit=int(limit), min_price=min_price, max_price=max_price)
+
+    def traffic(self, street: str = '', borough: str = '',
+                hour: Optional[int] = None, limit: int = 20) -> dict:
+        """
+        When to drive: the hour-by-hour traffic profile of DOT's count
+        locations, plus what the live speed sensors are reading right now.
+        """
+        return TR.summary(street=street, borough=borough,
+                          hour=None if hour is None else int(hour),
+                          limit=int(limit))
 
     def options(self) -> dict:
         """Everything the UI needs to build its housing controls."""
@@ -383,6 +442,12 @@ class Mod:
                 results['trend:nta'] = {'areas': len(series)}
             except Exception as e:
                 results['trend:nta'] = {'error': str(e)}
+        try:    # ~250 MB of Census files streamed once; cached 30 days
+            for geo in ('tract', 'nta', 'borough'):
+                DM.stats(geo)
+            results['population'] = {'ok': True}
+        except Exception as e:
+            results['population'] = {'error': str(e)}
         return {'warmed': results, 'cache': S.cache_stats()}
 
     def cache(self) -> dict:

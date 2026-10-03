@@ -1,0 +1,189 @@
+{
+  "netuid": 46,
+  "name": "Instant",
+  "symbol": "ץ",
+  "owner": "5Ft9E2ovN52AVMczVA3713uXmmBPczvUboB4YQpupu3aEYg7",
+  "description": "Lighning Fast Uncensored Inference",
+  "github": "https://github.com/Subnet46/sn46-validator",
+  "url": "https://instantnetwork.ai",
+  "discord": "https://discord.com/BJ7DkeUmFm",
+  "logo": "https://instant-network-logo.sebyverse.chatgpt.site/logo.png",
+  "registered_at": 3919107,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.003596797,
+    "moving_price": 0.0035073014441877604,
+    "market_cap": 21205.653374828016,
+    "tao_in": 8536.181185928,
+    "alpha_in": 2373272.556208317,
+    "alpha_out": 3522432.254162692,
+    "volume": 1479991.973620923,
+    "vol_24h": 1076.039802299114,
+    "emission": 0.0,
+    "change_1h": 0.0003336312846213829,
+    "change_24h": 4.758860443536239,
+    "change_7d": 1.0958429752693455
+  },
+  "spark_24h": [
+    0.003433406,
+    0.003433405,
+    0.003433405,
+    0.003435048,
+    0.003435048,
+    0.003434174,
+    0.003434015,
+    0.003409454,
+    0.003409445,
+    0.003408716,
+    0.003438643,
+    0.003438717,
+    0.003438245,
+    0.003438245,
+    0.003434049,
+    0.003434049,
+    0.003421983,
+    0.003420006,
+    0.003420006,
+    0.0035666,
+    0.003506776,
+    0.00349189,
+    0.003494352,
+    0.003496012,
+    0.00349601,
+    0.00349601,
+    0.003495968,
+    0.003494803,
+    0.003508425,
+    0.003510922,
+    0.003510909,
+    0.003512574,
+    0.003512574,
+    0.003512573,
+    0.003512573,
+    0.003512573,
+    0.003512573,
+    0.003510972,
+    0.003510971,
+    0.003510971,
+    0.00351097,
+    0.003515386,
+    0.00353206,
+    0.003592775,
+    0.003592944,
+    0.003592938,
+    0.003596785,
+    0.003596797
+  ],
+  "trades_24h": {
+    "trades": 115,
+    "buys": 57,
+    "sells": 58,
+    "buy_tao": 636.640258668,
+    "sell_tao": 439.372745301,
+    "net_tao": 197.267513367,
+    "traders": 49
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": -0.2673667480000006,
+      "gross_tao": 120.267366748,
+      "trades": 6
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": -0.11440233300000102,
+      "gross_tao": 120.114402333,
+      "trades": 6
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": 0.18018856800000194,
+      "gross_tao": 79.819811432,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DhQxi4F9qhCBvemna7sHTwtPUuwqWwFBuqGGFWQmvXSNLGB",
+      "net_tao": -0.1967932019999985,
+      "gross_tao": 66.196793202,
+      "trades": 6
+    },
+    {
+      "coldkey": "5HRQyueYEFpmwbUGdo8RhYQaCaZjB5ecCfQNyeDs6ercuVFL",
+      "net_tao": 60.0,
+      "gross_tao": 60.0,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790869111,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.1.3",
+      "url": "https://github.com/Subnet46/sn46-validator/releases/tag/v0.1.3",
+      "publisher": "Subnet46/sn46-validator"
+    },
+    {
+      "ts": 1790868464,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #8 from Subnet46/feat/auto-update",
+      "url": "https://github.com/Subnet46/sn46-validator/commit/d80a6575cf8e0c08dc6b769a0ea9f85fe077856e",
+      "publisher": "Subnet46/sn46-validator"
+    },
+    {
+      "ts": 1790868239,
+      "kind": "commit",
+      "source": "github",
+      "title": "Recover updates and rollbacks interrupted midway",
+      "url": "https://github.com/Subnet46/sn46-validator/commit/e6c8abc70979743e8f96075d944436f4b98449fb",
+      "publisher": "Subnet46/sn46-validator"
+    },
+    {
+      "ts": 1790868219,
+      "kind": "commit",
+      "source": "github",
+      "title": "Install the update timer",
+      "url": "https://github.com/Subnet46/sn46-validator/commit/8aea4aca71c4793fbbedb4aeb103669ea6722b41",
+      "publisher": "Subnet46/sn46-validator"
+    },
+    {
+      "ts": 1790868192,
+      "kind": "commit",
+      "source": "github",
+      "title": "sn46-validator update: signed, scheduled self-update with rollback",
+      "url": "https://github.com/Subnet46/sn46-validator/commit/53b1a65231b9e12c017f451f50ee3d17e703fb7d",
+      "publisher": "Subnet46/sn46-validator"
+    },
+    {
+      "ts": 1790868075,
+      "kind": "commit",
+      "source": "github",
+      "title": "Sign validator releases with their own key",
+      "url": "https://github.com/Subnet46/sn46-validator/commit/6d2a8292eee99ae3064f4dd54def594b79af8a71",
+      "publisher": "Subnet46/sn46-validator"
+    },
+    {
+      "ts": 1790670254,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.1.2",
+      "url": "https://github.com/Subnet46/sn46-validator/releases/tag/v0.1.2",
+      "publisher": "Subnet46/sn46-validator"
+    },
+    {
+      "ts": 1789667013,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.1.1",
+      "url": "https://github.com/Subnet46/sn46-validator/releases/tag/v0.1.1",
+      "publisher": "Subnet46/sn46-validator"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

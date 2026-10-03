@@ -1,0 +1,38 @@
+{
+  "name": "sn13",
+  "version": "1.0.0",
+  "description": "SN13 Data Universe — Scraping the world's social media data. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ν",
+  "chain": "bittensor",
+  "netuid": 13,
+  "subnet": "Data Universe",
+  "symbol": "ν",
+  "owner": "5HBswBt1A9Ahx6U76abXXGd7VmabmCNBGhSK2vrP71GSxtgZ",
+  "github": "https://github.com/macrocosm-os/data-universe",
+  "url": "https://datauniverse.macrocosmos.ai/",
+  "discord": "https://discord.gg/adsQPnFRY",
+  "logo": "https://www.macrocosmos.ai/images/mc_logo_black.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=13",
+    "news": "/bt/news?netuid=13"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

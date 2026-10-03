@@ -1,0 +1,38 @@
+{
+  "name": "sn26",
+  "version": "1.0.0",
+  "description": "SN26 Perturb — Decentralized adversarial robustness network. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ב",
+  "chain": "bittensor",
+  "netuid": 26,
+  "subnet": "Perturb",
+  "symbol": "ב",
+  "owner": "5FsVAEPMpkAo3eP7xTNJYLyBndi2oT5GPxVPzFT1DzSD82qx",
+  "github": "https://github.com/0xsigurd/Perturb",
+  "url": "https://www.perturbai.io/",
+  "discord": null,
+  "logo": "https://www.perturbai.io/logo/Perturb_Logo_Light.svg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=26",
+    "news": "/bt/news?netuid=26"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

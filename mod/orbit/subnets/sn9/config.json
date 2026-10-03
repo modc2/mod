@@ -1,0 +1,38 @@
+{
+  "name": "sn9",
+  "version": "1.0.0",
+  "description": "SN9 iota — Bringing liquid training to the world. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ι",
+  "chain": "bittensor",
+  "netuid": 9,
+  "subnet": "iota",
+  "symbol": "ι",
+  "owner": "5FsbubeciqtB5Nik3umL2iD4fG8FcC9GbT9nHJfXMj4mJJZ9",
+  "github": "https://github.com/macrocosm-os/iota",
+  "url": "https://iota.macrocosmos.ai/",
+  "discord": "https://discord.gg/adsQPnFRY",
+  "logo": "https://www.macrocosmos.ai/images/mc_logo_black.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=9",
+    "news": "/bt/news?netuid=9"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -1,11 +1,12 @@
 // Client for the chain module's hub API, proxied through Next at
-// {basePath}/api/chain (see next.config.mjs). Drives on-chain registration,
+// {basePath}/_api/chain (see next.config.mjs). Drives on-chain registration,
 // the $1 MOD mint, the reward pool and per-mod BlocTime staking — all signed
 // server-side by a named key, on the configured network. The chain hub isn't
 // publicly routed, so every call goes via Next; the basePath prefix is what
-// lets the Caddy gateway's /web/* route carry these calls in prod.
+// lets the Caddy gateway's /web/* route carry these calls in prod. _api, not
+// api: /web/api/* is the protocol API and Caddy intercepts it before the app.
 
-export const CHAIN_API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/api/chain`;
+export const CHAIN_API = `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/_api/chain`;
 
 export type Pool = {
   governance_token: string;

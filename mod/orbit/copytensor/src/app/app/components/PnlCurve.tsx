@@ -197,7 +197,9 @@ export default function PnlCurve({
                 wrapped a 20px display heading across three. */}
             <span className="block sm:inline text-pixel-gray font-normal text-[11px] sm:text-sm">
               ({curve.coverage.actual_days.toFixed(1)}d of snapshots
-              {curve.coverage.actual_days < days - 0.5 && ` · ${days}d requested`})
+              {/* days === 0 is the all-history window: there is no
+                  shortfall to report against "everything there is". */}
+              {days > 0 && curve.coverage.actual_days < days - 0.5 && ` · ${days}d requested`})
             </span>
           </h2>
           <p className="text-[11px] text-pixel-gray">

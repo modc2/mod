@@ -1,0 +1,74 @@
+{
+    "name": "boxd",
+    "version": "0.1.0",
+    "description": "A Letterboxd lens with no API key. Reads a member's public RSS diary, a film's JSON-LD block and the poster wall through one throttled, cached fetcher, then does the arithmetic Letterboxd doesn't: a taste profile (mean, median, histogram, like and rewatch rates, decades) and an overlap between two members \u2014 shared films, an agreement score, the hardest disagreements, and what each has loved that the other hasn't logged. Letterboxd 403s a chatty client within seconds, so requests are spaced, pages are cached to disk, a block is reported as a block rather than as an empty result, and the stale cache answers when the live page won't.",
+    "icon": "\ud83c\udfac",
+    "color": "#00e054",
+    "anchor": "mod.py",
+    "network": "testnet",
+    "port": 50940,
+    "app_port": 50940,
+    "gateway_port": 50940,
+    "base_path": "/boxd",
+    "route": true,
+    "urls": {
+        "app": "http://localhost:50940/boxd/",
+        "api": "http://localhost:50940"
+    },
+    "fns": [
+        "forward",
+        "info",
+        "health",
+        "readme",
+        "sources",
+        "diary",
+        "reviews",
+        "member",
+        "taste",
+        "overlap",
+        "film",
+        "films",
+        "serve",
+        "test",
+        "kill"
+    ],
+    "api_fns": [
+        "info",
+        "health",
+        "readme",
+        "sources",
+        "diary",
+        "reviews",
+        "member",
+        "taste",
+        "overlap",
+        "film",
+        "films"
+    ],
+    "endpoints": {
+        "/info": "Null call \u2014 what this module is and what it exposes",
+        "/health": "Liveness \u2014 no network call, so it answers while Letterboxd is blocking",
+        "/sources": "The three public surfaces this reads, and how sturdy each one is",
+        "/diary": "A member's feed, newest first (user, limit, kind=watch|review|list|all, fresh)",
+        "/reviews": "Only the entries they wrote something about (user, limit, fresh)",
+        "/member": "Who this is, plus the headline numbers off their diary (user, fresh)",
+        "/taste": "How they rate \u2014 mean, median, histogram, likes, rewatches, decades (user, fresh)",
+        "/overlap": "Two members against each other \u2014 agreement, splits, what to steal (a, b, fresh)",
+        "/film": "One film by slug or title \u2014 cast, crew, genres, runtime, site rating (title, year)",
+        "/films": "The poster wall \u2014 everything a member has logged, newest first (user, fresh)",
+        "/readme": "The project README"
+    },
+    "sources": {
+        "rss": "letterboxd.com/{member}/rss/ \u2014 the diary, with rating, liked, rewatch and watched-date as real fields. The spine: it answers under load.",
+        "film": "letterboxd.com/film/{slug}/ \u2014 one film out of its schema.org JSON-LD block, cached a day",
+        "grid": "letterboxd.com/{member}/films/ \u2014 the poster wall, ~72 per page. Throttled first; the diary answers when this does not."
+    },
+    "notes": {
+        "no_key": "Letterboxd's own API has been invite-only beta for years \u2014 there is no key to apply for, and nothing here uses one",
+        "throttle": "1.4s between requests fleet-wide, plus a disk cache under ~/.mod/boxd/cache",
+        "coverage": "the RSS feed is a window of roughly the last 50 logged films, not a lifetime \u2014 every derived number says so in its own coverage field",
+        "closed": "search and the global charts are 403 from this box, so boxd has no search; pass a username or a film slug"
+    },
+    "key": "boxd",
+    "schema": "QmQnSmeRhtcHePJt3HyxWA1kT3iJyayE2jgUB6seTWxXpg"
+}

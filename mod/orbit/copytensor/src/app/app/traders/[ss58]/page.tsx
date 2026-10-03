@@ -11,6 +11,7 @@ import {
   fmtPct,
   shortSs58,
   watchAccount,
+  windowLabel,
 } from "../../lib/api";
 import PnlBadge from "../../components/PnlBadge";
 import PnlCurve from "../../components/PnlCurve";
@@ -19,8 +20,7 @@ import SubnetPositions from "../../components/SubnetPositions";
 import { useCurrency, fmtValue, fmtPnlValue } from "../../context/CurrencyContext";
 import { useFilters } from "../../context/FiltersContext";
 import { useSidebar } from "../../context/SidebarContext";
-
-const WINDOWS = [1, 3, 7, 14, 30];
+import WindowRail from "../../components/WindowRail";
 
 export default function TraderPage() {
   const { ss58 } = useParams<{ ss58: string }>();
@@ -28,7 +28,7 @@ export default function TraderPage() {
   const { openStrat } = useSidebar();
   // The board's window, not a private one — clicking a row off a 7d board
   // and landing on a profile measured over something else is a silent lie.
-  const { days, setDays } = useFilters();
+  const { days } = useFilters();
   const [account, setAccount] = useState<AccountData | null>(null);
   const [pnl, setPnl] = useState<PnlData | null>(null);
   const [curve, setCurve] = useState<CurveData | null>(null);
@@ -115,7 +115,7 @@ export default function TraderPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <StatTile label="total stake" value={fmtValue(account.total_stake_tao, currency, usdPerTao)} />
         <StatTile
-          label={`${days}d pnl`}
+          label={`${windowLabel(days)} pnl`}
           value={fmtPnlValue(account.pnl_tao, currency, usdPerTao)}
           sub={fmtPct(account.pnl_pct)}
           tone={account.pnl_tao >= 0 ? "up" : "down"}
@@ -123,20 +123,10 @@ export default function TraderPage() {
         <StatTile label="subnets" value={String(account.allocations.length)} />
       </div>
 
-      <div className="rail no-scrollbar">
-        <span className="text-[11px] text-pixel-gray-light mr-1">history</span>
-        {WINDOWS.map((w) => (
-          <button
-            key={w}
-            onClick={() => setDays(w)}
-            className={`pixel-btn text-[11px] px-3 py-1 ${
-              days === w ? "border-green-400 text-green-400" : "text-pixel-gray-light"
-            }`}
-          >
-            {w}d
-          </button>
-        ))}
-      </div>
+      {/* Same rail, same shared window as the board — and it says how far
+          back the index reaches, which is the number that decides whether
+          the curve below is a record or a week. */}
+      <WindowRail />
 
       {curve ? (
         <PnlCurve curve={curve} days={days} />
@@ -154,7 +144,7 @@ export default function TraderPage() {
       {pnl && pnl.by_subnet.length > 0 && (
         <section>
           <h2 className="font-display text-lg font-bold mb-3">
-            PnL by subnet ({days}d)
+            PnL by subnet ({windowLabel(days)})
           </h2>
           {/* Six numeric columns don't fit a phone at any type size worth
               reading — the plate scrolls sideways rather than crushing every

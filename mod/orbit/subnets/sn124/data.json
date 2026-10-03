@@ -1,0 +1,165 @@
+{
+  "netuid": 124,
+  "name": "Swarm",
+  "symbol": "𑀁",
+  "owner": "5HKYqfJrUFKYPMRFZZ7kfhUNEyHUbY2ZyEjQqKJf2RKVpeXM",
+  "description": null,
+  "github": "https://github.com/swarm-subnet/swarm",
+  "url": "www.swarm124.com",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/swarm-subnet/swarm/refs/heads/main/swarm/assets/Swarm.png",
+  "registered_at": 5813454,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.00918399,
+    "moving_price": 0.009246449219062924,
+    "market_cap": 44879.9125735035,
+    "tao_in": 11951.965528476,
+    "alpha_in": 1301391.419125985,
+    "alpha_out": 3585363.964264405,
+    "volume": 313200.30417311,
+    "vol_24h": 275.5321236709715,
+    "emission": 0.0,
+    "change_1h": 0.01029070422717826,
+    "change_24h": -1.8288669196058427,
+    "change_7d": -6.467755630043315
+  },
+  "spark_24h": [
+    0.009348222,
+    0.009348741,
+    0.009349364,
+    0.009349976,
+    0.009350488,
+    0.009345822,
+    0.009346419,
+    0.009346934,
+    0.009346641,
+    0.009347156,
+    0.009349215,
+    0.009350563,
+    0.009345421,
+    0.009343903,
+    0.009342099,
+    0.009342792,
+    0.009299915,
+    0.00932627,
+    0.009333213,
+    0.009296493,
+    0.009337189,
+    0.009337959,
+    0.00931837,
+    0.009328529,
+    0.009329102,
+    0.009313398,
+    0.009191172,
+    0.009179716,
+    0.009179527,
+    0.009180039,
+    0.009180654,
+    0.009181265,
+    0.009182655,
+    0.009183171,
+    0.009177521,
+    0.009178133,
+    0.009177855,
+    0.009178407,
+    0.0091791,
+    0.009179602,
+    0.009180185,
+    0.009180756,
+    0.009181208,
+    0.009181738,
+    0.009182263,
+    0.009182648,
+    0.009183045,
+    0.00918399
+  ],
+  "trades_24h": {
+    "trades": 92,
+    "buys": 14,
+    "sells": 78,
+    "buy_tao": 62.217819025,
+    "sell_tao": 179.655763067,
+    "net_tao": -117.43794404200001,
+    "traders": 28
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5H8fvJMvXv28pUWxjjTE5v1iv9PXGWb3PrCteUqVAvCgLmj8",
+      "net_tao": -58.688124395,
+      "gross_tao": 58.688124395,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": -0.016305349999999663,
+      "gross_tao": 58.016305349999996,
+      "trades": 4
+    },
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": 0.15830451399999923,
+      "gross_tao": 23.841695486,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HaF53hqQvwYvK91z8BKafGQwtQBJcfKufXX3sAy1LiDP7hi",
+      "net_tao": -18.707315631,
+      "gross_tao": 18.707315631,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.009262445000000064,
+      "gross_tao": 15.876609483,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790843692,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #189 from swarm-subnet/feature/ali/office-king-zer…",
+      "url": "https://github.com/swarm-subnet/swarm/commit/e54bebb93ba852712900a4d791b3dd24034b33a5",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1790843383,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bump version to 5.1.6.4",
+      "url": "https://github.com/swarm-subnet/swarm/commit/7f7ef5f87b790bd735a6188fdb5823b4a4832307",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1790842810,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep the ladder seat for a king crowned inside the headroom floor",
+      "url": "https://github.com/swarm-subnet/swarm/commit/7e70cc21f74ffa9cf3354c078f58635822bb01a8",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1790607234,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #174 from swarm-subnet/feature/ali/village-pad-dis…",
+      "url": "https://github.com/swarm-subnet/swarm/commit/2248c2533723bd908a011cb8e54aa47560978157",
+      "publisher": "swarm-subnet/swarm"
+    },
+    {
+      "ts": 1790600865,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bump version to 5.1.6.3",
+      "url": "https://github.com/swarm-subnet/swarm/commit/2cbff1e1d7e62163ddaa5f4e6db81410af76e1ab",
+      "publisher": "swarm-subnet/swarm"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

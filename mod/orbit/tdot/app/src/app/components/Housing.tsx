@@ -57,11 +57,11 @@ export default function Housing({ active, onToggleLayer, onFlyTo, onClose }: Pro
         </button>
       </header>
 
-      <div className="flex gap-0.5 border-b border-line p-1.5">
+      <div className="seg m-1.5 grid-cols-2">
         {([['model', 'Score model'], ['data', 'All the data']] as [Tab, string][]).map(
           ([id, label]) => (
             <button key={id} onClick={() => setTab(id)} aria-pressed={tab === id}
-                    className="chip flex-1 px-2 py-1 text-[11px]">
+                    className="chip px-2 py-1 text-[11px]">
               {label}
             </button>
           ))}

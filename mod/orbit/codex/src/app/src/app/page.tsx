@@ -1060,7 +1060,7 @@ export default function Home() {
 
   const startApiServer = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch("/api/service", {
+      const res = await fetch("/_api/service", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1080,7 +1080,7 @@ export default function Home() {
   const stopApiServer = useCallback(async () => {
     try {
       const port = API_PORT;
-      await fetch("/api/service", {
+      await fetch("/_api/service", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "stop", port }),
@@ -1099,7 +1099,7 @@ export default function Home() {
     // Try starting via start.sh (the Rust binary)
     const apiDir = `${anchorDir.replace("~", process.env.HOME || "/Users/broski")}/mod/orbit/codex/src/api`;
     try {
-      const res = await fetch("/api/service", {
+      const res = await fetch("/_api/service", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5115,7 +5115,7 @@ export default function Home() {
                   ) : (
                     routyFiltered.map(w => {
                       const isApp = w._type === "app";
-                      const route = isApp ? `/${w.name}/` : `/api/${w.name}/`;
+                      const route = isApp ? `/${w.name}/` : `/${w.name}/api/`;
                       return (
                         <div
                           key={`${w._type}-${w.name}`}

@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>grokbot — Grok, with your key and your bots</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 8 8%27%3E%3Crect width=%278%27 height=%278%27 fill=%27%230a0b0f%27/%3E%3Cpath d=%27M1 1h2l4 6h-2z%27 fill=%27%23e8eaf2%27/%3E%3Cpath d=%27M5 1h2l-4 6h-2z%27 fill=%27%236ee7ff%27/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#05060a; --panel:#0e1018; --raised:#151824; --line:#232838;
+    --ink:#e8eaf2; --dim:#9aa2b8; --faint:#666e85;
+    --hot:#6ee7ff; --hot2:#3aa8ff; --good:#5dff9b; --warn:#ffce4d; --bad:#ff6b6b;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);
+       overflow:hidden}
+  a{color:var(--hot)}
+
+  /* ── deep-space backdrop: two drifting star layers + a cyan aurora ── */
+  body::before, body::after{content:'';position:fixed;inset:-50%;z-index:0;
+    pointer-events:none;background-repeat:repeat}
+  body::before{
+    background-image:
+      radial-gradient(1px 1px at 12% 22%, rgba(232,234,242,.9), transparent 60%),
+      radial-gradient(1px 1px at 68% 8%,  rgba(232,234,242,.55), transparent 60%),
+      radial-gradient(1.5px 1.5px at 42% 62%, rgba(110,231,255,.8), transparent 60%),
+      radial-gradient(1px 1px at 86% 44%, rgba(232,234,242,.6), transparent 60%),
+      radial-gradient(1px 1px at 28% 84%, rgba(232,234,242,.45), transparent 60%),
+      radial-gradient(2px 2px at 57% 31%, rgba(110,231,255,.5), transparent 60%);
+    background-size:520px 520px;
+    animation:drift 240s linear infinite}
+  body::after{
+    background-image:
+      radial-gradient(1px 1px at 7% 55%,  rgba(232,234,242,.5), transparent 60%),
+      radial-gradient(1px 1px at 81% 77%, rgba(232,234,242,.65), transparent 60%),
+      radial-gradient(1.5px 1.5px at 34% 12%, rgba(58,168,255,.7), transparent 60%),
+      radial-gradient(1px 1px at 63% 92%, rgba(232,234,242,.4), transparent 60%),
+      radial-gradient(600px 400px at 75% -10%, rgba(58,168,255,.09), transparent 70%),
+      radial-gradient(700px 500px at 15% 110%, rgba(110,231,255,.07), transparent 70%);
+    background-size:760px 760px, 760px 760px, 760px 760px, 760px 760px,
+                    100% 100%, 100% 100%;
+    animation:drift 360s linear infinite reverse}
+  @keyframes drift{to{transform:translate(260px,180px)}}
+  #shell,#toast,#settings,#activity{position:relative;z-index:1}
+
+  button{font:inherit;background:transparent;color:var(--ink);cursor:pointer;
+         border:1px solid var(--line);padding:7px 12px;border-radius:8px;
+         transition:border-color .15s,color .15s,box-shadow .15s,background .15s}
+  button:hover:not(:disabled){border-color:var(--hot);color:var(--hot)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.go{background:linear-gradient(180deg,var(--hot),var(--hot2));
+         color:#03101a;border-color:var(--hot);font-weight:700;
+         box-shadow:0 0 18px rgba(110,231,255,.28)}
+  button.go:hover:not(:disabled){color:#03101a;
+         box-shadow:0 0 28px rgba(110,231,255,.5)}
+  button.small{padding:4px 8px;font-size:12px}
+  button.ghost{border:none;color:var(--dim);padding:6px;border-radius:8px;
+         display:inline-flex;align-items:center;gap:6px}
+  button.ghost:hover:not(:disabled){color:var(--hot);background:var(--raised)}
+  input,textarea,select{font:inherit;background:#0a0c13;color:var(--ink);
+        border:1px solid var(--line);padding:8px;width:100%;border-radius:8px;
+        transition:border-color .15s,box-shadow .15s}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--hot);
+        box-shadow:0 0 0 1px rgba(110,231,255,.25)}
+  textarea{resize:vertical}
+  .muted{color:var(--faint);font-size:12px}
+  .chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+        padding:5px 10px;background:var(--raised);border-radius:999px;font-size:12px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block}
+  .dot.off{background:var(--faint)} .dot.owner{background:var(--warn)}
+  svg.icon{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;
+        stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .gate{border:1px dashed var(--line);border-radius:10px;padding:12px;
+        color:var(--dim);font-size:13px}
+
+  /* ── the ChatGPT-style shell: sidebar + chat column ─────────────── */
+  #shell{display:flex;height:100%}
+
+  #sidebar{width:268px;flex:none;display:flex;flex-direction:column;
+        background:rgba(11,13,20,.92);border-right:1px solid var(--line);
+        backdrop-filter:blur(8px);transition:margin-left .2s}
+  #sidebar.hide{margin-left:-268px}
+  .sidehead{display:flex;align-items:center;gap:10px;padding:14px 14px 10px}
+  .mark{width:20px;height:20px;flex:none;
+        filter:drop-shadow(0 0 6px rgba(110,231,255,.6))}
+  .sidehead h1{font:700 14px/1 var(--mono);margin:0;letter-spacing:.14em;flex:1}
+  .sidehead h1 span{color:var(--hot);text-shadow:0 0 12px rgba(110,231,255,.55)}
+  #newchat{margin:4px 12px 10px;display:flex;align-items:center;gap:8px;
+        justify-content:center;padding:10px;border-radius:10px;
+        border:1px solid var(--line);background:var(--raised);font-weight:600}
+  #convos{flex:1;overflow-y:auto;padding:0 8px 8px}
+  .convo{display:flex;align-items:center;gap:6px;padding:9px 10px;margin-bottom:2px;
+        border-radius:8px;cursor:pointer;color:var(--dim);font-size:13px}
+  .convo:hover{background:var(--raised);color:var(--ink)}
+  .convo.on{background:var(--raised);color:var(--ink);
+        box-shadow:inset 2px 0 0 var(--hot)}
+  .convo .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .convo .x{visibility:hidden;border:none;padding:2px 4px;color:var(--faint);
+        background:none;border-radius:4px;line-height:1}
+  .convo:hover .x{visibility:visible}
+  .convo .x:hover{color:var(--bad)}
+  .sidelabel{padding:10px 12px 4px;font:11px var(--mono);letter-spacing:.18em;
+        color:var(--faint);text-transform:uppercase;display:flex;
+        align-items:center}
+  .sidelabel .plus{margin-left:auto;border:none;padding:0 4px;color:var(--faint);
+        background:none;font-size:14px;line-height:1;letter-spacing:0}
+  .sidelabel .plus:hover{color:var(--hot)}
+
+  /* the grokbots — visible in the sidebar, not buried in settings */
+  #sidebots{flex:none;max-height:32%;overflow-y:auto;padding:0 8px 8px}
+  .sbot{display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:2px;
+        border-radius:8px;cursor:pointer;color:var(--dim);font-size:13px}
+  .sbot:hover{background:var(--raised);color:var(--ink)}
+  .sbot.on{background:var(--raised);color:var(--ink);
+        box-shadow:inset 2px 0 0 var(--hot)}
+  .sbot .bdot{width:7px;height:7px;border-radius:50%;flex:none;
+        border:1px solid var(--faint)}
+  .sbot.on .bdot{background:var(--hot);border-color:var(--hot);
+        box-shadow:0 0 8px rgba(110,231,255,.7)}
+  .sbot .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sbot .m{color:var(--faint);font:10px var(--mono);white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis;max-width:40%}
+  #sidefoot{border-top:1px solid var(--line);padding:12px}
+  #sidefoot .who{display:flex;align-items:center;gap:8px;font:12px var(--mono);
+        color:var(--dim);overflow:hidden;margin-bottom:8px}
+  #sidefoot .who .addr{flex:1;overflow:hidden;text-overflow:ellipsis}
+  #sidefoot .acts{display:flex;gap:4px}
+
+  /* the sidebar ACCOUNT door — connect, switch, sign out; no wall */
+  .acctwrap{position:relative;padding:1px;overflow:hidden;border-radius:10px}
+  .acctwrap::before{content:'';position:absolute;inset:-150%;
+        background:conic-gradient(from 0deg,
+          transparent 0deg, transparent 250deg,
+          rgba(110,231,255,.15) 290deg, var(--hot) 320deg,
+          #fff 330deg, var(--hot) 340deg,
+          rgba(110,231,255,.15) 20deg, transparent 60deg);
+        animation:orbit 6s linear infinite}
+  @keyframes orbit{to{transform:rotate(360deg)}}
+  .acctcard{position:relative;background:linear-gradient(180deg,#0d0f17,#090b12);
+        border-radius:9px;padding:16px 14px;text-align:center;
+        font-family:var(--mono)}
+  .acctcard p{color:var(--dim);font-size:11px;margin:0 0 12px;line-height:1.7}
+  .acctcard .go{width:100%;padding:11px 0;font-size:12px;letter-spacing:.2em;
+        padding-left:.2em;animation:beacon 2.6s ease-in-out infinite}
+  @keyframes beacon{50%{box-shadow:0 0 26px rgba(110,231,255,.55)}}
+  .acctcard .alt{margin-top:10px;color:var(--faint);font-size:10px;line-height:1.7}
+  .gatemark{width:34px;height:34px;margin:0 auto 10px;display:block;
+        filter:drop-shadow(0 0 14px rgba(110,231,255,.7));
+        animation:markpulse 3.2s ease-in-out infinite}
+  @keyframes markpulse{50%{filter:drop-shadow(0 0 24px rgba(110,231,255,.95))}}
+
+  .app{flex:1;display:flex;flex-direction:column;min-width:0;height:100%}
+
+  .topbar{display:flex;align-items:center;gap:8px;padding:10px 14px;flex:none;
+        border-bottom:1px solid var(--line);background:rgba(14,16,24,.72);
+        backdrop-filter:blur(8px)}
+  .topbar select{width:auto;background:transparent;border-color:transparent;
+        color:var(--dim);padding:6px 4px;font-size:13px;cursor:pointer}
+  .topbar select:hover{color:var(--ink);border-color:var(--line)}
+  .topbar .grow{flex:1}
+
+  /* the thread — a centered reading column, ChatGPT style */
+  #thread{flex:1;overflow-y:auto;scroll-behavior:smooth}
+  .col{max-width:780px;margin:0 auto;padding:24px 20px 8px}
+  .msg{display:flex;margin-bottom:22px;gap:12px}
+  .msg .bubble{white-space:pre-wrap;word-break:break-word;line-height:1.65}
+  .msg.user{justify-content:flex-end}
+  .msg.user .bubble{background:var(--raised);border:1px solid var(--line);
+        padding:10px 16px;border-radius:18px;max-width:78%}
+  .msg.assistant .ava{width:28px;height:28px;flex:none;border-radius:50%;
+        border:1px solid var(--line);background:var(--panel);
+        display:flex;align-items:center;justify-content:center;margin-top:2px}
+  .msg.assistant .ava svg{width:14px;height:14px}
+  .msg.assistant .bubble{flex:1;min-width:0;padding-top:3px}
+  .msg.assistant .bubble.live::after{content:'▍';color:var(--hot);
+        animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .msg.err .bubble{color:var(--bad);border:1px dashed var(--bad);
+        border-radius:12px;padding:10px 14px;flex:1}
+  .msg.err .ava{width:28px;height:28px;flex:none;border-radius:50%;
+        border:1px solid var(--line);background:var(--panel);
+        display:flex;align-items:center;justify-content:center;margin-top:2px}
+  .msg.err .ava svg{width:14px;height:14px}
+  .bubble pre{background:#0a0c13;border:1px solid var(--line);border-radius:10px;
+        padding:12px;overflow-x:auto;font:12.5px/1.5 var(--mono);white-space:pre}
+  .bubble code{font:12.5px var(--mono);background:#0a0c13;
+        border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+  .bubble pre code{border:none;padding:0;background:none}
+  .cites{margin-top:10px;font-size:12px;color:var(--faint);
+        display:flex;flex-direction:column;gap:3px}
+  .cites a{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* the empty-thread hero */
+  #hero{display:flex;flex-direction:column;align-items:center;gap:14px;
+        padding:13vh 20px 0;text-align:center}
+  #hero .gatemark{width:52px;height:52px;margin:0}
+  #hero h2{margin:0;font:600 24px var(--sans)}
+  #hero p{margin:0;color:var(--faint);font-size:13px;max-width:460px;
+        line-height:1.7}
+  #hero .seeds{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;
+        margin-top:8px;max-width:640px}
+  #hero .seeds button{border-radius:12px;color:var(--dim);font-size:13px;
+        padding:9px 14px;background:rgba(21,24,36,.6)}
+  #hero .seeds button:hover{color:var(--hot)}
+
+  /* the composer — rounded pill pinned at the bottom */
+  #composer{flex:none;padding:8px 20px 14px}
+  .compwrap{max-width:780px;margin:0 auto;position:relative;
+        background:rgba(21,24,36,.85);border:1px solid var(--line);
+        border-radius:24px;padding:10px 52px 10px 18px;
+        transition:border-color .15s,box-shadow .15s;backdrop-filter:blur(6px)}
+  .compwrap:focus-within{border-color:var(--hot);
+        box-shadow:0 0 0 1px rgba(110,231,255,.25),0 0 24px rgba(110,231,255,.10)}
+  #prompt{border:none;background:none;resize:none;padding:4px 0;width:100%;
+        max-height:200px;line-height:1.5;display:block}
+  #prompt:focus{box-shadow:none}
+  #send{position:absolute;right:8px;bottom:8px;width:34px;height:34px;padding:0;
+        border-radius:50%;display:flex;align-items:center;justify-content:center;
+        background:linear-gradient(180deg,var(--hot),var(--hot2));
+        border-color:var(--hot);color:#03101a}
+  #send:hover:not(:disabled){color:#03101a;
+        box-shadow:0 0 18px rgba(110,231,255,.5)}
+  #send.stop{background:var(--raised);color:var(--bad);border-color:var(--bad)}
+  #send.stop:hover{color:var(--bad);box-shadow:0 0 14px rgba(255,107,107,.35)}
+  .compfoot{max-width:780px;margin:6px auto 0;text-align:center;
+        color:var(--faint);font-size:11px}
+
+  /* ── modals: settings (key + bots) and the activity drawer ──────── */
+  .veil{position:fixed;inset:0;z-index:7;display:none;background:rgba(5,6,10,.6);
+        backdrop-filter:blur(3px)}
+  .veil.on{display:flex;align-items:center;justify-content:center}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+        width:min(560px,calc(100vw - 32px));max-height:82vh;overflow-y:auto;
+        padding:20px 22px;box-shadow:0 20px 60px rgba(0,0,0,.55)}
+  .modal h2{font:600 12px var(--mono);letter-spacing:.16em;color:var(--dim);
+        margin:0 0 14px;text-transform:uppercase;display:flex;align-items:center}
+  .modal h2 .close{margin-left:auto;border:none;color:var(--faint);
+        font-size:15px;padding:2px 8px;background:none}
+  .modal h2 .close:hover{color:var(--ink)}
+  .modal section{margin-bottom:22px}
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .row > input,.row > select{flex:1;min-width:120px}
+  .row > textarea{flex:1;min-width:200px;width:auto}
+  .bot{display:flex;justify-content:space-between;gap:8px;align-items:center;
+       border:1px solid var(--line);border-radius:10px;padding:8px 10px;
+       margin-bottom:6px;background:var(--raised)}
+  .bot.on{border-color:var(--hot);box-shadow:0 0 14px rgba(110,231,255,.15)}
+  .bot b{font-weight:600} .bot .why{color:var(--faint);font-size:12px}
+  .bot > span:last-child{display:flex;gap:4px;white-space:nowrap}
+
+  #activity .modal{width:min(680px,calc(100vw - 32px))}
+  .pills{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .pill{border:1px solid var(--line);border-radius:999px;padding:7px 18px;
+        background:transparent;color:var(--dim);font:11px var(--mono);
+        letter-spacing:.22em;text-transform:uppercase;cursor:pointer;
+        display:inline-flex;gap:9px;align-items:center}
+  .pill b{font-weight:600;color:var(--faint)}
+  .pill:hover{border-color:var(--hot);color:var(--hot)}
+  .pill.on{background:var(--raised);border-color:var(--hot);color:var(--ink);
+        box-shadow:0 0 12px rgba(110,231,255,.14)}
+  .pill.on b{color:var(--dim)}
+  .pill .ldot{width:7px;height:7px;border-radius:50%;background:var(--hot);
+              animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  .run{display:flex;gap:10px;align-items:baseline;border:1px solid var(--line);
+       border-radius:8px;background:var(--raised);padding:7px 10px;
+       margin-bottom:6px;font-size:12px;flex-wrap:wrap}
+  .run .sdot{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}
+  .run.live .sdot{background:var(--hot);animation:pulse 1.2s infinite}
+  .run.done .sdot{background:var(--good)}
+  .run.error .sdot{background:var(--bad)}
+  .run .what{color:var(--ink)} .run .meta{color:var(--faint)}
+  .run .oops{color:var(--bad);flex-basis:100%;padding-left:18px}
+
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+         background:var(--raised);border:1px solid var(--hot);border-radius:10px;
+         padding:9px 16px;opacity:0;transition:opacity .2s;pointer-events:none;
+         z-index:9;font-size:13px}
+  #toast.on{opacity:1} #toast.bad{border-color:var(--bad);color:var(--bad)}
+
+  @media (max-width:760px){
+    #sidebar{position:fixed;inset:0 auto 0 0;z-index:6;
+             box-shadow:20px 0 60px rgba(0,0,0,.5)}
+    .msg.user .bubble{max-width:92%}
+  }
+</style>
+</head>
+<body>
+
+<div id="shell">
+  <nav id="sidebar">
+    <div class="sidehead">
+      <svg class="mark" viewBox="0 0 8 8" aria-hidden="true">
+        <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
+        <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/>
+      </svg>
+      <h1>GROK<span>BOT</span></h1>
+      <button class="ghost" id="fold" title="hide the sidebar">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+    </div>
+    <button id="newchat">
+      <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      New chat
+    </button>
+    <div class="sidelabel">Chats</div>
+    <div id="convos"></div>
+    <div class="sidelabel">Grokbots
+      <button class="plus" id="newbot" title="make a grokbot">+</button>
+    </div>
+    <div id="sidebots"></div>
+    <div id="sidefoot"></div>
+  </nav>
+
+  <div class="app">
+    <div class="topbar">
+      <button class="ghost" id="unfold" title="show the sidebar" style="display:none">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <select id="model" title="model"></select>
+      <select id="botpick" title="bot"></select>
+      <select id="search" title="live search">
+        <option value="">no search</option>
+        <option value="auto">search: auto</option>
+        <option value="on">search: on</option>
+      </select>
+      <span class="grow"></span>
+      <button class="ghost" id="openactivity" title="your run ledger">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+        <span id="livecount"></span>
+      </button>
+      <button class="ghost" id="opensettings" title="key and bots">
+        <svg class="icon" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="thread"></div>
+
+    <div id="composer">
+      <div class="compwrap">
+        <textarea id="prompt" rows="1"
+          placeholder="Ask Grok anything…"></textarea>
+        <button id="send" title="send — enter">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </div>
+      <div class="compfoot" id="chathint">Grok can make mistakes.
+        Every call spends your own xAI credits.</div>
+    </div>
+  </div>
+</div>
+
+<!-- settings: your xAI key + your bots -->
+<div class="veil" id="settings">
+  <div class="modal">
+    <h2>Settings <button class="close" data-close="settings">×</button></h2>
+    <section>
+      <div class="sidelabel" style="padding-left:0">Your xAI key</div>
+      <div id="keystate" class="muted" style="margin-bottom:8px">…</div>
+      <div id="keyform" style="display:none">
+        <div class="row">
+          <input id="key" type="password" placeholder="xai-…" autocomplete="off">
+        </div>
+        <div class="row">
+          <button class="go" id="savekey">SAVE KEY</button>
+          <button id="forgetkey">FORGET</button>
+          <span class="muted">from <a href="https://console.x.ai" target="_blank"
+            rel="noopener">console.x.ai</a></span>
+        </div>
+        <div class="muted">Stored 0600 under ~/.mod/grokbot against your address.
+          Every call spends your own credits.</div>
+      </div>
+    </section>
+    <section>
+      <div class="sidelabel" style="padding-left:0">Bots</div>
+      <div id="bots"></div>
+      <div id="botform" style="display:none">
+        <div class="row"><input id="bname" placeholder="name — e.g. skeptic"></div>
+        <div class="row"><textarea id="bsystem" rows="3"
+          placeholder="system prompt — what this bot is"></textarea></div>
+        <div class="row">
+          <select id="bmodel"></select>
+          <select id="bsearch">
+            <option value="">search: off</option>
+            <option value="auto">search: auto</option>
+            <option value="on">search: on</option>
+          </select>
+        </div>
+        <div class="row"><button class="go" id="savebot">SAVE BOT</button></div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- activity: the run ledger — ALL · LIVE · DONE · ERROR -->
+<div class="veil" id="activity">
+  <div class="modal">
+    <h2>Activity <button class="close" data-close="activity">×</button></h2>
+    <div class="pills" id="runpills"></div>
+    <div id="runlist"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="small" id="clearruns">CLEAR LEDGER</button>
+      <span class="muted">every chat, stream and image on your account —
+        from here, the API or MCP — lands on this board</span>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// The console calls its own path + /_api, so it works served bare at :50890/
+// and mounted at /grokbot behind the gateway without knowing which it is.
+const P = location.pathname.replace(/\/+$/,'');
+const API = /\/grokbot$/.test(P) ? P + '/_api' : (P === '/console' ? '' : P + '/_api');
+const TKEY = 'grokbot.token', AKEY = 'grokbot.token.at';
+let TOKEN = localStorage.getItem(TKEY) || '';
+let YOU = null, MODELS = [], BOTS = [], BOT = null, BUSY = false;
+let CONVOS = [], ACTIVE = null;          // the sidebar — [{id,title,msgs,ts}]
+let ABORT = null;                        // AbortController while streaming
+let RUNS = [], RCOUNTS = {all:0, live:0, done:0, error:0}, RFILTER = 'all';
+let runTimer = null;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const short = a => a && a.length > 12 ? a.slice(0,6) + '…' + a.slice(-4) : (a || '');
+
+let toastTimer;
+function toast(msg, bad){
+  const t = $('#toast');
+  t.textContent = msg; t.className = 'on' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = ''; }, 3200);
+}
+
+async function api(path, opts){
+  opts = opts || {};
+  const headers = {'content-type':'application/json'};
+  if (TOKEN) headers['authorization'] = 'Bearer ' + TOKEN;
+  const r = await fetch(API + path, {
+    method: opts.method || 'GET', headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch(e){ data = {error: text}; }
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+// ── signing in ─────────────────────────────────────────────────────
+// A mod-protocol token is base64url({data, time, key, signature}) where the
+// signature covers JSON.stringify({data, time}) — no spaces, that key order —
+// as an EIP-191 personal_sign. That is byte-for-byte what the auth mod
+// re-serializes and verifies, so a browser wallet, the `m` CLI and another
+// module all arrive at the same address by the same door.
+function b64url(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+function wallet(){
+  const eth = window.ethereum;
+  if (!eth) return null;
+  if (Array.isArray(eth.providers) && eth.providers.length)
+    return eth.providers.find(p => p.isMetaMask) || eth.providers[0];
+  return eth;
+}
+
+async function mint(provider, address){
+  const data = {mod:'grokbot'};
+  const time = (Date.now()/1000).toString();
+  const signature = await provider.request({
+    method:'personal_sign',
+    params:[JSON.stringify({data, time}), address],
+  });
+  return b64url({data, time, key:address, signature});
+}
+
+function keepToken(token){
+  TOKEN = token || '';
+  if (TOKEN){ localStorage.setItem(TKEY, TOKEN);
+              localStorage.setItem(AKEY, String(Date.now())); }
+  else { localStorage.removeItem(TKEY); localStorage.removeItem(AKEY); }
+}
+
+async function signIn(pick){
+  const p = wallet();
+  if (!p){
+    const pasted = prompt(
+      'No wallet extension found in this browser.\n\n' +
+      'Install MetaMask, or paste a mod-protocol token minted on a box that ' +
+      'holds your key:\n\n    m.mod("auth")().token({})');
+    if (!pasted) return;
+    keepToken(pasted.trim());
+    await refresh(); toast('token accepted'); return;
+  }
+  try {
+    if (pick){
+      try { await p.request({method:'wallet_requestPermissions',
+                             params:[{eth_accounts:{}}]}); } catch(e){}
+    }
+    const accounts = await p.request({method:'eth_requestAccounts'});
+    const address = (accounts && accounts[0] || '').toLowerCase();
+    if (!address) throw new Error('the wallet returned no account');
+    keepToken(await mint(p, address));
+    await refresh();
+    toast('signed in as ' + short(address));
+  } catch(e){
+    toast(e.code === 4001 ? 'the signature was refused'
+                          : (e.message || 'the wallet refused'), true);
+  }
+}
+
+function signOut(){
+  keepToken(''); YOU = null; BOT = null; CONVOS = []; ACTIVE = null;
+  refresh().then(() => toast('signed out'));
+}
+
+// ── conversations: per-address, kept in this browser ──────────────
+const CSTORE = () => 'grokbot.convos.' + ((YOU && YOU.address) || 'anon');
+
+function loadConvos(){
+  try { CONVOS = JSON.parse(localStorage.getItem(CSTORE()) || '[]'); }
+  catch(e){ CONVOS = []; }
+  if (!CONVOS.find(c => c.id === ACTIVE))
+    ACTIVE = CONVOS.length ? CONVOS[0].id : null;
+}
+function saveConvos(){
+  CONVOS = CONVOS.slice(0, 60);
+  try { localStorage.setItem(CSTORE(), JSON.stringify(CONVOS)); } catch(e){}
+}
+function convo(){ return CONVOS.find(c => c.id === ACTIVE) || null; }
+
+function newChat(){
+  ACTIVE = null;
+  drawConvos(); drawThread(); $('#prompt').focus();
+}
+
+function ensureConvo(){
+  let c = convo();
+  if (!c){
+    c = {id: Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+         title:'', msgs:[], ts: Date.now()};
+    CONVOS.unshift(c); ACTIVE = c.id;
+  }
+  return c;
+}
+
+function drawConvos(){
+  $('#convos').innerHTML = CONVOS.map(c => `
+    <div class="convo ${c.id === ACTIVE ? 'on' : ''}" data-id="${c.id}">
+      <span class="t">${esc(c.title || 'New chat')}</span>
+      <button class="x" data-del="${c.id}" title="delete">×</button>
+    </div>`).join('') ||
+    '<div class="muted" style="padding:4px 10px">nothing yet — your chats stay '
+    + 'in this browser, per address</div>';
+  $('#convos').querySelectorAll('.convo').forEach(el => el.onclick = e => {
+    if (e.target.dataset.del) return;
+    ACTIVE = el.dataset.id; drawConvos(); drawThread();
+  });
+  $('#convos').querySelectorAll('.x').forEach(el => el.onclick = () => {
+    CONVOS = CONVOS.filter(c => c.id !== el.dataset.del);
+    if (ACTIVE === el.dataset.del) ACTIVE = CONVOS.length ? CONVOS[0].id : null;
+    saveConvos(); drawConvos(); drawThread();
+  });
+}
+
+// ── drawing ────────────────────────────────────────────────────────
+// The sidebar ACCOUNT card is the whole door: connect, switch, sign out,
+// and the paste-a-token fallback all live here — no full-screen gate.
+function drawIdentity(){
+  const foot = $('#sidefoot');
+  if (!YOU || !YOU.address){
+    foot.innerHTML = `
+      <div class="acctwrap"><div class="acctcard">
+        <svg class="gatemark" viewBox="0 0 8 8" aria-hidden="true">
+          <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
+          <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/>
+        </svg>
+        <p>One signature is the account — it owns your xAI key, your bots
+           and your run ledger. No passwords.</p>
+        <button class="go" id="signin">CONNECT WALLET</button>
+        <div class="alt">no wallet? paste a token from
+          <code>m.mod("auth")().token({})</code> — the button will ask</div>
+      </div></div>`;
+    $('#signin').onclick = () => signIn(false);
+    return;
+  }
+  foot.innerHTML = `
+    <span class="who"><span class="dot ${YOU.role === 'owner' ? 'owner' : ''}"
+      ></span><span class="addr">${esc(short(YOU.address))}</span>${
+      YOU.role === 'owner' ? '<span class="muted">owner</span>' : ''}</span>
+    <span class="acts">
+      <button class="small" id="switch">SWITCH</button>
+      <button class="small" id="out">SIGN OUT</button>
+    </span>`;
+  $('#out').onclick = signOut;
+  $('#switch').onclick = () => signIn(true);
+}
+
+function drawKey(){
+  const st = (YOU && YOU.key) || {};
+  const signed = !!(YOU && YOU.address);
+  $('#keyform').style.display = signed ? '' : 'none';
+  if (!signed){
+    $('#keystate').innerHTML = '<div class="gate">Sign in first — your xAI key '
+      + 'and your bots hang off your wallet address.</div>';
+    return;
+  }
+  if (st.key)
+    $('#keystate').innerHTML = `<span class="chip"><span class="dot"></span>key ${
+      esc(st.fingerprint || 'set')}</span> <span class="muted">from ${
+      esc(st.source)}</span>`;
+  else
+    $('#keystate').innerHTML = '<span class="chip"><span class="dot off"></span>'
+      + 'no key yet</span> <span class="muted">paste one below to start</span>';
+}
+
+function drawBots(){
+  const wrap = $('#bots'), signed = !!(YOU && YOU.address);
+  $('#botform').style.display = signed ? '' : 'none';
+  if (!signed){ wrap.innerHTML = '<div class="muted">bots are per account</div>'; }
+  else if (!BOTS.length){
+    wrap.innerHTML = '<div class="muted">no bots yet — a bot is a name, a model '
+      + 'and a system prompt.</div>';
+  } else {
+    wrap.innerHTML = BOTS.map(b => `
+      <div class="bot ${BOT === b.name ? 'on' : ''}">
+        <span><b>${esc(b.name)}</b>
+          <span class="why">${esc((b.model || 'default'))}${
+            b.search ? ' · search ' + esc(b.search) : ''}</span></span>
+        <span>
+          <button class="small use" data-bot="${esc(b.name)}">${
+            BOT === b.name ? 'ON' : 'USE'}</button>
+          <button class="small del" data-bot="${esc(b.name)}">X</button>
+        </span>
+      </div>`).join('');
+    wrap.querySelectorAll('.use').forEach(el => el.onclick = () => {
+      BOT = BOT === el.dataset.bot ? null : el.dataset.bot;
+      drawBots(); drawHint();
+    });
+    wrap.querySelectorAll('.del').forEach(el => el.onclick = async () => {
+      try { await api('/bots?name=' + encodeURIComponent(el.dataset.bot),
+                      {method:'DELETE'});
+            if (BOT === el.dataset.bot) BOT = null;
+            toast('deleted ' + el.dataset.bot); loadBots(); }
+      catch(e){ toast(e.message, true); }
+    });
+  }
+  drawBotPick();
+  drawSideBots();
+}
+
+// the sidebar roster — every grokbot on your account, one click to arm it
+function drawSideBots(){
+  const wrap = $('#sidebots'), signed = !!(YOU && YOU.address);
+  if (!signed){
+    wrap.innerHTML = '<div class="muted" style="padding:4px 10px">sign in below '
+      + '— your grokbots hang off your address</div>';
+    return;
+  }
+  if (!BOTS.length){
+    wrap.innerHTML = '<div class="muted" style="padding:4px 10px">none yet — '
+      + 'hit + to make one. A grokbot is a name, a model and a system prompt.</div>';
+    return;
+  }
+  wrap.innerHTML = BOTS.map(b => `
+    <div class="sbot ${BOT === b.name ? 'on' : ''}" data-bot="${esc(b.name)}"
+         title="${esc(b.system || '')}">
+      <span class="bdot"></span>
+      <span class="t">${esc(b.name)}</span>
+      <span class="m">${esc(b.model || 'default')}${
+        b.search ? ' · search' : ''}</span>
+    </div>`).join('');
+  wrap.querySelectorAll('.sbot').forEach(el => el.onclick = () => {
+    BOT = BOT === el.dataset.bot ? null : el.dataset.bot;
+    drawBots(); drawHint();
+    toast(BOT ? 'chatting as ' + BOT : 'no bot — plain Grok');
+  });
+}
+
+function drawBotPick(){
+  $('#botpick').innerHTML = ['<option value="">no bot</option>'].concat(
+    BOTS.map(b => `<option value="${esc(b.name)}">bot: ${esc(b.name)}</option>`)
+  ).join('');
+  $('#botpick').value = BOT || '';
+}
+
+function drawModels(){
+  const opts = ['<option value="">model: default</option>'].concat(
+    MODELS.map(m => `<option value="${esc(m.id)}">${esc(m.id)}${
+      m.prompt_usd_m != null ? ' — $' + m.prompt_usd_m + '/M in' : ''}</option>`));
+  const keep = $('#model').value;
+  $('#model').innerHTML = opts.join('');
+  if (keep) $('#model').value = keep;
+  $('#bmodel').innerHTML = opts.join('');
+}
+
+function drawHint(){
+  const bits = [];
+  if (BOT) bits.push('bot: ' + BOT);
+  if (!YOU || !YOU.signed_in) bits.push('connect a wallet in the sidebar to chat');
+  else if (!YOU.key || !YOU.key.key)
+    bits.push('no key resolved — open settings (the gear) and save one');
+  $('#chathint').textContent = bits.length ? bits.join(' · ')
+    : 'Grok can make mistakes. Every call spends your own xAI credits.';
+}
+
+// A light markdown pass over already-escaped text: fenced code, inline
+// code, bold. Anything fancier stays plain — safety first.
+function md(s){
+  let out = esc(s);
+  out = out.replace(/```(\w*)\n?([\s\S]*?)```/g,
+    (m, lang, code) => '<pre><code>' + code.replace(/\n$/,'') + '</code></pre>');
+  out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  out = out.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  return out;
+}
+
+const XAVA = `<span class="ava"><svg viewBox="0 0 8 8" aria-hidden="true">
+  <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
+  <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/></svg></span>`;
+
+function msgHTML(m, live){
+  if (m.role === 'user')
+    return `<div class="msg user"><div class="bubble">${esc(m.text)}</div></div>`;
+  if (m.role === 'err')
+    return `<div class="msg err">${XAVA}<div class="bubble">${esc(m.text)}</div></div>`;
+  return `<div class="msg assistant">${XAVA}<div class="bubble${
+      live ? ' live' : ''}">${md(m.text)}${
+      m.cites && m.cites.length ? '<div class="cites">' + m.cites.map(
+        c => `<a href="${esc(c)}" target="_blank" rel="noopener">${esc(c)}</a>`
+      ).join('') + '</div>' : ''}</div></div>`;
+}
+
+const SEEDS = [
+  'What just happened on X in the last hour?',
+  'Explain zero-knowledge proofs like I am five',
+  'Write a haiku about a wallet signature',
+  'Which Grok model is cheapest right now?',
+];
+
+function drawThread(){
+  const c = convo();
+  drawConvos();
+  if (!c || !c.msgs.length){
+    const signed = !!(YOU && YOU.signed_in);
+    $('#thread').innerHTML = `
+      <div id="hero">
+        <svg class="gatemark" viewBox="0 0 8 8" aria-hidden="true">
+          <path d="M1 1h2l4 6h-2z" fill="#e8eaf2"/>
+          <path d="M5 1h2l-4 6h-2z" fill="#6ee7ff"/>
+        </svg>
+        <h2>How can I help?</h2>
+        <p>${signed
+          ? 'Your key, your bots, your ledger. Turn on search and Grok reads '
+            + 'X and the web first, with citations.'
+          : 'Connect a wallet in the sidebar — one signature is the account '
+            + 'that owns your xAI key, your bots and your run ledger.'}</p>
+        <div class="seeds">${SEEDS.map(s =>
+          `<button data-seed="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+      </div>`;
+    $('#thread').querySelectorAll('[data-seed]').forEach(el =>
+      el.onclick = () => { $('#prompt').value = el.dataset.seed; send(); });
+    return;
+  }
+  $('#thread').innerHTML = '<div class="col">'
+    + c.msgs.map(m => msgHTML(m)).join('') + '</div>';
+  $('#thread').scrollTop = $('#thread').scrollHeight;
+}
+
+// ── the runs board — ALL · LIVE · DONE · ERROR ─────────────────────
+function drawRuns(){
+  const pills = [['all','ALL'], ['live','LIVE'], ['done','DONE'],
+                 ['error','ERROR']];
+  $('#runpills').innerHTML = pills.map(([k, label]) => `
+    <button class="pill ${RFILTER === k ? 'on' : ''}" data-f="${k}">${
+      k === 'live' && RCOUNTS.live ? '<span class="ldot"></span>' : ''}${
+      label} <b>${RCOUNTS[k] || 0}</b></button>`).join('');
+  $('#runpills').querySelectorAll('.pill').forEach(el => el.onclick = () => {
+    RFILTER = el.dataset.f; drawRuns();
+  });
+  $('#livecount').textContent = RCOUNTS.live ? String(RCOUNTS.live) : '';
+  const rows = RFILTER === 'all' ? RUNS
+             : RUNS.filter(r => r.status === RFILTER);
+  if (!rows.length){
+    $('#runlist').innerHTML = '<div class="muted">' + (RCOUNTS.all
+      ? 'nothing under this filter'
+      : 'no runs yet — every call you make lands here') + '</div>';
+    return;
+  }
+  const ago = ts => { const s = Math.max(0, Date.now()/1000 - ts);
+    return s < 60 ? Math.floor(s) + 's' : s < 3600 ? Math.floor(s/60) + 'm'
+         : s < 86400 ? Math.floor(s/3600) + 'h' : Math.floor(s/86400) + 'd'; };
+  $('#runlist').innerHTML = rows.slice(0, 40).map(r => `
+    <div class="run ${esc(r.status)}"><span class="sdot"></span>
+      <span class="what">${esc(r.kind)}${r.bot ? ' · ' + esc(r.bot) : ''}</span>
+      <span class="meta">${esc(r.model || '')}${r.search ? ' · search' : ''}</span>
+      ${r.prompt ? `<span class="meta">“${esc(r.prompt.slice(0, 60))}${
+        r.prompt.length > 60 ? '…' : ''}”</span>` : ''}
+      <span class="meta" style="margin-left:auto">${
+        r.ms != null ? (r.ms/1000).toFixed(1) + 's · ' : ''}${
+        r.tokens ? r.tokens + ' tok · ' : ''}${ago(r.ts)} ago</span>
+      ${r.error ? `<span class="oops">${esc(r.error)}</span>` : ''}
+    </div>`).join('');
+}
+
+async function loadRuns(){
+  clearTimeout(runTimer);
+  if (!YOU || !YOU.signed_in){
+    RUNS = []; RCOUNTS = {all:0, live:0, done:0, error:0}; drawRuns(); return;
+  }
+  try {
+    const out = await api('/runs?limit=60');
+    RUNS = out.runs || [];
+    RCOUNTS = out.counts || RCOUNTS;
+  } catch(e){}
+  drawRuns();
+  if (RCOUNTS.live > 0) runTimer = setTimeout(loadRuns, 4000);
+}
+
+$('#clearruns').onclick = async () => {
+  try { await api('/runs', {method:'DELETE'}); toast('ledger cleared');
+        loadRuns(); }
+  catch(e){ toast(e.message, true); }
+};
+
+// ── loading ────────────────────────────────────────────────────────
+async function refresh(){
+  try { YOU = await api('/me'); }
+  catch(e){ YOU = null; toast(e.message, true); }
+  if (YOU && !YOU.signed_in && TOKEN){ keepToken(''); }
+  loadConvos();
+  drawIdentity(); drawKey(); drawHint(); drawThread();
+  await Promise.all([loadModels(), loadBots(), loadRuns()]);
+}
+
+async function loadModels(){
+  if (!YOU || !YOU.key || !YOU.key.key){ MODELS = []; drawModels(); return; }
+  try { MODELS = (await api('/models')).models || []; }
+  catch(e){ MODELS = []; }
+  drawModels();
+}
+
+async function loadBots(){
+  if (!YOU || !YOU.address){ BOTS = []; drawBots(); return; }
+  try { BOTS = (await api('/bots')).bots || []; }
+  catch(e){ BOTS = []; }
+  drawBots();
+}
+
+// ── actions ────────────────────────────────────────────────────────
+$('#savekey').onclick = async () => {
+  const key = $('#key').value.trim();
+  if (!key) return toast('paste your xAI key first', true);
+  try { await api('/key', {method:'POST', body:{key}});
+        $('#key').value = ''; toast('key saved'); await refresh(); }
+  catch(e){ toast(e.message, true); }
+};
+
+$('#forgetkey').onclick = async () => {
+  try { await api('/key', {method:'DELETE'}); toast('key forgotten');
+        await refresh(); }
+  catch(e){ toast(e.message, true); }
+};
+
+$('#savebot').onclick = async () => {
+  const body = {name: $('#bname').value.trim(), system: $('#bsystem').value,
+                model: $('#bmodel').value || null,
+                search: $('#bsearch').value || null};
+  if (!body.name) return toast('a bot needs a name', true);
+  try { await api('/bots', {method:'POST', body});
+        $('#bname').value = ''; $('#bsystem').value = '';
+        toast('saved ' + body.name); loadBots(); }
+  catch(e){ toast(e.message, true); }
+};
+
+$('#botpick').onchange = () => { BOT = $('#botpick').value || null;
+                                 drawBots(); drawHint(); };
+$('#newchat').onclick = newChat;
+
+// modals
+function openVeil(id){ $('#' + id).classList.add('on'); }
+function closeVeil(id){ $('#' + id).classList.remove('on'); }
+$('#opensettings').onclick = () => openVeil('settings');
+$('#newbot').onclick = () => {
+  if (!YOU || !YOU.address)
+    return toast('connect a wallet first — grokbots are per account', true);
+  openVeil('settings');
+  setTimeout(() => $('#bname').focus(), 50);
+};
+$('#openactivity').onclick = () => { openVeil('activity'); loadRuns(); };
+document.querySelectorAll('[data-close]').forEach(el =>
+  el.onclick = () => closeVeil(el.dataset.close));
+document.querySelectorAll('.veil').forEach(el =>
+  el.addEventListener('click', e => { if (e.target === el)
+    el.classList.remove('on'); }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape')
+  document.querySelectorAll('.veil.on').forEach(el =>
+    el.classList.remove('on')); });
+
+// sidebar fold
+$('#fold').onclick = () => { $('#sidebar').classList.add('hide');
+                             $('#unfold').style.display = ''; };
+$('#unfold').onclick = () => { $('#sidebar').classList.remove('hide');
+                               $('#unfold').style.display = 'none'; };
+if (matchMedia('(max-width:760px)').matches){
+  $('#sidebar').classList.add('hide'); $('#unfold').style.display = '';
+}
+
+// the composer — auto-grow, enter sends, shift+enter breaks
+const promptEl = $('#prompt');
+function grow(){
+  promptEl.style.height = 'auto';
+  promptEl.style.height = Math.min(promptEl.scrollHeight, 200) + 'px';
+}
+promptEl.addEventListener('input', grow);
+promptEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); }
+});
+$('#send').onclick = () => { if (BUSY && ABORT){ ABORT.abort(); } else send(); };
+
+function setBusy(on){
+  BUSY = on;
+  const b = $('#send');
+  b.className = on ? 'stop' : '';
+  b.title = on ? 'stop' : 'send — enter';
+  b.innerHTML = on
+    ? '<svg class="icon" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor" stroke="none"/></svg>'
+    : '<svg class="icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+}
+
+// ── send: streams tokens into the thread as they arrive ───────────
+async function send(){
+  if (BUSY) return;
+  if (!YOU || !YOU.signed_in)
+    return toast('connect a wallet in the sidebar first', true);
+  const text = promptEl.value.trim();
+  if (!text) return;
+  const c = ensureConvo();
+  if (!c.title) c.title = text.slice(0, 48);
+  c.msgs.push({role:'user', text});
+  promptEl.value = ''; grow();
+  saveConvos(); drawThread();
+  setBusy(true);
+
+  const reply = {role:'assistant', text:'', cites:null};
+  c.msgs.push(reply);
+  // draw the empty assistant row with a live cursor, keep a handle on it
+  $('#thread').innerHTML = '<div class="col">'
+    + c.msgs.slice(0, -1).map(m => msgHTML(m)).join('')
+    + msgHTML(reply, true) + '</div>';
+  const liveEl = $('#thread').querySelector('.bubble.live');
+  const stick = () => {
+    const t = $('#thread');
+    if (t.scrollHeight - t.scrollTop - t.clientHeight < 160)
+      t.scrollTop = t.scrollHeight;
+  };
+  stick();
+
+  const body = {stream:true,
+    messages: c.msgs.filter(m => m.role !== 'err' && m !== reply)
+      .map(m => ({role: m.role === 'user' ? 'user' : 'assistant',
+                  content: m.text}))};
+  if ($('#model').value) body.model = $('#model').value;
+  if ($('#search').value) body.search = $('#search').value;
+  if (BOT) body.bot = BOT;
+  setTimeout(loadRuns, 500);          // catch the run while it is LIVE
+
+  ABORT = new AbortController();
+  try {
+    const headers = {'content-type':'application/json'};
+    if (TOKEN) headers['authorization'] = 'Bearer ' + TOKEN;
+    const r = await fetch(API + '/chat', {method:'POST', headers,
+      body: JSON.stringify(body), signal: ABORT.signal});
+    const ctype = r.headers.get('content-type') || '';
+    if (!r.ok || !ctype.includes('event-stream')){
+      const t = await r.text();
+      let d; try { d = JSON.parse(t); } catch(e){ d = {error: t}; }
+      throw new Error(d.error || ('HTTP ' + r.status));
+    }
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;){
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0){
+        const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        let o; try { o = JSON.parse(payload); } catch(e){ continue; }
+        if (o.error) throw new Error(typeof o.error === 'string'
+          ? o.error : (o.error.message || JSON.stringify(o.error)));
+        const delta = o.choices && o.choices[0] && o.choices[0].delta;
+        if (delta && delta.content){
+          reply.text += delta.content;
+          liveEl.innerHTML = md(reply.text);
+          stick();
+        }
+        if (o.citations && o.citations.length) reply.cites = o.citations;
+      }
+    }
+    if (!reply.text) reply.text = '(no text)';
+  } catch(e){
+    if (e.name === 'AbortError'){
+      if (!reply.text){ c.msgs.pop(); }        // stopped before a byte
+    } else {
+      c.msgs.pop();
+      c.msgs.push({role:'err', text: e.message});
+    }
+  }
+  ABORT = null;
+  setBusy(false);
+  saveConvos(); drawThread(); drawHint(); loadRuns();
+  promptEl.focus();
+}
+
+drawThread();
+refresh();
+</script>
+</body>
+</html>

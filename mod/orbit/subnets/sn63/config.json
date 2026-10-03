@@ -1,0 +1,38 @@
+{
+  "name": "sn63",
+  "version": "1.0.0",
+  "description": "SN63 Enigma — Breaking today to build tomorrow. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "س",
+  "chain": "bittensor",
+  "netuid": 63,
+  "subnet": "Enigma",
+  "symbol": "س",
+  "owner": "5CqTmNfgDchxULD1bfoz8jvj9rDYSoq76kiq98oBUUEDpWqX",
+  "github": "https://github.com/qbittensor-labs/enigma",
+  "url": "https://www.qbittensorlabs.com/",
+  "discord": "qbittensorlabs",
+  "logo": "https://www.qbittensorlabs.com/63.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=63",
+    "news": "/bt/news?netuid=63"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

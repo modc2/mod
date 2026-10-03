@@ -1,0 +1,38 @@
+{
+  "name": "sn5",
+  "version": "1.0.0",
+  "description": "SN5 Hone — Hone training. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ε",
+  "chain": "bittensor",
+  "netuid": 5,
+  "subnet": "Hone",
+  "symbol": "ε",
+  "owner": "5GurNtB3yQFCh6CSmfH7LrYJDsvzup4diHZiaYtKe274nrMX",
+  "github": "https://github.com/hone-subnet-org/hone-subnet",
+  "url": "https://honedashboard.com",
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=5",
+    "news": "/bt/news?netuid=5"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

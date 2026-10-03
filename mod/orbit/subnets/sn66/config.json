@@ -1,0 +1,38 @@
+{
+  "name": "sn66",
+  "version": "1.0.0",
+  "description": "SN66 conjectures — Incentivizing breakthroughs on decades-old open mathematical conjectures. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ض",
+  "chain": "bittensor",
+  "netuid": 66,
+  "subnet": "conjectures",
+  "symbol": "ض",
+  "owner": "5CJCRGep3iyMUoaRb1FVNqXSuU8bcijfDBwVvZiQHSmGPTjT",
+  "github": "https://github.com/conjectures-io/conjectures-validator",
+  "url": "https://conjectures.io",
+  "discord": "wejh",
+  "logo": "https://conjectures.io/favicon.svg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=66",
+    "news": "/bt/news?netuid=66"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

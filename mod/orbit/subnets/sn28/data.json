@@ -1,0 +1,189 @@
+{
+  "netuid": 28,
+  "name": "SayGM",
+  "symbol": "ד",
+  "owner": "5CA6rwAytZvvyZhLYEzo79627QEV422Q8kD51DEnTaRQxm45",
+  "description": "Drop-in access to Claude, GPT, and Gemini.",
+  "github": "https://github.com/taostat/gm-miner",
+  "url": "https://saygm.com/",
+  "discord": null,
+  "logo": "https://saygm.com/apple-touch-icon.png",
+  "registered_at": 4878363,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.021781834,
+    "moving_price": 0.02151140826754272,
+    "market_cap": 135680.7896084294,
+    "tao_in": 22994.8529046,
+    "alpha_in": 1055689.527158895,
+    "alpha_out": 5173390.614046358,
+    "volume": 6611623.717510882,
+    "vol_24h": 3719.7735392125323,
+    "emission": 0.0,
+    "change_1h": 0.08451328997101104,
+    "change_24h": 1.5151089347632096,
+    "change_7d": -4.134395254057455
+  },
+  "spark_24h": [
+    0.021467346,
+    0.021487595,
+    0.021506063,
+    0.021510481,
+    0.021572576,
+    0.021623433,
+    0.02164616,
+    0.021695549,
+    0.021696513,
+    0.021571232,
+    0.021576775,
+    0.021570837,
+    0.021207976,
+    0.02132501,
+    0.021500327,
+    0.021318844,
+    0.021203135,
+    0.021176361,
+    0.020726574,
+    0.020859791,
+    0.020861623,
+    0.020867292,
+    0.020871909,
+    0.020873043,
+    0.021585337,
+    0.021368443,
+    0.021396952,
+    0.021339376,
+    0.021341003,
+    0.021344299,
+    0.021493294,
+    0.021494717,
+    0.021762674,
+    0.021764115,
+    0.021827935,
+    0.021811791,
+    0.021720554,
+    0.021743012,
+    0.021746851,
+    0.021786348,
+    0.021749369,
+    0.021674444,
+    0.02167616,
+    0.021662234,
+    0.021690588,
+    0.021700987,
+    0.021763441,
+    0.021781834
+  ],
+  "trades_24h": {
+    "trades": 413,
+    "buys": 158,
+    "sells": 255,
+    "buy_tao": 1880.118886929,
+    "sell_tao": 1769.573721842,
+    "net_tao": 110.54516508699999,
+    "traders": 197
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EZa5ydnhPLPQWfmNSZVRaUsuGW4AMf3nvY497NSXzvgJPc3",
+      "net_tao": 319.372088477,
+      "gross_tao": 319.372088477,
+      "trades": 5
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.17662190699999636,
+      "gross_tao": 298.668030607,
+      "trades": 8
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": -0.8181160500000022,
+      "gross_tao": 200.81811605000001,
+      "trades": 7
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.6205543889999987,
+      "gross_tao": 200.620554389,
+      "trades": 5
+    },
+    {
+      "coldkey": "5DCYnJgtJtVTbPrx9KVg24qXrWspGdFMx94bNN2M45f7K787",
+      "net_tao": -164.738362837,
+      "gross_tao": 164.738362837,
+      "trades": 19
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790589129,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.24",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.24",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790588260,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): promote gm-miner 0.4.24 (#291)",
+      "url": "https://github.com/taostat/gm-miner/commit/163a5c676c3a65558694a36f6b3bc8bbe59f27d8",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790554347,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.24-dev",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.24-dev",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790553402,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore(release): gm-miner 0.4.24-dev (#290)",
+      "url": "https://github.com/taostat/gm-miner/commit/ee94e78f819c795f75092bbf740d4cc15ef018da",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790553189,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(attestd): forward supplier trailers through the KubeTEE verifier…",
+      "url": "https://github.com/taostat/gm-miner/commit/3bd8db58e8199358add52dcd112283e1cd270d22",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790552201,
+      "kind": "commit",
+      "source": "github",
+      "title": "Serve KubeTEE chat on attested upstream connections (#286)",
+      "url": "https://github.com/taostat/gm-miner/commit/88a771dcd99bb4357bfbce9a31ac1d1728e8e417",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790551583,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(cli): give the Azure OpenAI echo probe headroom for reasoning mod…",
+      "url": "https://github.com/taostat/gm-miner/commit/d7d2bae954666dfdab732594e54289bed283b207",
+      "publisher": "taostat/gm-miner"
+    },
+    {
+      "ts": 1790281091,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.4.23",
+      "url": "https://github.com/taostat/gm-miner/releases/tag/v0.4.23",
+      "publisher": "taostat/gm-miner"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

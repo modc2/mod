@@ -1,0 +1,38 @@
+{
+  "name": "sn18",
+  "version": "1.0.0",
+  "description": "SN18 Zeus — Pushing weather forecasts beyond state-of-the-art. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "σ",
+  "chain": "bittensor",
+  "netuid": 18,
+  "subnet": "Zeus",
+  "symbol": "σ",
+  "owner": "5GgvCi6h7dNsC489T8UnUMv912SoEXpEUDVt71VJU1Td7WKh",
+  "github": "https://github.com/Orpheus-AI/Zeus",
+  "url": "https://www.zeussubnet.com/",
+  "discord": "wouter_orpheusai",
+  "logo": "https://raw.githubusercontent.com/Orpheus-AI/Zeus/refs/heads/main/static/zeus-icon.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=18",
+    "news": "/bt/news?netuid=18"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

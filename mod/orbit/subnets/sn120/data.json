@@ -1,0 +1,189 @@
+{
+  "netuid": 120,
+  "name": "Affine",
+  "symbol": "ⴷ",
+  "owner": "5EfNFhH2s9hJoVuK8qkQRx8bkpNncRifhbCHBFKs6qKqknak",
+  "description": "Reason Mining",
+  "github": "https://github.com/AffineFoundation/affine",
+  "url": "www.affine.io",
+  "discord": "consttt",
+  "logo": "https://raw.githubusercontent.com/AffineFoundation/affine/main/affine.png",
+  "registered_at": 5749344,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.046379585,
+    "moving_price": 0.046505204401910305,
+    "market_cap": 203220.1744757219,
+    "tao_in": 77036.935461284,
+    "alpha_in": 1661009.670549061,
+    "alpha_out": 2720663.31069305,
+    "volume": 1550926.740879557,
+    "vol_24h": 4422.901768363081,
+    "emission": 0.0,
+    "change_1h": -0.13021947280471569,
+    "change_24h": -0.42752783127025795,
+    "change_7d": 0.8535575193012512
+  },
+  "spark_24h": [
+    0.046579323,
+    0.046582826,
+    0.046710685,
+    0.046716009,
+    0.046718908,
+    0.046718697,
+    0.04642555,
+    0.046431702,
+    0.046432174,
+    0.046455067,
+    0.046461009,
+    0.046321093,
+    0.04638524,
+    0.046469817,
+    0.046929472,
+    0.046863326,
+    0.046669837,
+    0.046563498,
+    0.046604723,
+    0.046614379,
+    0.04683671,
+    0.046569316,
+    0.046576353,
+    0.04631253,
+    0.046363356,
+    0.046338208,
+    0.046338349,
+    0.046350248,
+    0.046368486,
+    0.046418591,
+    0.046410019,
+    0.046414861,
+    0.046419392,
+    0.046417548,
+    0.046422043,
+    0.046424942,
+    0.046405701,
+    0.046410018,
+    0.046416286,
+    0.046434485,
+    0.046443235,
+    0.046447761,
+    0.046451379,
+    0.046433173,
+    0.046437775,
+    0.046435744,
+    0.046440059,
+    0.046379585
+  ],
+  "trades_24h": {
+    "trades": 377,
+    "buys": 198,
+    "sells": 179,
+    "buy_tao": 1931.12644484,
+    "sell_tao": 2286.985456914,
+    "net_tao": -355.85901207400025,
+    "traders": 173
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CBDPcWDqHso5UctQ9SPrZEws93NHVgVGx7E1aNBgqMHxV5T",
+      "net_tao": -0.11186882799999864,
+      "gross_tao": 440.111868828,
+      "trades": 7
+    },
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": 0.5954228710000109,
+      "gross_tao": 439.404577129,
+      "trades": 7
+    },
+    {
+      "coldkey": "5HBT4UHjgUuu5sHaXuW8kAFyhKUP43szcNQ7bSHBwiC1xeoZ",
+      "net_tao": -0.4434667900000022,
+      "gross_tao": 200.44346679,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.046677591000005236,
+      "gross_tao": 199.953322409,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": 0.44859609700000647,
+      "gross_tao": 199.551403903,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790997001,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document live open subnet admission and public miner discovery",
+      "url": "https://github.com/AffineFoundation/affine/commit/d4a6fc1fa631cea92494f3e1c376090f5024c41a",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790995354,
+      "kind": "commit",
+      "source": "github",
+      "title": "Allow all activated subnet miners at fresh epoch boundaries",
+      "url": "https://github.com/AffineFoundation/affine/commit/d0a3d2b4a8768bd975865d598d9755886df19a7d",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790994438,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record natural empty freeze and miner-side R2 bootstrap admission",
+      "url": "https://github.com/AffineFoundation/affine/commit/87d7122ddc7de6d8c7a15acec337af1036165df0",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790993452,
+      "kind": "commit",
+      "source": "github",
+      "title": "Document qualified source URL contract and guarded epoch recovery",
+      "url": "https://github.com/AffineFoundation/affine/commit/9fe5865ec4210af177746553db2288a44042a2ab",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790992737,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record public bootstrap descriptor mismatch and recovery gate",
+      "url": "https://github.com/AffineFoundation/affine/commit/14d45bc20f1bc077b0238c2cf897c5c2c61989ec",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790975178,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record pinned Qwen CPU context audit and bounded corpus gates",
+      "url": "https://github.com/AffineFoundation/affine/commit/0258230d1196f8f116f501ca368abc02ff6abed1",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790975027,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record qualified replacement and recovery controller activation",
+      "url": "https://github.com/AffineFoundation/affine/commit/1aabb4d837372d4f8e93496f0aa75561f3c9ec2e",
+      "publisher": "AffineFoundation/affine"
+    },
+    {
+      "ts": 1790974707,
+      "kind": "commit",
+      "source": "github",
+      "title": "Wait for the verifier coordinator before starting workers",
+      "url": "https://github.com/AffineFoundation/affine/commit/adc9a4733dba182da86e13609e05c9e98a00e41c",
+      "publisher": "AffineFoundation/affine"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

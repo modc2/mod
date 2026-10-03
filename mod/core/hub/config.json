@@ -1,15 +1,27 @@
 {
-    "name": "hub",
-    "description": "Module catalog — every module in the orbit (orbit/ + core/) with its description and shipped docs (README.md / skill.md).",
-    "version": "0.1.0",
-    "deps": [],
-    "fns": [
-        "modules",
-        "names",
-        "dir",
-        "desc",
-        "doc",
-        "search",
-        "info"
-    ]
+  "name": "hub",
+  "description": "Module catalog \u2014 every module in the orbit (orbit/ + core/) with its description and shipped docs (README.md / skill.md), browsable in a web app at /hub with the whitepaper for newcomers. Also a loopback catalog service (:50520): module rows, screenshots, port probe, autosnap.",
+  "version": "0.3.0",
+  "deps": [],
+  "port": 50520,
+  "app_port": 50521,
+  "base_path": "/hub",
+  "route": false,
+  "urls": {
+    "api": "http://localhost:50520",
+    "app": "http://localhost:50521/hub"
+  },
+  "fns": [
+    "modules",
+    "names",
+    "dir",
+    "desc",
+    "doc",
+    "search",
+    "info",
+    "probe",
+    "screenshot",
+    "snapshot_status"
+  ],
+  "schema": "QmVqmoHnAt1dVpyq3fK1oGU2yu22faLF751j2yZsgtVUm3"
 }

@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 export const THEMES = [
   { id: 'arcade',   label: 'Arcade',   skin: 'pixel', base: 'dark',  swatch: ['#0a0a0a', '#10b981', '#f59e0b'] },
   { id: 'matrix',   label: 'Matrix',   skin: 'pixel', base: 'dark',  swatch: ['#010502', '#00e56f', '#2dd4bf'] },
+  { id: 'mario',    label: 'Mario',    skin: 'pixel', base: 'dark',  swatch: ['#0b0d1c', '#fbd000', '#e52521'] },
   { id: 'win95',    label: 'Win95',    skin: 'pixel', base: 'light', swatch: ['#c0c0c0', '#000080', '#8a6d00'] },
   { id: 'midnight', label: 'Midnight', skin: 'soft',  base: 'dark',  swatch: ['#0b0b13', '#6366f1', '#a855f7'] },
   { id: 'abyss',    label: 'Abyss',    skin: 'soft',  base: 'dark',  swatch: ['#040d1a', '#0ea5e9', '#22d3ee'] },

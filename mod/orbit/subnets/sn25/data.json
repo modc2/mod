@@ -1,0 +1,189 @@
+{
+  "netuid": 25,
+  "name": "UR",
+  "symbol": "א",
+  "owner": "5HTeZ5168DjjGWZgbvzGfysEAj9fnexF24gYFKJHENU5cc8a",
+  "description": "The peer to peer privacy network and encryption layer for the internet",
+  "github": "https://github.com/urfoundation/sn",
+  "url": "https://ur.xyz/",
+  "discord": "xcolwell",
+  "logo": "https://ur.xyz/ur.svg",
+  "registered_at": 2998801,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.006737023,
+    "moving_price": 0.0066865363623946905,
+    "market_cap": 41027.4252778007,
+    "tao_in": 13269.751878643,
+    "alpha_in": 1969675.82777409,
+    "alpha_out": 4120169.090048025,
+    "volume": 765970.789253335,
+    "vol_24h": 155.07739603193477,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.8935722462603435,
+    "change_7d": -1.3297661609852796
+  },
+  "spark_24h": [
+    0.006677356,
+    0.006677355,
+    0.006677354,
+    0.006677346,
+    0.006677851,
+    0.006677831,
+    0.006677828,
+    0.006677828,
+    0.006677806,
+    0.006677516,
+    0.006677314,
+    0.006677291,
+    0.006676694,
+    0.00667666,
+    0.006676363,
+    0.006676362,
+    0.006676361,
+    0.006676361,
+    0.006676361,
+    0.006673153,
+    0.006673153,
+    0.006666849,
+    0.006666839,
+    0.006666838,
+    0.006668026,
+    0.006660707,
+    0.006661243,
+    0.006661242,
+    0.006661242,
+    0.006661242,
+    0.006661213,
+    0.006661213,
+    0.00666125,
+    0.006661249,
+    0.00665159,
+    0.00665159,
+    0.00665159,
+    0.006651571,
+    0.006651567,
+    0.006651567,
+    0.006651565,
+    0.006681852,
+    0.00673705,
+    0.006737034,
+    0.006737033,
+    0.006737022,
+    0.006737023,
+    0.006737023
+  ],
+  "trades_24h": {
+    "trades": 27,
+    "buys": 10,
+    "sells": 17,
+    "buy_tao": 107.009640133,
+    "sell_tao": 47.522997695,
+    "net_tao": 59.486642438000004,
+    "traders": 20
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GsRn8W8sdaHH71pxPJyVPi4UQahyPHsjp8gmAdHmmNER6dd",
+      "net_tao": 40.0,
+      "gross_tao": 40.0,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GXjvzz9ZVezW6emkzXAzyFi11YhkpgKmMGbzHAtB4bFpioB",
+      "net_tao": 34.5,
+      "gross_tao": 34.5,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Et3gT7G3p8aRbEqXF5d8HNzXFymPyZZKanhDwYoLTVLJqQr",
+      "net_tao": 0.05154780199999975,
+      "gross_tao": 29.948452198000002,
+      "trades": 3
+    },
+    {
+      "coldkey": "5DXkmaXgLUumz8DBzMyqqQt21Vf8SwZZw6cyxYmNwa8bBaqx",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DX9YDoyeM7tmdGHs2zhhAyrDc9FYUXAS2oWguuoYDhWSv9a",
+      "net_tao": -9.565184065,
+      "gross_tao": 9.565184065,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790996501,
+      "kind": "commit",
+      "source": "github",
+      "title": "Verify combined published Connect recovery dependency",
+      "url": "https://github.com/urfoundation/sn/commit/265807c109d7df12a0efda67cf16562be5a57e88",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790996422,
+      "kind": "commit",
+      "source": "github",
+      "title": "Track complete-owner restore scope and preserve current dependency floor",
+      "url": "https://github.com/urfoundation/sn/commit/055c0a0fb092623f704a93123ea10a84bcfd6e27",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790996279,
+      "kind": "commit",
+      "source": "github",
+      "title": "Complete current migration candidate gate and preserve upstream publi…",
+      "url": "https://github.com/urfoundation/sn/commit/67a160aa2efc32750f0025aa54a6080c346e3781",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790996143,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record current migration race qualification",
+      "url": "https://github.com/urfoundation/sn/commit/59ced028b7254231bc5052e79948a8f5db92366d",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790996076,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record current payout migration qualification and recovery test contr…",
+      "url": "https://github.com/urfoundation/sn/commit/bdbd42f9fe7834cb5f21506f9544b8a6e7660969",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790974926,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record private-root preparation source qualification",
+      "url": "https://github.com/urfoundation/sn/commit/404262054f41144af3fceeff64d4d3d33de9ed2a",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790974838,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record guarded inactive cache reclaim for ongoing qualification",
+      "url": "https://github.com/urfoundation/sn/commit/11ca89776005c5026dabc06dc9c27b6f8549fff2",
+      "publisher": "urfoundation/sn"
+    },
+    {
+      "ts": 1790974649,
+      "kind": "commit",
+      "source": "github",
+      "title": "Record integrated provider monitoring qualification and scope",
+      "url": "https://github.com/urfoundation/sn/commit/a692bbbae43327b76af0161a2bc2e6a21ea29fe0",
+      "publisher": "urfoundation/sn"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

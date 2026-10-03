@@ -1,0 +1,181 @@
+{
+  "netuid": 5,
+  "name": "Hone",
+  "symbol": "ε",
+  "owner": "5GurNtB3yQFCh6CSmfH7LrYJDsvzup4diHZiaYtKe274nrMX",
+  "description": "Hone training",
+  "github": "https://github.com/hone-subnet-org/hone-subnet",
+  "url": "https://honedashboard.com",
+  "discord": null,
+  "logo": null,
+  "registered_at": 2491604,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.012677508,
+    "moving_price": 0.012685634195804596,
+    "market_cap": 75089.03441644319,
+    "tao_in": 33513.036097538,
+    "alpha_in": 2643503.412793931,
+    "alpha_out": 3279508.776702868,
+    "volume": 979129.340989246,
+    "vol_24h": 137.42061865504365,
+    "emission": 0.0,
+    "change_1h": 0.009427031345787817,
+    "change_24h": -0.2112583984048899,
+    "change_7d": -0.9641488492084238
+  },
+  "spark_24h": [
+    0.012704456,
+    0.012704915,
+    0.012705374,
+    0.012706078,
+    0.012707031,
+    0.012707648,
+    0.012694311,
+    0.012694082,
+    0.012694926,
+    0.012695366,
+    0.012695975,
+    0.012696514,
+    0.012696672,
+    0.012694359,
+    0.012694842,
+    0.012695484,
+    0.012695562,
+    0.012696101,
+    0.012696943,
+    0.012691163,
+    0.012691385,
+    0.012691879,
+    0.012666491,
+    0.012664658,
+    0.012664853,
+    0.012665749,
+    0.012662546,
+    0.012663478,
+    0.012663817,
+    0.012664621,
+    0.012665486,
+    0.012666299,
+    0.01266694,
+    0.012666876,
+    0.012667783,
+    0.012668267,
+    0.012669074,
+    0.012669666,
+    0.012670573,
+    0.012671097,
+    0.012671733,
+    0.01267414,
+    0.012673418,
+    0.012674137,
+    0.01267473,
+    0.012675189,
+    0.012676313,
+    0.012677508
+  ],
+  "trades_24h": {
+    "trades": 221,
+    "buys": 4,
+    "sells": 217,
+    "buy_tao": 2.203006277,
+    "sell_tao": 83.690333649,
+    "net_tao": -81.487327372,
+    "traders": 36
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GzfkTD7b4sHtiAeCncXRmqbq2z51iXARwqiw1333kQwMTpC",
+      "net_tao": -15.40447859,
+      "gross_tao": 15.40447859,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FscRcR9yaV812n1WkWN1jpm4phSDge5yZCRMWjB1dELqdzp",
+      "net_tao": -9.802184547,
+      "gross_tao": 9.802184547,
+      "trades": 1
+    },
+    {
+      "coldkey": "5ErCxkw65wpNfhrGuUAWEBsqmvftETBVYMALZftWhyzzF8Qb",
+      "net_tao": -9.697024005,
+      "gross_tao": 9.697024005,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GWRdZHebJU6cndTvZocmxssWJPhgFNEXHExoPrWbajKuw17",
+      "net_tao": -4.686971122,
+      "gross_tao": 4.686971122,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CFjSegGqcf5zWvKrzVc82StX6Ap59MZ93D5N2cdXNzPviKj",
+      "net_tao": -4.486403256,
+      "gross_tao": 4.486403256,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790923802,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #16 from hone-subnet-org/owner-by-hotkey",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/587c9fd498c13767b528989b867a5ad8b24cb973",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790912703,
+      "kind": "commit",
+      "source": "github",
+      "title": "Exclude the subnet owner by hotkey, not by assuming it is UID 0",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/e75e8e4b0757afc85b23c337b8bee61d6c053850",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790799080,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #15 from hone-subnet-org/dedup-and-wider-sampling",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/5f254a994ccc04773597b8ad9a393c31f2f5173f",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790795015,
+      "kind": "commit",
+      "source": "github",
+      "title": "Name the pool size in the lease, two CPUs per grading, 32 notices in …",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/3a500d48cda47f189a393faa5f9ff5b6bb11eb84",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790793400,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #13 from hone-subnet-org/terminal-task-fixture",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/44d3aadc10059a454de23560d96c3c7cbc28d72c",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790793293,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #14 from hone-subnet-org/fix-relative-state-dir",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/4238f551e67b365c61ed7afda6f06af69d7fab0c",
+      "publisher": "hone-subnet-org/hone-subnet"
+    },
+    {
+      "ts": 1790788484,
+      "kind": "commit",
+      "source": "github",
+      "title": "Offer each task to 128 miners",
+      "url": "https://github.com/hone-subnet-org/hone-subnet/commit/0ad99384ae6934ebe4c983e553b9fea2238b6fb1",
+      "publisher": "hone-subnet-org/hone-subnet"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

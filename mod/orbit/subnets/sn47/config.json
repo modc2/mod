@@ -1,0 +1,38 @@
+{
+  "name": "sn47",
+  "version": "1.0.0",
+  "description": "SN47 GPUForge — GPUForge is a Bittensor subnet for verifiable GPU training. Miners execute signed, immutable training workloads on eligible NVIDIA H100 GPUs, while validators verify correctness, freshness, attestation, and useful training throughput before scoring work. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "צ",
+  "chain": "bittensor",
+  "netuid": 47,
+  "subnet": "GPUForge",
+  "symbol": "צ",
+  "owner": "5D7yqC9yVKufNHfGn96MRHXMcseScSThwgurDep2kLbhGuan",
+  "github": "https://github.com/forgenet47/gpuforge",
+  "url": "https://gpuforge-gpuforge.static.hf.space/",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/forgenet47/gpuforge/refs/heads/codex/project-foundation/docs/figure.jpg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=47",
+    "news": "/bt/news?netuid=47"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>boxd — a Letterboxd lens</title>
+<link rel="icon" href="data:,"><!-- no favicon file; stops the 404 on every load -->
+<style>
+  :root {
+    --bg: #14181c; --panel: #1c2228; --line: #2c3440;
+    --ink: #e8eef4; --dim: #98a8b8; --green: #00e054; --blue: #40bcf4;
+    --orange: #ff8000;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    padding: 22px 20px 14px; border-bottom: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px;
+  }
+  h1 { margin: 0; font-size: 20px; letter-spacing: .14em; text-transform: uppercase; }
+  h1 span { color: var(--green); }
+  header .tag { color: var(--dim); font-size: 13px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 20px 60px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  input {
+    flex: 1 1 220px; min-width: 0; padding: 11px 13px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+    font-size: 15px;
+  }
+  input:focus { outline: none; border-color: var(--green); }
+  button {
+    padding: 11px 16px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); cursor: pointer;
+    font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
+  }
+  button:hover { border-color: var(--green); color: var(--green); }
+  button.on { background: var(--green); border-color: var(--green); color: #14181c; }
+  .note { color: var(--dim); font-size: 13px; margin: 10px 0 16px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px; min-width: 100px;
+  }
+  .stat b { display: block; font-size: 21px; color: var(--green); font-weight: 600; }
+  .stat span { color: var(--dim); font-size: 11px; letter-spacing: .09em;
+               text-transform: uppercase; }
+  h3 { font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+       color: var(--dim); margin: 26px 0 10px; font-weight: 600; }
+  .grid { display: grid; gap: 14px;
+          grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line);
+          border-radius: 8px; overflow: hidden; }
+  .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover;
+              background: #222; display: block; }
+  .card .blank { aspect-ratio: 2/3; background: #222; }
+  .card .meta { padding: 8px 10px; }
+  .card .t { font-size: 13px; font-weight: 600; line-height: 1.3; }
+  .card .y { color: var(--dim); font-size: 11px; }
+  .card .r { color: var(--green); font-size: 13px; margin-top: 3px; min-height: 18px; }
+  .card a { color: inherit; text-decoration: none; }
+  .row { display: flex; justify-content: space-between; gap: 12px; align-items: center;
+         padding: 10px 13px; background: var(--panel); border: 1px solid var(--line);
+         border-radius: 8px; margin-bottom: 7px; }
+  .row .g { color: var(--orange); font-variant-numeric: tabular-nums; margin-left: 8px; }
+  .hist { display: flex; align-items: flex-end; gap: 4px; height: 90px;
+          padding: 10px 12px; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 8px; }
+  .hist div { flex: 1; background: var(--green); border-radius: 2px 2px 0 0; min-height: 2px; }
+  .hist .lab { all: unset; }
+  .film { display: flex; gap: 20px; flex-wrap: wrap; }
+  .film img { width: 200px; border-radius: 8px; }
+  .film .body { flex: 1 1 320px; }
+  .film h2 { margin: 0 0 4px; font-size: 24px; }
+  .big { font-size: 30px; color: var(--green); margin: 8px 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .chip { border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px;
+          font-size: 12px; color: var(--dim); }
+  .err { border-left: 3px solid var(--orange); padding: 11px 14px;
+         background: var(--panel); border-radius: 0 8px 8px 0; }
+  a.src { color: var(--blue); text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>boxd<span>.</span></h1>
+  <span class="tag">a Letterboxd lens — public pages only, no account, no key</span>
+</header>
+<main>
+  <div class="tabs">
+    <button data-mode="taste" class="on">Taste</button>
+    <button data-mode="diary">Diary</button>
+    <button data-mode="overlap">Overlap</button>
+    <button data-mode="film">Film</button>
+  </div>
+  <div class="bar">
+    <input id="a" placeholder="letterboxd username">
+    <input id="b" placeholder="second username" hidden>
+    <button id="go">Read</button>
+  </div>
+  <div id="out"><p class="note">Type a Letterboxd username — try <b>davidehrlich</b> — to read
+    how they rate. Everything comes from their public RSS feed, which is a window of
+    roughly their last 50 logged films, not their whole diary.</p></div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const out = $('#out'), A = $('#a'), B = $('#b');
+let mode = 'taste';
+
+const PLACE = {
+  taste:   ['letterboxd username', null],
+  diary:   ['letterboxd username', null],
+  overlap: ['first username', 'second username'],
+  film:    ['film slug or title — e.g. parasite-2019', null],
+};
+
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  mode = b.dataset.mode;
+  A.placeholder = PLACE[mode][0];
+  B.hidden = !PLACE[mode][1];
+  if (PLACE[mode][1]) B.placeholder = PLACE[mode][1];
+  out.innerHTML = '';
+});
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const stars = r => r == null ? '' : '★'.repeat(Math.floor(r)) + (r % 1 ? '½' : '');
+const stat = (n, l) => `<div class="stat"><b>${esc(n == null ? '—' : n)}</b>`
+                     + `<span>${esc(l)}</span></div>`;
+
+// Relative to /boxd/ — resolves the same locally and behind the gateway.
+async function call(fn, params) {
+  const r = await fetch('api/' + fn + '?' + new URLSearchParams(params));
+  const j = await r.json().catch(() => ({error: 'bad response from boxd'}));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
+function card(e) {
+  const art = e.poster ? `<img src="${esc(e.poster)}" alt="" loading="lazy">`
+                       : `<div class="blank"></div>`;
+  return `<div class="card"><a href="${esc(e.url || '#')}" target="_blank" rel="noopener">
+    ${art}<div class="meta"><div class="t">${esc(e.film || e.title)}</div>
+    <div class="y">${esc(e.year || '')}${e.rewatch ? ' · rewatch' : ''}</div>
+    <div class="r">${stars(e.rating)}${e.liked ? ' ♡' : ''}</div>
+    </div></a></div>`;
+}
+
+function histogram(h) {
+  const keys = Object.keys(h || {});
+  if (!keys.length) return '';
+  const max = Math.max(...keys.map(k => h[k]));
+  return `<div class="hist">${keys.map(k =>
+    `<div style="height:${(h[k] / max * 100).toFixed(0)}%" title="${esc(k)} stars: ${h[k]}"></div>`
+  ).join('')}</div><p class="note">Ratings, half a star to five.</p>`;
+}
+
+async function showTaste(user) {
+  const m = await call('taste', {user});
+  const p = m.profile;
+  out.innerHTML = `
+    <div class="stats">
+      ${stat(p.films, 'films')}${stat(p.mean, 'mean')}${stat(p.median, 'median')}
+      ${stat(p.reviews, 'reviews')}${stat(p.liked, 'liked')}${stat(p.rewatches, 'rewatches')}</div>
+    <p class="note">${esc(p.coverage)} · ${esc(p.watched_from || '')} to
+      ${esc(p.watched_to || '')}
+      ${m.member && m.member.url ? ` · <a class="src" href="${esc(m.member.url)}"
+        target="_blank" rel="noopener">on letterboxd</a>` : ''}</p>
+    ${histogram(p.histogram)}
+    <h3>Rated highest lately</h3>
+    <div class="grid">${(p.top || []).map(card).join('')}</div>`;
+}
+
+async function showDiary(user) {
+  const d = await call('diary', {user, limit: 60});
+  const films = d.entries.filter(e => e.film);
+  out.innerHTML = `<p class="note">${esc(d.coverage || '')}</p>
+    <div class="grid">${films.map(card).join('')}</div>`;
+}
+
+async function showOverlap(a, b) {
+  const o = await call('overlap', {a, b});
+  const rows = (o.disagreements || []).map(r => `<div class="row">
+      <span>${esc(r.film)} <span class="y">${esc(r.year || '')}</span></span>
+      <span>${stars(r[a])} <span class="y">vs</span> ${stars(r[b])}
+        <span class="g">${r.gap > 0 ? '+' : ''}${esc(r.gap)}</span></span></div>`).join('');
+  const recs = (key, who) => {
+    const list = o['for_' + key] || [];
+    if (!list.length) return '';
+    return `<h3>For ${esc(key)} — ${esc(who)} loved these, you haven't logged them</h3>
+            <div class="grid">${list.map(card).join('')}</div>`;
+  };
+  out.innerHTML = `
+    <div class="stats">${stat(o.seen_by_both, 'both saw')}
+      ${stat(o.rated_by_both, 'both rated')}
+      ${stat(o.agreement == null ? null : Math.round(o.agreement * 100) + '%', 'agree')}
+      ${stat(o.mean_gap, 'mean gap')}</div>
+    <p class="note">${esc(o.coverage)}</p>
+    ${rows ? '<h3>Hardest splits</h3>' + rows
+           : `<p class="note">${o.seen_by_both
+               ? 'They rated every shared film identically — no splits to show.'
+               : 'No film appears in both recent windows.'}</p>`}
+    ${recs(a, b)}${recs(b, a)}`;
+}
+
+async function showFilm(title) {
+  const f = await call('film', {title});
+  out.innerHTML = `<div class="film">
+    ${f.poster ? `<img src="${esc(f.poster)}" alt="">` : ''}
+    <div class="body">
+      <h2>${esc(f.title)} <span class="y">${esc(f.year || '')}</span></h2>
+      <div>${f.directors && f.directors.length
+        ? 'Directed by ' + esc(f.directors.join(', ')) : ''}</div>
+      <p class="big">${esc(f.rating == null ? '—' : f.rating)}<span class="y"> / 5
+        · ${Number(f.ratings || 0).toLocaleString()} ratings</span></p>
+      <div class="chips">${[...(f.genres || []),
+        f.runtime ? f.runtime + ' min' : null, ...(f.countries || [])]
+        .filter(Boolean).map(c => `<span class="chip">${esc(c)}</span>`).join('')}</div>
+      <p>${esc(f.synopsis || '')}</p>
+      <p class="note">${f.cast && f.cast.length
+        ? 'With ' + esc(f.cast.slice(0, 6).join(', ')) : ''}</p>
+      ${f.url ? `<a class="src" href="${esc(f.url)}" target="_blank"
+        rel="noopener">on letterboxd</a>` : ''}
+    </div></div>`;
+}
+
+$('#go').onclick = async () => {
+  const a = A.value.trim(), b = B.value.trim();
+  if (!a || (mode === 'overlap' && !b)) return;
+  out.innerHTML = '<p class="note">Reading letterboxd…</p>';
+  try {
+    if (mode === 'taste') await showTaste(a);
+    else if (mode === 'diary') await showDiary(a);
+    else if (mode === 'overlap') await showOverlap(a, b);
+    else await showFilm(a);
+  } catch (e) {
+    out.innerHTML = `<div class="err">${esc(e.message)}</div>`;
+  }
+};
+[A, B].forEach(i => i.onkeydown = e => { if (e.key === 'Enter') $('#go').click(); });
+</script>
+</body>
+</html>

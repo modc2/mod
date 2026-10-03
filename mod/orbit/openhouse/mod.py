@@ -1,21 +1,28 @@
 """
 OpenHouse — Collective Asset Ownership Platform.
 
-Rent-to-own property, on-chain. Renters pay monthly; the protocol takes 1–5%
-(the owner picks the number, the band is hard-capped in the contract) and the
-rest stays with the property — split between the renter's equity and the
-owner's rent income by an owner-chosen rent-to-own model.
+Rent-to-own property, on-chain. Renters pay monthly; the protocol takes 0–5%
+(the owner picks the number — zero included — and the ceiling is hard-capped in
+the contract) and the rest stays with the property, split between the renter's
+equity and the owner's rent income by an owner-chosen rent-to-own model.
+
+Whatever the fee does collect is not kept. It pools, and every quarter the pool
+is handed back by BLOCTIME — dollars x seconds of liquidity locked in the
+protocol — so the money goes to whoever left their money in, in proportion to
+how long they left it.
 
 Flow:
   1. Deploy contract  — deploy(network, key, property_details, total_shares, share_price)
-  2. Set the deal     — set_terms(model=, fee_pct=, credit_pct=, owner=)
+  2. Set the deal     — set_terms(model=, fee_pct=, credit_pct=, owner=)   [fee_pct=0 is legal]
   3. Pay rent         — pay_rent(renter, amount)  → fee / equity / owner income
   4. Query equity     — equity(address), rent_ledger()
+  5. Watch the pool   — pool(), bloctime(address)
+  6. Every 90 days    — close_quarter() → pool_claim(address)
 
 Also supports the original fractional-share float: purchase(), distribute().
 
 On-chain: OpenHouse contract on Base Sepolia.
-Storage:  ~/.openhouse/{shareholders,properties,dividends,terms,rent}.json
+Storage:  ~/.openhouse/{shareholders,properties,dividends,terms,rent,pool}.json
 """
 
 import json
@@ -29,12 +36,14 @@ import mod as m
 
 
 class Mod:
-    description = "Rent-to-own, on-chain — the protocol takes 1–5% (owner-set), the rest stays with the property as renter equity and owner income."
+    description = "Rent-to-own, on-chain — the protocol takes 0–5% (owner-set, zero allowed), the rest stays with the property, and the fee pool is paid back quarterly by dollars x time locked."
 
     # ── The protocol take ──────────────────────────────────────────
     # Mirrors MIN_FEE_BPS / MAX_FEE_BPS in contracts/OpenHouse.sol. The owner
-    # picks a number inside this band; nothing can widen it.
-    MIN_FEE_PCT = 1.0
+    # picks a number inside this band; nothing can widen it. The floor is 0 —
+    # an owner who wants to run the protocol at cost is allowed to, and the
+    # rent-to-own split doesn't change when they do.
+    MIN_FEE_PCT = 0.0
     MAX_FEE_PCT = 5.0
 
     # ── Rent-to-own models ─────────────────────────────────────────
@@ -74,7 +83,7 @@ class Mod:
             'credit_pct': 0.0,
             'option_fee_pct': 0.0,
             'headline': 'No equity, still no extraction',
-            'detail': 'A normal tenancy. The renter builds nothing, but the owner keeps 95–99% of the '
+            'detail': 'A normal tenancy. The renter builds nothing, but the owner keeps 95–100% of the '
                       'rent instead of handing a platform double digits.',
         },
     ]
@@ -104,11 +113,17 @@ class Mod:
         'updated': 0,
     }
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, store=None):
+        """store: put the whole state somewhere other than ~/.openhouse — the
+        testnet examples run each scenario in a throwaway directory this way,
+        so they never touch the live store. Bank credentials follow it there
+        too; by default they live off the repo in ~/.mod/openhouse/."""
         self.module_dir = Path(__file__).parent
         self.config = config or self._load_config()
-        self.store_dir = Path(os.path.expanduser('~/.openhouse'))
+        self.store_dir = Path(store) if store else Path(os.path.expanduser('~/.openhouse'))
         self.store_dir.mkdir(parents=True, exist_ok=True)
+        self.secrets_dir = (self.store_dir / 'secrets' if store
+                            else Path(os.path.expanduser('~/.mod/openhouse')))
 
         # Paths
         self.shareholders_path = self.store_dir / 'shareholders.json'
@@ -116,11 +131,14 @@ class Mod:
         self.dividends_path = self.store_dir / 'dividends.json'
         self.terms_path = self.store_dir / 'terms.json'
         self.rent_path = self.store_dir / 'rent.json'
+        self.pool_path = self.store_dir / 'pool.json'
         self.peers_cache_path = self.store_dir / 'peers_cache.json'
+        self.fx_cache_path = self.store_dir / 'fx_cache.json'
+        self.civic_path = self.store_dir / 'civic.json'
 
         # Config
         self.network = self.config.get('network', 'testnet')
-        self.port = int(self.config.get('port', 50130))
+        self.port = int(self.config.get('port', 50132))
         self.app_port = int(self.config.get('app_port', 50131))
 
         # Chain config
@@ -192,7 +210,9 @@ class Mod:
         """
         return {
             'models': self.MODELS,
-            'fee_band': {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT},
+            'fee_band': {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT,
+                         'note': 'Zero is inside the band. Whatever is taken above it '
+                                 'pools and is paid back quarterly by bloctime.'},
             'benchmarks': self.BENCHMARKS,
         }
 
@@ -207,6 +227,9 @@ class Mod:
         t['owner_pct_of_rent'] = round(to_property - t['equity_pct_of_rent'], 4)
         t['to_property_pct'] = round(to_property, 4)
         t['fee_band'] = {'min_pct': self.MIN_FEE_PCT, 'max_pct': self.MAX_FEE_PCT}
+        # Zero is a position, not a missing value: no pool, nothing to hand back.
+        t['zero_fee'] = fee_pct == 0.0
+        t['quarter_seconds'] = self.QUARTER_SECONDS
         m_ = self._model(t.get('model'))
         t['model_name'] = m_['name'] if m_ else 'Custom'
         t['custom'] = bool(m_ and abs(credit_pct - m_['credit_pct']) > 1e-9)
@@ -219,7 +242,8 @@ class Mod:
 
         Args:
             model:          preset id (full_credit | hybrid | classic | lease)
-            fee_pct:        protocol take, 1–5 (rejected outside the band)
+            fee_pct:        protocol take, 0–5 (rejected outside the band; 0 means
+                            no fee and no pool — the rest of the deal is unchanged)
             credit_pct:     share of the post-fee payment credited as equity, 0–100
             option_fee_pct: upfront option fee, % of home price
             home_price:     price to own outright
@@ -330,16 +354,23 @@ class Mod:
     def _principal_paid_total(self):
         return sum(float(r.get('credit', 0)) for r in self._load_rent())
 
-    def pay_rent(self, renter: str, amount: float, kind: str = 'rent') -> dict:
+    def pay_rent(self, renter: str, amount: float, kind: str = 'rent',
+                 source: Optional[dict] = None) -> dict:
         """Record a rent payment and split it: protocol fee, equity, owner income.
 
         Args:
             renter: the paying address
             amount: payment amount
             kind:   'rent' (split by the model) or 'option' (all equity)
+            source: where the money came from, kept on the entry — the bank
+                    reconciler stamps {bank, txn, fiat, currency, rate} so a
+                    ledger line can be traced back to the transfer that paid it
         """
         if not renter:
             return {'error': 'Renter address required'}
+        blocked = self._civic_block()
+        if blocked:
+            return blocked
         split = self.quote(amount, kind=kind)
         if 'error' in split:
             return split
@@ -361,6 +392,8 @@ class Mod:
             'model': t['model'],
             'kind': kind,
         }
+        if source:
+            entry['source'] = source
         ledger = self._load_rent()
         ledger.append(entry)
         self._save_rent(ledger)
@@ -417,6 +450,461 @@ class Mod:
             'home_price': price,
         }
 
+    # ━━ The civic seat ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #
+    # A government — a city housing authority, a state — can hold a seat on
+    # this property. It runs its own verification server (civic/server.py)
+    # off-chain and holds two overrides on: a civic pause that freezes
+    # payments and a civic hold that blocks a taking. Mirrors the `authority`
+    # seat in contracts/OpenHouseTrust.sol: the owner charters once, by
+    # choice; after that only the authority itself can leave, and its flags
+    # are not the owner's to clear. A city-owned rent-to-own program is the
+    # same machinery with the city as owner too. The key checks here are
+    # address matches, not signatures — the local store mirrors the contract,
+    # where `onlyAuthority` does the real enforcing.
+
+    def _load_civic(self):
+        return self._load_json(self.civic_path, {})
+
+    def _save_civic(self, data):
+        self._save_json(self.civic_path, data)
+
+    def civic(self) -> dict:
+        """The civic seat: who holds it, what stands, every override on record."""
+        c = self._load_civic()
+        auth = c.get('authority')
+        return {
+            'chartered': bool(auth),
+            'authority': auth,
+            'civic_paused': bool(c.get('civic_paused')),
+            'civic_hold': bool(c.get('civic_hold')),
+            'overrides': list(reversed(c.get('overrides', [])))[:50],
+            'contract': 'the authority seat in OpenHouseTrust.sol + CivicRegistry.sol',
+        }
+
+    def civic_charter(self, key: str, name: str = '', region: str = '',
+                      uri: str = '', owner: str = None) -> dict:
+        """The owner charters a government into the civic seat — once, while
+        it is empty. After this the owner cannot remove it, cannot clear its
+        pause, and a city-owned program simply charters itself.
+
+        Args:
+            key:    the government's server key (see civic/server.py, GET /city)
+            name:   e.g. "Cleveland Housing Authority"
+            region: ISO 3166-2, e.g. "US-OH"
+            uri:    the civic server it runs — a .gov URL that publishes the key
+            owner:  address making the change; must match the recorded owner
+        """
+        if not key:
+            return {'error': 'Authority key required'}
+        terms = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        recorded_owner = (terms.get('owner') or '').lower()
+        if recorded_owner and (owner or '').lower() != recorded_owner:
+            return {'error': 'Only the property owner can charter an authority'}
+        c = self._load_civic()
+        if c.get('authority'):
+            return {'error': 'Civic seat is taken — only the authority can resign it',
+                    'authority': c['authority']}
+        c['authority'] = {'key': key, 'name': name or 'Chartered Authority',
+                          'region': region, 'uri': uri, 'chartered': int(time.time())}
+        c.setdefault('overrides', [])
+        self._save_civic(c)
+        return {'success': True, 'authority': c['authority']}
+
+    def civic_override(self, action: str, key: str, reason: str = '') -> dict:
+        """The chartered government exercises its seat, from its own server.
+
+        Args:
+            action: pause | unpause (freeze/thaw payments) or
+                    hold | release  (block/permit a taking)
+            key:    must match the chartered authority's key
+            reason: on the record, next to the action
+        """
+        c = self._load_civic()
+        auth = c.get('authority')
+        if not auth:
+            return {'error': 'No authority is chartered on this property'}
+        if (key or '').lower() != auth['key'].lower():
+            return {'error': 'Not the authority'}
+        if action not in ('pause', 'unpause', 'hold', 'release'):
+            return {'error': f'Unknown action: {action} '
+                             '(pause | unpause | hold | release)'}
+        if action in ('pause', 'unpause'):
+            c['civic_paused'] = action == 'pause'
+        else:
+            c['civic_hold'] = action == 'hold'
+        entry = {'timestamp': int(time.time()), 'action': action,
+                 'key': auth['key'], 'authority': auth['name'], 'reason': reason}
+        c.setdefault('overrides', []).append(entry)
+        self._save_civic(c)
+        return {'success': True, **entry,
+                'civic_paused': c['civic_paused'], 'civic_hold': bool(c.get('civic_hold'))}
+
+    def civic_resign(self, key: str) -> dict:
+        """The government leaves the seat — the only way it empties — and its
+        pause and hold lift with it, so a departed city holds nothing."""
+        c = self._load_civic()
+        auth = c.get('authority')
+        if not auth:
+            return {'error': 'No authority is chartered on this property'}
+        if (key or '').lower() != auth['key'].lower():
+            return {'error': 'Not the authority'}
+        c['authority'] = None
+        c['civic_paused'] = False
+        c['civic_hold'] = False
+        c.setdefault('overrides', []).append(
+            {'timestamp': int(time.time()), 'action': 'resign',
+             'key': auth['key'], 'authority': auth['name'], 'reason': ''})
+        self._save_civic(c)
+        return {'success': True, 'resigned': auth['name']}
+
+    def _civic_block(self):
+        """The standing civic pause, if one stands — checked where money moves."""
+        c = self._load_civic()
+        if c.get('civic_paused'):
+            who = (c.get('authority') or {}).get('name') or 'the chartered authority'
+            return {'error': f'Civic pause: {who} has frozen payments on this property'}
+        return None
+
+    # ━━ The pool ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #
+    # The protocol fee is not a skim. The owner may set it to 0% and run the
+    # thing at cost; whatever is set above that lands in a pool that is handed
+    # back every quarter to the people whose money was locked in the protocol,
+    # weighted by BLOCTIME — dollars x seconds, measured on block time.
+    #
+    # Three kinds of liquidity are locked here and all three earn:
+    #   renter       principal credited toward the home, locked the moment it lands
+    #   shareholder  capital paid into the float
+    #   owner        the part of the home nobody has bought out yet
+    # A dollar locked for a whole quarter earns twice what a dollar locked for
+    # half of it; a dollar that arrived yesterday earns almost nothing. Nobody
+    # earns for capital they didn't leave in.
+    #
+    # Mirrors QUARTER / bloctime accrual in contracts/OpenHouse.sol.
+
+    QUARTER_SECONDS = 90 * 24 * 3600     # the cadence, same constant as the contract
+    DAY_SECONDS = 24 * 3600              # weights are shown in dollar-days
+
+    def _load_pool(self):
+        return self._load_json(self.pool_path, {'genesis': 0, 'quarters': []})
+
+    def _save_pool(self, data):
+        self._save_json(self.pool_path, data)
+
+    def _first_lock(self) -> int:
+        """The earliest moment anything was locked — the epoch's natural zero."""
+        stamps = [int(r.get('timestamp', 0) or 0) for r in self._load_rent()]
+        stamps += [int(s.get('joined', 0) or 0) for s in self._load_shareholders().values()]
+        stamps = [t for t in stamps if t > 0]
+        return min(stamps) if stamps else 0
+
+    def _quarter_window(self, pool=None):
+        """``(index, start, ends_at)`` for the quarter now accruing.
+
+        A quarter starts when the one before it was closed, not on a wall
+        clock — the same rule as ``lastRedistribution = block.timestamp``
+        in the contract. Close late and the next quarter simply runs from
+        the late close; no bloctime is created or lost at the seam.
+        """
+        pool = self._load_pool() if pool is None else pool
+        closed = pool.get('quarters') or []
+        if closed:
+            start = int(closed[-1]['end'])
+            idx = int(closed[-1]['quarter']) + 1
+        else:
+            start = int(pool.get('genesis') or self._first_lock() or time.time())
+            idx = 0
+        return idx, start, start + self.QUARTER_SECONDS
+
+    def _bloctime_window(self, start: int, end: int) -> dict:
+        """Dollar-seconds of locked liquidity accrued by each address in a window.
+
+            weight(addr) = ∫ locked(addr, t) dt   over [start, end]
+
+        Renter principal only ever goes up, so its integral is a sum of
+        ``credit x (end - max(credited_at, start))``. The owner's stake is the
+        home price minus the principal bought out so far, so their integral is
+        ``price x span`` minus the renters' — the two always sum to the whole
+        house, which is why the owner needs no separate bookkeeping.
+        """
+        start = int(start)
+        end = max(int(end), start)
+        span = end - start
+        weights, kinds, locked_now = {}, {}, {}
+
+        def add(addr, kind, weight, locked):
+            # A position with no bloctime yet still exists — it was locked a
+            # second ago. Weight of zero is a fact about the clock, not a
+            # reason to leave someone off the table.
+            addr = (addr or '').strip()
+            if not addr or (weight <= 0 and locked <= 0):
+                return
+            weights[addr] = weights.get(addr, 0.0) + weight
+            kinds.setdefault(addr, {})
+            kinds[addr][kind] = kinds[addr].get(kind, 0.0) + weight
+            locked_now[addr] = locked_now.get(addr, 0.0) + locked
+
+        renter_weight = 0.0
+        for r in self._load_rent():
+            credit = float(r.get('credit', 0) or 0)
+            ts = int(r.get('timestamp', 0) or 0)
+            if credit <= 0 or ts >= end:
+                continue
+            w = credit * (end - max(ts, start))
+            add(r.get('renter', ''), 'renter', w, credit)
+            renter_weight += w
+
+        for addr, info in self._load_shareholders().items():
+            contribution = float(info.get('contribution', 0) or 0)
+            joined = int(info.get('joined', 0) or 0)
+            if contribution <= 0 or joined >= end:
+                continue
+            add(addr, 'shareholder', contribution * (end - max(joined, start)), contribution)
+
+        t = self.terms()
+        price = float(t.get('home_price') or 0)
+        # What the owner still has in the deal: the house, less what's been bought out.
+        owner_weight = max(price * span - renter_weight, 0.0)
+        owner_locked = max(price - self._principal_paid_total(), 0.0)
+        add(t.get('owner', ''), 'owner', owner_weight, owner_locked)
+
+        return {
+            'start': start, 'end': end, 'seconds': span,
+            'weights': weights, 'kinds': kinds, 'locked': locked_now,
+            'total_weight': sum(weights.values()),
+            'total_locked': sum(locked_now.values()),
+        }
+
+    def _fees_since(self, index: int) -> float:
+        """Fees collected after the ledger position a close was cut at.
+
+        Attribution is by ledger position, not timestamp: a payment landing in
+        the same second as a close would otherwise fall between two quarters
+        or into both.
+        """
+        return sum(float(r.get('fee', 0) or 0) for r in self._load_rent()[int(index):])
+
+    def _positions(self, w: dict, amount: float) -> list:
+        """Turn a weight map into a payout table, biggest stake first."""
+        total = w['total_weight']
+        rows = []
+        for addr, weight in w['weights'].items():
+            share = weight / total if total > 0 else 0.0
+            rows.append({
+                'address': addr,
+                'kinds': sorted(w['kinds'].get(addr, {}), key=lambda k: -w['kinds'][addr][k]),
+                'locked': round(w['locked'].get(addr, 0.0), 8),
+                'weight': round(weight, 6),
+                'weight_days': round(weight / self.DAY_SECONDS, 6),
+                'share_pct': round(share * 100, 6),
+                'amount': round(amount * share, 8),
+            })
+        rows.sort(key=lambda r: -r['weight'])
+        return rows
+
+    def pool(self) -> dict:
+        """The quarter now accruing: what's in the pool and who it's owed to.
+
+        Everything here is live — the pool is what the fee has collected since
+        the last close, and the shares are the bloctime earned so far. Nothing
+        is owed until :meth:`close_quarter` freezes it.
+        """
+        state = self._load_pool()
+        closed = state.get('quarters') or []
+        idx, start, ends_at = self._quarter_window(state)
+        now = int(time.time())
+        ledger_from = int(closed[-1]['ledger_to']) if closed else 0
+
+        w = self._bloctime_window(start, now)
+        amount = self._fees_since(ledger_from)
+        t = self.terms()
+        elapsed = max(now - start, 0)
+        distributed = sum(float(q.get('pool', 0) or 0) for q in closed)
+        unclaimed = sum(float(a.get('amount', 0) or 0)
+                        for q in closed for a in q.get('allocations', [])
+                        if not a.get('claimed'))
+
+        return {
+            'quarter': idx,
+            'start': start,
+            'ends_at': ends_at,
+            'now': now,
+            'elapsed': elapsed,
+            'quarter_seconds': self.QUARTER_SECONDS,
+            'progress_pct': round(min(elapsed / self.QUARTER_SECONDS, 1.0) * 100, 4),
+            'ready': now >= ends_at,
+            'ready_in': max(ends_at - now, 0),
+            'pool': round(amount, 8),
+            'fee_pct': t['fee_pct'],
+            # 0% is a real answer: no fee, no pool, and the split is untouched.
+            'zero_fee': float(t['fee_pct']) == 0.0,
+            'total_locked': round(w['total_locked'], 8),
+            'total_weight': round(w['total_weight'], 6),
+            'total_weight_days': round(w['total_weight'] / self.DAY_SECONDS, 6),
+            'positions': self._positions(w, amount),
+            'quarters_closed': len(closed),
+            'distributed': round(distributed, 8),
+            'unclaimed': round(unclaimed, 8),
+            'basis': 'bloctime — dollars x seconds of liquidity locked in the protocol',
+        }
+
+    def pool_history(self) -> list:
+        """Every closed quarter, newest first."""
+        return list(reversed((self._load_pool().get('quarters') or [])))
+
+    def close_quarter(self, caller: str = '', force: bool = False) -> dict:
+        """Close the quarter and freeze the split by bloctime.
+
+        Permissionless once the 90 days are up — anyone can call it, the same
+        as ``redistribute()`` on-chain, because the numbers are fixed by then
+        and only the calling costs the caller anything.
+
+        Args:
+            caller: address closing it (recorded; required to force)
+            force:  cut the quarter early — owner only, and stamped ``forced``
+                    in the record so nobody mistakes it for the cadence
+        """
+        state = self._load_pool()
+        closed = state.get('quarters') or []
+        idx, start, ends_at = self._quarter_window(state)
+        now = int(time.time())
+
+        if now < ends_at:
+            if not force:
+                return {'error': f'Quarter {idx} is not over — {ends_at - now}s '
+                                 f'({(ends_at - now) // self.DAY_SECONDS}d) still to run',
+                        'ready_in': ends_at - now, 'ends_at': ends_at}
+            owner = (self.terms().get('owner') or '').lower()
+            if owner and (caller or '').strip().lower() != owner:
+                return {'error': 'Only the property owner can cut a quarter short'}
+
+        ledger_from = int(closed[-1]['ledger_to']) if closed else 0
+        ledger_to = len(self._load_rent())
+        w = self._bloctime_window(start, now)
+        amount = self._fees_since(ledger_from)
+        if w['total_weight'] <= 0:
+            return {'error': 'Nothing was locked this quarter — no bloctime to split'}
+
+        record = {
+            'quarter': idx,
+            'start': start,
+            'end': now,
+            'seconds': now - start,
+            'ledger_from': ledger_from,
+            'ledger_to': ledger_to,
+            'pool': round(amount, 8),
+            'total_weight': round(w['total_weight'], 6),
+            'total_weight_days': round(w['total_weight'] / self.DAY_SECONDS, 6),
+            'total_locked': round(w['total_locked'], 8),
+            'allocations': [{**p, 'claimed': False, 'claimed_at': 0}
+                            for p in self._positions(w, amount)],
+            'closed_by': (caller or '').strip(),
+            'closed_at': now,
+            'forced': bool(now < ends_at),
+        }
+        state['genesis'] = int(state.get('genesis') or start)
+        state.setdefault('quarters', []).append(record)
+        self._save_pool(state)
+        return {'success': True, 'quarter': record}
+
+    def pool_claim(self, address: str, quarter=None) -> dict:
+        """Claim an address's share of one closed quarter, or of all of them.
+
+        Pull, not push — the same shape as the contract, where a payout nobody
+        asks for can't strand a distribution.
+        """
+        address = (address or '').strip()
+        if not address:
+            return {'error': 'Address required'}
+        state = self._load_pool()
+        quarters = state.get('quarters') or []
+        if not quarters:
+            return {'error': 'No quarter has closed yet'}
+        if quarter is not None:
+            quarter = int(quarter)
+            if not any(q['quarter'] == quarter for q in quarters):
+                return {'error': f'Quarter {quarter} has not closed'}
+
+        now, claimed, total = int(time.time()), [], 0.0
+        for q in quarters:
+            if quarter is not None and q['quarter'] != quarter:
+                continue
+            for a in q.get('allocations', []):
+                if a['address'].lower() != address.lower() or a.get('claimed'):
+                    continue
+                if a['amount'] <= 0:
+                    continue
+                a['claimed'] = True
+                a['claimed_at'] = now
+                total += float(a['amount'])
+                claimed.append({'quarter': q['quarter'], 'amount': a['amount'],
+                                'share_pct': a['share_pct'], 'weight_days': a['weight_days']})
+        if not claimed:
+            return {'error': f'Nothing to claim for {address}'}
+        self._save_pool(state)
+        return {'success': True, 'address': address,
+                'claimed': round(total, 8), 'quarters': claimed}
+
+    def bloctime(self, address: str) -> dict:
+        """One address's locked liquidity and the bloctime it has earned.
+
+        ``this_quarter`` is what they are on track to be paid at the next
+        close; ``lifetime`` is every dollar-second since the epoch began,
+        which is the number that says who actually carried the protocol.
+        """
+        address = (address or '').strip()
+        if not address:
+            return {'error': 'Address required'}
+        state = self._load_pool()
+        closed = state.get('quarters') or []
+        idx, start, ends_at = self._quarter_window(state)
+        now = int(time.time())
+        genesis = int(state.get('genesis') or self._first_lock() or start)
+
+        live = self._bloctime_window(start, now)
+        life = self._bloctime_window(genesis, now)
+        ledger_from = int(closed[-1]['ledger_to']) if closed else 0
+        amount = self._fees_since(ledger_from)
+
+        def slice_(w, key):
+            weight = w['weights'].get(key, 0.0)
+            total = w['total_weight']
+            return weight, (weight / total if total > 0 else 0.0)
+
+        key = next((a for a in live['weights'] if a.lower() == address.lower()), address)
+        w_now, share_now = slice_(live, key)
+        key_life = next((a for a in life['weights'] if a.lower() == address.lower()), address)
+        w_life, share_life = slice_(life, key_life)
+
+        paid = [{'quarter': q['quarter'], 'amount': a['amount'], 'claimed': a['claimed'],
+                 'share_pct': a['share_pct'], 'weight_days': a['weight_days']}
+                for q in closed for a in q.get('allocations', [])
+                if a['address'].lower() == address.lower()]
+
+        return {
+            'address': address,
+            'kinds': sorted(live['kinds'].get(key, {}), key=lambda k: -live['kinds'][key][k]),
+            'locked': round(live['locked'].get(key, 0.0), 8),
+            'this_quarter': {
+                'quarter': idx, 'start': start, 'ends_at': ends_at,
+                'weight': round(w_now, 6),
+                'weight_days': round(w_now / self.DAY_SECONDS, 6),
+                'share_pct': round(share_now * 100, 6),
+                'projected': round(amount * share_now, 8),
+                'pool': round(amount, 8),
+            },
+            'lifetime': {
+                'since': genesis,
+                'weight': round(w_life, 6),
+                'weight_days': round(w_life / self.DAY_SECONDS, 6),
+                'share_pct': round(share_life * 100, 6),
+            },
+            'earned': round(sum(float(p['amount']) for p in paid), 8),
+            'unclaimed': round(sum(float(p['amount']) for p in paid if not p['claimed']), 8),
+            'quarters': paid,
+        }
+
     # ━━ The landscape ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     def _peers_mod(self):
@@ -439,6 +927,321 @@ class Mod:
     def compare(self, refresh: bool = False) -> dict:
         """OpenHouse against the field — including where the field is ahead."""
         return self._peers_mod().compare(self.terms(), self.peers_cache_path, refresh=refresh)
+
+    def _fx_mod(self):
+        """Load fx.py by path, same reasoning as _peers_mod."""
+        if getattr(self, '_fx_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_fx', self.module_dir / 'fx.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._fx_cache = mod_
+        return self._fx_cache
+
+    def fx(self, refresh: bool = False) -> dict:
+        """What a Ξ is worth: ETH quoted in a dozen fiat currencies.
+        Keyless CoinGecko, 15-min cache, stale-cache then baked-in fallback —
+        the simulator always gets an answer, marked by `source`."""
+        return self._fx_mod().rates(self.fx_cache_path, refresh=refresh)
+
+    # ━━ Demo seeding (testnet) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _demo_mod(self):
+        """Load demo.py by path, same reasoning as _peers_mod."""
+        if getattr(self, '_demo_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_demo', self.module_dir / 'demo.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._demo_cache = mod_
+        return self._demo_cache
+
+    def seed(self, force: bool = False) -> dict:
+        """Fill the testnet store with a labelled fake example scenario —
+        a fictional property, hash-derived addresses, sixty days of rent,
+        shareholders and a dividend, all recorded through the real code
+        paths. Refuses to overwrite data it didn't write unless force=True.
+        unseed() removes everything it wrote."""
+        return self._demo_mod().seed(self, force=force)
+
+    def unseed(self) -> dict:
+        """Remove the seeded demo scenario — and only that."""
+        return self._demo_mod().unseed(self)
+
+    # ━━ The bank rail ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    #
+    # Most rent is paid by bank transfer, not by wallet. bank/ connects any
+    # bank — a local sandbox for testnet, statement files (camt.053, MT940,
+    # OFX, CSV) for every bank on earth, Open Banking APIs (Berlin Group
+    # PSD2, UK OBIE), or a bank's own MCP server — and the reconciler books
+    # each transfer carrying a renter's reference code onto the rent ledger
+    # exactly once, converted to Ξ at the fx rate and stamped with its source.
+    #
+    # Who may touch what: a sandbox connection is fake money on a fake bank,
+    # so it is as open as the rest of this testnet surface. Anything else is
+    # a real bank — its statements, its payees, its payments — so every call
+    # on it needs the operator bank key, a random secret created on first use
+    # at ~/.mod/openhouse/bank_key (0600). It is never served by any endpoint:
+    # the operator reads it off their own disk.
+
+    def _bank_pkg(self):
+        """Load bank/ as a package by path — `bank` is far too common a name
+        to put on sys.path (see mod_import_shadowing)."""
+        if getattr(self, '_bank_pkg_cache', None) is None:
+            import importlib.util
+            import sys
+            name = 'openhouse_bank'
+            if name not in sys.modules:
+                d = self.module_dir / 'bank'
+                spec = importlib.util.spec_from_file_location(
+                    name, d / '__init__.py', submodule_search_locations=[str(d)])
+                pkg = importlib.util.module_from_spec(spec)
+                sys.modules[name] = pkg
+                spec.loader.exec_module(pkg)
+            self._bank_pkg_cache = sys.modules[name]
+        return self._bank_pkg_cache
+
+    def _bank(self):
+        return self._bank_pkg().open_bank(self.store_dir / 'bank', self.secrets_dir)
+
+    def _bank_key(self) -> str:
+        """The operator's bank key — read or create. Private on purpose:
+        a leading underscore keeps it off /forward and every other surface."""
+        import secrets as _secrets
+        p = self.secrets_dir / 'bank_key'
+        if p.exists():
+            return p.read_text().strip()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        k = 'ohbk_' + _secrets.token_urlsafe(24)
+        p.write_text(k)
+        os.chmod(p, 0o600)
+        return k
+
+    def _bank_key_ok(self, key) -> bool:
+        import hmac
+        return bool(key) and hmac.compare_digest(str(key), self._bank_key())
+
+    def _bank_gate(self, key, kind: str = '', connection: str = '') -> Optional[dict]:
+        """None when allowed; an error dict when a real bank needs the key."""
+        if connection or not kind:
+            conns = {c['id']: c for c in self._bank().connections()}
+            if connection:
+                if connection not in conns:
+                    return None          # let the bank report "no connection"
+                kind = conns[connection]['kind']
+            elif len(conns) == 1:
+                kind = next(iter(conns.values()))['kind']
+            elif all(c['kind'] == 'sandbox' for c in conns.values()):
+                kind = 'sandbox'         # nothing real is connected (or nothing is)
+        if kind == 'sandbox' or self._bank_key_ok(key):
+            return None
+        return {'error': 'This is a real bank connection — pass key= (the operator '
+                         f'bank key in {self.secrets_dir / "bank_key"} on the node).'}
+
+    def _bank_run(self, fn, *args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except self._bank_pkg().BankError as e:
+            return {'error': str(e)}
+
+    def _to_eth(self, amount: float, currency: str, rate: Optional[float] = None) -> dict:
+        """Bank money → ledger Ξ. `rate` is fiat per 1 Ξ; default the fx rail."""
+        ccy = (currency or 'USD').upper()
+        if ccy == 'ETH':
+            return {'units': round(float(amount), 8), 'rate': 1.0, 'fx': 'native'}
+        if rate:
+            r, src = float(rate), 'fixed'
+        else:
+            fx = self.fx()
+            r, src = fx.get('rates', {}).get(ccy.lower()), fx.get('source', '')
+            if not r:
+                return {'error': f'no ETH rate for {ccy} — pass rate= (fiat per Ξ)'}
+        return {'units': round(float(amount) / float(r), 8), 'rate': float(r), 'fx': src}
+
+    def bank_kinds(self) -> list:
+        """Every bank dialect this node can connect to, with the fields each needs."""
+        return self._bank().kinds()
+
+    def bank_status(self) -> dict:
+        """Connections (no credentials), renter links, and what has been booked."""
+        b = self._bank()
+        matched = b.matched()
+        return {
+            'connections': [{k: c[k] for k in ('id', 'kind', 'name', 'live', 'created')}
+                            for c in b.connections()],
+            'links': len(b.links()),
+            'booked_transfers': len(matched),
+            'booked_units': round(sum(float(m.get('units', 0)) for m in matched.values()), 8),
+            'kinds': [k['kind'] for k in b.kinds()],
+            'gate': 'sandbox is open (testnet, fake money); every other kind needs the '
+                    'operator bank key from ~/.mod/openhouse/bank_key',
+        }
+
+    def bank_connect(self, kind: str = 'sandbox', name: str = '',
+                     config: Optional[dict] = None, key: str = '') -> dict:
+        """Connect a bank. kind: sandbox | statement | openbanking | mcp —
+        see bank_kinds() for each one's fields. Credentials are stored 0600
+        under ~/.mod/openhouse/, never in the repo, and read back redacted."""
+        blocked = self._bank_gate(key, kind=kind)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().connect, kind, name, config or {})
+
+    def bank_connections(self, key: str = '') -> list:
+        """Connections with credentials redacted; configs only with the key."""
+        conns = self._bank().connections()
+        if self._bank_key_ok(key):
+            return conns
+        return [c if c['kind'] == 'sandbox' else {k: v for k, v in c.items() if k != 'config'}
+                for c in conns]
+
+    def bank_disconnect(self, connection: str, key: str = '') -> dict:
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().disconnect, connection)
+
+    def bank_accounts(self, connection: str = '', key: str = '') -> Any:
+        """Accounts and balances on a connection."""
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().accounts, connection)
+
+    def bank_transactions(self, connection: str = '', account: str = '',
+                          since: int = 0, limit: int = 100, key: str = '') -> Any:
+        """Booked transactions, newest first. amount is signed: + is money in."""
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().transactions, connection, account,
+                              int(since or 0), int(limit or 100))
+
+    def bank_import(self, content: str, connection: str = '', format: str = 'auto',
+                    key: str = '') -> dict:
+        """Import a statement file into a `statement` connection: camt.053,
+        MT940, OFX/QFX or CSV (auto-detected). Re-imports are idempotent."""
+        blocked = self._bank_gate(key, connection=connection, kind='statement')
+        if blocked:
+            return blocked
+
+        def run():
+            a = self._bank().adapter(connection)
+            if not hasattr(a, 'import_statement'):
+                return {'error': f'{a.kind} connections pull from the bank — '
+                                 'import is for statement connections'}
+            return a.import_statement(content, format)
+        return self._bank_run(run)
+
+    def bank_receive(self, amount: float, reference: str = '', from_name: str = '',
+                     from_iban: str = '', account: str = '', connection: str = '',
+                     date: int = 0) -> dict:
+        """SANDBOX ONLY: book an incoming transfer, as if a renter paid by bank.
+        Put the renter's reference code (bank_reference) in `reference`."""
+        def run():
+            a = self._bank().adapter(connection)
+            if a.kind != 'sandbox':
+                return {'error': 'bank_receive only exists on the sandbox bank — '
+                                 'a real bank receives real transfers'}
+            return a.receive(account=account, from_name=from_name, from_iban=from_iban,
+                             amount=amount, reference=reference, date=date or None)
+        return self._bank_run(run)
+
+    def bank_reference(self, address: str) -> dict:
+        """The code a renter writes in the transfer memo so their rent finds them."""
+        if not address:
+            return {'error': 'address required'}
+        code = self._bank_pkg().reference_code(address)
+        return {'address': address, 'reference': code,
+                'instructions': f'Pay rent by ordinary bank transfer and put {code} '
+                                'in the payment reference / memo. Any bank, any rail '
+                                '(SEPA, ACH, Faster Payments, Zelle, wire) — the code '
+                                'is how the payment is credited to you.'}
+
+    def bank_link(self, address: str, payer_iban: str = '', payer_name: str = '',
+                  kind: str = 'rent', key: str = '') -> dict:
+        """Tie a renter to their bank payments: their reference code always
+        matches; payer_iban / payer_name catch transfers sent without it."""
+        blocked = self._bank_gate(key)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().link, address, payer_iban, payer_name, kind)
+
+    def bank_unlink(self, address: str, key: str = '') -> dict:
+        blocked = self._bank_gate(key)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().unlink, address)
+
+    def bank_links(self, key: str = '') -> list:
+        """Renter links. Payer IBAN/name are personal data — masked without the key
+        unless every connection is the sandbox."""
+        links = self._bank().links()
+        if self._bank_gate(key) is None:
+            return links
+        return [{**l, 'payer_iban': ('••' + l['payer_iban'][-4:]) if l['payer_iban'] else '',
+                 'payer_name': (l['payer_name'][:1] + '…') if l['payer_name'] else ''}
+                for l in links]
+
+    def bank_reconcile(self, connection: str = '', account: str = '', since: int = 0,
+                       dry_run: bool = False, rate: Optional[float] = None,
+                       key: str = '') -> dict:
+        """Book every linked incoming transfer onto the rent ledger, once.
+
+        Each credit carrying a renter's reference code (or from their linked
+        IBAN / name) becomes pay_rent(renter, fiat ÷ rate) with the bank
+        transfer stamped as its source. Transfers the ledger refuses (civic
+        pause, home paid off) are `held` and retried next run; credits nobody
+        claims come back `unmatched` for the owner to look at.
+
+        rate: fiat per 1 Ξ; default is the live fx rail (fx()).
+        """
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(
+            self._bank().reconcile,
+            record=lambda renter, units, kind, source: self.pay_rent(renter, units, kind=kind, source=source),
+            to_units=lambda amount, ccy: self._to_eth(amount, ccy, rate),
+            conn_id=connection, account=account, since=int(since or 0), dry_run=bool(dry_run))
+
+    def bank_pay(self, amount: float, to_iban: str, to_name: str = '', account: str = '',
+                 connection: str = '', currency: str = '', reference: str = '',
+                 key: str = '') -> dict:
+        """Send money out — owner income, a pool payout, a repair. Sandbox
+        debits its fake account; statement writes an ISO 20022 pain.001 file
+        to upload; openbanking initiates a SEPA transfer you approve at the
+        bank (SCA); mcp calls the bank's own payment tool. Real banks need key."""
+        blocked = self._bank_gate(key, connection=connection)
+        if blocked:
+            return blocked
+        return self._bank_run(self._bank().pay, connection, account, to_name, to_iban,
+                              amount, currency, reference)
+
+    # ━━ Testnet examples ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    def _examples_mod(self):
+        """Load examples.py by path, same reasoning as _peers_mod."""
+        if getattr(self, '_examples_cache', None) is None:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location(
+                'openhouse_examples', self.module_dir / 'examples.py')
+            mod_ = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod_)
+            self._examples_cache = mod_
+        return self._examples_cache
+
+    def examples(self) -> list:
+        """The testnet walkthroughs: name, title, what each one shows."""
+        return self._examples_mod().catalog()
+
+    def example(self, name: str) -> dict:
+        """Run one walkthrough end to end in a throwaway store and return its
+        transcript — every step is a real MCP tool call with its real result,
+        so any step can be replayed against the live testnet node."""
+        return self._examples_mod().run(name, type(self))
 
     # ━━ Health & Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -467,10 +1270,15 @@ class Mod:
         total_shares = int(prop.get('total_shares', 0)) if deployed else 0
 
         rent = self.rent_stats()
+        pool = self.pool()
         return {
             'deployed': deployed,
             'terms': self.terms(),
             'rent': rent,
+            'pool': {k: pool[k] for k in (
+                'quarter', 'pool', 'ready', 'ready_in', 'ends_at', 'progress_pct',
+                'total_locked', 'total_weight_days', 'zero_fee', 'quarters_closed',
+                'distributed', 'unclaimed')},
             'shareholders': len(shareholders),
             'total_shares': total_shares,
             'shares_sold': total_shares_sold,
@@ -585,6 +1393,9 @@ class Mod:
         """
         if not buyer:
             return {'error': 'Buyer address required'}
+        blocked = self._civic_block()
+        if blocked:
+            return blocked
         share_count = int(share_count)
         if share_count <= 0:
             return {'error': 'Must purchase at least 1 share'}
@@ -740,7 +1551,7 @@ class Mod:
             home_price: price to own the home outright
             monthly_rent: scheduled monthly payment
             model: rent-to-own model id (see models())
-            fee_pct: protocol take, 1–5
+            fee_pct: protocol take, 0–5
             owner: address that owns the deal terms
         """
         # Save property info locally
@@ -778,11 +1589,46 @@ class Mod:
     # Whitelisted, human-meaningful source files surfaced to the app.
     _SOURCE_FILES = [
         ('contracts/OpenHouse.sol', 'solidity',
-         'The on-chain contract: shares, pro-rata dividends, governance.'),
+         'The single-renter contract: rent credited as principal, the quarterly '
+         'BLOCTIME pool, governance. Rent is payable in any approved token — '
+         'equity is bought in USD value, so a dollar is a dollar.'),
+        ('contracts/ApprovedTokens.sol', 'solidity',
+         'What money is good here: the deployer\'s whitelist of payment tokens '
+         '— USD stablecoins and the chain\'s native coin — each carried with '
+         'the dollar value of one whole token.'),
+        ('contracts/OpenHouseTrust.sol', 'solidity',
+         'The tokenized trust: many people, one mortgage. Shares minted one per '
+         'dollar the servicer confirms, so equity is pro-rata to money in. The '
+         'bank holds every lever — and no function can take a member\'s stake.'),
+        ('contracts/MortgageOracle.sol', 'solidity',
+         'The bank\'s feed. Quorum-attested statements and payment confirmations '
+         '— the only way a real mortgage enters the chain.'),
+        ('contracts/OpenHouseFactory.sol', 'solidity',
+         'Where a group becomes a borrower: anyone can file a formation, only the '
+         'named bank can underwrite it into a live trust.'),
+        ('contracts/CivicRegistry.sol', 'solidity',
+         'Where a government puts its name on the protocol: its key, its '
+         'jurisdiction, the URL of the server it verifies from, and the deals '
+         'it publicly endorses.'),
+        ('civic/server.py', 'python',
+         'The server a city runs: re-derives every split in a property\'s '
+         'ledger from scratch, and exercises the civic pause and hold from '
+         'the government\'s own infrastructure.'),
         ('mod.py', 'python',
          'Module logic — shares, dividends, governance, serving.'),
+        ('bank/core.py', 'python',
+         'The bank rail: one shape for every bank, and the reconciler that '
+         'books a transfer carrying a renter\'s code onto the ledger exactly once.'),
+        ('examples.py', 'python',
+         'The testnet walkthroughs — each a story told in real MCP tool calls, '
+         'played in a throwaway store.'),
+        ('contracts/script/Testnet.s.sol', 'solidity',
+         'Deploy a property and pay a month of rent on a real chain — anvil '
+         'locally, or Base Sepolia with your own test keys.'),
         ('api/api.py', 'python',
          'FastAPI REST surface over the module.'),
+        ('api/mcp_server.py', 'python',
+         'MCP tool server — the same protocol, driveable by an agent.'),
     ]
 
     def source(self):
@@ -975,8 +1821,29 @@ class Mod:
             rent_ledger        - Payment history (renter=)
             equity             - A renter's stake (address=)
             rent_stats         - Where the rent went
+            pool               - The quarter now accruing + who the pool is owed to
+            pool_history       - Every closed quarter, newest first
+            close_quarter      - Freeze the quarter and split it by bloctime (caller=, force=)
+            pool_claim         - Claim a share of a closed quarter (address=, quarter=)
+            bloctime           - One address's locked liquidity + dollar-days (address=)
             peers              - Other on-chain housing projects (refresh=)
             compare            - OpenHouse against the field (refresh=)
+            fx                 - ETH in fiat currencies for display (refresh=)
+            seed               - Fill the testnet store with fake example data (force=)
+            unseed             - Remove the seeded demo data
+            examples           - The testnet walkthroughs
+            example            - Run one in a throwaway store, get the transcript (name=)
+            bank_kinds         - Banks this node can connect to (sandbox|statement|openbanking|mcp)
+            bank_status        - Connections, links, transfers booked
+            bank_connect       - Connect a bank (kind=, name=, config=, key=)
+            bank_accounts      - Accounts + balances (connection=, key=)
+            bank_transactions  - Signed transactions, newest first (connection=, since=, key=)
+            bank_import        - Import a statement: camt.053/MT940/OFX/CSV (file= or content=, key=)
+            bank_receive       - SANDBOX: fake an incoming transfer (amount=, reference=)
+            bank_reference     - A renter's transfer-memo code (address=)
+            bank_link          - Tie a renter to their payments (address=, payer_iban=, payer_name=)
+            bank_reconcile     - Book linked transfers as rent, once (rate=, dry_run=, key=)
+            bank_pay           - Send money out (amount=, to_iban=, to_name=, key=)
             property           - Property details
             shareholders       - All shareholders
             shareholder        - Shareholder info (address=)
@@ -1027,8 +1894,62 @@ class Mod:
             'rent_ledger': lambda: self.rent_ledger(kwargs.get('renter', '')),
             'equity': lambda: self.equity(kwargs.get('address', '')),
             'rent_stats': lambda: self.rent_stats(),
+            'pool': lambda: self.pool(),
+            'pool_history': lambda: self.pool_history(),
+            'close_quarter': lambda: self.close_quarter(
+                caller=kwargs.get('caller', kwargs.get('address', '')),
+                force=bool(kwargs.get('force')),
+            ),
+            'pool_claim': lambda: self.pool_claim(
+                kwargs.get('address', ''),
+                quarter=kwargs.get('quarter'),
+            ),
+            'bloctime': lambda: self.bloctime(kwargs.get('address', '')),
             'peers': lambda: self.peers(refresh=bool(kwargs.get('refresh'))),
             'compare': lambda: self.compare(refresh=bool(kwargs.get('refresh'))),
+            'fx': lambda: self.fx(refresh=bool(kwargs.get('refresh'))),
+            'seed': lambda: self.seed(force=bool(kwargs.get('force'))),
+            'unseed': lambda: self.unseed(),
+            'examples': lambda: self.examples(),
+            'example': lambda: self.example(kwargs.get('name', '')),
+            'bank_kinds': lambda: self.bank_kinds(),
+            'bank_status': lambda: self.bank_status(),
+            'bank_connect': lambda: self.bank_connect(
+                kwargs.get('kind', 'sandbox'), name=kwargs.get('name', ''),
+                config=kwargs.get('config') or {}, key=kwargs.get('key', '')),
+            'bank_connections': lambda: self.bank_connections(key=kwargs.get('key', '')),
+            'bank_disconnect': lambda: self.bank_disconnect(
+                kwargs.get('connection', ''), key=kwargs.get('key', '')),
+            'bank_accounts': lambda: self.bank_accounts(
+                kwargs.get('connection', ''), key=kwargs.get('key', '')),
+            'bank_transactions': lambda: self.bank_transactions(
+                kwargs.get('connection', ''), account=kwargs.get('account', ''),
+                since=int(kwargs.get('since', 0) or 0), limit=int(kwargs.get('limit', 100) or 100),
+                key=kwargs.get('key', '')),
+            'bank_import': lambda: self.bank_import(
+                kwargs.get('content') or (Path(kwargs['file']).read_text() if kwargs.get('file') else ''),
+                connection=kwargs.get('connection', ''), format=kwargs.get('format', 'auto'),
+                key=kwargs.get('key', '')),
+            'bank_receive': lambda: self.bank_receive(
+                float(kwargs.get('amount', 0)), reference=kwargs.get('reference', ''),
+                from_name=kwargs.get('from_name', ''), from_iban=kwargs.get('from_iban', ''),
+                account=kwargs.get('account', ''), connection=kwargs.get('connection', '')),
+            'bank_reference': lambda: self.bank_reference(kwargs.get('address', '')),
+            'bank_link': lambda: self.bank_link(
+                kwargs.get('address', ''), payer_iban=kwargs.get('payer_iban', ''),
+                payer_name=kwargs.get('payer_name', ''), kind=kwargs.get('kind', 'rent'),
+                key=kwargs.get('key', '')),
+            'bank_unlink': lambda: self.bank_unlink(kwargs.get('address', ''), key=kwargs.get('key', '')),
+            'bank_links': lambda: self.bank_links(key=kwargs.get('key', '')),
+            'bank_reconcile': lambda: self.bank_reconcile(
+                kwargs.get('connection', ''), account=kwargs.get('account', ''),
+                since=int(kwargs.get('since', 0) or 0), dry_run=bool(kwargs.get('dry_run')),
+                rate=float(kwargs['rate']) if kwargs.get('rate') else None, key=kwargs.get('key', '')),
+            'bank_pay': lambda: self.bank_pay(
+                float(kwargs.get('amount', 0)), kwargs.get('to_iban', ''),
+                to_name=kwargs.get('to_name', ''), account=kwargs.get('account', ''),
+                connection=kwargs.get('connection', ''), currency=kwargs.get('currency', ''),
+                reference=kwargs.get('reference', ''), key=kwargs.get('key', '')),
             'property': lambda: self.property(),
             'shareholders': lambda: self.shareholders(),
             'shareholder': lambda: self.shareholder(kwargs.get('address', '')),

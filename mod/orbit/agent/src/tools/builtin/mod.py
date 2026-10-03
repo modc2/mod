@@ -24,9 +24,23 @@ from typing import Dict, Any, List, Optional
 class Builtins:
     description = "Built-in tool registry - discover, load, and run the shipped tools"
 
-    def __init__(self, **kwargs):
+    def __init__(self, context=None, **kwargs):
         self._dir = Path(__file__).parent
         self._cache = {}
+        # the agent box these tools belong to. Most tools are self-contained —
+        # bash doesn't need to know who is calling it — but the ones that act
+        # on a sub-component of the agent (memory, toolboxes) have to reach the
+        # live one, not build a second copy. They declare `needs_context = True`
+        # and get it handed to them (see bind).
+        self.context = context
+
+    def bind(self, context) -> "Builtins":
+        """Attach the agent whose sub-components these tools act on."""
+        self.context = context
+        for tool in self._cache.values():
+            if getattr(tool, 'needs_context', False):
+                tool.context = context
+        return self
 
     def ls(self) -> List[str]:
         """List available tool names"""
@@ -49,6 +63,8 @@ class Builtins:
         if cls is None:
             raise AttributeError(f"no Tool class in {name}/mod.py")
         instance = cls()
+        if getattr(cls, "needs_context", False):
+            instance.context = self.context
         self._cache[name] = instance
         return instance
 

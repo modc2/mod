@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Promptland ✎</title>
+<style>
+  :root {
+    --bg: #07060c; --panel: #131020; --panel2: #1a1529; --line: #2b2342;
+    --ink: #f1edfa; --dim: #9289ab; --accent: #b48ead; --accent2: #e4c9de;
+    --a1: #a78bfa; --a2: #e879b9; --a3: #7dd3fc;
+    --ok: #6ee7a0; --err: #fb8d80; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --grad: linear-gradient(120deg, var(--a1), var(--a2));
+  }
+  * { box-sizing: border-box; }
+  html { scrollbar-color: #352c50 transparent; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font-family: ui-sans-serif, system-ui, sans-serif; min-height: 100vh; }
+  /* aurora wash + dot grid, fixed behind everything */
+  body::before { content: ""; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background:
+      radial-gradient(900px 520px at 12% -10%, rgba(167,139,250,.18), transparent 62%),
+      radial-gradient(820px 480px at 88% -6%, rgba(232,121,185,.13), transparent 60%),
+      radial-gradient(760px 620px at 50% 112%, rgba(125,211,252,.09), transparent 62%);
+    animation: aurora 22s ease-in-out infinite alternate; }
+  body::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background-image: radial-gradient(rgba(241,237,250,.055) 1px, transparent 1px);
+    background-size: 26px 26px;
+    -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 85%);
+            mask-image: radial-gradient(120% 90% at 50% 0%, #000 30%, transparent 85%); }
+  @keyframes aurora { from { transform: translate3d(0,0,0) scale(1); }
+                      to   { transform: translate3d(0,-40px,0) scale(1.06); } }
+  @media (prefers-reduced-motion: reduce) { body::before { animation: none; } }
+  ::selection { background: rgba(167,139,250,.35); }
+  a { color: var(--a1); }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 20px; }
+  header { display: flex; align-items: center; gap: 13px; padding: 8px 0 20px; }
+  .logo { width: 40px; height: 40px; border-radius: 12px; background: var(--grad);
+          color: #0b0812; display: grid; place-items: center; font-size: 21px; font-weight: 700;
+          box-shadow: 0 0 0 1px rgba(167,139,250,.35), 0 6px 24px -6px rgba(167,139,250,.65); }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .12em; font-weight: 800;
+       background: linear-gradient(105deg, var(--ink) 30%, var(--a1) 75%, var(--a2));
+       -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--dim); font-size: 12.5px; }
+  .spacer { flex: 1; }
+  .chip { font-family: var(--mono); font-size: 12px; background: var(--panel2);
+          border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; color: var(--accent2);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.04); }
+  .chip .role { color: var(--dim); margin-left: 6px; }
+  button { background: var(--grad); color: #0b0812; border: none; border-radius: 10px;
+           padding: 9px 16px; font-size: 13.5px; font-weight: 700; letter-spacing: .01em; cursor: pointer;
+           box-shadow: 0 0 0 1px rgba(167,139,250,.28), 0 4px 18px -8px rgba(167,139,250,.6);
+           transition: transform .16s ease, box-shadow .16s ease, filter .16s ease; }
+  button:hover:not(:disabled) { transform: translateY(-1px); filter: saturate(1.15);
+           box-shadow: 0 0 0 1px rgba(232,121,185,.4), 0 8px 26px -8px rgba(232,121,185,.55); }
+  button:active:not(:disabled) { transform: translateY(0); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--line);
+                 font-weight: 500; box-shadow: none; }
+  button.ghost:hover:not(:disabled) { color: var(--accent2); border-color: var(--a1);
+                 box-shadow: 0 0 14px -6px rgba(167,139,250,.6); filter: none; }
+  button.danger { background: transparent; color: var(--err); border: 1px solid #4a2b28;
+                  font-weight: 500; box-shadow: none; }
+  button.danger:hover:not(:disabled) { border-color: var(--err);
+                  box-shadow: 0 0 14px -6px rgba(251,141,128,.5); filter: none; }
+  .card { position: relative;
+          background: linear-gradient(180deg, rgba(255,255,255,.035), transparent 42%), var(--panel);
+          border: 1px solid var(--line); border-radius: 16px; padding: 18px;
+          box-shadow: 0 14px 36px -22px rgba(0,0,0,.85); }
+  .card.inner { background: linear-gradient(180deg, rgba(255,255,255,.03), transparent 45%), var(--panel2);
+          transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+  .card.inner:hover { transform: translateY(-2px); border-color: rgba(167,139,250,.55);
+          box-shadow: 0 16px 34px -18px rgba(167,139,250,.35); }
+  .authgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 18px; }
+  .authgrid h3 { margin: 0 0 6px; font-size: 14.5px; }
+  .authgrid h3 .glyph { color: var(--a1); margin-right: 4px; }
+  .authgrid p { color: var(--dim); font-size: 12.5px; line-height: 1.55; margin: 0 0 14px; }
+  input, textarea { width: 100%; background: rgba(7,6,12,.75); border: 1px solid var(--line); border-radius: 10px;
+    color: var(--ink); padding: 9px 11px; font-size: 13px; font-family: inherit;
+    transition: border-color .15s ease, box-shadow .15s ease; }
+  input:focus, textarea:focus { outline: none; border-color: var(--a1);
+    box-shadow: 0 0 0 3px rgba(167,139,250,.18); }
+  input::placeholder, textarea::placeholder { color: #5e5678; }
+  textarea.body { font-family: var(--mono); font-size: 12.5px; min-height: 260px; resize: vertical; line-height: 1.6; }
+  .err { color: var(--err); font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .ok { color: var(--ok); }
+  .tabs { display: inline-flex; gap: 4px; margin: 4px 0 16px; padding: 4px;
+          background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .tab { background: transparent; color: var(--dim); border: 1px solid transparent; border-radius: 9px;
+         padding: 7px 18px; font-size: 12.5px; font-weight: 600; letter-spacing: .09em; cursor: pointer;
+         box-shadow: none; transition: color .15s ease, background .15s ease; }
+  .tab:hover:not(.on) { color: var(--accent2); transform: none; filter: none; box-shadow: none; }
+  .tab.on { background: linear-gradient(120deg, rgba(167,139,250,.22), rgba(232,121,185,.16));
+            color: var(--accent2); border-color: rgba(167,139,250,.5);
+            box-shadow: 0 0 16px -6px rgba(167,139,250,.5); }
+  .split { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
+  .list { display: flex; flex-direction: column; gap: 8px; max-height: 70vh; overflow: auto; }
+  .item { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px;
+          cursor: pointer; transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
+  .item:hover { border-color: rgba(167,139,250,.6); transform: translateX(2px);
+                box-shadow: 0 6px 20px -14px rgba(167,139,250,.6); }
+  .item.sel { border-color: var(--a1); background: var(--panel2);
+              box-shadow: inset 2.5px 0 0 var(--a1), 0 6px 22px -14px rgba(167,139,250,.6); }
+  .item .name { font-size: 14px; font-weight: 600; }
+  .item .meta { color: var(--dim); font-size: 11.5px; margin-top: 3px; font-family: var(--mono); }
+  .tag { display: inline-block; background: rgba(167,139,250,.1); border: 1px solid rgba(167,139,250,.35);
+         color: var(--accent2); border-radius: 999px; font-size: 10.5px; padding: 1px 8px; margin: 4px 4px 0 0; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  label { display: block; color: var(--dim); font-size: 11px; font-weight: 600; letter-spacing: .12em; margin: 12px 0 5px; }
+  .cid { font-family: var(--mono); font-size: 11.5px; color: var(--ok); word-break: break-all; cursor: pointer;
+         text-shadow: 0 0 12px rgba(110,231,160,.35); }
+  .author { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .empty { color: var(--dim); font-size: 13px; padding: 24px 0; text-align: center; }
+  pre.view { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; line-height: 1.6;
+             background: rgba(7,6,12,.75); border: 1px solid var(--line); border-radius: 10px;
+             padding: 14px; max-height: 50vh; overflow: auto; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #352c50; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4a3e6e; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">✎</div>
+    <div>
+      <h1>PROMPTLAND</h1>
+      <div class="sub">store &amp; share prompts · mod protocol · api at <span style="font-family:var(--mono)">/api/promptland</span></div>
+    </div>
+    <div class="spacer"></div>
+    <span id="who" class="chip hidden"></span>
+    <button id="signout" class="ghost hidden" onclick="signOut()">sign out</button>
+  </header>
+
+  <!-- ── sign-in ─────────────────────────────────────────────────── -->
+  <div id="auth">
+    <div class="card">
+      <div style="font-size:15px;font-weight:600">Sign in with a wallet</div>
+      <p class="sub" style="margin:6px 0 0;line-height:1.6">
+        Same flow as the Build console: the server hands you a one-time challenge, your key signs it,
+        a verified signature opens your session. The first wallet ever to sign in claims ownership of
+        this instance. Your prompt library is private to your address; sharing publishes a prompt to
+        the public gallery as a localfs CID.
+      </p>
+      <div class="authgrid">
+        <div class="card inner">
+          <h3><span class="glyph">⟠</span> Browser wallet</h3>
+          <p>MetaMask or any injected EVM wallet. The extension pops up to sign the challenge — keys never leave it.</p>
+          <button onclick="connectBrowser()">Connect browser wallet</button>
+        </div>
+        <div class="card inner">
+          <h3><span class="glyph">▤</span> Local wallet</h3>
+          <p>A wallet generated in this browser and kept in localStorage (<span style="font-family:var(--mono)">promptland_seed</span>).
+             Created on first use, reused after — no extension needed.</p>
+          <button onclick="connectLocal()">Use local wallet</button>
+        </div>
+        <div class="card inner">
+          <h3><span class="glyph">✳</span> Password key</h3>
+          <p>Deterministic key derived from a password (keccak256). The same password is the same identity on any device.</p>
+          <input id="pw" type="password" placeholder="password" style="margin-bottom:10px">
+          <button onclick="connectPassword()">Derive &amp; sign in</button>
+        </div>
+      </div>
+      <div id="autherr" class="err"></div>
+    </div>
+
+    <!-- gallery is public — show it under the sign-in card too -->
+    <div style="margin-top:22px">
+      <div class="sub" style="letter-spacing:.08em;margin-bottom:10px">PUBLIC GALLERY</div>
+      <div id="gallery-anon" class="list" style="max-height:none"></div>
+    </div>
+  </div>
+
+  <!-- ── main ───────────────────────────────────────────────────── -->
+  <div id="main" class="hidden">
+    <div class="tabs">
+      <button class="tab on" id="tab-library" onclick="showTab('library')">LIBRARY</button>
+      <button class="tab" id="tab-gallery" onclick="showTab('gallery')">GALLERY</button>
+      <button class="tab" id="tab-harvest" onclick="showTab('harvest')">HARVEST</button>
+    </div>
+
+    <div id="view-library" class="split">
+      <div>
+        <button style="width:100%;margin-bottom:10px" onclick="newPrompt()">+ new prompt</button>
+        <div id="library" class="list"></div>
+      </div>
+      <div class="card" id="editor">
+        <label>NAME</label>
+        <input id="e-name" placeholder="my prompt">
+        <label>TAGS (comma separated)</label>
+        <input id="e-tags" placeholder="coding, review">
+        <label>DESCRIPTION</label>
+        <input id="e-desc" placeholder="what this prompt is for">
+        <label>PROMPT</label>
+        <textarea id="e-body" class="body" placeholder="You are…"></textarea>
+        <div class="row" style="margin-top:14px">
+          <button onclick="savePrompt()">save</button>
+          <button class="ghost" id="btn-share" onclick="sharePrompt()" disabled>share → CID</button>
+          <button class="danger" id="btn-delete" onclick="deletePrompt()" disabled>delete</button>
+          <span class="spacer"></span>
+          <span id="e-cid" class="cid" title="click to copy" onclick="copyText(this.textContent)"></span>
+        </div>
+        <div id="e-msg" class="err"></div>
+      </div>
+    </div>
+
+    <div id="view-gallery" class="hidden">
+      <div class="card" style="margin-bottom:14px">
+        <div class="row">
+          <input id="import-cid" placeholder="import by CID (Qm… / baf…)" style="flex:1;min-width:240px">
+          <button onclick="importCid()">import</button>
+        </div>
+        <div id="g-msg" class="err"></div>
+      </div>
+      <div class="split">
+        <div id="gallery" class="list"></div>
+        <div class="card" id="g-view">
+          <div class="empty">select a shared prompt</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="view-harvest" class="hidden">
+      <div class="card" style="margin-bottom:14px">
+        <div class="row">
+          <input id="h-q" placeholder="search the harvested catalog…" style="flex:1;min-width:220px"
+                 oninput="clearTimeout(window._hqT); window._hqT = setTimeout(() => loadHarvest(true), 250)">
+          <select id="h-source" onchange="loadHarvest(true)"
+                  style="background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:13px">
+            <option value="">all sources</option>
+          </select>
+          <button id="h-run" class="hidden" onclick="runHarvest()">⛏ harvest the internet</button>
+        </div>
+        <div class="sub" id="h-status" style="margin-top:10px;font-family:var(--mono);font-size:11.5px"></div>
+        <div id="h-msg" class="err" style="margin-top:6px"></div>
+      </div>
+      <div class="split">
+        <div>
+          <div id="h-list" class="list"></div>
+          <button id="h-more" class="ghost hidden" style="width:100%;margin-top:8px" onclick="loadHarvest(false)">load more</button>
+        </div>
+        <div class="card" id="h-view">
+          <div class="empty">harvested prompts from public collections land here — pick one</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Resolve paths for both entries: direct app port (:50581) and the gateway
+// prefix (/promptland). The ethers bundle is vendored and served locally.
+const AT_APP_PORT = location.port === '50581';
+const BASE = AT_APP_PORT ? '' : '/promptland';
+const API = AT_APP_PORT ? location.protocol + '//' + location.hostname + ':50580' : '/promptland/api';
+
+// modc2 modules share one localStorage origin — writes must never throw.
+function safeSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { console.warn('localStorage full', e); } }
+
+let token = localStorage.getItem('promptland_token');
+let address = localStorage.getItem('promptland_address');
+let role = localStorage.getItem('promptland_role') || 'user';
+let prompts = [], selected = null, shared = [], gSelected = null;
+
+function authHeaders(json) {
+  return Object.assign(json ? { 'Content-Type': 'application/json' } : {},
+                       token ? { Authorization: 'Bearer ' + token } : {});
+}
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  const text = await r.text();
+  let d = {}; try { d = text ? JSON.parse(text) : {}; } catch {}
+  if (!r.ok) throw new Error(d.detail || d.error || ('HTTP ' + r.status));
+  return d;
+}
+function copyText(t) { if (t) navigator.clipboard?.writeText(t.replace(/^CID /, '')); }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function short(a) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
+
+// ── auth: challenge → sign → verify (build-console flow) ─────────────
+async function signChallenge(addr, signFn) {
+  const { message } = await api('/auth/challenge?address=' + addr);
+  if (!message) throw new Error('invalid challenge response');
+  const signature = await signFn(message);
+  const d = await api('/auth/verify', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ address: addr, signature, message }),
+  });
+  token = d.token; address = d.address; role = d.role || 'user';
+  safeSet('promptland_token', token);
+  safeSet('promptland_address', address);
+  safeSet('promptland_role', role);
+}
+
+async function connectBrowser() {
+  await withAuthErr(async () => {
+    const eth = window.ethereum;
+    if (!eth) throw new Error('no browser wallet found — install MetaMask, or use a local wallet');
+    const provider = new ethers.BrowserProvider(eth);
+    await provider.send('eth_requestAccounts', []);
+    const signer = await provider.getSigner();
+    const addr = (await signer.getAddress()).toLowerCase();
+    await signChallenge(addr, msg => signer.signMessage(msg));
+    safeSet('promptland_wallet_type', 'browser');
+    enterApp();
+  });
+}
+
+async function connectLocal() {
+  await withAuthErr(async () => {
+    let mnemonic = localStorage.getItem('promptland_seed');
+    if (!mnemonic) {
+      mnemonic = ethers.Wallet.createRandom().mnemonic.phrase;
+      safeSet('promptland_seed', mnemonic);
+      console.log("%c[promptland] New local wallet created. Back up your seed phrase from localStorage key 'promptland_seed'", 'color:#b48ead');
+    }
+    const wallet = ethers.Wallet.fromPhrase(mnemonic);
+    await signChallenge(wallet.address.toLowerCase(), msg => wallet.signMessage(msg));
+    safeSet('promptland_wallet_type', 'local');
+    enterApp();
+  });
+}
+
+async function connectPassword() {
+  await withAuthErr(async () => {
+    const pw = document.getElementById('pw').value;
+    if (!pw) throw new Error('enter a password');
+    const wallet = new ethers.Wallet(ethers.id(pw));
+    await signChallenge(wallet.address.toLowerCase(), msg => wallet.signMessage(msg));
+    safeSet('promptland_wallet_type', 'password');
+    enterApp();
+  });
+}
+
+async function withAuthErr(fn) {
+  const el = document.getElementById('autherr');
+  el.textContent = '';
+  try { await fn(); } catch (e) {
+    const m = e.message || String(e);
+    el.textContent = /Failed to fetch|Load failed/.test(m) ? 'API offline — start the backend first' : m;
+  }
+}
+
+function signOut() {
+  token = null; address = null; role = 'user';
+  ['promptland_token', 'promptland_address', 'promptland_role', 'promptland_wallet_type']
+    .forEach(k => localStorage.removeItem(k));
+  document.getElementById('main').classList.add('hidden');
+  document.getElementById('auth').classList.remove('hidden');
+  document.getElementById('who').classList.add('hidden');
+  document.getElementById('signout').classList.add('hidden');
+  loadGallery(true);
+}
+
+function enterApp() {
+  document.getElementById('auth').classList.add('hidden');
+  document.getElementById('main').classList.remove('hidden');
+  const who = document.getElementById('who');
+  who.innerHTML = esc(short(address)) + '<span class="role">' + esc(role) + '</span>';
+  who.classList.remove('hidden');
+  who.title = address;
+  document.getElementById('signout').classList.remove('hidden');
+  newPrompt();
+  loadLibrary();
+  loadGallery();
+}
+
+// ── library ──────────────────────────────────────────────────────────
+async function loadLibrary() {
+  try { prompts = (await api('/prompts', { headers: authHeaders() })).prompts || []; }
+  catch (e) { if (/expired|token|401/i.test(e.message)) return signOut(); throw e; }
+  renderLibrary();
+}
+function renderLibrary() {
+  const el = document.getElementById('library');
+  if (!prompts.length) { el.innerHTML = '<div class="empty">no prompts yet — write one →</div>'; return; }
+  el.innerHTML = prompts.map(p =>
+    '<div class="item' + (selected === p.id ? ' sel' : '') + '" onclick="selectPrompt(\'' + p.id + '\')">' +
+      '<div class="name">' + esc(p.name) + '</div>' +
+      '<div class="meta">' + new Date(p.updated * 1000).toLocaleString() + (p.cid ? ' · shared' : '') + '</div>' +
+      (p.tags || []).map(t => '<span class="tag">' + esc(t) + '</span>').join('') +
+    '</div>').join('');
+}
+function selectPrompt(id) {
+  const p = prompts.find(x => x.id === id);
+  if (!p) return;
+  selected = id;
+  document.getElementById('e-name').value = p.name;
+  document.getElementById('e-tags').value = (p.tags || []).join(', ');
+  document.getElementById('e-desc').value = p.description || '';
+  document.getElementById('e-body').value = p.body;
+  document.getElementById('e-cid').textContent = p.cid ? 'CID ' + p.cid : '';
+  document.getElementById('btn-share').disabled = false;
+  document.getElementById('btn-delete').disabled = false;
+  document.getElementById('e-msg').textContent = '';
+  renderLibrary();
+}
+function newPrompt() {
+  selected = null;
+  ['e-name', 'e-tags', 'e-desc', 'e-body'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('e-cid').textContent = '';
+  document.getElementById('btn-share').disabled = true;
+  document.getElementById('btn-delete').disabled = true;
+  document.getElementById('e-msg').textContent = '';
+  renderLibrary();
+}
+async function savePrompt() {
+  const msg = document.getElementById('e-msg');
+  msg.textContent = '';
+  try {
+    const body = {
+      id: selected || undefined,
+      name: document.getElementById('e-name').value,
+      tags: document.getElementById('e-tags').value.split(',').map(s => s.trim()).filter(Boolean),
+      description: document.getElementById('e-desc').value,
+      body: document.getElementById('e-body').value,
+    };
+    const d = await api('/prompts', { method: 'POST', headers: authHeaders(true), body: JSON.stringify(body) });
+    selected = d.prompt.id;
+    await loadLibrary();
+    selectPrompt(selected);
+    msg.innerHTML = '<span class="ok">saved</span>';
+  } catch (e) { msg.textContent = e.message; }
+}
+async function sharePrompt() {
+  if (!selected) return;
+  const msg = document.getElementById('e-msg');
+  msg.textContent = '';
+  try {
+    const d = await api('/prompts/' + selected + '/share', { method: 'POST', headers: authHeaders() });
+    await loadLibrary(); loadGallery();
+    selectPrompt(selected);
+    document.getElementById('e-cid').textContent = 'CID ' + d.cid;
+    msg.innerHTML = '<span class="ok">shared to the gallery — click the CID to copy</span>';
+  } catch (e) { msg.textContent = e.message; }
+}
+async function deletePrompt() {
+  if (!selected) return;
+  try {
+    await api('/prompts/' + selected, { method: 'DELETE', headers: authHeaders() });
+    newPrompt(); await loadLibrary();
+  } catch (e) { document.getElementById('e-msg').textContent = e.message; }
+}
+
+// ── gallery ──────────────────────────────────────────────────────────
+async function loadGallery(anon) {
+  try { shared = (await api('/shared')).shared || []; } catch { shared = []; }
+  const target = anon || !token ? 'gallery-anon' : 'gallery';
+  const el = document.getElementById(target);
+  if (!el) return;
+  if (!shared.length) { el.innerHTML = '<div class="empty">nothing shared yet</div>'; return; }
+  el.innerHTML = shared.map(s =>
+    '<div class="item' + (gSelected === s.cid ? ' sel' : '') + '"' +
+      (anon || !token ? '' : ' onclick="viewShared(\'' + s.cid + '\')"') + '>' +
+      '<div class="name">' + esc(s.name) + '</div>' +
+      '<div class="meta">by ' + esc(short(s.author)) + ' · ' + new Date(s.ts * 1000).toLocaleDateString() + '</div>' +
+      (s.tags || []).map(t => '<span class="tag">' + esc(t) + '</span>').join('') +
+      (s.description ? '<div class="sub" style="margin-top:5px">' + esc(s.description) + '</div>' : '') +
+    '</div>').join('');
+}
+async function viewShared(cid) {
+  gSelected = cid;
+  loadGallery();
+  const el = document.getElementById('g-view');
+  el.innerHTML = '<div class="empty">loading…</div>';
+  try {
+    const d = await api('/shared/' + cid);
+    const p = d.prompt;
+    const entry = shared.find(s => s.cid === cid) || {};
+    const mine = entry.author === address || role === 'owner';
+    el.innerHTML =
+      '<div class="row"><div style="font-size:15px;font-weight:600">' + esc(p.name) + '</div>' +
+      '<span class="spacer"></span><span class="author" title="' + esc(p.author) + '">by ' + esc(short(p.author)) + '</span></div>' +
+      (p.description ? '<div class="sub" style="margin:6px 0">' + esc(p.description) + '</div>' : '') +
+      '<div class="cid" style="margin:8px 0" title="click to copy" onclick="copyText(\'' + cid + '\')">' + cid + '</div>' +
+      '<pre class="view">' + esc(p.body) + '</pre>' +
+      '<div class="row" style="margin-top:12px">' +
+        '<button onclick="importShared(\'' + cid + '\')">import to library</button>' +
+        (mine ? '<button class="danger" onclick="delistShared(\'' + cid + '\')">delist</button>' : '') +
+      '</div><div id="gv-msg" class="err"></div>';
+  } catch (e) { el.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; }
+}
+async function importShared(cid) {
+  const msg = document.getElementById('gv-msg');
+  try {
+    await api('/import', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ cid }) });
+    msg.innerHTML = '<span class="ok">imported — see LIBRARY</span>';
+    loadLibrary();
+  } catch (e) { msg.textContent = e.message; }
+}
+async function delistShared(cid) {
+  const msg = document.getElementById('gv-msg');
+  try {
+    await api('/shared/' + cid, { method: 'DELETE', headers: authHeaders() });
+    gSelected = null;
+    document.getElementById('g-view').innerHTML = '<div class="empty">select a shared prompt</div>';
+    loadGallery();
+  } catch (e) { msg.textContent = e.message; }
+}
+async function importCid() {
+  const msg = document.getElementById('g-msg');
+  msg.textContent = '';
+  const cid = document.getElementById('import-cid').value.trim();
+  if (!cid) return;
+  try {
+    await api('/import', { method: 'POST', headers: authHeaders(true), body: JSON.stringify({ cid }) });
+    msg.innerHTML = '<span class="ok">imported — see LIBRARY</span>';
+    document.getElementById('import-cid').value = '';
+    loadLibrary();
+  } catch (e) { msg.textContent = e.message; }
+}
+
+// ── harvest (public prompt collections scraped into a local catalog) ─
+let hItems = [], hOffset = 0, hTotal = 0, hSelected = null, hPollT = null;
+
+async function loadHarvestSources() {
+  try {
+    const d = await api('/harvest/sources');
+    const sel = document.getElementById('h-source');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">all sources</option>' + (d.sources || []).map(s =>
+      '<option value="' + esc(s.name) + '">' + esc(s.name) + ' (' + (s.count || 0) + ')</option>').join('');
+    sel.value = cur;
+  } catch {}
+}
+async function loadHarvest(reset) {
+  if (reset) { hOffset = 0; hItems = []; }
+  const q = encodeURIComponent(document.getElementById('h-q').value.trim());
+  const src = encodeURIComponent(document.getElementById('h-source').value);
+  try {
+    const d = await api('/harvest?q=' + q + '&source=' + src + '&offset=' + hOffset + '&limit=100');
+    hTotal = d.total; hItems = hItems.concat(d.items || []); hOffset = hItems.length;
+  } catch (e) { document.getElementById('h-msg').textContent = e.message; return; }
+  renderHarvest();
+}
+function renderHarvest() {
+  const el = document.getElementById('h-list');
+  if (!hItems.length) {
+    el.innerHTML = '<div class="empty">' + (hTotal === 0 && !document.getElementById('h-q').value
+      ? 'catalog is empty — ' + (role === 'owner' ? 'hit ⛏ harvest the internet' : 'ask the owner to run a harvest')
+      : 'no matches') + '</div>';
+  } else {
+    el.innerHTML = hItems.map(i =>
+      '<div class="item' + (hSelected === i.hid ? ' sel' : '') + '" onclick="viewHarvest(\'' + i.hid + '\')">' +
+        '<div class="name">' + esc(i.name) + '</div>' +
+        '<div class="meta">' + esc(i.source) + ' · ' + (i.len || 0) + ' chars' + '</div>' +
+        (i.preview ? '<div class="sub" style="margin-top:5px">' + esc(i.preview.slice(0, 120)) + '…</div>' : '') +
+      '</div>').join('');
+  }
+  document.getElementById('h-more').classList.toggle('hidden', hItems.length >= hTotal);
+}
+async function viewHarvest(hid) {
+  hSelected = hid;
+  renderHarvest();
+  const el = document.getElementById('h-view');
+  el.innerHTML = '<div class="empty">loading…</div>';
+  try {
+    const d = await api('/harvest/' + hid);
+    const i = d.item;
+    el.innerHTML =
+      '<div class="row"><div style="font-size:15px;font-weight:600">' + esc(i.name) + '</div>' +
+      '<span class="spacer"></span><span class="author">' + esc(i.source) + (i.license ? ' · ' + esc(i.license) : '') + '</span></div>' +
+      (i.origin ? '<div class="sub" style="margin:6px 0;word-break:break-all">from <a href="' + esc(i.origin) + '" target="_blank" rel="noopener">' + esc(i.origin) + '</a></div>' : '') +
+      (i.tags || []).map(t => '<span class="tag">' + esc(t) + '</span>').join('') +
+      '<pre class="view" style="margin-top:10px">' + esc(i.body) + '</pre>' +
+      '<div class="row" style="margin-top:12px">' +
+        '<button onclick="keepHarvest(\'' + i.hid + '\')">keep → library</button>' +
+        (role === 'owner' ? '<button class="danger" onclick="deleteHarvest(\'' + i.hid + '\')">remove</button>' : '') +
+      '</div><div id="hv-msg" class="err"></div>';
+  } catch (e) { el.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; }
+}
+async function keepHarvest(hid) {
+  const msg = document.getElementById('hv-msg');
+  try {
+    await api('/harvest/' + hid + '/keep', { method: 'POST', headers: authHeaders() });
+    msg.innerHTML = '<span class="ok">kept — see LIBRARY</span>';
+    loadLibrary();
+  } catch (e) { msg.textContent = e.message; }
+}
+async function deleteHarvest(hid) {
+  try {
+    await api('/harvest/' + hid, { method: 'DELETE', headers: authHeaders() });
+    hSelected = null; hItems = hItems.filter(i => i.hid !== hid); hTotal--;
+    document.getElementById('h-view').innerHTML = '<div class="empty">removed</div>';
+    renderHarvest();
+  } catch (e) { document.getElementById('hv-msg').textContent = e.message; }
+}
+async function runHarvest() {
+  const msg = document.getElementById('h-msg');
+  msg.textContent = '';
+  try {
+    await api('/harvest/run', { method: 'POST', headers: authHeaders(true), body: '{}' });
+    document.getElementById('h-run').disabled = true;
+    pollHarvest();
+  } catch (e) { msg.textContent = e.message; }
+}
+async function pollHarvest() {
+  clearTimeout(hPollT);
+  let s;
+  try { s = await api('/harvest/status'); } catch { return; }
+  const st = s.status || {};
+  const el = document.getElementById('h-status');
+  if (st.running) {
+    el.textContent = '⛏ harvesting ' + (st.source || '…') + ' — ' + (st.new || 0) + ' new / '
+      + (st.fetched || 0) + ' fetched · source ' + (st.sources_done || 0) + '/' + (st.sources_total || 0);
+    hPollT = setTimeout(pollHarvest, 1500);
+  } else {
+    el.textContent = (s.stats?.total || 0) + ' prompts in the catalog'
+      + (st.finished ? ' · last run +' + (st.new || 0) + ' new' : '')
+      + (st.errors?.length ? ' · ' + st.errors.length + ' source error(s)' : '');
+    if (st.errors?.length) document.getElementById('h-msg').textContent = st.errors.join(' · ');
+    document.getElementById('h-run').disabled = false;
+    loadHarvestSources();
+    loadHarvest(true);
+  }
+}
+
+function showTab(t) {
+  ['library', 'gallery', 'harvest'].forEach(n => {
+    document.getElementById('tab-' + n).classList.toggle('on', t === n);
+    document.getElementById('view-' + n).classList.toggle('hidden', t !== n);
+  });
+  if (t === 'gallery') loadGallery();
+  if (t === 'harvest') {
+    document.getElementById('h-run').classList.toggle('hidden', role !== 'owner');
+    loadHarvestSources();
+    pollHarvest();
+  }
+}
+
+// ── boot: load the vendored ethers bundle, then restore any session ──
+(function boot() {
+  const s = document.createElement('script');
+  s.src = (BASE || '') + '/ethers.umd.min.js';
+  s.onload = async () => {
+    if (token && address) {
+      try { const d = await api('/auth/session', { headers: authHeaders() });
+            role = d.role; address = d.address; enterApp(); return; }
+      catch { signOut(); return; }
+    }
+    loadGallery(true);
+  };
+  s.onerror = () => { document.getElementById('autherr').textContent = 'failed to load ethers bundle'; loadGallery(true); };
+  document.head.appendChild(s);
+})();
+</script>
+</body>
+</html>

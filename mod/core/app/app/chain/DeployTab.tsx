@@ -79,8 +79,8 @@ export function DeployTab({ network }: { network: string }) {
 
   return (
     <div>
-      <Label>
-        DEPENDENCY GRAPH — each edge is a constructor argument · click to pick, hover to trace
+      <Label note="each edge is a constructor argument · click to pick, hover to trace">
+        DEPENDENCY GRAPH
       </Label>
       <div style={{ marginBottom: '20px' }}>
         <DeployGraph selected={selected} onToggle={toggle} deployed={live} busy={deploying} />
@@ -88,7 +88,7 @@ export function DeployTab({ network }: { network: string }) {
 
       {missing.length > 0 && (
         <div style={{
-          fontFamily: TERM_FONT, fontSize: '11px', color: WRITE,
+          fontFamily: TERM_FONT, fontSize: '13px', color: WRITE,
           display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', flexWrap: 'wrap',
         }}>
           <span>needs an address it won&apos;t have: {missing.join(', ')}</span>
@@ -107,7 +107,7 @@ export function DeployTab({ network }: { network: string }) {
           <Btn size="sm" active={false} onClick={() => setSelected([])}>CLEAR</Btn>
         )}
         {network === 'mainnet' && (
-          <span style={{ fontFamily: TERM_FONT, fontSize: '11px', color: '#ef4444' }}>
+          <span style={{ fontFamily: TERM_FONT, fontSize: '13px', color: '#ef4444' }}>
             mainnet — this spends real gas
           </span>
         )}
@@ -122,7 +122,7 @@ export function DeployTab({ network }: { network: string }) {
             const address = typeof addr === 'string' ? addr : (addr as any)?.address || ''
             return (
               <div key={name} style={{
-                fontFamily: TERM_FONT, fontSize: '12px', padding: '4px 0',
+                fontFamily: TERM_FONT, fontSize: '14px', padding: '4px 0',
                 display: 'flex', gap: '12px', alignItems: 'center',
               }}>
                 <span style={{ color: 'var(--text-primary)', minWidth: '120px' }}>{name}</span>

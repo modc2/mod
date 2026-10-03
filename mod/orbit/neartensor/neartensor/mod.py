@@ -282,6 +282,103 @@ class Mod:
     def validator_balance(self, subnet_id=0, key=""):
         return self._view(self._subnet_account(subnet_id), "get_validator_balance", {"key": key})
 
+    # ── Bittensor Subnet (dedicated NEAR-attestation subnet) ────────────
+
+    def _sn(self):
+        import sys
+        if ROOT not in sys.path:
+            sys.path.insert(0, ROOT)
+        from subnet.config import SubnetConfig
+        return SubnetConfig.load()
+
+    def sn_status(self):
+        """The Bittensor side of the module: subnet config + metagraph summary."""
+        cfg = self._sn()
+        out = {"module": "neartensor", "role": "dedicated bittensor subnet",
+               "task": "NEAR chain attestation",
+               "network": cfg.network, "netuid": cfg.netuid,
+               "near_network": cfg.near_network,
+               "miner_url": cfg.miner_url(), "epoch_seconds": cfg.epoch_seconds}
+        try:
+            from subnet.chain import get_chain
+            mg = get_chain(cfg).metagraph()
+            out["metagraph"] = {"n": mg["n"], "block": mg["block"],
+                                "epochs": mg.get("epochs"),
+                                "incentive": mg.get("incentive", {})}
+        except Exception as e:
+            out["metagraph"] = {"error": str(e)}
+        state_path = os.path.join(cfg.data_dir, "validator_state.json")
+        if os.path.exists(state_path):
+            with open(state_path) as f:
+                st = json.load(f)
+            out["validator"] = {"hotkey": st.get("hotkey"),
+                                "scores": st.get("scores", {}),
+                                "last_epoch_at": st.get("updated")}
+        return out
+
+    def sn_metagraph(self):
+        cfg = self._sn()
+        from subnet.chain import get_chain
+        return get_chain(cfg).metagraph()
+
+    def sn_register(self, role="miner"):
+        """Register this box's hotkey for `role` on the subnet (local or subtensor)."""
+        cfg = self._sn()
+        from subnet.chain import get_chain
+        from subnet.keys import get_keypair
+        kp = get_keypair(cfg, role)
+        hotkey = kp.ss58_address if kp else f"unsigned-{role}"
+        return get_chain(cfg).register(hotkey, role=role)
+
+    def sn_epoch(self):
+        """Run one validator epoch synchronously: query, verify, set weights."""
+        cfg = self._sn()
+        from subnet.validator import Validator
+        return Validator(cfg).epoch()
+
+    def sn_task(self, task="block_header", account_id=None):
+        """Send one attestation task to the local miner (demo/debug)."""
+        import requests
+        cfg = self._sn()
+        from subnet import protocol
+        req = protocol.make_task(task, near_network=cfg.near_network,
+                                 account_id=account_id)
+        r = requests.post(f"{cfg.miner_url()}/synapse", json=req,
+                          timeout=cfg.query_timeout)
+        r.raise_for_status()
+        return {"request": req, "response": r.json()}
+
+    def sn_miner(self, port=None):
+        """Serve the miner neuron under pm2."""
+        cfg = self._sn()
+        port = int(port or cfg.miner_port)
+        mod_root = os.path.dirname(os.path.dirname(os.path.dirname(self.module_dir)))
+        env = {"PYTHONPATH": f"{mod_root}:{self.module_dir}", "PORT": str(port)}
+        cmd = ["python3", "-m", "uvicorn", "miner:app", "--host", cfg.miner_host,
+               "--port", str(port), "--app-dir", os.path.join(ROOT, "subnet")]
+        self._pm2_start("neartensor.miner", cmd, env=env)
+        return {"miner": f"http://localhost:{port}", "pm2": "neartensor.miner",
+                "network": cfg.network, "netuid": cfg.netuid}
+
+    def sn_validator(self):
+        """Serve the validator neuron loop under pm2."""
+        cfg = self._sn()
+        mod_root = os.path.dirname(os.path.dirname(os.path.dirname(self.module_dir)))
+        env = {"PYTHONPATH": f"{mod_root}:{self.module_dir}"}
+        cmd = ["python3", os.path.join(ROOT, "subnet", "validator.py")]
+        self._pm2_start("neartensor.validator", cmd, env=env)
+        return {"validator": "neartensor.validator", "pm2": "neartensor.validator",
+                "epoch_seconds": cfg.epoch_seconds, "network": cfg.network}
+
+    def sn_serve(self):
+        """Bring up the whole subnet on this box: miner + validator."""
+        return {"miner": self.sn_miner(), "validator": self.sn_validator()}
+
+    def sn_kill(self):
+        killed = [n for n in ("neartensor.miner", "neartensor.validator")
+                  if self._pm2_kill(n)]
+        return {"killed": killed}
+
     # ── Serve / Route ────────────────────────────────────────────────────
 
     def _pm2_start(self, name, cmd, cwd=None, env=None):
@@ -411,6 +508,15 @@ class Mod:
             "boost_subnet": self.boost_subnet,
             "validators": self.validators,
             "leaderboard": self.leaderboard,
+            "sn_status": self.sn_status,
+            "sn_metagraph": self.sn_metagraph,
+            "sn_register": self.sn_register,
+            "sn_epoch": self.sn_epoch,
+            "sn_task": self.sn_task,
+            "sn_miner": self.sn_miner,
+            "sn_validator": self.sn_validator,
+            "sn_serve": self.sn_serve,
+            "sn_kill": self.sn_kill,
         }
         fn = actions.get(action)
         if not fn:

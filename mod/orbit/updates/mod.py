@@ -104,6 +104,8 @@ class Mod:
             'author': author.get('name', ''), 'date': author.get('date', ''),
             'message': self._short(commit.get('message', '')),
             'url': c.get('html_url', f'https://github.com/{repo}/commit/{c.get("sha", "")}'),
+            # first parent: lets the daily digest diff a whole day in one compare call
+            'parent': (c.get('parents') or [{}])[0].get('sha', ''),
         }
 
     @property
@@ -131,7 +133,7 @@ class Mod:
 
     def _local_commits(self, branch: str, n: int):
         sep = '\x1f'
-        fmt = sep.join(['%H', '%an', '%aI', '%s'])
+        fmt = sep.join(['%H', '%an', '%aI', '%P', '%s'])
         out = subprocess.run(
             ['git', 'log', branch, f'--pretty=format:{fmt}', '-n', str(n)],
             cwd=self.toplevel, capture_output=True, text=True, timeout=20)
@@ -144,10 +146,11 @@ class Mod:
         for line in out.stdout.splitlines():
             if not line:
                 continue
-            sha, an, date, msg = (line.split(sep) + ['', '', '', ''])[:4]
+            sha, an, date, parents, msg = (line.split(sep) + ['', '', '', '', ''])[:5]
             rows.append({'repo': repo, 'branch': branch, 'sha': sha[:8], 'full_sha': sha,
                          'author': an, 'date': date, 'message': self._short(msg),
-                         'url': f'https://github.com/{repo}/commit/{sha}'})
+                         'url': f'https://github.com/{repo}/commit/{sha}',
+                         'parent': parents.split(' ')[0] if parents else ''})
         return rows
 
     # --- commits / history --------------------------------------------------
@@ -237,6 +240,257 @@ class Mod:
         new = [c for c in res['updates'] if c.get('new')]
         return {'new': len(new), 'updates': new,
                 **({'errors': res['errors']} if res.get('errors') else {})}
+
+    # --- daily digest -------------------------------------------------------
+    # The mod repo's dev branch is pushed by a bot, so every message reads
+    # "root push · N files" — useless as a changelog. What actually carries the
+    # signal is *which modules* the day's files landed in, so a day is rolled up
+    # by path → module and rendered into a post you can paste as-is.
+
+    AUTO_MSG = re.compile(r'^\s*(root push|auto[- ]?commit|wip\b|merge (branch|pull))', re.I)
+    TWEET_MAX = 280
+    TCO = 23                 # every link costs 23 chars on X, whatever its length
+    DISCORD_MAX = 2000
+
+    @staticmethod
+    def _utc_day(iso: str) -> str:
+        """ISO timestamp → 'YYYY-MM-DD' in UTC — one bucket per calendar day."""
+        from datetime import datetime, timezone
+        if not iso:
+            return ''
+        try:
+            dt = datetime.fromisoformat(iso.replace('Z', '+00:00'))
+        except ValueError:
+            return iso[:10]
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).date().isoformat()
+
+    @staticmethod
+    def _today() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).date().isoformat()
+
+    @staticmethod
+    def _pretty_date(day: str) -> str:
+        from datetime import date
+        try:
+            d = date.fromisoformat(day)
+        except ValueError:
+            return day
+        return f'{d.strftime("%a")} {d.strftime("%b")} {d.day}'
+
+    @staticmethod
+    def _module_of(path: str) -> str:
+        """Attribute a repo path to the module that owns it."""
+        seg = [s for s in (path or '').split('/') if s]
+        for i, s in enumerate(seg[:-1]):
+            if s == 'orbit':
+                return seg[i + 1]
+            if s == 'core':
+                return 'core/' + seg[i + 1]
+        return seg[0] if len(seg) > 1 else 'root'
+
+    def _local_files(self, shas) -> list:
+        """Paths touched by a set of commits, in one `git show` (merges show
+        nothing, which is what we want — no double counting)."""
+        if not shas:
+            return []
+        out = subprocess.run(['git', 'show', '--name-only', '--pretty=format:%x01', *shas],
+                             cwd=self.toplevel, capture_output=True, text=True, timeout=90)
+        if out.returncode != 0:
+            raise RuntimeError(out.stderr.strip() or 'git show failed')
+        return [ln.strip() for ln in out.stdout.replace('\x01', '').splitlines() if ln.strip()]
+
+    def _api_files(self, repo: str, base: str, head: str) -> list:
+        """Paths touched between two commits — one API call for a whole day."""
+        data = self._api(f'/repos/{repo}/compare/{base}...{head}')
+        return [f.get('filename', '') for f in (data.get('files') or []) if f.get('filename')]
+
+    def _day_files(self, repo: str, rows: list) -> list:
+        """Distinct paths a day's commits touched. Local git first (free and
+        offline); else one compare call from the oldest commit's parent."""
+        shas = [c['full_sha'] for c in rows if c.get('full_sha')]
+        if not shas:
+            return []
+        if self._is_local(repo):
+            try:
+                return sorted(set(self._local_files(shas)))
+            except Exception:
+                pass
+        base = rows[0].get('parent') or shas[0]
+        try:
+            return sorted(set(self._api_files(repo, base, shas[-1])))
+        except Exception:
+            return []
+
+    def daily(self, repo=None, branch=None, days=7, n=200, files=True) -> dict:
+        """Roll a branch's commits up into ONE entry per calendar day (UTC),
+        each with a ready-to-paste post. Defaults to the mod repo's dev branch.
+        Every day carries {date, commits, files, modules, authors, post{...}}."""
+        repo = self._parse_repo(repo or PRIMARY)
+        branch = branch or self._branch_of(repo)
+        cs = self.commits(repo, branch, int(n))
+
+        buckets = {}
+        for c in cs:
+            buckets.setdefault(self._utc_day(c.get('date')), []).append(c)
+
+        posted = ((self._load().get('posted') or {}).get(f'{repo}@{branch}')) or {}
+        out = []
+        for day in sorted(buckets, reverse=True)[:int(days)]:
+            rows = sorted(buckets[day], key=lambda c: c.get('date', ''))   # oldest → newest
+            paths = self._day_files(repo, rows) if files else []
+            counts = {}
+            for p in paths:
+                mod_name = self._module_of(p)
+                counts[mod_name] = counts.get(mod_name, 0) + 1
+            entry = {
+                'date': day,
+                'label': self._pretty_date(day),
+                'repo': repo, 'branch': branch,
+                'commits': len(rows),
+                'files': len(paths),
+                'authors': sorted({c['author'] for c in rows if c.get('author')}),
+                'modules': [{'name': k, 'files': v} for k, v in
+                            sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))],
+                'highlights': [c['message'] for c in reversed(rows)
+                               if c.get('message') and not self.AUTO_MSG.match(c['message'])][:5],
+                'shas': [c['sha'] for c in rows][::-1],
+                'url': f'https://github.com/{repo}/commits/{branch}',
+                'posted': bool(posted.get(day)),
+            }
+            entry['post'] = {s: self._render(entry, s) for s in ('twitter', 'discord', 'markdown')}
+            entry['chars'] = {s: self._weighted_len(entry['post'][s], entry['url'])
+                              for s in ('twitter', 'discord', 'markdown')}
+            out.append(entry)
+
+        return {'repo': repo, 'branch': branch, 'tz': 'UTC', 'count': len(out),
+                'today': self._today(), 'days': out}
+
+    digest = daily
+
+    def _weighted_len(self, text: str, link: str) -> int:
+        """X counts any link as 23 chars, so measure the way the box will."""
+        return len(text) - len(link) + self.TCO if link and link in text else len(text)
+
+    def _render(self, d: dict, style='twitter') -> str:
+        """One day → one post. Branch is always on the first line: these feeds
+        carry several branches and a digest that hides which one is a rumour."""
+        repo, br, link = d['repo'], d['branch'], d['url']
+        plural = lambda n, w: f'{n} {w}' + ('' if n == 1 else 's')
+        stats = [plural(d['commits'], 'commit')]
+        if d['files']:
+            stats.append(plural(d['files'], 'file'))
+        if d['modules']:
+            stats.append(plural(len(d['modules']), 'module'))
+        if len(d['authors']) > 1:
+            stats.append(plural(len(d['authors']), 'dev'))
+
+        if style == 'twitter':
+            head = f'{repo} · {br} · {d["label"]}'
+            lines = [f'▸ {x["name"]} {x["files"]}' for x in d['modules']]
+            text = ''
+            for keep in range(min(5, len(lines)), -1, -1):      # drop modules until it fits
+                body = lines[:keep] + ([f'+{len(lines) - keep} more'] if keep < len(lines) else [])
+                text = '\n'.join([head, '', ' · '.join(stats)]
+                                 + ([''] + body if body else []) + ['', link])
+                if self._weighted_len(text, link) <= self.TWEET_MAX:
+                    break
+            return text
+
+        if style == 'discord':
+            # no emoji: it renders as tofu in the app's own preview (this host
+            # ships no emoji font) and the bold header carries it fine anyway
+            parts = [f'**{repo} `{br}` — {d["label"]}**',
+                     ' · '.join(f'`{s}`' for s in stats)]
+            if d['modules']:
+                shown = d['modules'][:10]
+                rest = len(d['modules']) - len(shown)
+                parts += ['', '**modules touched**']
+                parts += [f'• `{x["name"]}` — {plural(x["files"], "file")}' for x in shown]
+                if rest:
+                    parts.append(f'• …and {rest} more')
+            if d['highlights']:
+                parts += ['', '**highlights**'] + [f'• {h}' for h in d['highlights']]
+            parts += ['', f'<{link}>']                          # <> = no link preview card
+            text = '\n'.join(parts)
+            return text if len(text) <= self.DISCORD_MAX else text[:self.DISCORD_MAX - 1] + '…'
+
+        # markdown / plain — release notes, changelogs, anywhere else
+        parts = [f'{repo} ({br}) — {d["date"]}', ' · '.join(stats), '']
+        parts += [f'- {x["name"]}: {plural(x["files"], "file")}' for x in d['modules'][:15]]
+        if d['highlights']:
+            parts += [''] + [f'- {h}' for h in d['highlights']]
+        parts += ['', link]
+        return '\n'.join(parts)
+
+    def post(self, date=None, style='twitter', repo=None, branch=None,
+             force=False, mark=True) -> dict:
+        """THE once-a-day update, ready to paste into X or Discord.
+
+        date: 'latest' (default — newest day with commits), 'today',
+        'yesterday', or 'YYYY-MM-DD'. Runs after the first one on a given day
+        come back with skip=True unless force=True, so a daily cron posts once."""
+        data = self.daily(repo=repo, branch=branch, days=30, n=400)
+        days = data['days']
+        if not days:
+            return {'skip': True, 'reason': 'no commits', 'repo': data['repo'],
+                    'branch': data['branch']}
+        want = (date or 'latest').strip().lower()
+        if want in ('latest', 'last', ''):
+            day = days[0]
+        else:
+            if want == 'today':
+                want = self._today()
+            elif want == 'yesterday':
+                from datetime import date as _d, timedelta
+                want = (_d.fromisoformat(self._today()) - timedelta(days=1)).isoformat()
+            day = next((x for x in days if x['date'] == want), None)
+            if day is None:
+                return {'skip': True, 'reason': f'no commits on {want}',
+                        'date': want, 'repo': data['repo'], 'branch': data['branch']}
+
+        style = (style or 'twitter').lower()
+        if style in ('x', 'tweet'):
+            style = 'twitter'
+        if style not in day['post']:
+            style = 'markdown'
+        res = {'date': day['date'], 'repo': day['repo'], 'branch': day['branch'],
+               'style': style, 'text': day['post'][style], 'chars': day['chars'][style],
+               'limit': self.TWEET_MAX if style == 'twitter' else self.DISCORD_MAX,
+               'commits': day['commits'], 'files': day['files'],
+               'modules': [x['name'] for x in day['modules'][:10]],
+               'already_posted': day['posted'], 'skip': bool(day['posted']) and not force}
+        if mark and not res['skip']:
+            self.mark_posted(day['date'], repo=day['repo'], branch=day['branch'])
+            res['marked'] = True
+        return res
+
+    tweet = post
+
+    def paste(self, date=None, style='twitter', repo=None, branch=None,
+              force=True, mark=False) -> str:
+        """Just the post text, nothing around it — `m updates/paste` prints it
+        as-is so you can select it out of the terminal. Defaults to force (you
+        asked for it) and to NOT marking the day posted (you haven't yet)."""
+        res = self.post(date=date, style=style, repo=repo, branch=branch,
+                        force=force, mark=mark)
+        return res.get('text') or f'no update: {res.get("reason", "nothing to post")}'
+
+    def mark_posted(self, date=None, repo=None, branch=None, posted=True) -> dict:
+        """Record that a day's update went out (what makes 'once per day' hold)."""
+        repo = self._parse_repo(repo or PRIMARY)
+        branch = branch or self._branch_of(repo)
+        date = date or self._today()
+        st = self._load()
+        book = st.setdefault('posted', {}).setdefault(f'{repo}@{branch}', {})
+        if posted in (False, 'false', 0, '0'):
+            book.pop(date, None)
+        else:
+            book[date] = m.time()
+        self._save(st)
+        return {'repo': repo, 'branch': branch, 'date': date, 'posted': bool(book.get(date))}
 
     # --- managing the watchlist ---------------------------------------------
 
@@ -562,6 +816,15 @@ class Mod:
                                                            repo=q.get('repo'), mark_seen=False))
                     if u.path == '/api/poll':
                         return self._send(200, gov.poll(n=int(q.get('n', 50))))
+                    if u.path == '/api/daily':
+                        return self._send(200, gov.daily(repo=q.get('repo'), branch=q.get('branch'),
+                                                         days=int(q.get('days', 7)),
+                                                         n=int(q.get('n', 300))))
+                    if u.path == '/api/post':
+                        # GET never marks — the UI marks on copy, via POST
+                        return self._send(200, gov.post(date=q.get('date'), style=q.get('style', 'twitter'),
+                                                        repo=q.get('repo'), branch=q.get('branch'),
+                                                        force=True, mark=False))
                     if u.path == '/api/repos':
                         return self._send(200, gov.repos())
                     if u.path == '/api/modules':
@@ -587,6 +850,10 @@ class Mod:
                         return self._send(200, gov.track(body.get('repo'), body.get('branch')))
                     if u.path == '/api/untrack':
                         return self._send(200, gov.untrack(body.get('repo')))
+                    if u.path == '/api/mark_posted':
+                        return self._send(200, gov.mark_posted(body.get('date'), repo=body.get('repo'),
+                                                               branch=body.get('branch'),
+                                                               posted=body.get('posted', True)))
                     if u.path == '/api/set_branch':
                         return self._send(200, gov.set_branch(body.get('repo'), body.get('branch')))
                     return self._send(404, {'error': 'not found'})
@@ -621,7 +888,7 @@ INDEX_HTML = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>updates · feed + modules</title>
+<title>updates · feed + daily + modules</title>
 <style>
   :root{
     --bg:#080a0f; --bg2:#0c1018; --panel:#10141e; --panel2:#161c2a; --line:#1f2636;
@@ -703,6 +970,34 @@ INDEX_HTML = r"""<!doctype html>
   .sha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint)}
   .badge{font-size:10px;font-weight:800;color:#1a1205;background:var(--new);
     border-radius:6px;padding:2px 7px;letter-spacing:.4px}
+  /* branch chip — a digest that hides which branch it came from is a rumour */
+  .br .brsvg{vertical-align:-1px;margin-right:2px}
+  .br{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:600;
+    color:var(--accent2);background:rgba(91,140,255,.12);border:1px solid rgba(91,140,255,.3);
+    border-radius:6px;padding:1px 7px}
+  /* daily digest */
+  .days{display:flex;flex-direction:column;gap:16px}
+  .day{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);
+    border-radius:var(--r);padding:16px 18px;transition:.15s}
+  .day:hover{border-color:var(--line2)}
+  .day.pending{border-color:rgba(255,180,84,.45)}
+  .day .dhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .day .date{font-size:17px;font-weight:800;letter-spacing:.2px}
+  .day .iso{color:var(--faint);font-size:12px;font-family:ui-monospace,Menlo,monospace}
+  .day .stats{color:var(--muted);font-size:12.5px;margin-top:7px;display:flex;gap:10px;flex-wrap:wrap}
+  .day .stats b{color:var(--text)}
+  .mchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+  .mchip{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted)}
+  .mchip b{color:var(--accent2);font-weight:700}
+  .post{margin:13px 0 0;background:#06080d;border:1px solid var(--line);border-radius:11px;
+    padding:13px 15px;white-space:pre-wrap;word-break:break-word;font:13px/1.6 ui-sans-serif,system-ui;
+    color:var(--text);max-height:340px;overflow:auto}
+  .dfoot{display:flex;align-items:center;gap:9px;margin-top:11px;flex-wrap:wrap}
+  .chars{font-size:11.5px;color:var(--faint);font-family:ui-monospace,Menlo,monospace}
+  .chars.over{color:var(--pink);font-weight:700}
+  .chip.posted{color:#062611;background:rgba(63,185,80,.9)}
+  .chip.pending{color:#1a1205;background:var(--new)}
   /* module grid */
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:13px}
   .mod{display:flex;flex-direction:column;gap:9px;background:linear-gradient(180deg,var(--panel),var(--bg2));
@@ -741,6 +1036,7 @@ INDEX_HTML = r"""<!doctype html>
     <div class="brand"><span class="logo">📡</span>updates<span class="dot">.</span></div>
     <div class="seg">
       <button id="tab-feed" class="on" onclick="setView('feed')">Feed <span class="n" id="n-feed">·</span></button>
+      <button id="tab-daily" onclick="setView('daily')">Daily <span class="n" id="n-daily">·</span></button>
       <button id="tab-mods" onclick="setView('mods')">Modules <span class="n" id="n-mods">·</span></button>
     </div>
     <span class="sub" id="status">loading…</span>
@@ -752,6 +1048,8 @@ INDEX_HTML = r"""<!doctype html>
 <main>
   <div class="view on" id="view-feed"><div class="feed" id="feed">
     <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>
+  <div class="view" id="view-daily"><div class="days" id="days">
+    <div class="skeleton" style="height:180px"></div><div class="skeleton" style="height:180px"></div></div></div>
   <div class="view" id="view-mods"><div class="grid" id="mods">
     <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>
 </main>
@@ -760,7 +1058,15 @@ const $ = s => document.querySelector(s);
 const BASE = location.pathname.replace(/\/+$/,'').replace(/\/index\.html$/,'');
 const api = p => BASE + p;
 let VIEW='feed', FILTER=null, INFO={}, MODS=null, MODQ='';
+let STYLE=localStorage.getItem('updates.style')||'twitter', DAYS=7, DAILY=null;
+const STYLES={twitter:{label:'X / Twitter',limit:280},discord:{label:'Discord',limit:2000},markdown:{label:'Plain',limit:0}};
 
+// branch glyph as inline SVG: this box (and plenty of others) ships no font
+// that covers the git-branch character, and it would render as a tofu box.
+const BR = '<svg class="brsvg" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true">'
+  + '<path fill="none" stroke="currentColor" stroke-width="1.6" d="M4.5 3v10M4.5 8h5a2 2 0 0 0 2-2V4.5"/>'
+  + '<circle cx="4.5" cy="2.5" r="1.7" fill="currentColor"/><circle cx="4.5" cy="13.5" r="1.7" fill="currentColor"/>'
+  + '<circle cx="11.5" cy="3" r="1.7" fill="currentColor"/></svg>';
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function ago(d){if(!d)return'';const t=new Date(d),s=(Date.now()-t)/1e3;
   if(s<60)return Math.floor(s)+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';
@@ -774,13 +1080,15 @@ function initials(s){return (s||'?').replace(/[^a-z0-9]/gi,'').slice(0,2).toUppe
 
 function setView(v){
   VIEW=v;
-  $('#tab-feed').classList.toggle('on',v==='feed');
-  $('#tab-mods').classList.toggle('on',v==='mods');
-  $('#view-feed').classList.toggle('on',v==='feed');
-  $('#view-mods').classList.toggle('on',v==='mods');
+  for(const t of ['feed','daily','mods']){
+    $('#tab-'+(t==='mods'?'mods':t)).classList.toggle('on',v===t);
+    $('#view-'+t).classList.toggle('on',v===t);
+  }
   renderActions();
-  if(v==='feed'){$('#filters').style.display='flex';}
-  else {$('#filters').style.display='none'; if(MODS===null) loadMods();}
+  $('#filters').style.display = v==='feed' ? 'flex' : 'none';
+  if(v==='mods' && MODS===null) loadMods();
+  if(v==='daily' && DAILY===null) loadDaily();
+  if(v==='daily' && DAILY) renderDaily();
 }
 
 function renderActions(){
@@ -791,6 +1099,15 @@ function renderActions(){
       <button class="btn ghost" onclick="markRead()" title="mark all commits seen">mark read</button>
       <button class="btn primary" onclick="loadFeed()">↻</button>`;
     const a=$('#add'); a.addEventListener('keydown',e=>{if(e.key==='Enter')track()});
+  } else if(VIEW==='daily'){
+    el.innerHTML = `<div class="seg">`+
+      Object.entries(STYLES).map(([k,v])=>
+        `<button class="${STYLE===k?'on':''}" onclick="setStyle('${k}')">${v.label}</button>`).join('')+
+      `</div>
+      <select id="dsel" class="btn" onchange="DAYS=+this.value;loadDaily()">
+        ${[7,14,30].map(d=>`<option value="${d}" ${DAYS===d?'selected':''}>last ${d} days</option>`).join('')}
+      </select>
+      <button class="btn primary" onclick="loadDaily()">↻</button>`;
   } else {
     el.innerHTML = `<input id="msearch" placeholder="filter modules…" value="${esc(MODQ)}"/>
       <button class="btn primary" onclick="loadMods(true)" title="re-scan registrar">↻ rescan</button>`;
@@ -832,7 +1149,7 @@ function renderFeed(items, errors){
         <a class="title" href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.message)||'(no message)'}</a>
         <div class="meta">
           <span class="repo">${esc(c.repo)}</span>
-          <span>${esc(c.branch||'')}</span>
+          <span class="br">${BR} ${esc(c.branch||'')}</span>
           <span class="sha">${esc(c.sha)}</span>
           <span>${esc(c.author)}</span>
           <span>${ago(c.date)}</span>
@@ -854,6 +1171,74 @@ async function untrack(r){
     body:JSON.stringify({repo:r})}); if(FILTER===r)FILTER=null; loadFeed();
 }
 async function markRead(){ await fetch(api('/api/poll?n=80')); loadFeed(); }
+
+/* ---------------- DAILY (one post per day, paste-ready) ---------------- */
+function setStyle(k){ STYLE=k; localStorage.setItem('updates.style',k); renderActions(); renderDaily(); }
+
+async function loadDaily(){
+  $('#days').innerHTML='<div class="skeleton" style="height:180px"></div><div class="skeleton" style="height:180px"></div>';
+  try{
+    const r=await fetch(api(`/api/daily?days=${DAYS}&n=400`));
+    DAILY=await r.json();
+    renderDaily();
+  }catch(e){ $('#days').innerHTML=`<div class="err">${esc(''+e)}</div>`; }
+}
+
+function renderDaily(){
+  if(!DAILY) return;
+  const days=DAILY.days||[];
+  const pending=days.filter(d=>!d.posted).length;
+  $('#n-daily').textContent=pending||days.length;
+  if(VIEW==='daily')
+    $('#status').innerHTML=`<b>${esc(DAILY.repo)}</b> <span class="br">${BR} ${esc(DAILY.branch)}</span> · `
+      +`${days.length} day${days.length===1?'':'s'} · `
+      +(pending?`<span class="count">${pending} to post</span>`:'all posted')+` · UTC`;
+  if(!days.length){ $('#days').innerHTML='<div class="empty">no commits in this window</div>'; return; }
+  const lim=STYLES[STYLE].limit;
+  $('#days').innerHTML = days.map((d,i)=>{
+    const chars=(d.chars||{})[STYLE]||0, over=lim&&chars>lim;
+    const mods=(d.modules||[]).slice(0,8).map(x=>`<span class="mchip">${esc(x.name)} <b>${x.files}</b></span>`).join('');
+    const more=(d.modules||[]).length-8;
+    return `<div class="day ${d.posted?'':'pending'}">
+      <div class="dhead">
+        <span class="date">${esc(d.label)}</span>
+        <span class="iso">${esc(d.date)}</span>
+        <span class="repo">${esc(d.repo)}</span>
+        <span class="br">${BR} ${esc(d.branch)}</span>
+        <span class="grow"></span>
+        <span class="chip ${d.posted?'posted':'pending'}">${d.posted?'POSTED':'TO POST'}</span>
+      </div>
+      <div class="stats"><span><b>${d.commits}</b> commits</span><span><b>${d.files}</b> files</span>
+        <span><b>${(d.modules||[]).length}</b> modules</span>
+        <span>${esc((d.authors||[]).join(', '))}</span></div>
+      <div class="mchips">${mods}${more>0?`<span class="mchip">+${more}</span>`:''}</div>
+      <pre class="post" id="post-${i}">${esc((d.post||{})[STYLE]||'')}</pre>
+      <div class="dfoot">
+        <button class="btn primary" onclick="copyPost(${i})" id="cp-${i}">copy for ${esc(STYLES[STYLE].label)}</button>
+        <button class="btn ghost" onclick="togglePosted(${i})">${d.posted?'mark unposted':'mark posted'}</button>
+        <span class="chars ${over?'over':''}">${chars}${lim?` / ${lim}`:''} chars</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function copyPost(i){
+  const d=DAILY.days[i], text=(d.post||{})[STYLE]||'';
+  try{ await navigator.clipboard.writeText(text); }
+  catch(e){ // non-secure context: fall back to a hidden textarea
+    const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove();
+  }
+  const b=$('#cp-'+i); if(b){ const t=b.textContent; b.textContent='✓ copied'; setTimeout(()=>b.textContent=t,1400); }
+  if(!d.posted) await togglePosted(i, true);   // copying IS posting — keeps it once a day
+}
+
+async function togglePosted(i, on){
+  const d=DAILY.days[i], want = on===undefined ? !d.posted : !!on;
+  await fetch(api('/api/mark_posted'),{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({date:d.date, repo:d.repo, branch:d.branch, posted:want})});
+  d.posted=want; renderDaily();
+}
 
 /* ---------------- MODULES (registrar) ---------------- */
 async function loadMods(refresh){
@@ -895,7 +1280,7 @@ function renderMods(data){
 /* ---------------- boot ---------------- */
 renderActions();
 loadFeed();
-setInterval(()=>{ if(VIEW==='feed') loadFeed(); }, 60000);
+setInterval(()=>{ if(VIEW==='feed') loadFeed(); if(VIEW==='daily') loadDaily(); }, 300000);
 </script>
 </body>
 </html>

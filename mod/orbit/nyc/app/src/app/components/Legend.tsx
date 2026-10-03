@@ -1,8 +1,11 @@
 'use client'
 
-import type { Breaks, Options } from '@/lib/api'
+import type { Breaks, Choropleth, Options } from '@/lib/api'
 import { byFormat } from '@/lib/format'
-import { DIVERGING, LAYER_COLOR, NO_DATA, SEQUENTIAL, ZONE_COLOR, rampOf } from '@/lib/palette'
+import {
+  DIVERGING, LAYER_COLOR, NO_DATA, SEQUENTIAL, SPEED_BAND, SPEED_BAND_LABEL,
+  ZONE_COLOR, rampOf,
+} from '@/lib/palette'
 import { SALE_BREAKS } from './MapView'
 
 type Props = {
@@ -12,6 +15,7 @@ type Props = {
   active: string[]
   areasWithData?: number
   totalAreas?: number
+  population?: Choropleth | null
 }
 
 /**
@@ -20,9 +24,34 @@ type Props = {
  * units and its "no data" class explicitly.
  */
 export default function Legend({
-  breaks, metric, options, active, areasWithData, totalAreas,
+  breaks, metric, options, active, areasWithData, totalAreas, population,
 }: Props) {
   const rows: React.ReactNode[] = []
+
+  const pb = population?.breaks
+  if (active.includes('population') && pb && pb.stops.length > 1) {
+    const pm = population!.meta as any
+    rows.push(
+      <div key="population">
+        <div className="mb-1.5 pixel text-[7.5px] leading-[1.7] text-nes-coin">
+          {pm?.label ?? 'Population'}
+        </div>
+        <div className="flex h-3 overflow-hidden border-2 border-black">
+          {rampOf(pb.stops.length, SEQUENTIAL).map((c, i) => (
+            <div key={i} className="flex-1" style={{ background: c }} />
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-nes-ink3">
+          <span>under {byFormat(pb.stops[1], pm?.format)}</span>
+          <span>{byFormat(pb.stops[pb.stops.length - 1], pm?.format)}+</span>
+        </div>
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-nes-ink3">
+          <span className="h-3 w-3 border-2 border-black" style={{ background: NO_DATA }} />
+          No data / no residents
+        </div>
+      </div>,
+    )
+  }
   const meta = options?.metrics?.[metric]
   const fmt = meta?.format ?? 'usd'
 
@@ -107,6 +136,25 @@ export default function Legend({
     )
   }
 
+  if (active.includes('traffic_speeds')) {
+    rows.push(
+      <Row key="speeds" title="Speed now">
+        <ul className="space-y-1">
+          {SPEED_BAND_LABEL.map(([key, label]) => (
+            <li key={key} className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+              <span className="h-1.5 w-4 shrink-0 ring-2 ring-black"
+                    style={{ background: SPEED_BAND[key] }} />
+              <span className="tabular-nums">{label}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1 text-[9.5px] leading-snug text-nes-ink3">
+          Highway and arterial sensors only — local streets have no detector.
+        </p>
+      </Row>,
+    )
+  }
+
   if (active.includes('collisions')) {
     rows.push(
       <Row key="collisions" title="Traffic injuries">
@@ -120,6 +168,8 @@ export default function Legend({
   }
 
   const dots: [string, string, string][] = []
+  if (active.includes('traffic_volume'))
+    dots.push(['traffic_volume', 'Traffic volume', 'circle size = vehicles/day, floored'])
   if (active.includes('subway_ridership'))
     dots.push(['subway_ridership', 'Station ridership', 'circle size = riders'])
   if (active.includes('affordable_housing'))
@@ -172,6 +222,7 @@ export default function Legend({
 const ENCODED = [
   'sales', 'evacuation_zones', 'collisions', 'subway_ridership',
   'affordable_housing', 'subway_stations', 'bike_routes', 'parks', 'subway_lines',
+  'traffic_speeds', 'traffic_volume',
 ]
 
 /**

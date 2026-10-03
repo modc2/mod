@@ -1,0 +1,38 @@
+{
+  "name": "sn82",
+  "version": "1.0.0",
+  "description": "SN82 uruz — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚢ",
+  "chain": "bittensor",
+  "netuid": 82,
+  "subnet": "uruz",
+  "symbol": "ᚢ",
+  "owner": "5GGrRdUatgDLiJxnytdWfYCwsAb1Cyo4U5Dw1HmLiAcbWj88",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=82",
+    "news": "/bt/news?netuid=82"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

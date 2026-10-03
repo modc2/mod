@@ -1,0 +1,165 @@
+{
+  "netuid": 40,
+  "name": "Ralph",
+  "symbol": "ן",
+  "owner": "5HeKCDfdTyk5gttniUXWVGvf6xSpbJJG86thJcZnqNZjThoU",
+  "description": " The same model, small enough to run on your phone. Compress the frontier models into GGUFs.",
+  "github": "https://github.com/RalphLabsAI/ralph",
+  "url": "https://ralphlabs.ai",
+  "discord": null,
+  "logo": "https://ralphlabs.ai/brand/ralph-logo.png",
+  "registered_at": 8409860,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.002460706,
+    "moving_price": 0.00250379741191864,
+    "market_cap": 2601.137590947514,
+    "tao_in": 1439.56373107,
+    "alpha_in": 585020.521013885,
+    "alpha_out": 472049.113045411,
+    "volume": 81147.280179537,
+    "vol_24h": 33.45740851400478,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -4.465945086784862,
+    "change_7d": -14.329233689449705
+  },
+  "spark_24h": [
+    0.002575736,
+    0.002575732,
+    0.00257573,
+    0.002575685,
+    0.00257568,
+    0.002575594,
+    0.002575584,
+    0.002575579,
+    0.00257546,
+    0.002575298,
+    0.002574758,
+    0.002575025,
+    0.002574072,
+    0.002570014,
+    0.002546375,
+    0.002546374,
+    0.002519903,
+    0.002519902,
+    0.002519902,
+    0.002515978,
+    0.002515978,
+    0.00247864,
+    0.002478588,
+    0.002478583,
+    0.002478562,
+    0.002478556,
+    0.002478556,
+    0.00246442,
+    0.002463586,
+    0.002463585,
+    0.002463449,
+    0.002463449,
+    0.002463449,
+    0.002463448,
+    0.002463448,
+    0.002463448,
+    0.002460983,
+    0.002460905,
+    0.002460885,
+    0.002460885,
+    0.002460881,
+    0.00246082,
+    0.00246082,
+    0.002460742,
+    0.002460742,
+    0.002460706,
+    0.002460706,
+    0.002460706
+  ],
+  "trades_24h": {
+    "trades": 34,
+    "buys": 1,
+    "sells": 33,
+    "buy_tao": 0.099818,
+    "sell_tao": 31.351731785000002,
+    "net_tao": -31.251913785000003,
+    "traders": 13
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CD5jXCExuBEsoTdC76ZA5x6jJGh1HeBuDNqftrpwMGpGSrP",
+      "net_tao": -10.81043677,
+      "gross_tao": 10.81043677,
+      "trades": 11
+    },
+    {
+      "coldkey": "5F9Cq1uVUtWoP5TPBs4PVhJhmMoHxdQFGbCtHHmgMWM1FNgH",
+      "net_tao": -7.625205876,
+      "gross_tao": 7.625205876,
+      "trades": 8
+    },
+    {
+      "coldkey": "5DfaTKmpXvdEpVdm5ywEWcj5SKeWMkyvDkKh1NZYMqAdSQ9W",
+      "net_tao": -7.531717488,
+      "gross_tao": 7.531717488,
+      "trades": 2
+    },
+    {
+      "coldkey": "5DLRvYZzipQ5CvyajTQeEir6e41bDDcFf7yGvqLwT9Z1Apf4",
+      "net_tao": -1.188163602,
+      "gross_tao": 1.188163602,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DLPrjVuk3gHPByExSbba1e6v8tAwqdSQJZKow7JkkSMtJLk",
+      "net_tao": -0.877077776,
+      "gross_tao": 0.877077776,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789600383,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #17 from RalphLabsAI/fix/round8-readiness",
+      "url": "https://github.com/RalphLabsAI/ralph/commit/6500e1bd2bab809fb3e5a3650d0b26e680ee7285",
+      "publisher": "RalphLabsAI/ralph"
+    },
+    {
+      "ts": 1789560632,
+      "kind": "commit",
+      "source": "github",
+      "title": "Name the anchor holder's flag for what it is",
+      "url": "https://github.com/RalphLabsAI/ralph/commit/af70ce593516ade125062597434e9c4ef9b5df3d",
+      "publisher": "RalphLabsAI/ralph"
+    },
+    {
+      "ts": 1789520122,
+      "kind": "commit",
+      "source": "github",
+      "title": "Write miner commitments through the 11.x call path",
+      "url": "https://github.com/RalphLabsAI/ralph/commit/7f7c05d7e8881a2a37fbf265dc8fd08ef27321ac",
+      "publisher": "RalphLabsAI/ralph"
+    },
+    {
+      "ts": 1789520122,
+      "kind": "commit",
+      "source": "github",
+      "title": "The crowns publisher owns one block of the card",
+      "url": "https://github.com/RalphLabsAI/ralph/commit/f0a78909685d90dc17cfac6358d1958ff7b53e6f",
+      "publisher": "RalphLabsAI/ralph"
+    },
+    {
+      "ts": 1789520122,
+      "kind": "commit",
+      "source": "github",
+      "title": "Docs: round-7 rules, miner CLI flow, auditor weights",
+      "url": "https://github.com/RalphLabsAI/ralph/commit/fdb10a2c647a23d7258b428f74265cac52c1de4d",
+      "publisher": "RalphLabsAI/ralph"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

@@ -3,7 +3,7 @@
 Mod protocol module.
 
 - **API** — mod-protocol server on `:50260` (`m serve bitchain`), pm2 `bitchain`.
-  Public at `modc2.com/api/bitchain` (prefix stripped): `POST /info`, `POST /readme`;
+  Public at `modc2.com/bitchain/api` (prefix stripped): `POST /info`, `POST /readme`;
   `forward` requires auth.
 - **App** — zero-dep console page (`app/server.py` + `app/index.html`) on `:50261`,
   pm2 `bitchain-app`. Public at `modc2.com/bitchain` (prefix kept — the page links

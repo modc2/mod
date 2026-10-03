@@ -5,6 +5,7 @@ import type {
   ServerStrat,
   StratWrite,
   AccountWatch,
+  AgentApproval,
   AgentEvent,
   AgentStatus,
   CopyConfig,
@@ -12,18 +13,20 @@ import type {
   LeaderboardEntry,
   MarketStats,
   PnlData,
+  PortfolioPlan,
   PricePoint,
   SubnetDetail,
   SubnetInfo,
   Trade,
   TraderBoard,
   Universe,
+  Coverage,
 } from "./types";
 
-// All requests go through the Next.js rewrite at /api/copytensor → backend.
-// Defined in next.config.js so the basePath ("/copytensor") doesn't get
-// prepended to API calls.
-const BASE = process.env.NEXT_PUBLIC_API_URL || "/api/copytensor";
+// All requests go through the Next.js rewrite at /copytensor/api → backend
+// (canonical mod-protocol form; /api/copytensor stays as a legacy alias).
+// Defined in next.config.js.
+const BASE = process.env.NEXT_PUBLIC_API_URL || "/copytensor/api";
 
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
@@ -64,8 +67,13 @@ export const fetchCurve = (ss58: string, days = 7) =>
   j<CurveData>(`/account/${ss58}/curve?days=${days}`);
 
 // ── leaderboard ──
+// days = 0 asks for every day of history the index holds.
 export const fetchLeaderboard = (days = 7, top = 50) =>
   j<LeaderboardEntry[]>(`/leaderboard?days=${days}&top=${top}`);
+
+// How far back the index reaches, and how many traders each offered horizon
+// really covers — what the window rail labels itself with.
+export const fetchCoverage = () => j<Coverage>("/coverage");
 
 // ── trader pool ──
 // The leaderboard ranks the coldkeys we watch, so the pool size IS how many
@@ -104,14 +112,39 @@ export const unwatchAccount = (ss58: string) =>
 export const fetchCopies = () => j<CopyConfig[]>("/copies");
 
 export const createCopy = (body: {
-  target_ss58?: string;
-  targets?: { ss58: string; weight: number }[];
+  target_ss58: string;
   our_hotkey: string;
   label?: string;
+  /** The TAO behind this trader. Required — it is the size of the position. */
+  alloc_tao: number;
   max_tao_per_tx?: number;
   daily_limit_tao?: number;
   rebalance_threshold_pct?: number;
+  poll_interval_sec?: number;
 }) => j<CopyConfig>("/copy", { method: "POST", body: JSON.stringify(body) });
+
+/** Re-size a live copy. The blend picks it up on the next pass — no exit. */
+export const updateCopy = (
+  id: string,
+  body: {
+    alloc_tao?: number;
+    label?: string;
+    our_hotkey?: string;
+    max_tao_per_tx?: number;
+    rebalance_threshold_pct?: number;
+    poll_interval_sec?: number;
+  },
+) => j<CopyConfig>(`/copy/${id}`, { method: "PUT", body: JSON.stringify(body) });
+
+// ── portfolio ──
+// Every active copy blended into one book. `portfolioPlan` is a pure read of
+// exactly what `portfolioSync` would execute, so the preview cannot drift
+// from the thing it previews.
+
+export const portfolioPlan = () => j<PortfolioPlan>("/portfolio");
+
+export const portfolioSync = (dryRun = false) =>
+  j<PortfolioPlan>(`/portfolio/sync?dry_run=${dryRun}`, { method: "POST" });
 
 export const pauseCopy = (id: string) =>
   j<{ id: string; status: string }>(`/copy/${id}/pause`, { method: "POST" });
@@ -181,6 +214,24 @@ export async function askAgent(
   }
 }
 
+// ── approvals: the agent asks, you answer ──
+//
+// Nothing the agent writes happens without one of these. The card arrives
+// on the /agent/ask stream; this is the other half of the handshake.
+
+export const fetchPendingApprovals = (runId?: string) =>
+  j<{ pending: AgentApproval[]; ttl_sec: number }>(
+    `/agent/approvals${runId ? `?run_id=${encodeURIComponent(runId)}` : ""}`,
+  );
+
+/** `note` is not decoration — it is handed to the model as the reason, so
+    "too much TAO" comes back as a smaller basket rather than a retry. */
+export const decideApproval = (id: string, approve: boolean, note = "") =>
+  j<AgentApproval>(`/agent/approvals/${id}`, {
+    method: "POST",
+    body: JSON.stringify({ approve, note }),
+  });
+
 // ── wallet ──
 export const setWallet = (body: { mnemonic?: string; seed_hex?: string }) =>
   j<{ wallet_set: boolean; ss58: string }>("/wallet/set", {
@@ -203,7 +254,14 @@ export const fetchWhoami = () =>
   });
 
 export const backtestBasket = (
-  traders: Array<{ ss58: string; weight: number; enabled?: boolean; label?: string | null }>,
+  traders: Array<{
+    ss58: string;
+    weight: number;
+    enabled?: boolean;
+    label?: string | null;
+    /** When set, the leg is weighted by this TAO rather than by `weight`. */
+    alloc_tao?: number | null;
+  }>,
   days = 7,
   capitalTao = 100,
 ) =>
@@ -293,3 +351,15 @@ export const ago = (ts: string) => {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 };
+
+// ── time windows ──
+// One vocabulary for the horizon, everywhere. `0` is the all-history window;
+// it has no fixed length, so it never gets a "Nd" label.
+export const WINDOW_DAYS = [1, 3, 7, 14, 30, 0];
+
+export const windowLabel = (days: number) =>
+  days === 0 ? "ALL" : days === 1 ? "24H" : `${days}D`;
+
+/** "last 7 days" / "all history" — the same window, spelled out in prose. */
+export const windowPhrase = (days: number) =>
+  days === 0 ? "all history" : days === 1 ? "last 24 hours" : `last ${days} days`;

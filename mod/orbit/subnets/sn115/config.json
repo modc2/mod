@@ -1,0 +1,38 @@
+{
+  "name": "sn115",
+  "version": "1.0.0",
+  "description": "SN115 MoirAI — An evolving AIGC Harness for creators & agents.From idea to finished work. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ѕ",
+  "chain": "bittensor",
+  "netuid": 115,
+  "subnet": "MoirAI",
+  "symbol": "Ѕ",
+  "owner": "5EkNnrTjnMYaj4x1gNxAnJne9UvKgfU6NZNjhm6XFWMstbdG",
+  "github": "https://github.com/moirai115/MoirAI",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1379143301478744064",
+  "logo": "https://raw.githubusercontent.com/moirai115/MoirAI/refs/heads/main/assets/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=115",
+    "news": "/bt/news?netuid=115"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

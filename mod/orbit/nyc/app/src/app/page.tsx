@@ -4,14 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import {
   api, type Catalog, type Choropleth, type HousingQuery, type Options,
+  type PopulationQuery,
 } from '@/lib/api'
 import { useCollapse } from '@/lib/collapse'
 import { usd } from '@/lib/format'
 import ChatPanel from './components/ChatPanel'
+import Infographic, { AgentLegend } from './components/Infographic'
+import { describeMap, useAgentScene } from '@/lib/scene'
 import HousingControls from './components/HousingControls'
+import PopulationControls from './components/PopulationControls'
 import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
 import Legend, { hasLegend } from './components/Legend'
+import MapFrame from './components/MapFrame'
 import SearchBar from './components/SearchBar'
 import Section from './components/Section'
 import { Coin, Mushroom, QuestionBlock } from './components/Sprites'
@@ -46,6 +51,9 @@ export default function Page() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [housing, setHousing] = useState<Choropleth | null>(null)
   const [housingBusy, setHousingBusy] = useState(false)
+  const [population, setPopulation] = useState<Choropleth | null>(null)
+  const [populationBusy, setPopulationBusy] = useState(false)
+  const [popQuery, setPopQuery] = useState<PopulationQuery>({ metric: 'density', geography: 'tract' })
   const [selection, setSelection] = useState<Selection | null>(null)
   const [basemap, setBasemap] = useState<Basemap>('dark')
   // The rail is a permanent fixture on a wide screen and a drawer on a phone,
@@ -75,6 +83,20 @@ export default function Page() {
     if (window.matchMedia(`(min-width: ${NARROW}px)`).matches) setPanelOpen(true)
   }, [])
 
+  // ── the chat agent's hands on this map ──────────────────────────────────
+  const scene = useAgentScene({
+    defaults: {
+      layers: (catalog?.layers ?? []).filter((l) => l.default_on).map((l) => l.id),
+      query: { metric: 'median_price', geography: 'nta', since: '2024-01-01', property_type: 'residential' },
+      basemap: 'dark',
+    },
+    setActive, setQuery, setBasemap, setFlyTo,
+  })
+  const mapState = () => describeMap({
+    active, query, basemap, overlay: scene.overlay,
+    highlight: scene.highlight.names, filter: scene.filter, only: scene.only,
+  })
+
   // ── boot ────────────────────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([api.catalog(), api.options()])
@@ -100,11 +122,25 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queryKey, active.includes('housing_prices')])
 
+  // ── population choropleth ───────────────────────────────────────────────
+  const popKey = JSON.stringify(popQuery)
+  useEffect(() => {
+    if (!active.includes('population')) return
+    let alive = true
+    setPopulationBusy(true)
+    api.population(popQuery)
+      .then((fc) => { if (alive) { setPopulation(fc); setErrors((e) => omit(e, 'population')) } })
+      .catch((e) => { if (alive) setErrors((er) => ({ ...er, population: msg(e) })) })
+      .finally(() => { if (alive) setPopulationBusy(false) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [popKey, active.includes('population')])
+
   // ── overlay fetching, one request per layer, cached in state ────────────
   const inflight = useRef<Set<string>>(new Set())
   useEffect(() => {
     for (const id of active) {
-      if (id === 'housing_prices' || layerData[id] || inflight.current.has(id)) continue
+      if (id === 'housing_prices' || id === 'population' || layerData[id] || inflight.current.has(id)) continue
       inflight.current.add(id)
       setLoading((l) => [...l, id])
       const fetcher = id === 'sales'
@@ -124,6 +160,27 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active])
 
+  // ── live layers re-poll themselves ──────────────────────────────────────
+  // The fetch effect above deliberately fetches each layer once and keeps it.
+  // That is right for a park boundary and wrong for a speed sensor: a layer
+  // that declares `refresh_seconds` is a live reading, and left alone it would
+  // sit on screen showing whatever traffic was doing when it was switched on.
+  useEffect(() => {
+    const live = (catalog?.layers ?? []).filter(
+      (l) => active.includes(l.id) && l.refresh_seconds)
+    if (!live.length) return
+    const timers = live.map((l) =>
+      setInterval(() => {
+        api.layer(l.id)
+          .then((fc) => setLayerData((d) => ({ ...d, [l.id]: fc })))
+          // A failed refresh keeps the last good reading on the map rather
+          // than blanking the layer; the timestamp in the inspector is what
+          // tells the viewer how old it is.
+          .catch(() => {})
+      }, l.refresh_seconds! * 1000))
+    return () => timers.forEach(clearInterval)
+  }, [catalog, active])
+
   // The sales layer depends on the housing window, so drop it when that moves.
   useEffect(() => {
     setLayerData((d) => omit(d, 'sales'))
@@ -139,8 +196,9 @@ export default function Page() {
     const c: Record<string, number> = {}
     for (const [id, fc] of Object.entries(layerData)) c[id] = fc.features?.length ?? 0
     if (housing) c.housing_prices = housing.meta?.areas_with_data ?? housing.features.length
+    if (population) c.population = population.features.length
     return c
-  }, [layerData, housing])
+  }, [layerData, housing, population])
 
   // Picking a result also puts the phone's search bar away: the point of
   // searching was to look at the map, which the field is sitting on top of.
@@ -150,6 +208,7 @@ export default function Page() {
   }, [])
 
   const legendRows = hasLegend(active, housing?.breaks ?? null)
+    || (active.includes('population') && !!population?.breaks?.stops?.length)
 
   if (boot) {
     return (
@@ -179,21 +238,32 @@ export default function Page() {
     // out as you scroll, and `100vh` is the *tallest* case — the bottom of the
     // map, where the sheet and the key live, would sit under the address bar.
     <main className="relative h-[100dvh] w-full overflow-hidden bg-nes-void">
-      <MapView
-        catalog={catalog}
-        active={active}
-        opacity={opacity}
-        housing={housing}
-        housingMetric={query.metric}
-        layerData={layerData}
-        basemap={basemap}
-        flyTo={flyTo}
-        // Touching the map is the end of whatever the HUD was doing: the
-        // phone's search field is over the map, so it stands down here rather
-        // than staying up in front of the feature just tapped.
-        onFeatureClick={(s) => { setSelection(s); setSearchOpen(false) }}
-        onMapReady={() => {}}
-      />
+      {/* The map is the only part of this page that needs a GPU, so it is the
+          only part allowed to fail on a browser without one. */}
+      <MapFrame>
+        <MapView
+          catalog={catalog}
+          active={active}
+          opacity={opacity}
+          housing={housing}
+          housingMetric={query.metric}
+          population={population}
+          populationMetric={popQuery.metric}
+          agentOverlay={scene.overlay}
+          highlight={scene.highlight}
+          valueFilter={scene.filter}
+          only={scene.only}
+          frame={scene.frame}
+          layerData={layerData}
+          basemap={basemap}
+          flyTo={flyTo}
+          // Touching the map is the end of whatever the HUD was doing: the
+          // phone's search field is over the map, so it stands down here rather
+          // than staying up in front of the feature just tapped.
+          onFeatureClick={(s) => { setSelection(s); setSearchOpen(false) }}
+          onMapReady={() => {}}
+        />
+      </MapFrame>
 
       {/* ── HUD ─────────────────────────────────────────────────────── */}
       <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-3 pb-3">
@@ -258,6 +328,16 @@ export default function Page() {
             >
               ASK
             </button>
+            {/* The map is one of three ways to read this data; the docs are
+                where the other two (MCP, HTTP) are written down. Wide screens
+                only — a phone's HUD has no room to spare, and nobody wires up
+                an MCP client on one. */}
+            <a
+              href="/nyc/docs"
+              className="btn pixel tap hidden px-3 py-3 text-[8px] md:block"
+            >
+              DOCS
+            </a>
             <button
               onClick={() => setSearchOpen(true)}
               aria-label="Search an address or place"
@@ -349,6 +429,22 @@ export default function Page() {
               {housing && <Headline housing={housing} metric={query.metric} />}
             </Section>
           )}
+          {active.includes('population') && (
+            <Section
+              title="Population"
+              open={collapse.isOpen('population')}
+              onToggle={() => collapse.toggle('population')}
+              summary={populationBusy ? '…' : (population?.meta as any)?.label ?? ''}
+            >
+              <PopulationControls
+                def={catalog?.layers.find((l) => l.id === 'population')}
+                query={popQuery}
+                onChange={(patch) => setPopQuery((q) => ({ ...q, ...patch }))}
+                data={population}
+                busy={populationBusy}
+              />
+            </Section>
+          )}
           <LayerPanel
             catalog={catalog}
             active={active}
@@ -373,6 +469,7 @@ export default function Page() {
           active={active}
           areasWithData={housing?.meta?.areas_with_data}
           totalAreas={housing?.meta?.areas}
+          population={population}
         />
       </div>
 
@@ -390,6 +487,7 @@ export default function Page() {
                 active={active}
                 areasWithData={housing?.meta?.areas_with_data}
                 totalAreas={housing?.meta?.areas}
+                population={population}
               />
             </div>
           )}
@@ -415,7 +513,26 @@ export default function Page() {
       </div>
 
       {/* ── ask-the-agent chat ──────────────────────────────────────── */}
-      <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
+      {/* What the agent drew, and the card it pinned. On a wide screen the key
+          sits bottom-centre and the card on the right edge, beside the chat
+          when it is open, so the middle of the map stays the map; on a phone
+          the card is a sheet over the bottom of the map. */}
+      <div className="safe-x pointer-events-none absolute inset-x-0 top-[64px] z-20 flex justify-center px-3
+                      md:inset-x-auto md:left-1/2 md:top-auto md:bottom-3 md:-translate-x-1/2 md:px-0">
+        <AgentLegend overlay={scene.overlay} caption={scene.caption} onClear={scene.clearAgent} />
+      </div>
+      {scene.card && (
+        <div className={`safe-b pointer-events-none absolute inset-x-0 bottom-0 z-30 flex max-h-[55dvh] px-2 pb-2
+                        md:inset-x-auto md:bottom-auto md:top-[86px] md:max-h-[calc(100%-12rem)]
+                        md:w-[380px] md:px-0 md:pb-0 ${chatOpen ? 'md:right-[424px]' : 'md:right-3'}`}>
+          <div className="w-full">
+            <Infographic card={scene.card} onClose={scene.closeCard} />
+          </div>
+        </div>
+      )}
+
+      <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)}
+                 onDisplay={scene.apply} mapState={mapState} />
     </main>
   )
 }

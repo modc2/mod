@@ -1,0 +1,38 @@
+{
+  "name": "sn50",
+  "version": "1.0.0",
+  "description": "SN50 Synth — Predictive intelligence for financial markets and beyond. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ש",
+  "chain": "bittensor",
+  "netuid": 50,
+  "subnet": "Synth",
+  "symbol": "ש",
+  "owner": "5DxyiWpGqN5xXiczXcEGph51BcgTqcYKD5GKZqoACuc2sJkD",
+  "github": "https://github.com/mode-network/synth-subnet",
+  "url": "https://synthdata.co",
+  "discord": null,
+  "logo": "https://taostats.io/images/subnets/50.webp?w=96&q=75",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=50",
+    "news": "/bt/news?netuid=50"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

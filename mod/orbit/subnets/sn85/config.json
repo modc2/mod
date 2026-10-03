@@ -1,0 +1,38 @@
+{
+  "name": "sn85",
+  "version": "1.0.0",
+  "description": "SN85 Vidaio — Next-Generation Video Processing Powered By AI. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚱ",
+  "chain": "bittensor",
+  "netuid": 85,
+  "subnet": "Vidaio",
+  "symbol": "ᚱ",
+  "owner": "5GTPBjA4uXhuQ51SJB7Jd55JwY6dKEnbnjCrsSSEXy3MN63z",
+  "github": "https://github.com/vidaio-subnet/vidaio-subnet",
+  "url": "https://vidaio.io/",
+  "discord": "https://discord.gg/xhn4jxJMEX",
+  "logo": "https://raw.githubusercontent.com/vidAio-subnet/brand-assets/main/logos/320x320.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=85",
+    "news": "/bt/news?netuid=85"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

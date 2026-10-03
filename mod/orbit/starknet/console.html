@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>starknet</title>
+<style>
+  :root{
+    --bg:#070a12; --card:#0d1220; --line:#1b2333; --ink:#d7dde8;
+    --dim:#8b94a7; --accent:#f97316; --ok:#3fb950; --err:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.5 ui-monospace,'JetBrains Mono','Fira Code',Menlo,monospace;
+       padding:28px 20px 60px;max-width:860px;margin-inline:auto}
+  h1{font-size:30px;letter-spacing:2px;margin:0 0 4px;font-weight:700}
+  h1 .a{color:var(--accent)} h1 .b{color:#fff}
+  .sub{color:var(--dim);margin-bottom:24px}
+  .sub a{color:var(--accent)}
+  .live{display:inline-flex;align-items:center;gap:6px;color:var(--dim);
+        font-size:12px;margin-left:10px;vertical-align:middle}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--err)}
+  .dot.on{background:var(--ok)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
+        padding:16px 18px;margin-bottom:16px}
+  .card h2{font-size:12px;letter-spacing:2px;color:var(--dim);margin:0 0 12px;
+           font-weight:600}
+  .kv{display:grid;grid-template-columns:110px 1fr;row-gap:6px}
+  .kv .k{color:var(--accent);opacity:.85}
+  .kv .v{word-break:break-all}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1px solid var(--line);border-radius:7px;padding:6px 13px;
+        background:transparent;color:var(--ink);cursor:pointer;font:inherit;
+        font-size:13px}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  input,select{background:var(--bg);border:1px solid var(--line);color:var(--ink);
+        border-radius:7px;padding:7px 10px;font:inherit;font-size:13px;flex:1;
+        min-width:120px}
+  input:focus{outline:none;border-color:var(--accent)}
+  button.go{background:var(--accent);border:none;color:#12060a;font:inherit;
+        font-weight:700;border-radius:7px;padding:7px 18px;cursor:pointer}
+  button.go:hover{filter:brightness(1.1)}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:7px;
+      padding:12px;overflow:auto;max-height:420px;font-size:12.5px;margin:0;
+      white-space:pre-wrap;word-break:break-all}
+  pre.err{border-color:var(--err);color:var(--err)}
+  .hint{color:var(--dim);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<h1><span class="a">STARK</span><span class="b">NET</span>
+  <span class="live"><span class="dot" id="dot"></span><span id="livetxt">connecting</span></span></h1>
+<div class="sub">mod protocol module &middot; api at <a href="./" id="apilink">/starknet</a>
+  &middot; network <select id="network" style="flex:none;width:auto;display:inline-block">
+    <option value="mainnet">mainnet</option><option value="sepolia">sepolia</option>
+  </select></div>
+
+<div class="card">
+  <h2>MODULE</h2>
+  <div class="kv" id="modkv">
+    <span class="k">name</span><span class="v">starknet</span>
+    <span class="k">desc</span><span class="v">Starknet via api + app, local first</span>
+    <span class="k">chain</span><span class="v" id="kchain">&mdash;</span>
+    <span class="k">block</span><span class="v" id="kblock">&mdash;</span>
+    <span class="k">rpc</span><span class="v" id="krpc">&mdash;</span>
+    <span class="k">spec</span><span class="v" id="kspec">&mdash;</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>FUNCTIONS</h2>
+  <div class="chips" id="fns"></div>
+  <div class="hint">every function is also a GET endpoint on the api &mdash; click to run</div>
+</div>
+
+<div class="card">
+  <h2>ACCOUNT</h2>
+  <div class="row">
+    <input id="acct" placeholder="0x account address" spellcheck="false">
+    <button class="go" onclick="lookupAccount()">LOOK UP</button>
+  </div>
+  <div class="hint">balances (ETH &middot; STRK), nonce and class hash for any address</div>
+</div>
+
+<div class="card">
+  <h2>CALL</h2>
+  <div class="row">
+    <input id="c_addr" placeholder="0x contract" spellcheck="false">
+    <input id="c_fn" placeholder="entrypoint e.g. balanceOf" spellcheck="false" style="max-width:220px">
+  </div>
+  <div class="row">
+    <input id="c_data" placeholder="calldata felts, space or comma separated" spellcheck="false">
+    <button class="go" onclick="doCall()">CALL</button>
+  </div>
+  <div class="hint">read any contract &mdash; the entrypoint name is hashed locally (starknet_keccak)</div>
+</div>
+
+<div class="card">
+  <h2>OUTPUT</h2>
+  <pre id="out">&mdash;</pre>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const net = () => $('network').value;
+
+async function api(path, opts) {
+  const sep = path.includes('?') ? '&' : '?';
+  const r = await fetch(path + sep + 'network=' + net(), opts);
+  const j = await r.json();
+  if (!r.ok) throw j;
+  return j;
+}
+function show(x, err) {
+  const o = $('out');
+  o.textContent = JSON.stringify(x, null, 2);
+  o.className = err ? 'err' : '';
+}
+async function run(path) {
+  show({running: path});
+  try { show(await api(path)); } catch (e) { show(e, true); }
+}
+async function lookupAccount() {
+  const a = $('acct').value.trim();
+  if (a) run('account?address=' + encodeURIComponent(a));
+}
+async function doCall() {
+  show({running: 'call'});
+  try {
+    show(await api('call', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({contract: $('c_addr').value.trim(),
+        entrypoint: $('c_fn').value.trim(),
+        calldata: $('c_data').value.trim(), network: net()})}));
+  } catch (e) { show(e, true); }
+}
+
+const FNS = ['status', 'block_number', 'block?id=latest', 'test',
+             'selector?name=balanceOf', 'balance?address=&token=eth',
+             'tx?hash=', 'receipt?hash=', 'nonce?address=', 'class_hash?address='];
+for (const f of FNS) {
+  const b = document.createElement('button');
+  b.className = 'chip';
+  b.textContent = f.split('?')[0];
+  b.onclick = () => f.includes('=') && f.endsWith('=')
+    ? (show({endpoint: 'GET ' + f + '<value>', hint: 'add a value, or use the panels above'}))
+    : run(f);
+  $('fns').appendChild(b);
+}
+
+async function refresh() {
+  try {
+    const s = await api('status');
+    $('kchain').textContent = s.chain + ' (' + s.chain_id + ')';
+    $('kblock').textContent = s.block_number.toLocaleString();
+    $('krpc').textContent = s.rpc || s.endpoints[0];
+    $('kspec').textContent = s.spec_version;
+    $('dot').className = 'dot on';
+    $('livetxt').textContent = 'api live';
+  } catch (e) {
+    $('dot').className = 'dot';
+    $('livetxt').textContent = 'api down';
+  }
+}
+$('network').onchange = refresh;
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

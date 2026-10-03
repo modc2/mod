@@ -1,0 +1,189 @@
+{
+  "netuid": 2,
+  "name": "DSperse",
+  "symbol": "β",
+  "owner": "5EcYQ3W77ndrmMWdvVQusoFqY8doxfP3U2zrh7xZQiaz7avY",
+  "description": "Verifiable and distributed inference on Bittensor",
+  "github": "https://github.com/inference-labs-inc/subnet-2",
+  "url": "https://subnet2.inferencelabs.com",
+  "discord": null,
+  "logo": "https://dsperse.inferencelabs.com/logo-512.png",
+  "registered_at": 2734060,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.003049899,
+    "moving_price": 0.0030582451727241278,
+    "market_cap": 17937.603133242665,
+    "tao_in": 7718.724557543,
+    "alpha_in": 2530812.986894112,
+    "alpha_out": 3350563.128591241,
+    "volume": 712694.364859024,
+    "vol_24h": 23.95638768794015,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.5246276562434704,
+    "change_7d": -0.8935473713661213
+  },
+  "spark_24h": [
+    0.003065984,
+    0.003065983,
+    0.003065983,
+    0.00306598,
+    0.00306598,
+    0.003065973,
+    0.003066538,
+    0.003066538,
+    0.00306653,
+    0.003066519,
+    0.003066518,
+    0.003066512,
+    0.003065997,
+    0.003064568,
+    0.003064474,
+    0.003064474,
+    0.003064473,
+    0.003064473,
+    0.003064473,
+    0.003064469,
+    0.003064469,
+    0.003064462,
+    0.003064458,
+    0.003064458,
+    0.003064456,
+    0.003064456,
+    0.003063648,
+    0.003062808,
+    0.003062808,
+    0.003062808,
+    0.003062797,
+    0.003062797,
+    0.003062672,
+    0.003062671,
+    0.003062671,
+    0.003062671,
+    0.003049962,
+    0.003049955,
+    0.003049955,
+    0.003049955,
+    0.003049954,
+    0.003049835,
+    0.003049835,
+    0.003049829,
+    0.003049908,
+    0.003049899,
+    0.003049899,
+    0.003049899
+  ],
+  "trades_24h": {
+    "trades": 22,
+    "buys": 5,
+    "sells": 17,
+    "buy_tao": 1.814066609,
+    "sell_tao": 21.910926107,
+    "net_tao": -20.096859498,
+    "traders": 14
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5ELaMy4q6cVRQGX4cGAGKzEQt4xA42RanMLcwT5b9dGWopxS",
+      "net_tao": -16.058178024,
+      "gross_tao": 16.058178024,
+      "trades": 4
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": 0.001010175000000002,
+      "gross_tao": 1.998989825,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D6Xy87JstUCRpxWfhDrqQ3rr1GZha17xKBCNwCeD3hMG7Eo",
+      "net_tao": -1.803397852,
+      "gross_tao": 1.803397852,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D19TpFrGv6r1avPcaGr7yFNB4KF7RXp8azDyL5XAndjvecG",
+      "net_tao": -1.059965349,
+      "gross_tao": 1.059965349,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GUAXptTig4otaLfG8wVLQ5L88NymabGLHxKmcHopuwcVoLB",
+      "net_tao": -1.019037386,
+      "gross_tao": 1.019037386,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1788897471,
+      "kind": "release",
+      "source": "github",
+      "title": "14.14.3",
+      "url": "https://github.com/inference-labs-inc/subnet-2/releases/tag/14.14.3",
+      "publisher": "inference-labs-inc/subnet-2"
+    },
+    {
+      "ts": 1788896568,
+      "kind": "release",
+      "source": "github",
+      "title": "Testnet (testnet-92c75cee)",
+      "url": "https://github.com/inference-labs-inc/subnet-2/releases/tag/testnet-92c75cee",
+      "publisher": "inference-labs-inc/subnet-2"
+    },
+    {
+      "ts": 1788895596,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge testnet into main for 14.14.3 release",
+      "url": "https://github.com/inference-labs-inc/subnet-2/commit/96d03c44729a350df79160e2ea8e3e175d492ce5",
+      "publisher": "inference-labs-inc/subnet-2"
+    },
+    {
+      "ts": 1788895571,
+      "kind": "commit",
+      "source": "github",
+      "title": "Introduce weight commit guard for epochs with zero miner scores (#627)",
+      "url": "https://github.com/inference-labs-inc/subnet-2/commit/92c75cee84551e73e7629b7a7306a0ca90f91e6d",
+      "publisher": "inference-labs-inc/subnet-2"
+    },
+    {
+      "ts": 1788449052,
+      "kind": "release",
+      "source": "github",
+      "title": "Testnet (testnet-308f96c5)",
+      "url": "https://github.com/inference-labs-inc/subnet-2/releases/tag/testnet-308f96c5",
+      "publisher": "inference-labs-inc/subnet-2"
+    },
+    {
+      "ts": 1788449022,
+      "kind": "release",
+      "source": "github",
+      "title": "14.14.2",
+      "url": "https://github.com/inference-labs-inc/subnet-2/releases/tag/14.14.2",
+      "publisher": "inference-labs-inc/subnet-2"
+    },
+    {
+      "ts": 1788447843,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge testnet into main for 14.14.2 release",
+      "url": "https://github.com/inference-labs-inc/subnet-2/commit/2a01e0596f1fc0369da62ec3c609fb07e56dbbd5",
+      "publisher": "inference-labs-inc/subnet-2"
+    },
+    {
+      "ts": 1788447828,
+      "kind": "commit",
+      "source": "github",
+      "title": "Introduce reconnecting chain RPC transport with websocket keepalive p…",
+      "url": "https://github.com/inference-labs-inc/subnet-2/commit/308f96c5e2ea646703ee11a6a185072f6f298b3d",
+      "publisher": "inference-labs-inc/subnet-2"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

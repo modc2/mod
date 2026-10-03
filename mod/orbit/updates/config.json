@@ -1,7 +1,7 @@
 {
     "name": "updates",
     "version": "0.1.0",
-    "description": "GitHub commit-feed monitor. Tracks the mod repo (modc2/mod) and shows its dev-branch commit history by default, and can attach any other GitHub repo into one aggregated updates feed that flags commits new since you last looked. Uses the GitHub REST API (optionally authenticated via $GITHUB_TOKEN) with a local `git log` fallback for the checked-out repo.",
+    "description": "GitHub commit-feed monitor + daily update digest. Tracks the mod repo (modc2/mod) on its dev branch by default, shows the commit feed with the branch on every card, and rolls each calendar day up into ONE paste-ready update for X/Twitter or Discord (commits, files, and which modules were touched), marked posted so it goes out once per day. Any other GitHub repo can be attached into the same feed. Uses the GitHub REST API (optionally authenticated via $GITHUB_TOKEN) with a local `git log` fallback.",
     "anchor": "mod.py",
     "icon": "\ud83d\udce1",
     "color": "#5b8cff",
@@ -20,6 +20,12 @@
         "commits",
         "history",
         "poll",
+        "mark_posted",
+        "tweet",
+        "post",
+        "paste",
+        "digest",
+        "daily",
         "track",
         "attach",
         "untrack",
@@ -30,5 +36,5 @@
         "register"
     ],
     "key": "updates",
-    "schema": "QmbCBvfFPoYHW3YAJRZQnm8bofayeXFSetp61c2n3EfiFm"
+    "schema": "QmfTMEpJ7NMBJrs5yTun2FisoAoBGXmjQzMRSiuWNn3xrX"
 }

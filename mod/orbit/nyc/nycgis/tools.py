@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import layers as L
 from . import prices as P
+from . import scene as SC
 from . import sources as S
 
 DISCOVERY = 'https://api.us.socrata.com/api/catalog/v1'
@@ -224,6 +225,28 @@ def query_dataset(id: str, select: Optional[str] = None,
 # registry
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Human titles for the tool list. Most read fine derived from the name
+# (`nyc_find_datasets` → "Find datasets"); these are the ones that don't.
+TITLES = {
+    'nyc_info': 'About this atlas',
+    'nyc_where': 'Geocode a place',
+    'nyc_layer': 'Read a map layer',
+    'nyc_layers': 'List map layers',
+    'nyc_housing': 'Housing prices by area',
+    'nyc_prices': 'Citywide price summary',
+    'nyc_trend': 'Price history by year',
+    'nyc_sales': 'Individual recorded sales',
+    'nyc_rents': 'Affordable rents',
+    'nyc_homes': 'Find affordable homes',
+    'nyc_affordable': 'Affordable housing built',
+    'nyc_traffic': 'Traffic speeds and when to drive',
+    'nyc_dataset': 'Describe a dataset',
+    'nyc_query': 'Query any dataset (SoQL)',
+    'nyc_map': 'Change the map on screen',
+    'nyc_infographic': 'Pin an infographic card',
+}
+
+
 class Tool:
     def __init__(self, name: str, description: str, group: str,
                  params: Dict[str, Dict], handler: Callable[..., Any]):
@@ -232,6 +255,25 @@ class Tool:
         self.group = group
         self.params = params            # name -> {type, description, default?, required?}
         self.handler = handler
+
+    @property
+    def title(self) -> str:
+        if self.name in TITLES:
+            return TITLES[self.name]
+        stem = self.name[4:] if self.name.startswith('nyc_') else self.name
+        return stem.replace('_', ' ').capitalize()
+
+    @property
+    def annotations(self) -> Dict[str, Any]:
+        """
+        MCP tool annotations. Every tool here reads public open data over HTTP
+        and writes nothing, anywhere — so the whole registry is read-only,
+        idempotent and open-world (the answer depends on what the city
+        published today, not on anything this process holds).
+        """
+        return {'title': self.title, 'readOnlyHint': True,
+                'destructiveHint': False, 'idempotentHint': True,
+                'openWorldHint': True}
 
     @property
     def input_schema(self) -> Dict:
@@ -297,7 +339,8 @@ TOOLS: List[Tool] = [
     # ── map layers ───────────────────────────────────────────────────────
     Tool('nyc_layers',
          'The map layer catalogue: subway, bike network, parks, evacuation '
-         'zones, traffic injuries, affordable housing, boundaries.',
+         'zones, live traffic speeds, traffic volume, traffic injuries, '
+         'affordable housing, boundaries.',
          'layers', {}, _layers_compact),
     Tool('nyc_layer',
          'Rows from one map layer (feature properties, plus lat/lng for '
@@ -345,6 +388,39 @@ TOOLS: List[Tool] = [
           'max_price': _p('integer', 'Maximum sale price'),
           'search': _p('string', 'Filter by address/neighborhood substring')},
          _sales_table),
+
+    # ── people ───────────────────────────────────────────────────────────
+    Tool('nyc_population',
+         'Population and housing statistics for NYC per borough, neighborhood '
+         '(NTA) or census tract: population, density (people/sq mi), median '
+         'household income, median rent, rent burden (30%+/50%+), renter share, '
+         'vacancy, poverty, median home sale, price-to-income, new homes since '
+         '2020 and the construction pipeline. Census ACS 5-year + DCP + DOF. '
+         'Sort by any field to rank areas.',
+         'people',
+         {'geography': _p('string', 'borough, nta or tract', 'borough'),
+          'sort': _p('string', 'Field to rank by, descending (e.g. density, '
+                     'rent_burden_pct, new_units_per_1k)'),
+          'limit': _p('integer', 'Max areas returned (0 = all)', 25),
+          'since': _p('string', 'Sales window start, YYYY-MM-DD', '2025-01-01')},
+         lambda geography='borough', sort='', limit=25, since='2025-01-01':
+             get_nyc().stats(geography=geography, since=since, sort=sort,
+                             limit=limit)),
+
+    # ── traffic ──────────────────────────────────────────────────────────
+    Tool('nyc_traffic',
+         'When to drive in NYC. Returns the hour-by-hour traffic profile of '
+         "DOT's count locations — busiest hour, calmest hour, and the quiet "
+         'hours worth leaving in — plus what the live speed sensors are '
+         'reading on the highways right now. Filter by street or borough.',
+         'traffic',
+         {'street': _p('string', 'Street name to match, e.g. "Cross Bronx"'),
+          'borough': _p('string', 'Borough name'),
+          'hour': _p('integer', 'Hour 0-23 to report each location at'),
+          'limit': _p('integer', 'Max count locations returned', 20)},
+         lambda street='', borough='', hour=None, limit=20:
+             get_nyc().traffic(street=street, borough=borough,
+                               hour=hour, limit=limit)),
 
     # ── affordable homes ─────────────────────────────────────────────────
     Tool('nyc_rents',
@@ -400,15 +476,77 @@ TOOLS: List[Tool] = [
           'limit': _p('integer', 'Max rows (≤1000)', 100),
           'domain': _p('string', '"nyc" or "nys"', 'nyc')},
          query_dataset),
+
+    # ── display: the agent drives the user's map ─────────────────────────
+    Tool('nyc_map',
+         'Change what the user\'s map shows, as they talk. Every argument is '
+         'optional; pass only what should change. Layers: `layers` replaces the '
+         'visible set, `add`/`remove` adjust it (ids from nyc_layers). Housing '
+         'choropleth filters: metric, geography, since, until, property_type '
+         '(turns the choropleth on). `min_value`/`max_value` dim areas outside '
+         'a range of the current metric. `highlight` outlines areas by name, '
+         'code or borough (e.g. ["Brooklyn"] or ["Harlem","BK0101"]; [] clears); `only` hides every area that '
+         'does not match. '
+         '`focus` flies the camera to a place name (or pass lat+lng+zoom). '
+         '`overlay` draws ANY open dataset: {"dataset":"erm2-nwe9","where":'
+         '"complaint_type=\'Rodent\' AND created_date>\'2026-01-01\'",'
+         '"mode":"heat"|"points"|"areas","by":"zip"|"borough",'
+         '"value":"count(*)","per_capita":true,"label":"<column>",'
+         '"title":"Rat complaints 2026"} — read columns with nyc_dataset first. '
+         '`reset` returns to the default map. The result says what was drawn.',
+         'display',
+         {'layers': _p('array', 'Replace the visible layer set with these ids'),
+          'add': _p('array', 'Layer ids to switch on'),
+          'remove': _p('array', 'Layer ids to switch off'),
+          'basemap': _p('string', f'One of: {", ".join(SC.BASEMAPS)}'),
+          'metric': _p('string', f'Housing metric: {", ".join(P.METRICS)}'),
+          'geography': _p('string', f'Housing geography: {", ".join(P.GEOGRAPHIES)}'),
+          'since': _p('string', 'Housing window start, YYYY-MM-DD'),
+          'until': _p('string', 'Housing window end, YYYY-MM-DD ("" = today)'),
+          'property_type': _p('string', f'One of: {", ".join(P.PROPERTY_TYPES)}'),
+          'min_value': _p('number', 'Dim areas below this value of the current metric'),
+          'max_value': _p('number', 'Dim areas above this value of the current metric'),
+          'highlight': _p('array', 'Area names / codes / boroughs to outline; [] clears'),
+          'only': _p('array', 'Show ONLY areas matching these names / codes / boroughs '
+                              '(e.g. ["Brooklyn"]); hides the rest; [] shows all'),
+          'focus': _p('string', 'Place to fly to (geocoded), e.g. "Astoria"'),
+          'lat': _p('number', 'Camera latitude (with lng)'),
+          'lng': _p('number', 'Camera longitude (with lat)'),
+          'zoom': _p('number', 'Camera zoom, 10 = city, 14 = neighborhood'),
+          'overlay': _p('object', 'Draw an open dataset: dataset, where, mode, by, '
+                                  'value, per_capita, column, lat, lng, label, limit, '
+                                  'domain, title'),
+          'clear_overlay': _p('boolean', 'Remove the agent overlay'),
+          'reset': _p('boolean', 'Back to the default map before applying the rest'),
+          'caption': _p('string', 'One line shown on the map explaining the view')},
+         SC.map_directive),
+    Tool('nyc_infographic',
+         'Pin an infographic card on the user\'s map: headline stats, a ranked '
+         'bar list, a small time series, takeaways and sources. Use it whenever '
+         'an answer has numbers worth seeing — after you have looked them up. '
+         'stats: [{"label","value","note"}] (value is display text, e.g. '
+         '"$1.2M"); bars: {"title","unit","items":[{"label","value"}]}; '
+         'series: {"title","unit","points":[{"x":"2019","y":123}]}; bullets: '
+         '["..."]; sources: [{"name","url"}]. Calling it again replaces the card.',
+         'display',
+         {'title': _p('string', 'Card title', required=True),
+          'subtitle': _p('string', 'One line under the title'),
+          'stats': _p('array', 'Up to 6 headline numbers'),
+          'bars': _p('object', 'Ranked bar list, up to 12 items'),
+          'series': _p('object', 'Time series, up to 60 points'),
+          'bullets': _p('array', 'Up to 6 short takeaways'),
+          'sources': _p('array', 'Datasets the numbers came from')},
+         SC.infographic),
 ]
 
 _BY_NAME = {t.name: t for t in TOOLS}
 
 
 def list_tools() -> List[Dict]:
-    """MCP-shaped tool list."""
-    return [{'name': t.name, 'description': t.description,
-             'inputSchema': t.input_schema} for t in TOOLS]
+    """MCP-shaped tool list, including titles and behaviour annotations."""
+    return [{'name': t.name, 'title': t.title, 'description': t.description,
+             'inputSchema': t.input_schema, 'annotations': t.annotations}
+            for t in TOOLS]
 
 
 def call_tool(name: str, args: Optional[Dict] = None) -> Any:

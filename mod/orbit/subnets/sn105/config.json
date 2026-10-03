@@ -1,0 +1,38 @@
+{
+  "name": "sn105",
+  "version": "1.0.0",
+  "description": "SN105 Beam — Decentralized bandwidth. A global network. Powering the open internet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Գ",
+  "chain": "bittensor",
+  "netuid": 105,
+  "subnet": "Beam",
+  "symbol": "Գ",
+  "owner": "5G3ic2pAzVu1gZmeUQfKGox3P8TetJw87asvyAdkb2o8aCCX",
+  "github": "https://github.com/orgs/Beam-Network/repositories",
+  "url": "https://b1m.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1437473346026475702",
+  "logo": "https://pbs.twimg.com/profile_images/2029345851412185088/vd2bTk4L_400x400.jpg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=105",
+    "news": "/bt/news?netuid=105"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

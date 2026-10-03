@@ -1,0 +1,38 @@
+{
+  "name": "sn114",
+  "version": "1.0.0",
+  "description": "SN114 SOMA — Context compression layer delivered through MCP infrastructure. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Є",
+  "chain": "bittensor",
+  "netuid": 114,
+  "subnet": "SOMA",
+  "symbol": "Є",
+  "owner": "5FHrQMjzzAhmL5zS9ys87ZrGCwG3vsVT9hXAUWZQ8SNdRqig",
+  "github": "https://github.com/DendriteHQ/SOMA",
+  "url": "https://thesoma.ai",
+  "discord": "https://discord.gg/durr4Sg6sM",
+  "logo": "https://thesoma.ai/images/1200x1200.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=114",
+    "news": "/bt/news?netuid=114"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

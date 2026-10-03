@@ -1,0 +1,173 @@
+{
+  "netuid": 56,
+  "name": "Gradients",
+  "symbol": "ج",
+  "owner": "5EJ1zbdwhumTRYFx3VCGnR6SW7CJWP28tEJCo2gw1dFbVL5g",
+  "description": "Best AutoML plaftorm in the world",
+  "github": "https://github.com/gradients-ai/G.O.D",
+  "url": "https://www.gradients.io/",
+  "discord": "None",
+  "logo": "https://gradients-public.s3.eu-central-003.backblazeb2.com/gradientslogo.png",
+  "registered_at": 4312927,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.014932024,
+    "moving_price": 0.01494601066224277,
+    "market_cap": 91789.15624922854,
+    "tao_in": 49500.314311644,
+    "alpha_in": 3315043.696586643,
+    "alpha_out": 2832090.5599099,
+    "volume": 2866831.51707309,
+    "vol_24h": 234.82758451718837,
+    "emission": 0.0,
+    "change_1h": -0.04659620449447566,
+    "change_24h": -0.14396579488271666,
+    "change_7d": -3.511797880157863
+  },
+  "spark_24h": [
+    0.014953665,
+    0.014954226,
+    0.014954684,
+    0.014955404,
+    0.014955984,
+    0.014956627,
+    0.014957289,
+    0.014957503,
+    0.014957717,
+    0.014958346,
+    0.014936274,
+    0.014936853,
+    0.014936332,
+    0.014938331,
+    0.014938627,
+    0.014954378,
+    0.014955059,
+    0.014936931,
+    0.0149376,
+    0.014939166,
+    0.014939657,
+    0.014940347,
+    0.014941026,
+    0.014941609,
+    0.014942236,
+    0.014942709,
+    0.014943269,
+    0.014943941,
+    0.014944648,
+    0.014942554,
+    0.014937638,
+    0.014938305,
+    0.014938981,
+    0.014939509,
+    0.014940182,
+    0.01494085,
+    0.014933023,
+    0.014933639,
+    0.014934281,
+    0.014934841,
+    0.014935506,
+    0.014936163,
+    0.01493669,
+    0.014937196,
+    0.014937832,
+    0.014938357,
+    0.014938985,
+    0.014932024
+  ],
+  "trades_24h": {
+    "trades": 39,
+    "buys": 13,
+    "sells": 26,
+    "buy_tao": 22.231193566,
+    "sell_tao": 133.305653663,
+    "net_tao": -111.07446009699999,
+    "traders": 36
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 0.019780043000000802,
+      "gross_tao": 39.980219957,
+      "trades": 2
+    },
+    {
+      "coldkey": "5EsKnyDhbR7VbPgZCMXqW4FxukGtE9zuLSCpiAchh8BtPasB",
+      "net_tao": -23.797878944,
+      "gross_tao": 23.797878944,
+      "trades": 1
+    },
+    {
+      "coldkey": "5Fxav7JX2BAF9J8ms2gjuJQerfjyBJQg6ghfQg7aBvg8jtBK",
+      "net_tao": -22.526819378,
+      "gross_tao": 22.526819378,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CoGrEDwTvSQv2Uv33YucbxzshpemD2oEqFguu6fwWFobiuQ",
+      "net_tao": -14.931564489,
+      "gross_tao": 14.931564489,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FpZ2vAudnf9jnPNYZUAM9a6WB1QtW8fGKckXCfJfFB4FcfA",
+      "net_tao": -13.888270212,
+      "gross_tao": 13.888270212,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790946109,
+      "kind": "commit",
+      "source": "github",
+      "title": "Oversampled pool: text-only <=4B models (#1388)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/df81121a9b56f7d5f2a4261038aad8b6a93af56a",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790548712,
+      "kind": "commit",
+      "source": "github",
+      "title": "aggressive eval (#1390)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/e23a35ae97b508f34c6b1bb4fe523fe12b66bdcb",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790544827,
+      "kind": "commit",
+      "source": "github",
+      "title": "3 task round 1 image (#1387)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/17a2723756daa88561d3dcd5b5d86263523e9a12",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790267320,
+      "kind": "commit",
+      "source": "github",
+      "title": "Oversampled pool: drop >3B and Qwen models (#1389)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/dd8e898b0262ad85ec8ae09dbdeef94a70b5dec5",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790114609,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add Runpod evaluation backend via dstack (#1386)",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/fb8cff268f57a049371d7b4c3518660fae17863b",
+      "publisher": "gradients-ai/G.O.D"
+    },
+    {
+      "ts": 1790035788,
+      "kind": "commit",
+      "source": "github",
+      "title": "Drop the forced pre-boss model, widen boss large instruct to 30-72B (…",
+      "url": "https://github.com/gradients-ai/G.O.D/commit/0791bb6e345533cae8088ffcc4d214c70c22efaf",
+      "publisher": "gradients-ai/G.O.D"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

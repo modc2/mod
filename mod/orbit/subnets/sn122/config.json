@@ -1,0 +1,38 @@
+{
+  "name": "sn122",
+  "version": "1.0.0",
+  "description": "SN122 CookingTAO — Democratizing Bittensor Mining. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ⲅ",
+  "chain": "bittensor",
+  "netuid": 122,
+  "subnet": "CookingTAO",
+  "symbol": "ⲅ",
+  "owner": "5F3uH1G4QNyT8UR6D2Zf2zmXa6WAxYC3MfaiSGgg5pScWfY9",
+  "github": "https://github.com/CookingTao",
+  "url": "https://cookingtao.com/",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/CookingTao/assets/refs/heads/main/logo-circle.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=122",
+    "news": "/bt/news?netuid=122"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

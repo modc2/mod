@@ -10,7 +10,7 @@ MOD collapses them into one thing — a **module**. A module is just a directory
 
 - **callable** — `m hello/greet` from the CLI, `m.fn('hello/greet')()` from Python
 - **a live API** — serve it and every public method becomes a POST endpoint
-- **a web app** — reachable at `https://host/{module}`, its API at `https://host/api/{module}`
+- **a web app** — reachable at `https://host/{module}`, its API at `https://host/{module}/api`
 - **discoverable** — POST to its bare URL and it describes itself (its functions, its schema)
 - **ownable** — register its name and metadata on-chain to your address
 
@@ -20,7 +20,7 @@ No decorators, no manifest, no platform account. If you can write a class, you'v
 
 1. **A module is a directory** under an orbit (`core`, `orbit`, `mods`, `local`) with an anchor class. `config.json` declares its name, description, and ports.
 2. **Serving is automatic.** Public methods become HTTP endpoints; JSON in, `{"result": ...}` out.
-3. **One URL rule.** `/{mod}` is the app, `/api/{mod}` is the API. Every gateway (Caddy in production, Rust, Next.js) enforces the same rule.
+3. **One URL rule.** `/{mod}` is the app, `/{mod}/api` is the API. Every gateway (Caddy in production, Rust, Next.js) enforces the same rule.
 4. **Null call = discovery.** `POST /mod/{name}` with nothing else returns what the module is and what it can do.
 5. **Identity is a signature.** Your address (Ethereum, Substrate, or Solana key) is your account. Modules verify signatures, not passwords. Secrets stay in `~/.mod/`, never on-chain or in the repo.
 

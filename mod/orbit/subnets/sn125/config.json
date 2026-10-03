@@ -1,0 +1,38 @@
+{
+  "name": "sn125",
+  "version": "1.0.0",
+  "description": "SN125 Refinery — Incentivizing the improvement of the algorithms behind a pretraining run. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "𑀂",
+  "chain": "bittensor",
+  "netuid": 125,
+  "subnet": "Refinery",
+  "symbol": "𑀂",
+  "owner": "5DTzv2rL6YGQjCDNiWQJz2nE23fK1mDccH9eQimgiieyL3C4",
+  "github": "https://github.com/Barbariandev/refinery",
+  "url": "https://refinery125.com",
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=125",
+    "news": "/bt/news?netuid=125"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

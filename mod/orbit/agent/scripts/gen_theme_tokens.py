@@ -4,7 +4,7 @@
 Every colour utility in the app (emerald/gray/amber/sky/violet/red/white and
 the three surface levels) is re-pointed at an rgb-triple CSS variable in
 tailwind.config.ts, so a theme is nothing but one block of variables. Writing
-those ramps by hand across nine themes invites drift, so they're derived here
+those ramps by hand across ten themes invites drift, so they're derived here
 from one base colour per role and pasted between the CSS markers.
 
     python3 scripts/gen_theme_tokens.py        # rewrites the marked block
@@ -74,6 +74,13 @@ THEMES = [
          gray=("#c6ffdd", "#2c5a45"),
          acc="#00e56f", warn="#a3e635", info="#2dd4bf", alt="#4ade80", dang="#ff5f52",
          glow="0 229 111"),
+    # dark-mode Mario: the castle level at night. Coin gold is the accent, the
+    # ? block orange is the warn, and Mario red stays where danger belongs.
+    dict(id="mario", base="dark", skin="pixel",
+         s=("#0b0d1c", "#121635", "#1b2049"), body="#05060f", ink="#ffffff",
+         gray=("#f2f5ff", "#3f466f"),
+         acc="#fbd000", warn="#f8a838", info="#5c94fc", alt="#43b047", dang="#e52521",
+         glow="251 208 0"),
     dict(id="midnight", base="dark", skin="soft",
          s=("#0b0b13", "#12121d", "#1b1b2b"), body="#08080f", ink="#ffffff",
          gray=("#eef0f8", "#414463"),

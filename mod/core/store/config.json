@@ -9,10 +9,30 @@
     "terms_version": "1.0",
     "port": 50152,
     "app_port": 50151,
+    "protocol": "mcp/2025-06-18",
     "urls": {
         "api": "http://localhost:50152",
-        "app": "http://localhost:50151"
+        "app": "http://localhost:50151",
+        "mcp": "http://localhost:50152/mcp"
     },
+    "tools": [
+        "store_status",
+        "store_market_browse",
+        "store_terms",
+        "store_me",
+        "store_list",
+        "store_search",
+        "store_get",
+        "store_object_info",
+        "store_graph",
+        "store_put_text",
+        "store_register",
+        "store_share",
+        "store_pin",
+        "store_pins",
+        "store_pools",
+        "store_delete"
+    ],
     "app": {
         "framework": "next",
         "dir": "app",
@@ -159,7 +179,7 @@
         "mcp": {
             "method": "POST",
             "auth": "optional",
-            "docs": "Model Context Protocol (Streamable HTTP, JSON-RPC 2.0) tool server for LLM agents; auth via the same Bearer protocol token. Tools: store_status, store_market_browse, store_terms (public); store_me, store_list, store_search, store_get, store_object_info, store_graph, store_put_text, store_share, store_pin, store_pins, store_pools (authed)"
+            "docs": "Model Context Protocol (Streamable HTTP, JSON-RPC 2.0) tool server for LLM agents; auth via the same Bearer protocol token. Tools: store_status, store_market_browse, store_terms (public); store_me, store_list, store_search, store_get, store_object_info, store_graph, store_put_text, store_register, store_share, store_pin, store_pins, store_pools, store_delete (authed)"
         }
     },
     "auth": "mod-protocol",

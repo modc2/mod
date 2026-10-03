@@ -1,0 +1,40 @@
+{
+  "name": "sn94",
+  "version": "1.0.0",
+  "description": "SN94 Cathedral — CPU sandboxes powering reinforcement learning on Bittensor. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚄ",
+  "chain": "bittensor",
+  "netuid": 94,
+  "subnet": "Cathedral",
+  "symbol": "ᚄ",
+  "owner": "5CnwnkkCxrrNDuhy8Vvptd6j6ebrv9Z6mrTzD479f7uAiYat",
+  "github": "https://github.com/cathedralai/cathedral-sandbox",
+  "url": "https://cathedral.computer/",
+  "discord": "https://discord.com/channels/799672011265015819/1526241812589711571",
+  "logo": "https://cathedral.computer/assets/favicon.png",
+  "related": [
+    "cathedral"
+  ],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=94",
+    "news": "/bt/news?netuid=94"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

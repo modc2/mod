@@ -1,0 +1,33 @@
+{
+    "name": "ttt",
+    "description": "Tic-tac-toe. Solved, so a perfect opponent exists and a loss is a mistake rather than bad luck.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "wasm",
+    "lang": "wasm",
+    "anchor": "mod.py",
+    "artifact": "df484e3df4b3049ee3e8c38472a0be75695b0308a1974ac09799106898b7eabc",
+    "bytes": 76291,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game"
+    ],
+    "defines": [
+        "memory",
+        "alloc",
+        "game_done",
+        "game_info",
+        "game_init",
+        "game_result",
+        "game_step",
+        "game_view",
+        "__data_end",
+        "__heap_base"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/ttt/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

@@ -1,0 +1,38 @@
+{
+  "name": "sn60",
+  "version": "1.0.0",
+  "description": "SN60 Bitsec.ai — find and fix exploits in codebases. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ذ",
+  "chain": "bittensor",
+  "netuid": 60,
+  "subnet": "Bitsec.ai",
+  "symbol": "ذ",
+  "owner": "5CXLwkK1Scd1uiMUrXYjJUTTPxqqyH2FTJQNLp9uXQhA9rhR",
+  "github": "https://github.com/Bitsec-AI/sandbox",
+  "url": "https://bitsec.ai",
+  "discord": "yubo",
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=60",
+    "news": "/bt/news?netuid=60"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

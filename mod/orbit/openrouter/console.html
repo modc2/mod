@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>openrouter — one key, every model</title>
+<style>
+  :root{
+    --bg:#08090d; --panel:#0e1016; --line:#1e2230; --ink:#dbe0ea; --dim:#6d7690;
+    --hot:#8b7dff; --hot2:#c4b5fd; --good:#4ade80; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+  header{display:flex;align-items:baseline;gap:14px;padding:13px 18px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:9}
+  h1{font-size:15px;margin:0;letter-spacing:.14em}
+  h1 b{color:var(--hot2)}
+  .sub{color:var(--dim);font-size:11px}
+  nav{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+  nav button{background:none;border:1px solid var(--line);color:var(--dim);
+             padding:5px 12px;cursor:pointer;font:inherit;font-size:11px;letter-spacing:.1em}
+  nav button.on{color:#0b0714;background:var(--hot);border-color:var(--hot)}
+  main{padding:16px 18px;max-width:1440px}
+  section{display:none} section.on{display:block}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+  input,select,textarea{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+               padding:6px 9px;font:inherit}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--hot)}
+  textarea{width:100%;resize:vertical;line-height:1.5}
+  label.chk{color:var(--dim);font-size:11px;display:flex;align-items:center;gap:4px;cursor:pointer}
+  button.go{background:var(--hot);color:#0b0714;border:none;padding:7px 16px;
+            cursor:pointer;font:inherit;font-weight:600;letter-spacing:.08em}
+  button.go:disabled{opacity:.5;cursor:wait}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--ink);
+               padding:3px 9px;cursor:pointer;font:inherit;font-size:11px}
+  button.ghost:hover{border-color:var(--hot);color:var(--hot2)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--dim);font-weight:400;border-bottom:1px solid var(--line);
+     padding:6px 8px;font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  td{padding:6px 8px;border-bottom:1px solid #11141c;vertical-align:top}
+  tr:hover td{background:#0e1119}
+  .p{display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:2px;
+     font-size:10px;color:var(--dim);margin-right:3px}
+  .p.on{color:var(--hot2);border-color:#3b2f6b}
+  .price{color:var(--good)}
+  .free{color:var(--good);font-weight:600}
+  .dimtxt{color:var(--dim)} .warnv{color:var(--warn)} .badv{color:var(--bad)}
+  .id{color:var(--hot2)}
+  pre{background:var(--panel);border:1px solid var(--line);padding:12px;overflow:auto;
+      font-size:11px;max-height:65vh;white-space:pre-wrap;word-break:break-word;margin:0}
+  .note{color:var(--dim);font-size:11px;margin:8px 0}
+  .flash{color:var(--warn);font-size:11px;min-height:16px;margin-left:auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .card{background:var(--panel);border:1px solid var(--line);padding:12px}
+  .card h3{margin:0 0 6px;font-size:12px;letter-spacing:.1em;color:var(--dim)}
+  .card .big{font-size:20px;color:var(--hot2)}
+  .row{display:flex;justify-content:space-between;gap:8px;font-size:11px;
+       color:var(--dim);padding:2px 0}
+  .split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+  @media(max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+  .out{background:var(--panel);border:1px solid var(--line);padding:12px;min-height:220px;
+       white-space:pre-wrap;word-break:break-word;font-size:12.5px;max-height:60vh;overflow:auto}
+  .drawer{position:fixed;inset:0 0 0 auto;width:min(720px,94vw);background:var(--bg);
+          border-left:1px solid var(--line);padding:16px 18px;overflow:auto;
+          transform:translateX(100%);transition:transform .16s ease;z-index:20}
+  .drawer.on{transform:none}
+  .drawer h2{font-size:14px;margin:0 0 4px}
+  .x{position:absolute;top:12px;right:14px;cursor:pointer;color:var(--dim);
+     border:1px solid var(--line);padding:2px 8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>⇆ <b>OPENROUTER</b></h1>
+  <span class="sub" id="tagline">one key, every model</span>
+  <nav>
+    <button data-tab="chat" class="on">CHAT</button>
+    <button data-tab="models">MODELS</button>
+    <button data-tab="providers">PROVIDERS</button>
+    <button data-tab="spend">SPEND</button>
+    <button data-tab="mcp">MCP</button>
+    <button data-tab="key">KEY</button>
+  </nav>
+</header>
+<main>
+
+<!-- ── chat ── -->
+<section id="chat" class="on">
+  <div class="bar">
+    <input id="c-model" list="modellist" placeholder="model (author/slug)" style="width:280px"
+           value="openrouter/auto">
+    <datalist id="modellist"></datalist>
+    <input id="c-max" type="number" min="1" placeholder="max tokens" style="width:110px" value="800">
+    <input id="c-temp" type="number" step="0.1" min="0" max="2" placeholder="temp" style="width:80px">
+    <input id="c-provider" placeholder="provider order (groq,cerebras)" style="width:220px">
+    <label class="chk"><input type="checkbox" id="c-stream" checked> stream</label>
+    <button class="go" id="c-send" onclick="send()">SEND</button>
+    <span class="flash" id="c-flash"></span>
+  </div>
+  <div class="split">
+    <div>
+      <textarea id="c-system" rows="2" placeholder="system prompt (optional)"></textarea>
+      <textarea id="c-prompt" rows="9" placeholder="your prompt — ⌘/ctrl+enter sends"
+                style="margin-top:8px"></textarea>
+      <div class="note" id="c-quote">pick a model to see what a call would cost</div>
+    </div>
+    <div>
+      <div class="out" id="c-out"></div>
+      <div class="note" id="c-usage"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── models ── -->
+<section id="models">
+  <div class="bar">
+    <input id="m-q" placeholder="search name / description" style="width:230px">
+    <input id="m-ctx" type="number" placeholder="min context" style="width:120px">
+    <input id="m-in" type="number" step="0.01" placeholder="max $/M in" style="width:120px">
+    <input id="m-out" type="number" step="0.01" placeholder="max $/M out" style="width:120px">
+    <select id="m-input">
+      <option value="">any input</option><option value="image">image in</option>
+      <option value="file">file in</option><option value="audio">audio in</option>
+    </select>
+    <select id="m-sort">
+      <option value="price">cheapest in</option><option value="completion_price">cheapest out</option>
+      <option value="context">biggest context</option><option value="created">newest</option>
+      <option value="name">by name</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="m-tools"> tools</label>
+    <label class="chk"><input type="checkbox" id="m-reason"> reasoning</label>
+    <label class="chk"><input type="checkbox" id="m-free"> free</label>
+    <button class="go" onclick="loadModels()">SEARCH</button>
+    <span class="flash" id="m-flash"></span>
+  </div>
+  <table><thead><tr>
+    <th>model</th><th>context</th><th>$/M in</th><th>$/M out</th><th>modality</th>
+    <th>can</th><th></th>
+  </tr></thead><tbody id="m-rows"></tbody></table>
+</section>
+
+<!-- ── providers ── -->
+<section id="providers">
+  <div class="bar">
+    <input id="p-q" placeholder="filter providers" style="width:230px" oninput="renderProviders()">
+    <span class="flash" id="p-flash"></span>
+  </div>
+  <table><thead><tr>
+    <th>provider</th><th>slug</th><th>hq</th><th>datacenters</th><th>policy</th>
+  </tr></thead><tbody id="p-rows"></tbody></table>
+</section>
+
+<!-- ── spend ── -->
+<section id="spend">
+  <div class="bar">
+    <button class="go" onclick="loadSpend()">REFRESH</button>
+    <input id="g-id" placeholder="generation id (gen-…)" style="width:280px">
+    <button class="ghost" onclick="lookupGen()">RECEIPT</button>
+    <span class="flash" id="s-flash"></span>
+  </div>
+  <div class="cards" id="s-cards"></div>
+  <div class="note">A receipt is the provider's own token accounting — it differs from the
+    normalized usage on a response, and it is the number you are actually billed.</div>
+  <pre id="s-gen" style="display:none"></pre>
+</section>
+
+<!-- ── mcp ── -->
+<section id="mcp">
+  <div class="note">Twelve tools over the same code this console calls. Point any MCP client
+    at <code id="mcp-url"></code>, or run it on stdio with <code>python3 mcp.py</code>.</div>
+  <pre id="mcp-conf"></pre>
+  <table><thead><tr><th>tool</th><th>what it does</th></tr></thead>
+    <tbody id="mcp-rows"></tbody></table>
+</section>
+
+<!-- ── key ── -->
+<section id="key">
+  <div class="note">Your key stays in this browser tab (sessionStorage) and is sent as
+    <code>x-openrouter-key</code> on every call. Saving to the server writes it to
+    <code>~/.mod/openrouter/key.json</code> (0600, off-tree) for the CLI and MCP tools —
+    only do that on a machine you own.</div>
+  <div class="bar">
+    <input id="k-key" type="password" placeholder="sk-or-v1-…" style="width:340px">
+    <button class="go" onclick="saveKey()">USE IN THIS TAB</button>
+    <button class="ghost" onclick="saveKey(true)">ALSO SAVE ON SERVER</button>
+    <button class="ghost" onclick="clearKey()">FORGET</button>
+    <span class="flash" id="k-flash"></span>
+  </div>
+  <div class="note">No key? Create one at
+    <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--hot2)">openrouter.ai/keys</a>.
+    The catalog, provider list and price tables below work without one.</div>
+  <pre id="k-state"></pre>
+</section>
+
+</main>
+
+<div class="drawer" id="drawer">
+  <span class="x" onclick="closeDrawer()">CLOSE</span>
+  <h2 id="d-title"></h2>
+  <div class="note" id="d-sub"></div>
+  <div id="d-body"></div>
+</div>
+
+<script>
+const API = (location.pathname.replace(/\/$/,'').replace(/\/index\.html$/,'') || '') + '/_api';
+const KEY = 'openrouter_key';
+const getKey = () => sessionStorage.getItem(KEY) || '';
+
+async function call(path, opts = {}) {
+  const h = {'content-type': 'application/json'};
+  const k = getKey();
+  if (k) h['x-openrouter-key'] = k;
+  const r = await fetch(API + path, {...opts, headers: {...h, ...(opts.headers || {})}});
+  const body = await r.json().catch(() => ({error: 'bad json from server'}));
+  if (!r.ok) throw new Error(body.error || ('http ' + r.status));
+  return body;
+}
+const esc = s => String(s ?? '').replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+const money = v => v == null ? '—' : (v === 0 ? 'free' : '$' + (v < 0.01 ? v.toFixed(4) : v.toFixed(v < 1 ? 3 : 2)));
+const kb = n => !n ? '—' : n >= 1000 ? Math.round(n/1000) + 'K' : String(n);
+// A router's price is unknown because it picks per request, not because the
+// catalog is missing it — worth saying, since '—' reads like a data gap.
+const price = (m, v) => v == null && m.variable_price ? '<span class="dimtxt">varies</span>' : money(v);
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  ({models: () => M.length || loadModels(), providers: loadProviders, spend: loadSpend,
+    mcp: loadMcp, key: keyState}[b.dataset.tab] || (() => {}))();
+});
+
+// ── models ──
+let M = [];
+async function loadModels() {
+  const f = document.getElementById('m-flash');
+  f.textContent = 'loading catalog…';
+  const p = new URLSearchParams({limit: '200', sort: document.getElementById('m-sort').value});
+  const add = (k, id) => { const v = document.getElementById(id).value.trim(); if (v) p.set(k, v) };
+  add('q', 'm-q'); add('min_context', 'm-ctx');
+  add('max_prompt_usd_m', 'm-in'); add('max_completion_usd_m', 'm-out'); add('input', 'm-input');
+  ['tools', 'reasoning', 'free'].forEach((k, i) => {
+    const el = document.getElementById(['m-tools','m-reason','m-free'][i]);
+    if (el.checked) p.set(k, '1');
+  });
+  try {
+    const d = await call('/models?' + p);
+    M = d.models;
+    f.textContent = `${d.total_found} of ${d.total_catalog} models`;
+    document.getElementById('m-rows').innerHTML = M.map(m => `<tr>
+      <td><span class="id">${esc(m.id)}</span><div class="dimtxt">${esc(m.name || '')}</div></td>
+      <td>${kb(m.context)}</td>
+      <td class="${m.prompt_usd_m === 0 ? 'free' : 'price'}">${price(m, m.prompt_usd_m)}</td>
+      <td class="${m.completion_usd_m === 0 ? 'free' : 'price'}">${price(m, m.completion_usd_m)}</td>
+      <td class="dimtxt">${esc(m.modality || '')}</td>
+      <td>${m.tools ? '<span class="p on">tools</span>' : ''}${m.reasoning ? '<span class="p on">reason</span>' : ''}${m.structured ? '<span class="p on">json</span>' : ''}</td>
+      <td style="white-space:nowrap">
+        <button class="ghost" onclick="showModel('${m.id}')">where</button>
+        <button class="ghost" onclick="useModel('${m.id}')">use</button></td>
+    </tr>`).join('') || '<tr><td colspan="7" class="dimtxt">nothing matched</td></tr>';
+    document.getElementById('modellist').innerHTML =
+      M.slice(0, 200).map(m => `<option value="${esc(m.id)}">`).join('');
+  } catch (e) { f.textContent = e.message }
+}
+
+function useModel(id) {
+  document.getElementById('c-model').value = id;
+  document.querySelector('nav button[data-tab="chat"]').click();
+  quote();
+}
+
+async function showModel(id) {
+  openDrawer(id, 'reading every provider serving this model…', '<div class="dimtxt">…</div>');
+  try {
+    const d = await call('/endpoints?id=' + encodeURIComponent(id));
+    document.getElementById('d-sub').textContent =
+      `${d.count} provider endpoint${d.count === 1 ? '' : 's'} — cheapest first`;
+    document.getElementById('d-body').innerHTML = `<table><thead><tr>
+      <th>provider</th><th>$/M in</th><th>$/M out</th><th>context</th><th>quant</th>
+      <th>uptime 30m</th><th>tok/s</th><th></th></tr></thead><tbody>` +
+      d.endpoints.map(e => `<tr>
+        <td>${esc(e.provider || '')}</td>
+        <td class="price">${money(e.prompt_usd_m)}</td>
+        <td class="price">${money(e.completion_usd_m)}</td>
+        <td>${kb(e.context)}</td>
+        <td class="dimtxt">${esc(e.quantization || '—')}</td>
+        <td class="${(e.uptime_30m ?? 100) < 95 ? 'badv' : 'dimtxt'}">${e.uptime_30m ?? '—'}</td>
+        <td class="dimtxt">${e.throughput_tps ?? '—'}</td>
+        <td><button class="ghost" onclick="pin('${id}','${esc(e.tag || e.provider || '')}')">route here</button></td>
+      </tr>`).join('') + '</tbody></table>';
+  } catch (e) { document.getElementById('d-body').innerHTML = `<div class="badv">${esc(e.message)}</div>` }
+}
+
+function pin(id, tag) {
+  document.getElementById('c-model').value = id;
+  document.getElementById('c-provider').value = tag.split('/')[0];
+  closeDrawer();
+  document.querySelector('nav button[data-tab="chat"]').click();
+}
+
+function openDrawer(title, sub, body) {
+  document.getElementById('d-title').textContent = title;
+  document.getElementById('d-sub').textContent = sub;
+  document.getElementById('d-body').innerHTML = body;
+  document.getElementById('drawer').classList.add('on');
+}
+const closeDrawer = () => document.getElementById('drawer').classList.remove('on');
+
+// ── chat ──
+async function quote() {
+  const model = document.getElementById('c-model').value.trim();
+  const el = document.getElementById('c-quote');
+  // Routers price per request; the quote says so itself, for all of them — not
+  // just the one whose id we happened to hardcode.
+  if (!model) { el.textContent = 'pick a model for a quote'; return }
+  const pt = Math.max(1, Math.ceil((document.getElementById('c-prompt').value.length +
+    document.getElementById('c-system').value.length) / 4));
+  const ct = Number(document.getElementById('c-max').value || 800);
+  try {
+    const d = await call(`/cost?model=${encodeURIComponent(model)}&prompt_tokens=${pt}&completion_tokens=${ct}`);
+    const q = d.quotes[0];
+    el.innerHTML = q.total_usd == null ? esc(q.note || 'not token-priced')
+      : `worst case for this call: <b class="price">${money(q.total_usd)}</b>
+         <span class="dimtxt">(~${pt} in @ ${money(q.prompt_usd_m)}/M · ${ct} out @ ${money(q.completion_usd_m)}/M)</span>`;
+  } catch (e) { el.textContent = e.message }
+}
+['c-model', 'c-max'].forEach(id => document.getElementById(id).addEventListener('change', quote));
+document.getElementById('c-prompt').addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();
+});
+
+function chatBody() {
+  const v = id => document.getElementById(id).value.trim();
+  const b = {model: v('c-model'), prompt: v('c-prompt'), confirm: true};
+  if (v('c-system')) b.system = v('c-system');
+  if (v('c-max')) b.max_tokens = Number(v('c-max'));
+  if (v('c-temp')) b.temperature = Number(v('c-temp'));
+  if (v('c-provider')) b.provider = v('c-provider');
+  return b;
+}
+
+async function send() {
+  const out = document.getElementById('c-out'), flash = document.getElementById('c-flash');
+  const usage = document.getElementById('c-usage'), btn = document.getElementById('c-send');
+  const b = chatBody();
+  if (!b.prompt) { flash.textContent = 'write a prompt first'; return }
+  out.textContent = ''; usage.textContent = ''; flash.textContent = 'routing…'; btn.disabled = true;
+  const t0 = performance.now();
+  try {
+    if (document.getElementById('c-stream').checked) await stream(b, out, flash);
+    else {
+      const d = await call('/chat', {method: 'POST', body: JSON.stringify(b)});
+      if (d.needs_confirm) { out.textContent = JSON.stringify(d, null, 2); }
+      else {
+        out.textContent = d.text;
+        usage.innerHTML = receipt(d);
+      }
+    }
+    flash.textContent = `${((performance.now() - t0) / 1000).toFixed(1)}s`;
+  } catch (e) { flash.textContent = e.message; out.textContent ||= '' }
+  btn.disabled = false;
+}
+
+function receipt(d) {
+  const u = d.usage || {};
+  const bits = [`<span class="p on">${esc(d.model || '')}</span>`];
+  if (d.provider) bits.push(`<span class="p">via ${esc(d.provider)}</span>`);
+  if (u.prompt_tokens != null) bits.push(`<span class="p">${u.prompt_tokens} in / ${u.completion_tokens} out</span>`);
+  if (d.cost_usd != null) bits.push(`<span class="p on">${money(d.cost_usd)}</span>`);
+  if (d.id) bits.push(`<button class="ghost" onclick="genFrom('${esc(d.id)}')">receipt</button>`);
+  return bits.join(' ');
+}
+
+function genFrom(id) {
+  document.getElementById('g-id').value = id;
+  document.querySelector('nav button[data-tab="spend"]').click();
+  lookupGen();
+}
+
+async function stream(b, out, flash) {
+  const h = {'content-type': 'application/json'};
+  const k = getKey();
+  if (k) h['x-openrouter-key'] = k;
+  const r = await fetch(API + '/chat', {method: 'POST', headers: h,
+    body: JSON.stringify({...b, stream: true})});
+  if (!r.ok || !r.body) {
+    const err = await r.json().catch(() => ({error: 'http ' + r.status}));
+    throw new Error(err.error || ('http ' + r.status));
+  }
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '', meta = {};
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream: true});
+    const lines = buf.split('\n'); buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue;            // ": OPENROUTER PROCESSING"
+      const payload = line.slice(5).trim();
+      if (payload === '[DONE]') continue;
+      let d; try { d = JSON.parse(payload) } catch { continue }
+      if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+      const delta = d.choices?.[0]?.delta?.content;
+      if (delta) { out.textContent += delta; out.scrollTop = out.scrollHeight }
+      meta = {...meta, id: d.id ?? meta.id, model: d.model ?? meta.model,
+              provider: d.provider ?? meta.provider,
+              usage: d.usage ? {prompt_tokens: d.usage.prompt_tokens,
+                                completion_tokens: d.usage.completion_tokens} : meta.usage,
+              cost_usd: d.usage?.cost ?? meta.cost_usd};
+    }
+  }
+  document.getElementById('c-usage').innerHTML = receipt(meta);
+}
+
+// ── providers ──
+let P = [];
+async function loadProviders() {
+  const f = document.getElementById('p-flash');
+  if (P.length) return renderProviders();
+  f.textContent = 'loading…';
+  try { P = (await call('/providers')).providers; f.textContent = `${P.length} providers`; renderProviders(); }
+  catch (e) { f.textContent = e.message }
+}
+function renderProviders() {
+  const q = document.getElementById('p-q').value.trim().toLowerCase();
+  const rows = P.filter(p => !q || (p.name + ' ' + p.slug).toLowerCase().includes(q));
+  document.getElementById('p-rows').innerHTML = rows.map(p => `<tr>
+    <td>${esc(p.name)}</td><td class="dimtxt">${esc(p.slug)}</td>
+    <td>${esc(p.headquarters || '—')}</td>
+    <td class="dimtxt">${(p.datacenters || []).join(' ') || '—'}</td>
+    <td>${p.privacy_policy_url ? `<a class="dimtxt" target="_blank" href="${esc(p.privacy_policy_url)}">privacy</a>` : ''}
+        ${p.terms_of_service_url ? `<a class="dimtxt" target="_blank" href="${esc(p.terms_of_service_url)}">terms</a>` : ''}</td>
+  </tr>`).join('') || '<tr><td colspan="5" class="dimtxt">nothing matched</td></tr>';
+}
+
+// ── spend ──
+async function loadSpend() {
+  const f = document.getElementById('s-flash'), cards = document.getElementById('s-cards');
+  f.textContent = 'reading key…';
+  try {
+    const d = await call('/key');
+    const c = d.credits || {};
+    cards.innerHTML = [
+      ['BALANCE', money(c.balance_usd), `${money(c.total_credits_usd)} bought · ${money(c.total_usage_usd)} used`],
+      ['THIS KEY', d.label || '—', `${money(d.usage_usd)} used${d.limit_usd != null ? ' of ' + money(d.limit_usd) : ' · no limit'}`],
+      ['TIER', d.is_free_tier ? 'free' : 'paid', d.rate_limit ? `${d.rate_limit.requests}/${d.rate_limit.interval}` : ''],
+    ].map(([h, big, sub]) => `<div class="card"><h3>${h}</h3>
+        <div class="big">${esc(big)}</div><div class="row"><span>${esc(sub)}</span></div></div>`).join('');
+    f.textContent = '';
+  } catch (e) { f.textContent = e.message; cards.innerHTML = `<div class="card badv">${esc(e.message)}</div>` }
+}
+
+async function lookupGen() {
+  const id = document.getElementById('g-id').value.trim();
+  const pre = document.getElementById('s-gen'), f = document.getElementById('s-flash');
+  if (!id) return;
+  f.textContent = 'looking up…'; pre.style.display = 'block'; pre.textContent = '…';
+  try {
+    const d = await call('/generation?id=' + encodeURIComponent(id));
+    delete d.raw;
+    pre.textContent = JSON.stringify(d, null, 2);
+    f.textContent = '';
+  } catch (e) { f.textContent = e.message; pre.textContent = '' }
+}
+
+// ── mcp ──
+async function loadMcp() {
+  const url = location.origin + (location.pathname.replace(/\/$/,'') || '') + '/mcp';
+  document.getElementById('mcp-url').textContent = url;
+  document.getElementById('mcp-conf').textContent = JSON.stringify(
+    {mcpServers: {openrouter: {type: 'http', url}}}, null, 2);
+  try {
+    const d = await call('/tools');
+    document.getElementById('mcp-rows').innerHTML = d.tools.map(t => `<tr>
+      <td><span class="id">${esc(t.name)}</span></td>
+      <td class="dimtxt">${esc(t.description)}</td></tr>`).join('');
+  } catch (e) { document.getElementById('mcp-rows').innerHTML =
+    `<tr><td colspan="2" class="badv">${esc(e.message)}</td></tr>` }
+}
+
+// ── key ──
+async function saveKey(onServer) {
+  const v = document.getElementById('k-key').value.trim();
+  const f = document.getElementById('k-flash');
+  if (!v) { f.textContent = 'paste a key first'; return }
+  sessionStorage.setItem(KEY, v);
+  f.textContent = 'key active in this tab';
+  if (onServer) {
+    try { await call('/set_key', {method: 'POST', body: JSON.stringify({key: v})});
+      f.textContent = 'saved to ~/.mod/openrouter/key.json'; }
+    catch (e) { f.textContent = e.message }
+  }
+  keyState();
+}
+function clearKey() {
+  sessionStorage.removeItem(KEY);
+  document.getElementById('k-key').value = '';
+  document.getElementById('k-flash').textContent = 'forgotten in this tab';
+  keyState();
+}
+async function keyState() {
+  try {
+    const d = await call('/state');
+    document.getElementById('k-state').textContent = JSON.stringify(
+      {tab_key: getKey() ? 'set' : 'missing', ...d}, null, 2);
+  } catch (e) { document.getElementById('k-state').textContent = e.message }
+}
+
+// first paint: the catalog is public, so this works with no key at all
+loadModels().then(quote);
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+{
+  "name": "sn41",
+  "version": "1.0.0",
+  "description": "SN41 Almanac — Prediction market research and intelligence. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "נ",
+  "chain": "bittensor",
+  "netuid": 41,
+  "subnet": "Almanac",
+  "symbol": "נ",
+  "owner": "5FCSevLkofmKZRixMawp6jyyjBty1AeSCLa7N5Fv892DYkXX",
+  "github": "https://github.com/corvxai/almanac",
+  "url": "https://almnc.ai",
+  "discord": null,
+  "logo": "https://cdn.discordapp.com/icons/1263242016695783427/19e62da4ff8eb5a7c36d1ef24b9d911e.webp?size=1024",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=41",
+    "news": "/bt/news?netuid=41"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

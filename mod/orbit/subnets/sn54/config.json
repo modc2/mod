@@ -1,0 +1,38 @@
+{
+  "name": "sn54",
+  "version": "1.0.0",
+  "description": "SN54 Yanez — Yanez SN54 generates synthetic identities for challenging Yanez humanhood, presence, and uniqueness detection models. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ت",
+  "chain": "bittensor",
+  "netuid": 54,
+  "subnet": "Yanez",
+  "symbol": "ت",
+  "owner": "5FUfruyVDoDsCty1Sh7tCmHVdpoC3XV1nUZYjhcpfe31Defk",
+  "github": "https://github.com/yanez-compliance/MIID-subnet",
+  "url": "www.yanez.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1351934165964296232",
+  "logo": "https://raw.githubusercontent.com/yanez-compliance/MIID-subnet/main/Yanez%20AI%20Logo%20-%20Icon%20-%20Outline%20Glow.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=54",
+    "news": "/bt/news?netuid=54"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

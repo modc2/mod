@@ -45,7 +45,8 @@ def test_mutating_tools_flagged():
 def test_docs_grouping():
     groups = tools.docs()
     assert {g['group'] for g in groups} == {
-        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'Network'}
+        'Chain', 'Wallet', 'Markets', 'Trading', 'Traders', 'News', 'Network',
+        'Console'}
     total = sum(len(g['tools']) for g in groups)
     assert total == len(tools.TOOLS)
 
@@ -392,6 +393,9 @@ def test_sync_flags_a_subnet_that_stopped_reporting(store):
 def test_trader_sync_covers_the_watchlist(tstore, monkeypatch):
     now = int(time.time())
     monkeypatch.setattr(history, 'head_block', lambda bt=None: 8_758_500)
+    # track() snapshots on the spot; offline that must not reach the chain
+    monkeypatch.setattr(traders, 'snapshot', lambda a, bt=None: {
+        'ts': now, 'total_tao': 0.0, 'positions': []})
     traders.track(WHALE, label='whale')
     _snap(WHALE, now, [_pos(1, 100.0, 0.5)], block=8_758_400)
     s = traders.sync()
@@ -466,7 +470,7 @@ def test_http_info(client):
 
 def test_http_tools_and_docs(client):
     assert len(client.get('/api/tools').json()['tools']) == len(tools.TOOLS)
-    assert len(client.get('/api/docs').json()['groups']) == 6
+    assert len(client.get('/api/docs').json()['groups']) == 8
 
 
 def test_http_call(client):
@@ -484,12 +488,78 @@ def test_http_mcp(client):
                                   'method': 'initialize',
                                   'params': {'protocolVersion': '2025-03-26'}}).json()
     assert j['result']['protocolVersion'] == '2025-03-26'
+    j = client.post('/mcp', json={'jsonrpc': '2.0', 'id': 3, 'method': 'initialize',
+                                  'params': {'protocolVersion': '1999-01-01'}}).json()
+    assert j['result']['protocolVersion'] == '2025-06-18'
 
 
-def test_http_serves_app(client):
-    html = client.get('/').text
+def test_http_serves_legacy_console(client):
+    html = client.get('/legacy').text
     assert 'Bittensor' in html and 'id="docs"' in html
-    assert 'id="ask"' in html and 'askNetwork' in html
+    assert 'id="ask"' in html and 'sendChat' in html and 'chat-thread' in html
+
+
+@pytest.fixture
+def fake_dist(tmp_path, monkeypatch):
+    """A tiny stand-in for app/dist, laid out the way `next export` does."""
+    from bt import server
+    d = tmp_path / 'dist'
+    (d / '_next' / 'static' / 'chunks').mkdir(parents=True)
+    (d / 'index.html').write_text('<html>home</html>')
+    (d / 'markets.html').write_text('<html>markets</html>')
+    (d / '404.html').write_text('<html>warp pipe</html>')
+    (d / '_next' / 'static' / 'chunks' / 'a.js').write_text('js')
+    (tmp_path / 'secret.txt').write_text('nope')
+    monkeypatch.setattr(server, 'DIST_DIR', str(d))
+    return d
+
+
+HTML = {'accept': 'text/html,application/xhtml+xml'}
+
+
+def test_http_serves_next_export(client, fake_dist):
+    assert client.get('/', headers=HTML).text == '<html>home</html>'
+    assert client.get('/markets').text == '<html>markets</html>'
+    assert client.get('/bt/markets').text == '<html>markets</html>'   # gateway prefix kept
+    r = client.get('/bt/_next/static/chunks/a.js')
+    assert r.text == 'js' and 'immutable' in r.headers['cache-control']
+    assert client.get('/markets').headers['cache-control'] == 'no-cache'
+    r = client.get('/nowhere')
+    assert r.status_code == 404 and 'warp pipe' in r.text
+    assert client.get('/api/nope').status_code == 404
+    assert client.get('/api').json()['app'] == 'next'
+    assert client.get('/mcp').status_code == 405                  # MCP clients
+    (fake_dist / 'mcp.html').write_text('<html>mcp page</html>')
+    assert client.get('/mcp', headers=HTML).text == '<html>mcp page</html>'
+
+
+def test_http_static_never_escapes_dist(client, fake_dist):
+    from bt import server
+    assert server._dist_file('../secret.txt') is None
+    assert server._dist_file('/../../etc/passwd') is None
+    assert client.get('/..%2Fsecret.txt').status_code == 404
+
+
+def test_http_falls_back_to_legacy_without_a_build(client, tmp_path, monkeypatch):
+    from bt import server
+    monkeypatch.setattr(server, 'DIST_DIR', str(tmp_path / 'never-built'))
+    assert 'sendChat' in client.get('/', headers=HTML).text
+    assert client.get('/api').json()['app'] == 'legacy'
+
+
+def test_http_api_through_every_gateway_shape(client, fake_dist):
+    """/bt/api/* arrives stripped (/call), the console uses /bt/_api/*, and
+    direct callers use /api/* — all three reach the same routes."""
+    body = {'tool': 'bt_wallets'}
+    for path in ('/api/call', '/call', '/_api/call', '/bt/_api/call'):
+        r = client.post(path, json=body)
+        assert r.status_code == 200 and r.json()['ok'] is True, path
+    assert client.get('/tools').json()['tools']
+    assert client.get('/agent/card').json()['name']
+    assert client.get('/').json()['name'] == 'bt'                    # null call
+    assert 'groups' in client.get('/docs').json()                    # API docs for fetch()
+    assert client.get('/docs', headers=HTML).status_code in (200, 404)  # the page for browsers
+    assert client.get('/bt/_api').json()['name'] == 'bt'
 
 
 # ---------------------------------------------------------------- agent
@@ -515,16 +585,104 @@ def test_agent_cmd_shape():
 
 def test_agent_event_translation():
     from bt import agent
-    evs = list(agent._events({
+    run = agent._Run()
+    evs = list(run.events({
         'type': 'assistant', 'message': {'content': [
             {'type': 'text', 'text': 'hi'},
-            {'type': 'tool_use', 'name': 'mcp__bittensor__bt_stats', 'input': {}}]}}))
-    assert evs == [{'type': 'text', 'text': 'hi'},
-                   {'type': 'tool', 'name': 'bt_stats', 'args': {}}]
-    done = list(agent._events({'type': 'result', 'result': 'ans',
-                               'num_turns': 3, 'duration_ms': 10,
-                               'total_cost_usd': 0.01}))
+            {'type': 'tool_use', 'id': 't1', 'name': 'mcp__bittensor__bt_stats',
+             'input': {}}]}}))
+    assert evs[0] == {'type': 'text', 'text': 'hi'}
+    assert evs[1]['type'] == 'tool' and evs[1]['name'] == 'bt_stats'
+    done = list(run.events({'type': 'result', 'result': 'ans', 'num_turns': 3,
+                            'duration_ms': 10, 'total_cost_usd': 0.01}))
     assert done[0]['type'] == 'done' and done[0]['answer'] == 'ans'
+
+
+def test_agent_partial_stream_wins_over_blocks():
+    """With token streaming on, the whole text block must not be repeated."""
+    from bt import agent
+    run = agent._Run()
+    deltas = list(run.events({'type': 'stream_event', 'event': {
+        'type': 'content_block_delta',
+        'delta': {'type': 'text_delta', 'text': 'he'}}}))
+    assert deltas == [{'type': 'text_delta', 'delta': 'he'}]
+    list(run.events({'type': 'stream_event', 'event': {
+        'type': 'content_block_delta',
+        'delta': {'type': 'text_delta', 'text': 'llo'}}}))
+    assert list(run.events({'type': 'assistant', 'message': {'content': [
+        {'type': 'text', 'text': 'hello'}]}})) == []
+    assert run.answer == 'hello'
+
+
+def test_agent_paragraphs_between_answer_blocks():
+    """Two answers around a tool call are two paragraphs, not one run-on."""
+    from bt import agent
+    run = agent._Run()
+
+    def stream(ev):
+        return list(run.events({'type': 'stream_event', 'event': ev}))
+
+    def delta(index, text):
+        return stream({'type': 'content_block_delta', 'index': index,
+                       'delta': {'type': 'text_delta', 'text': text}})
+
+    delta(0, 'first.')
+    assert delta(2, 'second.')[0]['delta'].startswith('\n\n')
+    stream({'type': 'message_start'})          # indexes restart per message
+    assert delta(0, 'third.')[0]['delta'].startswith('\n\n')
+    assert run.answer == 'first.\n\nsecond.\n\nthird.'
+
+
+def test_agent_tool_result_carries_view_and_timing():
+    from bt import agent
+    run = agent._Run()
+    list(run.events({'type': 'assistant', 'message': {'content': [
+        {'type': 'tool_use', 'id': 't1', 'name': 'mcp__bittensor__bt_view',
+         'input': {'view': 'subnet', 'netuid': 64}}]}}))
+    evs = list(run.events({'type': 'user', 'message': {'content': [
+        {'type': 'tool_result', 'tool_use_id': 't1',
+         'content': json.dumps({'__view__': {'view': 'subnet', 'netuid': 64}})}]}}))
+    assert evs[0]['type'] == 'tool_done' and evs[0]['error'] is False
+    assert evs[0]['ms'] is not None
+    assert evs[1] == {'type': 'view', 'action': {'view': 'subnet', 'netuid': 64}}
+    assert run.tools[0]['name'] == 'bt_view' and run.views
+
+
+def test_agent_resume_and_context():
+    from bt import agent
+    cmd = agent.build_cmd('again', session='sess-1')
+    assert cmd[cmd.index('--resume') + 1] == 'sess-1'
+    assert agent.context_line({'view': 'markets', 'netuid': 4}).startswith('[console:')
+    assert agent.context_line(None) == ''
+
+
+def test_view_tool_drives_the_console():
+    out = tools.call_tool('bt_view', {'view': 'markets', 'sort_by': 'change_24h'})
+    assert out['__view__'] == {'view': 'markets', 'sort_by': 'change_24h'}
+    with pytest.raises(ValueError, match='needs a netuid'):
+        tools.call_tool('bt_view', {'view': 'subnet'})
+    with pytest.raises(ValueError, match='unknown view'):
+        tools.call_tool('bt_view', {'view': 'moon'})
+    with pytest.raises(ValueError, match='unknown sort_by'):
+        tools.call_tool('bt_view', {'view': 'markets', 'sort_by': 'vibes'})
+    # the subnet overlay is tabbed; the agent can open straight onto one
+    out = tools.call_tool('bt_view', {'view': 'subnet', 'netuid': 64, 'tab': 'trades'})
+    assert out['__view__'] == {'view': 'subnet', 'netuid': 64, 'tab': 'trades'}
+    assert 'tab' not in tools.call_tool('bt_view', {'view': 'markets', 'tab': 'news'})['__view__']
+    with pytest.raises(ValueError, match='unknown tab'):
+        tools.call_tool('bt_view', {'view': 'subnet', 'netuid': 1, 'tab': 'memes'})
+    assert not tools.TOOL_MAP['bt_view'].mutates      # the agent may call it
+
+
+def test_agent_card(client):
+    j = client.get('/api/agent/card').json()
+    assert j['protocol'] == 'agent/1.0' and j['name'] == 'bt-network-guide'
+    assert j['conversation']['multi_turn'] is True
+    assert 'text_delta' in j['events'] and 'view' in j['events']
+    assert 'bt_transfer' in j['denied_tools'] and j['writes'].startswith('none')
+    assert client.get('/.well-known/agent.json').json()['name'] == j['name']
+    groups = {g['group'] for g in j['skills']}
+    assert 'Markets' in groups and 'Console' in groups
 
 
 def test_agent_status_shape(client):
@@ -533,6 +691,240 @@ def test_agent_status_shape(client):
     assert j['tools'] + j['denied'] == len(tools.TOOLS)
 
 
-def test_ask_requires_question(client):
-    r = client.post('/api/ask', json={})
-    assert r.status_code == 400 and r.json()['ok'] is False
+def test_chat_requires_a_message(client):
+    for path in ('/api/ask', '/api/agent/chat', '/api/agent/ask'):
+        r = client.post(path, json={})
+        assert r.status_code == 400 and r.json()['ok'] is False
+
+
+# ----------------------------------------------------------------- chats
+
+@pytest.fixture
+def chatstore(tmp_path, monkeypatch):
+    monkeypatch.setenv('BT_DATA_DIR', str(tmp_path))
+    from bt import chats
+    return chats
+
+
+def test_chat_store_roundtrip(chatstore):
+    cid = chatstore.create('Which subnet pumped hardest today?')
+    chatstore.append(cid, 'user', 'Which subnet pumped hardest today?')
+    chatstore.append(cid, 'assistant', 'Subnet 64.',
+                     tools=[{'name': 'bt_screener', 'args': {}, 'ok': True, 'ms': 12}],
+                     meta={'views': [{'view': 'subnet', 'netuid': 64}], 'turns': 2})
+    chatstore.finish_turn(cid, session='sess-9', model='sonnet', turns=2,
+                          cost_usd=0.03)
+
+    got = chatstore.get(cid)
+    assert got['title'].startswith('Which subnet')
+    assert got['session'] == 'sess-9' and got['turns'] == 2
+    assert round(got['cost_usd'], 4) == 0.03 and got['msgs'] == 2
+    assert [m['role'] for m in got['messages']] == ['user', 'assistant']
+    assert got['messages'][1]['tools'][0]['name'] == 'bt_screener'
+    assert got['messages'][1]['meta']['views'][0]['netuid'] == 64
+
+    # a second turn resumes the same claude session, and cost accumulates
+    assert chatstore.session_of(cid) == 'sess-9'
+    chatstore.finish_turn(cid, session='sess-10', turns=1, cost_usd=0.02)
+    assert chatstore.session_of(cid) == 'sess-10'
+    assert round(chatstore.get(cid)['cost_usd'], 4) == 0.05
+
+    assert [c['id'] for c in chatstore.list_chats()] == [cid]
+    assert chatstore.stats()['chats'] == 1
+    assert chatstore.delete(cid)['ok'] and chatstore.get(cid) is None
+
+
+def test_chat_store_titles_and_rename(chatstore):
+    cid = chatstore.create('  ' + 'x' * 200)
+    assert len(chatstore.get(cid)['title']) == chatstore.MAX_TITLE
+    assert chatstore.create('')and chatstore.list_chats()[0]['title'] == 'New chat'
+    chatstore.rename(cid, 'whales')
+    assert chatstore.get(cid)['title'] == 'whales'
+    assert chatstore.exists(cid) and not chatstore.exists('nope')
+
+
+def test_chat_http_surface(client, tmp_path, monkeypatch):
+    monkeypatch.setenv('BT_DATA_DIR', str(tmp_path))
+    from bt import chats
+    cid = chats.create('hello world')
+    chats.append(cid, 'user', 'hello world')
+
+    listed = client.get('/api/agent/chats').json()
+    assert cid in [c['id'] for c in listed['chats']]
+    assert listed['stats']['chats'] >= 1
+    assert client.get(f'/api/agent/chats/{cid}').json()['messages'][0]['text'] == 'hello world'
+    assert client.get('/api/agent/chats/nope').status_code == 404
+    # a stranger cannot touch saved chats; the operator can
+    assert client.delete(f'/api/agent/chats/{cid}').status_code == 403
+    from bt import server
+    monkeypatch.setattr(server, 'WRITE_TOKEN', 'k')
+    op = {'authorization': 'Bearer k'}
+    assert client.post(f'/api/agent/chats/{cid}/rename', headers=op,
+                       json={'title': 'renamed'}).json()['title'] == 'renamed'
+    assert client.delete(f'/api/agent/chats/{cid}', headers=op).json()['ok'] is True
+
+
+def test_http_writes_are_operator_only(client, monkeypatch):
+    from bt import server
+    called = []
+    monkeypatch.setitem(tools.TOOL_MAP, 'bt_transfer', tools.Tool(
+        'bt_transfer', 'x', 'Wallet', {'dest': {'type': 'string', 'description': ''}},
+        lambda dest: called.append(dest) or {'ok': True}, mutates=True))
+    body = {'tool': 'bt_transfer', 'args': {'dest': 'attacker'}}
+    r = client.post('/api/call', json=body)                  # not loopback
+    assert r.status_code == 403 and not called
+    j = client.post('/mcp', json={'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+                                  'params': {'name': 'bt_transfer',
+                                             'arguments': {'dest': 'attacker'}}}).json()
+    assert j['result']['isError'] is True and not called
+    r = client.post('/api/call', json={'tool': 'bt_block',
+                                       'args': {'network': 'ws://10.0.0.1:9944'}})
+    assert r.status_code == 403
+    monkeypatch.setattr(server, 'WRITE_TOKEN', 'k')
+    r = client.post('/api/call', json=body, headers={'authorization': 'Bearer k'})
+    assert r.status_code == 200 and called == ['attacker']
+
+
+def test_operator_check_shapes():
+    from types import SimpleNamespace
+    from bt.server import _is_operator
+
+    def req(host='127.0.0.1', **h):
+        return SimpleNamespace(client=SimpleNamespace(host=host),
+                               headers={'host': 'localhost:50280', **h})
+    assert _is_operator(req())                                       # curl / Claude MCP
+    assert _is_operator(req(origin='http://localhost:50280'))        # local console
+    assert not _is_operator(req(origin='https://evil.example'))      # drive-by page
+    assert not _is_operator(req(**{'x-forwarded-for': '1.2.3.4'}))   # via gateway
+    assert not _is_operator(req(host='10.0.0.5'))                    # LAN
+    assert not _is_operator(req(**{'host': 'modc2.com'}))
+
+
+def test_stop_when_nothing_runs(client):
+    j = client.post('/api/agent/stop', json={'chat': 'nope'}).json()
+    assert j['ok'] is False and j['note'] == 'nothing running'
+
+
+def test_index_tools_do_not_queue_behind_the_chain():
+    """Index-only reads must not wait on the websocket lock."""
+    local = {t.name for t in tools.TOOLS if t.local}
+    assert {'bt_screener', 'bt_stats', 'bt_traders', 'bt_view'} <= local
+    assert not any(t.mutates for t in tools.TOOLS if t.local)
+    for name in ('bt_scan', 'bt_subnets', 'bt_sync', 'bt_transfer'):
+        assert not tools.TOOL_MAP[name].local          # these do touch chain
+
+    tools._call_lock.acquire()                          # a chain read in flight
+    try:
+        out = tools.call_tool('bt_view', {'view': 'traders'})   # must not block
+        assert out['__view__'] == {'view': 'traders'}
+    finally:
+        tools._call_lock.release()
+
+
+def test_nearest_snapshot_uses_seeks_not_a_scan(store):
+    now = int(time.time())
+    history.record(_synth_rows(1.0), ts=now - 3600, block=1)
+    history.record(_synth_rows(2.0), ts=now, block=2)
+    conn = history._db()
+    try:
+        assert history._nearest_ts(conn, now - 3600) == now - 3600
+        assert history._nearest_ts(conn, now + 500) == now         # past the end
+        assert history._nearest_ts(conn, now - 9999) == now - 3600  # before it
+        assert history._nearest_ts(conn, now - 1799) == now         # ties break late
+        assert history._nearest_ts(conn, now - 1801) == now - 3600
+    finally:
+        conn.close()
+    plan = ' '.join(str(r) for r in history._db().execute(
+        'EXPLAIN QUERY PLAN SELECT MAX(ts) FROM snaps WHERE ts <= ?', (now,)))
+    assert 'idx_snaps_ts' in plan
+
+
+# ------------------------------------------------------------ agent auth
+# A lapsed host login must never reach the user as an "answer": the agent
+# falls back to the session build's credential keeper publishes, retries a
+# run that died on auth once on it, and otherwise says where to sign in.
+
+def _auth_files(tmp_path, monkeypatch, *, host_exp_ms, keeper=None):
+    from bt import agent
+    oauth = tmp_path / 'credentials.json'
+    oauth.write_text(json.dumps({'claudeAiOauth': {
+        'accessToken': 'host-tok', 'expiresAt': host_exp_ms}}))
+    hostcred = tmp_path / 'claude_host.json'
+    if keeper is not None:
+        hostcred.write_text(json.dumps(keeper))
+    monkeypatch.setattr(agent, 'OAUTH_FILE', str(oauth))
+    monkeypatch.setattr(agent, 'HOST_CRED_FILE', str(hostcred))
+    monkeypatch.setattr(agent, 'KEY_FILE', str(tmp_path / 'anthropic.key'))
+    monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
+    return agent
+
+
+def test_auth_live_host_login_is_used_as_is(tmp_path, monkeypatch):
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000)
+    assert agent.ensure_auth()[:2] == (True, 'claude-cli')
+
+
+def test_auth_expired_host_login_falls_back_to_build_session(tmp_path, monkeypatch):
+    keeper = {'ready': True, 'source': 'owner-session', 'token': 'sk-ant-oat01-owner',
+              'expires_at': time.time() + 3600}
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() - 60) * 1000,
+                        keeper=keeper)
+    ready, method, _, extra = agent.ensure_auth()
+    assert (ready, method) == (True, 'build-session')
+    assert extra == {'CLAUDE_CODE_OAUTH_TOKEN': 'sk-ant-oat01-owner'}
+
+
+def test_auth_nothing_usable_points_at_sign_in(tmp_path, monkeypatch):
+    stale = {'ready': True, 'source': 'owner-session', 'token': 't',
+             'expires_at': time.time() - 5}
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() - 60) * 1000,
+                        keeper=stale)
+    ready, _, hint, _ = agent.ensure_auth()
+    assert not ready and agent.LOGIN_URL in hint and 'expired' in hint
+    assert agent.status()['login'] == agent.LOGIN_URL
+
+
+def test_auth_leaked_session_token_in_api_key_is_ignored(tmp_path, monkeypatch):
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000)
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-oat01-leaked')
+    monkeypatch.setenv('CLAUDE_CODE_CHILD_SESSION', '1')
+    monkeypatch.setenv('CLAUDE_CODE_SESSION_ID', 'dead-parent')
+    assert agent.ensure_auth()[1] == 'claude-cli'
+    env = agent.child_env({'CLAUDE_CODE_OAUTH_TOKEN': 'x'})
+    assert 'ANTHROPIC_API_KEY' not in env and 'CLAUDE_CODE_CHILD_SESSION' not in env
+    assert 'CLAUDE_CODE_SESSION_ID' not in env and env['CLAUDE_CODE_OAUTH_TOKEN'] == 'x'
+
+
+def _fake_cli(tmp_path):
+    """A `claude` that only answers when handed the owner session."""
+    script = tmp_path / 'claude'
+    script.write_text(
+        '#!/usr/bin/env python3\n'
+        'import json, os\n'
+        'ok = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") == "sk-ant-oat01-owner"\n'
+        'print(json.dumps({"type": "result", "session_id": "s1", "num_turns": 1,\n'
+        '  "is_error": not ok, "result": "pong" if ok else\n'
+        '  "Failed to authenticate: OAuth session expired and could not be refreshed"}))\n')
+    script.chmod(0o755)
+    return str(script)
+
+
+def test_chat_auth_failure_retries_on_build_session(tmp_path, monkeypatch, chatstore):
+    # the host file still claims to be valid — the CLI is what finds out
+    keeper = {'ready': True, 'source': 'owner-session', 'token': 'sk-ant-oat01-owner',
+              'expires_at': time.time() + 3600}
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000,
+                        keeper=keeper)
+    monkeypatch.setattr(agent, 'CLAUDE_BIN', _fake_cli(tmp_path))
+    evs = list(agent.chat('ping'))
+    kinds = [e['type'] for e in evs]
+    assert 'error' not in kinds and kinds[-1] == 'done'
+    assert evs[-1]['answer'] == 'pong'
+
+
+def test_chat_auth_failure_without_fallback_is_an_error_with_sign_in(tmp_path, monkeypatch, chatstore):
+    agent = _auth_files(tmp_path, monkeypatch, host_exp_ms=(time.time() + 3600) * 1000)
+    monkeypatch.setattr(agent, 'CLAUDE_BIN', _fake_cli(tmp_path))
+    evs = list(agent.chat('ping'))
+    assert evs[-1]['type'] == 'error' and evs[-1]['login'] == agent.LOGIN_URL
+    assert not any(e['type'] in ('done', 'text') for e in evs)   # no "COURSE CLEAR"

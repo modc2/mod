@@ -10,7 +10,8 @@
     "image": "https://cdn.simpleicons.org/cursor/ffffff",
     "provider": "cursor",
     "binary": "cursor-agent",
-    "default_model": "claude-3.5-sonnet",
+    "default_model": "",
+    "env_key": "CURSOR_API_KEY",
     "fns": [
         "forward",
         "info",
@@ -24,5 +25,5 @@
         "api": "http://localhost:8835",
         "app": "http://localhost:8836"
     },
-    "schema": "Qmf8C7nZZqTRpf1j8SUkgUeLckkhDme7D9hguTLDNzXfmZ"
+    "schema": "QmTGxWEj98vu1v2YUexN24ip1ZUewitcjM8JGJeLjeAhLx"
 }

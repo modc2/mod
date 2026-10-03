@@ -1,0 +1,38 @@
+{
+  "name": "sn35",
+  "version": "1.0.0",
+  "description": "SN35 logic — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ך",
+  "chain": "bittensor",
+  "netuid": 35,
+  "subnet": "logic",
+  "symbol": "ך",
+  "owner": "5FjUeckLxMbRud6sHU127ZTFkqoAHmsdapD5s5hvmyLhruTZ",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=35",
+    "news": "/bt/news?netuid=35"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

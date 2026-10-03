@@ -2,9 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import type { AgentEvent, AgentStatus, StratProposal } from "../lib/types";
-import { askAgent, createStrat, fetchAgentStatus, fmtPct, fmtTao, shortSs58 } from "../lib/api";
+import type { AgentApproval, AgentEvent, AgentStatus, StratProposal } from "../lib/types";
+import {
+  askAgent,
+  createStrat,
+  decideApproval,
+  fetchAgentStatus,
+  fetchPendingApprovals,
+  fmtPct,
+  fmtTao,
+  shortSs58,
+} from "../lib/api";
 import { useSidebar } from "../context/SidebarContext";
+import { useAgentDock } from "../context/AgentDockContext";
 
 /** Transcript rows. Tool calls are part of the record, not a spinner. */
 type Item =
@@ -12,6 +22,9 @@ type Item =
   | { kind: "agent"; text: string }
   | { kind: "tool"; name: string; args: Record<string, unknown>; state: "run" | "ok" | "err" }
   | { kind: "strat"; strat: StratProposal; savedId?: string }
+  // A write the agent is asking for. It has not run: the agent is blocked
+  // on the server until this row is answered.
+  | { kind: "approval"; approval: AgentApproval }
   | { kind: "note"; text: string }
   | { kind: "error"; text: string };
 
@@ -21,13 +34,27 @@ const STORE_KEY = "copytensor:agent:v1";
 const KEEP = 60;
 
 const EXAMPLES = [
+  "Who is the best trader this week, and is it skill or deposits?",
   "Build me a 5-trader index of the best 7d performers with books over 1000 TAO",
   "Who is buying the top gainers right now? Make a strat that follows them",
   "I want low variance — mirror big diversified books only, 200 TAO",
 ];
 
-export default function StratAgent() {
+/**
+ * `compact` is the same console sized for the floating dock: the transcript
+ * scrolls inside a fixed-height window instead of growing the page. `onLeave`
+ * fires when an action takes you elsewhere (the strat maker), so the dock
+ * can step out of the way.
+ */
+export default function StratAgent({
+  compact = false,
+  onLeave,
+}: {
+  compact?: boolean;
+  onLeave?: () => void;
+} = {}) {
   const { openIndex } = useSidebar();
+  const dock = useAgentDock();
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -35,6 +62,32 @@ export default function StratAgent() {
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const tailRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  // A reload does not cancel a parked write — the request lives on the
+  // server. Re-read the pending set so a restored transcript is actionable
+  // instead of a picture of a button, and so a card that was decided (or
+  // expired) while the tab was gone stops pretending it is live.
+  useEffect(() => {
+    fetchPendingApprovals()
+      .then(({ pending }) => {
+        const live = new Map(pending.map((a) => [a.id, a]));
+        setItems((cur) =>
+          cur.map((row) =>
+            row.kind === "approval" && row.approval.state === "pending"
+              ? {
+                  ...row,
+                  approval:
+                    live.get(row.approval.id) ??
+                    { ...row.approval, state: "declined" as const,
+                      note: row.approval.note || "expired while the console was closed" },
+                }
+              : row,
+          ),
+        );
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchAgentStatus().then(setStatus).catch(() => {});
@@ -60,9 +113,27 @@ export default function StratAgent() {
     } catch {}
   }, [items, sessionId]);
 
+  // In the dock the transcript is its own scroller; scrollIntoView there
+  // would also drag the page underneath.
   useEffect(() => {
-    tailRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [items]);
+    if (compact) {
+      const el = logRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    } else {
+      tailRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    }
+  }, [items, busy, compact]);
+
+  // The top-bar button shows the agent working while its window is shut,
+  // and re-counts the approval queue the moment a card arrives or settles.
+  const setDockBusy = dock?.setBusy;
+  useEffect(() => { setDockBusy?.(busy); }, [busy, setDockBusy]);
+  const refreshPending = dock?.refreshPending;
+  const approvalSig = items
+    .filter((x) => x.kind === "approval")
+    .map((x) => (x.kind === "approval" ? `${x.approval.id}:${x.approval.state}` : ""))
+    .join(",");
+  useEffect(() => { if (approvalSig) refreshPending?.(); }, [approvalSig, refreshPending]);
 
   const push = (item: Item) => setItems((cur) => [...cur, item]);
 
@@ -84,6 +155,8 @@ export default function StratAgent() {
           push({ kind: "agent", text: ev.text });
           break;
         case "tool":
+          // The CLI's own schema lookup is plumbing, not research.
+          if (ev.name === "ToolSearch") break;
           push({ kind: "tool", name: ev.name, args: ev.args, state: "run" });
           break;
         case "tool_done":
@@ -103,6 +176,22 @@ export default function StratAgent() {
           break;
         case "strat":
           push({ kind: "strat", strat: ev.strat });
+          break;
+        case "approval":
+          push({ kind: "approval", approval: ev.approval });
+          break;
+        case "approval_done":
+          // Settle the card wherever the decision came from — this tab, a
+          // second tab, or the request expiring on its own.
+          setItems((cur) =>
+            cur.map((row) =>
+              row.kind === "approval" && row.approval.id === ev.id
+                ? { ...row, approval: { ...row.approval, state: ev.state, note: ev.note } }
+                : row,
+            ),
+          );
+          break;
+        case "ping":
           break;
         case "done":
           setSessionId(ev.session_id);
@@ -140,8 +229,12 @@ export default function StratAgent() {
         ss58: t.ss58,
         label: t.label ?? null,
         weight: t.weight,
+        // Carry the resolved sleeve, so the basket opens in the strat maker
+        // showing the same money the agent sized it with.
+        alloc_tao: t.alloc_tao ?? null,
         enabled: true,
       })),
+      sizing: strat.sizing ?? "tao",
       daily_limit_tao: strat.capital_tao,
       max_tao_per_tx: strat.max_tao_per_tx,
       rebalance_threshold_pct: strat.rebalance_threshold_pct,
@@ -156,6 +249,28 @@ export default function StratAgent() {
     return saved.id;
   }
 
+  /** Answer a parked write. The agent is blocked on this call; the note is
+      handed to it as the reason, which is what makes a decline a
+      conversation rather than a dead end. */
+  async function answer(id: string, approve: boolean, note: string) {
+    const settle = (a: Partial<AgentApproval>) =>
+      setItems((cur) =>
+        cur.map((row) =>
+          row.kind === "approval" && row.approval.id === id
+            ? { ...row, approval: { ...row.approval, ...a } }
+            : row,
+        ),
+      );
+    settle({ state: approve ? "approved" : "declined", note });
+    try {
+      const got = await decideApproval(id, approve, note);
+      settle(got);
+    } catch (e: unknown) {
+      settle({ state: "pending" });
+      push({ kind: "error", text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   function reset() {
     abortRef.current?.abort();
     setItems([]);
@@ -163,9 +278,9 @@ export default function StratAgent() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className={compact ? "flex flex-col h-full min-h-0 gap-2" : "space-y-3"}>
       {/* Status strip */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 shrink-0">
         <span
           className={`pixel-badge ${
             status?.ready ? "border-green-400 text-green-400" : "border-amber-400 text-amber-400"
@@ -173,8 +288,16 @@ export default function StratAgent() {
         >
           {status ? (status.ready ? `READY · ${status.model}` : "NO AUTH") : "…"}
         </span>
-        {status?.ready && (
+        {status?.ready && !compact && (
           <span className="pixel-badge text-pixel-gray">{status.tools.length} TOOLS</span>
+        )}
+        {status?.ready && !!status.write_tools?.length && (
+          <span
+            className="pixel-badge border-amber-400 text-amber-400"
+            title={`asks first, every time: ${status.write_tools.join(", ")}`}
+          >
+            WRITES ASK FIRST
+          </span>
         )}
         {sessionId && (
           <span className="pixel-badge text-pixel-gray" title={sessionId}>
@@ -204,8 +327,19 @@ export default function StratAgent() {
         </div>
       )}
 
+      {status?.ready && status.auth_note && (
+        <div className="pixel-panel-amber p-3 arcade-prose arcade-prose-sm text-amber-400">
+          {status.auth_note}
+        </div>
+      )}
+
       {/* Transcript */}
-      <div className="pixel-panel p-3 space-y-3 min-h-[280px]">
+      <div
+        ref={logRef}
+        className={`pixel-panel p-3 space-y-3 ${
+          compact ? "flex-1 min-h-0 overflow-y-auto overscroll-contain" : "min-h-[280px]"
+        }`}
+      >
         {items.length === 0 && (
           <div className="space-y-3">
             {/* What it is and what it can't do is the page standfirst's job.
@@ -217,7 +351,7 @@ export default function StratAgent() {
               {EXAMPLES.map((e) => (
                 <button
                   key={e}
-                  className="pixel-btn text-[10px] px-2 py-1 text-left justify-start leading-4"
+                  className="pixel-btn agent-example"
                   onClick={() => send(e)}
                   disabled={busy}
                 >
@@ -229,19 +363,33 @@ export default function StratAgent() {
         )}
 
         {items.map((item, i) =>
-          item.kind === "strat" ? (
+          item.kind === "approval" ? (
+            <ApprovalCard
+              key={item.approval.id}
+              approval={item.approval}
+              onAnswer={(ok, note) => { void answer(item.approval.id, ok, note); }}
+            />
+          ) : item.kind === "strat" ? (
             <StratCard
               key={i}
               item={item}
               onSave={() => { void saveStrat(i, item.strat); }}
-              onOpen={async () => openIndex(item.savedId || (await saveStrat(i, item.strat)))}
+              onOpen={async () => {
+                openIndex(item.savedId || (await saveStrat(i, item.strat)));
+                onLeave?.();
+              }}
             />
           ) : (
             <Row key={i} item={item} />
           ),
         )}
 
-        {busy && <div className="font-mono text-[12px] text-green-400">▌ thinking…</div>}
+        {busy && !items.some((x) => x.kind === "approval" && x.approval.state === "pending") && (
+          <div className="agent-thinking font-mono text-[12px] text-green-400">
+            <span className="agent-thinking__dots" aria-hidden="true"><i /><i /><i /></span>
+            working the board…
+          </div>
+        )}
         <div ref={tailRef} />
       </div>
 
@@ -251,7 +399,7 @@ export default function StratAgent() {
           e.preventDefault();
           send(input);
         }}
-        className="flex gap-2 items-stretch"
+        className="flex gap-2 items-stretch shrink-0"
       >
         <textarea
           value={input}
@@ -269,7 +417,7 @@ export default function StratAgent() {
               ? "follow up — 'drop the bottom two', 'make it 8 traders'…"
               : "what should this strat own?"
           }
-          className="pixel-input flex-1 p-2 font-mono text-[13px] resize-y"
+          className={`pixel-input flex-1 p-2 font-mono text-[13px] ${compact ? "resize-none" : "resize-y"}`}
           disabled={busy || (status ? !status.ready : false)}
         />
         <button
@@ -286,7 +434,7 @@ export default function StratAgent() {
 
 // ── rows ─────────────────────────────────────────────────────────
 
-function Row({ item }: { item: Exclude<Item, { kind: "strat" }> }) {
+function Row({ item }: { item: Exclude<Item, { kind: "strat" } | { kind: "approval" }> }) {
   if (item.kind === "you")
     return (
       <div className="font-mono text-[13px] text-green-400 break-words">
@@ -340,7 +488,7 @@ function StratCard({ item, onSave, onOpen }: {
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-display text-[13px] text-cyan-400">{s.name}</span>
         <span className="pixel-badge text-pixel-gray">{s.traders.length} TRADERS</span>
-        <span className="pixel-badge text-pixel-gray">{fmtTao(s.capital_tao)}/DAY</span>
+        <span className="pixel-badge text-pixel-gray">{fmtTao(s.capital_tao)}</span>
         {item.savedId && (
           <span className="pixel-badge border-green-400 text-green-400">SAVED</span>
         )}
@@ -352,7 +500,10 @@ function StratCard({ item, onSave, onOpen }: {
         {s.traders.map((t) => (
           <li key={t.ss58} className="border-t-2 border-pixel-border pt-1 first:border-t-0 first:pt-0">
             <div className="flex items-center gap-2 text-[12px] font-mono min-w-0">
-              <span className="text-cyan-400 w-12 shrink-0">{t.share_pct}%</span>
+              {/* The money, then the share of the book it represents. */}
+              <span className="text-cyan-400 w-16 shrink-0" title={`${t.share_pct}% of the basket`}>
+                {t.alloc_tao != null ? fmtTao(t.alloc_tao) : `${t.share_pct}%`}
+              </span>
               <Link href={`/traders/${t.ss58}`} className="text-pixel-white truncate no-underline hover:text-green-400">
                 {t.label || shortSs58(t.ss58)}
               </Link>
@@ -368,7 +519,7 @@ function StratCard({ item, onSave, onOpen }: {
               </span>
             </div>
             {t.why && (
-              <div className="arcade-prose arcade-prose-sm pl-12">{t.why}</div>
+              <div className="arcade-prose arcade-prose-sm pl-16">{t.why}</div>
             )}
           </li>
         ))}
@@ -390,6 +541,114 @@ function StratCard({ item, onSave, onOpen }: {
         Saving is not going live — the strat maker is where you set the hotkey
         and hit ACTIVATE.
       </p>
+    </div>
+  );
+}
+
+/** The whole point of this console: a write the agent wants to make, sitting
+ *  still until you answer it.
+ *
+ *  The agent is blocked on the server while this renders — the call has not
+ *  been made. DECLINE is not a cancel button either: the reason you type is
+ *  handed back as the tool result, so the next thing the agent says is an
+ *  answer to it.
+ */
+function ApprovalCard({ approval, onAnswer }: {
+  approval: AgentApproval;
+  onAnswer: (approve: boolean, note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  // Server epoch vs browser epoch is not worth trusting — anchor the
+  // countdown on the seconds the server said were left, when we said it.
+  const [deadline] = useState(() => Date.now() + approval.expires_in * 1000);
+  const [now, setNow] = useState(Date.now());
+  const pending = approval.state === "pending";
+
+  useEffect(() => {
+    if (!pending) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [pending]);
+
+  const left = Math.max(0, Math.round((deadline - now) / 1000));
+  const clock = left >= 60 ? `${Math.floor(left / 60)}m ${left % 60}s` : `${left}s`;
+  const frame =
+    !pending ? "pixel-panel"
+    : approval.risk === "high" ? "pixel-panel-red"
+    : "pixel-panel-amber";
+  const tone =
+    !pending ? "text-pixel-gray"
+    : approval.risk === "high" ? "text-red-400"
+    : "text-amber-400";
+
+  const args = Object.entries(approval.args).filter(([, v]) => v != null && v !== "");
+
+  return (
+    <div className={`${frame} p-3 space-y-2`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={`font-display text-[13px] ${tone}`}>
+          {pending ? "APPROVE?" : approval.state === "approved" ? "APPROVED" : "DECLINED"}
+        </span>
+        <span className="pixel-badge text-pixel-gray">{approval.tool}</span>
+        {pending && approval.risk === "high" && (
+          <span className="pixel-badge border-red-400 text-red-400">SPENDS TAO</span>
+        )}
+        {pending && (
+          <span className="pixel-badge text-pixel-gray ml-auto" title="declines itself when it runs out">
+            {clock}
+          </span>
+        )}
+      </div>
+
+      <p className="arcade-prose arcade-prose-sm text-pixel-white">{approval.summary}</p>
+
+      {args.length > 0 && (
+        <ul className="font-mono text-[11px] text-pixel-gray space-y-[2px]">
+          {args.map(([k, v]) => (
+            <li key={k} className="truncate" title={`${k}: ${JSON.stringify(v)}`}>
+              {k} = {typeof v === "object" ? JSON.stringify(v) : String(v)}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {pending ? (
+        <>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); onAnswer(false, note); }
+            }}
+            placeholder="why not? (sent to the agent — 'halve it', 'not until I check the tape')"
+            className="pixel-input-sm w-full font-mono text-[12px]"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="pixel-btn text-[10px] px-3 py-1 border-green-400 text-green-400"
+              onClick={() => onAnswer(true, note)}
+            >
+              APPROVE
+            </button>
+            <button
+              className="pixel-btn text-[10px] px-3 py-1"
+              onClick={() => onAnswer(false, note)}
+            >
+              DECLINE
+            </button>
+          </div>
+          <p className="arcade-prose arcade-prose-sm">
+            Nothing has run. The agent is waiting on this answer — and takes a
+            no for an answer.
+          </p>
+        </>
+      ) : (
+        approval.note && (
+          <div className="font-mono text-[11px] text-pixel-gray break-words">
+            &ldquo;{approval.note}&rdquo;
+          </div>
+        )
+      )}
     </div>
   );
 }

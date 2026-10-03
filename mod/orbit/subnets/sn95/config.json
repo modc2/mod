@@ -1,0 +1,38 @@
+{
+  "name": "sn95",
+  "version": "1.0.0",
+  "description": "SN95 Actual — Heterogeneous inference network by Actual Computer Inc. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚅ",
+  "chain": "bittensor",
+  "netuid": 95,
+  "subnet": "Actual",
+  "symbol": "ᚅ",
+  "owner": "5D5UhUuc6cC47CXUBHyBkpDBrdeyeL6bpWGAreZgNm5WTyrg",
+  "github": "https://github.com/actual-computer/actual-subnet-95",
+  "url": "https://actual.inc",
+  "discord": null,
+  "logo": "https://public-assets.actual.inc/red-mask-512.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=95",
+    "news": "/bt/news?netuid=95"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

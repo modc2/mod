@@ -1,0 +1,38 @@
+{
+  "name": "sn27",
+  "version": "1.0.0",
+  "description": "SN27 Orion — A decentralized data subnet that discovers, generates, and curates high-quality training data for LLMs. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ג",
+  "chain": "bittensor",
+  "netuid": 27,
+  "subnet": "Orion",
+  "symbol": "ג",
+  "owner": "5GLT9wjWzyFqwsfgvNiy9xdAkaVsHPUwAHJ34hVgbW8hy7hT",
+  "github": "https://github.com/SILX-LABS/Orion",
+  "url": null,
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/troy12x/silx-web/refs/heads/master/public/orion.png?token=GHSAT0AAAAAADVEQHZM7ZD3DY27YIJFUYQK2STZJ6Q",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=27",
+    "news": "/bt/news?netuid=27"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

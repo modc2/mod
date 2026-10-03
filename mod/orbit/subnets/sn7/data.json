@@ -1,0 +1,189 @@
+{
+  "netuid": 7,
+  "name": "Allways",
+  "symbol": "η",
+  "owner": "5CAc19iETJmWD2rYVX1ht58ghCpyHq86MoBNdx5TzLfinzcx",
+  "description": "universal transaction layer",
+  "github": "https://github.com/entrius/allways",
+  "url": "https://all-ways.io/",
+  "discord": " ",
+  "logo": " https://allways-905418005698-us-east-2-an.s3.us-east-2.amazonaws.com/sn7-light.png",
+  "registered_at": 2627691,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.002481687,
+    "moving_price": 0.00248595979064703,
+    "market_cap": 13377.064551802272,
+    "tao_in": 5610.242004641,
+    "alpha_in": 2260656.040383468,
+    "alpha_out": 3129654.885934907,
+    "volume": 329128.624935399,
+    "vol_24h": 18.492706850985996,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.45938054020230323,
+    "change_7d": 0.9674898195904058
+  },
+  "spark_24h": [
+    0.00249314,
+    0.00249314,
+    0.00249314,
+    0.002493137,
+    0.002493136,
+    0.00249313,
+    0.002493129,
+    0.002493129,
+    0.002493121,
+    0.00249311,
+    0.002493109,
+    0.002493104,
+    0.002493103,
+    0.002493103,
+    0.002493012,
+    0.002493012,
+    0.002492831,
+    0.002492831,
+    0.002493008,
+    0.002493003,
+    0.00249477,
+    0.002495282,
+    0.002495278,
+    0.002495278,
+    0.002493252,
+    0.002493252,
+    0.002493252,
+    0.002484434,
+    0.002484434,
+    0.002484434,
+    0.002484424,
+    0.002484424,
+    0.002484424,
+    0.002484423,
+    0.002484397,
+    0.002484397,
+    0.002484397,
+    0.002481713,
+    0.002481714,
+    0.002481714,
+    0.002481713,
+    0.002481713,
+    0.002481713,
+    0.002481707,
+    0.002481707,
+    0.002481691,
+    0.002481687,
+    0.002481687
+  ],
+  "trades_24h": {
+    "trades": 15,
+    "buys": 4,
+    "sells": 11,
+    "buy_tao": 2.781636481,
+    "sell_tao": 15.50886864,
+    "net_tao": -12.727232159,
+    "traders": 11
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CvbGZZiiTzdu2jeGE1EQEg9TuFDAFgHximJtFk2eG4Sm1Bz",
+      "net_tao": -9.947260893,
+      "gross_tao": 9.947260893,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CLtDESuMHayzmEBtC8EJocpW8ASc4NGV1gSoWynvdV4WADt",
+      "net_tao": -3.023588116,
+      "gross_tao": 3.023588116,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D79enmLSGimsruoraGagofhaSeYJZvGUqFCCrr83ZfZs1HS",
+      "net_tao": 1.992971769,
+      "gross_tao": 1.992971769,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CJBXFgbN5jgcfNWJ2ogA14vZKsKuNkAaCWzbJ8JppeVVqez",
+      "net_tao": -1.658119052,
+      "gross_tao": 1.658119052,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FyPEXindwgKN57wYBuR8ArwDSspCm4Sk9PfK8akmP13yzwS",
+      "net_tao": -0.623099781,
+      "gross_tao": 0.623099781,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790379538,
+      "kind": "commit",
+      "source": "github",
+      "title": "Fail the subtensor over on rate limits, return it to the primary once…",
+      "url": "https://github.com/entrius/allways/commit/9767f921ea3aa86913fcd143ae65bd4390789d05",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1790379538,
+      "kind": "release",
+      "source": "github",
+      "title": "release-20260926-135859",
+      "url": "https://github.com/entrius/allways/releases/tag/release-20260926-135859",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1790375183,
+      "kind": "commit",
+      "source": "github",
+      "title": "Bump version to 3.5.0 for the subnet alpha release (#762)",
+      "url": "https://github.com/entrius/allways/commit/4ac543e1c58440d895649ec7d2928d1393eed3cb",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1790375088,
+      "kind": "commit",
+      "source": "github",
+      "title": "Back the subtensor endpoint with env fallback and archive lists and r…",
+      "url": "https://github.com/entrius/allways/commit/c4d1360afe457a8fb6eacdbc40ecc07bf752e9fd",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1790369308,
+      "kind": "commit",
+      "source": "github",
+      "title": "Drop tao↔alpha pairs: subtensor swaps them natively (#761)",
+      "url": "https://github.com/entrius/allways/commit/0a1276e92f06320da718006f4024340a83c8c3a3",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1790366039,
+      "kind": "commit",
+      "source": "github",
+      "title": "Say an alpha leg makes a valid pair in the CLI pair refusal (#759)",
+      "url": "https://github.com/entrius/allways/commit/253db2a931ddb0f8b3c55840cfcc0755104acf66",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1789088928,
+      "kind": "release",
+      "source": "github",
+      "title": "release-20260911-013831",
+      "url": "https://github.com/entrius/allways/releases/tag/release-20260911-013831",
+      "publisher": "entrius/allways"
+    },
+    {
+      "ts": 1788635408,
+      "kind": "release",
+      "source": "github",
+      "title": "release-20260905-204833",
+      "url": "https://github.com/entrius/allways/releases/tag/release-20260905-204833",
+      "publisher": "entrius/allways"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

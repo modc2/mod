@@ -1,0 +1,189 @@
+{
+  "netuid": 9,
+  "name": "iota",
+  "symbol": "ι",
+  "owner": "5FsbubeciqtB5Nik3umL2iD4fG8FcC9GbT9nHJfXMj4mJJZ9",
+  "description": "Bringing liquid training to the world",
+  "github": "https://github.com/macrocosm-os/iota",
+  "url": "https://iota.macrocosmos.ai/",
+  "discord": "https://discord.gg/adsQPnFRY",
+  "logo": "https://www.macrocosmos.ai/images/mc_logo_black.png",
+  "registered_at": 1489797,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.024272612,
+    "moving_price": 0.024232834111899137,
+    "market_cap": 150932.75085071792,
+    "tao_in": 53083.170904695,
+    "alpha_in": 2186957.506410187,
+    "alpha_out": 4031275.242941961,
+    "volume": 1137367.691223057,
+    "vol_24h": 1837.0004344549961,
+    "emission": 0.0,
+    "change_1h": -0.00018539379517124033,
+    "change_24h": 0.6990132517174175,
+    "change_7d": -1.7830109934540483
+  },
+  "spark_24h": [
+    0.024104092,
+    0.024105011,
+    0.024112137,
+    0.024110218,
+    0.024110571,
+    0.024110849,
+    0.024112325,
+    0.024113271,
+    0.024113343,
+    0.02412532,
+    0.024125962,
+    0.024126556,
+    0.024126125,
+    0.024129702,
+    0.02412963,
+    0.024130657,
+    0.024262556,
+    0.024218352,
+    0.024219461,
+    0.024152689,
+    0.024285725,
+    0.024287329,
+    0.024288147,
+    0.024289231,
+    0.024244888,
+    0.024246132,
+    0.024248419,
+    0.024244644,
+    0.024400956,
+    0.024256623,
+    0.024257602,
+    0.024258907,
+    0.024260174,
+    0.024261345,
+    0.024262597,
+    0.024263683,
+    0.024278764,
+    0.024279317,
+    0.02427283,
+    0.024264159,
+    0.02426493,
+    0.02426792,
+    0.024268704,
+    0.024271613,
+    0.024272281,
+    0.024273214,
+    0.024272657,
+    0.024272612
+  ],
+  "trades_24h": {
+    "trades": 233,
+    "buys": 53,
+    "sells": 180,
+    "buy_tao": 922.51928909,
+    "sell_tao": 823.113723126,
+    "net_tao": 99.40556596400006,
+    "traders": 140
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": 0.04411558299999996,
+      "gross_tao": 399.955884417,
+      "trades": 8
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": -0.1469932840000041,
+      "gross_tao": 200.14699328400002,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": -0.0732296160000061,
+      "gross_tao": 160.073229616,
+      "trades": 2
+    },
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": -0.00904086099999546,
+      "gross_tao": 160.009040861,
+      "trades": 5
+    },
+    {
+      "coldkey": "5HeQWuhJWCw6aQNqZ8FqjEPZtiSHDq5wSSRU67mop5zqWikT",
+      "net_tao": -0.0032990359999978125,
+      "gross_tao": 140.003299036,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790253580,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.13.3",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.13.3",
+      "publisher": "macrocosm-os/iota"
+    },
+    {
+      "ts": 1790178912,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.13.2",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.13.2",
+      "publisher": "macrocosm-os/iota"
+    },
+    {
+      "ts": 1789734964,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.13.1",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.13.1",
+      "publisher": "macrocosm-os/iota"
+    },
+    {
+      "ts": 1789563417,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.13.0",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.13.0",
+      "publisher": "macrocosm-os/iota"
+    },
+    {
+      "ts": 1789127117,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.12.18",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.12.18",
+      "publisher": "macrocosm-os/iota"
+    },
+    {
+      "ts": 1789053476,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.12.17",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.12.17",
+      "publisher": "macrocosm-os/iota"
+    },
+    {
+      "ts": 1789049404,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.12.16",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.12.16",
+      "publisher": "macrocosm-os/iota"
+    },
+    {
+      "ts": 1788868247,
+      "kind": "release",
+      "source": "github",
+      "title": "v4.12.14",
+      "url": "https://github.com/macrocosm-os/iota/releases/tag/v4.12.14",
+      "publisher": "macrocosm-os/iota"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

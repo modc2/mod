@@ -1,0 +1,38 @@
+{
+  "name": "sn68",
+  "version": "1.0.0",
+  "description": "SN68 NOVA — Accelerating drug discovery. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ظ",
+  "chain": "bittensor",
+  "netuid": 68,
+  "subnet": "NOVA",
+  "symbol": "ظ",
+  "owner": "5EcdJLAeYoxM3Tsf5VZ3NQPenPku218gqnjSoo3iJNy4V12V",
+  "github": "https://github.com/metanova-labs/nova/",
+  "url": "https://www.metanova-labs.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/metanova-labs/nova/refs/heads/main/assets/subnet-logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=68",
+    "news": "/bt/news?netuid=68"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

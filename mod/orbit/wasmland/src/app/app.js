@@ -461,13 +461,12 @@ async function paintVenues() {
     const server = v.server;
     $('#chain').textContent = server.ok ? 'browser + server' : 'browser only';
     $('#chain').title = server.ok
-      ? `server venue: node ${server.node}, network isolated: ${server.network_isolated}`
+      ? [
+          `server venue: node ${server.node}`,
+          `netns: ${server.network_isolated ? 'isolated' : 'shared'}`,
+          `user: ${server.drops_privileges ? server.sandbox_user : 'unconfined'}`,
+        ].join('\n')
       : 'this box has no node — runs happen in your tab';
-    $('#venue-note').textContent = [
-      `venue  browser + ${server.ok ? 'server' : '—'}`,
-      `netns  ${server.network_isolated ? 'isolated' : 'shared'}`,
-      `user   ${server.drops_privileges ? server.sandbox_user : 'unconfined'}`,
-    ].join('\n');
   } catch { /* the API is the thing that's down; the views will say so */ }
 }
 
@@ -476,7 +475,6 @@ function go(view) {
   for (const button of document.querySelectorAll('.nav')) {
     button.setAttribute('aria-current', String(button.dataset.view === view));
   }
-  if (window.matchMedia('(max-width: 720px)').matches) document.body.classList.add('rail-closed');
   render();
 }
 
@@ -492,12 +490,10 @@ async function render() {
   }
 }
 
-// The logo is the sidebar toggle — the one control that never moves.
-$('#logo').onclick = () => document.body.classList.toggle('rail-closed');
+$('#logo').onclick = () => go('market');
 for (const button of document.querySelectorAll('.nav')) {
   button.onclick = () => go(button.dataset.view);
 }
-if (window.matchMedia('(max-width: 720px)').matches) document.body.classList.add('rail-closed');
 
 paintChrome();
 paintVenues();

@@ -9,14 +9,16 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "/store";
 const nextConfig = {
   ...(basePath ? { basePath } : {}),
   env: {
-    NEXT_PUBLIC_API_URL: "/api/store",
+    NEXT_PUBLIC_API_URL: "/store/api",
     NEXT_PUBLIC_BASE_PATH: basePath,
   },
   async rewrites() {
     return [
-      // Dev fallback: client fetches /api/store/* (at the domain root, NOT under
-      // basePath) → proxy to the FastAPI gateway. basePath:false keeps the source
-      // at root so it mirrors the Caddy @store_api block.
+      // Dev fallback: client fetches /store/api/* (canonical; at the domain
+      // root, NOT under basePath) → proxy to the FastAPI gateway. basePath:false
+      // keeps the source at root so it mirrors the Caddy @store_api block.
+      { source: "/store/api/:path*", destination: `${apiUrl}/:path*`, basePath: false },
+      // Legacy alias, permanently supported.
       { source: "/api/store/:path*", destination: `${apiUrl}/:path*`, basePath: false },
     ];
   },

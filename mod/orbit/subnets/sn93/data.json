@@ -1,0 +1,165 @@
+{
+  "netuid": 93,
+  "name": "Bitcast",
+  "symbol": "ᚃ",
+  "owner": "5EbY1SebUuz189w1G96JN4mmHnShAECA6JefCRYhSLqyYg2c",
+  "description": "The Decentralized Creators Economy",
+  "github": "https://github.com/bitcast-network/bitcast",
+  "url": "https://stats.bitcast.network/",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/bitcast-network/brand-assets/main/bitcast/multi_logo.png",
+  "registered_at": 5370681,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.019302656,
+    "moving_price": 0.019240015419200063,
+    "market_cap": 101046.20259972401,
+    "tao_in": 24283.313755385,
+    "alpha_in": 1258029.684878307,
+    "alpha_out": 3976804.45399481,
+    "volume": 1159663.003736871,
+    "vol_24h": 1004.2719039351214,
+    "emission": 0.0,
+    "change_1h": 0.020763111448895977,
+    "change_24h": 0.6222132329195995,
+    "change_7d": -3.1107801380135025
+  },
+  "spark_24h": [
+    0.019182051,
+    0.019183946,
+    0.019165326,
+    0.019214973,
+    0.019213175,
+    0.019197655,
+    0.019123033,
+    0.019129228,
+    0.019130697,
+    0.019128213,
+    0.019121281,
+    0.019123633,
+    0.019083963,
+    0.01897753,
+    0.018978435,
+    0.019059588,
+    0.019090753,
+    0.019176279,
+    0.019141806,
+    0.019141924,
+    0.019075688,
+    0.019112826,
+    0.019224018,
+    0.019217256,
+    0.019229757,
+    0.019233594,
+    0.019235523,
+    0.019221956,
+    0.019208617,
+    0.019210363,
+    0.019212065,
+    0.019214358,
+    0.019218065,
+    0.019219976,
+    0.019198925,
+    0.019201112,
+    0.01920325,
+    0.019205431,
+    0.019207707,
+    0.019258707,
+    0.019260953,
+    0.019400628,
+    0.019402469,
+    0.019356542,
+    0.019358664,
+    0.019360387,
+    0.019298649,
+    0.019302656
+  ],
+  "trades_24h": {
+    "trades": 127,
+    "buys": 41,
+    "sells": 86,
+    "buy_tao": 453.123117758,
+    "sell_tao": 460.31588465,
+    "net_tao": -7.192766892000009,
+    "traders": 95
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": -0.1579816249999979,
+      "gross_tao": 80.15798162499999,
+      "trades": 2
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.11064867799999689,
+      "gross_tao": 70.69532564,
+      "trades": 2
+    },
+    {
+      "coldkey": "5Dk8fLpiDqWEyZujC5A56p4kDWXskbkMjYWH18rEa3RnMAxC",
+      "net_tao": -69.812164661,
+      "gross_tao": 69.812164661,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": -0.152415787999999,
+      "gross_tao": 60.152415788,
+      "trades": 3
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.023077879999998885,
+      "gross_tao": 59.97692212,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789679590,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: replace CLAUDE.md with AGENTS.md + on-chain liveness verificati…",
+      "url": "https://github.com/bitcast-network/bitcast/commit/e27397ed0a10402d0a14e6ae8a327802fcee8c43",
+      "publisher": "bitcast-network/bitcast"
+    },
+    {
+      "ts": 1789676473,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: remove subnet identity logo from repo (#175)",
+      "url": "https://github.com/bitcast-network/bitcast/commit/b3e6f81761e0de1edac55dead5d8f83a50c40021",
+      "publisher": "bitcast-network/bitcast"
+    },
+    {
+      "ts": 1788728158,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: deploy from the terraform-managed TD revision (no template drift…",
+      "url": "https://github.com/bitcast-network/bitcast/commit/1a3210895c3fe44daec25f544a2c7b27de3c5dfe",
+      "publisher": "bitcast-network/bitcast"
+    },
+    {
+      "ts": 1788725679,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat: host subnet identity logo in-repo for chain identity URL (#170)",
+      "url": "https://github.com/bitcast-network/bitcast/commit/d629331b2ee8d813e23e28d09f1a25ee96152236",
+      "publisher": "bitcast-network/bitcast"
+    },
+    {
+      "ts": 1788725670,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: scope validator deploy to code/config paths (#171)",
+      "url": "https://github.com/bitcast-network/bitcast/commit/8e8a0235d27aff4f9383389a7795d9e78ed7a0da",
+      "publisher": "bitcast-network/bitcast"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

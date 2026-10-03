@@ -11,9 +11,12 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div id="shell">
-  <aside id="sidebar">
-    <nav>
+<div id="main">
+  <header>
+    <button id="logo" title="wasmland" aria-label="Home">
+      <span class="mark">◱</span><span class="word">wasmland</span>
+    </button>
+    <nav id="tabs">
       <button class="nav" data-view="market" aria-current="true"><span class="ic">▤</span><span>Market</span></button>
       <button class="nav" data-view="upload"><span class="ic">↑</span><span>Publish</span></button>
       <button class="nav" data-view="runs"><span class="ic">✓</span><span>Runs</span></button>
@@ -21,25 +24,12 @@
       <button class="nav" data-view="games"><span class="ic">◉</span><span>Arena</span></button>
       <button class="nav" data-view="account"><span class="ic">◍</span><span>Account</span></button>
     </nav>
-    <div class="rail-foot">
-      <div class="venue" id="venue-note"></div>
-    </div>
-  </aside>
+    <div class="grow"></div>
+    <span id="chain" class="pill" title="Where a run happens"></span>
+    <button id="signin" class="pill act">Sign in</button>
+  </header>
 
-  <div id="main">
-    <header>
-      <!-- Tapping the logo toggles the sidebar. It is the one control that is
-           always in the same place, so it is the one that opens the rail. -->
-      <button id="logo" title="Tap the logo to show or hide the sidebar" aria-label="Toggle sidebar">
-        <span class="mark">◱</span><span class="word">wasmland</span>
-      </button>
-      <div class="grow"></div>
-      <span id="chain" class="pill" title="Where a run happens"></span>
-      <button id="signin" class="pill act">Sign in</button>
-    </header>
-
-    <main id="view"></main>
-  </div>
+  <main id="view"></main>
 </div>
 <div id="toast"></div>
 <script type="module" src="app.js"></script>

@@ -1,0 +1,38 @@
+{
+  "name": "sn69",
+  "version": "1.0.0",
+  "description": "SN69 Herald — Incentivising Mainstream Media via PR Firms. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ع",
+  "chain": "bittensor",
+  "netuid": 69,
+  "subnet": "Herald",
+  "symbol": "ع",
+  "owner": "5HBPFVcJxuhT6PFg93s5B5qa9GZjMQWRBWWEssZMDAMmRAvc",
+  "github": "https://github.com/HeraldMedia/herald",
+  "url": "https://www.heraldmedia.ai",
+  "discord": "https://discord.gg/kQpeef9EPe",
+  "logo": "https://www.heraldmedia.ai/brand/logo-mark.svg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=69",
+    "news": "/bt/news?netuid=69"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

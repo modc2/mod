@@ -7,6 +7,7 @@ import {
   shortAddr, ago, Follow, fmtPct,
 } from "../lib/api";
 import { useWallet } from "../lib/wallet";
+import { LegacyNote } from "../components/BoardBits";
 
 export default function FollowsPage() {
   const { address } = useWallet();
@@ -43,13 +44,18 @@ export default function FollowsPage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl text-ink">my follows</h1>
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">my follows</h1>
           <p className="text-xs text-muted mt-1">copy-trade configurations + status</p>
         </div>
         <div className="flex gap-2 items-center">
           <button className="btn" onClick={load} disabled={loading}>refresh</button>
         </div>
       </div>
+
+      <LegacyNote>
+        The older copy path — each leader fill scaled by a percentage. To have a
+        sleeve tracked and rebalanced for you automatically, use
+      </LegacyNote>
 
       {follows.length === 0 ? (
         <div className="panel p-6 text-xs text-muted">

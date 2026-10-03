@@ -1,0 +1,9 @@
+{
+  "name": "zknet",
+  "version": "1.0.0",
+  "private": true,
+  "description": "solc, for compiling and running the ZKNet contract",
+  "dependencies": {
+    "solc": "^0.8.26"
+  }
+}

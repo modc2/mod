@@ -1,0 +1,38 @@
+{
+  "name": "sn1",
+  "version": "1.0.0",
+  "description": "SN1 Apex — The general intelligence platform. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "α",
+  "chain": "bittensor",
+  "netuid": 1,
+  "subnet": "Apex",
+  "symbol": "α",
+  "owner": "5HCFWvRqzSHWRPecN7q8J6c7aKQnrCZTMHstPv39xL1wgDHh",
+  "github": "https://github.com/macrocosm-os/apex",
+  "url": "https://apex.macrocosmos.ai",
+  "discord": "https://discord.gg/bvBDat3Gy",
+  "logo": "https://www.macrocosmos.ai/images/mc_logo_black.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=1",
+    "news": "/bt/news?netuid=1"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

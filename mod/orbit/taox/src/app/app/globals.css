@@ -61,3 +61,69 @@ button.secondary { background: #1f1f2c; border-color: #2a2a38; color: #cfcfdb; }
   word-break: break-all;
 }
 hr { border: 0; border-top: 1px solid #23232f; margin: 16px 0; }
+
+/* ── bridge board ─────────────────────────────────────────────── */
+.wrap-wide { max-width: 760px; margin: 48px auto; padding: 24px; }
+
+.tabs { display: flex; gap: 8px; margin: 12px 0 4px; }
+.tabs button {
+  flex: 0 0 auto;
+  background: #1f1f2c; border-color: #2a2a38; color: #8b8b9b;
+  font-weight: 600; padding: 8px 16px;
+}
+.tabs button.on { background: #4f46e5; border-color: #4f46e5; color: #fff; }
+
+.chiprow { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.chip {
+  flex: 0 0 auto;
+  background: #0f0f17; border: 1px solid #2a2a38; color: #8b8b9b;
+  border-radius: 999px; padding: 5px 14px; font-size: 13px; font-weight: 600;
+}
+.chip-on { background: #23233a; border-color: #4f46e5; color: #e8e8ee; }
+
+.unit { flex: 0 0 auto !important; color: #8b8b9b; font-size: 13px; }
+
+.secthead {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #6f6f83;
+  margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid #23232f;
+}
+
+.route {
+  border: 1px solid #23232f; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 8px; background: #12121a;
+}
+.route-off { opacity: 0.55; }
+.route-best { border-color: #6ee7b7; background: #101a18; }
+.route-manual { background: #101017; }
+
+.route-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 12px; cursor: pointer;
+}
+.route-name { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.route-num { font-size: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.route-sub { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.route-sub .pill { font-size: 10px; }
+.pill.warn { color: #f1b86a; border-color: #4a3a1f; }
+
+.tag {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 999px; background: #2a2a38; color: #cfcfdb;
+}
+.tag-best { background: #10362c; color: #6ee7b7; }
+.tag-warn { background: #3a2e18; color: #f1b86a; }
+
+.route-detail {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid #23232f; font-size: 13px;
+}
+.route-detail ol { margin: 0 0 10px; padding-left: 18px; color: #cfcfdb; }
+.route-detail li { margin-bottom: 5px; }
+
+.route-foot { display: flex; gap: 14px; margin-top: 10px; }
+.linky {
+  background: none; border: none; padding: 0; color: #8f8afc;
+  font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none;
+}
+.linky:hover { text-decoration: underline; }

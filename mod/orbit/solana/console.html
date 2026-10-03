@@ -91,6 +91,32 @@
   .ixlist div:hover{background:#0d1118;color:var(--hot)}
   .ixlist div.on{background:#0d2a1e;color:var(--hot)}
   .mini{font-size:10px;color:var(--dim)}
+  /* one hue for every liquidity bar: the length is the data, the colour is not */
+  .meter{height:4px;background:#131a24;margin-top:3px;min-width:60px}
+  .meter i{display:block;height:100%;background:var(--hot)}
+  .meter.warn i{background:var(--warn)} .meter.bad i{background:var(--bad)}
+  tr.click{cursor:pointer} tr.click:hover td{background:#101720}
+  tr.open td{background:#0e1a16}
+  .sym{color:var(--ink2);font-weight:600}
+  .flag{display:inline-block;padding:0 5px;border:1px solid #4a3a12;color:var(--warn);
+        font-size:9.5px;border-radius:2px;margin:0 3px 3px 0;letter-spacing:.06em}
+  .flag.bad{border-color:#4a1d1d;color:var(--bad)}
+  .flag.ok{border-color:#134a34;color:var(--hot)}
+  .lede{font-size:12px;color:var(--ink2);margin:2px 0 10px;max-width:70ch}
+  .lede b{color:var(--hot);font-weight:600}
+  .ladder{width:100%;border-collapse:collapse;font-size:11.5px}
+  .ladder td{padding:3px 8px;border:none}
+  .ladder td.bar{width:46%}
+  .ladder b{color:var(--ink2);font-weight:600}
+  .three{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+  .three .card .big{font-size:17px}
+  .defn{color:var(--dim);font-size:10.5px;line-height:1.45;margin-top:5px}
+  .hero{font-size:30px;color:var(--hot);line-height:1.1;margin:2px 0}
+  .vbar{display:grid;grid-template-columns:130px 1fr 130px;gap:8px;align-items:center;
+        padding:2px 0;font-size:11.5px}
+  .vbar .track{height:10px;background:#131a24}
+  .vbar .track i{display:block;height:100%;background:var(--hot)}
+  .vbar .val{text-align:right;color:var(--dim);font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -99,6 +125,7 @@
   <span class="sub" id="tagline">connecting…</span>
   <nav>
     <button data-tab="explore" class="on">EXPLORE</button>
+    <button data-tab="tokens">TOKENS</button>
     <button data-tab="tx">TX</button>
     <button data-tab="programs">PROGRAMS</button>
     <button data-tab="market">MARKET</button>
@@ -120,6 +147,48 @@
   <div class="note">Solana addresses do not say what they are. This asks the chain,
     then shows whatever turned out to be there.</div>
   <div id="ex-out"></div>
+</section>
+
+<!-- ── tokens ── -->
+<section id="tokens">
+  <div id="tk-head"></div>
+  <div class="bar">
+    <select id="tk-list"></select>
+    <input id="tk-q" placeholder="filter by symbol, name or mint" size="24">
+    <select id="tk-sort">
+      <option value="liquidity">deepest liquidity</option>
+      <option value="volume">most volume</option>
+      <option value="mcap">biggest market cap</option>
+      <option value="holders">most holders</option>
+      <option value="turnover">highest turnover</option>
+      <option value="change">biggest 24h move</option>
+      <option value="depth_ratio">liquidity vs market cap</option>
+      <option value="organic">most organic</option>
+      <option value="age">newest</option>
+      <option value="symbol">alphabetical</option>
+    </select>
+    <select id="tk-min">
+      <option value="">any size</option>
+      <option value="10000">over $10k</option>
+      <option value="100000">over $100k</option>
+      <option value="1000000">over $1m</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="tk-safe"> no mint/freeze authority</label>
+    <button class="go" id="tk-go">RANK</button>
+    <button class="ghost" id="tk-venues">where the liquidity is</button>
+    <span class="flash" id="tk-flash"></span>
+  </div>
+  <div class="note" id="tk-what">Every mint an aggregator will route, ranked by the liquidity
+    behind it. The bar is that token's share of the deepest one. Click any row to measure what
+    could <b>actually</b> be sold — the headline number and the exit are rarely the same thing.</div>
+  <div class="chips" id="tk-flags"></div>
+  <div id="tk-venuebox"></div>
+  <div id="tk-detail"></div>
+  <div id="tk-out"></div>
+  <div class="bar" id="tk-more" style="display:none">
+    <button class="ghost" id="tk-page">show more</button>
+    <span class="dimtxt" id="tk-count"></span>
+  </div>
 </section>
 
 <!-- ── tx ── -->
@@ -296,6 +365,8 @@ const usd = v => v==null ? '—' :
 const num = (v,d) => v==null ? '—' : (+v).toLocaleString(undefined,{maximumFractionDigits:d??4});
 const short = a => !a ? '—' : a.length>16 ? a.slice(0,6)+'…'+a.slice(-5) : a;
 const pct = v => v==null ? '' : (v>=0?'+':'')+(+v).toFixed(2)+'%';
+// A venue holding a rounding error should read as one, not as nothing at all.
+const share = v => v==null ? '—' : v > 0 && v < 0.01 ? '<0.01%' : v+'%';
 
 function addr(a, onclick){
   const s = el('span','addr', short(a)); s.title = a||'';
@@ -938,10 +1009,402 @@ async function pgWatch(job){
   }
 }
 
+// ── tokens ──
+// "How much liquidity" has three answers and this tab keeps them apart: the
+// table ranks the whole universe by what an aggregator says it can route, and
+// opening a row measures what could actually be sold. The gap between those two
+// is the point of the screen, so the detail panel leads with it.
+const cusd = v => v==null ? '—' :
+  Math.abs(v)>=1e9 ? '$'+(v/1e9).toFixed(2)+'b' :
+  Math.abs(v)>=1e6 ? '$'+(v/1e6).toFixed(2)+'m' :
+  Math.abs(v)>=1e3 ? '$'+(v/1e3).toFixed(1)+'k' : usd(v);
+const cnum = v => v==null ? '—' :
+  Math.abs(v)>=1e6 ? (v/1e6).toFixed(1)+'m' :
+  Math.abs(v)>=1e3 ? (v/1e3).toFixed(0)+'k' : String(Math.round(v));
+
+// `redeemable` is hidden by default and said so out loud: a staked-SOL wrapper
+// reports its whole supply as liquidity, so leaving them in puts twenty of them
+// above SOL and answers a question nobody asked. Every other flag is a filter
+// the reader turns on, and the set is built from what the server sends rather
+// than named here — a flag added in tokens.py appears as a chip on its own.
+const TK = {rows:[], offset:0, limit:60, top:0, open:null, req:0,
+            hide:new Set(['redeemable'])};
+
+function meter(frac, cls){
+  const w = el('div','meter'+(cls?' '+cls:'')), i = el('i');
+  i.style.width = Math.max(0, Math.min(100, (frac||0)*100)).toFixed(2)+'%';
+  w.append(i); return w;
+}
+function flags(list, max){
+  const w = el('div');
+  (list||[]).slice(0, max||99).forEach(f => {
+    const b = el('span','flag'+(['nomarket','exit','draining','freeze'].includes(f.flag)?' bad':''), f.flag);
+    b.title = f.means; w.append(b);
+  });
+  if(!(list||[]).length) w.append(el('span','flag ok','clean'));
+  return w;
+}
+function cell(main, sub){
+  const w = el('div'); w.append(el('div','',main));
+  if(sub) w.append(el('div','mini',sub));
+  return w;
+}
+
+async function tokens(more){
+  const btn = $('#tk-go'), out = $('#tk-out');
+  if(!more){ TK.offset = 0; TK.open = null; $('#tk-detail').innerHTML=''; }
+  $('#tk-flash').textContent = more ? 'loading…' : 'ranking the universe…';
+  busy(btn, true);
+  try{
+    const r = await get('/tokens', {
+      list: $('#tk-list').value, sort: $('#tk-sort').value,
+      query: $('#tk-q').value.trim(), min_liquidity: $('#tk-min').value,
+      safe_only: $('#tk-safe').checked ? 1 : '',
+      exclude: [...TK.hide].join(','),
+      limit: TK.limit, offset: TK.offset});
+    // A source being down must read as a source being down — never as a chain
+    // that has no tokens on it.
+    $('#tk-flash').textContent = r.note || (r.warnings||[]).join(' · ') || '';
+    $('#tk-what').innerHTML = r.what ? r.what[0].toUpperCase()+r.what.slice(1)+
+      ' — ranked by the liquidity behind each one. Click a row to measure what could '+
+      '<b>actually</b> be sold; the headline and the exit are rarely the same number.' :
+      $('#tk-what').innerHTML;
+    if(!more){
+      TK.rows = r.tokens; TK.top = (r.tokens[0]||{}).liquidity_usd || 0;
+      $('#tk-head').innerHTML = ''; $('#tk-head').append(tkHead(r));
+      tkFlagChips(r);
+    } else {
+      TK.rows = TK.rows.concat(r.tokens);
+    }
+    out.innerHTML = ''; out.append(tkTable(TK.rows));
+    const matched = r.matched || 0, total = r.total || 0;
+    $('#tk-more').style.display = TK.rows.length < matched ? 'flex' : 'none';
+    $('#tk-count').textContent = `${TK.rows.length} of ${matched.toLocaleString()} shown`+
+      (matched < total ? ` · ${total.toLocaleString()} in the list` : '');
+    if(TK.deep){
+      // A deep link can name a token that is not on this page of the ranking —
+      // the panel does not need the row, only the mint, so ask for it directly.
+      const want = TK.deep; TK.deep = null;
+      const i = TK.rows.findIndex(t => t.mint===want ||
+        (t.symbol||'').toUpperCase()===want.toUpperCase());
+      if(i >= 0) tkOpen(TK.rows[i], out.querySelectorAll('tbody tr')[i]);
+      else tkOpen({mint: want, symbol: want});
+    }
+  }catch(e){ $('#tk-flash').textContent = e.message; }
+  busy(btn, false);
+}
+
+function tkFlagChips(r){
+  const box = $('#tk-flags');
+  if(!r.flags) return;
+  box.innerHTML = '';
+  box.append(el('span','mini','hide tokens flagged'));
+  Object.entries(r.flags).forEach(([flag, means]) => {
+    const on = TK.hide.has(flag);
+    const b = el('button','flag'+(on?'':' ok'), flag);
+    b.style.cursor = 'pointer'; b.style.background = 'none';
+    b.style.opacity = on ? '1' : '.45';
+    b.title = means + (on ? ' — hidden' : ' — click to hide');
+    b.onclick = () => { on ? TK.hide.delete(flag) : TK.hide.add(flag); tokens(false); };
+    box.append(b);
+  });
+  if(r.hidden_by_exclude)
+    box.append(el('span','mini', ' · '+r.hidden_by_exclude+' of '+
+      r.total.toLocaleString()+' hidden'));
+}
+
+function tkHead(r){
+  const t = r.totals || {}, c = r.concentration || {};
+  const w = el('div');
+  w.append(cards([
+    ['tokens listed', (r.total||0).toLocaleString(), r.note ? 'nothing came back' : r.what, ''],
+    ['quotable liquidity', cusd(t.liquidity_usd), 'across all of them', 'grn'],
+    ['24h volume', cusd(t.volume_24h_usd),
+     t.liquidity_usd ? (t.volume_24h_usd/t.liquidity_usd).toFixed(1)+'x the liquidity' : ''],
+    ['deep enough to trade', (t.tokens_over_10k||0).toLocaleString(),
+     'over $10k · '+(t.tokens_over_1m||0)+' over $1m'],
+    ['no market at all', (t.tokens_with_no_market||0).toLocaleString(),
+     'listed, but you could not sell one'],
+    ['concentration', c.top_10_pct==null ? '—' : c.top_10_pct+'%',
+     'sits in the top 10 tokens'],
+  ]));
+  return w;
+}
+
+function tkTable(rows){
+  const cols = [
+    {label:'#', get:r => '<span class="dimtxt">'+(rows.indexOf(r)+1)+'</span>'},
+    {label:'token', get:r => {
+      const d = el('div'); d.append(el('span','sym', r.symbol||'?'));
+      d.append(el('div','mini', (r.name||'').slice(0,34)));
+      return d; }},
+    {label:'price', n:1, get:r => r.price_usd==null ? '—' :
+      (r.price_usd < 0.01 ? '$'+r.price_usd.toExponential(2) : usd(r.price_usd))},
+    {label:'24h', n:1, get:r => r.change_24h_pct==null ? '—' :
+      '<span class="'+(r.change_24h_pct>=0?'up':'down')+'">'+pct(r.change_24h_pct)+'</span>'},
+    {label:'liquidity', n:1, get:r => {
+      const d = el('div'); d.append(el('div','', cusd(r.liquidity_usd)));
+      d.append(meter(TK.top ? (r.liquidity_usd||0)/TK.top : 0));
+      return d; }},
+    {label:'24h volume', n:1, get:r => cusd(r.volume_24h_usd)},
+    {label:'turnover', n:1, get:r => r.turnover==null ? '—' :
+      '<span class="'+(r.turnover>20?'warnv':'')+'">'+r.turnover.toFixed(1)+'x</span>'},
+    {label:'market cap', n:1, get:r => cusd(r.mcap_usd || r.fdv_usd)},
+    {label:'liq/mcap', n:1, get:r => r.liquidity_to_mcap_pct==null ? '—' :
+      '<span class="'+(r.liquidity_to_mcap_pct<1?'badv':'')+'">'+
+      r.liquidity_to_mcap_pct.toFixed(2)+'%</span>'},
+    {label:'holders', n:1, get:r => cnum(r.holders)},
+    {label:'depth', get:r => {
+      const s = el('span','', r.grade); s.title = r.means; return s; }},
+    {label:'watch for', get:r => flags(r.flags, 3)},
+  ];
+  const t = table(cols, rows);
+  Array.from(t.tBodies[0].rows).forEach((tr, i) => {
+    tr.classList.add('click');
+    tr.onclick = () => tkOpen(rows[i], tr);
+  });
+  return t;
+}
+
+async function tkOpen(row, tr){
+  const box = $('#tk-detail');
+  document.querySelectorAll('#tk-out tr.open').forEach(x => x.classList.remove('open'));
+  if(TK.open === row.mint){ TK.open = null; box.innerHTML=''; return; }
+  TK.open = row.mint; if(tr) tr.classList.add('open');
+  const seq = ++TK.req;
+  box.innerHTML = '';
+  box.append(tkPending(row));
+  box.scrollIntoView({behavior:'smooth', block:'nearest'});
+  try{
+    const r = await get('/liquidity', {mint: row.mint, depth: 1});
+    if(seq !== TK.req) return;
+    box.innerHTML = ''; box.append(tkDetail(r));
+  }catch(e){
+    if(seq !== TK.req) return;
+    box.innerHTML = ''; const p = el('div','panel'); fail(p, e); box.append(p);
+  }
+}
+
+function tkPending(row){
+  const p = el('div','panel');
+  p.append(el('div','lede', 'Pricing real sells of '+(row.symbol||row.mint)+
+    ' at $1k, $10k, $100k and $1m, then bisecting for the largest one that still '+
+    'clears under 1% — this is a measurement, so it takes a few seconds.'));
+  p.append(meter(1));
+  return p;
+}
+
+function tkDetail(r){
+  const L = r.liquidity || {}, d = r.depth || {}, m = r.market || {}, c = r.concentration || {};
+  const w = el('div','panel');
+
+  const top = el('div','bar');
+  top.append(el('h2','t', (r.symbol||'')+' · '+(r.name||'')));
+  top.append(addr(r.mint));
+  const close = el('button','ghost','close');
+  close.onclick = () => { $('#tk-detail').innerHTML=''; TK.open=null;
+    document.querySelectorAll('#tk-out tr.open').forEach(x=>x.classList.remove('open')); };
+  top.append(close);
+  w.append(top);
+
+  // The lede: the one sentence this whole panel exists to say.
+  const lede = el('div','lede');
+  if(d.executable_usd != null && L.quotable_usd){
+    const ratio = L.quotable_usd / Math.max(d.executable_usd, 1);
+    lede.innerHTML = 'The indexes call this <b>'+cusd(L.quotable_usd)+'</b> of liquidity. '+
+      'Priced for real, <b>'+cusd(d.executable_usd)+'</b> is the largest sell that clears '+
+      'under '+d.cost_limit_pct+'% — '+
+      (ratio > 2 ? 'a <b>'+ratio.toFixed(0)+'×</b> gap between the headline and the exit.'
+                 : 'the headline holds up.');
+  } else {
+    lede.textContent = d.why || 'No sell could be priced for this mint.';
+  }
+  w.append(lede);
+
+  w.append(cards([
+    ['quotable', cusd(L.quotable_usd), 'what the router claims', ''],
+    ['pool reserves', cusd(L.pool_reserves_usd), 'both sides, every pool', ''],
+    ['the token side', cusd(L.token_side_usd), 'just this token’s half', ''],
+    ['executable', cusd(d.executable_usd), 'measured, under '+(d.cost_limit_pct||1)+'%', 'grn'],
+  ]));
+
+  if(r.disagreement)
+    w.append(el('div','defn', 'Sources: '+r.disagreement.means+
+      ' ('+cusd(r.disagreement.low_usd)+' – '+cusd(r.disagreement.high_usd)+').'));
+  if((r.pool_sources_unavailable||[]).length)
+    w.append(el('div','defn', 'One index did not answer in time ('+
+      r.pool_sources_unavailable.join(', ')+') — the pools below are what the rest '+
+      'of them know about, so read the reserve total as a floor.'));
+
+  // depth ladder — a meter per rung, severity by cost, value at the tip
+  if(d.ladder && d.ladder.length){
+    w.append(el('h2','t','What it costs to get out'));
+    const t = el('table','ladder'), b = el('tbody');
+    // The bar is what you WALK AWAY WITH, not what you lose: a 0.1% cost and a
+    // 0.9% cost are both invisible when you draw the loss, and the difference
+    // between keeping 99% and keeping 13% is the whole story.
+    d.ladder.forEach(s => {
+      const tr = el('tr');
+      tr.append(Object.assign(el('td','n'), {textContent: cusd(s.usd)}));
+      const kept = s.receive_usd == null ? 0 : Math.max(0, s.receive_usd / s.usd);
+      const cls = s.cost_pct==null ? 'bad' : s.cost_pct > (d.cost_limit_pct*3) ? 'bad'
+                : s.cost_pct > d.cost_limit_pct ? 'warn' : '';
+      const bar = el('td','bar'); bar.append(meter(kept, cls)); tr.append(bar);
+      const v = el('td','n');
+      v.innerHTML = s.cost_pct==null ? '<span class="badv">'+
+          (s.no_route ? 'no route at this size' : 'not priced')+'</span>' :
+        'keeps <b>'+cusd(s.receive_usd)+'</b> <span class="'+
+        (s.cost_pct>d.cost_limit_pct?'warnv':'dimtxt')+'">('+s.cost_pct.toFixed(2)+
+        '% to get out)</span>';
+      tr.append(v);
+      const rt = el('td','mini', (s.route||[]).join(' → ') || '');
+      tr.append(rt);
+      b.append(tr);
+    });
+    t.append(b); w.append(t);
+    w.append(el('div','defn', d.method + (d.into ? ' Sold into '+d.into.symbol+'.' : '')));
+  }
+
+  // where it sits
+  if((r.venues||[]).length){
+    w.append(el('h2','t','Which venues hold it'));
+    const total = r.venues.reduce((a,v) => a + (v.liquidity_usd||0), 0) || 1;
+    r.venues.slice(0,8).forEach(v => {
+      const row = el('div','vbar');
+      row.append(el('div','', v.dex));
+      const tr = el('div','track'), i = el('i');
+      i.style.width = (100*(v.liquidity_usd||0)/total).toFixed(2)+'%'; tr.append(i);
+      row.append(tr);
+      row.append(el('div','val', cusd(v.liquidity_usd)+'  ·  '+v.pools+
+        (v.pools===1?' pool':' pools')));
+      w.append(row);
+    });
+    if(c.means) w.append(el('div','defn',
+      'HHI '+c.hhi+' — '+c.means+'. Top pool is '+c.top_pool_share_pct+'% of the token’s '+
+      'depth, across '+c.pools+' pools on '+c.venues+' venues.'));
+  }
+
+  // the pools themselves
+  if((r.pools||[]).length){
+    w.append(el('h2','t','Every pool holding it'));
+    w.append(table([
+      {label:'pair', get:p => cell(p.pair||'—', p.dex||'')},
+      {label:'reserves', n:1, get:p => p.suspect ?
+        '<span class="badv">'+cusd(p.liquidity_usd)+'</span>' : cusd(p.liquidity_usd)},
+      {label:'share', n:1, get:p => p.suspect ? '—' : share(p.share_pct)},
+      {label:'token side', n:1, get:p => cusd(p.token_side_usd)},
+      {label:'24h volume', n:1, get:p => cusd(p.volume_24h_usd)},
+      {label:'age', n:1, get:p => p.age_days==null ? '—' :
+        p.age_days > 365 ? (p.age_days/365).toFixed(1)+'y' : Math.round(p.age_days)+'d'},
+      {label:'pool', get:p => { const a = addr(p.address, () => {}); a.onclick = null;
+        a.style.cursor='text'; return a; }},
+      {label:'note', get:p => p.suspect ?
+        '<span class="badv" title="'+(p.suspect||'')+'">excluded</span>' :
+        p.disputed ? '<span class="warnv" title="'+p.disputed+'">indexes disagree</span>' :
+        (p.side_dropped ? '<span class="dimtxt" title="'+p.side_dropped+'">side unusable</span>' : '')},
+    ], r.pools.slice(0,40)));
+  }
+
+  // the numbers behind the numbers
+  const mk = el('div','three');
+  [['market cap', cusd(m.mcap_usd), 'fdv '+cusd(m.fdv_usd)],
+   ['holders', cnum(m.holders), (m.traders_24h||0).toLocaleString()+' traded in 24h'],
+   ['24h volume', cusd(m.volume_24h_usd),
+    (m.organic_share_pct==null?'':m.organic_share_pct+'% organic')],
+   ['liquidity vs cap', (m.liquidity_to_mcap_pct==null?'—':m.liquidity_to_mcap_pct+'%'),
+    'of the cap could route'],
+   ['age', (m.age_days==null?'—':(m.age_days>365?(m.age_days/365).toFixed(1)+'y':
+     Math.round(m.age_days)+'d')), (m.tags||[]).slice(0,3).join(' · ')],
+  ].forEach(([l,v,sub]) => {
+    const c2 = el('div','card'); c2.append(el('h3','',l));
+    c2.append(el('div','big',v)); if(sub) c2.append(el('div','sm',sub)); mk.append(c2);
+  });
+  w.append(el('h2','t','The rest of it')); w.append(mk);
+
+  if((r.flags||[]).length){
+    w.append(el('h2','t','What to watch for'));
+    (r.flags||[]).forEach(f => {
+      const line = el('div','defn');
+      line.append(el('span','flag'+(['nomarket','exit','draining','freeze'].includes(f.flag)?' bad':''), f.flag));
+      line.append(el('span','', ' '+f.means));
+      w.append(line);
+    });
+  }
+
+  const defs = el('details');
+  defs.append(el('summary','defn','what each of these four numbers actually counts'));
+  Object.entries(r.definitions||{}).forEach(([k,v]) =>
+    defs.append(el('div','defn', k+' — '+v)));
+  w.append(defs);
+  (r.warnings||[]).forEach(x => w.append(el('div','flash', x)));
+  return w;
+}
+
+async function tkVenues(){
+  const box = $('#tk-venuebox'), btn = $('#tk-venues');
+  if(box.innerHTML){ box.innerHTML=''; return; }
+  busy(btn, true); $('#tk-flash').textContent = 'reading the deepest pools on the chain…';
+  try{
+    const r = await get('/venues', {tokens: 10});
+    const s = r.sample || {}, w = el('div','panel');
+    w.append(el('h2','t','Where Solana’s liquidity sits'));
+    const lede = el('div','lede');
+    if(s.pools){
+      w.append(el('div','hero', cusd(s.liquidity_usd)));
+      lede.innerHTML = 'across '+s.pools+' pools holding the '+s.tokens+
+        ' deepest tokens — <b>'+(s.covers_pct||0)+'%</b> of every dollar the chain '+
+        'can quote. Built from pools, not from what a venue says about itself.';
+    } else {
+      lede.textContent = 'No pool could be read for the deep end just now — the '+
+        'sample below is empty, which is a source being unreachable rather than a '+
+        'chain with no liquidity on it.';
+    }
+    w.append(lede);
+    const total = (r.venues||[]).reduce((a,v)=>a+(v.liquidity_usd||0),0) || 1;
+    (r.venues||[]).filter(v => v.liquidity_usd > 0).forEach(v => {
+      const row = el('div','vbar');
+      row.append(el('div','', v.name||v.dex));
+      const t = el('div','track'), i = el('i');
+      i.style.width = (100*v.liquidity_usd/total).toFixed(2)+'%'; t.append(i);
+      row.append(t);
+      row.append(el('div','val', cusd(v.liquidity_usd)+'  ·  '+share(v.share_pct)));
+      w.append(row);
+    });
+    if((r.deepest_pools||[]).length){
+    w.append(el('h2','t','The deepest pools'));
+    w.append(table([
+      {label:'pair', get:p => cell(p.pair||'—', p.dex||'')},
+      {label:'reserves', n:1, get:p => cusd(p.liquidity_usd)},
+      {label:'24h volume', n:1, get:p => cusd(p.volume_24h_usd)},
+      {label:'turnover', n:1, get:p => p.liquidity_usd ?
+        ((p.volume_24h_usd||0)/p.liquidity_usd).toFixed(1)+'x' : '—'},
+    ], (r.deepest_pools||[]).slice(0,12)));
+    }
+    if((r.busiest_pools||[]).length){
+      w.append(el('h2','t','The busiest pools'));
+      w.append(el('div','defn', r.busiest_note));
+      w.append(table([
+        {label:'pair', get:p => cell(p.pair||'—', p.dex||'')},
+        {label:'24h volume', n:1, get:p => cusd(p.volume_24h_usd)},
+        {label:'reserves', n:1, get:p => (p.liquidity_usd||0) < 1 ?
+          '<span class="badv">nothing</span>' : cusd(p.liquidity_usd)},
+      ], (r.busiest_pools||[]).slice(0,12)));
+    }
+    (r.warnings||[]).forEach(x => w.append(el('div','flash', x)));
+    box.innerHTML=''; box.append(w);
+    $('#tk-flash').textContent='';
+  }catch(e){ $('#tk-flash').textContent = e.message; }
+  busy(btn, false);
+}
+
 // ── shell ──
-function tab(name){
+function tab(name, push){
+  if(!document.getElementById(name)) return;
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab===name));
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id===name));
+  if(push !== false && location.hash.slice(1).split('/')[0] !== name)
+    history.replaceState(null, '', '#'+name);
+  if(name==='tokens' && !TK.rows.length) tokens(false);
   if(name==='chain' && !$('#ch-out').children.length) chain();
   if(name==='mcp' && $('#mcp-tools').innerHTML==='') loadMcp();
   if(name==='wallet' && $('#w-list').innerHTML==='') wlist();
@@ -950,6 +1413,28 @@ function tab(name){
     $('#pg-addr').value='';
 }
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => tab(b.dataset.tab));
+// The tab lives in the hash so a view can be linked, reloaded and screenshotted.
+// #tokens/BONK opens the token and measures it.
+function fromHash(){
+  const [name, arg] = decodeURIComponent(location.hash.slice(1)).split('/');
+  if(!name) return;
+  tab(name, false);
+  if(name==='tokens' && arg==='where'){ tokens(false); tkVenues(); }
+  else if(name==='tokens' && arg){ TK.deep = arg; tokens(false); }
+  else if(name==='explore' && arg){ $('#ex-addr').value = arg; explore(); }
+  else if(name==='tx' && arg){ $('#tx-sig').value = arg; decode(); }
+  else if(name==='programs' && arg){ $('#pg-addr').value = arg; pgLoad(); }
+}
+window.addEventListener('hashchange', fromHash);
+fromHash();
+$('#tk-go').onclick = () => tokens(false);
+$('#tk-q').onkeydown = e => e.key==='Enter' && tokens(false);
+$('#tk-sort').onchange = () => tokens(false);
+$('#tk-list').onchange = () => tokens(false);
+$('#tk-min').onchange = () => tokens(false);
+$('#tk-safe').onchange = () => tokens(false);
+$('#tk-venues').onclick = tkVenues;
+$('#tk-page').onclick = () => { TK.offset += TK.limit; tokens(true); };
 $('#ex-go').onclick = explore;
 $('#ex-addr').onkeydown = e => e.key==='Enter' && explore();
 $('#tx-go').onclick = decode;
@@ -974,6 +1459,15 @@ document.querySelectorAll('#pg-deploy .seg button').forEach(b => b.onclick = () 
   document.querySelectorAll('#pg-deploy [data-src]').forEach(x => {
     if(x.tagName==='SPAN') x.style.display = x.dataset.src===b.dataset.src ? '' : 'none'; });
 });
+
+get('/tokens', {limit:1}).then(r => {
+  const sel = $('#tk-list');
+  Object.entries(r.lists||{}).forEach(([k, what]) => {
+    const o = document.createElement('option');
+    o.value = k; o.textContent = k; o.title = what; sel.append(o);
+  });
+  sel.value = r.list || 'verified';
+}).catch(()=>{});
 
 get('/health').then(h => {
   $('#tagline').textContent = h.network+' · slot '+h.slot?.toLocaleString()+

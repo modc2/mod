@@ -1,0 +1,165 @@
+{
+  "netuid": 10,
+  "name": "Pareton",
+  "symbol": "Ⱂ",
+  "owner": "5HK5714cfComgoVg9UfQswQHad6wJV4RnGvp6PQvTkLUUFt5",
+  "description": "The Intelligence Layer for AI Inference",
+  "github": "https://github.com/Pareton-ai/pareton",
+  "url": "https://www.pareton.ai/",
+  "discord": null,
+  "logo": "https://www.pareton.ai/logo.png",
+  "registered_at": 2869647,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.006051395,
+    "moving_price": 0.006174623034894466,
+    "market_cap": 36739.45008034238,
+    "tao_in": 16032.165852848,
+    "alpha_in": 2649333.885471579,
+    "alpha_out": 3421902.594768494,
+    "volume": 1035659.191123117,
+    "vol_24h": 2228.9414939939743,
+    "emission": 0.0,
+    "change_1h": -1.3722075211047402,
+    "change_24h": -4.964812892155523,
+    "change_7d": -7.6228817123410675
+  },
+  "spark_24h": [
+    0.006367531,
+    0.006365688,
+    0.006365609,
+    0.00632898,
+    0.006329131,
+    0.006332723,
+    0.006332722,
+    0.006332722,
+    0.006330176,
+    0.006330151,
+    0.00633015,
+    0.006330139,
+    0.00632954,
+    0.006095406,
+    0.006178889,
+    0.006179035,
+    0.006126195,
+    0.006110239,
+    0.006110392,
+    0.006093689,
+    0.006093807,
+    0.006114721,
+    0.006102013,
+    0.006092224,
+    0.006130131,
+    0.006101966,
+    0.006101953,
+    0.006101952,
+    0.006132296,
+    0.006132306,
+    0.006153481,
+    0.006151491,
+    0.006147839,
+    0.006145262,
+    0.006145262,
+    0.006126085,
+    0.006148592,
+    0.006194297,
+    0.006108851,
+    0.006139212,
+    0.006139212,
+    0.006141709,
+    0.00617971,
+    0.006179699,
+    0.006179699,
+    0.006137866,
+    0.006135588,
+    0.006051395
+  ],
+  "trades_24h": {
+    "trades": 122,
+    "buys": 54,
+    "sells": 68,
+    "buy_tao": 907.179910719,
+    "sell_tao": 1319.695448425,
+    "net_tao": -412.51553770600003,
+    "traders": 60
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CkqhiXivJzuYEZKCTBXTm9oK8LH6L9EyDxJooyPFvHS2GXr",
+      "net_tao": -202.570767002,
+      "gross_tao": 202.570767002,
+      "trades": 1
+    },
+    {
+      "coldkey": "5H6M8GayYXwBfUevv9YWnA5EnFScuLoATdSUMRFvxJWejHaV",
+      "net_tao": -183.979244558,
+      "gross_tao": 183.979244558,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": 0.0460986560000034,
+      "gross_tao": 181.953901344,
+      "trades": 11
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": 39.149803248,
+      "gross_tao": 180.850196752,
+      "trades": 5
+    },
+    {
+      "coldkey": "5HRQyueYEFpmwbUGdo8RhYQaCaZjB5ecCfQNyeDs6ercuVFL",
+      "net_tao": -141.911663101,
+      "gross_tao": 141.911663101,
+      "trades": 5
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790495105,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #182 from Pareton-ai/bohdan/par-136-builder-cleanu…",
+      "url": "https://github.com/Pareton-ai/pareton/commit/36852d8533b4d73e0392ea113bd803c8e8f50b3d",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1790246666,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(ops): page a full disk while a build holds the cleanup lock",
+      "url": "https://github.com/Pareton-ai/pareton/commit/bfc99f86cd976b65b4e790007012d054052c9f23",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1790202964,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #184 from Pareton-ai/chore/simplify-artifact-handling",
+      "url": "https://github.com/Pareton-ai/pareton/commit/7f60bd35cc078f6ed21ece42e351a685b49047ec",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1790200823,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge origin/main into artifact handling",
+      "url": "https://github.com/Pareton-ai/pareton/commit/ef2a3d5b02066bf13a23c4c0c9638f630c4c8bde",
+      "publisher": "Pareton-ai/pareton"
+    },
+    {
+      "ts": 1790200624,
+      "kind": "commit",
+      "source": "github",
+      "title": "Keep submitted artifacts private",
+      "url": "https://github.com/Pareton-ai/pareton/commit/c525d9c832be8356bf70afc98044b1a9fe5826f3",
+      "publisher": "Pareton-ai/pareton"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

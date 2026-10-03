@@ -1,0 +1,189 @@
+{
+  "netuid": 111,
+  "name": "Claims",
+  "symbol": "Ё",
+  "owner": "5CGTryXjAmwmb3mAFD6B5ba2iBXZBcS5dN9pHLBxRoeonigv",
+  "description": "Turning scientific literature into a structured claim-evidence graph",
+  "github": "https://github.com/DeSciClaims/Claims",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1515007366016401599",
+  "logo": "https://www.dropbox.com/scl/fi/712kuof7877598tlvx3ep/Main-Logo_Dark_Claims.svg?rlkey=zhpmlbyirvdez3gm4j05gb0lk&st=xfm4tx9t&dl=0",
+  "registered_at": 5615562,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.004370295,
+    "moving_price": 0.004364415304735303,
+    "market_cap": 21415.86566473312,
+    "tao_in": 5610.782056372,
+    "alpha_in": 1283845.019084494,
+    "alpha_out": 3616479.939467073,
+    "volume": 212775.513630165,
+    "vol_24h": 146.08512477899785,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.056828836575362196,
+    "change_7d": -2.7450309292207487
+  },
+  "spark_24h": [
+    0.00437278,
+    0.004359176,
+    0.004359176,
+    0.00435732,
+    0.004357319,
+    0.004357291,
+    0.004350074,
+    0.004347875,
+    0.004347847,
+    0.004347808,
+    0.004347874,
+    0.004347852,
+    0.004345469,
+    0.004384487,
+    0.004384487,
+    0.004384486,
+    0.004384181,
+    0.004384181,
+    0.004391974,
+    0.004390893,
+    0.004359896,
+    0.004359871,
+    0.004359859,
+    0.004357954,
+    0.004357949,
+    0.004357947,
+    0.004357947,
+    0.004357947,
+    0.004357947,
+    0.004357947,
+    0.004357908,
+    0.004354415,
+    0.004354415,
+    0.004354865,
+    0.004354865,
+    0.004354865,
+    0.004354865,
+    0.004354837,
+    0.004354788,
+    0.004354788,
+    0.004354788,
+    0.004370345,
+    0.004370345,
+    0.004370322,
+    0.004370321,
+    0.004370295,
+    0.004370295,
+    0.004370295
+  ],
+  "trades_24h": {
+    "trades": 43,
+    "buys": 10,
+    "sells": 33,
+    "buy_tao": 71.523008515,
+    "sell_tao": 73.596561708,
+    "net_tao": -2.073553192999995,
+    "traders": 33
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5HjdRywCocBBd2PNkertftFAfD9SterMCNVg75RJSWmgLCiB",
+      "net_tao": 0.130066793000001,
+      "gross_tao": 39.869933207,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CHtXFgqfFzJYf8GLG9UoXg4SNqbyxZANwonBEzNnff9ZSNx",
+      "net_tao": -0.09187545799999987,
+      "gross_tao": 30.091875458,
+      "trades": 3
+    },
+    {
+      "coldkey": "5C8XGkD97pc9sBKoJL2NQ1W7YnqapmuXaq9EJSthRZT47Hsd",
+      "net_tao": 0.014514299999999696,
+      "gross_tao": 29.9854857,
+      "trades": 3
+    },
+    {
+      "coldkey": "5FBzcVHHqZLnb7khU5ZyRSUta2vEBMoRQH4dyyvLE3ZyMm5a",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5ELvppr1uzex8ecVdQNqK5nvhp6kGLuB2UjJAjWKgcK3nXXc",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790906809,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.0.1",
+      "url": "https://github.com/DeSciClaims/Claims/releases/tag/v1.0.1",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790725571,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(validator): wait for due canonical batches",
+      "url": "https://github.com/DeSciClaims/Claims/commit/e3bceb9503171a23912ce472cb0653bfc9499757",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790722995,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(silver): reduce adjudication batch size to four",
+      "url": "https://github.com/DeSciClaims/Claims/commit/a85c4f55461e134c575191e4c7e35124c8287b96",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790713321,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(silver): raise appellate output limit",
+      "url": "https://github.com/DeSciClaims/Claims/commit/05eab72d194b5e78c72367fed748a648730581df",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790706087,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(sources): isolate consensus PDF failures",
+      "url": "https://github.com/DeSciClaims/Claims/commit/23655b86e4285f1f1fddcf5a4700ca301b4d8164",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790618110,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(silver): make eligibility appeals evidence-grounded",
+      "url": "https://github.com/DeSciClaims/Claims/commit/a6403733b9f6459b4c8688c960d84a40609d63eb",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1790591699,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.0.0",
+      "url": "https://github.com/DeSciClaims/Claims/releases/tag/v1.0.0",
+      "publisher": "DeSciClaims/Claims"
+    },
+    {
+      "ts": 1789418975,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.2.0",
+      "url": "https://github.com/DeSciClaims/Claims/releases/tag/v0.2.0",
+      "publisher": "DeSciClaims/Claims"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

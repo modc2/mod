@@ -1,0 +1,38 @@
+{
+  "name": "sn30",
+  "version": "1.0.0",
+  "description": "SN30 Endure Network — The risk intelligence network. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ו",
+  "chain": "bittensor",
+  "netuid": 30,
+  "subnet": "Endure Network",
+  "symbol": "ו",
+  "owner": "5HTogQKFuDaLq5ifWNhL2owMpLPHM3TAmujUUaTVj7FWzf6p",
+  "github": null,
+  "url": "https://endure.network",
+  "discord": null,
+  "logo": "https://docs.endure.network/img/favicon.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=30",
+    "news": "/bt/news?netuid=30"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

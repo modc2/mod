@@ -1,0 +1,38 @@
+{
+  "name": "sn112",
+  "version": "1.0.0",
+  "description": "SN112 for sale — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "Ђ",
+  "chain": "bittensor",
+  "netuid": 112,
+  "subnet": "for sale",
+  "symbol": "Ђ",
+  "owner": "5GQjr3Qthuygwef9R8qPMuZBs3bPq5i5Cds37xbrhkeomDwj",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=112",
+    "news": "/bt/news?netuid=112"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

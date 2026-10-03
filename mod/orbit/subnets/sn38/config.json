@@ -1,0 +1,38 @@
+{
+  "name": "sn38",
+  "version": "1.0.0",
+  "description": "SN38 ChronoLLM — Competitive training of chronologically consistent Large Language Models. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ם",
+  "chain": "bittensor",
+  "netuid": 38,
+  "subnet": "ChronoLLM",
+  "symbol": "ם",
+  "owner": "5GeWgtBAu2ezYo83sPM7VyEigAfEc3vnqqxRzbMXYVYwEV62",
+  "github": "https://github.com/chronollm/sn38",
+  "url": "https://chronollm.crunchdao.com/",
+  "discord": "https://discord.com/channels/799672011265015819/1485634202895519844",
+  "logo": "https://assets.crunchdao.com/chronollm/logo-round.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=38",
+    "news": "/bt/news?netuid=38"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

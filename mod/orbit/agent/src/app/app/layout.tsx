@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { AskHost } from './lib/ask'
 
 export const metadata: Metadata = {
   title: 'Agent — Mod Agent OS',
@@ -18,7 +19,7 @@ export const viewport: Viewport = {
  * blocking script corrects it from localStorage — so keep the table below in
  * step with THEMES in components/Theme.tsx. */
 const THEME_BOOT = `try{
-var T={arcade:["pixel","dark"],matrix:["pixel","dark"],win95:["pixel","light"],
+var T={arcade:["pixel","dark"],matrix:["pixel","dark"],mario:["pixel","dark"],win95:["pixel","light"],
 midnight:["soft","dark"],abyss:["soft","dark"],ember:["soft","dark"],neon:["soft","dark"],
 paper:["soft","light"],daylight:["soft","light"]};
 var t=localStorage.getItem("agent_theme");
@@ -32,7 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>
-      <body>{children}</body>
+      <body>{children}<AskHost /></body>
     </html>
   )
 }

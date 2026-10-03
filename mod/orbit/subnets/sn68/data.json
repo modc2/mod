@@ -1,0 +1,165 @@
+{
+  "netuid": 68,
+  "name": "NOVA",
+  "symbol": "ظ",
+  "owner": "5EcdJLAeYoxM3Tsf5VZ3NQPenPku218gqnjSoo3iJNy4V12V",
+  "description": "Accelerating drug discovery.",
+  "github": "https://github.com/metanova-labs/nova/",
+  "url": "https://www.metanova-labs.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/metanova-labs/nova/refs/heads/main/assets/subnet-logo.png",
+  "registered_at": 4972413,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.021535708,
+    "moving_price": 0.02142955525778234,
+    "market_cap": 127513.70683604953,
+    "tao_in": 44557.746541039,
+    "alpha_in": 2069017.023266111,
+    "alpha_out": 3852019.184879427,
+    "volume": 1711942.00213109,
+    "vol_24h": 1744.015191623941,
+    "emission": 0.0,
+    "change_1h": 0.0009054810999886698,
+    "change_24h": 1.8397995105797538,
+    "change_7d": 3.077584404172984
+  },
+  "spark_24h": [
+    0.021147113,
+    0.021147237,
+    0.021148276,
+    0.021150038,
+    0.021151586,
+    0.02115335,
+    0.021168038,
+    0.021169575,
+    0.021158111,
+    0.02115135,
+    0.021152651,
+    0.021154558,
+    0.02115352,
+    0.021155986,
+    0.021420963,
+    0.021293097,
+    0.021425142,
+    0.021451165,
+    0.021451895,
+    0.021455732,
+    0.021437616,
+    0.021438861,
+    0.021508234,
+    0.021509821,
+    0.021530879,
+    0.021533107,
+    0.021511866,
+    0.021513893,
+    0.021514026,
+    0.02151561,
+    0.02151711,
+    0.021517292,
+    0.021518683,
+    0.021520089,
+    0.021529188,
+    0.021531031,
+    0.021532614,
+    0.02151894,
+    0.021520695,
+    0.021522291,
+    0.021524785,
+    0.021526638,
+    0.02152816,
+    0.021529945,
+    0.021531621,
+    0.021533065,
+    0.021535513,
+    0.021535708
+  ],
+  "trades_24h": {
+    "trades": 102,
+    "buys": 41,
+    "sells": 61,
+    "buy_tao": 966.238835224,
+    "sell_tao": 666.412008627,
+    "net_tao": 299.82682659700004,
+    "traders": 64
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5EUDeQTsLvNeTHWQKtJrFTeCSnaDJLt47ZSz8FXqhn9FyZ66",
+      "net_tao": 210.589338278,
+      "gross_tao": 338.526047722,
+      "trades": 3
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": 0.035236799999999846,
+      "gross_tao": 299.9647632,
+      "trades": 6
+    },
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.15058320200000708,
+      "gross_tao": 157.111282786,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": 0.0701845300000059,
+      "gross_tao": 139.92981547,
+      "trades": 3
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": -0.17442012699999765,
+      "gross_tao": 100.17442012699999,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789594659,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update config.yaml",
+      "url": "https://github.com/metanova-labs/nova/commit/623f3456088f651609a1bcb870ab0587b0dc0520",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1789569815,
+      "kind": "commit",
+      "source": "github",
+      "title": "update submodule to include retry of TNP errors",
+      "url": "https://github.com/metanova-labs/nova/commit/e510bf77db2f90d2386945cf72ec2156b45753f5",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1789569671,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #92 from thomasvangurp/fix/retry-tnp-compute-errors",
+      "url": "https://github.com/metanova-labs/nova/commit/dc42566c760f3fb9d69aa4207b99ff976796baf7",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1789505856,
+      "kind": "commit",
+      "source": "github",
+      "title": "Retry TNP profiles that failed to compute, before rejecting the submi…",
+      "url": "https://github.com/metanova-labs/nova/commit/161b7d3c566828ad2d1e021fd3f046b5b430f9da",
+      "publisher": "metanova-labs/nova"
+    },
+    {
+      "ts": 1788992629,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' of https://github.com/metanova-labs/nova",
+      "url": "https://github.com/metanova-labs/nova/commit/607b07a61389008cb60a09c424e4a56011ea9014",
+      "publisher": "metanova-labs/nova"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

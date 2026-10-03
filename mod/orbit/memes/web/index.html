@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MEMES — search every meme site at once</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14181d; --line: #232a32;
+    --text: #e8edf2; --dim: #8b98a5; --hot: #ff5c39; --link: #6ecbff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header { max-width: 1200px; margin: 0 auto; padding: 28px 16px 8px; }
+  h1 { margin: 0 0 2px; font-size: 26px; letter-spacing: 2px; }
+  h1 span { color: var(--hot); }
+  .tag { color: var(--dim); margin: 0 0 18px; }
+  form { display: flex; gap: 8px; }
+  input[type=search] {
+    flex: 1; padding: 12px 14px; font-size: 16px; color: var(--text);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    outline: none;
+  }
+  input[type=search]:focus { border-color: var(--hot); }
+  button {
+    padding: 12px 22px; font-size: 15px; font-weight: 700; cursor: pointer;
+    background: var(--hot); color: #fff; border: 0; border-radius: 8px;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
+  .chip {
+    padding: 5px 12px; font-size: 13px; cursor: pointer; color: var(--dim);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+  }
+  .chip.on { color: #fff; border-color: var(--hot); background: #2a1712; }
+  .status { max-width: 1200px; margin: 6px auto 0; padding: 0 16px; color: var(--dim); font-size: 13px; }
+  .status .err { color: #e0a13c; }
+  main { max-width: 1200px; margin: 10px auto 60px; padding: 0 16px; columns: 4 260px; column-gap: 12px; }
+  .card {
+    break-inside: avoid; margin: 0 0 12px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .card img { display: block; width: 100%; background: #000; }
+  .card .meta { padding: 8px 10px 10px; }
+  .card a.title { color: var(--text); text-decoration: none; font-weight: 600; font-size: 14px; }
+  .card a.title:hover { color: var(--link); }
+  .card .sub { margin-top: 4px; display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; }
+  .badge { text-transform: uppercase; letter-spacing: 1px; }
+  .badge.reddit { color: #ff7a45; } .badge.ninegag { color: #6ecbff; }
+  .badge.imgflip { color: #b8ff5c; } .badge.knowyourmeme { color: #d79bff; }
+  .empty { color: var(--dim); padding: 40px 0; column-span: all; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MEME<span>S</span></h1>
+  <p class="tag">one search across Reddit, Imgflip, Know Your Meme and 9GAG</p>
+  <form id="f">
+    <input id="q" type="search" placeholder="this is fine, distracted boyfriend, doge..." autofocus>
+    <button>SEARCH</button>
+  </form>
+  <div class="chips" id="chips"></div>
+</header>
+<div class="status" id="status"></div>
+<main id="grid"></main>
+<script>
+  // Relative base: 'api/x' resolves to /memes/api/x behind the gateway and
+  // locally alike — the page must be served at /memes/ (trailing slash).
+  const API = 'api';
+  const SOURCES = ['all', 'reddit', 'imgflip', 'knowyourmeme', 'ninegag', 'trending'];
+  let source = 'all';
+
+  const $ = id => document.getElementById(id);
+  const chips = $('chips');
+  SOURCES.forEach(s => {
+    const c = document.createElement('span');
+    c.className = 'chip' + (s === source ? ' on' : '');
+    c.textContent = s.toUpperCase();
+    c.onclick = () => { source = s;
+      [...chips.children].forEach(x => x.classList.toggle('on', x === c));
+      go(); };
+    chips.appendChild(c);
+  });
+
+  function fmtScore(n) {
+    return n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n);
+  }
+
+  function render(data) {
+    const grid = $('grid'), status = $('status');
+    grid.innerHTML = '';
+    const errs = Object.entries(data.errors || {});
+    status.innerHTML = `${data.count || 0} memes` +
+      (data.query ? ` for "${data.query.replace(/</g, '&lt;')}"` : ' trending') +
+      (errs.length ? ` <span class="err">— unreachable: ${errs.map(e => e[0]).join(', ')}</span>` : '');
+    if (!data.memes || !data.memes.length) {
+      grid.innerHTML = '<div class="empty">nothing found — try another query or source</div>';
+      return;
+    }
+    for (const m of data.memes) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      if (m.image) {
+        const img = document.createElement('img');
+        img.loading = 'lazy'; img.src = m.image; img.alt = m.title;
+        img.onerror = () => card.remove();
+        card.appendChild(img);
+      }
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const a = document.createElement('a');
+      a.className = 'title'; a.href = m.url; a.target = '_blank'; a.rel = 'noopener';
+      a.textContent = m.title || '(untitled)';
+      const sub = document.createElement('div');
+      sub.className = 'sub';
+      sub.innerHTML = `<span class="badge ${m.source}">${m.source}</span>` +
+        `<span>${m.author ? m.author + ' · ' : ''}${m.score ? fmtScore(m.score) + ' pts' : ''}</span>`;
+      meta.append(a, sub);
+      card.appendChild(meta);
+      grid.appendChild(card);
+    }
+  }
+
+  async function go() {
+    const q = $('q').value.trim();
+    $('status').textContent = 'digging...';
+    try {
+      const url = (source === 'trending' || !q)
+        ? `${API}/trending?limit=32`
+        : `${API}/search?q=${encodeURIComponent(q)}&source=${source}&limit=32`;
+      render(await (await fetch(url)).json());
+    } catch (e) {
+      $('status').innerHTML = `<span class="err">API unreachable: ${e.message}</span>`;
+    }
+  }
+
+  $('f').onsubmit = e => { e.preventDefault(); go(); };
+  go();  // trending wall on load
+</script>
+</body>
+</html>

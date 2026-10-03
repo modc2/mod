@@ -48,15 +48,15 @@ Every deployment routes modules the same way:
 | Public URL | Goes to | Prefix |
 |------------|---------|--------|
 | `https://<host>/{mod}` | module **app** (`app_port`) | kept (apps set `basePath /{mod}`) |
-| `https://<host>/api/{mod}` | module **API** (`port`) | stripped (`/api/{mod}/x` → `/x`) |
+| `https://<host>/{mod}/api` | module **API** (`port`) | stripped (`/{mod}/api/x` → `/x`); legacy `/api/{mod}` still answers as an alias |
 
 Three interchangeable implementations enforce this rule:
 
 - **Caddy** — the production gateway on modc2.com. Routes are auto-generated from each module's `config.json` (`route: true` + a live port) by the `caddy` orbit module (`m caddy/apply`).
-- **routy** — a standalone Rust gateway (`mod/orbit/routy`) with the same `/{mod}` / `/api/{mod}` rule. Its own control endpoints live under `/_api/*` (register, sync, stats) — `/_api` is the gateway's admin API, not a module route.
+- **routy** — a standalone Rust gateway (`mod/orbit/routy`) with the same `/{mod}` / `/{mod}/api` rule. Its own control endpoints live under `/_api/*` (register, sync, stats) — `/_api` is the gateway's admin API, not a module route.
 - **Next.js middleware** — `mod/core/app/middleware.ts` applies the identical rewrite inside the core frontend.
 
-So for any module: **app at `/{mod}`, API at `/api/{mod}`, discovery via a null POST.**
+So for any module: **app at `/{mod}`, API at `/{mod}/api`, discovery via a null POST.** App-internal (Next) API routes live under `/{mod}/_api` so they never collide with the module API.
 
 ## 4. Identity and auth
 

@@ -148,8 +148,9 @@ def test_account_routes_need_a_key(m, server, path):
 def test_console_and_gateway_aliases(server):
     for path in ['/lium', '/lium/']:
         assert '<!doctype html>' in requests.get(f'{server}{path}', timeout=10).text[:40]
-    # Same API behind the fleet router prefix and the app alias.
-    for prefix in ['', '/api/lium', '/lium/_api']:
+    # Same API at the canonical fleet form, the legacy router prefix and the
+    # app alias.
+    for prefix in ['', '/lium/api', '/api/lium', '/lium/_api']:
         assert requests.get(f'{server}{prefix}/health', timeout=10).json()['name'] == 'lium'
 
 

@@ -1,0 +1,38 @@
+{
+  "name": "sn43",
+  "version": "1.0.0",
+  "description": "SN43 Graphite — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ע",
+  "chain": "bittensor",
+  "netuid": 43,
+  "subnet": "Graphite",
+  "symbol": "ע",
+  "owner": "5HjMs5JDrLH3Hknmfm1gDq7nFYAv6M7t9v3EWMctSRXJS9HC",
+  "github": "https://github.com/GraphiteAI/Graphite-Subnet",
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=43",
+    "news": "/bt/news?netuid=43"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

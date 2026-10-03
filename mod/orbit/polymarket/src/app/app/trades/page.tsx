@@ -21,6 +21,7 @@ import { useFilters, useUrlSync } from "../context/FiltersContext";
 import { API_BASE, fetchGlobalTrades, fetchUserTrades, timeAgo, formatVolume, matchMarketCategory, type GlobalTrade } from "../lib/polymarket";
 import TradeFilterBar, { TradeFilterToggle, useTradeFilterBar } from "../components/TradeFilterBar";
 import { shortAddress } from "../lib/auth";
+import { describeSession, modeOf } from "../lib/tradingMode";
 
 // The proxy caches `trades` aggressively (it's a persistent endpoint), so the
 // feed is cache-served — polling fast just re-reads the same snapshot and a
@@ -53,7 +54,8 @@ function TradesInner() {
   // The wallets whose fills count as "mine": the derived deposit wallet
   // (what the engine actually trades through) + the signed-in EOA.
   const [myWallets, setMyWallets] = useState<string[]>([]);
-  // Live-engine state for the MINE header badge: OFF / DRY RUN / LIVE.
+  // Engine state for the MINE header badge, in the console's two words
+  // (lib/tradingMode.ts): STOPPED / TEST / LIVE.
   const [engine, setEngine] = useState<{ running: boolean; auto: boolean } | null>(null);
   const seen = useRef<Set<string>>(new Set());
   // How deep into data-api's trade history we've fetched. Offsets drift as
@@ -253,20 +255,16 @@ function TradesInner() {
             </div>
             {feed === "mine" && engine && (
               <span
-                title={engine.running
-                  ? engine.auto
-                    ? "Engine running with real execution ON — orders hit the CLOB"
-                    : "Engine running in DRY RUN — it logs mirrors but places NO real orders, so nothing lands here"
-                  : "No live engine session for this account"}
+                title={describeSession(engine.running ? "RUNNING" : "STOPPED", modeOf(engine.auto)).title}
                 className={`pixel-badge ${
                   engine.running
                     ? engine.auto
                       ? "border-green-400 text-green-400"
-                      : "border-yellow-400 text-yellow-400"
+                      : "border-amber-400 text-amber-400"
                     : "border-pixel-border text-pixel-gray"
                 }`}
               >
-                {engine.running ? (engine.auto ? "ENGINE LIVE" : "ENGINE DRY RUN") : "ENGINE OFF"}
+                ENGINE {engine.running ? describeSession("RUNNING", modeOf(engine.auto)).text : "STOPPED"}
               </span>
             )}
             <span className="text-[11px] text-pixel-gray tracking-wide hidden sm:inline">
@@ -325,10 +323,10 @@ function TradesInner() {
                 ? "No hits in the loaded tape — scan deeper into history, or clear the filters."
                 : feed === "mine"
                   ? engine?.running && !engine.auto
-                    ? "The engine is in DRY RUN — it computes mirrors but places NO real orders, so no fills exist. Flip EXECUTION to LIVE in STRAT → LIVE to trade for real."
+                    ? "The engine is on PAPER — it computes mirrors but places NO real orders, so no fills exist. Flip the PAPER|REAL switch to REAL in the LIVE tab's COPY ENGINE header to trade for real."
                     : engine?.running
                       ? "Engine is LIVE but nothing has filled yet — fills appear here within ~1 min of executing."
-                      : "No live engine session and no past fills for this wallet. Start the engine in STRAT → LIVE (and turn EXECUTION on) to see trades land here."
+                      : "No engine session and no past fills for this wallet. Start the engine under STRAT → TRADE, with the switch on LIVE, to see trades land here."
                   : "Waiting for fills…"}
             </div>
             {narrowing && !exhausted && (

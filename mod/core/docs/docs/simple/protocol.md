@@ -23,7 +23,7 @@ There's a lovely trick built in: if you knock on a module's front door without a
 Every Mod deployment arranges its web addresses the same way:
 
 - **The app** (the part people see, with buttons and pages) lives at `/{module}` — for example, `/store`.
-- **The API** (the part programs talk to) lives at `/api/{module}`.
+- **The API** (the part programs talk to) lives at `/{module}/api`.
 
 It's like a city where every street follows the same grid. Once you know one module's address, you know them all. Several different pieces of software can play traffic director, but they all enforce this same rule — so the map never changes.
 

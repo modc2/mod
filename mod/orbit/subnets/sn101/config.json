@@ -1,0 +1,38 @@
+{
+  "name": "sn101",
+  "version": "1.0.0",
+  "description": "SN101 Tag101 — Tag101 is a Bittensor subnet for decentralized social post tagging. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ე",
+  "chain": "bittensor",
+  "netuid": 101,
+  "subnet": "Tag101",
+  "symbol": "ე",
+  "owner": "5H8dNvi1jZRe1dcYN2FdknWKxfGx6u1o9pYm5zRMCZyy2Ex3",
+  "github": "https://github.com/tag101-ai/tag101",
+  "url": "http://tag101.ai",
+  "discord": "Tag101",
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=101",
+    "news": "/bt/news?netuid=101"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

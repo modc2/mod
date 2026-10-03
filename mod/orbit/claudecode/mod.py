@@ -68,6 +68,8 @@ class Session:
         self._held: Optional[str] = None      # narration waiting to be flushed
         self._done = False                    # a terminal step was already emitted
         self._pending: Dict[str, dict] = {}   # tool_use id -> step awaiting its result
+        self.model: Optional[str] = None      # what the CLI says it is running
+        self.usage: Dict[str, Any] = {}       # the run's exact token/cost report
 
     # ── narration buffer ─────────────────────────────────────────────
     # An agent's prose is only a narration step once something follows it: the
@@ -89,6 +91,9 @@ class Session:
     def steps(self, event: dict) -> List[dict]:
         """Translate one CLI event into zero or more steps."""
         kind = event.get("type")
+        if kind == "system" and event.get("subtype") == "init":
+            self.model = event.get("model") or self.model
+            return []
         if kind == "assistant":
             out: List[dict] = []
             for block in (event.get("message") or {}).get("content") or []:
@@ -123,11 +128,43 @@ class Session:
             self._done = True
             self._held = None        # the result IS the last assistant message
             text = str(event.get("result") or "").strip()
+            # the result event is the one place the CLI reports what the run
+            # actually cost — exact token counts and USD, not an estimate —
+            # so it rides on the terminal step for whoever meters the run
+            self.usage = self._usage_of(event)
+            params: Dict[str, Any] = {"usage": self.usage} if self.usage else {}
             if event.get("is_error") or event.get("subtype") not in (None, "success"):
-                return [{"tool": "error", "params": {},
+                return [{"tool": "error", "params": params,
                          "error": text or f"claude: {event.get('subtype') or 'failed'}"}]
-            return [{"tool": "finish", "params": {"summary": text}}]
+            return [{"tool": "finish", "params": dict(params, summary=text)}]
         return []
+
+    def _usage_of(self, event: dict) -> Dict[str, Any]:
+        """The run's own bill, in the fleet's field names. Never raises."""
+        try:
+            u = event.get("usage") or {}
+            inp = int(u.get("input_tokens") or 0)
+            cc = int(u.get("cache_creation_input_tokens") or 0)
+            cr = int(u.get("cache_read_input_tokens") or 0)
+            out = int(u.get("output_tokens") or 0)
+            if not (inp or cc or cr or out):
+                return {}
+            return {
+                # prompt = everything the API processed, cached or not; the
+                # cache split is kept so a meter can price the tiers apart
+                "prompt_tokens": inp + cc + cr,
+                "completion_tokens": out,
+                "input_tokens": inp,
+                "cache_creation_input_tokens": cc,
+                "cache_read_input_tokens": cr,
+                "cost": round(float(event.get("total_cost_usd") or 0.0), 6),
+                "turns": int(event.get("num_turns") or 0),
+                "duration_ms": int(event.get("duration_ms") or 0),
+                "model": self.model,
+                "provider": "claude-code",
+            }
+        except Exception:
+            return {}
 
     def close(self, code: int, errors: List[str]) -> List[dict]:
         """Terminal step for a CLI that stopped without emitting one itself."""

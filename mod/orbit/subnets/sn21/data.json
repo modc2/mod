@@ -1,0 +1,173 @@
+{
+  "netuid": 21,
+  "name": "AdTAO",
+  "symbol": "φ",
+  "owner": "5HjCYVfrWSkzTfJM5rkWBW3qTTJqXEFUzZrKty5hodpgfjyW",
+  "description": "Counterfactual impact prediction for advertising interventions",
+  "github": "https://github.com/ippcteam/SN21-adtao",
+  "url": "https://adtao.io",
+  "discord": null,
+  "logo": "https://www.ppcrebel.com/i/adtao.png",
+  "registered_at": 3156578,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.003470963,
+    "moving_price": 0.0034582242369651794,
+    "market_cap": 21193.074284182137,
+    "tao_in": 7569.422094435,
+    "alpha_in": 2180784.037580175,
+    "alpha_out": 3925035.668415578,
+    "volume": 603128.087309567,
+    "vol_24h": 547.6458431790816,
+    "emission": 0.0,
+    "change_1h": -0.1029488795639133,
+    "change_24h": -0.5537647147472735,
+    "change_7d": 2.8512105517992214
+  },
+  "spark_24h": [
+    0.003490291,
+    0.003490291,
+    0.003490034,
+    0.00349003,
+    0.003490029,
+    0.003473145,
+    0.003478135,
+    0.003478129,
+    0.003478302,
+    0.003478715,
+    0.003475044,
+    0.003475034,
+    0.003474147,
+    0.003473932,
+    0.003473702,
+    0.003473645,
+    0.003473645,
+    0.003473638,
+    0.003473638,
+    0.003484241,
+    0.003452143,
+    0.003452134,
+    0.003433497,
+    0.003433497,
+    0.003433414,
+    0.003426975,
+    0.003426952,
+    0.003426952,
+    0.003426629,
+    0.003426629,
+    0.003426615,
+    0.003423116,
+    0.003423116,
+    0.003423116,
+    0.003405176,
+    0.003405176,
+    0.00340718,
+    0.003406593,
+    0.003477242,
+    0.003478059,
+    0.003478058,
+    0.003478058,
+    0.003478058,
+    0.00348057,
+    0.00348057,
+    0.003480558,
+    0.00347454,
+    0.003470963
+  ],
+  "trades_24h": {
+    "trades": 68,
+    "buys": 21,
+    "sells": 47,
+    "buy_tao": 263.369553524,
+    "sell_tao": 283.881155156,
+    "net_tao": -20.51160163199995,
+    "traders": 44
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -2.264025989000004,
+      "gross_tao": 314.342376113,
+      "trades": 2
+    },
+    {
+      "coldkey": "5CYwgfsRWSGtJRcvAtx4L5e9mF1k9U1BQUX94Wpex3aEYHad",
+      "net_tao": 59.82,
+      "gross_tao": 59.82,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 0.03512108500000011,
+      "gross_tao": 19.964878915,
+      "trades": 2
+    },
+    {
+      "coldkey": "5HZJkhunLgc1i89MZYteTumGBaiTimxGaB7TbFAMUkoo4cBP",
+      "net_tao": -19.730605603,
+      "gross_tao": 19.730605603,
+      "trades": 1
+    },
+    {
+      "coldkey": "5CA3tVHHpYv62AkXQe5pLJsWktQ9cCfsPQKrpYwdxiVHS2Qo",
+      "net_tao": -19.709979616,
+      "gross_tao": 19.709979616,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790222738,
+      "kind": "release",
+      "source": "github",
+      "title": "SN21 rich training data v3 (slice 2)",
+      "url": "https://github.com/ippcteam/SN21-adtao/releases/tag/training-v3-2026-09",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1790222434,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: training data v3 slice (windows 5-14 Aug) and the slice release…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/476b4f80439455680c1a75746ab252c6cb7a0b61",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1790008260,
+      "kind": "commit",
+      "source": "github",
+      "title": "verify: the grouping recheck narrows to the same rows the run read",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/0e977e614276960cc79cb0eed40eb883c33d218f",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1790007196,
+      "kind": "commit",
+      "source": "github",
+      "title": "lineage: the audit carries the rows the signals read",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/6b24e0c1157238edf7d1d71ce26fc772969f4486",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1790005078,
+      "kind": "commit",
+      "source": "github",
+      "title": "lineage: compare each hotkey on the rows its current model produced",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/85ed3c894e0ac8e5a34db02776ea7cf9782ab004",
+      "publisher": "ippcteam/SN21-adtao"
+    },
+    {
+      "ts": 1789992721,
+      "kind": "commit",
+      "source": "github",
+      "title": "verdict feed: read the gate numbers and the corpus from the intake re…",
+      "url": "https://github.com/ippcteam/SN21-adtao/commit/af3fcdd53e5d3774451534a17e13c99c570688ba",
+      "publisher": "ippcteam/SN21-adtao"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

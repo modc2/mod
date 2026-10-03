@@ -1,0 +1,189 @@
+{
+  "netuid": 61,
+  "name": "RedTeam",
+  "symbol": "ر",
+  "owner": "5ECEsYL82fbXx9KfTZy7G2KXSurnScciJyAVMHZjekc8jUbn",
+  "description": "\"The RedTeam subnet by Innerworks is a decentralized platform designed to drive innovation in cybersecurity through competitive programming challenges. The subnet incentivizes miners to develop and submit code solutions to various technical challenges, with a focus on enhancing security. These solutions can be integrated into real-world products to improve their security features.\"",
+  "github": "https://github.com/RedTeamSubnet/RedTeam",
+  "url": "https://www.theredteam.io/",
+  "discord": "https://discord.com/channels/799672011265015819/1319313447435108413",
+  "logo": null,
+  "registered_at": 4457976,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.010907516,
+    "moving_price": 0.010871884878724813,
+    "market_cap": 67810.55101285681,
+    "tao_in": 13796.970182741,
+    "alpha_in": 1264904.86674004,
+    "alpha_out": 4951959.817470077,
+    "volume": 860237.290347183,
+    "vol_24h": 1468.1999310819665,
+    "emission": 0.0,
+    "change_1h": 0.018210944355767644,
+    "change_24h": 0.3346753277694292,
+    "change_7d": 1.5731594332621723
+  },
+  "spark_24h": [
+    0.010871427,
+    0.010872302,
+    0.010873313,
+    0.010874233,
+    0.010882059,
+    0.010724839,
+    0.010828497,
+    0.010761949,
+    0.010738516,
+    0.01075422,
+    0.010786217,
+    0.010787475,
+    0.010784805,
+    0.010783785,
+    0.010845415,
+    0.010875262,
+    0.010934784,
+    0.010944051,
+    0.010807593,
+    0.010833777,
+    0.010834668,
+    0.010835684,
+    0.010853959,
+    0.010857004,
+    0.010855875,
+    0.010893063,
+    0.01086233,
+    0.010863422,
+    0.010863808,
+    0.010802669,
+    0.01080383,
+    0.0108302,
+    0.01083366,
+    0.010811012,
+    0.010816837,
+    0.010817651,
+    0.010818576,
+    0.01081841,
+    0.010852326,
+    0.010852965,
+    0.010869909,
+    0.010875714,
+    0.010939807,
+    0.010981286,
+    0.01098238,
+    0.010978131,
+    0.01090553,
+    0.010907516
+  ],
+  "trades_24h": {
+    "trades": 137,
+    "buys": 65,
+    "sells": 72,
+    "buy_tao": 713.059560801,
+    "sell_tao": 709.9843875400001,
+    "net_tao": 3.075173260999918,
+    "traders": 72
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.05785157500000082,
+      "gross_tao": 270.771377143,
+      "trades": 2
+    },
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": -0.015769610000000434,
+      "gross_tao": 103.995647316,
+      "trades": 13
+    },
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": -0.00019153199999877302,
+      "gross_tao": 90.000191532,
+      "trades": 5
+    },
+    {
+      "coldkey": "5CXwAFZG5JGxidYjeAwn2mzgHwktUPNczqtGi6HpNaJvWszN",
+      "net_tao": -0.19728007700000205,
+      "gross_tao": 80.197280077,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 0.008907709000000708,
+      "gross_tao": 69.991092291,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790666025,
+      "kind": "release",
+      "source": "github",
+      "title": "4.10.8",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.8",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1790663989,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: update changelog version '4.10.8'",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/d5a268dd5b25c9a3ac49c31ac16117eebd04b21d",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1790663904,
+      "kind": "commit",
+      "source": "github",
+      "title": "version: bump version to '4.10.8'.",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/6ab18eb24d153fb87d8e791563c3b11b961b4358",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1790663800,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge remote-tracking branch 'origin/dev'",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/fa41dbfaba0a4e11e0e402f8d88aed891567b85c",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1790663785,
+      "kind": "commit",
+      "source": "github",
+      "title": "refactor: move bot_virus to inactive challenges and update bex_tracer…",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/2668250d5836cd6cc105143e5b2ab9697aa17315",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1790652514,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: remove todo-tree extension from recommendations",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/commit/6033bc2f29cd9181f6dca9bdf8ec0574f1ab435f",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1790505762,
+      "kind": "release",
+      "source": "github",
+      "title": "4.10.7",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.7",
+      "publisher": "RedTeamSubnet/RedTeam"
+    },
+    {
+      "ts": 1789780668,
+      "kind": "release",
+      "source": "github",
+      "title": "4.10.6",
+      "url": "https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.6",
+      "publisher": "RedTeamSubnet/RedTeam"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

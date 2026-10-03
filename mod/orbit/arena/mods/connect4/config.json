@@ -1,0 +1,36 @@
+{
+    "name": "connect4",
+    "description": "Connect Four as a Python class: view, step, done, result. Drop a disc down a column, four in a row wins.",
+    "version": "1.0.0",
+    "protocol": "arena/1.0",
+    "role": "game",
+    "engine": "python",
+    "lang": "python",
+    "anchor": "mod.py",
+    "artifact": "aa45df9d86d098ed638d30a4ed61e48db5c8a3bdb2388a082fba8d9f1cccf443",
+    "bytes": 5129,
+    "author": "arena",
+    "tags": [
+        "example",
+        "game",
+        "class",
+        "python"
+    ],
+    "defines": [
+        "__init__",
+        "view",
+        "step",
+        "done",
+        "result",
+        "whose_turn",
+        "turn",
+        "open_columns",
+        "column_in",
+        "drop",
+        "four_from"
+    ],
+    "mcp": "http://127.0.0.1:50479/m/connect4/mcp",
+    "serves": "arena",
+    "plays_in": "arena",
+    "nested_in": "arena"
+}

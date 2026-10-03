@@ -41,7 +41,7 @@ efficient the model is on this machine.
   token (eip-191 ecdsa) on mutating endpoints (`auth.rs`); unset = open.
 - **Automatic public routing**: `config.json` declares `"route": true` + its
   ports, so the `caddy` module auto-routes it at `modc2.com/freetune` and
-  `modc2.com/api/freetune` — no hand-edited Caddyfile. Regenerate with
+  `modc2.com/freetune/api` — no hand-edited Caddyfile. Regenerate with
   `m caddy/apply` (scans every module's config, writes a managed Caddy include,
   reloads). Runs in prod under pm2 (`freetune-api`, `freetune-app`).
 

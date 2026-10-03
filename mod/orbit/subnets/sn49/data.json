@@ -1,0 +1,157 @@
+{
+  "netuid": 49,
+  "name": "Nepher Robotics",
+  "symbol": "ר",
+  "owner": "5FL781vfkLNnYBUi58JnhZ3r2waHDMiehxRhzcMaMWvKDfXf",
+  "description": "Pioneering Simulation-First Robotics Development",
+  "github": "https://github.com/nepher-ai/nepher-subnet",
+  "url": "https://www.nepher.ai/",
+  "discord": "https://discord.gg/qZUc3vdjVq",
+  "logo": "https://avatars.githubusercontent.com/u/243286101?s=200&v=4",
+  "registered_at": 6783158,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.009020173,
+    "moving_price": 0.009126369608566165,
+    "market_cap": 26889.194189732865,
+    "tao_in": 4742.362849464,
+    "alpha_in": 525750.866018169,
+    "alpha_out": 2455255.61686557,
+    "volume": 198744.148440024,
+    "vol_24h": 2192.347229818988,
+    "emission": 0.0,
+    "change_1h": 0.015955676262313645,
+    "change_24h": -5.498627661047905,
+    "change_7d": 15.563860107377515
+  },
+  "spark_24h": [
+    0.009545226,
+    0.009546234,
+    0.009622339,
+    0.009623357,
+    0.009671338,
+    0.009454701,
+    0.009301606,
+    0.009111962,
+    0.009313484,
+    0.009307875,
+    0.009308857,
+    0.009289436,
+    0.009070365,
+    0.009079737,
+    0.009078787,
+    0.008874041,
+    0.008818579,
+    0.008819332,
+    0.009040499,
+    0.008918754,
+    0.008835199,
+    0.008945581,
+    0.00900522,
+    0.008983454,
+    0.00910733,
+    0.009145869,
+    0.009083311,
+    0.00908128,
+    0.009022609,
+    0.008971908,
+    0.008972736,
+    0.008973691,
+    0.008986163,
+    0.008987063,
+    0.009045049,
+    0.009059155,
+    0.009060006,
+    0.00906086,
+    0.009062719,
+    0.009063563,
+    0.008814882,
+    0.008999384,
+    0.008999932,
+    0.009038651,
+    0.009001431,
+    0.009001976,
+    0.009018734,
+    0.009020173
+  ],
+  "trades_24h": {
+    "trades": 304,
+    "buys": 153,
+    "sells": 151,
+    "buy_tao": 1015.8128940619999,
+    "sell_tao": 1161.951059943,
+    "net_tao": -146.13816588100008,
+    "traders": 103
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5G1sRKrcfSuEbpJbNSd5ToVF5gMvnt8UqWXNUMTChDrF4tFs",
+      "net_tao": -13.901635552,
+      "gross_tao": 235.681635552,
+      "trades": 32
+    },
+    {
+      "coldkey": "5FhVJkR1R7r6BvHz8fU3KQrBeco6ZioDWRw9VThDdxD1o5Ye",
+      "net_tao": 9.283878913999997,
+      "gross_tao": 193.656121086,
+      "trades": 14
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 14.333676267,
+      "gross_tao": 131.666323733,
+      "trades": 15
+    },
+    {
+      "coldkey": "5GbpjDyJ8SMSae7nheZ4Xfy2Big2csVAXTHWNzdBpjWpF43W",
+      "net_tao": -0.5125626249999993,
+      "gross_tao": 120.512562625,
+      "trades": 11
+    },
+    {
+      "coldkey": "5CY9b9tgGmSoec5pykbthbpG8ninVvYiZDYeznYxknqMAuix",
+      "net_tao": 11.576365089,
+      "gross_tao": 102.423634911,
+      "trades": 11
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790728304,
+      "kind": "release",
+      "source": "github",
+      "title": "v1.0.0",
+      "url": "https://github.com/nepher-ai/nepher-subnet/releases/tag/v1.0.0",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1789714466,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' of https://github.com/nepher-ai/nepher-subnet",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/650a8c592310daa868f200dd7965fd7a61b5dce8",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1789714439,
+      "kind": "commit",
+      "source": "github",
+      "title": "Updated API URLs in configuration files and documentation to reflect …",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/047306b993019b0deefe190510650e8e2cc24ed3",
+      "publisher": "nepher-ai/nepher-subnet"
+    },
+    {
+      "ts": 1789696422,
+      "kind": "commit",
+      "source": "github",
+      "title": "Enhance tournament reward structure to support podium placements with…",
+      "url": "https://github.com/nepher-ai/nepher-subnet/commit/95b7244560ea0ff5730c755112f8c6c5abb655f7",
+      "publisher": "nepher-ai/nepher-subnet"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

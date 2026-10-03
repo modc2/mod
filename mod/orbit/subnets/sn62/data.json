@@ -1,0 +1,189 @@
+{
+  "netuid": 62,
+  "name": "Ridges",
+  "symbol": "ز",
+  "owner": "5DhsVYewpCdQQUenHU52k5Cys1WsTWTt5V5m84D3n4L8FWDS",
+  "description": "Software Engineering Agents",
+  "github": "https://github.com/ridgesai/ridges",
+  "url": "https://www.ridges.ai/",
+  "discord": "https://discord.gg/WeDvTnYDad",
+  "logo": "https://www.ridges.ai/logo.png",
+  "registered_at": 4474225,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.010390399,
+    "moving_price": 0.010404830100014806,
+    "market_cap": 58600.806855660565,
+    "tao_in": 29658.983778219,
+    "alpha_in": 2854460.470208435,
+    "alpha_out": 2785439.100121883,
+    "volume": 4396868.096457686,
+    "vol_24h": 162.7361638592556,
+    "emission": 0.0,
+    "change_1h": -0.02623849648316634,
+    "change_24h": -0.15730146407593182,
+    "change_7d": -2.707575108927751
+  },
+  "spark_24h": [
+    0.010406836,
+    0.010407863,
+    0.010408299,
+    0.010408719,
+    0.01040921,
+    0.010409855,
+    0.010410535,
+    0.01041107,
+    0.010411649,
+    0.010407904,
+    0.010408239,
+    0.010408625,
+    0.010408024,
+    0.010413004,
+    0.01041165,
+    0.010411216,
+    0.010405644,
+    0.010406273,
+    0.010406165,
+    0.010402034,
+    0.010401625,
+    0.01040135,
+    0.010401776,
+    0.010402598,
+    0.010403414,
+    0.010404002,
+    0.010404002,
+    0.010408232,
+    0.01040737,
+    0.010406379,
+    0.010407069,
+    0.010407806,
+    0.01040855,
+    0.010400035,
+    0.010400468,
+    0.010395493,
+    0.010399277,
+    0.010393575,
+    0.010393956,
+    0.010392951,
+    0.010393366,
+    0.010392774,
+    0.010391555,
+    0.010391966,
+    0.010392366,
+    0.010392774,
+    0.010393126,
+    0.010390399
+  ],
+  "trades_24h": {
+    "trades": 187,
+    "buys": 130,
+    "sells": 57,
+    "buy_tao": 40.201859344,
+    "sell_tao": 82.069733631,
+    "net_tao": -41.86787428700001,
+    "traders": 89
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5Dw5r2frrVTS2shRPzE5W5VMd2WcUPGgxmXWmiXWGhKtfMef",
+      "net_tao": 5.264455916999999,
+      "gross_tao": 14.115544083,
+      "trades": 3
+    },
+    {
+      "coldkey": "5GF9Eh6j8xZXBPWFkRznys1ptRPd7sT5L1H7BBQHPE9dQ4pq",
+      "net_tao": 5.548935083,
+      "gross_tao": 13.117417367,
+      "trades": 5
+    },
+    {
+      "coldkey": "5EerKd1QYy5SVLDjxTrkaCGH5QzFbCJu56KNtiXEARYQYFtH",
+      "net_tao": -10.291820128,
+      "gross_tao": 10.291820128,
+      "trades": 4
+    },
+    {
+      "coldkey": "5FLXqBH434iRUX8BuxLFEqXUsA3NCP59Qv8MmsRN7Pv5TjWq",
+      "net_tao": -9.838400703,
+      "gross_tao": 9.838400703,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FYs6dFihCgW1ea4Ewy6XLjJZkNYte5KH7J5rsgGk3CKeCSD",
+      "net_tao": -9.571539349,
+      "gross_tao": 9.571539349,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790964473,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #517 from ridgesai/update/remove-time-limit-credits",
+      "url": "https://github.com/ridgesai/ridges/commit/02a12dac06e3f60b47dd482e8791ccc46c56a257",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1790963117,
+      "kind": "commit",
+      "source": "github",
+      "title": "update tests",
+      "url": "https://github.com/ridgesai/ridges/commit/e11c7e9f34802682809d9866c415b86088b1b9a3",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1790963104,
+      "kind": "commit",
+      "source": "github",
+      "title": "return remaining time properly",
+      "url": "https://github.com/ridgesai/ridges/commit/df4b7fdce441ad39bbf0e66a82643bbbbe49d703",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1790963092,
+      "kind": "commit",
+      "source": "github",
+      "title": "allow credit uploads to skip time enforcement",
+      "url": "https://github.com/ridgesai/ridges/commit/d45290e4e8e3a6343fd2966f1c3f32743768796a",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1790895285,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.3.9",
+      "url": "https://github.com/ridgesai/ridges/releases/tag/v0.3.9",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1790895205,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #516 from ridgesai/update/preference-to-inprocess-…",
+      "url": "https://github.com/ridgesai/ridges/commit/f3f2107639caa356b45dd9efbdc0fce08b728049",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1790895149,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.3.8",
+      "url": "https://github.com/ridgesai/ridges/releases/tag/v0.3.8",
+      "publisher": "ridgesai/ridges"
+    },
+    {
+      "ts": 1790895041,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge branch 'main' into update/preference-to-inprocess-valis",
+      "url": "https://github.com/ridgesai/ridges/commit/8eb058f2592ec9518e8e80c5dc5004626b7ad578",
+      "publisher": "ridgesai/ridges"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

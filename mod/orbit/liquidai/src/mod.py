@@ -33,6 +33,9 @@ CLI:
     m liquidai/pull LiquidAI/LFM2.5-350M      # weights onto this disk
     m liquidai/chat "why are LFMs small?"     # server-side, streamed
     m liquidai/set_key sk-...                 # cloud BYOK
+    m liquidai/fleet_games                    # the arena module's games
+    m liquidai/fleet_play ttt models=LiquidAI/LFM2.5-350M,LiquidAI/LFM2.5-1.2B-Instruct
+    m liquidai/fleet_board                    # arena Elo, model seats only
 """
 
 import json
@@ -486,11 +489,14 @@ class Liquidai(m.Mod):
                 return {"ok": False, "error": event.get("error"), "text": text}
         return {"ok": True, "text": text, **stats}
 
-    def embed(self, texts: str, model: str = "LiquidAI/LFM2.5-Encoder-230M") -> Any:
-        """Embed `texts` (one per '|') and score every pair against every other."""
+    def embed(self, texts: str, model: str = "LiquidAI/LFM2.5-Encoder-230M",
+              runtime: str = "server") -> Any:
+        """Embed `texts` (one per '|') and score every pair. runtime=server|cloud."""
         lines = [t.strip() for t in texts.split("|") if t.strip()]
-        out = self._post("/embed", {"model": model, "texts": lines})
-        return {"model": model, "dim": out["dim"], "lines": lines,
+        out = self._post("/embed", {"model": model, "texts": lines,
+                                    "runtime": runtime})
+        return {"model": model, "runtime": out.get("runtime", runtime),
+                "dim": out["dim"], "lines": lines,
                 "similarity": out["similarity"], "elapsed_sec": out["elapsed_sec"]}
 
     # ── arena ─────────────────────────────────────────────────────
@@ -515,6 +521,58 @@ class Liquidai(m.Mod):
     def board(self, game: Optional[str] = None) -> Any:
         """The leaderboard — best run per model per game."""
         return self._get("/arena/leaderboard", **({"game": game} if game else {}))
+
+    # ── the fleet arena ───────────────────────────────────────────
+    #
+    # games/play/board above are the local prompt-and-check arena. These
+    # three face the arena *module* (:50470) — wasm and class games, Elo,
+    # transcripts — where every `model` seat already answers through our /v1.
+
+    def fleet_games(self, q: Optional[str] = None) -> Any:
+        """The arena module's games — the ones LFMs can be seated at."""
+        out = self._get("/arena/fleet/games", **({"q": q} if q else {}))
+        return {"arena": out["arena"], "games": [
+            {"name": g["name"], "id": g["short"], "lang": g["lang"],
+             "runs": g["runs"], "about": g["description"][:100]}
+            for g in out["games"]]}
+
+    def fleet_play(self, game: str, models: str = "LiquidAI/LFM2.5-350M",
+                   vs: Optional[str] = None, system: Optional[str] = None,
+                   seed: Optional[int] = None) -> Any:
+        """Seat LFMs (comma-separated repos) at an arena game and run it.
+
+        `vs` names players already seated in the arena — `vs=minimax` puts
+        the LFM across the board from the wasm bot. A match of small models
+        on CPU is minutes, not seconds — this waits.
+        """
+        entrants = [m.strip() for m in models.split(",") if m.strip()]
+        body: Dict[str, Any] = {"game": game, "models": entrants}
+        if vs:
+            body["opponents"] = [o.strip() for o in vs.split(",") if o.strip()]
+        if system:
+            body["system"] = system
+        if seed is not None:
+            body["seed"] = int(seed)
+        r = self._check(requests.post(f"{self.api_url}/arena/fleet/match",
+                                      json=body, headers=self._headers(),
+                                      timeout=900))
+        out = r.json()
+        return {"game": out.get("game_name") or game, "id": out.get("id"),
+                "summary": out.get("summary"), "turns": out.get("turns"),
+                "seats": [{"player": s.get("player_name"),
+                           "score": s.get("score"), "elo": s.get("elo_after"),
+                           "illegal": s.get("illegal"), "error": s.get("error") or None}
+                          for s in out.get("seats", [])]}
+
+    def fleet_board(self, game: Optional[str] = None, lfm_only: bool = True) -> Any:
+        """The arena module's Elo board — model seats only, unless lfm_only=0."""
+        out = self._get("/arena/fleet/board", lfm_only=int(bool(lfm_only)),
+                        **({"game": game} if game else {}))
+        return {"game": game or "overall", "players": [
+            {"name": p["name"], "kind": p["kind"], "elo": p["elo"],
+             "w/l/d": f"{p['wins']}/{p['losses']}/{p['draws']}",
+             "illegal_rate": p["illegal_rate"]}
+            for p in out["players"]]}
 
     def keys(self) -> Any:
         """Which BYOK keys this box holds (masked, always)."""
@@ -578,6 +636,9 @@ class Liquidai(m.Mod):
             ("auth_me", lambda: self._get("/auth/me")),
             ("arena_games", lambda: self._get("/arena/games")),
             ("arena_board", lambda: self._get("/arena/leaderboard")),
+            # ok:false when the arena module is down is still a pass — the
+            # bridge answering plainly is what's under test, not the arena.
+            ("fleet_arena", lambda: self._get("/arena/fleet")),
             ("v1_models", lambda: self._get("/v1/models")),
             # The gate is part of the contract: an unauthenticated write has to
             # come back 403, and a test that never checks it would pass on a

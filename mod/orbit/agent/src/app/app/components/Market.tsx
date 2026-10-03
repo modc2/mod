@@ -441,7 +441,22 @@ export default function Market({
       {/* the list */}
       <div className="flex-1 overflow-y-auto min-h-0 p-1.5 space-y-0.5">
         {error ? (
-          <div className="text-center text-gray-600 py-10 px-3 text-xs">{error}</div>
+          /* a dead API is a state worth explaining and retrying, not two grey
+             words dropped in the middle of an empty column */
+          <div className="text-center py-10 px-4 flex flex-col items-center gap-2">
+            <div className="w-9 h-9 rounded-xl border border-amber-500/20 bg-amber-500/[0.05] flex items-center justify-center text-amber-300/70 text-sm">
+              ⚠
+            </div>
+            <p className="text-xs text-gray-400">Can&rsquo;t reach the library</p>
+            <p className="text-[10px] text-gray-600 leading-relaxed max-w-[190px]">
+              The API didn&rsquo;t answer at <span className="font-mono">{API_URL}</span>. Prompts,
+              tools and agents load from there.
+            </p>
+            <button onClick={() => { setLoading(true); refresh() }}
+              className="mt-1 px-2.5 py-1.5 rounded-md text-[10px] uppercase tracking-wider border border-white/[0.1] text-gray-400 hover:text-emerald-300 hover:border-emerald-500/30 transition">
+              Try again
+            </button>
+          </div>
         ) : loading ? (
           <div className="text-center text-gray-600 py-10 px-3 text-xs">loading…</div>
         ) : filtered.length === 0 ? (

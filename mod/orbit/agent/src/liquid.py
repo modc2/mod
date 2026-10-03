@@ -180,6 +180,13 @@ class LiquidModel(ZeroCostModel):
             # line is the only place the reader sees the two together.
             raise RuntimeError(
                 f"liquidai ({self.runtime} runtime) could not run {model!r}: {e}") from e
+        import os as _os
+        if _os.environ.get('AGENT_PROMPT_DUMP'):
+            with open(_os.environ['AGENT_PROMPT_DUMP'], 'a') as _f:
+                _f.write('\n--- liquid client=%r model=%r url=%r\n--- OUT: %r\n'
+                         % (type(m.mod('liquidai')()).__module__,
+                            model, getattr(m.mod('liquidai')(), 'api_url', '?'),
+                            str(out)[:600]))
         if isinstance(out, dict):
             if not out.get('ok'):
                 raise RuntimeError(out.get('error') or 'liquidai chat failed')

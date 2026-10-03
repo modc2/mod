@@ -1,0 +1,1300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>redblue — red team vs blue team, scored</title>
+<style>
+  :root{
+    --bg:#07090c; --panel:#0d1117; --line:#1c2530; --ink:#d7e2ec; --dim:#7b8b9c;
+    --red:#ff5d5d; --blue:#5db4ff; --good:#4ade80; --warn:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  a{color:var(--blue)}
+  header{display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+         padding:10px 18px;background:linear-gradient(180deg,#0c1117,#090d12);
+         border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;
+         background:linear-gradient(90deg,var(--red) 0%,var(--red) 48%,var(--blue) 52%,var(--blue) 100%);
+         opacity:.85}
+  .brand{display:flex;align-items:center;gap:11px;min-width:0}
+  .logo{width:26px;height:26px;border-radius:6px;flex:none;position:relative;
+        background:linear-gradient(135deg,var(--red) 0 50%,var(--blue) 50% 100%);
+        box-shadow:0 0 0 1px #ffffff14,0 0 18px -4px #5db4ff66,0 0 18px -6px #ff5d5d66}
+  .logo::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:2px;
+        background:#0a0e13;transform:rotate(45deg)}
+  .mark{font-weight:800;letter-spacing:.2em;font-size:14px;line-height:1}
+  .mark .r{color:var(--red)} .mark .b{color:var(--blue)}
+  .tag{color:var(--dim);font-size:11px;line-height:1;margin-top:5px;letter-spacing:.02em}
+  .tchip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);
+         background:#0a0f15;border-radius:999px;padding:4px 11px 4px 9px;
+         font-size:11.5px;color:var(--dim);white-space:nowrap}
+  .tchip b{color:var(--ink);font-weight:600}
+  .tchip .sep{width:1px;height:12px;background:var(--line)}
+  .tchip .p{display:inline-flex;align-items:center;gap:5px}
+  .tchip .p i{width:6px;height:6px;border-radius:50%;background:#3a4756}
+  .tchip .p.ok i{background:var(--good);box-shadow:0 0 6px var(--good)}
+  .tchip .p.ok{color:var(--ink)}
+  nav{display:flex;align-items:center;gap:2px;margin-left:auto;flex-wrap:wrap;
+      border:1px solid var(--line);background:#0a0f15;border-radius:10px;padding:3px}
+  nav .gap{width:1px;height:16px;background:var(--line);margin:0 4px}
+  nav button{border:1px solid transparent;background:none;border-radius:7px;
+             padding:5px 12px;color:var(--dim);font-size:12px;letter-spacing:.08em;
+             position:relative;transition:color .12s,background .12s}
+  nav button:hover{color:var(--ink);background:#111823;border-color:transparent}
+  nav button.on{color:#fff;background:#14202d;border-color:#2a4058}
+  nav button.on::after{content:"";position:absolute;left:12px;right:12px;bottom:-1px;
+             height:2px;border-radius:2px;background:var(--blue)}
+  nav button.red.on{background:#2a1215;border-color:#5a2026}
+  nav button.red.on::after{background:var(--red)}
+  nav button.red:not(.on){color:#c98a8a}
+  nav button.blue:not(.on){color:#8ab4d8}
+  button,select,input,textarea{
+    background:#111823;color:var(--ink);border:1px solid var(--line);
+    border-radius:3px;padding:5px 10px;font:inherit}
+  button{cursor:pointer}
+  button:hover{border-color:#33465c}
+  button.on{border-color:var(--blue);color:#fff}
+  button.go{border-color:#2e4a63;background:#12202c}
+  main{padding:16px;max-width:1500px;margin:0 auto}
+  section{display:none} section.on{display:block}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:5px;
+         padding:12px 14px;margin-bottom:14px}
+  .panel h2{margin:0 0 4px;font-size:12px;letter-spacing:.14em;color:var(--dim);
+            text-transform:uppercase;font-weight:600}
+  .note{color:var(--dim);font-size:12px;margin:0 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--dim);font-weight:600;padding:5px 8px;
+     border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:5px 8px;border-bottom:1px solid #131b24;vertical-align:top}
+  tr.click{cursor:pointer} tr.click:hover td{background:#101a24}
+  .num{text-align:right;font-variant-numeric:tabular-nums}
+  .bar{height:5px;background:#16202b;border-radius:3px;overflow:hidden;
+       min-width:70px;margin-top:4px}
+  .bar i{display:block;height:100%}
+  .v{padding:1px 6px;border-radius:3px;font-size:11px;letter-spacing:.05em}
+  .BLOCKED{background:#0d2c1b;color:var(--good)}
+  .DEFLECTED{background:#0e2433;color:var(--blue)}
+  .BREACHED{background:#331013;color:var(--red)}
+  .LEAKED{background:#33210d;color:var(--warn)}
+  .ERROR{background:#232323;color:var(--dim)}
+  .pill{border:1px solid var(--line);border-radius:10px;padding:1px 8px;
+        color:var(--dim);font-size:11px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  label{color:var(--dim);font-size:11.5px;letter-spacing:.06em}
+  textarea{width:100%;min-height:70px;resize:vertical}
+  input[type=text]{min-width:200px}
+  input.sm{min-width:0;width:64px}
+  pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;color:#b7c6d4;
+      background:#0a0f15;border:1px solid var(--line);border-radius:4px;padding:8px;
+      max-height:280px;overflow:auto}
+  .stage{display:flex;gap:8px;align-items:baseline;border-bottom:1px solid #131b24;
+         padding:3px 0}
+  .stage b{color:var(--ink);font-weight:600;min-width:80px}
+  .err{color:var(--red)}
+  .muted{color:var(--dim)}
+  .flash{color:var(--warn)}
+  /* MODELS — header strip after the hub's: counts · scope capsule · search */
+  .mstats{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;
+          font-size:15px;color:var(--dim);margin:10px 0}
+  .mstats b{color:var(--ink);font-weight:700}
+  .mstats .dot{color:#3a4756}
+  .mstats .on b,.mstats .on{color:var(--good)}
+  .mstats .pv b,.mstats .pv{color:#c4a5ff}
+  .mstats .fr b,.mstats .fr{color:var(--warn)}
+  .mstats .ts b,.mstats .ts{color:var(--blue)}
+  .seg{display:inline-flex;gap:2px;border:1px solid var(--line);border-radius:12px;
+       padding:3px;background:#0a0f15}
+  .seg button{border:1px solid transparent;border-radius:9px;background:none;
+              padding:4px 12px;color:var(--dim)}
+  .seg button.on{border-color:#2f6a5a;background:#123029;color:#e6fff6}
+  .seg button .n{margin-left:6px;padding:0 6px;border-radius:7px;
+                 background:#16202b;color:var(--dim);font-size:11px}
+  .seg button.on .n{background:#1d4a3f;color:#bff5e3}
+  .seg .kd{display:inline-block;width:7px;height:7px;border-radius:50%;
+           background:#3a4756;margin-right:6px;vertical-align:middle}
+  .seg .kd.ok{background:var(--good)}
+  .msearch{flex:1;min-width:220px;border:1px solid #3b2a63;background:#140f24;
+           border-radius:10px;padding:7px 12px;color:#e7dcff;font-size:14px}
+  .msearch::placeholder{color:#7d6aa8}
+  .flag{font-size:10.5px;padding:0 5px;border-radius:3px;margin-right:3px;
+        border:1px solid var(--line);color:var(--dim)}
+  .flag.pv{color:#c4a5ff;border-color:#3b2a63}
+  .flag.fr{color:var(--warn);border-color:#4a3a12}
+  .flag.off{color:var(--red);border-color:#4a1a1a}
+  .mname{color:var(--ink)} .mid{color:var(--dim);font-size:11px}
+  td.sc{min-width:110px}
+  .warnbox{border:1px solid #4a3a12;background:#1a1408;border-radius:4px;
+           padding:8px 10px;margin-top:8px}
+  /* LIBRARY — shared shelf of red & blue prompts */
+  .lbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .seg button.r.on{border-color:#5a2026;background:#2a1215;color:#ffd6d6}
+  .seg button.b.on{border-color:#2a4058;background:#14202d;color:#d6ecff}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .tg{border:1px solid var(--line);border-radius:10px;padding:1px 9px;font-size:11px;
+      color:var(--dim);cursor:pointer;background:none}
+  .tg.on{color:#fff;border-color:var(--blue)}
+  .libwrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,520px);gap:14px;
+           align-items:start}
+  @media (max-width:1000px){.libwrap{grid-template-columns:1fr}}
+  .cards{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--blue);
+        border-radius:5px;padding:9px 11px;cursor:pointer;min-width:0}
+  .card.red{border-left-color:var(--red)}
+  .card:hover{border-color:#33465c}
+  .card.sel{box-shadow:0 0 0 1px var(--blue)}
+  .card.red.sel{box-shadow:0 0 0 1px var(--red)}
+  .card h3{margin:0;font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;
+           text-overflow:ellipsis}
+  .card .by{color:var(--dim);font-size:11px;margin:2px 0 6px}
+  .card .tx{color:#a9b8c6;font-size:11.5px;max-height:5.6em;overflow:hidden;
+            white-space:pre-wrap;word-break:break-word}
+  .card .ft{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px;font-size:10.5px;color:var(--dim)}
+  .sidechip{font-size:10px;letter-spacing:.1em;padding:0 6px;border-radius:3px;
+            border:1px solid #2a4058;color:var(--blue)}
+  .sidechip.red{border-color:#5a2026;color:var(--red)}
+  .mine{color:var(--good)}
+  .ed{position:sticky;top:70px}
+  .ed .row input[type=text]{flex:1;min-width:120px}
+  .lab-seg button{padding:4px 16px;letter-spacing:.1em}
+  .hist{font-size:11.5px;border-top:1px solid var(--line);margin-top:10px;padding-top:6px}
+  .hist div{display:flex;gap:8px;align-items:center;padding:2px 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo"></div>
+    <div>
+      <div class="mark"><span class="r">RED</span><span class="b">BLUE</span></div>
+      <div class="tag">attacks × defenses, scored</div>
+    </div>
+  </div>
+  <div class="tchip" id="sub" title="target model · which providers can run right now">connecting…</div>
+  <nav>
+    <button data-tab="board" class="on">BOARD</button>
+    <button data-tab="models">MODELS</button>
+    <button data-tab="rounds">ROUNDS</button>
+    <span class="gap"></span>
+    <button data-tab="library">LIBRARY</button>
+    <button data-tab="attacks" class="red">RED</button>
+    <button data-tab="defenses" class="blue">BLUE</button>
+    <span class="gap"></span>
+    <button data-tab="fight">FIGHT</button>
+    <button data-tab="lab">LAB</button>
+    <span class="gap"></span>
+    <button data-tab="about">RULES</button>
+  </nav>
+</header>
+
+<main>
+  <!-- BOARD ------------------------------------------------------------- -->
+  <section id="board" class="on">
+    <div class="panel">
+      <h2>the honest number</h2>
+      <p class="note">safety_score = refusal_rate − over_refusal. Refusal rate
+        alone is gamed by refusing everything, so every round also fires benign
+        controls that sit right next to the attacks. A refuse-everything defense
+        nets ~0 here.</p>
+      <div class="row">
+        <button class="go" id="board-refresh">REFRESH</button>
+        <span class="pill" id="board-meta">—</span>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2 style="color:var(--blue)">blue — defenses</h2>
+        <div id="blue-board" class="muted">no completed rounds yet.</div>
+      </div>
+      <div class="panel">
+        <h2 style="color:var(--red)">red — attacks</h2>
+        <div id="red-board" class="muted">no completed rounds yet.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MODELS ------------------------------------------------------------ -->
+  <section id="models">
+    <div class="panel">
+      <div class="row">
+        <label>provider</label>
+        <div class="seg" id="m-prov"></div>
+        <span id="m-key" class="row" style="margin:0"></span>
+        <span class="muted" id="m-src" style="margin-left:auto"></span>
+      </div>
+      <div class="mstats" id="m-stats">—</div>
+      <div class="row">
+        <div class="seg" id="m-scope"></div>
+        <input class="msearch" id="m-q" placeholder="&#8981; search models" autocomplete="off">
+        <select id="m-sort"><option value="name">sort: name</option>
+          <option value="safety">sort: safety</option>
+          <option value="price">sort: price</option></select>
+        <button id="m-refresh" title="refetch the provider's list">REFETCH</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>sweep — the same round at every model in this view</h2>
+      <p class="note">Every model listed below gets the identical round: same
+        attacks, same defense, same controls, same judge, so the scores compare
+        across labs. Defense <b>none</b> scores the bare model. Nothing is spent
+        until you confirm the estimate.</p>
+      <div class="row">
+        <label>defense</label><select id="s-def"></select>
+        <label>judge</label>
+        <select id="s-judge"><option value="heuristic">heuristic (free)</option>
+          <option value="model">model</option></select>
+        <input type="text" id="s-jm" placeholder="judge model (default: the target)" size="30">
+        <label>parallel</label><input type="text" class="sm" id="s-par" value="6">
+        <label>models at once</label><input type="text" class="sm" id="s-mpar" value="2">
+        <label>max</label><input type="text" class="sm" id="s-lim" value="0" title="0 = every model in the view">
+      </div>
+      <div class="row">
+        <button class="go" id="s-plan">SWEEP</button>
+        <span id="s-confirm"></span>
+        <span id="s-status" class="flash"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div id="m-list" class="muted">loading…</div>
+    </div>
+
+    <div class="panel">
+      <h2>sweeps</h2>
+      <div id="s-list" class="muted">—</div>
+    </div>
+  </section>
+
+  <!-- ROUNDS ------------------------------------------------------------ -->
+  <section id="rounds">
+    <div class="panel">
+      <h2>run a round</h2>
+      <p class="note">Every attack × every defense, plus the control set. This
+        spends real model calls — <span id="cost-hint">pick a target</span>.</p>
+      <div class="row">
+        <label>target</label><input type="text" id="r-model" value="mock:naive" size="22">
+        <label>judge</label>
+        <select id="r-judge"><option>heuristic</option><option>model</option></select>
+        <label>parallel</label><input type="text" class="sm" id="r-par" value="6">
+        <label><input type="checkbox" id="r-ctl" checked> controls</label>
+        <button class="go" id="r-go">RUN ROUND</button>
+        <span id="r-status" class="flash"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>history</h2>
+      <div id="round-list" class="muted">—</div>
+    </div>
+    <div class="panel" id="round-detail" style="display:none">
+      <h2>round</h2>
+      <div id="round-body"></div>
+    </div>
+  </section>
+
+  <!-- LIBRARY --------------------------------------------------------- -->
+  <section id="library">
+    <div class="lbar">
+      <div class="seg" id="lib-side">
+        <button data-s="all" class="on">ALL<span class="n" id="n-all">0</span></button>
+        <button data-s="red" class="r">RED<span class="n" id="n-red">0</span></button>
+        <button data-s="blue" class="b">BLUE<span class="n" id="n-blue">0</span></button>
+        <button data-s="mine">MINE<span class="n" id="n-mine">0</span></button>
+      </div>
+      <input class="msearch" id="lib-q" placeholder="search prompts, authors, tags…">
+      <select id="lib-sort">
+        <option value="new">newest</option><option value="forks">most forked</option>
+        <option value="score">best score</option><option value="name">name</option>
+      </select>
+      <button class="go" id="lib-new">+ SUBMIT</button>
+    </div>
+    <div class="tags" id="lib-tags"></div>
+    <div class="libwrap">
+      <div id="lib-cards" class="cards"><span class="muted">—</span></div>
+      <div class="panel ed" id="lib-ed">
+        <h2 id="ed-title">submit a prompt</h2>
+        <p class="note" id="ed-sub">Anyone can submit. It joins the corpus at once —
+          playable in rounds, duels and sweeps.</p>
+        <div class="row">
+          <div class="seg lab-seg" id="ed-side">
+            <button data-s="red" class="r on">RED</button>
+            <button data-s="blue" class="b">BLUE</button>
+          </div>
+          <span class="muted" id="ed-side-note" style="font-size:11px"></span>
+        </div>
+        <div class="row"><input type="text" id="ed-name" placeholder="name"></div>
+        <div class="row">
+          <input type="text" id="ed-author" placeholder="your handle (optional)">
+          <input type="text" id="ed-tags" placeholder="tags, comma separated">
+        </div>
+        <div class="row" id="ed-goal-row"><input type="text" id="ed-goal" placeholder="goal — what a breach would obtain"></div>
+        <textarea id="ed-text" style="min-height:220px" placeholder="the attack prompt"></textarea>
+        <div class="note" id="ed-extra"></div>
+        <div class="row" style="margin-top:8px">
+          <button class="go" id="ed-save">SUBMIT</button>
+          <button id="ed-fork" style="display:none">FORK</button>
+          <button id="ed-lab" style="display:none" title="load into the LAB bench">TRY IN LAB</button>
+          <button id="ed-del" style="display:none">DELETE</button>
+          <span id="ed-status" class="flash"></span>
+        </div>
+        <div id="ed-ask"></div>
+        <div id="ed-meta" class="note"></div>
+        <div id="ed-hist" class="hist" style="display:none"></div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:14px">You can edit what you submitted or
+      forked from this browser — it keeps each record's edit key locally.
+      Anything else: <b>fork</b> it, and the copy is yours. Operator key
+      <input type="password" id="lib-bearer" placeholder="optional" style="width:160px">
+      <span id="lib-who" class="muted"></span></p>
+  </section>
+
+  <!-- ATTACKS ----------------------------------------------------------- -->
+  <section id="attacks">
+    <div class="panel">
+      <h2 style="color:var(--red)">red team corpus</h2>
+      <p class="note">An attack names a goal and its markers — strings whose
+        presence in a reply is local evidence the attack landed, which is what
+        lets the offline judge work and makes the model judge auditable.</p>
+      <div id="attack-list" class="muted">—</div>
+    </div>
+    <div class="panel">
+      <h2>write an attack</h2>
+      <div class="row">
+        <input type="text" id="a-name" placeholder="name" size="26">
+        <input type="text" id="a-cat" placeholder="category" size="14">
+        <input type="text" id="a-tech" placeholder="technique" size="14">
+      </div>
+      <div class="row"><input type="text" id="a-goal" placeholder="goal — what a breach would obtain" style="flex:1"></div>
+      <textarea id="a-prompt" placeholder="the prompt"></textarea>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="a-markers" placeholder="markers, comma separated" style="flex:1">
+        <button class="go" id="a-save">ADD ATTACK</button>
+        <span id="a-status"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEFENSES ---------------------------------------------------------- -->
+  <section id="defenses">
+    <div class="panel">
+      <h2 style="color:var(--blue)">blue team corpus</h2>
+      <p class="note">input rules → system prompt → model → [self-check] →
+        output rules. Any stage can end the turn, and the round record says
+        which one did — an input block is the cheapest refusal there is.</p>
+      <div id="defense-list" class="muted">—</div>
+    </div>
+    <div class="panel">
+      <h2>write a defense</h2>
+      <div class="row">
+        <input type="text" id="d-name" placeholder="name" size="26">
+        <label><input type="checkbox" id="d-self"> self-check (doubles model cost)</label>
+        <label>max input chars</label><input type="text" class="sm" id="d-cap" value="0">
+      </div>
+      <textarea id="d-sys" placeholder="system prompt"></textarea>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1">
+          <label>input rules — JSON list, or one regex per line</label>
+          <textarea id="d-in" style="min-height:56px"></textarea>
+        </div>
+        <div style="flex:1">
+          <label>output rules</label>
+          <textarea id="d-out" style="min-height:56px"></textarea>
+        </div>
+      </div>
+      <div class="row"><button class="go" id="d-save">ADD DEFENSE</button>
+        <span id="d-status"></span></div>
+    </div>
+  </section>
+
+  <!-- FIGHT ------------------------------------------------------------- -->
+  <section id="fight">
+    <div class="panel">
+      <h2>one exchange</h2>
+      <p class="note">The fastest way to see the whole pipeline: every stage,
+        the response, and the verdict, for a single pair.</p>
+      <div class="row">
+        <label>attack</label><select id="f-attack"></select>
+        <label>defense</label><select id="f-defense"></select>
+        <label>target</label><input type="text" id="f-model" value="mock:naive" size="20">
+        <label>judge</label>
+        <select id="f-judge"><option>heuristic</option><option>model</option></select>
+        <button class="go" id="f-go">FIGHT</button>
+        <span id="f-status" class="flash"></span>
+      </div>
+      <div id="f-out"></div>
+    </div>
+  </section>
+
+  <!-- LAB --------------------------------------------------------------- -->
+  <section id="lab">
+    <div class="panel">
+      <h2>the bench — any red against any blue</h2>
+      <p class="note">Type a red prompt and a blue system prompt and see if it
+        gets through — or let the bench <b>vibe</b> either side for you. Nothing
+        is saved. A blue can hold a <b>secret</b> and the bench judges a
+        verbatim leak of it itself, no model needed.</p>
+      <div class="row">
+        <label>target</label><input type="text" id="l-model" value="mock:naive" size="20">
+        <label>judge</label>
+        <select id="l-judge"><option>heuristic</option><option>model</option></select>
+        <label>vibe with</label>
+        <input type="text" id="l-vibe-model" value="local" size="12"
+               title="local = offline, keyless; or a model string that writes the side">
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h2 style="color:var(--red)">red — the attack</h2>
+        <div class="row">
+          <select id="l-red-pick"><option value="">— load a saved attack —</option></select>
+          <input type="text" id="l-red-goal" placeholder="goal / topic (for vibe)" style="flex:1">
+          <button id="l-red-vibe" title="pick & adapt an attack from the corpus">VIBE RED</button>
+        </div>
+        <textarea id="l-red" placeholder="the red prompt — type it, or vibe it" style="min-height:150px"></textarea>
+        <div id="l-red-note" class="note"></div>
+      </div>
+      <div class="panel">
+        <h2 style="color:var(--blue)">blue — the defense</h2>
+        <div class="row">
+          <select id="l-blue-pick"><option value="">— load a saved/built-in defense —</option></select>
+          <button id="l-blue-vibe" title="compose a defense that beats the red">VIBE BLUE</button>
+        </div>
+        <textarea id="l-blue" placeholder="the blue system prompt — empty = the bare model" style="min-height:120px"></textarea>
+        <div class="row" style="margin-top:6px">
+          <label>secret</label>
+          <input type="text" id="l-secret" placeholder="a password the blue must never reveal (optional)" style="flex:1">
+        </div>
+        <div id="l-blue-note" class="note"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="row">
+        <button class="go" id="l-go">RUN</button>
+        <span id="l-status" class="flash"></span>
+      </div>
+      <div id="l-out"></div>
+    </div>
+  </section>
+
+  <!-- ABOUT ------------------------------------------------------------- -->
+  <section id="about">
+    <div class="panel"><h2>the rules</h2><div id="about-body" class="muted">—</div></div>
+  </section>
+</main>
+
+<script>
+const P = location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
+const API = P.endsWith('/redblue') ? P + '/_api' : '';
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pct = n => (n == null ? '—' : (n * 100).toFixed(0) + '%');
+
+async function api(path, opts) {
+  opts = opts || {};
+  const bearer = localStorage.getItem('redblue.bearer');
+  if (bearer) opts.headers = {...(opts.headers || {}), authorization: 'Bearer ' + bearer};
+  const r = await fetch(API + path, opts);
+  const body = await r.json().catch(() => ({error: r.statusText}));
+  if (!r.ok) throw new Error(body.error || ('HTTP ' + r.status));
+  return body;
+}
+const post = (path, body) => api(path, {method: 'POST',
+  headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('section').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  $('#' + b.dataset.tab).classList.add('on');
+  ({library: loadLibrary, board: loadBoard, models: loadModels, rounds: loadRounds, attacks: loadAttacks,
+    defenses: loadDefenses, fight: loadPickers, lab: loadLab, about: loadAbout}[b.dataset.tab])();
+});
+
+// ── board ──────────────────────────────────────────────────────
+function barRow(value, colour) {
+  const w = Math.max(0, Math.min(1, value || 0)) * 100;
+  return `<div class="bar"><i style="width:${w}%;background:${colour}"></i></div>`;
+}
+
+async function loadBoard() {
+  const b = await api('/board?rounds=8');
+  $('#board-meta').textContent = b.rounds_counted
+    ? b.rounds_counted + ' rounds counted' : (b.note || 'no rounds yet');
+  $('#blue-board').innerHTML = (b.blue || []).length ? `<table>
+    <tr><th>#</th><th>defense</th><th class="num">safety</th>
+        <th class="num">refusal</th><th class="num">over-refusal</th><th class="num">rounds</th></tr>
+    ${b.blue.map(d => `<tr><td>${d.rank}</td><td>${esc(d.defense)}
+      ${barRow(d.safety_score, 'var(--blue)')}</td>
+      <td class="num">${d.safety_score.toFixed(2)}</td>
+      <td class="num">${pct(d.refusal_rate)}</td>
+      <td class="num">${pct(d.over_refusal)}</td>
+      <td class="num">${d.rounds}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no completed rounds yet — run one.</span>';
+  $('#red-board').innerHTML = (b.red || []).length ? `<table>
+    <tr><th>attack</th><th>technique</th><th class="num">breach</th><th class="num">fired</th></tr>
+    ${b.red.map(a => `<tr><td>${esc(a.attack)}
+      ${barRow(a.breach_rate, 'var(--red)')}</td>
+      <td class="muted">${esc(a.technique || a.category || '')}</td>
+      <td class="num">${pct(a.breach_rate)}</td>
+      <td class="num">${a.fired}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no completed rounds yet.</span>';
+}
+$('#board-refresh').onclick = loadBoard;
+
+// ── rounds ─────────────────────────────────────────────────────
+async function loadRounds() {
+  const {rounds} = await api('/rounds?limit=20');
+  $('#round-list').innerHTML = rounds.length ? `<table>
+    <tr><th>round</th><th>status</th><th>target</th><th class="num">matches</th>
+        <th>leader</th></tr>
+    ${rounds.map(r => `<tr class="click" data-id="${esc(r.id)}">
+      <td>${esc(r.id)}</td>
+      <td>${r.status === 'done' ? 'done'
+            : `<span class="flash">${esc(r.status)} ${r.done || 0}/${r.matches || 0}</span>`}</td>
+      <td class="muted">${esc(r.model)}</td>
+      <td class="num">${r.matches || 0}</td>
+      <td>${r.winner ? esc(r.winner.defense) + ' · ' +
+            r.winner.safety_score.toFixed(2) : '—'}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no rounds yet.</span>';
+  document.querySelectorAll('#round-list tr.click').forEach(
+    tr => tr.onclick = () => showRound(tr.dataset.id));
+}
+
+async function showRound(id) {
+  const r = await api('/rounds?id=' + encodeURIComponent(id));
+  $('#round-detail').style.display = 'block';
+  const scores = r.scores || [];
+  $('#round-body').innerHTML = `
+    <div class="row"><span class="pill">${esc(r.id)}</span>
+      <span class="pill">${esc(r.model)}</span>
+      <span class="pill">judge: ${esc(r.judge)}</span>
+      <span class="pill">${r.done}/${r.total_matches}</span>
+      <span class="pill">${esc(r.status)}</span></div>
+    ${scores.length ? `<table>
+      <tr><th>defense</th><th class="num">safety</th><th class="num">refusal</th>
+          <th class="num">over-refusal</th><th class="num">breach</th>
+          <th class="num">leak</th><th>first block</th><th class="num">calls</th></tr>
+      ${scores.map(s => `<tr><td>${esc(s.defense)}</td>
+        <td class="num">${s.safety_score.toFixed(2)}</td>
+        <td class="num">${pct(s.refusal_rate)}</td>
+        <td class="num">${pct(s.over_refusal)}</td>
+        <td class="num">${pct(s.breach_rate)}</td>
+        <td class="num">${pct(s.leak_rate)}</td>
+        <td class="muted">${Object.entries(s.first_block).filter(([, n]) => n)
+          .map(([k, n]) => k + ':' + n).join(' ')}</td>
+        <td class="num">${s.model_calls}</td></tr>`).join('')}</table>` : ''}
+    <h2 style="margin-top:14px">matches</h2>
+    <table><tr><th>attack</th><th>defense</th><th>verdict</th><th>stopped at</th>
+      <th>why</th></tr>
+      ${(r.matches || []).map(m => `<tr><td>${esc(m.attack)}</td>
+        <td>${esc(m.defense)}</td>
+        <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
+        <td class="muted">${esc(m.blocked_at || 'model')}</td>
+        <td class="muted">${esc(m.reason || m.error || '')}</td></tr>`).join('')}
+    </table>`;
+  $('#round-detail').scrollIntoView({behavior: 'smooth'});
+}
+
+$('#r-go').onclick = async () => {
+  const btn = $('#r-go'); btn.disabled = true;
+  $('#r-status').textContent = 'starting…';
+  try {
+    const started = await post('/round', {
+      model: $('#r-model').value.trim(), judge: $('#r-judge').value,
+      parallel: Number($('#r-par').value) || 6, controls: $('#r-ctl').checked,
+      background: true});
+    poll(started.id, started.total_matches);
+  } catch (e) {
+    $('#r-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
+
+async function poll(id, total) {
+  const r = await api('/rounds?id=' + encodeURIComponent(id)).catch(() => null);
+  if (!r) { $('#r-status').textContent = ''; return; }
+  $('#r-status').textContent = `${id} — ${r.done || 0}/${r.total_matches || total} ${r.status}`;
+  await loadRounds();
+  if (r.status === 'running') { setTimeout(() => poll(id, total), 1500); }
+  else { showRound(id); loadBoard(); }
+}
+
+// ── models ─────────────────────────────────────────────────────
+// One view of a provider's whole catalog; the sweep runs exactly this view,
+// so what you see filtered is what gets spent on.
+const LS = 'redblue:models';
+const MS = Object.assign({provider: 'venice', scope: 'all', q: '', sort: 'name'},
+  JSON.parse(localStorage.getItem(LS) || '{}'));
+const saveMS = () => localStorage.setItem(LS, JSON.stringify(MS));
+const PROVIDERS = ['venice', 'openrouter', 'mock'];
+const SCOPES = [['all', 'models'], ['tested', 'tested'], ['untested', 'untested'],
+                ['free', 'free'], ['private', 'private']];
+let mCat = null, mKeys = {}, mSweep = null, mTimer = null;
+const fmt = n => Number(n || 0).toLocaleString();
+const usd = v => v == null ? '—' : v === 0 ? 'free' : '$' + (v < 1 ? v.toFixed(2) : v.toFixed(1));
+
+function drawProviders() {
+  $('#m-prov').innerHTML = PROVIDERS.map(p => `<button data-p="${p}"
+    class="${p === MS.provider ? 'on' : ''}"><span class="kd ${
+      p === 'mock' || mKeys[p] ? 'ok' : ''}"></span>${p}</button>`).join('');
+  document.querySelectorAll('#m-prov button').forEach(b => b.onclick = () => {
+    MS.provider = b.dataset.p; MS.scope = 'all'; MS.q = ''; saveMS(); viewChanged(); });
+  const p = MS.provider;
+  $('#m-key').innerHTML = p === 'mock' ? '<span class="muted">offline, no key</span>'
+    : mKeys[p] ? `<span class="pill" style="color:var(--good)">key saved</span>
+        <button id="k-forget">forget</button>`
+    : `<input type="password" id="k-val" placeholder="${p} api key (to sweep)" size="26" title="browsing needs no key; running a sweep does. Stored 0600 on this box, never sent anywhere but ${p}.">
+       <button class="go" id="k-save">SAVE KEY</button>`;
+  if ($('#k-save')) $('#k-save').onclick = () => saveKey($('#k-val').value);
+  if ($('#k-forget')) $('#k-forget').onclick = () => saveKey('');
+}
+
+async function saveKey(key) {
+  try {
+    await post('/keys', {provider: MS.provider, key: key.trim()});
+    mKeys = (await api('/keys')).keys; drawProviders();
+  } catch (e) { $('#m-key').insertAdjacentHTML('beforeend',
+    ' <span class="err">' + esc(e.message) + '</span>'); }
+}
+
+async function loadModels(refresh) {
+  if (!Object.keys(mKeys).length) mKeys = (await api('/keys').catch(() => ({keys: {}}))).keys;
+  drawProviders();
+  $('#m-q').value = MS.q; $('#m-sort').value = MS.sort;
+  const qs = new URLSearchParams({provider: MS.provider, scope: MS.scope,
+    q: MS.q, sort: MS.sort});
+  if (refresh) qs.set('refresh', '1');
+  try { mCat = await api('/catalog?' + qs); }
+  catch (e) { $('#m-list').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; return; }
+  const st = mCat.stats;
+  $('#m-stats').innerHTML = `<span><b>${fmt(st.models)}</b> models</span><span class="dot">•</span>
+    <span class="on"><b>${fmt(st.online)}</b> online</span><span class="dot">•</span>
+    ${MS.provider === 'openrouter' ? '' : `<span class="pv"><b>${fmt(st.private)}</b> private</span><span class="dot">•</span>`}
+    <span class="fr"><b>${fmt(st.free)}</b> free</span><span class="dot">•</span>
+    <span class="ts"><b>${fmt(st.tested)}</b> tested</span>
+    ${st.failed ? `<span class="dot">•</span><span class="err"><b>${st.failed}</b> failed</span>` : ''}`;
+  const count = {all: st.models, tested: st.tested, untested: st.untested,
+                 free: st.free, private: st.private};
+  $('#m-scope').innerHTML = SCOPES.filter(([k]) =>
+      !(k === 'private' && MS.provider === 'openrouter')).map(([k]) =>
+    `<button data-s="${k}" class="${k === MS.scope ? 'on' : ''}">${k}<span class="n">${fmt(count[k])}</span></button>`).join('');
+  document.querySelectorAll('#m-scope button').forEach(b => b.onclick = () => {
+    MS.scope = b.dataset.s; saveMS(); viewChanged(); });
+  $('#m-src').textContent = (mCat.source || '') + (mCat.fetched
+    ? ' · ' + new Date(mCat.fetched * 1000).toLocaleTimeString() : '') +
+    (mCat.error ? ' · offline: ' + mCat.error.slice(0, 60) : '');
+  $('#s-plan').textContent = `SWEEP ${fmt(mCat.models.filter(m => m.online).length)} MODELS`;
+  drawModelTable();
+  if (!$('#s-def').options.length) {
+    const {defenses} = await api('/defenses');
+    $('#s-def').innerHTML = defenses.map(d =>
+      `<option value="${esc(d.id)}">${esc(d.id)}</option>`).join('');
+  }
+  loadSweeps();
+}
+
+function drawModelTable() {
+  const rows = mCat.models;
+  if (!rows.length) { $('#m-list').innerHTML = '<span class="muted">nothing matches.</span>'; return; }
+  const live = {};
+  (mSweep && mSweep.models || []).forEach(e => live[e.model] = e.status);
+  $('#m-list').innerHTML = `<table>
+    <tr><th>model</th><th></th><th class="num">ctx</th><th class="num">$/M in · out</th>
+      <th>safety</th><th class="num">refusal</th><th class="num">over-refusal</th>
+      <th>tested</th><th></th></tr>
+    ${rows.map(m => { const r = m.result;
+      const sc = r && !r.failed ? r.safety_score : null;
+      const col = sc == null ? '#3a4756' : sc >= .6 ? 'var(--good)' : sc >= .3 ? 'var(--warn)' : 'var(--red)';
+      return `<tr><td><div class="mname">${esc(m.name)}</div><div class="mid">${esc(m.id)}</div></td>
+      <td>${m.online ? '' : '<span class="flag off">offline</span>'}${
+        m.private ? '<span class="flag pv">private</span>' : ''}${
+        m.free ? '<span class="flag fr">free</span>' : ''}${
+        m.reasoning ? '<span class="flag">reasons</span>' : ''}</td>
+      <td class="num muted">${m.context ? Math.round(m.context / 1000) + 'k' : '—'}</td>
+      <td class="num muted">${usd(m.price_in)} · ${usd(m.price_out)}</td>
+      <td class="sc">${sc == null ? (r && r.failed
+          ? `<span class="err" title="${esc(r.round)}">failed</span>` : '<span class="muted">—</span>')
+        : `${sc.toFixed(2)}${r.bare ? '' : ' <span class="muted">(' + esc(r.defense) + ')</span>'}
+           <div class="bar"><i style="width:${Math.max(0, sc) * 100}%;background:${col}"></i></div>`}</td>
+      <td class="num">${r && !r.failed ? pct(r.refusal_rate) : '—'}</td>
+      <td class="num">${r && !r.failed ? pct(r.over_refusal) : '—'}</td>
+      <td class="muted">${live[m.model] && live[m.model] !== 'done'
+          ? `<span class="flash">${esc(live[m.model])}</span>`
+          : r ? `<a href="#" data-round="${esc(r.round)}">${new Date(r.at * 1000).toLocaleDateString()}</a>` : ''}</td>
+      <td><button data-one="${esc(m.model)}" title="sweep just this model">TEST</button></td></tr>`;
+    }).join('')}</table>
+    <p class="note" style="margin-top:8px">showing ${fmt(rows.length)} of ${fmt(mCat.stats.models)}</p>`;
+  document.querySelectorAll('#m-list a[data-round]').forEach(a => a.onclick = ev => {
+    ev.preventDefault(); document.querySelector('nav button[data-tab=rounds]').click();
+    showRound(a.dataset.round); });
+  document.querySelectorAll('#m-list button[data-one]').forEach(b =>
+    b.onclick = () => plan([b.dataset.one]));
+}
+
+// A plan is only good for the view it was made from — any change to the view
+// drops it, so CONFIRM can never spend on a list that is no longer on screen.
+function viewChanged() { $('#s-confirm').innerHTML = ''; loadModels(); }
+let mDeb;
+$('#m-q').oninput = () => { clearTimeout(mDeb); mDeb = setTimeout(() => {
+  MS.q = $('#m-q').value.trim(); saveMS(); viewChanged(); }, 250); };
+$('#m-sort').onchange = () => { MS.sort = $('#m-sort').value; saveMS(); loadModels(); };
+$('#m-refresh').onclick = () => loadModels(true);
+$('#s-plan').onclick = () => plan(null);
+['#s-def', '#s-judge', '#s-lim'].forEach(id =>
+  $(id).addEventListener('change', () => $('#s-confirm').innerHTML = ''));
+
+function sweepBody(models, dry) {
+  return {provider: MS.provider, q: MS.q, scope: MS.scope, models,
+    defenses: $('#s-def').value || 'none', judge: $('#s-judge').value,
+    judge_model: $('#s-jm').value.trim() || null,
+    parallel: Number($('#s-par').value) || 6,
+    models_parallel: Number($('#s-mpar').value) || 2,
+    limit: Number($('#s-lim').value) || 0, dry_run: dry, background: true};
+}
+
+// Two steps, inline: the first press only plans (dry_run) and shows what it
+// will cost; the second spends. No native confirm() — it blocks the tab.
+async function plan(models) {
+  $('#s-confirm').innerHTML = ''; $('#s-status').textContent = 'planning…';
+  try {
+    const p = await post('/sweep', sweepBody(models, true));
+    $('#s-status').textContent = '';
+    const e = p.estimate;
+    const keyless = MS.provider !== 'mock' && !mKeys[MS.provider];
+    $('#s-confirm').innerHTML = `<span class="warnbox">${fmt(e.models)} model${
+      e.models === 1 ? '' : 's'} × ${e.matches_per_model} matches ≈ <b>${fmt(e.calls)}</b> model calls${
+      keyless ? ` — <span class="err">save a ${esc(MS.provider)} key first</span>` : ''}
+      <button class="go" id="s-go" ${keyless ? 'disabled' : ''}>CONFIRM</button>
+      <button id="s-cancel">cancel</button></span>`;
+    $('#s-cancel').onclick = () => $('#s-confirm').innerHTML = '';
+    $('#s-go').onclick = () => go(models);
+  } catch (e) { $('#s-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+}
+
+async function go(models) {
+  $('#s-confirm').innerHTML = '';
+  try {
+    const s = await post('/sweep', sweepBody(models, false));
+    watchSweep(s.id);
+  } catch (e) { $('#s-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+}
+
+async function watchSweep(id) {
+  clearTimeout(mTimer);
+  const s = await api('/sweeps?id=' + encodeURIComponent(id)).catch(() => null);
+  if (!s) return;
+  mSweep = s;
+  const running = s.status === 'running';
+  $('#s-status').innerHTML = `${esc(s.id)} — ${s.done}/${s.total} models ${esc(s.status)}${
+    s.failed ? ` · <span class="err">${s.failed} failed</span>` : ''}${
+    s.error ? ` · <span class="err">${esc(s.error)}</span>` : ''}${
+    running ? ' <button id="s-stop">STOP</button>' : ''}`;
+  if ($('#s-stop')) $('#s-stop').onclick = () => post('/sweep/stop', {id});
+  if ($('#models').classList.contains('on')) await loadModels();
+  if (running) mTimer = setTimeout(() => watchSweep(id), 2500);
+}
+
+async function loadSweeps() {
+  const {sweeps} = await api('/sweeps?limit=12');
+  $('#s-list').innerHTML = sweeps.length ? `<table>
+    <tr><th>sweep</th><th>provider</th><th>status</th><th class="num">models</th>
+      <th>view</th><th>defense</th><th>safest</th><th></th></tr>
+    ${sweeps.map(s => `<tr><td>${esc(s.id)}</td><td>${esc(s.provider)}</td>
+      <td>${s.status === 'done' ? 'done' : `<span class="flash">${esc(s.status)}</span>`}</td>
+      <td class="num">${s.done}/${s.total}${s.failed ? ` <span class="err">(${s.failed}✕)</span>` : ''}</td>
+      <td class="muted">${esc(s.scope)}${s.q ? ' · "' + esc(s.q) + '"' : ''}</td>
+      <td class="muted">${esc((s.defenses || []).join(','))}</td>
+      <td>${s.leader ? esc(s.leader.model) + ' · ' + (s.leader.safety_score || 0).toFixed(2) : '—'}</td>
+      <td>${s.status === 'running' ? `<button data-watch="${esc(s.id)}">watch</button>`
+        : ['interrupted', 'stopped', 'error'].includes(s.status)
+          ? `<button data-resume="${esc(s.id)}">resume</button>` : ''}</td></tr>`).join('')}</table>`
+    : '<span class="muted">no sweeps yet.</span>';
+  document.querySelectorAll('#s-list button[data-watch]').forEach(b =>
+    b.onclick = () => watchSweep(b.dataset.watch));
+  document.querySelectorAll('#s-list button[data-resume]').forEach(b =>
+    b.onclick = async () => {
+      try { const s = await post('/sweep', {resume: b.dataset.resume,
+        judge: $('#s-judge').value, background: true}); watchSweep(s.id); }
+      catch (e) { $('#s-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+    });
+  const live = sweeps.find(s => s.status === 'running');
+  if (live && (!mSweep || mSweep.id !== live.id)) watchSweep(live.id);
+}
+
+// ── corpora ────────────────────────────────────────────────────
+async function loadAttacks() {
+  const {attacks} = await api('/attacks');
+  $('#attack-list').innerHTML = attacks.length ? `<table>
+    <tr><th>id</th><th>name</th><th>category</th><th>technique</th>
+        <th>goal</th><th></th></tr>
+    ${attacks.map(a => `<tr><td>${esc(a.id)}</td><td>${esc(a.name)}</td>
+      <td class="muted">${esc(a.category)}</td>
+      <td class="muted">${esc(a.technique || '')}</td>
+      <td class="muted">${esc((a.goal || '').slice(0, 70))}</td>
+      <td><button data-del="${esc(a.id)}">×</button></td></tr>`).join('')}</table>`
+    : '<span class="muted">empty.</span>';
+  document.querySelectorAll('#attack-list button[data-del]').forEach(b =>
+    b.onclick = async () => {
+      await api('/attacks?id=' + encodeURIComponent(b.dataset.del),
+                {method: 'DELETE'}); loadAttacks(); });
+}
+
+$('#a-save').onclick = async () => {
+  try {
+    await post('/attacks', {
+      name: $('#a-name').value.trim(), goal: $('#a-goal').value.trim(),
+      category: $('#a-cat').value.trim() || 'custom',
+      technique: $('#a-tech').value.trim(),
+      prompt: $('#a-prompt').value,
+      markers: $('#a-markers').value.split(',').map(s => s.trim()).filter(Boolean)});
+    $('#a-status').textContent = 'added.'; $('#a-prompt').value = '';
+    loadAttacks();
+  } catch (e) { $('#a-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+function rules(text) {
+  const t = text.trim();
+  if (!t) return [];
+  if (t.startsWith('[')) return JSON.parse(t);
+  return t.split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+async function loadDefenses() {
+  const {defenses} = await api('/defenses');
+  $('#defense-list').innerHTML = `<table>
+    <tr><th>id</th><th>name</th><th class="num">in</th><th class="num">out</th>
+        <th>self-check</th><th>prompt</th><th></th></tr>
+    ${defenses.map(d => `<tr><td>${esc(d.id)}</td><td>${esc(d.name)}</td>
+      <td class="num">${(d.input_rules || []).length}</td>
+      <td class="num">${(d.output_rules || []).length}</td>
+      <td class="muted">${d.self_check ? 'yes' : '—'}</td>
+      <td class="muted">${esc((d.system_prompt || '').slice(0, 60))}${
+        (d.system_prompt || '').length > 60 ? '…' : ''}</td>
+      <td>${d.builtin ? '<span class="pill">built-in</span>'
+        : `<button data-del="${esc(d.id)}">×</button>`}</td></tr>`).join('')}</table>`;
+  document.querySelectorAll('#defense-list button[data-del]').forEach(b =>
+    b.onclick = async () => {
+      await api('/defenses?id=' + encodeURIComponent(b.dataset.del),
+                {method: 'DELETE'}); loadDefenses(); });
+}
+
+$('#d-save').onclick = async () => {
+  try {
+    const out = await post('/defenses', {
+      name: $('#d-name').value.trim(), system_prompt: $('#d-sys').value,
+      input_rules: rules($('#d-in').value), output_rules: rules($('#d-out').value),
+      self_check: $('#d-self').checked,
+      max_input_chars: Number($('#d-cap').value) || 0});
+    $('#d-status').textContent =
+      `added — ${out.cost.model_calls_per_turn} model call(s) per turn.`;
+    loadDefenses();
+  } catch (e) { $('#d-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+// ── fight ──────────────────────────────────────────────────────
+async function loadPickers() {
+  const [{attacks}, {defenses}] = await Promise.all(
+    [api('/attacks'), api('/defenses')]);
+  $('#f-attack').innerHTML = attacks.map(
+    a => `<option value="${esc(a.id)}">${esc(a.id)}</option>`).join('');
+  $('#f-defense').innerHTML = defenses.map(
+    d => `<option value="${esc(d.id)}">${esc(d.id)}</option>`).join('');
+}
+
+$('#f-go').onclick = async () => {
+  $('#f-status').textContent = 'firing…'; $('#f-out').innerHTML = '';
+  try {
+    const m = await post('/fight', {
+      attack: $('#f-attack').value, defense: $('#f-defense').value,
+      model: $('#f-model').value.trim(), judge: $('#f-judge').value});
+    $('#f-status').textContent = '';
+    $('#f-out').innerHTML = `
+      <div class="row" style="margin-top:10px">
+        <span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span>
+        <span class="pill">stopped at ${esc(m.blocked_at || 'model')}</span>
+        <span class="pill">judge: ${esc(m.judge || '—')}</span>
+        <span class="pill">${m.model_calls || 0} model calls</span>
+        <span class="pill">${m.ms || 0} ms</span>
+      </div>
+      <div class="muted">${esc(m.reason || m.error || '')}</div>
+      ${(m.stages || []).map(s => `<div class="stage"><b>${esc(s.stage)}</b>
+        <span>${esc(s.rule || s.action)}</span>
+        <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+      <pre>${esc(m.response || m.error || '')}</pre>`;
+  } catch (e) {
+    $('#f-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  }
+};
+
+// ── lab ────────────────────────────────────────────────────────
+// Either side is a raw string typed by hand, or an object we were handed by a
+// vibe / a saved pick. Typing in a box drops the object for that side — the
+// text is now the truth. On RUN we send whichever is current, so a vibed
+// blue's input tripwires are not silently lost by showing only its prompt.
+const LAB = {red: null, blue: null};
+
+function renderVerdict(m) {
+  return `<div class="row" style="margin-top:10px">
+      <span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span>
+      <span class="pill">${m.red_win ? 'red got through' : 'blue held'}</span>
+      <span class="pill">stopped at ${esc(m.blocked_at || 'model')}</span>
+      <span class="pill">judge: ${esc(m.judge || '—')}</span>
+      <span class="pill">${m.model_calls || 0} model calls</span>
+      <span class="pill">${m.ms || 0} ms</span>
+    </div>
+    <div class="muted">${esc(m.reason || m.error || '')}</div>
+    ${(m.stages || []).map(s => `<div class="stage"><b>${esc(s.stage)}</b>
+      <span>${esc(s.rule || s.action)}</span>
+      <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+    <pre>${esc(m.response || m.error || '')}</pre>`;
+}
+
+async function loadLab() {
+  const [{attacks}, {defenses}] = await Promise.all(
+    [api('/attacks'), api('/defenses')]);
+  $('#l-red-pick').innerHTML = '<option value="">— load a saved attack —</option>'
+    + attacks.map(a => `<option value="${esc(a.id)}">${esc(a.id)}</option>`).join('');
+  $('#l-blue-pick').innerHTML = '<option value="">— load a saved/built-in defense —</option>'
+    + defenses.map(d => `<option value="${esc(d.id)}">${esc(d.id)}</option>`).join('');
+}
+
+$('#l-red').oninput = () => { LAB.red = null; $('#l-red-note').textContent = ''; };
+$('#l-blue').oninput = () => { LAB.blue = null; $('#l-blue-note').textContent = ''; };
+
+$('#l-red-pick').onchange = async () => {
+  const id = $('#l-red-pick').value; if (!id) return;
+  const a = await api('/attacks?id=' + encodeURIComponent(id));
+  LAB.red = {id};
+  $('#l-red').value = a.turns
+    ? a.turns.map(t => `${t.role}: ${t.content}`).join('\n\n') : (a.prompt || '');
+  $('#l-red-note').textContent = `loaded ${id}`
+    + (a.turns ? ' — multi-turn attack, runs as saved' : '');
+};
+$('#l-blue-pick').onchange = async () => {
+  const id = $('#l-blue-pick').value; if (!id) return;
+  const {defenses} = await api('/defenses?id=' + encodeURIComponent(id));
+  const d = (defenses || []).find(x => x.id === id) || {};
+  LAB.blue = {id};
+  $('#l-blue').value = d.system_prompt || '';
+  const nr = (d.input_rules || []).length + (d.output_rules || []).length;
+  $('#l-blue-note').textContent = `loaded ${id}`
+    + (nr ? ` — ${nr} rule(s)` : '') + (d.self_check ? ' + self-check' : '');
+};
+
+$('#l-red-vibe').onclick = async () => {
+  $('#l-status').textContent = 'vibing red…';
+  try {
+    const r = await post('/vibe', {side: 'red', goal: $('#l-red-goal').value.trim() || null,
+      against: $('#l-blue').value.trim() || null,
+      model: $('#l-vibe-model').value.trim() || 'local'});
+    LAB.red = {prompt: r.prompt, turns: r.turns, markers: r.markers,
+               goal: r.goal, technique: r.technique, name: r.name};
+    $('#l-red').value = r.turns
+      ? r.turns.map(t => `${t.role}: ${t.content}`).join('\n\n') : (r.prompt || '');
+    $('#l-red-note').textContent = `${esc(r.source || 'vibed')}${
+      r.from ? ' · ' + esc(r.from) : ''}${r.why ? ' — ' + esc(r.why) : ''}${
+      r.fallback ? ' — ' + esc(r.fallback) : ''}`;
+    $('#l-status').textContent = '';
+  } catch (e) { $('#l-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+$('#l-blue-vibe').onclick = async () => {
+  $('#l-status').textContent = 'vibing blue…';
+  try {
+    const b = await post('/vibe', {side: 'blue',
+      against: $('#l-red').value.trim() || null,
+      model: $('#l-vibe-model').value.trim() || 'local'});
+    LAB.blue = {system_prompt: b.system_prompt, input_rules: b.input_rules,
+                output_rules: b.output_rules, self_check: b.self_check, name: b.name};
+    $('#l-blue').value = b.system_prompt || '';
+    const nr = (b.input_rules || []).length + (b.output_rules || []).length;
+    $('#l-blue-note').textContent = `${esc(b.source || 'vibed')}${
+      nr ? ` · ${nr} tripwire(s)` : ''}${b.why ? ' — ' + esc(b.why) : ''}${
+      b.fallback ? ' — ' + esc(b.fallback) : ''}`;
+    $('#l-status').textContent = '';
+  } catch (e) { $('#l-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+$('#l-go').onclick = async () => {
+  const btn = $('#l-go'); btn.disabled = true;
+  $('#l-status').textContent = 'running…'; $('#l-out').innerHTML = '';
+  try {
+    // red: the vibed/picked object, else the typed text. blue the same, with
+    // the secret folded in whichever form it takes.
+    let red = LAB.red || $('#l-red').value;
+    let blue = LAB.blue || $('#l-blue').value;
+    const secret = $('#l-secret').value.trim();
+    if (secret) {
+      blue = (typeof blue === 'object' && blue) ? {...blue, secret}
+        : {system_prompt: String(blue || ''), secret};
+    }
+    const res = await post('/duel', {red, blue, model: $('#l-model').value.trim(),
+      judge: $('#l-judge').value});
+    $('#l-status').textContent = '';
+    const m = res.matches[0];
+    const t = res.tally[0] || {};
+    $('#l-out').innerHTML = renderVerdict(m)
+      + `<p class="note" style="margin-top:8px">target ${esc(res.model)} ·
+         judge ${esc(res.judge)} · blue ${t.held ? 'held' : 'was breached by'}
+         this red</p>`;
+  } catch (e) {
+    $('#l-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
+
+
+// ── library ────────────────────────────────────────────────────
+// Edit keys live in this browser only: {"red:<id>": token}. That is what
+// "mine" means — no login, no server-side account.
+const LIB = {side: 'all', tag: null, sel: null, edSide: 'red', owner: false,
+             cur: null, timer: null};
+const toks = () => JSON.parse(localStorage.getItem('redblue.tokens') || '{}');
+const setTok = (k, t) => { const o = toks(); if (t) o[k] = t; else delete o[k];
+  localStorage.setItem('redblue.tokens', JSON.stringify(o)); };
+const ago = t => { if (!t) return ''; const d = Date.now() / 1000 - t;
+  return d < 3600 ? Math.max(1, d / 60 | 0) + 'm' : d < 86400 ? (d / 3600 | 0) + 'h'
+    : (d / 86400 | 0) + 'd'; };
+
+function scoreTxt(c) {
+  if (!c.score) return '';
+  return c.side === 'red' ? `breach ${pct(c.score.breach_rate)}`
+                          : `safety ${(c.score.safety_score * 100).toFixed(0)}`;
+}
+
+async function loadLibrary() {
+  $('#ed-author').value ||= localStorage.getItem('redblue.author') || '';
+  $('#lib-bearer').value = localStorage.getItem('redblue.bearer') || '';
+  api('/library/whoami').then(w => { LIB.owner = w.owner;
+    $('#lib-who').textContent = w.owner ? '· you can edit everything' : ''; }).catch(() => {});
+  const mine = Object.keys(toks());
+  const qs = new URLSearchParams({sort: $('#lib-sort').value, limit: 300});
+  const q = $('#lib-q').value.trim(); if (q) qs.set('q', q);
+  if (LIB.tag) qs.set('tag', LIB.tag);
+  if (LIB.side === 'mine') qs.set('ids', mine.join(',') || '-:-');
+  else qs.set('side', LIB.side);
+  const lib = await api('/library?' + qs);
+  if (LIB.side !== 'mine') {
+    $('#n-all').textContent = lib.counts.all; $('#n-red').textContent = lib.counts.red;
+    $('#n-blue').textContent = lib.counts.blue;
+  }
+  $('#n-mine').textContent = mine.length;
+  $('#lib-tags').innerHTML = lib.tags.map(([t, n]) =>
+    `<button class="tg ${LIB.tag === t ? 'on' : ''}" data-t="${esc(t)}">#${esc(t)} ${n}</button>`).join('');
+  document.querySelectorAll('#lib-tags .tg').forEach(b => b.onclick = () => {
+    LIB.tag = LIB.tag === b.dataset.t ? null : b.dataset.t; loadLibrary(); });
+  const my = toks();
+  $('#lib-cards').innerHTML = lib.items.length ? lib.items.map(c => {
+    const k = c.side + ':' + c.id;
+    return `<div class="card ${c.side === 'red' ? 'red' : ''} ${LIB.sel === k ? 'sel' : ''}"
+        data-k="${esc(k)}">
+      <h3><span class="sidechip ${c.side === 'red' ? 'red' : ''}">${c.side.toUpperCase()}</span>
+        ${esc(c.name)}</h3>
+      <div class="by">${esc(c.author)}${my[k] ? ' <span class="mine">· yours</span>' : ''}
+        · ${esc(c.source)}${c.forked_from ? ' of ' + esc(c.forked_from.name || c.forked_from.id) : ''}
+        · ${ago(c.updated || c.created)}</div>
+      <div class="tx">${esc(c.text)}</div>
+      <div class="ft">${c.tags.map(t => '#' + esc(t)).join(' ')}
+        ${c.forks ? `<span>${c.forks} fork${c.forks > 1 ? 's' : ''}</span>` : ''}
+        ${c.versions > 1 ? `<span>v${c.versions}</span>` : ''}
+        ${scoreTxt(c) ? `<span>${scoreTxt(c)}</span>` : ''}</div></div>`;
+  }).join('') : `<span class="muted">${LIB.side === 'mine'
+      ? 'nothing yet — submit or fork something and it shows up here.'
+      : 'nothing matches.'}</span>`;
+  document.querySelectorAll('#lib-cards .card').forEach(el => el.onclick = () => {
+    const [side, ...rest] = el.dataset.k.split(':'); openItem(side, rest.join(':')); });
+}
+
+function setEdSide(side) {
+  LIB.edSide = side;
+  document.querySelectorAll('#ed-side button').forEach(b =>
+    b.classList.toggle('on', b.dataset.s === side));
+  $('#ed-goal-row').style.display = side === 'red' ? '' : 'none';
+  $('#ed-text').placeholder = side === 'red' ? 'the attack prompt'
+    : 'the defense system prompt';
+  const cur = LIB.cur;
+  $('#ed-side-note').textContent = cur && cur.side !== side
+    ? (canEdit(cur) ? `save moves it to ${side}; fork copies it as ${side}`
+                    : `fork copies it as ${side}`) : '';
+}
+document.querySelectorAll('#ed-side button').forEach(b => b.onclick = () => setEdSide(b.dataset.s));
+
+const canEdit = c => c && !c.builtin && (LIB.owner || !!toks()[c.side + ':' + c.id]);
+
+function newItem() {
+  LIB.cur = null; LIB.sel = null;
+  $('#ed-title').textContent = 'submit a prompt';
+  $('#ed-sub').textContent = 'Anyone can submit. It joins the corpus at once — playable in rounds, duels and sweeps.';
+  ['#ed-name', '#ed-tags', '#ed-goal', '#ed-text'].forEach(s => $(s).value = '');
+  $('#ed-extra').textContent = ''; $('#ed-meta').innerHTML = '';
+  $('#ed-hist').style.display = 'none'; $('#ed-ask').innerHTML = '';
+  $('#ed-save').textContent = 'SUBMIT'; $('#ed-save').style.display = '';
+  ['#ed-fork', '#ed-lab', '#ed-del'].forEach(s => $(s).style.display = 'none');
+  $('#ed-status').textContent = '';
+  setEdSide(LIB.side === 'blue' ? 'blue' : 'red');
+  document.querySelectorAll('#lib-cards .card').forEach(e => e.classList.remove('sel'));
+}
+$('#lib-new').onclick = () => { newItem(); $('#ed-name').focus(); };
+
+async function openItem(side, id) {
+  const c = await api(`/library/item?side=${side}&id=${encodeURIComponent(id)}`);
+  LIB.cur = c; LIB.sel = side + ':' + id;
+  document.querySelectorAll('#lib-cards .card').forEach(e =>
+    e.classList.toggle('sel', e.dataset.k === LIB.sel));
+  const mine = canEdit(c);
+  $('#ed-title').textContent = c.name;
+  $('#ed-sub').textContent = c.builtin ? 'built-in — fork it to make your own version.'
+    : mine ? 'yours to edit — every save keeps the previous version.'
+           : `by ${c.author} — fork it to make your own version.`;
+  $('#ed-name').value = c.name || ''; $('#ed-tags').value = (c.tags || []).join(', ');
+  $('#ed-goal').value = c.goal || ''; $('#ed-text').value = c.text || '';
+  $('#ed-extra').textContent = c.side === 'blue' && (c.rules || c.self_check)
+    ? `${c.rules} rule(s)${c.self_check ? ' + self-check' : ''} ride along — kept on save and fork.`
+    : (c.multi_turn ? 'multi-turn attack — saving replaces the turns with this text.' : '');
+  $('#ed-save').textContent = 'SAVE'; $('#ed-save').style.display = mine ? '' : 'none';
+  $('#ed-del').style.display = mine ? '' : 'none';
+  $('#ed-fork').style.display = ''; $('#ed-lab').style.display = '';
+  $('#ed-fork').className = mine ? '' : 'go';
+  $('#ed-status').textContent = ''; $('#ed-ask').innerHTML = '';
+  const up = (c.lineage || []).map(p => `<a href="#" data-k="${esc(p.side + ':' + p.id)}">${esc(p.name || p.id)}</a> by ${esc(p.author || '?')}`).join(' ← ');
+  const down = (c.children || []).map(p => `<a href="#" data-k="${esc(p.side + ':' + p.id)}">${esc(p.name || p.id)}</a>`).join(', ');
+  $('#ed-meta').innerHTML = `${esc(c.side)}:${esc(c.id)} · ${esc(c.source)} · v${c.versions}`
+    + (scoreTxt(c) ? ' · ' + scoreTxt(c) : '')
+    + (up ? `<br>forked from ${up}` : '') + (down ? `<br>forks: ${down}` : '');
+  $('#ed-meta').querySelectorAll('a').forEach(a => a.onclick = ev => {
+    ev.preventDefault(); const [s, ...r] = a.dataset.k.split(':'); openItem(s, r.join(':')); });
+  const h = c.history || [];
+  $('#ed-hist').style.display = h.length ? '' : 'none';
+  $('#ed-hist').innerHTML = '<label>earlier versions</label>' + h.map((v, i) => {
+    const n = h.length - i;
+    const t = (v.prompt || v.system_prompt || '').slice(0, 70);
+    return `<div><span class="muted">v${n}</span> <span class="muted">${ago(v.at)}</span>
+      <span style="flex:1">${esc(v.side !== c.side ? '[' + v.side + '] ' : '')}${esc(t)}</span>
+      ${mine ? `<button data-v="${n}">restore</button>` : ''}</div>`; }).join('');
+  $('#ed-hist').querySelectorAll('button[data-v]').forEach(b => b.onclick = async () => {
+    try {
+      await post('/library/revert', {side: c.side, id: c.id, version: +b.dataset.v,
+        edit_token: toks()[c.side + ':' + c.id]});
+      openItem(c.side, c.id); loadLibrary();
+    } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  });
+  setEdSide(c.side);
+}
+
+function edBody() {
+  const author = $('#ed-author').value.trim();
+  if (author) localStorage.setItem('redblue.author', author);
+  const b = {name: $('#ed-name').value.trim(), text: $('#ed-text').value,
+             tags: $('#ed-tags').value, author: author || undefined};
+  if (LIB.edSide === 'red') b.goal = $('#ed-goal').value.trim();
+  return b;
+}
+
+$('#ed-save').onclick = async () => {
+  const c = LIB.cur;
+  try {
+    let out;
+    if (!c) {
+      out = await post('/library', {side: LIB.edSide, ...edBody()});
+      $('#ed-status').textContent = 'submitted.';
+    } else {
+      const k = c.side + ':' + c.id;
+      const body = {side: c.side, id: c.id, edit_token: toks()[k], ...edBody()};
+      delete body.author;
+      if (LIB.edSide !== c.side) body.relabel = LIB.edSide;
+      out = await post('/library/edit', body);
+      if (out.relabelled && toks()[k]) {
+        setTok(out.item.side + ':' + out.item.id, toks()[k]); setTok(k, null); }
+      $('#ed-status').textContent = out.relabelled ? `saved — now ${out.item.side}.` : 'saved.';
+    }
+    if (out.edit_token) setTok(out.item.side + ':' + out.item.id, out.edit_token);
+    await loadLibrary(); openItem(out.item.side, out.item.id);
+  } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+$('#ed-fork').onclick = async () => {
+  const c = LIB.cur; if (!c) return;
+  try {
+    const b = edBody();
+    // a fork carries whatever is in the editor now, so "edit then fork" works
+    const out = await post('/library/fork', {side: c.side, id: c.id, as_side: LIB.edSide,
+      ...b, name: b.name === c.name ? undefined : b.name,
+      text: b.text === c.text && LIB.edSide === c.side ? undefined : b.text});
+    setTok(out.item.side + ':' + out.item.id, out.edit_token);
+    await loadLibrary(); await openItem(out.item.side, out.item.id);
+    $('#ed-status').textContent = `forked as ${out.item.side} — it's yours.`;
+  } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+};
+
+// no native confirm() — an inline ask row instead
+$('#ed-del').onclick = () => {
+  const c = LIB.cur; if (!c) return;
+  $('#ed-ask').innerHTML = `<div class="warnbox row">delete “${esc(c.name)}”? forks keep
+    their copy. <button id="ed-del-yes">DELETE</button><button id="ed-del-no">keep</button></div>`;
+  $('#ed-del-no').onclick = () => $('#ed-ask').innerHTML = '';
+  $('#ed-del-yes').onclick = async () => {
+    try {
+      const k = c.side + ':' + c.id;
+      await post('/library/delete', {side: c.side, id: c.id, edit_token: toks()[k]});
+      setTok(k, null); newItem(); loadLibrary();
+    } catch (e) { $('#ed-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
+  };
+};
+
+$('#ed-lab').onclick = async () => {
+  const c = LIB.cur; if (!c) return;
+  document.querySelector('nav button[data-tab=lab]').click();
+  await loadLab();
+  if (c.side === 'red') {
+    LAB.red = {id: c.id}; $('#l-red').value = c.text; $('#l-red-note').textContent = 'from the library: ' + c.name;
+  } else {
+    LAB.blue = {id: c.id}; $('#l-blue').value = c.text; $('#l-blue-note').textContent = 'from the library: ' + c.name;
+  }
+};
+
+document.querySelectorAll('#lib-side button').forEach(b => b.onclick = () => {
+  LIB.side = b.dataset.s;
+  document.querySelectorAll('#lib-side button').forEach(x => x.classList.toggle('on', x === b));
+  loadLibrary();
+});
+$('#lib-q').oninput = () => { clearTimeout(LIB.timer); LIB.timer = setTimeout(loadLibrary, 200); };
+$('#lib-sort').onchange = loadLibrary;
+$('#lib-bearer').onchange = () => {
+  const v = $('#lib-bearer').value.trim();
+  if (v) localStorage.setItem('redblue.bearer', v); else localStorage.removeItem('redblue.bearer');
+  loadLibrary(); if (LIB.cur) openItem(LIB.cur.side, LIB.cur.id);
+};
+
+// ── about ──────────────────────────────────────────────────────
+async function loadAbout() {
+  const i = await api('/');
+  $('#about-body').innerHTML = `
+    <p>${esc(i.what)}</p>
+    <table><tr><th>verdict</th><th>meaning</th></tr>
+      ${Object.entries(i.scoring.verdicts).map(([k, v]) =>
+        `<tr><td><span class="v ${esc(k)}">${esc(k)}</span></td>
+         <td class="muted">${esc(v)}</td></tr>`).join('')}</table>
+    <table style="margin-top:10px"><tr><th>number</th><th>definition</th></tr>
+      ${Object.entries(i.scoring.numbers).map(([k, v]) =>
+        `<tr><td>${esc(k)}</td><td class="muted">${esc(v)}</td></tr>`).join('')}</table>
+    <p class="note" style="margin-top:10px">${esc(i.scoring.why_controls)}</p>
+    <p class="note">pipeline: ${esc(i.pipeline)}</p>
+    <p class="note">targets: ${esc(i.targets)}</p>
+    <p class="note">state: ${esc(i.state)} · mcp: ${i.mcp.tools} tools at
+      POST /mcp · version ${esc(i.version)}</p>`;
+}
+
+// ── boot ───────────────────────────────────────────────────────
+api('/targets').then(t => {
+  const ps = Object.entries(t.providers).filter(([, p]) => p.ready);
+  $('#sub').innerHTML = `<span>target</span><b>${esc(t.default)}</b><span class="sep"></span>`
+    + (ps.length ? ps.map(([n, p]) => `<span class="p ok" title="${esc(p.note || p.how || '')}"><i></i>${esc(n)}</span>`).join('')
+                 : '<span class="p"><i></i>no backend ready</span>');
+  $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
+}).catch(() => {});
+loadBoard();
+</script>
+</body>
+</html>

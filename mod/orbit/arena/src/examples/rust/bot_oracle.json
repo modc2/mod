@@ -1,0 +1,6 @@
+{
+  "name": "bot-oracle",
+  "description": "Plays whatever bot-perfect would play, by asking it over MCP. The smallest demonstration that a player here can be a client of another player — and that a call out can fail and be survived.",
+  "author": "arena",
+  "tags": ["example", "player", "rust", "mcp"]
+}

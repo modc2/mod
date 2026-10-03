@@ -1,0 +1,165 @@
+{
+  "netuid": 123,
+  "name": "MANTIS",
+  "symbol": "𑀀",
+  "owner": "5HVuEdEGMYisecwjkWC7dKDPEzgs9cECdsdCQagfPRVf6FxZ",
+  "description": "Incentivizing cooperative prediction",
+  "github": "https://github.com/Barbariandev/MANTIS",
+  "url": "https://mantis123.com",
+  "discord": null,
+  "logo": null,
+  "registered_at": 5794330,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.002265667,
+    "moving_price": 0.002266403753310442,
+    "market_cap": 10165.880869884437,
+    "tao_in": 5591.253150529,
+    "alpha_in": 2467817.42308944,
+    "alpha_out": 2019108.885977355,
+    "volume": 552083.914135026,
+    "vol_24h": 72.16936156305019,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.07819391031295142,
+    "change_7d": -4.118556674854046
+  },
+  "spark_24h": [
+    0.00226744,
+    0.002267313,
+    0.002267313,
+    0.002267309,
+    0.002267309,
+    0.002266963,
+    0.002266962,
+    0.00226678,
+    0.002266772,
+    0.002266762,
+    0.002266762,
+    0.002266757,
+    0.002266548,
+    0.002266548,
+    0.002266452,
+    0.002266396,
+    0.002266396,
+    0.002266396,
+    0.002266396,
+    0.002266182,
+    0.002266182,
+    0.002266176,
+    0.00226606,
+    0.002265975,
+    0.002265974,
+    0.002265973,
+    0.002265973,
+    0.002265973,
+    0.002265973,
+    0.002265973,
+    0.002265964,
+    0.002265964,
+    0.002265964,
+    0.002265963,
+    0.002265963,
+    0.002265882,
+    0.002265882,
+    0.002265876,
+    0.002265876,
+    0.002265876,
+    0.002265876,
+    0.002265876,
+    0.002265876,
+    0.00226587,
+    0.00226587,
+    0.002265859,
+    0.002265667,
+    0.002265667
+  ],
+  "trades_24h": {
+    "trades": 35,
+    "buys": 2,
+    "sells": 33,
+    "buy_tao": 35.0,
+    "sell_tao": 36.939875401,
+    "net_tao": -1.9398754010000019,
+    "traders": 14
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": 0.0359208940000002,
+      "gross_tao": 69.964079106,
+      "trades": 4
+    },
+    {
+      "coldkey": "5EXBgzHNjwBqbuRKXb38j8eyFUrWHepR8m9mxsgjbrK7qGpL",
+      "net_tao": -0.593608602,
+      "gross_tao": 0.593608602,
+      "trades": 3
+    },
+    {
+      "coldkey": "5EqY6NgyQuPZ5SYoNyZ5y1MjxPawFYx2jW2rLe7FY2oRNQV6",
+      "net_tao": -0.419209619,
+      "gross_tao": 0.419209619,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GcCZ2BPXBjgG88tXJCEtkbdg2hNrPbL4EFfbiVRvBZdSQDC",
+      "net_tao": -0.256754201,
+      "gross_tao": 0.256754201,
+      "trades": 1
+    },
+    {
+      "coldkey": "5E9joRTYk63eVDu1aQx7zwEwXFUwTSof42PGmyDwSdSUYUsg",
+      "net_tao": -0.10533224499999999,
+      "gross_tao": 0.10533224499999999,
+      "trades": 6
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790971763,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update bucket_forecast.py",
+      "url": "https://github.com/Barbariandev/MANTIS/commit/9fad0e6ae251a60322bf1a05029a0e5689e095e8",
+      "publisher": "Barbariandev/MANTIS"
+    },
+    {
+      "ts": 1790798869,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update ledger.py",
+      "url": "https://github.com/Barbariandev/MANTIS/commit/75ee146676150902a770fc6208df5a9663a3a18d",
+      "publisher": "Barbariandev/MANTIS"
+    },
+    {
+      "ts": 1789700753,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update config.py",
+      "url": "https://github.com/Barbariandev/MANTIS/commit/3d41501adc82ad1d8d6892a0027b22cf8b04d220",
+      "publisher": "Barbariandev/MANTIS"
+    },
+    {
+      "ts": 1789700722,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update flow.py",
+      "url": "https://github.com/Barbariandev/MANTIS/commit/8d9ad06335631ff726c1cc83fd951243b8fd9a17",
+      "publisher": "Barbariandev/MANTIS"
+    },
+    {
+      "ts": 1789282300,
+      "kind": "commit",
+      "source": "github",
+      "title": "Update flow_collateral.py",
+      "url": "https://github.com/Barbariandev/MANTIS/commit/663c4b657347be7f1dc240198e40453a99c06089",
+      "publisher": "Barbariandev/MANTIS"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

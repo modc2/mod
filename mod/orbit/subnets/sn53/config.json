@@ -1,0 +1,38 @@
+{
+  "name": "sn53",
+  "version": "1.0.0",
+  "description": "SN53 engy — Verified inference for frontier open models. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ب",
+  "chain": "bittensor",
+  "netuid": 53,
+  "subnet": "engy",
+  "symbol": "ب",
+  "owner": "5H8SFVCxk52ag1YSC5bQw7B84NRNhAtYWAP81jEPfuJ3VL8Q",
+  "github": "https://github.com/hanlinai/engy",
+  "url": "https://engy.ai",
+  "discord": null,
+  "logo": "https://engy.ai/icon.svg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=53",
+    "news": "/bt/news?netuid=53"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

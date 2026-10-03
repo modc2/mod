@@ -9,6 +9,7 @@ import { count, percent, rate } from '@/lib/format'
 import AddData from './components/AddData'
 import Chat from './components/Chat'
 import Housing from './components/Housing'
+import Mcp from './components/Mcp'
 import CrimeControls from './components/CrimeControls'
 import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
@@ -17,6 +18,7 @@ import SearchBar from './components/SearchBar'
 import ThemePicker from './components/ThemePicker'
 import { useTheme } from './components/ThemeProvider'
 import type { BasemapId } from '@/lib/theme'
+import { useNarrow } from '@/lib/useNarrow'
 
 // MapLibre touches `window` at import time, so it can't be server-rendered.
 const MapView = dynamic(() => import('./components/MapView'), {
@@ -35,7 +37,29 @@ const BASEMAPS: { id: BasemapId; label: string }[] = [
 ]
 
 /** The right-hand dock holds one panel at a time. */
-type Dock = 'chat' | 'data' | 'housing' | null
+type Dock = 'chat' | 'data' | 'housing' | 'mcp' | null
+
+const TOOLS: { id: Exclude<Dock, null>; label: string; hint: string }[] = [
+  { id: 'housing', label: 'Housing', hint: 'Every open Toronto housing dataset, and the lot finder' },
+  { id: 'data', label: 'Data', hint: 'Add any dataset from the city open-data portal' },
+  { id: 'chat', label: 'Ask', hint: 'Ask in plain words; the map answers' },
+  { id: 'mcp', label: 'MCP', hint: 'The MCP server behind this map' },
+]
+
+/** One 14px line glyph per dock tool, drawn in the button's text colour. */
+function ToolIcon({ id }: { id: Exclude<Dock, null> }) {
+  const d = {
+    housing: 'M2.5 7.2 8 2.8l5.5 4.4M4 6.2V13h8V6.2M6.6 13V9.6h2.8V13',
+    data: 'M8 3.2v9.6M3.2 8h9.6',
+    chat: 'M2.8 4.2c0-.8.6-1.4 1.4-1.4h7.6c.8 0 1.4.6 1.4 1.4v5c0 .8-.6 1.4-1.4 1.4H7l-2.8 2.4v-2.4c-.8 0-1.4-.6-1.4-1.4v-5Z',
+    mcp: 'M5.5 4.5 2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5M9 3.5 7 12.5',
+  }[id]
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0">
+      <path d={d} stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
 export default function Page() {
   const { theme, base } = useTheme()
@@ -50,10 +74,39 @@ export default function Page() {
   const [crimeBusy, setCrimeBusy] = useState(false)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [basemap, setBasemap] = useState<BasemapId>(theme.basemap)
+  const [view3d, setView3d] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
   const [flyTo, setFlyTo] = useState<{ lng: number; lat: number; zoom?: number; nonce: number } | null>(null)
   const [boot, setBoot] = useState<string | null>(null)
   const [dock, setDock] = useState<Dock>(null)
+  const narrow = useNarrow()
+
+  // A phone has room for one sheet at a time, and opens on the map itself.
+  useEffect(() => { setPanelOpen(!narrow) }, [narrow])
+  const openRail = useCallback((open: boolean) => {
+    setPanelOpen(open)
+    if (open && narrow) { setDock(null); setSelection(null) }
+  }, [narrow])
+  const openDock = useCallback((d: Dock) => {
+    setDock(d)
+    if (d && narrow) { setPanelOpen(false); setSelection(null) }
+  }, [narrow])
+  useEffect(() => {
+    if (selection && narrow) { setPanelOpen(false); setDock(null) }
+  }, [selection, narrow])
+
+  // Escape peels the top layer: the inspector first, then the dock.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      const t = e.target as HTMLElement | null
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return
+      if (selection) setSelection(null)
+      else if (dock) setDock(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selection, dock])
 
   const [query, setQuery] = useState<CrimeQuery>({
     metric: 'incidents',
@@ -195,87 +248,114 @@ export default function Page() {
         layerData={layerData}
         basemap={basemap}
         base={base}
+        view3d={view3d}
         flyTo={flyTo}
         onFeatureClick={setSelection}
         onMapReady={() => {}}
       />
 
       {/* ── top bar ─────────────────────────────────────────────────── */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3">
-        <div className="panel pointer-events-auto flex items-center gap-2.5 px-3 py-2">
-          <button
-            onClick={() => setPanelOpen((v) => !v)}
-            aria-label={panelOpen ? 'Hide layers' : 'Show layers'}
-            className="rounded-ctl p-1 text-muted hover:bg-fill-hover hover:text-ink"
-          >
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-wrap items-center gap-2 p-2 md:flex-nowrap md:items-start md:gap-3 md:p-3">
+        <button
+          onClick={() => openRail(!panelOpen)}
+          aria-pressed={panelOpen}
+          aria-label={panelOpen ? 'Hide layers' : 'Show layers'}
+          className="brand panel pointer-events-auto flex shrink-0 items-center gap-2.5 px-2.5 py-2 text-left md:w-[288px]"
+        >
+          <span className="brand__mark" aria-hidden>
             <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
               <path d="M8 1.8 14.5 5 8 8.2 1.5 5 8 1.8Z" stroke="currentColor"
-                    strokeWidth="1.3" strokeLinejoin="round" />
+                    strokeWidth="1.4" strokeLinejoin="round" />
               <path d="M2.4 8.2 8 11l5.6-2.8M2.4 11.2 8 14l5.6-2.8" stroke="currentColor"
-                    strokeWidth="1.3" strokeLinejoin="round" />
+                    strokeWidth="1.4" strokeLinejoin="round" />
             </svg>
-          </button>
-          <div>
-            <h1 className="text-[13.5px] font-semibold leading-tight text-ink">
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13.5px] font-semibold leading-tight tracking-[-0.01em] text-ink">
               Toronto Atlas
-            </h1>
-            <p className="text-[9.5px] leading-tight text-muted">
-              Open-data GIS · {catalog?.count ?? '—'} layers
-            </p>
-          </div>
+            </span>
+            <span className="hidden text-[10px] leading-tight text-muted md:block">
+              {catalog ? `${catalog.count} open layers · ${active.length} on` : 'Loading layers…'}
+            </span>
+          </span>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden
+               className={`hidden shrink-0 text-muted transition-transform md:block ${panelOpen ? '' : '-rotate-90'}`}>
+            <path d="M3 4.5 6 7.5 9 4.5" stroke="currentColor" strokeWidth="1.4"
+                  strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+
+        <div className="pointer-events-auto min-w-0 flex-1 md:ml-auto md:w-[200px] md:flex-none lg:w-[260px]">
+          <SearchBar onPick={(h) => setFlyTo({ ...h, zoom: 15, nonce: Date.now() })} />
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-2">
-          <SearchBar onPick={(h) => setFlyTo({ ...h, zoom: 15, nonce: Date.now() })} />
-          <div className="panel flex gap-0.5 p-0.5">
+        <nav
+          aria-label="Map tools"
+          className="panel no-scrollbar pointer-events-auto order-last flex w-full items-center gap-0.5 overflow-x-auto p-0.5 md:order-none md:w-auto"
+        >
+          <button
+            onClick={() => openRail(!panelOpen)}
+            aria-pressed={panelOpen}
+            className="chip flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-[11px] md:hidden"
+          >
+            Layers <span className="tabular-nums opacity-70">{active.length}</span>
+          </button>
+          <span className="mx-1 h-4 w-px shrink-0 bg-line-strong md:hidden" aria-hidden />
+          <div className="flex shrink-0 gap-0.5" role="group" aria-label="Basemap">
             {BASEMAPS.map((b) => (
               <button
                 key={b.id}
                 onClick={() => setBasemap(b.id)}
                 aria-pressed={basemap === b.id}
-                className="chip px-2 py-1 text-[11px]"
+                className="chip shrink-0 px-2.5 py-1 text-[11px]"
               >
                 {b.label}
               </button>
             ))}
-          </div>
-          <div className="panel flex gap-0.5 p-0.5">
             <button
-              onClick={() => setDock((d) => (d === 'housing' ? null : 'housing'))}
-              aria-pressed={dock === 'housing'}
-              className="chip px-2 py-1 text-[11px]"
+              onClick={() => setView3d((v) => !v)}
+              aria-pressed={view3d}
+              className="chip shrink-0 px-2.5 py-1 text-[11px] font-semibold"
+              title="Tilt the camera and extrude buildings. Drag with the right mouse button to rotate."
             >
-              Housing
-            </button>
-            <button
-              onClick={() => setDock((d) => (d === 'data' ? null : 'data'))}
-              aria-pressed={dock === 'data'}
-              className="chip px-2 py-1 text-[11px]"
-            >
-              + Data
-            </button>
-            <button
-              onClick={() => setDock((d) => (d === 'chat' ? null : 'chat'))}
-              aria-pressed={dock === 'chat'}
-              className="chip px-2 py-1 text-[11px]"
-            >
-              Ask
+              3D
             </button>
           </div>
+          <span className="mx-1 h-4 w-px shrink-0 bg-line-strong" aria-hidden />
+          {TOOLS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => openDock(dock === t.id ? null : t.id)}
+              aria-pressed={dock === t.id}
+              title={t.hint}
+              className="chip flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-[11px]"
+            >
+              <ToolIcon id={t.id} />
+              <span className="md:hidden xl:inline">{t.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="pointer-events-auto shrink-0">
           <ThemePicker />
         </div>
       </header>
 
       {/* ── right dock: the chat agent and the open-data browser ────── */}
       {dock && (
-        <aside className="panel absolute bottom-3 right-3 top-[68px] z-30 flex w-[340px] flex-col overflow-hidden">
+        <aside className="dock panel sheet absolute z-30 flex flex-col overflow-hidden">
           {dock === 'chat' ? (
             <Chat onAction={applyAction} onClose={() => setDock(null)} />
+          ) : dock === 'mcp' ? (
+            <Mcp onAction={applyAction} onClose={() => setDock(null)} />
           ) : dock === 'housing' ? (
             <Housing
               active={active}
               onToggleLayer={toggle}
-              onFlyTo={(lng, lat) => setFlyTo({ lng, lat, zoom: 16, nonce: Date.now() })}
+              onFlyTo={(lng, lat) => {
+                setFlyTo({ lng, lat, zoom: 16, nonce: Date.now() })
+                if (narrow) setDock(null)
+              }}
               onClose={() => setDock(null)}
             />
           ) : (
@@ -292,8 +372,17 @@ export default function Page() {
 
       {/* ── left rail ───────────────────────────────────────────────── */}
       {panelOpen && (
-        <div className="panel absolute bottom-3 left-3 top-[68px] z-10 flex w-[268px] flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto">
+        <div className="rail panel sheet absolute z-10 flex flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-line px-4 py-2 md:hidden">
+            <span className="text-[12px] font-semibold text-ink">
+              Layers <span className="font-normal text-muted">· {active.length} on</span>
+            </span>
+            <button onClick={() => setPanelOpen(false)} aria-label="Close layers"
+                    className="rounded-ctl px-2 py-1 text-[11px] text-muted hover:bg-fill-hover hover:text-ink">
+              Done
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto overscroll-contain">
             {active.includes('crime') && (
               <div className="border-b border-line">
                 <CrimeControls
@@ -320,23 +409,25 @@ export default function Page() {
         </div>
       )}
 
-      {/* ── legend ──────────────────────────────────────────────────── */}
-      <div className={`pointer-events-none absolute bottom-3 z-10 ${panelOpen ? 'left-[288px]' : 'left-3'}`}>
-        <Legend
-          breaks={crime?.breaks ?? null}
-          metric={query.metric}
-          options={options}
-          active={active}
-          areasWithData={crime?.meta?.areas_with_data}
-          totalAreas={crime?.meta?.areas}
-          catalog={catalog}
-          layerData={layerData}
-        />
-      </div>
+      {/* ── legend: hidden on a phone while a sheet covers the bottom ─── */}
+      {!(narrow && (panelOpen || dock || selection)) && (
+        <div className={`pointer-events-none absolute bottom-2 right-2 z-10 md:bottom-3 md:right-auto ${
+          panelOpen ? 'md:left-[312px]' : 'md:left-3'}`}>
+          <Legend
+            breaks={crime?.breaks ?? null}
+            metric={query.metric}
+            options={options}
+            active={active}
+            areasWithData={crime?.meta?.areas_with_data}
+            totalAreas={crime?.meta?.areas}
+            catalog={catalog}
+            layerData={layerData}
+          />
+        </div>
+      )}
 
       {/* ── inspector ───────────────────────────────────────────────── */}
-      <div className={`pointer-events-none absolute top-[68px] z-20 ${
-        dock ? 'right-[356px]' : 'right-3'}`}>
+      <div className={`inspector pointer-events-none absolute z-20 ${dock ? 'md:right-[364px]' : 'md:right-3'}`}>
         <Inspector
           selection={selection}
           catalog={catalog}

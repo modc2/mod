@@ -1,0 +1,38 @@
+{
+  "name": "sn126",
+  "version": "1.0.0",
+  "description": "SN126 Attelier — Decentralized Generative Video Platform. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "𑀃",
+  "chain": "bittensor",
+  "netuid": 126,
+  "subnet": "Attelier",
+  "symbol": "𑀃",
+  "owner": "5DqrUa2z6E9taJdY8FGiPCrtCswsEjHjPbVo5xcTw2GqvKZm",
+  "github": "https://github.com/attelierai/attelierai_subnet/",
+  "url": "https://attelier.ai",
+  "discord": null,
+  "logo": "https://attelier.ai/images/bittensor_logo.jpg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=126",
+    "news": "/bt/news?netuid=126"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

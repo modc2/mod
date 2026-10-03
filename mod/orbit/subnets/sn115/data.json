@@ -1,0 +1,141 @@
+{
+  "netuid": 115,
+  "name": "MoirAI",
+  "symbol": "Ѕ",
+  "owner": "5EkNnrTjnMYaj4x1gNxAnJne9UvKgfU6NZNjhm6XFWMstbdG",
+  "description": "An evolving AIGC Harness for creators & agents.From idea to finished work.",
+  "github": "https://github.com/moirai115/MoirAI",
+  "url": null,
+  "discord": "https://discord.com/channels/799672011265015819/1379143301478744064",
+  "logo": "https://raw.githubusercontent.com/moirai115/MoirAI/refs/heads/main/assets/logo.png",
+  "registered_at": 5683635,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.002313561,
+    "moving_price": 0.0023165601305663586,
+    "market_cap": 7407.487231325263,
+    "tao_in": 3344.336053862,
+    "alpha_in": 1445535.655381235,
+    "alpha_out": 1756233.060172521,
+    "volume": 162044.024831863,
+    "vol_24h": 3.868492864014115,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -0.09090257403270297,
+    "change_7d": -6.400863185013539
+  },
+  "spark_24h": [
+    0.002315665,
+    0.002315665,
+    0.002315664,
+    0.002315657,
+    0.002315657,
+    0.002315642,
+    0.002315874,
+    0.002315874,
+    0.002315856,
+    0.002315832,
+    0.002315831,
+    0.002315818,
+    0.002315816,
+    0.002315816,
+    0.002315595,
+    0.002315595,
+    0.002315594,
+    0.002315594,
+    0.002315594,
+    0.002315583,
+    0.002315583,
+    0.002315569,
+    0.00231556,
+    0.002315559,
+    0.002315555,
+    0.002315554,
+    0.002315554,
+    0.002315554,
+    0.002315554,
+    0.002315554,
+    0.002315529,
+    0.002315529,
+    0.002315529,
+    0.002315529,
+    0.002315529,
+    0.002315529,
+    0.002315529,
+    0.002315514,
+    0.002316902,
+    0.002316902,
+    0.0023169,
+    0.0023169,
+    0.0023169,
+    0.002313574,
+    0.002313574,
+    0.002313568,
+    0.002313561,
+    0.002313561
+  ],
+  "trades_24h": {
+    "trades": 6,
+    "buys": 3,
+    "sells": 3,
+    "buy_tao": 1.174174761,
+    "sell_tao": 2.401248628,
+    "net_tao": -1.2270738669999999,
+    "traders": 5
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CRykJQiznhfP6RKBpe21ihpEFG4c8c5u7oyZWnfv2cxZtct",
+      "net_tao": -2.391794762,
+      "gross_tao": 2.391794762,
+      "trades": 1
+    },
+    {
+      "coldkey": "5FWSrvUejJ1NX1fcWgZVBNSpsrHr5C2AzZAUviosPEyUjVs9",
+      "net_tao": 1.0,
+      "gross_tao": 1.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5D4oZz7veairyteK4Je26zbEKxPu9vuZRfB3gdLv6BEsnh9M",
+      "net_tao": 0.169655874,
+      "gross_tao": 0.169655874,
+      "trades": 1
+    },
+    {
+      "coldkey": "5DrGQFDVXScy7gY3oq2UuVXUj8VBRg23RUZP4ent38JMtFdw",
+      "net_tao": -0.009453866,
+      "gross_tao": 0.009453866,
+      "trades": 2
+    },
+    {
+      "coldkey": "5F23gF9w4AHK9NvmyrwNhYEpmnJSi6u5PhAnxGMQh1Cs65uS",
+      "net_tao": 0.004518887,
+      "gross_tao": 0.004518887,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1788419034,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add project logo",
+      "url": "https://github.com/moirai115/MoirAI/commit/7d6f90d6b7d71dff8741996ea67fbdfaebca67cd",
+      "publisher": "moirai115/MoirAI"
+    },
+    {
+      "ts": 1788416427,
+      "kind": "commit",
+      "source": "github",
+      "title": "Project initialization",
+      "url": "https://github.com/moirai115/MoirAI/commit/0b868d3c54ac53380b297ea939f0f074cdc31458",
+      "publisher": "moirai115/MoirAI"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

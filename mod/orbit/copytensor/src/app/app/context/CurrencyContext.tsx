@@ -52,7 +52,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   // Poll the API for the live TAO/USD price (server-side cached).
   useEffect(() => {
     let cancelled = false;
-    const base = process.env.NEXT_PUBLIC_API_URL || "/api/copytensor";
+    const base = process.env.NEXT_PUBLIC_API_URL || "/copytensor/api";
     const fetchPrice = async () => {
       try {
         const r = await fetch(`${base}/tao_price`, { cache: "no-store" });

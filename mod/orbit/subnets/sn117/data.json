@@ -1,0 +1,189 @@
+{
+  "netuid": 117,
+  "name": "everyframe.studio",
+  "symbol": "Ⲁ",
+  "owner": "5FFDV7LGKVsVvyVbzSduzxQDPfBuJYHBM2QJPia5ikDivsXd",
+  "description": "Every frame gets craft",
+  "github": "https://github.com/everyframe-studios/everyframe-miner",
+  "url": "https://everyframe.studio/",
+  "discord": "https://discord.com/channels/799672011265015819/1544011415692644444",
+  "logo": "https://avatars.githubusercontent.com/u/327085870?s=200&v=4",
+  "registered_at": 5710859,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.002757343,
+    "moving_price": 0.002745060482993722,
+    "market_cap": 8309.604150252499,
+    "tao_in": 3002.220120964,
+    "alpha_in": 1088809.158981259,
+    "alpha_out": 1924818.144641286,
+    "volume": 238776.404878357,
+    "vol_24h": 115.32901675597532,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": 0.9938433284777837,
+    "change_7d": -5.001298877590599
+  },
+  "spark_24h": [
+    0.002730209,
+    0.00273039,
+    0.00273039,
+    0.002730378,
+    0.002730377,
+    0.002730331,
+    0.002728501,
+    0.002658427,
+    0.002705807,
+    0.002705694,
+    0.002729157,
+    0.002729138,
+    0.002746358,
+    0.002746358,
+    0.002745688,
+    0.002745688,
+    0.00274541,
+    0.00274541,
+    0.00274541,
+    0.002745392,
+    0.002745392,
+    0.002745348,
+    0.002745333,
+    0.002760139,
+    0.002760132,
+    0.002760131,
+    0.002760131,
+    0.002759141,
+    0.002758207,
+    0.002758207,
+    0.002758173,
+    0.002758173,
+    0.002758173,
+    0.002758172,
+    0.002758172,
+    0.002758172,
+    0.002757442,
+    0.002757395,
+    0.002757385,
+    0.002757385,
+    0.002757383,
+    0.002757383,
+    0.002757383,
+    0.002757364,
+    0.002757364,
+    0.002757343,
+    0.002757343,
+    0.002757343
+  ],
+  "trades_24h": {
+    "trades": 20,
+    "buys": 9,
+    "sells": 11,
+    "buy_tao": 65.073075565,
+    "sell_tao": 49.518635333999995,
+    "net_tao": 15.554440231000001,
+    "traders": 15
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5DUz5Mw39tdVB27Rn63H7X8yb6r5Tj3i7N8eLrvmEtjAtQrX",
+      "net_tao": -0.04071925399999898,
+      "gross_tao": 78.11380464,
+      "trades": 3
+    },
+    {
+      "coldkey": "5DhQxi4F9qhCBvemna7sHTwtPUuwqWwFBuqGGFWQmvXSNLGB",
+      "net_tao": 0.00492251300000035,
+      "gross_tao": 14.731981177,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FWZDhKBi8nABn7juLu2Ly4MJ3LVtkQWNYuV1uy7mboytmux",
+      "net_tao": 10.0,
+      "gross_tao": 10.0,
+      "trades": 1
+    },
+    {
+      "coldkey": "5GzfkTD7b4sHtiAeCncXRmqbq2z51iXARwqiw1333kQwMTpC",
+      "net_tao": 5.346860829,
+      "gross_tao": 5.346860829,
+      "trades": 1
+    },
+    {
+      "coldkey": "5HYYMyRXHB2KvLDUoWKTtzqYGbTYbdd4D3QTYdqoGscmmndg",
+      "net_tao": 1.546148472,
+      "gross_tao": 1.546148472,
+      "trades": 1
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790983922,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.3",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790983022,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #6 from everyframe-studios/release/everycli-v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/38a9a5e279a23077be220ceb41f2821ffbad750a",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790982983,
+      "kind": "commit",
+      "source": "github",
+      "title": "chore: release everycli v0.2.3",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/7fcd9caafcf467648ba9bdd674bc1e1266e24a85",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790982049,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #5 from everyframe-studios/fix/actionable-readines…",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/6b476d37c0a41aaca2cac795531171d29419ff90",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790981238,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix: replace approval catch-all with actionable readiness diagnostics",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/e36e0e4a4de43a0360214730f2ee39ff26495df9",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790919424,
+      "kind": "release",
+      "source": "github",
+      "title": "everycli v0.2.2",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/releases/tag/v0.2.2",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790918736,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #4 from everyframe-studios/fix/actionable-network-…",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/7abc463094e51dc78f6c0febdda5b60b7ca61750",
+      "publisher": "everyframe-studios/everyframe-miner"
+    },
+    {
+      "ts": 1790918306,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(cli): explain cloud and balance failures safely",
+      "url": "https://github.com/everyframe-studios/everyframe-miner/commit/f9c34d7657ebbedfc21f1d681239e5a82522e3b8",
+      "publisher": "everyframe-studios/everyframe-miner"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

@@ -1,0 +1,173 @@
+{
+  "netuid": 80,
+  "name": "OpenRoboto",
+  "symbol": "ى",
+  "owner": "5CG1eFiaZkWTCUEjD23i7Uiu6AjTkLkgkCu3EyXKFFAkkT2T",
+  "description": "An open competition on Bittensor for continuously improving robotics models and collecting egocentric data",
+  "github": "https://github.com/openroboto-ai/openroboto-subnet",
+  "url": "https://www.openroboto.ai/",
+  "discord": "https://discord.gg/N4F7UhEBY",
+  "logo": "https://www.openroboto.ai/logo.png",
+  "registered_at": 7151800,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.027572761,
+    "moving_price": 0.027031956240534782,
+    "market_cap": 67079.25534607573,
+    "tao_in": 5531.435573293,
+    "alpha_in": 200612.497298215,
+    "alpha_out": 2232196.293452763,
+    "volume": 360183.820572315,
+    "vol_24h": 3715.0748354960233,
+    "emission": 0.0,
+    "change_1h": 0.7603520346455284,
+    "change_24h": 5.588515846399078,
+    "change_7d": 4.88028279617907
+  },
+  "spark_24h": [
+    0.026116103,
+    0.026170875,
+    0.026172226,
+    0.026248942,
+    0.026223692,
+    0.026704723,
+    0.026519745,
+    0.026666439,
+    0.026657677,
+    0.026603117,
+    0.026614943,
+    0.026721381,
+    0.026761042,
+    0.027014548,
+    0.026911456,
+    0.027137684,
+    0.026962435,
+    0.026933879,
+    0.026879917,
+    0.02672245,
+    0.026761691,
+    0.026947654,
+    0.027022311,
+    0.02788792,
+    0.027670048,
+    0.027639556,
+    0.028013583,
+    0.028147101,
+    0.027912121,
+    0.027933317,
+    0.027518112,
+    0.027196797,
+    0.027379945,
+    0.026796122,
+    0.026188094,
+    0.026797904,
+    0.026831189,
+    0.026854367,
+    0.026868028,
+    0.026884673,
+    0.026736976,
+    0.026792292,
+    0.027040531,
+    0.027131182,
+    0.027163408,
+    0.027362866,
+    0.027364693,
+    0.027572761
+  ],
+  "trades_24h": {
+    "trades": 697,
+    "buys": 384,
+    "sells": 313,
+    "buy_tao": 1857.84574154,
+    "sell_tao": 1758.43801814,
+    "net_tao": 99.40772340000012,
+    "traders": 195
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -0.19295357099999227,
+      "gross_tao": 391.830655835,
+      "trades": 34
+    },
+    {
+      "coldkey": "5Gy3ybnsXLe4HSArvQLdBDK2zn53xH77cQ7Bt78dnihQ268b",
+      "net_tao": -0.21369679400000186,
+      "gross_tao": 340.213696794,
+      "trades": 28
+    },
+    {
+      "coldkey": "5Gp5B45qzEuaS6QCn5qC6WYmxdLwrawzDWLR7HEyHR1dXfE1",
+      "net_tao": 0.2580392260000015,
+      "gross_tao": 253.72343497,
+      "trades": 34
+    },
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": 0.1537200409999997,
+      "gross_tao": 165.84627995900001,
+      "trades": 10
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": -1.6644717090000007,
+      "gross_tao": 135.664471709,
+      "trades": 10
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790060400,
+      "kind": "news",
+      "source": "gnews",
+      "title": "OpenRoboto launches Shift, a platform paying us...",
+      "url": "https://news.google.com/rss/articles/CBMirwFBVV95cUxONDgzQTE0SmdHVlYybFBTcDE2Y2ViR1lUQ2VVSEE1Z3lKa3ZaNVg0aEVDaEt6UVVDb01yU0lBMDI1QlJONlJOSloxM0dZdW1EQ3ZXU0Y4eFVQMTB1R1Q0eExDRHE0NEhuTkp6ZExPUHFWVnNrcVF2SWtMM1VTeXBidUNHUjc5MDc0VEZldUhPWnJES01Zajd0Tjk2YlRSWmhuUFJZa3h5RmQ1WkNPVWI4?oc=5",
+      "publisher": "Pluang"
+    },
+    {
+      "ts": 1788852788,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: link shared real-robot task catalog and training data",
+      "url": "https://github.com/openroboto-ai/openroboto-subnet/commit/726e42aea3a8901dc2f431ab8d17c7d5c46594a4",
+      "publisher": "openroboto-ai/openroboto-subnet"
+    },
+    {
+      "ts": 1788776485,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: update active emission allocation across all three tracks",
+      "url": "https://github.com/openroboto-ai/openroboto-subnet/commit/a2754c33f477f1402e4babeee763c6ac13eb8d35",
+      "publisher": "openroboto-ai/openroboto-subnet"
+    },
+    {
+      "ts": 1788775398,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: show workstation camera-view reference",
+      "url": "https://github.com/openroboto-ai/openroboto-subnet/commit/1d57c5640ea41a1d2d7ef2c4b2c01b27f2cc8857",
+      "publisher": "openroboto-ai/openroboto-subnet"
+    },
+    {
+      "ts": 1788774739,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: remove translation link and unfinished interface notices",
+      "url": "https://github.com/openroboto-ai/openroboto-subnet/commit/0da4a5d30e88f6c273fe10c1d2b983aecb11fbe9",
+      "publisher": "openroboto-ai/openroboto-subnet"
+    },
+    {
+      "ts": 1788774348,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: reference confirmed workstation interface and unresolved hardwa…",
+      "url": "https://github.com/openroboto-ai/openroboto-subnet/commit/cf0092f8e7e45e09d2ea5b19ea4457276bc94ebd",
+      "publisher": "openroboto-ai/openroboto-subnet"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

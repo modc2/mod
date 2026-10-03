@@ -1,0 +1,106 @@
+{
+    "name": "vidz",
+    "version": "0.1.0",
+    "description": "Video maker for any form: a 60-second short by default, any length on request. It turns a script into shots, renders each shot with a top AI video model bought per request over x402 (USDC on Base, no accounts, no API keys), then stitches them into one film. Local-first: projects, clips and the paying wallet live on this machine. Providers are config entries, not code.",
+    "icon": "film",
+    "color": "#e0533d",
+    "anchor": "mod.py",
+    "port": 51100,
+    "app_port": 51100,
+    "base_path": "/vidz",
+    "route": false,
+    "defaults": {
+        "seconds": 60,
+        "aspect": "16:9",
+        "provider": "treza",
+        "model": "",
+        "max_usd": 8.0,
+        "poll_seconds": 5,
+        "timeout_seconds": 900
+    },
+    "x402": {
+        "networks": [
+            "base",
+            "eip155:8453"
+        ],
+        "assets": {
+            "base": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        }
+    },
+    "providers": {
+        "treza": {
+            "enabled": true,
+            "docs": "https://github.com/treza-labs/x402-video-example",
+            "url": "https://www.trezalabs.com/api/x402/video",
+            "max_clip_seconds": 10,
+            "models": [
+                "minimax-h3",
+                "veo-3.1-lite",
+                "veo-3.1-fast",
+                "veo-3.1",
+                "wan-2.7",
+                "kling-3.0",
+                "kling-3.0-pro",
+                "seedance-2.5"
+            ],
+            "default_model": "veo-3.1-lite",
+            "body": {
+                "prompt": "{prompt}",
+                "seconds": "{seconds}",
+                "aspectRatio": "{aspect}",
+                "model": "{model}",
+                "async": true
+            }
+        },
+        "render402": {
+            "enabled": false,
+            "docs": "https://x402-list.com/services/render402  (api.render402.xyz did not resolve 2026-10-02)",
+            "url": "https://api.render402.xyz/v1/generate",
+            "max_clip_seconds": 10,
+            "models": [
+                "h3-video"
+            ],
+            "default_model": "h3-video",
+            "body": {
+                "prompt": "{prompt}",
+                "duration": "{seconds}",
+                "aspect_ratio": "{aspect}",
+                "model_id": "{model}",
+                "resolution": "720p"
+            }
+        },
+        "x402gate": {
+            "enabled": false,
+            "docs": "https://github.com/oponfil/x402gate  (WaveSpeed: Wan, Kling, Sora...) set url to /v1/wavespeed/<model path>",
+            "url": "https://x402gate.io/v1/wavespeed/",
+            "max_clip_seconds": 8,
+            "models": [],
+            "default_model": "",
+            "body": {
+                "prompt": "{prompt}",
+                "duration": "{seconds}",
+                "aspect_ratio": "{aspect}"
+            }
+        }
+    },
+    "fns": [
+        "forward",
+        "info",
+        "providers",
+        "models",
+        "wallet",
+        "plan",
+        "quote",
+        "make",
+        "render",
+        "assemble",
+        "projects",
+        "project",
+        "test",
+        "readme"
+    ],
+    "urls": {
+        "api": "http://localhost:51100"
+    },
+    "schema": "QmVP3KAgGNFQeSzgXDajxYekPaAfNsFshZqoLUBSESZzML"
+}

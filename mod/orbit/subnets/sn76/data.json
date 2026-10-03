@@ -1,0 +1,165 @@
+{
+  "netuid": 76,
+  "name": "Ormas",
+  "symbol": "ن",
+  "owner": "5CLWmDjLwkDtLQ86y9aiwfzrUCrtnnSWS9oEXianj2jMDCAo",
+  "description": "Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT.",
+  "github": "https://github.com/heroncovelabs/ormas-subnet",
+  "url": "https://ormas.ai",
+  "discord": "ormasheroncovelabs_43871",
+  "logo": "https://ormas.ai/brand/ormas-mark-v3.png",
+  "registered_at": 9003844,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.005346896,
+    "moving_price": 0.0057482977863401175,
+    "market_cap": 1015.1381060734727,
+    "tao_in": 481.00507096,
+    "alpha_in": 89959.671991181,
+    "alpha_out": 99895.920126839,
+    "volume": 9565.220815223,
+    "vol_24h": 32.988326106000386,
+    "emission": 0.0,
+    "change_1h": 0.0,
+    "change_24h": -9.617726426620743,
+    "change_7d": -18.293978086406824
+  },
+  "spark_24h": [
+    0.005915853,
+    0.005915833,
+    0.005915818,
+    0.005935246,
+    0.005935196,
+    0.005933048,
+    0.005932962,
+    0.005886257,
+    0.005885068,
+    0.005883996,
+    0.005883942,
+    0.005882992,
+    0.005851915,
+    0.005838391,
+    0.005805433,
+    0.00580542,
+    0.005805384,
+    0.005840031,
+    0.005683799,
+    0.005683151,
+    0.005658231,
+    0.005656256,
+    0.005655747,
+    0.005528922,
+    0.005429528,
+    0.005429475,
+    0.005429371,
+    0.005353594,
+    0.005353585,
+    0.00535358,
+    0.005352052,
+    0.005352044,
+    0.005352044,
+    0.005352032,
+    0.005352032,
+    0.005352032,
+    0.005352032,
+    0.00535009,
+    0.005349909,
+    0.005349909,
+    0.005349862,
+    0.005349862,
+    0.005349862,
+    0.005348974,
+    0.005348969,
+    0.005348758,
+    0.005346896,
+    0.005346896
+  ],
+  "trades_24h": {
+    "trades": 38,
+    "buys": 6,
+    "sells": 32,
+    "buy_tao": 4.022471769,
+    "sell_tao": 26.182172009,
+    "net_tao": -22.15970024,
+    "traders": 15
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5CD5jXCExuBEsoTdC76ZA5x6jJGh1HeBuDNqftrpwMGpGSrP",
+      "net_tao": -10.385019705,
+      "gross_tao": 10.385019705,
+      "trades": 12
+    },
+    {
+      "coldkey": "5F9Cq1uVUtWoP5TPBs4PVhJhmMoHxdQFGbCtHHmgMWM1FNgH",
+      "net_tao": -7.127854156,
+      "gross_tao": 7.127854156,
+      "trades": 6
+    },
+    {
+      "coldkey": "5DkBE3KJsjds9PgxQTpz8bTUg5am3w6EsfAejGdRsu1Qd4g1",
+      "net_tao": -0.997269161,
+      "gross_tao": 2.997269161,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FCZ32A189cCwgttua5YazxSENGeSyBWDGXSRNTpG8bS6FG1",
+      "net_tao": 0.044982117,
+      "gross_tao": 2.943961421,
+      "trades": 3
+    },
+    {
+      "coldkey": "5Cvf7svZ7SqkbEaJCTwLujEjLG3qvVxd3WzKYn5U442ewpos",
+      "net_tao": 1.528,
+      "gross_tao": 1.528,
+      "trades": 4
+    }
+  ],
+  "news": [
+    {
+      "ts": 1789599279,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix(skeleton): renew through the whole lease, retry a transient compl…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/b5bd859fdcac9dbd84980a8d3779052deeb43e4a",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1789598431,
+      "kind": "commit",
+      "source": "github",
+      "title": "test(63982bd8): fail-on-base for completion retry, lease renewal and …",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/8cca6c4d3fddf74ccb60a50350f03e0679666918",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1789570569,
+      "kind": "commit",
+      "source": "github",
+      "title": "feat(client): optional chosen miner_id on registration — receipts, pr…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/98161f8483e231f4be64928e8d8e3b8013dfef8b",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1789505098,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: FAQ from the first external miner's day one (expected first-run…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/9645bf4707ea29c4c16eb4ce58a57bf90a6a8e4f",
+      "publisher": "heroncovelabs/ormas-subnet"
+    },
+    {
+      "ts": 1789496764,
+      "kind": "commit",
+      "source": "github",
+      "title": "docs: day-one fixes from the first third-party miner (2026-09-15) — I…",
+      "url": "https://github.com/heroncovelabs/ormas-subnet/commit/59141d2ea9b05687ffcd51adf46bf61c08aea745",
+      "publisher": "heroncovelabs/ormas-subnet"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

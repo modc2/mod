@@ -1,0 +1,38 @@
+{
+  "name": "sn22",
+  "version": "1.0.0",
+  "description": "SN22 Desearch — Decentralized search engine. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "χ",
+  "chain": "bittensor",
+  "netuid": 22,
+  "subnet": "Desearch",
+  "symbol": "χ",
+  "owner": "5DFuaMasyQtPhXcsuoYEyJmCVSRtzKxsTKFTA4SrpcGXBxJn",
+  "github": "https://github.com/datura-ai/desearch",
+  "url": "https://desearch.ai",
+  "discord": "https://discord.gg/P44zrJmdFy",
+  "logo": "https://desearch.ai/assets/logo-icon-C18R0lAC.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=22",
+    "news": "/bt/news?netuid=22"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

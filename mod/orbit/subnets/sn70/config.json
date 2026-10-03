@@ -1,0 +1,38 @@
+{
+  "name": "sn70",
+  "version": "1.0.0",
+  "description": "SN70 ghayn — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "غ",
+  "chain": "bittensor",
+  "netuid": 70,
+  "subnet": "ghayn",
+  "symbol": "غ",
+  "owner": "5Cz1mjiJ6shnfmxJLJZY9nRnDdHDbVyMzG7ih3LpshB4hf4A",
+  "github": null,
+  "url": null,
+  "discord": null,
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=70",
+    "news": "/bt/news?netuid=70"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "netuid": 107,
+  "name": "Minos",
+  "symbol": "ミ",
+  "owner": "5DA2vLrSXZxnT9G4Yrywx1Fpi4RXwMH1Ah7r8DTTWS7UZZBM",
+  "description": "The Foundational Layer of Genomics",
+  "github": "https://github.com/minos-protocol/minos_subnet",
+  "url": "https://theminos.ai",
+  "discord": "https://discord.com/channels/799672011265015819/1467949024769478793",
+  "logo": "https://theminos.ai/logo.png",
+  "registered_at": 7457580,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.040465441,
+    "moving_price": 0.040430236142128706,
+    "market_cap": 89365.88831459507,
+    "tao_in": 20851.944029572,
+    "alpha_in": 515302.960297033,
+    "alpha_out": 1693146.672430189,
+    "volume": 608643.726620499,
+    "vol_24h": 1099.0373875580262,
+    "emission": 0.0,
+    "change_1h": -0.11421142183334343,
+    "change_24h": 0.11741307737138662,
+    "change_7d": -2.1670801240101234
+  },
+  "spark_24h": [
+    0.040575438,
+    0.040606297,
+    0.040595844,
+    0.040593081,
+    0.040577518,
+    0.04056476,
+    0.040353498,
+    0.040205635,
+    0.040166293,
+    0.040137605,
+    0.040207191,
+    0.040216127,
+    0.040188009,
+    0.040193966,
+    0.040230572,
+    0.040372753,
+    0.040382415,
+    0.040390076,
+    0.040262631,
+    0.040326177,
+    0.040333509,
+    0.040315557,
+    0.040211842,
+    0.040220081,
+    0.040305688,
+    0.040192493,
+    0.040200425,
+    0.040210125,
+    0.040200814,
+    0.040211309,
+    0.040373949,
+    0.040346517,
+    0.040357113,
+    0.040365055,
+    0.040370948,
+    0.040341602,
+    0.040388116,
+    0.040398809,
+    0.040408017,
+    0.040589576,
+    0.040610622,
+    0.040519865,
+    0.040515836,
+    0.040476399,
+    0.040492084,
+    0.040498974,
+    0.04051171,
+    0.040465441
+  ],
+  "trades_24h": {
+    "trades": 133,
+    "buys": 55,
+    "sells": 78,
+    "buy_tao": 441.76864079,
+    "sell_tao": 538.973671642,
+    "net_tao": -97.205030852,
+    "traders": 82
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5D21k4nDiTGpopva7Ax8W8ogYVnacjwXmegDKiB9enXmWXMn",
+      "net_tao": -0.11569616399999916,
+      "gross_tao": 110.115696164,
+      "trades": 4
+    },
+    {
+      "coldkey": "5GW9Nb89AR9SVvAuQW2b62KZkTYAcbJ2yAW4UGWx8bxrVoPD",
+      "net_tao": 0.11713352099999774,
+      "gross_tao": 109.882866479,
+      "trades": 9
+    },
+    {
+      "coldkey": "5FCUzGUhwFtCNNV9AWpw9s7sD6AmLv72piS1L7FSaxmmHkmT",
+      "net_tao": -0.07648255699999851,
+      "gross_tao": 80.07648255699999,
+      "trades": 2
+    },
+    {
+      "coldkey": "5FJAP85gAtu6apchWzW2DzEXTZKd97UULkZJBwoCMJv8eTzA",
+      "net_tao": 0.05740368899999737,
+      "gross_tao": 79.942596311,
+      "trades": 3
+    },
+    {
+      "coldkey": "5ERfDw6K3GmQqwqsEG6foFtu7VsYGifPi556UJKQsBnfbHKN",
+      "net_tao": 50.0,
+      "gross_tao": 50.0,
+      "trades": 2
+    }
+  ],
+  "news": [
+    {
+      "ts": 1788497858,
+      "kind": "release",
+      "source": "github",
+      "title": "v0.3.0: Minos 🧬 — Difficulty-weighted scoring (v2), round verification, config commitments",
+      "url": "https://github.com/minos-protocol/minos_subnet/releases/tag/v0.3.0",
+      "publisher": "minos-protocol/minos_subnet"
+    },
+    {
+      "ts": 1788480980,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #39 from minos-protocol/feat/round-verification",
+      "url": "https://github.com/minos-protocol/minos_subnet/commit/289e54ae4cc913be93f5dfe8c44febb29363dc7b",
+      "publisher": "minos-protocol/minos_subnet"
+    },
+    {
+      "ts": 1788475594,
+      "kind": "commit",
+      "source": "github",
+      "title": "Add round verification docs and a round-check script",
+      "url": "https://github.com/minos-protocol/minos_subnet/commit/dc0d279ebc952b1d0edae1555932f858af09b932",
+      "publisher": "minos-protocol/minos_subnet"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

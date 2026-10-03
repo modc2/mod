@@ -37,6 +37,10 @@ CREATE TABLE IF NOT EXISTS trades (
     tx_hash     TEXT,
     status      TEXT    NOT NULL DEFAULT 'pending',
     error       TEXT,
+    -- Which copies asked for this move, and for how much. A portfolio pass
+    -- blends every sleeve into one trade per subnet, so `copy_id` alone
+    -- (the largest contributor) can't say who the money belonged to.
+    contributors_json TEXT,
     created_at  TEXT    DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_trades_copy ON trades(copy_id);
@@ -94,6 +98,16 @@ class Database:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn):
+        """Columns added after the first release. CREATE TABLE IF NOT EXISTS
+        never touches a table that already exists, so an old file keeps the
+        old shape until it is ALTERed here."""
+        have = {r[1] for r in conn.execute("PRAGMA table_info(trades)")}
+        if "contributors_json" not in have:
+            conn.execute("ALTER TABLE trades ADD COLUMN contributors_json TEXT")
 
     # Long enough to outlast a burst of concurrent snapshot writes.
     BUSY_TIMEOUT_SEC = 30
@@ -165,14 +179,17 @@ class Database:
     def insert_trade(self, copy_id: str, block: Optional[int], timestamp: str,
                      action: str, netuid: int, amount_tao: float,
                      tx_hash: Optional[str] = None, status: str = "pending",
-                     error: Optional[str] = None) -> str:
+                     error: Optional[str] = None,
+                     contributors: Optional[Dict[str, float]] = None) -> str:
         trade_id = str(uuid.uuid4())[:8]
         with self._conn() as conn:
             conn.execute(
                 "INSERT INTO trades (id, copy_id, block, timestamp, action, netuid, "
-                "amount_tao, tx_hash, status, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "amount_tao, tx_hash, status, error, contributors_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (trade_id, copy_id, block, timestamp, action, netuid,
-                 amount_tao, tx_hash, status, error)
+                 amount_tao, tx_hash, status, error,
+                 json.dumps(contributors) if contributors else None)
             )
         return trade_id
 
@@ -191,16 +208,30 @@ class Database:
     def get_trades(self, copy_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
         with self._conn() as conn:
             if copy_id:
+                # A portfolio pass files one trade per subnet under its
+                # largest contributor, so filtering by copy has to look
+                # inside the split too or a sleeve's own tape goes missing.
                 rows = conn.execute(
-                    "SELECT * FROM trades WHERE copy_id = ? ORDER BY created_at DESC LIMIT ?",
-                    (copy_id, limit)
+                    "SELECT * FROM trades WHERE copy_id = ? "
+                    "   OR contributors_json LIKE ? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (copy_id, f'%"{copy_id}"%', limit)
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT * FROM trades ORDER BY created_at DESC LIMIT ?",
                     (limit,)
                 ).fetchall()
-            return [dict(r) for r in rows]
+            out = []
+            for r in rows:
+                d = dict(r)
+                raw = d.pop("contributors_json", None)
+                try:
+                    d["contributors"] = json.loads(raw) if raw else None
+                except (TypeError, ValueError):
+                    d["contributors"] = None
+                out.append(d)
+            return out
 
     # ── copies ───────────────────────────────────────────────────────
 

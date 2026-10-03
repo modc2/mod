@@ -1,0 +1,38 @@
+{
+  "name": "sn32",
+  "version": "1.0.0",
+  "description": "SN32 ItsAI — ItsAI is a bittensor subnet focused on high-quality AI detection for texts. Recognised as the most accurate AI detector by MGTD benchmark. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ח",
+  "chain": "bittensor",
+  "netuid": 32,
+  "subnet": "ItsAI",
+  "symbol": "ח",
+  "owner": "5DWgkCSvq4brWSNLDU9FBgTk1ZpAQ2y6t3ky97CvEVuS9Qad",
+  "github": "https://github.com/It-s-AI/llm-detection",
+  "url": "https://its-ai.org/en",
+  "discord": "https://discord.com/channels/799672011265015819/1215319932062011464",
+  "logo": "https://github.com/It-s-AI/llm-detection/blob/main/full_logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=32",
+    "news": "/bt/news?netuid=32"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

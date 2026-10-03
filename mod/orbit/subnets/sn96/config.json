@@ -1,0 +1,38 @@
+{
+  "name": "sn96",
+  "version": "1.0.0",
+  "description": "SN96 Verathos — Verified AI inference and training subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "᚛",
+  "chain": "bittensor",
+  "netuid": 96,
+  "subnet": "Verathos",
+  "symbol": "᚛",
+  "owner": "5CGq1JQhmZmR8w3pXFqycUgX9mcLt8bPwMZ8YDJbEmELpw7X",
+  "github": "https://github.com/verathos-ai/verathos",
+  "url": "https://verathos.ai",
+  "discord": null,
+  "logo": "https://raw.githubusercontent.com/verathos-ai/verathos/main/assets/logo.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=96",
+    "news": "/bt/news?netuid=96"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

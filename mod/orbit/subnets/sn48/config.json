@@ -1,0 +1,38 @@
+{
+  "name": "sn48",
+  "version": "1.0.0",
+  "description": "SN48 Quantum Compute — Quantum Computing. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ק",
+  "chain": "bittensor",
+  "netuid": 48,
+  "subnet": "Quantum Compute",
+  "symbol": "ק",
+  "owner": "5GNH5YMkcX8jEF1PukvxKafifcqz13jp18BT73jRL3AZc4Rc",
+  "github": "https://github.com/qbittensor-labs/quantum-compute",
+  "url": "https://www.qbittensorlabs.com/",
+  "discord": "qbittensorlabs",
+  "logo": "https://qbittensorlabs.com/48.png",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=48",
+    "news": "/bt/news?netuid=48"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

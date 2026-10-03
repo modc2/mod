@@ -1,0 +1,38 @@
+{
+  "name": "sn83",
+  "version": "1.0.0",
+  "description": "SN83 CliqueAI — CliqueAI - AI-Powered Maximum Clique Solver Network. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "ᚦ",
+  "chain": "bittensor",
+  "netuid": 83,
+  "subnet": "CliqueAI",
+  "symbol": "ᚦ",
+  "owner": "5DqEjRLyNN8k3WbEXhA36tyGG4YpWyPEcVSTa47XxspNHhc3",
+  "github": "https://github.com/toptensor/CliqueAI",
+  "url": "https://cliqueai.toptensor.ai/",
+  "discord": "https://discord.com/channels/799672011265015819/1355560253076410428",
+  "logo": null,
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=83",
+    "news": "/bt/news?netuid=83"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

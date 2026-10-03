@@ -73,7 +73,21 @@ impl Client {
     }
 
     pub async fn all_mids(&self) -> anyhow::Result<Value> {
-        self.info(json!({"type": "allMids"})).await
+        // Mids price more than the ticker: deposit_balances values every
+        // non-stable (ETH/BNB/POL/…) off this call, and a transient 429 or
+        // timeout used to null out all of that pricing for the request.
+        // Serve a short fresh window, and fall back to the last good
+        // snapshot (up to 10 min) when a refresh fails.
+        if let Some(v) = self.cache_get("allMids", Duration::from_secs(5)) {
+            return Ok(v);
+        }
+        match self.info(json!({"type": "allMids"})).await {
+            Ok(v) => {
+                self.cache_put("allMids".into(), v.clone());
+                Ok(v)
+            }
+            Err(e) => self.cache_get("allMids", Duration::from_secs(600)).ok_or(e),
+        }
     }
 
     pub async fn meta_and_ctxs(&self) -> anyhow::Result<Value> {

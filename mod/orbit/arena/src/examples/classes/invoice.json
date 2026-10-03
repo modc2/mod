@@ -1,0 +1,6 @@
+{
+  "name": "invoice",
+  "description": "A drill and the capstone of the pack: read a JSON invoice, multiply the lines, add them up, apply the discount before the tax. Six rounds that lean on each other, so the transcript shows where an answerer fell off.",
+  "author": "arena",
+  "tags": ["example", "game", "class", "python", "drill", "json", "arithmetic"]
+}

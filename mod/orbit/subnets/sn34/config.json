@@ -1,0 +1,38 @@
+{
+  "name": "sn34",
+  "version": "1.0.0",
+  "description": "SN34 BitMind — Deepfake Detection. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "icon": "י",
+  "chain": "bittensor",
+  "netuid": 34,
+  "subnet": "BitMind",
+  "symbol": "י",
+  "owner": "5DthmKBR83sUdudSfgFnsxBkTYtYTFLJUgovNfb1TSKVLiTH",
+  "github": "https://github.com/BitMind-AI/bitmind-subnet",
+  "url": "https://www.bitmind.ai",
+  "discord": null,
+  "logo": "https://pbs.twimg.com/profile_images/1920233157942521856/M8Z87zIL_400x400.jpg",
+  "related": [],
+  "active": true,
+  "route": false,
+  "generated_by": "subnets",
+  "updated": "2026-10-03",
+  "urls": {
+    "bt": "/bt/markets?sn=34",
+    "news": "/bt/news?netuid=34"
+  },
+  "fns": [
+    "info",
+    "price",
+    "news",
+    "trades",
+    "daily",
+    "history",
+    "validators",
+    "neurons",
+    "links",
+    "snapshot",
+    "readme",
+    "refresh"
+  ]
+}

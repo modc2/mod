@@ -1,0 +1,1924 @@
+{
+  "version": "1.1.0",
+  "protocol": "defi/1.0",
+  "notes": [
+    "This file IS the module catalog. Adding a block means dropping a .sol next",
+    "to it and adding an entry here \u2014 no Rust change, no frontend change.",
+    "",
+    "Arg tokens resolved by the deployment planner (graph.rs):",
+    "  $param:<name>   a value the user typed into the inspector",
+    "  $input:<portId> the address of the block wired to that input port",
+    "  $self           the address of this block instance",
+    "  $owner          the wallet running the deployment",
+    "  $zero           the null address (an optional slot a wire fills later)",
+    "  a|b             first token that resolves wins (used for optional ports)"
+  ],
+  "portTypes": {
+    "erc20": {
+      "label": "Token",
+      "color": "#7dd3fc",
+      "iface": "IERC20"
+    },
+    "vault": {
+      "label": "Vault",
+      "color": "#a78bfa",
+      "iface": "ModVault"
+    },
+    "strategy": {
+      "label": "Strategy",
+      "color": "#34d399",
+      "iface": "IStrategy"
+    },
+    "oracle": {
+      "label": "Price feed",
+      "color": "#fbbf24",
+      "iface": "IOracle"
+    },
+    "governor": {
+      "label": "Governor",
+      "color": "#f472b6",
+      "iface": "address"
+    },
+    "market": {
+      "label": "Market",
+      "color": "#fb923c",
+      "iface": "address"
+    },
+    "sink": {
+      "label": "Revenue sink",
+      "color": "#94a3b8",
+      "iface": "address"
+    },
+    "escrow": {
+      "label": "Vote-escrow",
+      "color": "#c084fc",
+      "iface": "IVotingEscrow"
+    }
+  },
+  "blocks": [
+    {
+      "id": "token",
+      "contract": "ModToken",
+      "file": "token.sol",
+      "name": "Token",
+      "category": "Assets",
+      "icon": "\u25c8",
+      "summary": "ERC20 with an optional owner mint.",
+      "docs": "The starting point for most compositions. Mints its initial supply to the deployer; leave `mintable` off for a fixed-supply asset.",
+      "provides": [
+        "erc20"
+      ],
+      "inputs": [
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Name",
+          "default": "Mod Dollar"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Symbol",
+          "default": "MUSD"
+        },
+        {
+          "name": "decimals_",
+          "type": "uint8",
+          "label": "Decimals",
+          "default": 18
+        },
+        {
+          "name": "initialSupply",
+          "type": "uint256",
+          "scale": "decimals_",
+          "label": "Initial supply",
+          "default": "1000000",
+          "help": "Whole tokens, scaled by the decimals above."
+        },
+        {
+          "name": "mintable_",
+          "type": "bool",
+          "label": "Owner can mint more",
+          "default": false
+        }
+      ],
+      "ctor": [
+        "$param:name_",
+        "$param:symbol_",
+        "$param:decimals_",
+        "$param:initialSupply",
+        "$owner",
+        "$param:mintable_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "vault",
+      "contract": "ModVault",
+      "file": "vault.sol",
+      "name": "Yield Vault",
+      "category": "Yield",
+      "icon": "\u25a3",
+      "summary": "ERC4626-shaped vault. Issues shares, optionally routes to a strategy.",
+      "docs": "Deposits mint shares priced off totalAssets(), so any yield the strategy reports accrues to holders. The share token is itself an erc20 output \u2014 wire it into staking or an AMM.",
+      "provides": [
+        "erc20",
+        "vault"
+      ],
+      "inputs": [
+        {
+          "id": "asset",
+          "label": "Underlying asset",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "strategy",
+          "label": "Strategy",
+          "type": "strategy",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Share name",
+          "default": "Mod Vault Share"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Share symbol",
+          "default": "mvMUSD"
+        },
+        {
+          "name": "performanceFeeBps_",
+          "type": "uint16",
+          "label": "Performance fee (bps)",
+          "default": 1000,
+          "max": 5000
+        }
+      ],
+      "ctor": [
+        "$input:asset",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:performanceFeeBps_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "strategy",
+          "target": "$self",
+          "method": "setStrategy(address)",
+          "args": [
+            "$input:strategy"
+          ],
+          "note": "vault \u2192 strategy"
+        },
+        {
+          "when": "strategy",
+          "target": "$input:strategy",
+          "method": "setVault(address)",
+          "args": [
+            "$self"
+          ],
+          "note": "strategy accepts only this vault"
+        }
+      ]
+    },
+    {
+      "id": "strategy",
+      "contract": "ModFixedYieldStrategy",
+      "file": "strategy.sol",
+      "name": "Fixed-Yield Strategy",
+      "category": "Yield",
+      "icon": "\u2197",
+      "summary": "Pays a fixed APR on deposited principal, out of a funded reserve.",
+      "docs": "Only recognises yield the reserve can actually cover, so a composed protocol never reports assets it cannot pay out. Fund it with fund(amount).",
+      "provides": [
+        "strategy"
+      ],
+      "inputs": [
+        {
+          "id": "asset",
+          "label": "Asset",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "rateBps_",
+          "type": "uint16",
+          "label": "APR (bps)",
+          "default": 500,
+          "max": 10000
+        }
+      ],
+      "ctor": [
+        "$input:asset",
+        "$param:rateBps_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "staking",
+      "contract": "ModStaking",
+      "file": "staking.sol",
+      "name": "Staking Rewards",
+      "category": "Incentives",
+      "icon": "\u274b",
+      "summary": "Stake one token, earn another at a per-second rate.",
+      "docs": "Classic accRewardPerShare accounting. Point the stake port at an AMM's LP token for liquidity mining, or at a vault share for boosted yield.",
+      "provides": [
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "stakeToken",
+          "label": "Stake token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "rewardToken",
+          "label": "Reward token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "rewardPerSecond_",
+          "type": "uint256",
+          "scale": 18,
+          "label": "Rewards / second",
+          "default": "0.001"
+        }
+      ],
+      "ctor": [
+        "$input:stakeToken",
+        "$input:rewardToken",
+        "$param:rewardPerSecond_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "amm",
+      "contract": "ModAMM",
+      "file": "amm.sol",
+      "name": "AMM Pair",
+      "category": "Markets",
+      "icon": "\u21c4",
+      "summary": "Constant-product pair with LP shares and a fee.",
+      "docs": "x*y=k with a bps fee to LPs. Exposes price() so it can also satisfy an oracle port \u2014 convenient on a testnet, but a spot AMM price is manipulable, so prefer a dedicated feed for anything liquidatable.",
+      "provides": [
+        "erc20",
+        "oracle",
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "token0",
+          "label": "Token A",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "token1",
+          "label": "Token B",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "feeBps_",
+          "type": "uint16",
+          "label": "Swap fee (bps)",
+          "default": 30,
+          "max": 1000
+        },
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "LP name",
+          "default": "Mod LP"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "LP symbol",
+          "default": "MOD-LP"
+        }
+      ],
+      "ctor": [
+        "$input:token0",
+        "$input:token1",
+        "$param:feeBps_",
+        "$param:name_",
+        "$param:symbol_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "lending",
+      "contract": "ModLendingPool",
+      "file": "lending.sol",
+      "name": "Lending Pool",
+      "category": "Markets",
+      "icon": "\u25a4",
+      "summary": "Borrow one asset against another at an oracle-priced LTV.",
+      "docs": "Single collateral, single debt asset, linear borrow interest, liquidation at a health factor below 1. Needs an oracle port \u2014 that is the wire that makes it a real market.",
+      "provides": [
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "collateral",
+          "label": "Collateral",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "debtAsset",
+          "label": "Borrowable asset",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "oracle",
+          "label": "Price feed",
+          "type": "oracle",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "ltvBps_",
+          "type": "uint16",
+          "label": "Max LTV (bps)",
+          "default": 7500,
+          "max": 9000
+        },
+        {
+          "name": "borrowRateBps_",
+          "type": "uint16",
+          "label": "Borrow APR (bps)",
+          "default": 400
+        }
+      ],
+      "ctor": [
+        "$input:collateral",
+        "$input:debtAsset",
+        "$input:oracle",
+        "$param:ltvBps_",
+        "$param:borrowRateBps_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "oracle",
+      "contract": "ModFixedOracle",
+      "file": "oracle.sol",
+      "name": "Price Feed",
+      "category": "Infrastructure",
+      "icon": "\u25ce",
+      "summary": "Owner-published price, 1e18 scaled, with a staleness guard.",
+      "docs": "Reverts on reads older than maxStaleness so a stalled feed fails closed instead of quietly liquidating people at the wrong price. Set maxStaleness to 0 to disable.",
+      "provides": [
+        "oracle"
+      ],
+      "inputs": [
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "initialPrice",
+          "type": "uint256",
+          "scale": 18,
+          "label": "Initial price",
+          "default": "1"
+        },
+        {
+          "name": "maxStaleness_",
+          "type": "uint256",
+          "label": "Max staleness (seconds)",
+          "default": 86400
+        }
+      ],
+      "ctor": [
+        "$param:initialPrice",
+        "$param:maxStaleness_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "feesplitter",
+      "contract": "ModFeeSplitter",
+      "file": "feesplitter.sol",
+      "name": "Fee Splitter",
+      "category": "Revenue",
+      "icon": "\u2443",
+      "summary": "Splits an ERC20 balance between two payees by basis points.",
+      "docs": "Make the revenue split part of the diagram. Shares must sum to 10000.",
+      "provides": [
+        "sink"
+      ],
+      "inputs": [
+        {
+          "id": "token",
+          "label": "Fee token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "payee0",
+          "type": "address",
+          "label": "Payee A",
+          "default": "$owner"
+        },
+        {
+          "name": "bps0",
+          "type": "uint16",
+          "label": "Payee A (bps)",
+          "default": 8000
+        },
+        {
+          "name": "payee1",
+          "type": "address",
+          "label": "Payee B",
+          "default": "$owner"
+        },
+        {
+          "name": "bps1",
+          "type": "uint16",
+          "label": "Payee B (bps)",
+          "default": 2000
+        }
+      ],
+      "ctor": [
+        "$input:token",
+        "$param:payee0",
+        "$param:bps0",
+        "$param:payee1",
+        "$param:bps1",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "treasury",
+      "contract": "ModBlocTimeTreasury",
+      "file": "treasury.sol",
+      "name": "BlocTime Treasury",
+      "category": "Revenue",
+      "icon": "\u2609",
+      "summary": "Locks a position and pays it out weekly, pro-rata by BlocTime weight.",
+      "docs": "What you lock here you cannot take back early. Every Friday 12:00 EST \u2014 the same instant BlocTime sweeps its own pot \u2014 anyone may call distribute(), and the week's payout is split across the registered holders in proportion to their BLOC. A lock either streams its principal out in equal weekly slices (returnPrincipal off) or sits escrowed for its term while only the yield on top is shared (returnPrincipal on). Wire the asset port to the token the position pays in, or paste its address; leave the weight port unwired to use the live BlocTime deployment. Holders must register() to be eligible \u2014 this contract reads the BLOC token from outside and cannot checkpoint transfers, so an open accumulator would pay whoever bought BLOC after the fact.",
+      "provides": [
+        "sink"
+      ],
+      "inputs": [
+        {
+          "id": "asset",
+          "label": "Asset to distribute",
+          "type": "erc20",
+          "required": false
+        },
+        {
+          "id": "weight",
+          "label": "Weight token (BLOC)",
+          "type": "erc20",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "assetToken",
+          "type": "address",
+          "label": "Asset address",
+          "default": "0x0000000000000000000000000000000000000000",
+          "help": "Only used when the asset port is left unwired. The token the chosen position pays in \u2014 a stablecoin, a vault share. Deployment reverts on the zero address."
+        },
+        {
+          "name": "weightToken",
+          "type": "address",
+          "label": "BlocTime (BLOC) address",
+          "default": "0xF25AAFDd0A842ff50b041595C79210b48d6795bD",
+          "help": "The BlocTime deployment whose BLOC balances decide the split. Defaults to the fleet's Base Sepolia instance; point it at your own fork's BlocTime to use those weights."
+        }
+      ],
+      "ctor": [
+        "$input:asset|$param:assetToken",
+        "$input:weight|$param:weightToken",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "timelock",
+      "contract": "ModTimelock",
+      "file": "timelock.sol",
+      "name": "Timelock",
+      "category": "Governance",
+      "icon": "\u23e6",
+      "summary": "Queue-then-execute delay. Outputs a governor address.",
+      "docs": "Wire its governor output into any block's Owner port and every privileged call on that block has to wait out the delay in public first.",
+      "provides": [
+        "governor"
+      ],
+      "inputs": [],
+      "params": [
+        {
+          "name": "delay_",
+          "type": "uint256",
+          "label": "Delay (seconds)",
+          "default": 172800,
+          "help": "48h by default. Capped at 30 days."
+        }
+      ],
+      "ctor": [
+        "$param:delay_",
+        "$owner"
+      ]
+    },
+    {
+      "id": "vesting",
+      "contract": "ModVesting",
+      "file": "vesting.sol",
+      "name": "Vesting",
+      "category": "Governance",
+      "icon": "\u25a5",
+      "summary": "Linear vesting with a cliff, optionally revocable.",
+      "docs": "Fund it by transferring tokens in; vested() tracks whatever the contract holds plus what has already been released.",
+      "provides": [
+        "sink"
+      ],
+      "inputs": [
+        {
+          "id": "token",
+          "label": "Token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "beneficiary_",
+          "type": "address",
+          "label": "Beneficiary",
+          "default": "$owner"
+        },
+        {
+          "name": "start_",
+          "type": "uint64",
+          "label": "Start (unix, 0 = now)",
+          "default": 0
+        },
+        {
+          "name": "cliffSeconds",
+          "type": "uint64",
+          "label": "Cliff (seconds)",
+          "default": 15552000
+        },
+        {
+          "name": "duration_",
+          "type": "uint64",
+          "label": "Duration (seconds)",
+          "default": 63072000
+        },
+        {
+          "name": "revocable_",
+          "type": "bool",
+          "label": "Revocable",
+          "default": true
+        }
+      ],
+      "ctor": [
+        "$input:token",
+        "$param:beneficiary_",
+        "$param:start_",
+        "$param:cliffSeconds",
+        "$param:duration_",
+        "$param:revocable_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "faucet",
+      "contract": "ModFaucet",
+      "file": "faucet.sol",
+      "name": "Faucet",
+      "category": "Infrastructure",
+      "icon": "\u25cd",
+      "summary": "Rate-limited drip of a test token.",
+      "docs": "Transfer tokens in to fill it. Every testnet composition wants one; this one at least has a cooldown.",
+      "provides": [
+        "sink"
+      ],
+      "inputs": [
+        {
+          "id": "token",
+          "label": "Token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "dripAmount_",
+          "type": "uint256",
+          "scale": 18,
+          "label": "Drip amount",
+          "default": "100"
+        },
+        {
+          "name": "cooldown_",
+          "type": "uint256",
+          "label": "Cooldown (seconds)",
+          "default": 86400
+        }
+      ],
+      "ctor": [
+        "$input:token",
+        "$param:dripAmount_",
+        "$param:cooldown_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "cdp",
+      "contract": "ModCDP",
+      "file": "cdp.sol",
+      "name": "CDP Stablecoin",
+      "category": "Stablecoins",
+      "icon": "\u25d0",
+      "summary": "Lock collateral, mint a stablecoin against it, pay a stability fee.",
+      "docs": "The MakerDAO shape. The block IS the stablecoin, so the unit it issues is an erc20 output you can wire into a PSM, a savings rate or a pool. Positions are liquidatable below the collateral ratio, and stability fees accumulate as protocol surplus that drawSurplus() mints to the revenue sink.",
+      "provides": [
+        "erc20",
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "collateral",
+          "label": "Collateral",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "oracle",
+          "label": "Price feed",
+          "type": "oracle",
+          "required": true
+        },
+        {
+          "id": "feeSink",
+          "label": "Surplus sink",
+          "type": "sink",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Stablecoin name",
+          "default": "Mod Dollar"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Stablecoin symbol",
+          "default": "MUSD"
+        },
+        {
+          "name": "minCollateralRatioBps_",
+          "type": "uint16",
+          "label": "Min collateral ratio (bps)",
+          "default": 15000,
+          "max": 60000,
+          "help": "15000 = 150%. Below this a position can be liquidated."
+        },
+        {
+          "name": "stabilityFeeBps_",
+          "type": "uint16",
+          "label": "Stability fee (bps/yr)",
+          "default": 200,
+          "max": 5000
+        },
+        {
+          "name": "debtCeiling_",
+          "type": "uint256",
+          "scale": 18,
+          "label": "Debt ceiling",
+          "default": "10000000"
+        }
+      ],
+      "ctor": [
+        "$input:collateral",
+        "$input:oracle",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:minCollateralRatioBps_",
+        "$param:stabilityFeeBps_",
+        "$param:debtCeiling_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "feeSink",
+          "target": "$self",
+          "method": "setSurplusSink(address)",
+          "args": [
+            "$input:feeSink"
+          ],
+          "note": "stability fees \u2192 sink"
+        }
+      ]
+    },
+    {
+      "id": "psm",
+      "contract": "ModPSM",
+      "file": "psm.sol",
+      "name": "Peg Stability Module",
+      "category": "Stablecoins",
+      "icon": "\u21cb",
+      "summary": "Swap a reserve asset for the protocol stablecoin at par, minus a fee.",
+      "docs": "Maker's PSM. It is what turns a stablecoin that exists into a stablecoin that holds \u2014 arbitrage against a par window in both directions. It swaps out of inventory rather than minting, so fill whichever side you want to defend. Decimals are read from both tokens, so a 6-decimal reserve against an 18-decimal unit is handled.",
+      "provides": [
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "gem",
+          "label": "Reserve asset",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "stable",
+          "label": "Stablecoin",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "feeSink",
+          "label": "Fee sink",
+          "type": "sink",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "tinBps_",
+          "type": "uint16",
+          "label": "Fee in (bps)",
+          "default": 10,
+          "max": 1000
+        },
+        {
+          "name": "toutBps_",
+          "type": "uint16",
+          "label": "Fee out (bps)",
+          "default": 10,
+          "max": 1000
+        },
+        {
+          "name": "gemCap_",
+          "type": "uint256",
+          "scale": "gemDecimals",
+          "label": "Reserve cap",
+          "default": "5000000"
+        },
+        {
+          "name": "gemDecimals",
+          "type": "uint8",
+          "label": "Reserve decimals",
+          "default": 6,
+          "help": "Only used to scale the cap you type. USDC is 6, most protocol units are 18."
+        }
+      ],
+      "ctor": [
+        "$input:gem",
+        "$input:stable",
+        "$param:tinBps_",
+        "$param:toutBps_",
+        "$param:gemCap_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "feeSink",
+          "target": "$self",
+          "method": "setFeeSink(address)",
+          "args": [
+            "$input:feeSink"
+          ],
+          "note": "swap fees \u2192 sink"
+        }
+      ]
+    },
+    {
+      "id": "savings",
+      "contract": "ModSavingsRate",
+      "file": "savings.sol",
+      "name": "Savings Rate",
+      "category": "Yield",
+      "icon": "\u25f7",
+      "summary": "Deposit the unit, hold a share that grows at a governance-set rate.",
+      "docs": "The DSR / sDAI shape. Yield is an accrual index, never a rebase, so the share token composes as an ordinary erc20 downstream. Interest is only payable out of the buffer someone funded \u2014 read shortfall() to see whether the rate is promised or backed.",
+      "provides": [
+        "erc20",
+        "vault"
+      ],
+      "inputs": [
+        {
+          "id": "asset",
+          "label": "Underlying unit",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Share name",
+          "default": "Savings Mod Dollar"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Share symbol",
+          "default": "sMUSD"
+        },
+        {
+          "name": "rateBps_",
+          "type": "uint16",
+          "label": "Savings rate (bps/yr)",
+          "default": 500,
+          "max": 5000
+        }
+      ],
+      "ctor": [
+        "$input:asset",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:rateBps_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "stableswap",
+      "contract": "ModStableSwap",
+      "file": "stableswap.sol",
+      "name": "StableSwap Pool",
+      "category": "Markets",
+      "icon": "\u2248",
+      "summary": "Curve's invariant for assets that should trade at par. Amplified, low fee.",
+      "docs": "Between a constant sum and a constant product, leaning on the first while the pool is balanced. Use it wherever a constant-product pair would charge curvature for nothing: a stablecoin against its reserve, an LST against the asset it wraps. Exposes virtualPrice() for LP accounting and price() as an oracle output.",
+      "provides": [
+        "erc20",
+        "oracle",
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "coin0",
+          "label": "Coin A",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "coin1",
+          "label": "Coin B",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "feeSink",
+          "label": "Admin fee sink",
+          "type": "sink",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "amp_",
+          "type": "uint256",
+          "label": "Amplification (A)",
+          "default": 200,
+          "max": 10000,
+          "help": "Higher A = flatter curve near par. Curve's 3pool runs around 2000; a volatile pair wants single digits."
+        },
+        {
+          "name": "feeBps_",
+          "type": "uint16",
+          "label": "Swap fee (bps)",
+          "default": 4,
+          "max": 100
+        },
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "LP name",
+          "default": "Mod StableSwap LP"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "LP symbol",
+          "default": "modSLP"
+        }
+      ],
+      "ctor": [
+        "$input:coin0",
+        "$input:coin1",
+        "$param:amp_",
+        "$param:feeBps_",
+        "$param:name_",
+        "$param:symbol_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "feeSink",
+          "target": "$self",
+          "method": "setFeeSink(address)",
+          "args": [
+            "$input:feeSink"
+          ],
+          "note": "admin fees \u2192 sink"
+        }
+      ]
+    },
+    {
+      "id": "lst",
+      "contract": "ModLiquidStaking",
+      "file": "lst.sol",
+      "name": "Liquid Staking",
+      "category": "Liquid Staking",
+      "icon": "\u25c9",
+      "summary": "Deposit an asset, hold a liquid share while it earns; rewards are reported in.",
+      "docs": "The Lido shape, share-priced rather than rebasing \u2014 a rebase breaks every integration that stored a number. An operator stakes the buffer out and reports rewards, which must arrive as real tokens; the protocol fee is taken in newly minted shares, diluting holders by exactly the fee. Exits go through an unbonding queue, because real staking cannot exit instantly.",
+      "provides": [
+        "erc20",
+        "vault"
+      ],
+      "inputs": [
+        {
+          "id": "asset",
+          "label": "Staked asset",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "feeSink",
+          "label": "Fee sink",
+          "type": "sink",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Share name",
+          "default": "Mod Staked ETH"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Share symbol",
+          "default": "mstETH"
+        },
+        {
+          "name": "feeBps_",
+          "type": "uint16",
+          "label": "Protocol fee (bps)",
+          "default": 1000,
+          "max": 3000
+        },
+        {
+          "name": "unbondingPeriod_",
+          "type": "uint256",
+          "label": "Unbonding (seconds)",
+          "default": 604800
+        }
+      ],
+      "ctor": [
+        "$input:asset",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:feeBps_",
+        "$param:unbondingPeriod_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "feeSink",
+          "target": "$self",
+          "method": "setFeeSink(address)",
+          "args": [
+            "$input:feeSink"
+          ],
+          "note": "staking fees \u2192 sink"
+        }
+      ]
+    },
+    {
+      "id": "veescrow",
+      "contract": "ModVoteEscrow",
+      "file": "veescrow.sol",
+      "name": "Vote-Escrow Lock",
+      "category": "Governance",
+      "icon": "\u25d4",
+      "summary": "Lock a token for up to four years for a weight that decays to zero.",
+      "docs": "veCRV. Weight is amount \u00d7 time remaining, so power costs time instead of capital you can borrow for one block. The weight reads like an erc20 but every transfer path reverts \u2014 which is exactly what makes it safe as a vote token for a governor with no snapshots, and as the boost source for a gauge.",
+      "provides": [
+        "escrow",
+        "erc20"
+      ],
+      "inputs": [
+        {
+          "id": "token",
+          "label": "Token to lock",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Escrow name",
+          "default": "Vote-escrowed MOD"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Escrow symbol",
+          "default": "veMOD"
+        },
+        {
+          "name": "maxLock_",
+          "type": "uint256",
+          "label": "Max lock (seconds)",
+          "default": 126144000,
+          "help": "126144000 is four years \u2014 the veCRV maximum, and the cap this block enforces."
+        }
+      ],
+      "ctor": [
+        "$input:token",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:maxLock_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "gauge",
+      "contract": "ModGauge",
+      "file": "gauge.sol",
+      "name": "Boosted Gauge",
+      "category": "Incentives",
+      "icon": "\u25eb",
+      "summary": "Emissions on a staked LP token, boosted up to 2.5\u00d7 by vote-escrow weight.",
+      "docs": "The second half of the Curve design. Your working balance is 40% of your deposit plus 60% weighted by your share of total ve, capped at your deposit \u2014 so the maximum boost is 2.5\u00d7. With no escrow wired it degrades to plain staking, everyone at 1\u00d7. Anyone can kick() a wallet whose lock expired.",
+      "provides": [
+        "sink"
+      ],
+      "inputs": [
+        {
+          "id": "stakeToken",
+          "label": "LP token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "rewardToken",
+          "label": "Reward token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "escrow",
+          "label": "Boost source",
+          "type": "escrow",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "rewardPerSecond_",
+          "type": "uint256",
+          "scale": 18,
+          "label": "Emissions / second",
+          "default": "0.05"
+        }
+      ],
+      "ctor": [
+        "$input:stakeToken",
+        "$input:rewardToken",
+        "$input:escrow|$zero",
+        "$param:rewardPerSecond_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "perps",
+      "contract": "ModPerpMarket",
+      "file": "perps.sol",
+      "name": "Perp Market",
+      "category": "Derivatives",
+      "icon": "\u21c5",
+      "summary": "Levered longs and shorts against an oracle, with an LP pool as counterparty.",
+      "docs": "The GMX shape. Traders post margin and take a levered position; liquidity providers mint an LP share and are the other side of every one. Funding is skew-based \u2014 the crowded side pays \u2014 and positions below maintenance margin can be closed by anyone for a keeper fee. The LP share is an erc20 output: stake it, pair it, vault it.",
+      "provides": [
+        "erc20",
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "settlement",
+          "label": "Settlement asset",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "oracle",
+          "label": "Index price",
+          "type": "oracle",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "LP name",
+          "default": "Mod Perp Liquidity"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "LP symbol",
+          "default": "mPLP"
+        },
+        {
+          "name": "maxLeverageBps_",
+          "type": "uint16",
+          "label": "Max leverage (bps)",
+          "default": 50000,
+          "max": 65535,
+          "help": "50000 = 5\u00d7. The contract caps this at 50\u00d7 regardless."
+        },
+        {
+          "name": "openFeeBps_",
+          "type": "uint16",
+          "label": "Open fee (bps)",
+          "default": 10,
+          "max": 500
+        }
+      ],
+      "ctor": [
+        "$input:settlement",
+        "$input:oracle",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:maxLeverageBps_",
+        "$param:openFeeBps_",
+        "$input:governor|$owner"
+      ]
+    },
+    {
+      "id": "bonding",
+      "contract": "ModBondDepository",
+      "file": "bonding.sol",
+      "name": "Bond Depository",
+      "category": "Revenue",
+      "icon": "\u25c7",
+      "summary": "Sell the protocol token at a discount for reserves, vested over a term.",
+      "docs": "OlympusDAO's answer to renting liquidity. Price comes off the wired oracle \u2014 point it at the pair the token trades on and the bond re-prices every block \u2014 and the discount narrows as debt approaches the ceiling, which is the loop that stops one dip from draining the treasury. Reserves go straight through to the treasury sink.",
+      "provides": [
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "payoutToken",
+          "label": "Token sold",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "quoteToken",
+          "label": "Reserve taken",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "oracle",
+          "label": "Market price",
+          "type": "oracle",
+          "required": true
+        },
+        {
+          "id": "treasury",
+          "label": "Treasury",
+          "type": "sink",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "discountBps_",
+          "type": "uint16",
+          "label": "Discount (bps)",
+          "default": 700,
+          "max": 5000
+        },
+        {
+          "name": "vestingTerm_",
+          "type": "uint256",
+          "label": "Vesting term (seconds)",
+          "default": 432000
+        }
+      ],
+      "ctor": [
+        "$input:payoutToken",
+        "$input:quoteToken",
+        "$input:oracle",
+        "$param:discountBps_",
+        "$param:vestingTerm_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "treasury",
+          "target": "$self",
+          "method": "setTreasury(address)",
+          "args": [
+            "$input:treasury"
+          ],
+          "note": "bond proceeds \u2192 treasury"
+        }
+      ]
+    },
+    {
+      "id": "flashlender",
+      "contract": "ModFlashLender",
+      "file": "flashlender.sol",
+      "name": "Flash Lender",
+      "category": "Markets",
+      "icon": "\u21af",
+      "summary": "ERC-3156 flash loans out of a depositor-owned reserve.",
+      "docs": "Borrow the whole reserve for one call as long as it returns with the fee inside the same transaction. Deposits mint a share whose value grows with fees, so the reserve is itself a yield-bearing erc20 \u2014 and a protocol share of the fee can be routed to a sink.",
+      "provides": [
+        "erc20",
+        "market"
+      ],
+      "inputs": [
+        {
+          "id": "asset",
+          "label": "Reserve asset",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "feeSink",
+          "label": "Fee sink",
+          "type": "sink",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Share name",
+          "default": "Mod Flash Reserve"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Share symbol",
+          "default": "mFLASH"
+        },
+        {
+          "name": "feeBps_",
+          "type": "uint16",
+          "label": "Flash fee (bps)",
+          "default": 9,
+          "max": 500
+        }
+      ],
+      "ctor": [
+        "$input:asset",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:feeBps_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "feeSink",
+          "target": "$self",
+          "method": "setFeeSink(address)",
+          "args": [
+            "$input:feeSink"
+          ],
+          "note": "protocol fee share \u2192 sink"
+        }
+      ]
+    },
+    {
+      "id": "governor",
+      "contract": "ModGovernor",
+      "file": "governor.sol",
+      "name": "Governor",
+      "category": "Governance",
+      "icon": "\u229e",
+      "summary": "Propose, vote, execute. Outputs an owner port every block can obey.",
+      "docs": "Governor Bravo without the indexer. Votes are the caller's balance at the moment they vote rather than a historical checkpoint \u2014 which is why the natural vote token here is a vote-escrow lock, a weight nobody can borrow for one block. Wire a timelock and the deployment hands it the admin key, so passed proposals execute through the delay.",
+      "provides": [
+        "governor"
+      ],
+      "inputs": [
+        {
+          "id": "votes",
+          "label": "Vote token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "timelock",
+          "label": "Timelock",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "votingDelay_",
+          "type": "uint256",
+          "label": "Voting delay (seconds)",
+          "default": 3600
+        },
+        {
+          "name": "votingPeriod_",
+          "type": "uint256",
+          "label": "Voting period (seconds)",
+          "default": 259200
+        },
+        {
+          "name": "quorumBps_",
+          "type": "uint16",
+          "label": "Quorum (bps of supply)",
+          "default": 400,
+          "max": 10000
+        }
+      ],
+      "ctor": [
+        "$input:votes",
+        "$input:timelock|$zero",
+        "$param:votingDelay_",
+        "$param:votingPeriod_",
+        "$param:quorumBps_",
+        "$owner"
+      ],
+      "wires": [
+        {
+          "when": "timelock",
+          "target": "$input:timelock",
+          "method": "setAdmin(address)",
+          "args": [
+            "$self"
+          ],
+          "note": "timelock takes orders from the governor"
+        }
+      ]
+    },
+    {
+      "id": "safetymodule",
+      "contract": "ModSafetyModule",
+      "file": "safetymodule.sol",
+      "name": "Safety Module",
+      "category": "Risk",
+      "icon": "\u25d8",
+      "summary": "Stake to backstop the protocol: emissions to wait, a cooldown to leave, slashable.",
+      "docs": "Aave's stkAAVE. The cooldown is the point \u2014 insurance you can withdraw the instant it is needed is not insurance \u2014 so exiting is signal, wait, then leave inside a short window. A slash is capped and moves the exchange rate rather than any one balance, so the loss lands on everyone in proportion.",
+      "provides": [
+        "erc20",
+        "sink"
+      ],
+      "inputs": [
+        {
+          "id": "stakeToken",
+          "label": "Token staked",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "rewardToken",
+          "label": "Reward token",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "recoveryFund",
+          "label": "Recovery fund",
+          "type": "sink",
+          "required": false
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "name_",
+          "type": "string",
+          "label": "Share name",
+          "default": "Staked MOD"
+        },
+        {
+          "name": "symbol_",
+          "type": "string",
+          "label": "Share symbol",
+          "default": "stkMOD"
+        },
+        {
+          "name": "cooldownPeriod_",
+          "type": "uint256",
+          "label": "Cooldown (seconds)",
+          "default": 864000
+        },
+        {
+          "name": "maxSlashBps_",
+          "type": "uint16",
+          "label": "Max slash (bps)",
+          "default": 3000,
+          "max": 5000
+        }
+      ],
+      "ctor": [
+        "$input:stakeToken",
+        "$input:rewardToken",
+        "$param:name_",
+        "$param:symbol_",
+        "$param:cooldownPeriod_",
+        "$param:maxSlashBps_",
+        "$input:governor|$owner"
+      ],
+      "wires": [
+        {
+          "when": "recoveryFund",
+          "target": "$self",
+          "method": "setRecoveryFund(address)",
+          "args": [
+            "$input:recoveryFund"
+          ],
+          "note": "slashed funds \u2192 recovery"
+        }
+      ]
+    },
+    {
+      "id": "airdrop",
+      "contract": "ModMerkleAirdrop",
+      "file": "airdrop.sol",
+      "name": "Merkle Airdrop",
+      "category": "Infrastructure",
+      "icon": "\u2042",
+      "summary": "One root, thousands of claimants, each paying their own gas.",
+      "docs": "The Uniswap distributor. Publish a root, let holders prove membership, sweep what nobody claimed when the window closes. Claims are one bit each, 256 to a storage slot. The root can still be replaced right up until the first claim lands.",
+      "provides": [
+        "sink"
+      ],
+      "inputs": [
+        {
+          "id": "token",
+          "label": "Token distributed",
+          "type": "erc20",
+          "required": true
+        },
+        {
+          "id": "governor",
+          "label": "Owner",
+          "type": "governor",
+          "required": false
+        }
+      ],
+      "params": [
+        {
+          "name": "merkleRoot_",
+          "type": "bytes32",
+          "label": "Merkle root",
+          "default": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "help": "Set it later with setRoot() if the list is not final at deploy time."
+        },
+        {
+          "name": "deadline_",
+          "type": "uint256",
+          "label": "Claim deadline (unix, 0 = open)",
+          "default": 0
+        }
+      ],
+      "ctor": [
+        "$input:token",
+        "$param:merkleRoot_",
+        "$param:deadline_",
+        "$input:governor|$owner"
+      ]
+    }
+  ],
+  "templates": [
+    {
+      "id": "stablecoin-vault",
+      "name": "Vault + Strategy",
+      "summary": "A token, a yield vault over it, and a fixed-rate strategy behind the vault.",
+      "nodes": [
+        {
+          "id": "n1",
+          "block": "token",
+          "x": 80,
+          "y": 120,
+          "params": {
+            "name_": "Mod Dollar",
+            "symbol_": "MUSD"
+          }
+        },
+        {
+          "id": "n2",
+          "block": "vault",
+          "x": 400,
+          "y": 120,
+          "params": {}
+        },
+        {
+          "id": "n3",
+          "block": "strategy",
+          "x": 720,
+          "y": 200,
+          "params": {
+            "rateBps_": 500
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2",
+          "port": "asset"
+        },
+        {
+          "from": "n1",
+          "to": "n3",
+          "port": "asset"
+        },
+        {
+          "from": "n3",
+          "to": "n2",
+          "port": "strategy"
+        }
+      ]
+    },
+    {
+      "id": "amm-farm",
+      "name": "AMM + Liquidity Mining",
+      "summary": "Two tokens, a pair, and a staking block paying rewards on the LP token.",
+      "nodes": [
+        {
+          "id": "n1",
+          "block": "token",
+          "x": 60,
+          "y": 60,
+          "params": {
+            "name_": "Mod Dollar",
+            "symbol_": "MUSD"
+          }
+        },
+        {
+          "id": "n2",
+          "block": "token",
+          "x": 60,
+          "y": 300,
+          "params": {
+            "name_": "Mod Governance",
+            "symbol_": "MOD",
+            "initialSupply": "10000000"
+          }
+        },
+        {
+          "id": "n3",
+          "block": "amm",
+          "x": 400,
+          "y": 160,
+          "params": {
+            "feeBps_": 30
+          }
+        },
+        {
+          "id": "n4",
+          "block": "staking",
+          "x": 740,
+          "y": 220,
+          "params": {}
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n3",
+          "port": "token0"
+        },
+        {
+          "from": "n2",
+          "to": "n3",
+          "port": "token1"
+        },
+        {
+          "from": "n3",
+          "to": "n4",
+          "port": "stakeToken"
+        },
+        {
+          "from": "n2",
+          "to": "n4",
+          "port": "rewardToken"
+        }
+      ]
+    },
+    {
+      "id": "money-market",
+      "name": "Governed Money Market",
+      "summary": "Collateral + debt asset + price feed into a lending pool, all owned by a timelock.",
+      "nodes": [
+        {
+          "id": "n1",
+          "block": "token",
+          "x": 60,
+          "y": 60,
+          "params": {
+            "name_": "Mod Ether",
+            "symbol_": "METH"
+          }
+        },
+        {
+          "id": "n2",
+          "block": "token",
+          "x": 60,
+          "y": 260,
+          "params": {
+            "name_": "Mod Dollar",
+            "symbol_": "MUSD"
+          }
+        },
+        {
+          "id": "n3",
+          "block": "oracle",
+          "x": 60,
+          "y": 460,
+          "params": {
+            "initialPrice": "2500"
+          }
+        },
+        {
+          "id": "n4",
+          "block": "timelock",
+          "x": 400,
+          "y": 460,
+          "params": {
+            "delay_": 172800
+          }
+        },
+        {
+          "id": "n5",
+          "block": "lending",
+          "x": 460,
+          "y": 160,
+          "params": {
+            "ltvBps_": 7500
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n5",
+          "port": "collateral"
+        },
+        {
+          "from": "n2",
+          "to": "n5",
+          "port": "debtAsset"
+        },
+        {
+          "from": "n3",
+          "to": "n5",
+          "port": "oracle"
+        },
+        {
+          "from": "n4",
+          "to": "n5",
+          "port": "governor"
+        }
+      ]
+    },
+    {
+      "id": "yield-treasury",
+      "name": "Yield \u2192 BlocTime Treasury",
+      "summary": "A token, a vault farming a fixed rate over it, and a treasury that locks the yield and pays it out weekly to BLOC holders.",
+      "nodes": [
+        {
+          "id": "n1",
+          "block": "token",
+          "x": 80,
+          "y": 140,
+          "params": {
+            "name_": "Mod Dollar",
+            "symbol_": "MUSD"
+          }
+        },
+        {
+          "id": "n2",
+          "block": "vault",
+          "x": 400,
+          "y": 140,
+          "params": {}
+        },
+        {
+          "id": "n3",
+          "block": "strategy",
+          "x": 400,
+          "y": 340,
+          "params": {
+            "rateBps_": 620
+          }
+        },
+        {
+          "id": "n4",
+          "block": "treasury",
+          "x": 740,
+          "y": 180,
+          "params": {}
+        }
+      ],
+      "edges": [
+        {
+          "from": "n1",
+          "to": "n2",
+          "port": "asset"
+        },
+        {
+          "from": "n1",
+          "to": "n3",
+          "port": "asset"
+        },
+        {
+          "from": "n3",
+          "to": "n2",
+          "port": "strategy"
+        },
+        {
+          "from": "n2",
+          "to": "n4",
+          "port": "asset"
+        }
+      ]
+    }
+  ]
+}

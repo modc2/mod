@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-API_PORT=50130
+API_PORT=50132
 APP_PORT=50131
 GATEWAY_PORT="${GATEWAY_PORT:-50131}"
 MODULE="openhouse"

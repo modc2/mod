@@ -1,0 +1,189 @@
+{
+  "netuid": 78,
+  "name": "Umi",
+  "symbol": "و",
+  "owner": "5GvYz1tBVJdVGtdeJFAcDbiRQcmKDcXicT98pxnKzU3cxVQ3",
+  "description": "Universal motion to meaning",
+  "github": "https://github.com/Umi-BitSign/umi",
+  "url": "https://www.umi.vision",
+  "discord": "https://discord.gg/8pexneWef",
+  "logo": "https://www.umi.vision/logo-white.png",
+  "registered_at": 7966145,
+  "tempo": 360,
+  "active": true,
+  "block": 9200279,
+  "related": [],
+  "market": {
+    "price": 0.004945907,
+    "moving_price": 0.00468187197111547,
+    "market_cap": 7330.231810527199,
+    "tao_in": 1671.162003677,
+    "alpha_in": 337887.938044428,
+    "alpha_out": 1144192.459044963,
+    "volume": 186670.158946384,
+    "vol_24h": 3812.9612923380046,
+    "emission": 0.0,
+    "change_1h": -0.13612917047017836,
+    "change_24h": 18.19334749640944,
+    "change_7d": 22.414320121198905
+  },
+  "spark_24h": [
+    0.004184587,
+    0.004173206,
+    0.004171903,
+    0.004171794,
+    0.004171864,
+    0.004229446,
+    0.004489559,
+    0.004364641,
+    0.004305418,
+    0.004379675,
+    0.004379661,
+    0.004445831,
+    0.00460488,
+    0.004551744,
+    0.004346571,
+    0.004377441,
+    0.00445476,
+    0.004448554,
+    0.004444831,
+    0.004277306,
+    0.004278483,
+    0.004348182,
+    0.004558967,
+    0.004620402,
+    0.004623839,
+    0.004853966,
+    0.005085275,
+    0.004957365,
+    0.004860898,
+    0.004885205,
+    0.004918143,
+    0.004746895,
+    0.004781584,
+    0.004963007,
+    0.005134604,
+    0.005179428,
+    0.00518262,
+    0.004862306,
+    0.005070514,
+    0.005069941,
+    0.005128935,
+    0.004909577,
+    0.004887818,
+    0.004949415,
+    0.004982842,
+    0.004959861,
+    0.004952649,
+    0.004945907
+  ],
+  "trades_24h": {
+    "trades": 755,
+    "buys": 384,
+    "sells": 371,
+    "buy_tao": 1974.431575598,
+    "sell_tao": 1826.656072711,
+    "net_tao": 147.77550288700013,
+    "traders": 188
+  },
+  "top_traders_24h": [
+    {
+      "coldkey": "5GFASTQftoZcMXRuaML9brsMMZQJMqyTViMnYHQsN5mTi1hN",
+      "net_tao": -1.7950349880000138,
+      "gross_tao": 1591.225889912,
+      "trades": 40
+    },
+    {
+      "coldkey": "5HeQWuhJWCw6aQNqZ8FqjEPZtiSHDq5wSSRU67mop5zqWikT",
+      "net_tao": -2.2749011759999997,
+      "gross_tao": 132.334901176,
+      "trades": 14
+    },
+    {
+      "coldkey": "5CY9b9tgGmSoec5pykbthbpG8ninVvYiZDYeznYxknqMAuix",
+      "net_tao": 8.485349303,
+      "gross_tao": 125.51465069700001,
+      "trades": 23
+    },
+    {
+      "coldkey": "5DkEFBBbM7akRQWheXh98HQiTYB5qSAxtgtEC9j48R33Ve6g",
+      "net_tao": -0.7396731019999994,
+      "gross_tao": 110.739673102,
+      "trades": 11
+    },
+    {
+      "coldkey": "5FkJFbkpW7CM4kThGj4BHTrY9FvuKemLwNQ6bVH7YLxq8LP4",
+      "net_tao": -2.583758076999999,
+      "gross_tao": 110.583758077,
+      "trades": 23
+    }
+  ],
+  "news": [
+    {
+      "ts": 1790968175,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #205 from Umi-BitSign/codex/heartbeat-successor-st…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/69610837511b8e9fe40649ff50679b891c488c86",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790968144,
+      "kind": "commit",
+      "source": "github",
+      "title": "fix successor heartbeat status compatibility",
+      "url": "https://github.com/Umi-BitSign/umi/commit/71f234072c283a230148b0efbaeda109eb1fd514",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790964417,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #204 from Umi-BitSign/codex/c6-automatic-model-review",
+      "url": "https://github.com/Umi-BitSign/umi/commit/86dc6a9c4f700476e58714044904d06f29dbac05",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790963236,
+      "kind": "commit",
+      "source": "github",
+      "title": "Format automatic model review changes",
+      "url": "https://github.com/Umi-BitSign/umi/commit/c4cc8c470084033c3303d34546275e295bc2f20e",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790962093,
+      "kind": "commit",
+      "source": "github",
+      "title": "Automate model artifact review and staging cleanup",
+      "url": "https://github.com/Umi-BitSign/umi/commit/75e6d5a85d0a54e578f8eca1278812d50d3d372a",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790945011,
+      "kind": "commit",
+      "source": "github",
+      "title": "Merge pull request #203 from Umi-BitSign/codex/c6-unattended-artifact…",
+      "url": "https://github.com/Umi-BitSign/umi/commit/90dc9d782bd85a2495785a5e0f503c88e8ce1fed",
+      "publisher": "Umi-BitSign/umi"
+    },
+    {
+      "ts": 1790942880,
+      "kind": "news",
+      "source": "gnews",
+      "title": "UMI Launches Bittensor AI Network for Motion-to-Meaning Intelligence, Starting With Sign Language",
+      "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxOQXBvQlNpaUdHUFdoMml1TkhudG5ISzd6QkVXQlU0WDN3UFBGcDctbmZETWphSkVZTDJHUklCLTRiTkZ1TUpNd1lYeVhjQ2pLVmY5V3NxQXNRbWxncnFXRmhVbEpYZUNQdng2MTc3WC1VWnY1bkRMMjJXUS00QjRJOTRZZkItc2k2c3RHdFhycExhVTZGVDhJOHdxWDhLUQ?oc=5",
+      "publisher": "Yahoo Finance"
+    },
+    {
+      "ts": 1790932537,
+      "kind": "commit",
+      "source": "github",
+      "title": "Format stale container recovery",
+      "url": "https://github.com/Umi-BitSign/umi/commit/38bdab9c44cc175a14c5fc5e4188eea3deddb4d8",
+      "publisher": "Umi-BitSign/umi"
+    }
+  ],
+  "updated": 1791006061,
+  "updated_day": "2026-10-03"
+}

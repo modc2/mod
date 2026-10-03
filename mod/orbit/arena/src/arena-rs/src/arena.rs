@@ -5,71 +5,182 @@
 //! an agent and a browser can never drift apart on what the arena does.
 
 use crate::blobs;
+use crate::klass;
 use crate::players;
 use crate::rating;
-use crate::store::{self, Match, Player, Rating, Seat, Turn, WasmModule};
+use crate::rsklass;
+use crate::rustc;
+use crate::storelink;
+use crate::store::{self, round1, round3, Match, Player, Rating, Seat, Turn, WasmModule};
+use std::collections::HashMap;
 use crate::wasm;
 use serde_json::{json, Value};
+use std::time::Duration;
 
-/// Where the example pack lives. Baked as a path, not as bytes, so the pack
-/// can be rebuilt without rebuilding the server.
-fn examples_dir() -> std::path::PathBuf {
+/// Where the example pack lives: the compiled wasm, and the classes. Baked as
+/// paths, not as bytes, so the pack can be rebuilt or added to without
+/// rebuilding the server.
+fn example_dirs() -> Vec<std::path::PathBuf> {
     if let Ok(d) = std::env::var("ARENA_EXAMPLES") {
-        return std::path::PathBuf::from(d);
+        return d.split(':').map(std::path::PathBuf::from).collect();
     }
-    std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/wasm"))
+    vec![
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/wasm")),
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/classes")),
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/rust")),
+    ]
 }
 
 pub fn info() -> Value {
-    let (modules, games, players_n, matches) = store::read(|s| {
+    let (modules, games, python, rust, players_n, matches) = store::read(|s| {
         (
             s.modules.len(),
             s.modules.values().filter(|m| m.role == "game").count(),
+            s.modules.values().filter(|m| m.lang() == "python").count(),
+            s.modules.values().filter(|m| m.lang() == "rust").count(),
             s.players.len(),
             s.matches.len(),
         )
     });
     json!({
         "name": "arena",
-        "what": "A wasm storage and execution layer, and an arena built on it: \
-                 modules are stored by the hash of their bytes, executed in the browser \
-                 (or the node runner), and the ones that implement the game ABI become \
-                 games that agents and models are assessed on.",
+        "what": "A storage and execution layer for uploaded code, and an arena built on \
+                 it: upload a wasm module, a Python class or a Rust class, and it is \
+                 stored by the hash of its bytes, executed away from the server, and — if \
+                 what it defines matches the game ABI — playable. Agents, models and bots \
+                 are assessed by sitting them at it. Every module stored here is also a \
+                 mod of its own and an MCP server of its own.",
         "modules": modules,
         "games": games,
+        "classes": python + rust,
+        "python": python,
+        "rust": rust,
         "players": players_n,
         "matches": matches,
         "player_kinds": players::KINDS,
         "executes_in": ["browser", "node"],
         "state": blobs::state_dir().to_string_lossy(),
+        "upload": ["a .wasm module", "a .py file holding a class", "a .rs file holding a struct"],
+        "mcp": {
+            "arena": "/mcp — the whole arena, as one server",
+            "per_module": "/m/<name>/mcp — one server per game and per agent, tools scoped \
+                           to that module alone",
+            "outward": "a class calls out through arena::mcp (Rust) or self.mcp (Python); \
+                        the sandbox never opens a socket, the host makes the call",
+        },
         "abi": {
-            "strings": "the module exports alloc(i32)->i32; anything it returns is one i64 packed as (ptr << 32) | len",
-            "game": wasm::GAME_EXPORTS,
-            "game_optional": ["game_info", "game_turn", "alloc"],
-            "player": wasm::PLAYER_EXPORTS,
+            "wasm": {
+                "strings": "the module exports alloc(i32)->i32; anything it returns is one i64 packed as (ptr << 32) | len",
+                "game": wasm::GAME_EXPORTS,
+                "game_optional": ["game_info", "game_turn", "alloc"],
+                "player": wasm::PLAYER_EXPORTS,
+                "runs_in": ["browser", "node"],
+            },
+            "class": {
+                "strings": "plain Python — the methods take and return str, dict and list, and the state is self",
+                "game": klass::GAME_METHODS,
+                "game_optional": ["__init__(self, seed)", "turn", "info", "name", "players", "max_turns"],
+                "player": klass::PLAYER_METHODS,
+                "runs_in": ["node"],
+                "sandbox": "a python subprocess: no filesystem, no network, seeded random, capped memory and CPU",
+            },
+            "rust": {
+                "strings": "plain Rust — a struct, and an impl block whose methods take &str and return String",
+                "game": rsklass::GAME_METHODS,
+                "game_optional": ["new(seed)", "turn", "NAME", "PLAYERS", "MAX_TURNS"],
+                "player": rsklass::PLAYER_METHODS,
+                "runs_in": ["browser", "node"],
+                "sandbox": "compiled to wasm32-unknown-unknown on upload and run in a wasm \
+                            engine — the same sandbox as any other wasm module here",
+                "toolchain": rustc::toolchain(),
+            },
         },
     })
 }
 
 // ── modules ──────────────────────────────────────────────────────────────
 
+/// Which reader describes these bytes. The registry holds three kinds of
+/// module and this one function is the whole of how it tells them apart —
+/// four magic bytes, or which language the source is written in.
+///
+/// Rust is asked first because the question is narrower: a file with `impl`,
+/// `struct` or `fn` and a brace in it is Rust and is not anything else here.
+pub fn describe(raw: &[u8]) -> Result<Value, String> {
+    if raw.starts_with(b"\0asm") {
+        return wasm::describe(raw);
+    }
+    if rsklass::looks_like_rust(raw) {
+        return rsklass::describe(raw);
+    }
+    if klass::looks_like_python(raw) {
+        return klass::describe(raw);
+    }
+    Err("these bytes are none of the three things this registry holds — not a wasm module \
+         (no \\0asm header), not Python source (no class, def or import), and not Rust \
+         source (no struct, impl or fn). `m arena/abi lang=class` or `lang=rust` prints \
+         the contract."
+        .into())
+}
+
+/// The wasm a module actually runs as. For a wasm upload that is the bytes
+/// themselves; for a Rust class it is the compile, cached under the module's
+/// id. A Python class has no wasm form and says so — it runs in the
+/// interpreter sandbox instead.
+///
+/// Everything that executes goes through here, which is why a Rust class plays
+/// in a browser tab and a Python class does not.
+pub fn compiled(key: &str) -> Result<(String, Vec<u8>), String> {
+    let m = store::read(|s| s.module(key).cloned())
+        .ok_or_else(|| format!("no module `{key}`"))?;
+    let raw = blobs::get(&m.id)?;
+    match m.lang() {
+        "wasm" => Ok((m.id, raw)),
+        "rust" => {
+            let source = String::from_utf8(raw).map_err(|_| "the source is not UTF-8".to_string())?;
+            let bytes = rustc::compile(&m.id, &source)?;
+            Ok((m.id, bytes))
+        }
+        other => Err(format!(
+            "`{}` is a {other} class — it runs in the interpreter sandbox, not in a wasm \
+             engine, so there is no wasm form of it to fetch",
+            m.name
+        )),
+    }
+}
+
 /// Store a module. The id is the hash of the bytes, so uploading the same
-/// wasm twice updates the metadata and never duplicates the blob.
+/// thing twice updates the metadata and never duplicates the blob.
 pub fn put_module(args: &Value) -> Result<Value, String> {
-    let encoded = args
-        .get("bytes")
-        .or_else(|| args.get("wasm"))
-        .or_else(|| args.get("base64"))
-        .and_then(|v| v.as_str())
-        .ok_or("put_module needs `bytes` — the module, base64 or hex encoded")?;
-    let raw = blobs::decode(encoded)?;
+    // `text` is source as itself; `bytes` is anything, encoded. Keeping them
+    // apart is the difference between "here is my class" and "decode this".
+    let raw = match args.get("text").and_then(|v| v.as_str()) {
+        Some(text) => text.as_bytes().to_vec(),
+        None => {
+            let encoded = args
+                .get("bytes")
+                .or_else(|| args.get("wasm"))
+                .or_else(|| args.get("base64"))
+                .and_then(|v| v.as_str())
+                .ok_or("put_module needs `bytes` — a wasm module or a class, base64 or hex \
+                        encoded — or `text`, a class as itself")?;
+            blobs::decode(encoded)?
+        }
+    };
     if raw.is_empty() {
         return Err("put_module got zero bytes".into());
     }
-    // Parse before storing: a blob that cannot be described is not a module,
-    // and the registry promises every entry can be introspected.
-    let described = wasm::describe(&raw)?;
-    let id = blobs::put(&raw)?;
+    // Read before storing: a blob that cannot be described is not a module,
+    // and the registry promises every entry can be introspected. Which reader
+    // runs is decided by the bytes — wasm's four magic bytes, or source —
+    // unless the caller already said, in which case the caller said.
+    let described = match args.get("lang").and_then(|v| v.as_str()).unwrap_or("") {
+        "rust" | "rs" => rsklass::describe(&raw),
+        "python" | "py" | "class" => klass::describe(&raw),
+        _ => describe(&raw),
+    }?;
+    // Hashed now, stored once it is known to be welcome.
+    let id = blobs::hash(&raw);
 
     let asked = args
         .get("name")
@@ -85,28 +196,115 @@ pub fn put_module(args: &Value) -> Result<Value, String> {
     let renamed = store::read(|s| s.modules.get(&id).map(|m| m.name.clone()))
         .filter(|existing| *existing != asked);
 
+    // A readable source that travels beside compiled bytes — the Rust a wasm
+    // was built from. It is not part of the id (the id is the bytes) but it is
+    // stored under its own hash, and it is what "show me the code" shows.
+    let src = match args.get("source_text").and_then(|v| v.as_str()).map(str::trim) {
+        Some(text) if !text.is_empty()
+            && described.get("lang").and_then(|v| v.as_str()).unwrap_or("wasm") == "wasm" =>
+        {
+            blobs::put(text.as_bytes())?
+        }
+        _ => String::new(),
+    };
+
+    // An edit: these bytes replace `parent`. Only its owner (or the box's)
+    // may do that, and the new version inherits the name and the owner —
+    // so a game keeps its address while its rules change.
+    let who = crate::ident::caller();
+    let parent = match args.get("parent").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()) {
+        Some(key) => {
+            let p = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}` to edit"))?;
+            if !crate::ident::can_edit(&p.owner, who.as_deref()) {
+                return Err(match who {
+                    None => format!("sign in to edit {} — only its owner can", p.name),
+                    Some(_) => format!("{} is not yours to edit — fork it instead", p.name),
+                });
+            }
+            if p.id == id {
+                return Err(format!("nothing changed — these are the bytes {} already is", p.name));
+            }
+            if p.role != described["role"].as_str().unwrap_or("") {
+                return Err(format!(
+                    "{} is a {}, and the edit reads as a {} — an edit keeps what it is",
+                    p.name, p.role, described["role"].as_str().unwrap_or("?")
+                ));
+            }
+            Some(p)
+        }
+        None => None,
+    };
+    let asked = parent.as_ref().map(|p| p.name.clone()).unwrap_or(asked);
+    blobs::put(&raw)?;
+
     let module = store::write(|s| {
         let existing = s.modules.get(&id).cloned();
+        // Somebody else's bytes, uploaded again, change nothing about them:
+        // the words on a module are its owner's to write.
+        let may_touch = existing.as_ref().map_or(true, |e| {
+            e.source == "example" || crate::ident::can_edit(&e.owner, who.as_deref())
+        });
+        let kept = |f: fn(&WasmModule) -> String| existing.as_ref().map(f).unwrap_or_default();
+        let src_changed = !src.is_empty() && existing.as_ref().map(|e| e.src != src).unwrap_or(true);
         let m = WasmModule {
             id: id.clone(),
             name: existing.as_ref().map(|e| e.name.clone()).unwrap_or(asked),
             role: described["role"].as_str().unwrap_or("wasm").to_string(),
-            description: args.get("description").and_then(|v| v.as_str()).unwrap_or("").into(),
-            author: args.get("author").and_then(|v| v.as_str()).unwrap_or("").into(),
-            tags: args
-                .get("tags")
-                .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
-                .unwrap_or_default(),
+            description: if may_touch { args.get("description").and_then(|v| v.as_str()).unwrap_or("").into() }
+                else { kept(|e| e.description.clone()) },
+            author: if may_touch { args.get("author").and_then(|v| v.as_str()).unwrap_or("").into() }
+                else { kept(|e| e.author.clone()) },
+            tags: if may_touch {
+                args.get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                    .unwrap_or_default()
+            } else {
+                existing.as_ref().map(|e| e.tags.clone()).unwrap_or_default()
+            },
             size: raw.len(),
             info: described,
-            source: args.get("source").and_then(|v| v.as_str()).unwrap_or("upload").into(),
+            source: args.get("source").or_else(|| args.get("origin"))
+                .and_then(|v| v.as_str()).unwrap_or("upload").into(),
             runs: existing.as_ref().map(|e| e.runs).unwrap_or(0),
             created: existing.as_ref().map(|e| e.created).unwrap_or_else(store::now),
+            cid: existing.as_ref().map(|e| e.cid.clone()).unwrap_or_default(),
+            src: if src.is_empty() { existing.as_ref().map(|e| e.src.clone()).unwrap_or_default() } else { src.clone() },
+            src_cid: if src_changed { String::new() } else { existing.as_ref().map(|e| e.src_cid.clone()).unwrap_or_default() },
+            stored: existing.as_ref().map(|e| e.stored).unwrap_or(0),
+            // First upload owns it. An edit keeps the game's owner.
+            owner: existing.as_ref().map(|e| e.owner.clone()).filter(|o| !o.is_empty())
+                .or_else(|| parent.as_ref().map(|p| p.owner.clone()))
+                .or_else(|| who.clone())
+                .unwrap_or_default(),
+            agent: args.get("agent").and_then(|v| v.as_str()).filter(|_| may_touch).map(str::to_string)
+                .or_else(|| existing.as_ref().map(|e| e.agent.clone()))
+                .unwrap_or_default(),
+            parent: parent.as_ref().map(|p| p.id.clone())
+                .or_else(|| existing.as_ref().map(|e| e.parent.clone()))
+                .unwrap_or_default(),
+            superseded: if parent.is_some() { String::new() }
+                else { existing.as_ref().map(|e| e.superseded.clone()).unwrap_or_default() },
         };
+        // An edit lands under the old version's name, so the old version
+        // takes its own description with it and steps off the shelf.
+        let mut m = m;
+        if let Some(p) = &parent {
+            if m.description.is_empty() {
+                m.description = p.description.clone();
+            }
+            m.name = p.name.clone();
+            if let Some(old) = s.modules.get_mut(&p.id) {
+                old.superseded = id.clone();
+            }
+        }
         s.modules.insert(id.clone(), m.clone());
         m
     });
+    // New bytes, or a source the store has not seen: push in the background.
+    if storelink::needs_push(&module) {
+        storelink::push_later(id.clone());
+    }
 
     let mut v = module.card();
     v["url"] = json!(module.url());
@@ -123,11 +321,20 @@ pub fn list_modules(args: &Value) -> Value {
     let role = args.get("role").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
     let q = args.get("q").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
     let tag = args.get("tag").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+    // `lang=python` is how you ask for the classes, `lang=wasm` for the binaries.
+    let lang = args.get("lang").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+    // Old versions are kept (their matches point at them) but off the shelf.
+    let all = matches!(args.get("all").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_bool().map(|b| b.to_string()))).as_deref(), Some("1" | "true"));
+    // `owner=0x…` is one person's shelf.
+    let owner = args.get("owner").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
 
     let list = store::read(|s| {
         s.module_list()
             .into_iter()
+            .filter(|m| all || m.superseded.is_empty())
+            .filter(|m| owner.is_empty() || m.card()["owner"].as_str().unwrap_or("").eq_ignore_ascii_case(&owner))
             .filter(|m| role.is_empty() || m.role == role)
+            .filter(|m| lang.is_empty() || m.lang() == lang)
             .filter(|m| tag.is_empty() || m.tags.iter().any(|t| t.to_lowercase() == tag))
             .filter(|m| {
                 q.is_empty()
@@ -135,30 +342,181 @@ pub fn list_modules(args: &Value) -> Value {
                     || m.description.to_lowercase().contains(&q)
                     || m.id.starts_with(&q)
             })
-            .map(|m| m.card())
+            .map(|m| {
+                let mut c = m.card();
+                c["version"] = json!(s.lineage(&m.id).len());
+                c
+            })
             .collect::<Vec<_>>()
     });
     json!({ "count": list.len(), "modules": list })
 }
 
-pub fn get_module(key: &str) -> Result<Value, String> {
+/// One module in full. A class carries its source, because for a class the
+/// source *is* the description — nobody reads a list of method names to work
+/// out how a game plays.
+pub fn get_module(key: &str, with_source: bool) -> Result<Value, String> {
     let m = store::read(|s| s.module(key).cloned())
         .ok_or_else(|| format!("no module `{key}` — ids resolve in full, by name, or by an unambiguous prefix of {}+ hex characters", blobs::MIN_PREFIX))?;
     let mut v = m.card();
     v["info"] = m.info.clone();
     v["url"] = json!(m.url());
     v["stored"] = json!(blobs::exists(&m.id));
+    // Its versions, newest first — an edit is new bytes, so each is its own
+    // id with its own board, and the matches before an edit stay with it.
+    let history: Vec<Value> = store::read(|s| s.lineage(&m.id).iter().map(|h| json!({
+        "id": h.id, "short": h.short(), "created": h.created, "runs": h.runs, "made_with": h.made_with(),
+    })).collect());
+    v["version"] = json!(history.len());
+    v["history"] = json!(history);
+    if with_source && m.lang() != "wasm" && m.size <= 256 * 1024 {
+        if let Ok(raw) = blobs::get(&m.id) {
+            if let Ok(text) = String::from_utf8(raw) {
+                v["source"] = json!(text);
+                v["source_lang"] = json!(m.lang());
+            }
+        }
+    }
+    // A wasm module is bytes, but the bytes may have arrived with the code
+    // they were built from; that is what a reader wants to see.
+    if with_source && m.lang() == "wasm" && !m.src.is_empty() {
+        if let Ok(text) = blobs::get(&m.src).and_then(|raw| String::from_utf8(raw).map_err(|e| e.to_string())) {
+            v["source"] = json!(text);
+            v["source_lang"] = json!("rust");
+            v["source_id"] = json!(m.src);
+        }
+    }
     Ok(v)
 }
 
+/// Store a class from plain text — `put_module` for people and agents who are
+/// holding source code rather than a compiled artefact.
+///
+/// The language is read off the source, the same way the role is. `lang` may
+/// be passed to say which was meant, and it is only ever a tie-break: a file
+/// that is plainly Rust is Rust however it was labelled.
+pub fn put_class(args: &Value) -> Result<Value, String> {
+    let source = args
+        .get("source")
+        .or_else(|| args.get("text"))
+        .or_else(|| args.get("class"))
+        .and_then(|v| v.as_str())
+        .ok_or("put_class needs `source` — the class, as Python or Rust text")?;
+    if source.trim().is_empty() {
+        return Err("put_class got an empty source".into());
+    }
+    // Read it first, so a file with no class in it is refused with the ABI
+    // rather than stored as an unplayable blob.
+    let asked = args.get("lang").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+    let described = match asked.as_str() {
+        "rust" | "rs" => rsklass::describe(source.as_bytes()),
+        "python" | "py" | "class" => klass::describe(source.as_bytes()),
+        _ => describe(source.as_bytes()),
+    }?;
+    if described["lang"] == "wasm" {
+        return Err("put_class takes source, and those are compiled bytes — put_module \
+                    stores a wasm binary"
+            .into());
+    }
+
+    let mut forwarded = args.clone();
+    let obj = forwarded.as_object_mut().ok_or("put_class needs an object of arguments")?;
+    obj.remove("source");
+    obj.remove("text");
+    obj.remove("class");
+    obj.insert("text".into(), json!(source));
+    // Keep the language the reader settled on. Dropping it here left
+    // `put_module` to sniff the bytes a second time and, for a Python file
+    // with a line starting `fn `, come back with the Rust reader's complaint.
+    obj.insert("lang".into(), json!(described["lang"].as_str().unwrap_or("")));
+    // Unnamed, a class is called what the class is called — the author already
+    // named it once and should not have to do it twice.
+    if !obj.contains_key("name") {
+        if let Some(class_name) = described.get("class").and_then(|v| v.as_str()) {
+            obj.insert("name".into(), json!(class_name.to_lowercase()));
+        }
+    }
+    if !obj.contains_key("description") {
+        if let Some(doc) = described.get("doc").and_then(|v| v.as_str()).filter(|d| !d.is_empty()) {
+            obj.insert("description".into(), json!(doc));
+        }
+    }
+    let mut stored = put_module(&forwarded)?;
+    if stored["role"] == "class" {
+        stored["note"] = json!(format!(
+            "stored, but not playable yet — {} defines {}, and it still needs {}. \
+             Call game_abi with lang={lang} for the contract.",
+            described["class"].as_str().unwrap_or("this class"),
+            described["exports"].as_array().map(|a| a.iter()
+                .filter_map(|e| e["name"].as_str()).collect::<Vec<_>>().join(", "))
+                .unwrap_or_default(),
+            described["missing"].as_array().map(|a| a.iter()
+                .filter_map(|m| m.as_str()).collect::<Vec<_>>().join(", "))
+                .unwrap_or_default(),
+            lang = if described["lang"] == "rust" { "rust" } else { "class" },
+        ));
+    }
+    Ok(stored)
+}
+
 pub fn module_bytes(key: &str) -> Result<(String, Vec<u8>), String> {
+    // A module by id, prefix or name — and failing that, the readable source
+    // kept beside a compiled module, which is a blob of its own under its own
+    // hash. `source_id` is on every module card, so it has to be fetchable;
+    // it was not, and the link on the console's code card was dead.
     let id = store::read(|s| s.module(key).map(|m| m.id.clone()))
+        .or_else(|| {
+            store::read(|s| {
+                s.modules
+                    .values()
+                    .find(|m| !m.src.is_empty() && (m.src == key || m.src.starts_with(key)))
+                    .map(|m| m.src.clone())
+            })
+        })
         .ok_or_else(|| format!("no module `{key}`"))?;
     let bytes = blobs::get(&id)?;
     Ok((id, bytes))
 }
 
-pub fn delete_module(key: &str) -> Result<Value, String> {
+/// Delete a module — its owner's call, or the box's. Deleting the current
+/// version of an edited game puts the version before it back on the shelf;
+/// `all` takes every version with it.
+pub fn delete_module(key: &str, all: bool) -> Result<Value, String> {
+    let m = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}`"))?;
+    let who = crate::ident::caller();
+    if !crate::ident::can_edit(&m.owner, who.as_deref()) {
+        return Err(match who {
+            None => format!("sign in to delete {} — only its owner can", m.name),
+            Some(_) => format!("{} is not yours to delete", m.name),
+        });
+    }
+    if all {
+        let chain: Vec<String> = store::read(|s| s.lineage(&m.id).iter().map(|v| v.id.clone()).collect());
+        let mut gone = vec![];
+        for id in chain {
+            gone.push(remove_one(&id)?);
+        }
+        return Ok(json!({ "removed": m.id, "name": m.name, "versions": gone.len(), "cid": m.cid }));
+    }
+    let v = remove_one(&m.id)?;
+    // The version it replaced is the game again.
+    if !m.parent.is_empty() {
+        store::write(|s| {
+            if let Some(p) = s.modules.get_mut(&m.parent) {
+                if p.superseded == m.id {
+                    p.superseded.clear();
+                }
+            }
+        });
+    }
+    let mut v = v;
+    if !m.parent.is_empty() {
+        v["restored"] = json!(m.parent);
+    }
+    Ok(v)
+}
+
+fn remove_one(key: &str) -> Result<Value, String> {
     let m = store::read(|s| s.module(key).cloned()).ok_or_else(|| format!("no module `{key}`"))?;
     let players_using = store::read(|s| {
         s.players
@@ -185,19 +543,30 @@ pub fn delete_module(key: &str) -> Result<Value, String> {
     }
     store::write(|s| s.modules.remove(&m.id));
     blobs::remove(&m.id);
-    Ok(json!({ "removed": m.id, "name": m.name }))
+    rustc::forget(&m.id);
+    if !m.src.is_empty() && !store::read(|s| s.modules.values().any(|o| o.src == m.src)) {
+        blobs::remove(&m.src);
+    }
+    storelink::forget_later(m.cid.clone());
+    storelink::forget_later(m.src_cid.clone());
+    Ok(json!({ "removed": m.id, "name": m.name, "cid": m.cid }))
 }
 
 /// Describe bytes without storing them — how the console previews a file the
 /// moment it is dropped, before anyone commits to keeping it.
 pub fn inspect(args: &Value) -> Result<Value, String> {
-    let encoded = args
-        .get("bytes")
-        .or_else(|| args.get("wasm"))
-        .and_then(|v| v.as_str())
-        .ok_or("inspect needs `bytes`")?;
-    let raw = blobs::decode(encoded)?;
-    let mut v = wasm::describe(&raw)?;
+    let raw = match args.get("text").and_then(|v| v.as_str()) {
+        Some(text) => text.as_bytes().to_vec(),
+        None => {
+            let encoded = args
+                .get("bytes")
+                .or_else(|| args.get("wasm"))
+                .and_then(|v| v.as_str())
+                .ok_or("inspect needs `bytes` (encoded) or `text` (a class, as itself)")?;
+            blobs::decode(encoded)?
+        }
+    };
+    let mut v = describe(&raw)?;
     v["id"] = json!(blobs::hash(&raw));
     v["stored"] = json!(blobs::exists(&blobs::hash(&raw)));
     Ok(v)
@@ -206,18 +575,27 @@ pub fn inspect(args: &Value) -> Result<Value, String> {
 /// Plant the example pack. Called once at startup, and by the `examples` tool
 /// when someone rebuilds it. Idempotent — the ids are the content.
 pub fn plant_examples() -> Value {
-    let dir = examples_dir();
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return json!({ "planted": 0, "dir": dir.to_string_lossy(),
-                       "note": "no example pack on disk — run src/examples/build.sh to compile it" });
-    };
+    let dirs = example_dirs();
     let mut planted = Vec::new();
     let mut failed = Vec::new();
-    let mut files: Vec<_> = entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for dir in &dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        files.extend(entries.filter_map(|e| e.ok()).map(|e| e.path()));
+    }
     files.sort();
+    if files.is_empty() {
+        return json!({ "planted": 0,
+                       "dirs": dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>(),
+                       "note": "no example pack on disk — run src/examples/build.sh to compile it" });
+    }
 
     for path in files {
-        if path.extension().and_then(|e| e.to_str()) != Some("wasm") {
+        // Three kinds of example, one loop: a compiled module, or a class in
+        // either language. The reader tells them apart on the way in, so the
+        // loop does not have to.
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext != "wasm" && ext != "py" && ext != "rs" {
             continue;
         }
         let Ok(raw) = std::fs::read(&path) else { continue };
@@ -228,8 +606,20 @@ pub fn plant_examples() -> Value {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_else(|| json!({}));
 
+        // The example pack keeps a compiled wasm's Rust one directory up, as
+        // <stem>.rs — planted beside the bytes so the console can show it.
+        let source_text = if ext == "wasm" {
+            path.parent()
+                .and_then(|d| d.parent())
+                .map(|d| d.join(format!("{stem}.rs")))
+                .and_then(|p| std::fs::read_to_string(p).ok())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         let args = json!({
             "bytes": blobs::to_base64(&raw),
+            "source_text": source_text,
             "name": meta.get("name").and_then(|v| v.as_str()).unwrap_or(&stem),
             "description": meta.get("description").and_then(|v| v.as_str()).unwrap_or(""),
             "author": meta.get("author").and_then(|v| v.as_str()).unwrap_or("arena"),
@@ -239,12 +629,41 @@ pub fn plant_examples() -> Value {
         match put_module(&args) {
             Ok(v) => planted.push(json!({
                 "name": v["name"], "role": v["role"], "id": v["id"], "size": v["size"],
+                "lang": v["info"]["lang"].as_str().unwrap_or("wasm"),
             })),
             Err(e) => failed.push(json!({ "file": stem, "error": e })),
         }
     }
     json!({ "planted": planted.len(), "modules": planted, "failed": failed,
-            "dir": dir.to_string_lossy() })
+            "dirs": dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>() })
+}
+
+/// The house agents: one seat per Liquid AI model worth rating, entered at
+/// startup so a fresh arena has somebody to play against. Only names nobody
+/// holds are entered — deleting or reconfiguring one of these sticks, the
+/// same way the example pack never overwrites a module somebody renamed.
+pub fn plant_agents() -> usize {
+    const ROSTER: [(&str, &str, &str); 4] = [
+        ("lfm-350m", "LiquidAI/LFM2.5-350M", "the smallest LFM that can hold a board"),
+        ("lfm-1.2b", "LiquidAI/LFM2.5-1.2B-Instruct", "the default LFM — what an unnamed model seat plays"),
+        ("lfm-thinking", "LiquidAI/LFM2.5-1.2B-Thinking", "the same weights, told to think first"),
+        ("lfm-2.6b", "LiquidAI/LFM2.5-2.6B", "the biggest dense LFM on the box"),
+    ];
+    let mut entered = 0;
+    for (name, model, note) in ROSTER {
+        if store::read(|s| s.player(name).is_some()) {
+            continue;
+        }
+        let ok = enter_player(&json!({
+            "name": name,
+            "kind": "model",
+            "note": note,
+            "config": { "model": model },
+        }))
+        .is_ok();
+        entered += usize::from(ok);
+    }
+    entered
 }
 
 // ── players ──────────────────────────────────────────────────────────────
@@ -257,7 +676,7 @@ pub fn enter_player(args: &Value) -> Result<Value, String> {
         .filter(|s| !s.is_empty())
         .ok_or("enter_player needs `name`")?
         .to_string();
-    let kind = args
+    let mut kind = args
         .get("kind")
         .and_then(|v| v.as_str())
         .unwrap_or("model")
@@ -270,24 +689,38 @@ pub fn enter_player(args: &Value) -> Result<Value, String> {
 
     // Fail here rather than three turns into a match.
     match kind.as_str() {
-        "wasm" => {
+        // One check for both, because the module decides which it is: a class
+        // entered as `wasm` or a binary entered as `class` still plays, and
+        // being pedantic about the label would only strand people.
+        "wasm" | "class" => {
             let module = config
                 .get("module")
                 .and_then(|v| v.as_str())
-                .ok_or("a wasm player needs config.module — the id of a module that exports `play`")?
+                .ok_or("this player needs config.module — a module that exports `play` (wasm) \
+                        or a class that defines it")?
                 .to_string();
             let m = store::read(|s| s.module(&module).cloned())
                 .ok_or_else(|| format!("no module `{module}`"))?;
             if m.role != "player" {
                 return Err(format!(
-                    "module {} is a `{}`, not a player — a player module must export `play`",
+                    "module {} is a `{}`, not a player — a player {}",
                     m.short(),
-                    m.role
+                    m.role,
+                    match m.lang() {
+                        "python" => "class defines `play(self, view, seat)`",
+                        "rust" => "class defines `play(&mut self, view: &str, seat: usize)`",
+                        _ => "module must export `play`",
+                    }
                 ));
             }
             // Pin the resolution now. A player entered by name would otherwise
             // follow that name if it ever moved to different bytes.
             config["module"] = json!(m.id);
+            // And say which it really is, whatever was typed. A Rust class is
+            // a class even though it executes as wasm — the card should say
+            // what somebody wrote, and `lang` on the module says where it runs.
+            kind = if m.lang() == "wasm" { "wasm".into() } else { "class".into() };
+            config["lang"] = json!(m.lang());
         }
         "model" => {
             config
@@ -297,6 +730,20 @@ pub fn enter_player(args: &Value) -> Result<Value, String> {
         }
         "http" => {
             config.get("url").and_then(|v| v.as_str()).ok_or("an http player needs config.url")?;
+        }
+        // A module of this fleet in a seat. It is named, not addressed — the
+        // gateway is what turns a name into a running module, including one
+        // that is currently asleep.
+        "mcp" => {
+            let named = ["module", "server", "url"]
+                .iter()
+                .any(|k| config.get(*k).and_then(|v| v.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false));
+            if !named {
+                return Err("an mcp player needs config.module — a module of this fleet, e.g. \
+                            {\"module\":\"agent\",\"tool\":\"agent_run\"} — or a configured \
+                            `server`, or a `url`"
+                    .into());
+            }
         }
         _ => {}
     }
@@ -321,6 +768,7 @@ pub fn enter_player(args: &Value) -> Result<Value, String> {
                     moves: 0,
                     illegal: 0,
                     timeouts: 0,
+                    mcp: 0,
                     move_ms_sum: 0,
                     created: store::now(),
                 }
@@ -383,17 +831,108 @@ pub fn get_player(key: &str) -> Result<Value, String> {
             })
             .collect::<Vec<_>>()
     });
+
+    // The ratings know who won; the matches know how it was played. Faults,
+    // pace and calls out are kept per player, not per game, so the per-game
+    // sheet is read off the seats this player actually sat in — oldest first,
+    // so `form` reads left to right the way a season does.
+    #[derive(Default)]
+    struct Sheet {
+        moves: u64,
+        illegal: u64,
+        timeouts: u64,
+        ms: u64,
+        mcp: u64,
+        form: Vec<&'static str>,
+        last: u64,
+    }
+    let mut per_game: HashMap<String, Sheet> = HashMap::new();
+    let mut form: Vec<&'static str> = Vec::new();
+    let mut last_played = 0u64;
+    let mut opponents: HashMap<String, (String, u64, u64, u64, u64)> = HashMap::new();
+    store::read(|s| {
+        for m in s.matches.iter().filter(|m| m.rated) {
+            let Some(seat) = m.seats.iter().find(|x| x.player_id == p.id) else { continue };
+            let scores: Vec<f64> = m.seats.iter().map(|x| x.score).collect();
+            let result = rating::outcome(seat.score, &scores);
+            let sheet = per_game.entry(m.game.clone()).or_default();
+            sheet.moves += seat.moves;
+            sheet.illegal += seat.illegal;
+            sheet.timeouts += seat.timeouts;
+            sheet.ms += seat.ms;
+            sheet.mcp += seat.mcp;
+            sheet.form.push(result);
+            sheet.last = sheet.last.max(m.created);
+            form.push(result);
+            last_played = last_played.max(m.created);
+            for other in m.seats.iter().filter(|x| x.player_id != p.id) {
+                let e = opponents
+                    .entry(other.player_id.clone())
+                    .or_insert_with(|| (other.player_name.clone(), 0, 0, 0, 0));
+                e.1 += 1;
+                match result {
+                    "win" => e.2 += 1,
+                    "draw" => e.3 += 1,
+                    _ => e.4 += 1,
+                }
+            }
+        }
+    });
+    let letter = |r: &str| match r {
+        "win" => "W",
+        "draw" => "D",
+        _ => "L",
+    };
+    let streak = |f: &[&str]| -> String {
+        let Some(&last) = f.last() else { return String::new() };
+        let n = f.iter().rev().take_while(|r| **r == last).count();
+        format!("{}{}", letter(last), n)
+    };
+
     let mut card = p.card();
     card["config"] = redact(&p.config);
-    card["by_game"] = json!(names
+    // The prompt, as the player will actually receive it — a leaderboard that
+    // assesses models has to be able to show what it asked them.
+    if let Some(v) = players::prompt_card(&p) {
+        card["prompt"] = v;
+    }
+    card["form"] = json!(form.iter().rev().take(10).rev().map(|r| letter(r)).collect::<String>());
+    card["streak"] = json!(streak(&form));
+    card["last_played"] = json!(last_played);
+    let mut by_game = names
         .iter()
         .map(|(id, name)| {
-            let mut v = p.by_game.get(id).cloned().unwrap_or_default().card();
+            let r = p.by_game.get(id).cloned().unwrap_or_default();
+            let mut v = r.card();
             v["game"] = json!(id);
             v["game_name"] = json!(name);
-            v
+            let sheet = per_game.remove(id).unwrap_or_default();
+            v["moves"] = json!(sheet.moves);
+            v["illegal"] = json!(sheet.illegal);
+            v["timeouts"] = json!(sheet.timeouts);
+            v["mcp"] = json!(sheet.mcp);
+            v["illegal_rate"] = json!(if sheet.moves == 0 { 0.0 } else { round3(sheet.illegal as f64 / sheet.moves as f64) });
+            v["avg_move_ms"] = json!(if sheet.moves == 0 { 0 } else { sheet.ms / sheet.moves });
+            v["form"] = json!(sheet.form.iter().rev().take(10).rev().map(|r| letter(r)).collect::<String>());
+            v["streak"] = json!(streak(&sheet.form));
+            v["last_played"] = json!(sheet.last);
+            (r.elo, v)
         })
-        .collect::<Vec<_>>());
+        .collect::<Vec<_>>();
+    by_game.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    if let Some((_, best)) = by_game.first() {
+        card["best_game"] = best["game_name"].clone();
+    }
+    card["by_game"] = json!(by_game.into_iter().map(|(_, v)| v).collect::<Vec<_>>());
+    let mut rivals = opponents
+        .into_iter()
+        .map(|(id, (name, n, w, d, l))| json!({
+            "id": id, "name": name, "matches": n, "wins": w, "draws": d, "losses": l,
+            "win_rate": round3(w as f64 / n.max(1) as f64),
+        }))
+        .collect::<Vec<_>>();
+    rivals.sort_by(|a, b| b["matches"].as_u64().cmp(&a["matches"].as_u64()));
+    card["opponents"] = json!(rivals);
     Ok(card)
 }
 
@@ -405,12 +944,21 @@ pub fn remove_player(key: &str) -> Result<Value, String> {
 
 /// One move from a player the execution layer cannot drive itself. This is the
 /// only outbound call the server makes on a match's behalf.
-pub async fn play(key: &str, view: &str, seat: usize) -> Result<Value, String> {
-    let p = store::read(|s| s.player(key).cloned()).ok_or_else(|| format!("no player `{key}`"))?;
+pub async fn play(key: &str, view: &str, seat: usize, answer: &str) -> Result<Value, String> {
+    let mut p = store::read(|s| s.player(key).cloned()).ok_or_else(|| format!("no player `{key}`"))?;
+    // The game decides what a move is, and the match loop forwards that here
+    // as `answer` — a coding game asks for a whole function, everything else
+    // for one line. A player card that pinned its own shape keeps it.
+    if !answer.trim().is_empty() && p.config.get("answer").is_none() {
+        if let Some(map) = p.config.as_object_mut() {
+            map.insert("answer".into(), json!(answer.trim()));
+        }
+    }
     let t0 = std::time::Instant::now();
     let a = players::play(&p, view, seat).await?;
     Ok(json!({
         "player": p.name, "seat": seat, "move": a.mv, "raw": a.raw, "note": a.note,
+        "prompt": a.prompt, "answer": players::answer_of(&p),
         "ms": t0.elapsed().as_millis() as u64, "meta": a.meta,
     }))
 }
@@ -427,6 +975,7 @@ pub async fn play(key: &str, view: &str, seat: usize) -> Result<Value, String> {
 fn bump(r: &mut Rating, score: f64, result: &str, delta: f64) {
     r.matches += 1;
     r.score_sum += score;
+    r.best = Some(r.best.map_or(score, |b| b.max(score)));
     match result {
         "win" => r.wins += 1,
         "draw" => r.draws += 1,
@@ -499,12 +1048,14 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
             let illegal = raw.get("illegal").and_then(|v| v.as_u64()).unwrap_or(0);
             let timeouts = raw.get("timeouts").and_then(|v| v.as_u64()).unwrap_or(0);
             let ms = raw.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+            let mcp = raw.get("mcp").and_then(|v| v.as_u64()).unwrap_or(0);
             let result = rating::outcome(scores[i], &scores);
 
             if let Some(pl) = st.players.get_mut(&p.id) {
                 pl.moves += moves;
                 pl.illegal += illegal;
                 pl.timeouts += timeouts;
+                pl.mcp += mcp;
                 pl.move_ms_sum += ms;
                 bump(&mut pl.overall, scores[i], result, overall_deltas[i]);
                 bump(pl.by_game.entry(game.id.clone()).or_default(), scores[i], result, deltas[i]);
@@ -519,6 +1070,7 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
                 illegal,
                 timeouts,
                 ms,
+                mcp,
                 elo_before: elos[i],
                 elo_after: elos[i] + deltas[i],
                 error: raw.get("error").and_then(|v| v.as_str()).unwrap_or("").into(),
@@ -558,12 +1110,20 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
 pub fn list_matches(args: &Value) -> Value {
     let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 200) as usize;
     let game = args.get("game").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let player = args.get("player").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let list = store::read(|s| {
         let gid = if game.is_empty() { None } else { s.module(&game).map(|m| m.id.clone()) };
+        // A named player that does not exist matches nothing, not everything.
+        let pid = if player.is_empty() {
+            None
+        } else {
+            Some(s.player(&player).map(|p| p.id.clone()).unwrap_or_default())
+        };
         s.matches
             .iter()
             .rev()
             .filter(|m| gid.as_ref().map(|g| &m.game == g).unwrap_or(true))
+            .filter(|m| pid.as_ref().map(|p| m.seats.iter().any(|x| &x.player_id == p)).unwrap_or(true))
             .take(limit)
             .map(|m| m.brief())
             .collect::<Vec<_>>()
@@ -614,4 +1174,225 @@ pub fn leaderboard(args: &Value) -> Result<Value, String> {
         "scope": m.name, "game": m.id, "count": rows.len().min(limit),
         "players": rows.into_iter().take(limit).map(|(_, v)| v).collect::<Vec<_>>(),
     }))
+}
+
+// ── the arcade ───────────────────────────────────────────────────────────
+
+/// One arcade row in the making: what a player has posted at one game.
+#[derive(Clone, Default)]
+struct ArcadeRow {
+    name: String,
+    kind: String,
+    best: Option<f64>,
+    runs: u64,
+    score_sum: f64,
+    last: u64,
+}
+
+/// Fold ratings and the recent match window into hi-score rows for one game.
+///
+/// The rating is the durable record (`best` survives matches scrolling off);
+/// the match window fills in `best` for ratings written before hi-scores
+/// existed, carries `last` (a rating has no clock), and keeps a name on the
+/// board even after its player was deleted — an arcade cabinet remembers.
+fn arcade_rows(players: &HashMap<String, Player>, matches: &[Match], game_id: &str) -> Vec<(f64, Value)> {
+    let mut rows: HashMap<String, ArcadeRow> = HashMap::new();
+
+    for p in players.values() {
+        if let Some(r) = p.by_game.get(game_id) {
+            rows.insert(
+                p.id.clone(),
+                ArcadeRow {
+                    name: p.name.clone(),
+                    kind: p.kind.clone(),
+                    best: r.best,
+                    runs: r.matches,
+                    score_sum: r.score_sum,
+                    last: 0,
+                },
+            );
+        }
+    }
+
+    for m in matches.iter().filter(|m| m.game == game_id) {
+        for s in &m.seats {
+            let row = rows.entry(s.player_id.clone()).or_default();
+            if row.name.is_empty() {
+                row.name = s.player_name.clone();
+                row.kind = "gone".into();
+                // No rating to lean on — count what the window still holds.
+                row.runs += 1;
+                row.score_sum += s.score;
+            }
+            row.best = Some(row.best.map_or(s.score, |b| b.max(s.score)));
+            row.last = row.last.max(m.created);
+        }
+    }
+
+    let mut out: Vec<(f64, Value)> = rows
+        .into_iter()
+        .filter_map(|(id, r)| {
+            let best = r.best?;
+            let runs = r.runs.max(1) as f64;
+            Some((
+                best,
+                json!({
+                    "id": id, "name": r.name, "kind": r.kind,
+                    "best": round1(best), "runs": r.runs,
+                    "avg_score": round3(r.score_sum / runs),
+                    "last": r.last,
+                }),
+            ))
+        })
+        .collect();
+    out.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    out
+}
+
+/// The arcade board: raw game score, per game, and nothing else. No elo in
+/// it anywhere — the number here is the number the game itself printed, and
+/// a solo practice run counts exactly like a seated final, because the
+/// cabinet does not care whether anyone was standing next to you.
+///
+/// With `game`: that game's hi-score table. Without: the marquee — every
+/// game with its current hi-score holder, most-played first.
+pub fn arcade(args: &Value) -> Result<Value, String> {
+    let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20).clamp(1, 200) as usize;
+    let game = args.get("game").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+
+    if game.is_empty() {
+        let mut games = store::read(|s| {
+            s.modules
+                .values()
+                .filter(|m| m.role == "game")
+                .map(|m| {
+                    let rows = arcade_rows(&s.players, &s.matches, &m.id);
+                    let mut v = json!({ "id": m.id, "name": m.name, "runs": m.runs, "players": rows.len() });
+                    if let Some((_, top)) = rows.first() {
+                        v["top"] = top.clone();
+                    }
+                    (m.runs, v)
+                })
+                .collect::<Vec<_>>()
+        });
+        games.sort_by(|a, b| b.0.cmp(&a.0));
+        let games: Vec<Value> = games.into_iter().map(|(_, v)| v).collect();
+        return Ok(json!({ "scope": "marquee", "count": games.len(), "games": games }));
+    }
+
+    let m = store::read(|s| s.module(&game).cloned()).ok_or_else(|| format!("no game `{game}`"))?;
+    let rows = store::read(|s| arcade_rows(&s.players, &s.matches, &m.id));
+    Ok(json!({
+        "scope": m.name, "game": m.id, "runs": m.runs, "count": rows.len().min(limit),
+        "players": rows.into_iter().take(limit).map(|(_, v)| v).collect::<Vec<_>>(),
+    }))
+}
+
+#[cfg(test)]
+mod arcade_tests {
+    use super::*;
+
+    fn player(id: &str, game: &str, best: Option<f64>, matches: u64, score_sum: f64) -> Player {
+        let mut p = Player {
+            id: id.into(),
+            name: id.to_uppercase(),
+            kind: "wasm".into(),
+            owner: String::new(),
+            note: String::new(),
+            config: json!({}),
+            overall: Rating::default(),
+            by_game: HashMap::new(),
+            moves: 0,
+            illegal: 0,
+            timeouts: 0,
+            mcp: 0,
+            move_ms_sum: 0,
+            created: 0,
+        };
+        p.by_game.insert(game.into(), Rating { best, matches, score_sum, ..Rating::default() });
+        p
+    }
+
+    fn seat(pid: &str, score: f64) -> Seat {
+        Seat {
+            seat: 0,
+            player_id: pid.into(),
+            player_name: pid.to_uppercase(),
+            score,
+            moves: 0,
+            illegal: 0,
+            timeouts: 0,
+            ms: 0,
+            mcp: 0,
+            elo_before: 0.0,
+            elo_after: 0.0,
+            error: String::new(),
+        }
+    }
+
+    fn a_match(game: &str, created: u64, seats: Vec<Seat>) -> Match {
+        Match {
+            id: format!("m{created}"),
+            game: game.into(),
+            game_name: game.into(),
+            seed: 0,
+            seats,
+            turns: vec![],
+            summary: String::new(),
+            runtime: "node".into(),
+            rated: false,
+            ms: 0,
+            created,
+        }
+    }
+
+    #[test]
+    fn ranks_by_raw_score_not_elo() {
+        let mut players = HashMap::new();
+        // b has fewer wins but the higher single score — the arcade crowns b.
+        players.insert("a".into(), player("a", "g1", Some(10.0), 5, 40.0));
+        players.insert("b".into(), player("b", "g1", Some(99.0), 1, 99.0));
+        let rows = arcade_rows(&players, &[], "g1");
+        assert_eq!(rows[0].1["name"], "B");
+        assert_eq!(rows[0].1["best"], 99.0);
+        assert_eq!(rows[1].1["best"], 10.0);
+    }
+
+    #[test]
+    fn the_match_window_fills_in_a_rating_without_a_best() {
+        let mut players = HashMap::new();
+        players.insert("a".into(), player("a", "g1", None, 2, 7.0));
+        let matches = vec![a_match("g1", 100, vec![seat("a", 5.0)]), a_match("g1", 200, vec![seat("a", 2.0)])];
+        let rows = arcade_rows(&players, &matches, "g1");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1["best"], 5.0);
+        assert_eq!(rows[0].1["last"], 200);
+        assert_eq!(rows[0].1["runs"], 2);
+    }
+
+    #[test]
+    fn a_deleted_player_keeps_their_place_on_the_board() {
+        let players = HashMap::new();
+        let matches = vec![a_match("g1", 100, vec![seat("ghost", 42.0)])];
+        let rows = arcade_rows(&players, &matches, "g1");
+        assert_eq!(rows[0].1["name"], "GHOST");
+        assert_eq!(rows[0].1["kind"], "gone");
+        assert_eq!(rows[0].1["best"], 42.0);
+    }
+
+    #[test]
+    fn negative_hi_scores_stay_negative() {
+        let mut players = HashMap::new();
+        players.insert("a".into(), player("a", "g1", Some(-3.0), 1, -3.0));
+        let rows = arcade_rows(&players, &[], "g1");
+        assert_eq!(rows[0].1["best"], -3.0);
+    }
+
+    #[test]
+    fn other_games_do_not_leak_onto_the_board() {
+        let mut players = HashMap::new();
+        players.insert("a".into(), player("a", "g2", Some(50.0), 1, 50.0));
+        let matches = vec![a_match("g2", 100, vec![seat("a", 50.0)])];
+        assert!(arcade_rows(&players, &matches, "g1").is_empty());
+    }
 }

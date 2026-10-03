@@ -1,0 +1,1141 @@
+{
+  "version": "1",
+  "note": "How this desk can put money INTO a module, and what each kind of module does to that money on the way out. Every address here was read back on chain (symbol()/asset()/baseToken()/ADDRESSES_PROVIDER()/totalAssets()) through the eth module before it was written down; Solana mints were resolved through Jupiter. A module with no adapter is still listed — read-only, with its terms — it just cannot be entered from here yet.",
+  "categories": {
+    "Lending": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "withdraw any time, subject to the market's available liquidity (utilisation)",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Risk Curators": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "ERC-4626 withdraw, subject to the vault's idle + market liquidity",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "CDP": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "redeem or sell the receipt; a savings-rate module unwinds instantly",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Onchain Capital Allocator": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "vault withdraw, subject to strategy liquidity",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Liquid Staking": {
+      "entry": "instant",
+      "exit": "queue_or_market",
+      "exit_note": "native unstake goes through a queue; or sell the receipt token on a DEX at market",
+      "lock_days": 0,
+      "exit_delay_days": 3
+    },
+    "Staking Pool": {
+      "entry": "instant",
+      "exit": "queue_or_market",
+      "exit_note": "unstake waits for the protocol's unbonding window; or sell the receipt",
+      "lock_days": 0,
+      "exit_delay_days": 3
+    },
+    "Liquid Restaking": {
+      "entry": "instant",
+      "exit": "queue_or_market",
+      "exit_note": "restaking withdrawals queue ~7 days; or sell the receipt on a DEX",
+      "lock_days": 0,
+      "exit_delay_days": 7
+    },
+    "Restaking": {
+      "entry": "instant",
+      "exit": "queue",
+      "exit_note": "restaking withdrawals queue ~7 days",
+      "lock_days": 0,
+      "exit_delay_days": 7
+    },
+    "Dexs": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "burn the LP position any time; you get back both sides at the pool's current ratio",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Liquidity Manager": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "withdraw from the managed LP position at the current ratio",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Yield": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "vault withdraw, subject to strategy liquidity",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Yield Aggregator": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "vault withdraw, subject to the strategies it farms",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Basis Trading": {
+      "entry": "instant",
+      "exit": "cooldown_or_market",
+      "exit_note": "unstake has a cooldown (sUSDe: 7 days); or sell the receipt on a DEX",
+      "lock_days": 0,
+      "exit_delay_days": 7
+    },
+    "RWA": {
+      "entry": "gated",
+      "exit": "redemption",
+      "exit_note": "KYC / whitelist; redemptions settle on the issuer's schedule (T+1 to T+5 business days)",
+      "lock_days": 0,
+      "exit_delay_days": 3,
+      "gated": true
+    },
+    "Farm": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "unstake any time; the rate is mostly emissions and can end",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Gamified Mining": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "emissions farm — unstake any time",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Derivatives": {
+      "entry": "instant",
+      "exit": "market",
+      "exit_note": "LP into a perps venue; exit at the pool's current price, sometimes rate-limited per hour",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Options": {
+      "entry": "instant",
+      "exit": "epoch",
+      "exit_note": "vault epochs — withdrawals settle at the end of the current epoch",
+      "lock_days": 0,
+      "exit_delay_days": 7
+    },
+    "Algo-Stables": {
+      "entry": "instant",
+      "exit": "market",
+      "exit_note": "sell or redeem at market",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Reserve Currency": {
+      "entry": "instant",
+      "exit": "market",
+      "exit_note": "sell at market",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Leveraged Farming": {
+      "entry": "instant",
+      "exit": "instant",
+      "exit_note": "close the leveraged position; liquidation risk while open",
+      "lock_days": 0,
+      "exit_delay_days": 0
+    },
+    "Insurance": {
+      "entry": "instant",
+      "exit": "cooldown",
+      "exit_note": "cover capital has an unbonding window",
+      "lock_days": 0,
+      "exit_delay_days": 14
+    },
+    "RWA Lending": {
+      "entry": "gated",
+      "exit": "redemption",
+      "exit_note": "KYC / accredited access; withdrawals settle on the manager's schedule",
+      "lock_days": 0,
+      "exit_delay_days": 3,
+      "gated": true
+    }
+  },
+  "projects": {
+    "lido": {
+      "exit": "queue_or_market",
+      "exit_delay_days": 5,
+      "exit_note": "Lido withdrawal queue: 1–5 days; or sell wstETH on Uniswap at market"
+    },
+    "rocket-pool": {
+      "exit": "queue_or_market",
+      "exit_delay_days": 1,
+      "exit_note": "burn rETH against the deposit pool when it has ETH; otherwise sell at market"
+    },
+    "ether.fi-stake": {
+      "exit": "queue_or_market",
+      "exit_delay_days": 7,
+      "exit_note": "ether.fi withdrawal queue ~7 days; or sell weETH at market"
+    },
+    "ethena-usde": {
+      "exit": "cooldown_or_market",
+      "exit_delay_days": 7,
+      "exit_note": "cooldownShares → 7 days → unstake; or sell sUSDe at market"
+    },
+    "sky-lending": {
+      "exit": "instant",
+      "exit_delay_days": 0,
+      "exit_note": "sUSDS / sDAI redeem instantly at the accrued rate"
+    },
+    "spark-savings": {
+      "exit": "instant",
+      "exit_delay_days": 0,
+      "exit_note": "redeem instantly at the accrued rate"
+    },
+    "maple": {
+      "exit": "request",
+      "exit_delay_days": 1,
+      "exit_note": "Syrup withdrawals are requested and filled from pool liquidity, usually within a day"
+    },
+    "pendle": {
+      "exit": "locked_until_maturity",
+      "exit_note": "PT is redeemable 1:1 at maturity; before that only at market"
+    },
+    "aave-v3": {
+      "exit": "instant",
+      "exit_note": "withdraw any time the reserve has liquidity (utilisation < 100%)"
+    },
+    "compound-v3": {
+      "exit": "instant",
+      "exit_note": "withdraw any time the market has liquidity"
+    },
+    "morpho-blue": {
+      "exit": "instant",
+      "exit_note": "ERC-4626 withdraw from the vault's idle + market liquidity"
+    },
+    "jito-liquid-staking": {
+      "exit": "queue_or_market",
+      "exit_delay_days": 2,
+      "exit_note": "unstake lands at the next epoch boundary (~2 days); or sell JitoSOL at market"
+    },
+    "marinade-liquid-staking": {
+      "exit": "queue_or_market",
+      "exit_delay_days": 2,
+      "exit_note": "delayed unstake ~1 epoch; instant unstake pays a fee; or sell mSOL"
+    },
+    "jupiter-staked-sol": {
+      "exit": "queue_or_market",
+      "exit_delay_days": 2,
+      "exit_note": "unstake at the epoch boundary; or sell JupSOL"
+    },
+    "sanctum-infinity": {
+      "exit": "market",
+      "exit_delay_days": 0,
+      "exit_note": "INF is a pool of LSTs — sell it back into the pool any time"
+    },
+    "jupiter-perpetual-exchange": {
+      "exit": "market",
+      "exit_note": "JLP redeems against the pool at its AUM price"
+    },
+    "blackrock-buidl": {
+      "gated": true,
+      "exit_note": "Securitize whitelist; redemption in USDC on request"
+    },
+    "ondo-yield-assets": {
+      "gated": true,
+      "exit_note": "KYC; USDY redemption T+1 or sell at market where listed"
+    }
+  },
+  "adapters": [
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "lido",
+        "symbol": "STETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "wstETH",
+        "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "rocket-pool",
+        "symbol": "RETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "rETH",
+        "address": "0xae78736Cd615f374D3085123A210448E74Fc6393",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "coinbase-wrapped-staked-eth",
+        "symbol": "CBETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "cbETH",
+        "address": "0xBe9895146f7AF43049ca1c1AE358B0541Ea49704",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "ether.fi-stake",
+        "symbol": "WEETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "weETH",
+        "address": "0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "renzo",
+        "symbol": "EZETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "ezETH",
+        "address": "0xbf5495Efe5DB9ce00f80364C8B423567e58d2110",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "kelp",
+        "symbol": "RSETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "rsETH",
+        "address": "0xA1290d69c65A6Fe4DF752f95823fae25cB99e5A7",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "meth-protocol",
+        "symbol": "METH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "mETH",
+        "address": "0xd5F7838F5C461fefF7FE49ea5ebaF7728bB0ADfa",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "stakewise-v3",
+        "symbol": "OSETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "osETH",
+        "address": "0xf1C9acDc66974dFB6dEcB12aA385b9cD01190E38",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "frax-ether",
+        "symbol": "SFRXETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "sfrxETH",
+        "address": "0xac3E018457B222d93114458476f3E3416Abbe38F",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "sky-lending",
+        "symbol": "SUSDS"
+      },
+      "kind": "erc4626",
+      "address": "0xa3931d71877C0E7a3148CB7Eb4463524FEc27fbD",
+      "asset": {
+        "symbol": "USDS",
+        "address": "0xdC035D45d973E3EC169d2276DDab16f1e407384F",
+        "decimals": 18
+      },
+      "receipt": {
+        "symbol": "sUSDS",
+        "address": "0xa3931d71877C0E7a3148CB7Eb4463524FEc27fbD",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "sky-lending",
+        "symbol": "SDAI"
+      },
+      "kind": "erc4626",
+      "address": "0x83F20F44975D03b1b09e64809B757c47f942BEeA",
+      "asset": {
+        "symbol": "DAI",
+        "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+        "decimals": 18
+      },
+      "receipt": {
+        "symbol": "sDAI",
+        "address": "0x83F20F44975D03b1b09e64809B757c47f942BEeA",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "ethena-usde",
+        "symbol": "SUSDE"
+      },
+      "kind": "erc4626",
+      "address": "0x9D39A5DE30e57443BfF2A8307A4256c8797A3497",
+      "asset": {
+        "symbol": "USDe",
+        "address": "0x4c9EDD5852cd905f086C759E8383e09bff1E68B3",
+        "decimals": 18
+      },
+      "receipt": {
+        "symbol": "sUSDe",
+        "address": "0x9D39A5DE30e57443BfF2A8307A4256c8797A3497",
+        "decimals": 18
+      },
+      "exit_via": "swap_receipt"
+    },
+    {
+      "match": {
+        "pool": "b55f43a8-f444-4cd8-a3a4-0a4e786ba566"
+      },
+      "kind": "erc4626",
+      "address": "0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "steakUSDC",
+        "address": "0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "pool": "ded5a855-23c1-459d-8390-ba2707fac7c5"
+      },
+      "kind": "erc4626",
+      "address": "0xbEef047a543E45807105E51A8BBEFCc5950fcfBa",
+      "asset": {
+        "symbol": "USDT",
+        "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "steakUSDT",
+        "address": "0xbEef047a543E45807105E51A8BBEFCc5950fcfBa",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "pool": "baf1a020-a2a4-401a-9425-eba22ffce13c"
+      },
+      "kind": "erc4626",
+      "address": "0x8eB67A509616cd6A7c1B3c8C21D48FF57df3d458",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "gtUSDCcore",
+        "address": "0x8eB67A509616cd6A7c1B3c8C21D48FF57df3d458",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "aave-v3",
+        "symbol": "USDC",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "decimals": 6
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "aave-v3",
+        "symbol": "USDT",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {
+        "symbol": "USDT",
+        "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        "decimals": 6
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "aave-v3",
+        "symbol": "DAI",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {
+        "symbol": "DAI",
+        "address": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "aave-v3",
+        "symbol": "WETH",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {
+        "symbol": "WETH",
+        "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "aave-v3",
+        "symbol": "WBTC",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {
+        "symbol": "WBTC",
+        "address": "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+        "decimals": 8
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "aave-v3",
+        "symbol": "WSTETH",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {
+        "symbol": "wstETH",
+        "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "aave-v3",
+        "symbol": "USDE",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "asset": {
+        "symbol": "USDe",
+        "address": "0x4c9EDD5852cd905f086C759E8383e09bff1E68B3",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "compound-v3",
+        "symbol": "WETH"
+      },
+      "kind": "compound_v3",
+      "address": "0xA17581A9E3356d9A858b789D68B4d866e593aE94",
+      "asset": {
+        "symbol": "WETH",
+        "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Ethereum",
+        "project": "compound-v3",
+        "symbol": "USDT"
+      },
+      "kind": "compound_v3",
+      "address": "0x3Afdc9BCA9213A35503b077a6072F3D0d5AB0840",
+      "asset": {
+        "symbol": "USDT",
+        "address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+        "decimals": 6
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "lido",
+        "symbol": "WSTETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "wstETH",
+        "address": "0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "coinbase-wrapped-staked-eth",
+        "symbol": "CBETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "cbETH",
+        "address": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "ether.fi-stake",
+        "symbol": "WEETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "weETH",
+        "address": "0x04C0599Ae5A44757c0af6F9eC3b93da8976c150A",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "renzo",
+        "symbol": "EZETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "ezETH",
+        "address": "0x2416092f143378750bb29b79eD961ab195CcEea5",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "kelp",
+        "symbol": "WRSETH"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "wrsETH",
+        "address": "0xEDfa23602D0EC14714057867A78d01e94176BEA0",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "origin-ether",
+        "symbol": "SUPEROETHB"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "ETH",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "wsuperOETHb",
+        "address": "0x7FcD174E80f264448ebeE8c88a7C4476AAF58Ea6",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "pool": "81ae8812-f04f-4f6e-9d71-ee5778f3a178"
+      },
+      "kind": "erc4626",
+      "address": "0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "steakUSDC",
+        "address": "0xbeeF010f9cb27031ad51e3333f9aF9C6B1228183",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "pool": "e0672197-9f3e-4414-bca5-e6b4c90aa469"
+      },
+      "kind": "erc4626",
+      "address": "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "gtUSDCp",
+        "address": "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "pool": "a5fab52f-73fa-4f44-9c09-9af1eb20996c"
+      },
+      "kind": "erc4626",
+      "address": "0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "sparkUSDC",
+        "address": "0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "pool": "b39b492a-0a64-4926-8598-d5acf05d62b5"
+      },
+      "kind": "erc4626",
+      "address": "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "mwUSDC",
+        "address": "0xc1256Ae5FF1cf2719D4937adb3bbCCab2E00A2Ca",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "pool": "4280d14b-b720-41e2-afab-a1760dbb0d54"
+      },
+      "kind": "erc4626",
+      "address": "0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1",
+      "asset": {
+        "symbol": "WETH",
+        "address": "0x4200000000000000000000000000000000000006",
+        "decimals": 18
+      },
+      "receipt": {
+        "symbol": "mwETH",
+        "address": "0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "aave-v3",
+        "symbol": "USDC",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "decimals": 6
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "aave-v3",
+        "symbol": "WETH",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+      "asset": {
+        "symbol": "WETH",
+        "address": "0x4200000000000000000000000000000000000006",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "aave-v3",
+        "symbol": "CBBTC",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+      "asset": {
+        "symbol": "cbBTC",
+        "address": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+        "decimals": 8
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "aave-v3",
+        "symbol": "CBETH",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+      "asset": {
+        "symbol": "cbETH",
+        "address": "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "aave-v3",
+        "symbol": "WSTETH",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+      "asset": {
+        "symbol": "wstETH",
+        "address": "0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "aave-v3",
+        "symbol": "WEETH",
+        "meta": null
+      },
+      "kind": "aave_v3",
+      "address": "0xA238Dd80C259a72e81d7e4664a9801593F98d1c5",
+      "asset": {
+        "symbol": "weETH",
+        "address": "0x04C0599Ae5A44757c0af6F9eC3b93da8976c150A",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "compound-v3",
+        "symbol": "USDC"
+      },
+      "kind": "compound_v3",
+      "address": "0xb125E6687d4313864e53df431d5425969c15Eb2F",
+      "asset": {
+        "symbol": "USDC",
+        "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "decimals": 6
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "compound-v3",
+        "symbol": "WETH"
+      },
+      "kind": "compound_v3",
+      "address": "0x46e6b214b524310239732D51387075E0e70970bf",
+      "asset": {
+        "symbol": "WETH",
+        "address": "0x4200000000000000000000000000000000000006",
+        "decimals": 18
+      }
+    },
+    {
+      "match": {
+        "chain": "Base",
+        "project": "compound-v3",
+        "symbol": "USDBC"
+      },
+      "kind": "compound_v3",
+      "address": "0x9c4ec768c28520B50860ea7a15bd7213a9fF58bf",
+      "asset": {
+        "symbol": "USDbC",
+        "address": "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA",
+        "decimals": 6
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "jito-liquid-staking",
+        "symbol": "JITOSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "JitoSOL",
+        "address": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "marinade-liquid-staking",
+        "symbol": "MSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "mSOL",
+        "address": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "jupiter-staked-sol",
+        "symbol": "JUPSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "JupSOL",
+        "address": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "binance-staked-sol",
+        "symbol": "BNSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "BNSOL",
+        "address": "BNso1VUJnh4zcfpZa6986Ea66P6TCp59hvtNJ8b1X85",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "blazestake",
+        "symbol": "BSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "bSOL",
+        "address": "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "sanctum-infinity",
+        "symbol": "INF"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "INF",
+        "address": "5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "drift-staked-sol",
+        "symbol": "DSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "dSOL",
+        "address": "Dso1bDeDjCQxTrWHqUUi63oBvV7Mdm6WaobLbQ7gnPQ",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "helius-staked-sol",
+        "symbol": "HSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "hSOL",
+        "address": "he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "the-vault-liquid-staking",
+        "symbol": "VSOL"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "SOL",
+        "native": true
+      },
+      "receipt": {
+        "symbol": "vSOL",
+        "address": "vSoLxydx6akxyMD9XEcPvGYNGq6Nn66oqVb3UkGkei7",
+        "decimals": 9
+      }
+    },
+    {
+      "match": {
+        "chain": "Solana",
+        "project": "jupiter-perpetual-exchange",
+        "symbol": "JLP"
+      },
+      "kind": "swap_receipt",
+      "asset": {
+        "symbol": "USDC",
+        "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "decimals": 6
+      },
+      "receipt": {
+        "symbol": "JLP",
+        "address": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+        "decimals": 6
+      }
+    }
+  ]
+}

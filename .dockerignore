@@ -1,10 +1,7 @@
-node_modules
-.next
-.git
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.DS_Store
-*.pem
-.env*.local
+# The sandbox image is a TOOLCHAIN — it bakes no module code, so the build
+# context is an allowlist of the two files the Dockerfile actually COPYs.
+# (Without this, the context walk is a 60GB working tree and the build spends
+# minutes tarring code that the bind mount supplies anyway.)
+*
+!requirements.txt
+!docker-entrypoint.sh
