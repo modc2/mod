@@ -72,7 +72,7 @@
         "auth": "none",
         "docs": "29 tools. Guide: si_explain (what a term means), si_draft (a pool from one sentence + could-it-pay check, never creates), si_ask (plain-English questions to the guide agent). Off-chain pools: si_pools, si_pool, si_create_pool, si_set_terms, si_quote, si_join, si_premium, si_donate, si_member, si_register_agent, si_admit_agent, si_agents, si_claim_file, si_queue, si_claim, si_vote, si_withdraw_claim, si_distribute, si_withdraw_fees, si_ledger, si_stats. On-chain: si_contract (describe/source/abi/compile/calls), si_preset (health/parametric/mutual terms scaled to an asset), si_deploy (through the eth module keystore), si_onchain (a live pool: money, the provider's profit share, solvency), si_onchain_claim."
     },
-    "schema": "QmbVtj52oBzbYbTCT4P5nFHa1PmPY6rUknCpBa6JCy5vLC",
+    "schema": "QmW4Umv3UK3nkH4sACbJLVjpQ2Bmb47EPypyL5oCnS4vnx",
     "agent": {
         "roster": "GET /agents",
         "run": "POST /run",

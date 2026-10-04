@@ -88,7 +88,7 @@
         "whoami",
         "tools"
     ],
-    "schema": "QmQzMfyKZRux8FAHeFQ28TLTdi5H2eQxBPnd8pw1xy6wAf",
+    "schema": "QmT6r3Bnua5UexwoqD6THKtX1Dmd7mhsTZfq6o4V6oYESB",
     "mcp": {
         "url": "http://localhost:51110/x402/mcp",
         "transport": "http",

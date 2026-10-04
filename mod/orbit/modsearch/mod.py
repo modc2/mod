@@ -1,13 +1,16 @@
 """
 modsearch — find a module by what you mean.
 
-Local semantic search: a small sentence encoder (all-MiniLM-L6-v2, CPU) fused
-with BM25, vectors cached on disk. No key, no cloud, no LLM call — falls back
-to BM25 alone if the encoder can't load.
+Local semantic search: LiquidAI/LFM2.5-Embedding-350M served by the liquidai
+module on this box (falls back to all-MiniLM-L6-v2 in-process, then BM25),
+fused with BM25, vectors cached on disk. No key, no cloud. Every mod has its
+own embedding hash — sha256 of (model, kind, float16 vector) — in mods.json.
 
 CLI:
     m modsearch/search "chart my bittensor portfolio"
     m modsearch/search "split a secret" k=3
+    m modsearch/mods                 # every mod's embedding hash
+    m modsearch/hash name=bt         # one mod's row
     m modsearch/serve        # api on 127.0.0.1:51090 (pm2 `modsearch`)
     m modsearch/status
     m modsearch/kill
@@ -32,7 +35,7 @@ PM2_NAME = 'modsearch'
 
 
 class Mod:
-    description = 'Semantic search over the module fleet (or any docs you send) — local MiniLM + BM25, no key'
+    description = 'Semantic search over the module fleet (or any docs you send) — Liquid LFM embeddings on this box + BM25, one embedding hash per mod'
 
     def __init__(self):
         self.module_dir = MODULE_DIR
@@ -50,6 +53,21 @@ class Mod:
         roots = [MODULE_DIR.parent, MODULE_DIR.parent.parent / 'core']
         return engine.search(query, docs if docs is not None else engine.fleet_docs(roots),
                              k=int(k), encoder=self._encoder)
+
+    def _get(self, path: str) -> dict:
+        import urllib.request
+        with urllib.request.urlopen(f'http://127.0.0.1:{self.port}{path}', timeout=10) as r:
+            return json.loads(r.read())
+
+    def mods(self) -> dict:
+        """name -> embedding hash (short) for every fleet mod, from the running index."""
+        d = self._get('/mods')
+        return {'model': d.get('model'), 'count': d.get('count'),
+                'mods': {n: (r.get('embedding_hash') or '')[:16] for n, r in d.get('mods', {}).items()}}
+
+    def hash(self, name: str, vector: bool = False) -> dict:
+        """One mod's text hash + embedding hash (vector=True adds the vector)."""
+        return self._get(f'/mods/{name}' + ('?vector=1' if vector else ''))
 
     def serve(self, port: Optional[int] = None, host: str = '127.0.0.1') -> dict:
         port = int(port or self.port)

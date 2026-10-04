@@ -499,6 +499,15 @@ class Liquidai(m.Mod):
                 "dim": out["dim"], "lines": lines,
                 "similarity": out["similarity"], "elapsed_sec": out["elapsed_sec"]}
 
+    def retrieve(self, texts: str, kind: str = "query") -> Any:
+        """Search vectors from LFM2.5-Embedding-350M (one text per '|').
+        kind=query|document. Its own slot — never evicts the chat model."""
+        lines = [t.strip() for t in texts.split("|") if t.strip()]
+        out = self._post("/retrieve/embed", {"texts": lines, "kind": kind})
+        return {"model": out["repo"], "kind": kind, "dim": out["dim"], "lines": lines,
+                "elapsed_sec": out["elapsed_sec"],
+                "head": [v[:4] for v in out["vectors"]]}
+
     # ── arena ─────────────────────────────────────────────────────
 
     def games(self) -> Any:

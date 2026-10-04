@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agent</title>
+<style>
+  :root { --bg:#0d0f12; --panel:#15181d; --line:#262b33; --fg:#e6e8eb; --dim:#8a919c;
+          --accent:#7aa2f7; --ok:#4fd18b; --warn:#e5b454; --bad:#f2716b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  code, pre, textarea, input, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); }
+  .mark { width:34px; height:34px; border-radius:8px; display:grid; place-items:center;
+          font-weight:700; background:var(--accent); color:#0d0f12; }
+  h1 { font-size:17px; margin:0; }
+  .sub { color:var(--dim); font-size:12px; }
+  .sub a { color:var(--dim); }
+  .pill { font-size:11px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .pill.ok { color:var(--ok); border-color:var(--ok); }
+  .pill.warn { color:var(--warn); border-color:var(--warn); }
+  .grow { flex:1; }
+  button { background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px;
+           padding:7px 14px; cursor:pointer; font:inherit; }
+  button.primary { background:var(--accent); color:#0d0f12; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.45; cursor:default; }
+  main { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:16px; padding:16px 20px; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:16px; }
+  .card h2 { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); margin:0 0 10px; }
+  textarea, input { width:100%; background:var(--bg); color:var(--fg); border:1px solid var(--line);
+                    border-radius:6px; padding:8px 10px; font-size:13px; }
+  textarea { min-height:96px; resize:vertical; }
+  .row { display:flex; gap:8px; margin-top:8px; align-items:center; }
+  .row > input { flex:1; }
+  #out { margin-top:12px; max-height:60vh; overflow:auto; }
+  .step { border-left:2px solid var(--line); padding:4px 10px; margin:6px 0; white-space:pre-wrap;
+          font-family:ui-monospace,Menlo,monospace; font-size:12.5px; }
+  .step.finish { border-color:var(--ok); }
+  .step.error { border-color:var(--bad); color:var(--bad); }
+  .step .k { color:var(--dim); font-size:11px; display:block; }
+  .log { max-height:180px; overflow:auto; font-size:11.5px; color:var(--dim); white-space:pre-wrap; margin-top:8px; }
+  .keys div { display:flex; justify-content:space-between; font-size:12.5px; padding:3px 0; }
+  .readme { max-height:420px; overflow:auto; white-space:pre-wrap; font-size:12.5px; color:#c9cdd3; }
+  .msg { font-size:12.5px; color:var(--dim); margin-top:8px; }
+  .msg.bad { color:var(--bad); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark" id="mark">A</div>
+  <div>
+    <h1 id="label">agent</h1>
+    <div class="sub"><span id="desc"></span> <a id="repo" target="_blank" rel="noopener"></a></div>
+  </div>
+  <span class="pill" id="status">loading</span>
+  <div class="grow"></div>
+  <span class="sub mono" id="who"></span>
+  <button id="signin">Sign in</button>
+</header>
+
+<main>
+  <section>
+    <div class="card">
+      <h2>Ask it to do something</h2>
+      <textarea id="query" placeholder="Describe the task, e.g. add a --verbose flag to the CLI and a test for it"></textarea>
+      <div class="row">
+        <input id="path" placeholder="folder to work in (empty = this module's own workspace)">
+        <input id="model" placeholder="model (optional)" style="max-width:200px">
+      </div>
+      <div class="row">
+        <button class="primary" id="run">Run</button>
+        <span class="msg" id="runmsg"></span>
+      </div>
+      <div id="out"></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2>Install</h2>
+      <div class="msg mono" id="installcmd"></div>
+      <div class="row"><button id="setup">Install on this host</button></div>
+      <div class="log" id="setuplog"></div>
+    </div>
+
+    <div class="card hidden" id="speccard">
+      <h2>Run command</h2>
+      <div class="msg">This agent came from GitHub without a known headless command. Tell it how to take a task — use {query} where the task goes and {bin} for its binary.</div>
+      <input id="spec" class="mono" placeholder='["{bin}", "--prompt", "{query}"]'>
+      <div class="row"><button id="savespec">Save</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Keys</h2>
+      <div class="keys" id="keys"></div>
+      <div class="row"><input id="kname" placeholder="NAME" style="max-width:150px"><input id="kval" placeholder="value (empty removes)" type="password"></div>
+      <div class="row"><button id="savekey">Save key</button><span class="msg">kept off-tree, never shown again</span></div>
+    </div>
+
+    <div class="card">
+      <h2>About</h2>
+      <div class="readme" id="readme">loading...</div>
+    </div>
+  </aside>
+</main>
+
+<div class="card hidden" id="tokenbox" style="position:fixed;right:20px;top:64px;width:380px;z-index:5">
+  <h2>Sign in</h2>
+  <div class="msg">No wallet in this browser. Paste a mod-protocol token for the owner address instead.</div>
+  <input id="tokeninput" class="mono" placeholder="token">
+  <div class="row"><button id="tokensave" class="primary">Use token</button><button id="tokencancel">Cancel</button></div>
+</div>
+
+<script>
+const seg = location.pathname.split('/')[1] || '';
+const BASE = seg && !seg.includes('.') ? '/' + seg + '/api' : '';
+let INFO = null;
+let TOKEN_KEY = 'agentmod:token';
+const $ = (id) => document.getElementById(id);
+
+function safeSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
+function token() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } }
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' },
+                                          body: JSON.stringify({ ...body, key: token() || undefined }) };
+  const r = await fetch(BASE + path, opt);
+  const j = await r.json().catch(() => ({ error: 'HTTP ' + r.status }));
+  if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
+function b64url(s) { return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+
+async function signIn() {
+  if (token()) { safeSet(TOKEN_KEY, null); return paintWho(); }
+  if (!window.ethereum) { $('tokenbox').classList.remove('hidden'); return; }
+  const [address] = await window.ethereum.request({ method: 'eth_requestAccounts' });
+  const data = { mod: INFO ? INFO.name : 'agent' };
+  const time = (Date.now() / 1000).toString();
+  const signature = await window.ethereum.request({ method: 'personal_sign',
+    params: [JSON.stringify({ data, time }), address] });
+  safeSet(TOKEN_KEY, b64url(JSON.stringify({ data, time, key: address.toLowerCase(), signature })));
+  paintWho();
+}
+
+function paintWho() {
+  const t = token();
+  let who = '';
+  if (t) { try { who = JSON.parse(decodeURIComponent(escape(atob(t.replace(/-/g, '+').replace(/_/g, '/'))))).key; } catch (e) { who = 'token'; } }
+  $('who').textContent = who ? who.slice(0, 6) + '...' + who.slice(-4) : '';
+  $('signin').textContent = t ? 'Sign out' : 'Sign in';
+}
+
+function paintStatus() {
+  const h = INFO.harness;
+  const runnable = !!(INFO.agent && INFO.agent.run && INFO.agent.run.length);
+  const st = $('status');
+  if (h.available) { st.textContent = 'ready'; st.className = 'pill ok'; }
+  else if (h.path && !runnable) { st.textContent = 'installed, needs run command'; st.className = 'pill warn'; }
+  else { st.textContent = 'not installed'; st.className = 'pill warn'; }
+  $('run').disabled = !h.available;
+  $('speccard').classList.toggle('hidden', runnable);
+  $('installcmd').textContent = h.install || '';
+}
+
+async function load() {
+  INFO = await api('/info');
+  TOKEN_KEY = INFO.name + ':token';
+  document.title = INFO.label;
+  $('label').textContent = INFO.label;
+  $('mark').textContent = (INFO.icon || INFO.label[0] || 'A').slice(0, 2);
+  if (INFO.color) $('mark').style.background = INFO.color;
+  $('desc').textContent = INFO.description || '';
+  if (INFO.agent.repo) { $('repo').textContent = 'github.com/' + INFO.agent.repo; $('repo').href = 'https://github.com/' + INFO.agent.repo; }
+  $('path').placeholder = 'folder to work in (empty = ' + INFO.workspace + ')';
+  paintStatus(); paintWho(); paintKeys(INFO.env);
+  api('/readme').then(r => { $('readme').textContent = (r.markdown || '').slice(0, 12000); })
+               .catch(e => { $('readme').textContent = e.message; });
+  pollSetup();
+}
+
+function paintKeys(env) {
+  const box = $('keys'); box.innerHTML = '';
+  (env.keys || []).forEach(k => {
+    const d = document.createElement('div');
+    d.innerHTML = '<span class="mono"></span><span></span>';
+    d.children[0].textContent = k.name;
+    d.children[1].textContent = k.set ? ('set' + (k.source === 'host' ? ' (host)' : '')) : 'not set';
+    d.children[1].style.color = k.set ? 'var(--ok)' : 'var(--dim)';
+    d.onclick = () => { $('kname').value = k.name; $('kval').focus(); };
+    box.appendChild(d);
+  });
+  if (!(env.keys || []).length) box.innerHTML = '<div class="msg">This agent reads no keys we know of.</div>';
+}
+
+async function pollSetup() {
+  const s = await api('/setup').catch(() => null);
+  if (!s) return;
+  $('setuplog').textContent = (s.log || []).join('\n');
+  $('setuplog').scrollTop = 1e9;
+  $('setup').disabled = s.state === 'running';
+  $('setup').textContent = s.state === 'running' ? 'Installing...' : (s.available ? 'Reinstall' : 'Install on this host');
+  if (s.state === 'running') setTimeout(pollSetup, 1500);
+  else if (s.state === 'done' || s.state === 'failed') { INFO = await api('/info'); paintStatus(); }
+}
+
+function addStep(kind, text, cls) {
+  const d = document.createElement('div');
+  d.className = 'step ' + (cls || '');
+  const k = document.createElement('span'); k.className = 'k'; k.textContent = kind;
+  d.appendChild(k); d.appendChild(document.createTextNode(text || ''));
+  $('out').appendChild(d); $('out').scrollTop = 1e9;
+}
+
+async function run() {
+  const query = $('query').value.trim();
+  if (!query) return;
+  $('out').innerHTML = ''; $('runmsg').textContent = 'running...'; $('runmsg').className = 'msg';
+  $('run').disabled = true;
+  try {
+    const r = await fetch(BASE + '/run/stream', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query, path: $('path').value.trim() || undefined,
+                             model: $('model').value.trim() || undefined, key: token() || undefined }) });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || ('HTTP ' + r.status)); }
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!chunk.startsWith('data: ')) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.type === 'step') {
+          const s = ev.step;
+          if (s.tool === 'finish') addStep(s.error ? 'stopped' : 'done', s.error || (s.params || {}).summary || '', s.error ? 'error' : 'finish');
+          else addStep(s.tool, typeof s.result === 'string' ? s.result : JSON.stringify(s.params));
+        } else if (ev.type === 'error') { $('runmsg').textContent = ev.error; $('runmsg').className = 'msg bad'; }
+        else if (ev.type === 'done') { $('runmsg').textContent = 'finished in ' + ev.duration + 's'; }
+      }
+    }
+  } catch (e) { $('runmsg').textContent = e.message; $('runmsg').className = 'msg bad'; }
+  $('run').disabled = !(INFO && INFO.harness.available);
+}
+
+$('run').onclick = run;
+$('signin').onclick = () => signIn().catch(e => { $('runmsg').textContent = e.message; });
+$('tokensave').onclick = () => { safeSet(TOKEN_KEY, $('tokeninput').value.trim()); $('tokenbox').classList.add('hidden'); paintWho(); };
+$('tokencancel').onclick = () => $('tokenbox').classList.add('hidden');
+$('setup').onclick = async () => {
+  try { await api('/setup', {}); pollSetup(); }
+  catch (e) { $('setuplog').textContent = e.message; }
+};
+$('savekey').onclick = async () => {
+  const name = $('kname').value.trim(); if (!name) return;
+  try { paintKeys(await api('/env', { values: { [name]: $('kval').value } })); $('kval').value = ''; }
+  catch (e) { alertMsg(e.message); }
+};
+$('savespec').onclick = async () => {
+  try { INFO = await api('/spec', { run: JSON.parse($('spec').value) }); paintStatus(); }
+  catch (e) { alertMsg(e.message); }
+};
+function alertMsg(m) { $('runmsg').textContent = m; $('runmsg').className = 'msg bad'; }
+$('query').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) run(); });
+load().catch(e => { $('status').textContent = e.message; });
+</script>
+</body>
+</html>

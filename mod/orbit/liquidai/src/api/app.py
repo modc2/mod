@@ -38,12 +38,12 @@ from pydantic import BaseModel
 
 try:  # uvicorn src.api.app:app  (package) — and plain `python app.py` (script)
     from . import (arena, auth, catalog, cloud, fleet_arena, keys, ledger,
-                   mcp as mcp_rpc, providers, server_rt)
+                   mcp as mcp_rpc, providers, retriever, server_rt)
 except ImportError:  # pragma: no cover
-    import arena, auth, catalog, cloud, fleet_arena, keys, ledger, providers, server_rt
+    import arena, auth, catalog, cloud, fleet_arena, keys, ledger, providers, retriever, server_rt
     import mcp as mcp_rpc
 
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 START = time.time()
 
 app = FastAPI(
@@ -183,6 +183,7 @@ def root():
             "POST /chat", "GET /cloud/models",
             "POST /auth/nonce", "POST /auth/verify", "GET /auth/me",
             "GET /auth/owner", "POST /embed", "POST /transcribe",
+            "GET /retrieve", "POST /retrieve/embed", "POST /retrieve/unload",
             "GET /arena/games", "POST /arena/games", "POST /arena/match",
             "GET /arena/leaderboard",
             "GET /arena/fleet", "GET /arena/fleet/games",
@@ -215,6 +216,7 @@ def health():
         "catalog": cat_state,
         "server_runtime": server_rt.available()["ok"],
         "resident": server_rt.loaded(),
+        "retriever": retriever.status(),
         "auth": auth.owner_state(),
         "calls_24h": day["total"],
         "providers_24h": {name: seen["calls"] for name, seen in day["providers"].items()},
@@ -519,6 +521,46 @@ def embed(req: EmbedRequest, request: Request,
     ledger.tag(getattr(request.state, "call", None), kind="inference",
                provider=req.runtime, model=req.model, turns=len(texts))
     return _run_embed(req.runtime, req.model, texts, req.normalize, x_liquid_key)
+
+
+class RetrieveRequest(BaseModel):
+    texts: List[str]
+    kind: str = "document"           # query | document — the model is asymmetric
+    model: Optional[str] = None      # default: retriever.REPO
+
+
+@app.get("/retrieve")
+def retrieve_status():
+    """The search encoder's slot — separate process, never evicts the chat model."""
+    return retriever.status()
+
+
+@app.post("/retrieve/embed")
+def retrieve_embed(req: RetrieveRequest, request: Request,
+                   authorization: Optional[str] = Header(None)):
+    """Search vectors from LFM2.5-Embedding-350M (kind=query|document).
+
+    Unlike /embed this never touches the resident chat model: it runs in its
+    own slot, in its own process, so a search box typing at it can't evict a
+    chat or an arena match. Vectors are unit-length; dot product = cosine.
+    """
+    _guard(authorization, "session")
+    ledger.tag(getattr(request.state, "call", None), kind="inference",
+               provider="server", model=req.model or retriever.REPO, turns=len(req.texts))
+    try:
+        return retriever.embed(req.texts, req.kind, req.model)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        # 4xx not 5xx: Cloudflare strips 5xx bodies and the sentence is the point.
+        raise HTTPException(409, f"retriever unavailable: {type(e).__name__}: {e}")
+
+
+@app.post("/retrieve/unload")
+def retrieve_unload(authorization: Optional[str] = Header(None)):
+    """Stop the search encoder's process and give its RAM back."""
+    _guard(authorization, "owner")
+    return retriever.unload()
 
 
 @app.post("/transcribe")

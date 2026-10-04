@@ -57,7 +57,10 @@
         "graph_import",
         "agent_scout",
         "agent_scout_runs",
-        "agent_scout_run"
+        "agent_scout_run",
+        "agent_search",
+        "agent_hub_install",
+        "agent_hub_remove"
     ],
     "toolboxes": [
         "core",

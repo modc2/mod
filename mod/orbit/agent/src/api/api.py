@@ -1685,6 +1685,14 @@ def agent_scout_run(id: str, key: Optional[str] = None):
     except ValueError as e:
         return {"error": str(e), "code": 404}
 
+@app.get("/agents/search")
+def search_agents(q: str = "", k: int = 20, sources: Optional[str] = None):
+    """Every agent ranked by what `q` means — this registry's personas and
+    open-source agents on GitHub (sources=persona,github). `mode` is
+    semantic when orbit/modsearch answered, lexical when it fell back."""
+    return get_mod().agent_search(q, k=k, sources=sources)
+
+
 @app.get("/agents/{name}")
 def get_agent(name: str):
     """Get a specific agent config"""
@@ -1909,6 +1917,75 @@ def delete_memory(note_id: str, key: Optional[str] = None):
         return {"error": str(e), "code": 403}
     except KeyError as e:
         return {"error": str(e)}
+
+# ── agent hub (GitHub agents, each its own module) ──────────────────
+# Reading and searching are public. Installing scaffolds a module that runs a
+# third-party CLI on this host, so install/remove are the host owner's.
+
+class AgentHubInstallRequest(BaseModel):
+    id: Optional[str] = None              # hub id from search/list
+    repo: Optional[str] = None            # or any owner/name on GitHub
+    setup: bool = False                   # also install its packages now
+    start: bool = True                    # serve its interface under pm2
+    key: Optional[str] = None
+
+class AgentHubRemoveRequest(BaseModel):
+    id: str
+    purge: bool = False
+    key: Optional[str] = None
+
+@app.get("/agenthub")
+def agenthub_list(installed: Optional[bool] = None):
+    """The catalog: curated GitHub agents, then discovered ones, each marked
+    with its module and interface when installed here."""
+    hub = get_mod().agenthub
+    rows = hub.catalog()
+    if installed is not None:
+        rows = [r for r in rows if bool(r.get("installed")) == installed]
+    return {"agents": rows, "installed": hub.installed(), "total": len(rows)}
+
+@app.get("/agenthub/search")
+def agenthub_search(q: str = "", k: int = 20, sources: Optional[str] = None):
+    return get_mod().agent_search(q, k=k, sources=sources)
+
+@app.get("/agenthub/item")
+def agenthub_item(id: str):
+    try:
+        return get_mod().agenthub.item(id)
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
+
+@app.post("/agenthub/install")
+def agenthub_install(req: AgentHubInstallRequest):
+    """Owner: turn a GitHub agent into orbit/<name> — its own interface and
+    /agents + /run/stream API — and register it as a harness here."""
+    try:
+        return get_mod().agenthub.install(id=req.id, repo=req.repo, key=req.key,
+                                          start=req.start, setup=req.setup)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except (KeyError, ValueError, FileExistsError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+@app.post("/agenthub/remove")
+def agenthub_remove(req: AgentHubRemoveRequest):
+    try:
+        return get_mod().agent_hub_remove(req.id, key=req.key, purge=req.purge)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e)}
+
+@app.post("/agenthub/refresh")
+def agenthub_refresh(req: DiscoverTokenRequest):
+    """Owner: re-run GitHub discovery now instead of waiting out the cache."""
+    mod = get_mod()
+    if not mod.is_owner(req.key):
+        return {"error": "owner only", "code": 403}
+    got = mod.agenthub.discover(fresh=True)
+    return {"repos": len(got.get("repos", [])), "errors": got.get("errors", [])}
 
 # ── discover (internet-wide tool aggregator) ────────────────────────
 # Read-only scanning is public; installs land in the shared library as

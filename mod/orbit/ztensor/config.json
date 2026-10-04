@@ -1,0 +1,63 @@
+{
+    "name": "ztensor",
+    "description": "Anonymous voting and consensus for miner/validator networks. Participants prove membership in the eligible set and cast votes without revealing which member they are (Merkle-commitment + nullifier, Semaphore-style). Private ballots, public books: votes are unlinkable, reward payouts are transparent and auditable. Local-first, pure python.",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "port": 51180,
+    "app_port": 51180,
+    "route": true,
+    "urls": {
+        "api": "http://localhost:51180",
+        "app": "http://localhost:51180/ztensor"
+    },
+    "endpoints": {
+        "health": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Liveness"
+        },
+        "info": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Scheme description + limits"
+        },
+        "register": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{commitment} -> {index, root}; add a participant commitment to the eligible set (identity stays private)"
+        },
+        "set": {
+            "method": "GET",
+            "auth": false,
+            "docs": "-> {root, size}; current eligible-set Merkle root"
+        },
+        "vote": {
+            "method": "POST",
+            "auth": false,
+            "docs": "{proof, nullifier, choice, topic} -> {accepted}; cast an anonymous vote; nullifier prevents double-voting per topic"
+        },
+        "tally": {
+            "method": "GET",
+            "auth": false,
+            "docs": "{topic} -> {counts, total}; public tally of anonymous votes"
+        },
+        "payout": {
+            "method": "GET",
+            "auth": false,
+            "docs": "{topic} -> {instructions}; transparent, signed reward instructions derived from the tally (public and linkable by design)"
+        }
+    },
+    "fns": [
+        "info",
+        "register",
+        "set",
+        "vote",
+        "tally",
+        "payout",
+        "test",
+        "serve",
+        "kill",
+        "status"
+    ],
+    "schema": "QmXWL1kgEj34pVvoaHj6MjUcKrfEoXS3utphPr7tMNroVZ"
+}

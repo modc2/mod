@@ -1,14 +1,14 @@
 {
     "name": "modsearch",
-    "description": "Find a module by what you mean. Local semantic search over the module fleet (or any docs you send): a small CPU sentence encoder (all-MiniLM-L6-v2) fused with BM25, vectors cached on disk. No key, no cloud, no LLM call; degrades to BM25 alone if the encoder can't load. Powers the build hub's agent search and serves raw vectors (POST /embed) so other mods share one encoder.",
-    "version": "0.1.0",
+    "description": "Find a module by what you mean. Semantic search over the module fleet (or any docs you send): LiquidAI/LFM2.5-Embedding-350M running server-side in the liquidai module (own process, never evicts its chat model), falling back to an in-process all-MiniLM-L6-v2, fused with BM25. Every mod gets its own embedding hash (sha256 of model + kind + float16 vector) kept in an index. No key, no cloud. Powers the build hub's agent search and serves raw vectors (POST /embed).",
+    "version": "0.2.0",
     "anchor": "mod.py",
     "port": 51090,
     "route": false,
     "urls": {
         "api": "http://127.0.0.1:51090"
     },
-    "state": "~/.mod/modsearch/vectors.jsonl (sha256(model+text) -> vector)",
+    "state": "~/.mod/modsearch/vectors.jsonl (sha256(model+kind+text) -> vector) \u00b7 mods.json (mod -> text_hash, embedding_hash)",
     "endpoints": {
         "health": {
             "method": "GET",
@@ -18,21 +18,36 @@
         "search": {
             "method": "GET|POST",
             "auth": false,
-            "docs": "GET ?q=&k= ranks this box's fleet; POST {query, docs:[{id,text,name?}], k} ranks the docs you send -> {mode, results:[{id,score,sem,lex,why}]}"
+            "docs": "GET ?q=&k= ranks this box's fleet; POST {query, docs:[{id,text,name?}], k} ranks the docs you send -> {mode, model, backend, results:[{id,score,sem,lex,why,hash,text_hash}]}"
         },
         "embed": {
             "method": "POST",
             "auth": false,
-            "docs": "{texts:[...<=512]} -> {model, dim, vectors} unit vectors, uncached; the shared local encoder (x402 semantic index uses it)"
+            "docs": "{texts:[...<=512], backend:minilm|liquid|auto, kind:query|document} -> {model, dim, vectors} unit vectors, uncached; default minilm (x402's stored index is MiniLM)"
+        },
+        "mods": {
+            "method": "GET",
+            "auth": false,
+            "docs": "Every fleet mod's text_hash + embedding_hash, model, dim; /mods/{name}?vector=1 adds the vector"
+        },
+        "reindex": {
+            "method": "POST",
+            "auth": false,
+            "docs": "Re-read the fleet and re-hash changed mods (also runs every 10 min)"
         }
     },
     "fns": [
         "forward",
         "search",
+        "mods",
+        "hash",
         "serve",
         "kill",
         "status",
         "test"
     ],
-    "schema": "QmTuJxhzxFTBbEZM2sNqNJiBpVFHnFuUd9rxoHG9QhX5Zb"
+    "schema": "Qmc43hvqYsh8tWCZd8rQYH2DJVh9nDK3DrcKt8Pv1QH5Ve",
+    "deps": [
+        "liquidai"
+    ]
 }

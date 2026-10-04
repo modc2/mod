@@ -12,6 +12,7 @@ updates daily at most.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,7 @@ from pydantic import BaseModel
 
 import mod as m
 from nycgis import layers as L
+from nycgis import agentproto
 from nycgis import mcp_server as mcp
 from nycgis import scene
 from nycgis import tools
@@ -437,6 +439,9 @@ def _chat_mcp_config() -> str:
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
+    # Which agent answers: '' / 'claude' = the local Claude CLI below; any
+    # other name is an agent on the agent protocol (see GET /agents).
+    agent: Optional[str] = None
     # What the user's map shows right now, so "only Brooklyn" or "now by ZIP"
     # can be read against it. Sent by the page each turn; never trusted for
     # anything but prompt context.
@@ -476,6 +481,65 @@ def overlay(spec: str):
         raise HTTPException(status_code=502, detail=f'{type(e).__name__}: {e}')
 
 
+# ── agents: who answers ASK NYC ──────────────────────────────────────────
+#
+# The Claude CLI is one answerer; every agent on the agent protocol is
+# another. nycgis.agentproto is the only code that talks to that protocol.
+
+CLAUDE_AGENT = 'claude'
+
+
+@app.get('/agents')
+def agents_list(q: str = ''):
+    """
+    Every agent that can answer: the Claude CLI (when installed) plus the
+    agent protocol's roster, NYC agents first. nyc-atlas is filed on the
+    protocol the first time anyone looks.
+    """
+    out: Dict[str, Any] = {'agents': [], 'protocol': None}
+    if shutil.which('claude'):
+        out['agents'].append({
+            'name': CLAUDE_AGENT, 'label': 'Claude', 'icon': '?',
+            'description': f'The local Claude CLI ({CHAT_MODEL}) on the nyc MCP tools',
+            'nyc': True, 'builtin': True})
+    try:
+        out['registered'] = agentproto.register()
+    except Exception as e:
+        out['registered'] = {'error': f'{type(e).__name__}: {e}'}
+    try:
+        r = agentproto.roster(q)
+        out['agents'] += r['agents']
+        out['protocol'] = {k: r[k] for k in ('url', 'address', 'free', 'total')}
+    except Exception as e:
+        out['protocol'] = {'error': f'{type(e).__name__}: {e}',
+                           'url': agentproto.agent_url()}
+    out['default'] = (CLAUDE_AGENT if shutil.which('claude')
+                      else agentproto.ATLAS)
+    return out
+
+
+class AgentMakeRequest(BaseModel):
+    description: str
+    name: Optional[str] = None
+
+
+@app.post('/agents')
+def agents_make(req: AgentMakeRequest):
+    """
+    Make a new NYC agent from one plain description, through the agent
+    protocol (its vibe-builder drafts it; nyc then hands it the data tools).
+    """
+    try:
+        return agentproto.create(req.description, req.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except ConnectionError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        # 4xx with the reason: the gateway strips 5xx bodies
+        raise HTTPException(status_code=409, detail=str(e))
+
+
 @app.get('/chat/health')
 def chat_health():
     cli = shutil.which('claude')
@@ -502,6 +566,15 @@ def chat(req: ChatRequest):
         raise HTTPException(status_code=400, detail='empty message')
     if len(message) > 4000:
         raise HTTPException(status_code=400, detail='message too long (4000 chars)')
+    agent = (req.agent or '').strip()
+    if agent and agent != CLAUDE_AGENT:
+        if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}', agent):
+            raise HTTPException(status_code=400, detail='bad agent name')
+        events = agentproto.run(agent, message, req.session_id, req.map_state)
+        return StreamingResponse(
+            (f'data: {json.dumps(ev)}\n\n' for ev in events),
+            media_type='text/event-stream',
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
     if not shutil.which('claude'):
         raise HTTPException(status_code=503,
                             detail='claude CLI not installed on this host')
@@ -513,7 +586,8 @@ def chat(req: ChatRequest):
            '--disallowedTools', CHAT_DENIED,
            '--append-system-prompt', CHAT_SYSTEM,
            '--max-turns', '25']
-    if req.session_id:
+    # an agent-protocol conversation id means nothing to the CLI
+    if req.session_id and not req.session_id.startswith('nyc-'):
         cmd += ['--resume', req.session_id]
     if req.map_state:
         state = json.dumps(req.map_state, default=str)[:3000]

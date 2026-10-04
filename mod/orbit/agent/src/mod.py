@@ -45,6 +45,7 @@ from .vaults.mod import Vaults
 from .privacy.mod import Privacy, SealError
 from .discover.mod import Discover
 from .harness.mod import Harness, DEFAULT_TIMEOUT as HARNESS_TIMEOUT
+from .agenthub.mod import AgentHub
 from .arena.mod import Arena, Scheduler
 from .graph.mod import Graphs
 from .identity import Identity
@@ -898,6 +899,27 @@ RULES:
         toolboxes > every non-fleet tool.
         """
         return self.tools.schema(names or self.active_tools())
+
+    # ── agent hub (semantic search + GitHub agents as modules) ───────
+
+    def agent_search(self, q: str = "", k: int = 20, sources: List[str] = None) -> Dict:
+        """Every agent — this registry's personas and open-source agents on
+        GitHub — ranked by what the query means (orbit/modsearch embeddings,
+        word match when it is down; `mode` says which answered)."""
+        if isinstance(sources, str):
+            sources = [x.strip() for x in sources.split(',') if x.strip()]
+        return self.agenthub.search(q, k=k, sources=sources)
+
+    def agent_hub_install(self, id: str = None, repo: str = None, key=None,
+                          setup: bool = False, start: bool = True) -> Dict:
+        """Owner: make a GitHub agent a module of its own (orbit/<name>, its
+        own interface and /agents + /run/stream API), registered here as a
+        harness with a persona in front of it."""
+        return self.agenthub.install(id=id, repo=repo, key=key, start=start, setup=setup)
+
+    def agent_hub_remove(self, id: str, key=None, purge: bool = False) -> Dict:
+        """Owner: unwire an installed GitHub agent (purge also deletes its dir)."""
+        return self.agenthub.remove(id, key=key, purge=purge)
 
     # ── tool aggregator (discover → library) ─────────────────────────
 
@@ -2149,6 +2171,14 @@ class Mod(Agent):
         # external agent CLIs (claude code, codex) an agent can hand its run to
         self.harness = Harness()
 
+        # every agent searchable by meaning (orbit/modsearch), and any agent
+        # on GitHub installable as a module of its own with its own interface
+        # — registered back into the harness table above when it is
+        self.agenthub = AgentHub(owner=self._owner, is_owner=self.is_owner,
+                                 addr=lambda k: self._resolve_address(k, verified=True),
+                                 agents=self.agents, harness=self.harness,
+                                 gh_token=self.discover.token)
+
         # the arena: every agent on the same tasks, one ranked board. Its
         # scheduler is started by the API (see arena/mod.py) — importing the
         # module must never kick off runs on somebody's provider key.
@@ -2170,9 +2200,14 @@ class Mod(Agent):
                                 'upload', 'library_import', 'formats',
                                 'discover', 'discover_sources', 'discover_detail',
                                 'discover_doc', 'tool_install', 'installed_tools',
+                                'agent_search', 'agent_hub', 'agent_hub_item',
                                 'tool_import', 'tool_uninstall',
                                 'toolboxes', 'toolbox', 'snapped', 'tools', 'tool',
                                 'mods',
+                                # the fleet's MCP catalog is read-open like
+                                # the fleet index; refresh probes localhost
+                                # only and mutates nothing but a cache
+                                'mcp_servers', 'mcp_tools', 'mcp_refresh',
                                 # what the agent is made of, and the memory
                                 # modules one can be built with
                                 'parts', 'memories', 'mcp',
@@ -3221,6 +3256,16 @@ class Mod(Agent):
             'discover_detail': lambda: self.discover.detail(kwargs.get('id', '')),
             'discover_doc': lambda: self.discover.tool_doc(kwargs.get('id', ''), kwargs.get('path')),
             'tool_install': lambda: self.tool_install(kwargs.get('id', ''), kwargs.get('path'), key=key),
+            # agent hub: search every agent by meaning, install GitHub agents as mods
+            'agent_search': lambda: self.agent_search(kwargs.get('q', ''), int(kwargs.get('k', 20)),
+                                                      kwargs.get('sources')),
+            'agent_hub': lambda: {'agents': self.agenthub.catalog(),
+                                  'installed': self.agenthub.installed()},
+            'agent_hub_item': lambda: self.agenthub.item(kwargs.get('id', '')),
+            'agent_hub_install': lambda: self.agent_hub_install(kwargs.get('id'), kwargs.get('repo'),
+                                                                key=key, setup=bool(kwargs.get('setup'))),
+            'agent_hub_remove': lambda: self.agent_hub_remove(kwargs.get('id', ''), key=key,
+                                                              purge=bool(kwargs.get('purge'))),
             'installed_tools': lambda: {'tools': self.library.installed_tools()},
             'tool_import': lambda: self.library.tool_import(kwargs.get('cid', ''), key=key),
             'tool_uninstall': lambda: self.library.tool_rm(kwargs.get('id', ''), key=key),
@@ -3233,6 +3278,13 @@ class Mod(Agent):
             'tool': lambda: self.tools.get(kwargs.get('name', '')),
             'mods': lambda: self.tools.mods.forward(q=kwargs.get('q', ''),
                                                     limit=kwargs.get('limit')),
+            # the fleet's MCP servers: who serves, what tools, re-probe
+            'mcp_servers': lambda: self.tools.mcp.forward(),
+            'mcp_tools': lambda: self.tools.mcp.forward(
+                action='tools', q=kwargs.get('q', ''),
+                limit=kwargs.get('limit')),
+            'mcp_refresh': lambda: self.tools.mcp.refresh(
+                kwargs.get('server'), kwargs.get('wake')),
             # the agent box and every sub-component in it
             'parts': lambda: self.parts(),
             # the same API, spoken as Model Context Protocol (src/mcp.py)

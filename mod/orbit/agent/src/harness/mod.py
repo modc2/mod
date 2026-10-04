@@ -57,6 +57,18 @@ RUNNERS = {
 }
 
 
+def installed_runners() -> Dict[str, str]:
+    """GitHub agents the agent hub turned into modules: harness -> module."""
+    try:
+        from ..agenthub.mod import AgentHub
+    except ImportError:
+        return {}
+    try:
+        return {k: v for k, v in AgentHub().runners().items() if k not in RUNNERS}
+    except Exception:
+        return {}
+
+
 class Harness:
     description = "Run another module's coding agent (Claude Code, Codex, the claude console)"
 
@@ -64,6 +76,9 @@ class Harness:
 
     def __init__(self):
         self._loaded: Dict[str, Any] = {}
+        # per instance: the agent hub adds and removes the GitHub agents it
+        # installed as modules, and that must not leak into the class table
+        self.RUNNERS = {**RUNNERS, **installed_runners()}
 
     # ── the runner modules ───────────────────────────────────────────
 
