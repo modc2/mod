@@ -46,6 +46,8 @@ Endpoints:
     POST /toolboxes/unsnap        - detach everything, back to the full tool set
     GET  /tools        - the whole registry: built-in + custom (?mods=1 adds the fleet)
     GET  /tools/mods   - the fleet on its own (?q= filters), one tool per module
+    GET  /tools/mcp    - fleet MCP tools (?q= filters; ?servers=1 = server rows)
+    POST /tools/mcp/refresh - re-probe the fleet's MCP servers (?server= wakes one)
     POST /tools        - host: create/update a custom tool  DELETE /tools/{name}
     POST /tools/{name}/run - host: execute one tool (the console's test run)
     POST /tools/select - host: pin the loadout to an exact list (null = toolboxes)
@@ -2294,12 +2296,21 @@ def list_tools(mods: bool = False, q: str = "", limit: int = 40):
     active = mod.active_tools()           # None = nothing filtered out
     tools = [{**t, "active": active is None or t["name"] in active}
              for t in mod.tools.items(mods=mods, q=q, limit=limit)]
-    # a fleet tool that's switched on stays visible even when it's not in the
-    # current page of search results — the console must be able to switch it off
+    # a fleet or MCP tool that's switched on stays visible even when it's not
+    # in the current page of search results — the console must be able to
+    # switch it off
     shown = {t["name"] for t in tools}
-    tools += [{**mod.tools.mods.get(n), "builtin": False, "active": True,
-               "params": mod.tools.mods.schema([n])[n]["params"]}
-              for n in (active or []) if n not in shown and mod.tools.is_mod(n)]
+    for n in (active or []):
+        if n in shown:
+            continue
+        if mod.tools.is_mod(n):
+            tools.append({**mod.tools.mods.get(n), "builtin": False,
+                          "active": True,
+                          "params": mod.tools.mods.schema([n])[n]["params"]})
+        elif mod.tools.is_mcp(n) and mod.tools.mcp.exists(n):
+            tools.append({**mod.tools.mcp.get(n), "builtin": False,
+                          "active": True,
+                          "params": mod.tools.mcp.schema([n])[n]["params"]})
     return {"tools": tools, "snapped": mod.snapped(),
             "toolboxes": mod.toolboxes.items(), "host": mod._owner,
             "fleet": len(mod.tools.mods.ls()), "mods": mods, "q": q}
@@ -2353,6 +2364,33 @@ def list_mod_tools(q: str = "", limit: int = 60):
     items = mod.tools.mods.items(q, limit)
     return {"mods": [{**e, "active": e["name"] in active} for e in items],
             "total": len(items), "fleet": len(mod.tools.mods.ls()), "q": q}
+
+@app.get("/tools/mcp")
+def list_mcp_tools(q: str = "", limit: int = 60, servers: bool = False):
+    """The fleet's MCP servers as tools: one entry per MCP tool, searched
+    server-side (`q`), or — `servers=true` — one row per server with its
+    reachability and tool count. These are potential tools like the fleet:
+    off the default loadout until someone switches them on."""
+    mod = get_mod()
+    if servers:
+        rows = mod.tools.mcp.servers()
+        return {"servers": rows,
+                "online": sum(1 for r in rows if r["ok"]),
+                "tools": sum(r["tools"] for r in rows)}
+    active = mod.active_tools() or []
+    items = mod.tools.mcp.items(q, limit)
+    return {"tools": [{**e, "active": e["name"] in active} for e in items],
+            "total": len(items), "q": q}
+
+@app.post("/tools/mcp/refresh")
+def refresh_mcp(server: Optional[str] = None, wake: Optional[bool] = None):
+    """Re-discover and re-probe the fleet's MCP servers. Probes localhost
+    only and rewrites nothing but the cached catalog, so it's open like the
+    fleet index; naming a server wakes it through the activator."""
+    try:
+        return get_mod().tools.mcp.refresh(server, wake)
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
 
 @app.post("/tools/{name}/run")
 def run_tool(name: str, req: ToolRunRequest):

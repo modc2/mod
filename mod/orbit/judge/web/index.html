@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>judge</title>
+<style>
+  :root { --bg:#0f0f13; --card:#17171d; --line:#26262e; --ink:#e8e8ee;
+          --dim:#9a9aa6; --ok:#4cc38a; --bad:#e5484d; --accent:#8a6ff0; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .wrap { max-width:860px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:18px; letter-spacing:.08em; }
+  h1 span { color:var(--accent); }
+  .sub { color:var(--dim); margin:-8px 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line);
+          border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 10px; font-size:13px; color:var(--dim);
+             text-transform:uppercase; letter-spacing:.1em; }
+  select, textarea, button {
+    font:inherit; color:var(--ink); background:var(--bg);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  textarea { width:100%; min-height:80px; resize:vertical; }
+  button { cursor:pointer; background:var(--accent); border:none; color:#fff;
+           padding:8px 18px; margin-top:8px; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .verdict { font-size:16px; font-weight:700; margin:10px 0 4px; }
+  .pass { color:var(--ok); } .fail { color:var(--bad); }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  th, td { text-align:left; padding:6px 8px; border-top:1px solid var(--line);
+           vertical-align:top; }
+  th { color:var(--dim); font-weight:400; border-top:none; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .dim { color:var(--dim); }
+  .pill { display:inline-block; border:1px solid var(--line); border-radius:99px;
+          padding:1px 9px; margin:2px 4px 2px 0; color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span>JD</span> judge</h1>
+  <p class="sub">a multisig of agents — the panel's average score must reach the
+     creator's threshold, or the input fails</p>
+
+  <div class="card">
+    <h2>Judge an input</h2>
+    <div class="row">
+      <label for="panel">panel</label>
+      <select id="panel"></select>
+      <span id="params" class="dim"></span>
+    </div>
+    <textarea id="input" placeholder="the thing to approve or fail"></textarea>
+    <button id="go">judge</button>
+    <div id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2>Panels</h2>
+    <div id="panels" class="dim">loading…</div>
+  </div>
+
+  <div class="card">
+    <h2>Recent verdicts</h2>
+    <div id="verdicts" class="dim">loading…</div>
+  </div>
+</div>
+
+<script>
+const api = p => fetch('api/' + p).then(r => r.json());
+const esc = s => String(s).replace(/[&<>"]/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let PANELS = [];
+
+function showParams() {
+  const p = PANELS.find(x => x.name === document.getElementById('panel').value);
+  document.getElementById('params').textContent = p
+    ? `threshold ${p.threshold} · quorum ${p.min_votes}/${p.judges.length}` : '';
+}
+
+async function loadPanels() {
+  const d = await api('panels');
+  PANELS = d.panels || [];
+  const sel = document.getElementById('panel');
+  sel.innerHTML = PANELS.map(p => `<option>${esc(p.name)}</option>`).join('');
+  sel.onchange = showParams;
+  showParams();
+  document.getElementById('panels').innerHTML = PANELS.length
+    ? PANELS.map(p => `<div style="margin-bottom:8px">
+        <b>${esc(p.name)}</b>
+        <span class="dim">by ${esc(p.creator)} · threshold ${p.threshold} ·
+          quorum ${p.min_votes}/${p.judges.length} · ${p.verdicts} verdicts</span><br>
+        ${p.judges.map(j => `<span class="pill">${esc(j.name)} (${esc(j.kind)}${
+          j.weight && j.weight !== 1 ? ' ×' + j.weight : ''})</span>`).join('')}
+      </div>`).join('')
+    : 'no panels yet — create one from the box: <code>m judge/create_panel …</code>';
+}
+
+function scoresTable(scores) {
+  return `<table><tr><th>judge</th><th class="num">score</th><th>reason</th></tr>` +
+    scores.map(s => `<tr><td>${esc(s.name)}</td>
+      <td class="num">${s.score === null ? '<span class="fail">—</span>' : s.score.toFixed(0)}</td>
+      <td class="dim">${esc(s.reason || '')}</td></tr>`).join('') + '</table>';
+}
+
+async function loadVerdicts() {
+  const d = await api('verdicts?limit=10');
+  const vs = d.verdicts || [];
+  document.getElementById('verdicts').innerHTML = vs.length
+    ? `<table><tr><th>#</th><th>panel</th><th>verdict</th>
+         <th class="num">avg</th><th>input</th></tr>` +
+      vs.map(v => `<tr><td class="dim">${v.id}</td><td>${esc(v.panel)}</td>
+        <td class="${v.approved ? 'pass' : 'fail'}">${v.approved ? 'PASS' : 'FAIL'}</td>
+        <td class="num">${v.average === null ? '—' : v.average.toFixed(1)}</td>
+        <td class="dim">${esc(v.input.slice(0, 80))}</td></tr>`).join('') + '</table>'
+    : 'no verdicts yet';
+}
+
+document.getElementById('go').onclick = async () => {
+  const btn = document.getElementById('go'), out = document.getElementById('result');
+  btn.disabled = true; out.innerHTML = '<p class="dim">the panel is deliberating…</p>';
+  try {
+    const r = await fetch('api/judge', { method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ panel: document.getElementById('panel').value,
+                             input: document.getElementById('input').value })});
+    const v = await r.json();
+    out.innerHTML = v.error
+      ? `<p class="fail">${esc(v.error)}</p>`
+      : `<div class="verdict ${v.approved ? 'pass' : 'fail'}">
+           ${v.approved ? 'PASS' : 'FAIL'}</div>
+         <div class="dim">${esc(v.reason)}</div>${scoresTable(v.scores)}`;
+    loadVerdicts();
+  } catch (e) { out.innerHTML = `<p class="fail">${esc(e)}</p>`; }
+  btn.disabled = false;
+};
+
+loadPanels(); loadVerdicts();
+</script>
+</body>
+</html>

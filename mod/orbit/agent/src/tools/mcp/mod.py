@@ -429,23 +429,30 @@ class McpTools:
         if not name.startswith(PREFIX):
             return False
         server, tool = self.split(name)
-        entry = self._index.get(server) or self.index().get(server)
-        return bool(entry and tool and
-                    any(t['name'] == tool for t in entry.get('tools', [])))
+        if not tool or not (self._index.get(server) or self.index().get(server)):
+            return False
+        return self._tool(server, tool) is not None
 
     def _tool(self, server: str, tool: str) -> Optional[Dict]:
         entry = self.index().get(server)
         if not entry:
             return None
-        return next((t for t in entry['tools'] if t['name'] == tool), None)
+        found = next((t for t in entry['tools'] if t['name'] == tool), None)
+        if found is None:
+            # the agent loop lowercases tool names before dispatch; a server
+            # with CamelCase tools must still answer
+            low = tool.lower()
+            found = next((t for t in entry['tools']
+                          if t['name'].lower() == low), None)
+        return found
 
     def get(self, name: str) -> Dict[str, Any]:
         server, tool = self.split(name)
         found = self._tool(server, tool)
         if found is None:
             raise KeyError(f"MCP tool not found: {name}")
-        return {'name': self.tool_name(server, tool), 'server': server,
-                'tool': tool, 'description': found['description'],
+        return {'name': self.tool_name(server, found['name']), 'server': server,
+                'tool': found['name'], 'description': found['description'],
                 'inputSchema': found['inputSchema'],
                 'url': self.index()[server].get('url'), 'kind': 'mcp'}
 
@@ -549,14 +556,24 @@ class McpTools:
         key = 'error' if is_error else 'result'
         return {'success': not is_error, key: _jsonable(payload)}
 
-    def run(self, name: str, params: Dict = None, **kwargs) -> Dict[str, Any]:
+    def run(self, name: str, /, params: Dict = None, **kwargs) -> Dict[str, Any]:
         """Call one MCP tool. Arguments arrive nested (`params={…}`) or flat
-        (`q='x'`) — both work, same accommodation ModTools makes."""
+        (`q='x'`) — both work, same accommodation ModTools makes — and the
+        tool name is positional-only so a tool argument named `name` still
+        reaches the tool."""
         server, tool = self.split(name)
-        if self._tool(server, tool) is None:
+        found = self._tool(server, tool)
+        if found is None:
             return {'success': False,
                     'error': f"MCP tool not found: {name}. "
                              f"Known servers: {', '.join(sorted(self._index)) or 'none'}"}
+        tool = found['name']   # the server's own casing, whatever the loop sent
+        if isinstance(params, str):
+            # models routinely stringify the nested object
+            try:
+                params = json.loads(params)
+            except Exception:
+                params = None
         args = {**(params if isinstance(params, dict) else {}), **kwargs}
         try:
             client = self._client(server)

@@ -106,8 +106,12 @@ class Tools:
             return self.mcp.get(name)
         raise KeyError(f"tool not found: {name}")
 
-    def run(self, name: str, **params) -> Any:
-        """Run any tool by name, whichever registry it came from."""
+    def run(self, name: str, /, **params) -> Any:
+        """Run any tool by name, whichever registry it came from.
+
+        `name` is positional-only: an MCP tool's own argument is allowed to
+        be called `name` too, and it has to land in params, not here.
+        """
         kind = self.kind(name)
         if kind == 'custom':
             return self.custom.run(name, **params)
