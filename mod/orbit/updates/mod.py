@@ -165,7 +165,16 @@ class Mod:
         if prefer_local and self._is_local(repo):
             return self._local_commits(branch, n)
         try:
-            data = self._api(f'/repos/{repo}/commits', {'sha': branch, 'per_page': n})
+            per_page = min(n, 100)
+            results, page = [], 1
+            while len(results) < n:
+                page_data = self._api(f'/repos/{repo}/commits',
+                                      {'sha': branch, 'per_page': per_page, 'page': page})
+                results.extend(page_data)
+                if len(page_data) < per_page:
+                    break
+                page += 1
+            data = results[:n]
             return [self._fmt_api(c, repo, branch) for c in data]
         except Exception:
             if self._is_local(repo):

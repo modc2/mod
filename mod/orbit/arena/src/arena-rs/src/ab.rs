@@ -231,6 +231,14 @@ fn verdict(a: &str, b: &str, ta: &Tally, tb: &Tally, voids: u64, played: u64) ->
             " — {clean} plays cleaner ({:.0}% illegal vs {dirty}'s {:.0}%)",
             rc * 100.0, rd * 100.0));
     }
+    let avg = |t: &Tally| t.score_sum / t.matches().max(1) as f64;
+    let (avg_a, avg_b) = (avg(ta), avg(tb));
+    if (avg_a - avg_b).abs() >= 0.1 {
+        let (higher, lower, ha, la) =
+            if avg_a > avg_b { (a, b, avg_a, avg_b) } else { (b, a, avg_b, avg_a) };
+        line.push_str(&format!(
+            " — {higher} leads on score (avg {ha:.2} vs {lower}'s {la:.2})"));
+    }
     if voids > 0 {
         line.push_str(&format!(" · {voids} match(es) voided"));
     }
@@ -516,6 +524,19 @@ mod tests {
         let v = verdict("alpha", "beta", &tally(3, 0, 3, 100, 1), &tally(3, 0, 3, 100, 20), 0, 6);
         assert!(v.contains("level at 3–3"), "{v}");
         assert!(v.contains("alpha plays cleaner"), "{v}");
+    }
+
+    #[test]
+    fn verdict_level_wins_but_score_gap_shows() {
+        let mut ta = tally(5, 0, 5, 100, 0);
+        ta.score_sum = 82.0; // avg 8.2
+        let mut tb = tally(5, 0, 5, 100, 0);
+        tb.score_sum = 21.0; // avg 2.1
+        let v = verdict("alpha", "beta", &ta, &tb, 0, 10);
+        assert!(v.contains("level at 5–5"), "{v}");
+        assert!(v.contains("alpha leads on score"), "{v}");
+        assert!(v.contains("8.20"), "{v}");
+        assert!(v.contains("2.10"), "{v}");
     }
 
     #[test]

@@ -1,3 +1,11 @@
 state/
 __pycache__/
 *.pyc
+api/target/
+web/node_modules/
+web/out/
+web/.next*
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo
+dist
+releases/

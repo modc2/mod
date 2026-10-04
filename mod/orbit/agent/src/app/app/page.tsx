@@ -369,6 +369,8 @@ export default function Home() {
   let taskId = useRef(0)
   // abort handle for the in-flight run (Stop button)
   const abortRef = useRef<AbortController | null>(null)
+  // prompt history navigation index (-1 = new prompt)
+  const historyIdx = useRef(-1)
   // 1s ticker so the elapsed-time display updates while a task runs
   const [, setClockTick] = useState(0)
 
@@ -1944,10 +1946,33 @@ export default function Home() {
     inputRef.current?.focus()
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      historyIdx.current = -1
       run()
+      return
+    }
+    if (e.key === 'Escape') {
+      historyIdx.current = -1
+      return
+    }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const el = inputRef.current
+      const atTop = !query || (el !== null && el.selectionStart === 0)
+      if (!atTop) return
+      const history = tasks.map(t => t.query).filter(Boolean)
+      if (!history.length) return
+      e.preventDefault()
+      if (e.key === 'ArrowUp') {
+        const next = Math.min(historyIdx.current + 1, history.length - 1)
+        historyIdx.current = next
+        setQuery(history[next])
+      } else {
+        const next = historyIdx.current - 1
+        historyIdx.current = Math.max(next, -1)
+        setQuery(next < 0 ? '' : history[next])
+      }
     }
   }
 
@@ -3210,7 +3235,7 @@ export default function Home() {
       <textarea
         ref={inputRef}
         value={query}
-        onChange={e => setQuery(e.target.value)}
+        onChange={e => { historyIdx.current = -1; setQuery(e.target.value) }}
         onKeyDown={handleKeyDown}
         onPaste={onPasteCompose}
         onFocus={() => setComposeFocused(true)}
@@ -3264,6 +3289,7 @@ export default function Home() {
         <div className="compose-hint">
           <span><kbd>↵</kbd> run</span>
           <span><kbd>⇧↵</kbd> newline</span>
+          <span><kbd>↑</kbd> history</span>
           {/* no key chip here — the paste chord differs per platform, and the
               point is that pasting works at all, not which key does it */}
           <span className="hidden sm:inline">· images paste straight in</span>

@@ -20,8 +20,15 @@ CLI:
     m ztensor/tally topic=<t>             # public tally of a topic
     m ztensor/payout topic=<t> pool=1000  # transparent reward split by vote share
     m ztensor/test                        # self-check (sign/verify/double-vote)
+    m ztensor/build                       # build Next.js console + Rust API
     m ztensor/serve                       # api + console on :51180, route /ztensor
     m ztensor/kill
+
+Service stack: the Rust binary (api/, axum) serves both the JSON API and the
+static Next.js console (web/ -> dist/); server.py is the pure-python fallback
+used only when the binary has not been built. ring.py stays the reference
+LSAG implementation — api/src/lsag.rs and web/lib/lsag.mjs are byte-for-byte
+compatible ports (cross-checked by `cargo test` and web/scripts/crosstest.mjs).
 """
 import json
 import os
@@ -194,17 +201,27 @@ class Mod:
 
     # ── service ──────────────────────────────────────────────────────
 
+    def build(self) -> dict:
+        """Build the Next.js console (atomic dist swap) and the Rust API."""
+        r = subprocess.run(["bash", str(MODULE_DIR / "build.sh")], capture_output=True, text=True)
+        return {"ok": r.returncode == 0, "tail": (r.stdout + r.stderr).splitlines()[-8:]}
+
     def serve(self, port: Optional[int] = None) -> dict:
         port = int(port or self.port)
-        env = dict(os.environ, ZTENSOR_PORT=str(port))
+        env = dict(os.environ, ZTENSOR_PORT=str(port), ZTENSOR_DIR=str(MODULE_DIR))
+        binary = MODULE_DIR / "api" / "target" / "release" / "ztensor-api"
+        # Rust binary serves API + Next console; python server.py is the fallback
+        cmd = [str(binary)] if binary.exists() else [sys.executable, str(MODULE_DIR / "server.py")]
         subprocess.Popen(
-            [sys.executable, str(MODULE_DIR / "server.py")],
-            cwd=str(MODULE_DIR), env=env,
+            cmd, cwd=str(MODULE_DIR), env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
         )
-        return {"serving": True, "port": port, "url": f"http://localhost:{port}/ztensor/"}
+        return {"serving": True, "port": port, "stack": "rust" if cmd[0].endswith("ztensor-api") else "python",
+                "url": f"http://localhost:{port}/ztensor/"}
 
     def kill(self) -> dict:
+        # exact paths only — never a bare pattern that could match other mods
+        subprocess.run(["pkill", "-f", str(MODULE_DIR / "api/target/release/ztensor-api")], check=False)
         subprocess.run(["pkill", "-f", str(MODULE_DIR / "server.py")], check=False)
         return {"killed": True}
 

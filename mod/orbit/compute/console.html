@@ -703,6 +703,7 @@
           <input id="o-key" placeholder="player key" style="width:170px;display:none" autocomplete="off">
           <div class="hz" id="o-hz"></div>
         </div>
+        <div id="o-newkey" class="note" style="display:none"></div>
         <div class="bar">
           <span class="range"><label>$/hr per gpu</label>
             <input id="o-val" type="number" step="0.001" min="0" style="width:90px"></span>
@@ -2136,11 +2137,12 @@ async function oracleCall() {
   const keyIn = document.getElementById('o-key');
   if (!name) { f.textContent = 'pick a name first'; document.getElementById('o-player').focus(); return }
   let p = me();
+  let isNew = false;
   if (p.player !== name) {
     if (keyIn.style.display !== 'none' && keyIn.value.trim()) p = {player: name, key: keyIn.value.trim()};
     else try {
       const j = await post('/oracle/join', {player: name});
-      p = {player: j.player, key: j.key};
+      p = {player: j.player, key: j.key}; isNew = true;
     } catch (e) {
       if (/taken/.test(e.message)) {
         keyIn.style.display = ''; keyIn.focus();
@@ -2149,6 +2151,11 @@ async function oracleCall() {
       f.textContent = e.message; blip('bad'); return;
     }
     localStorage.setItem(OP, JSON.stringify(p)); keyIn.style.display = 'none'; keyIn.value = '';
+  }
+  if (isNew) {
+    const nk = document.getElementById('o-newkey');
+    nk.innerHTML = `new player <b>${esc(p.player)}</b> — save your key: <code>${esc(p.key)}</code> <button onclick="navigator.clipboard.writeText(this.dataset.k);this.closest('#o-newkey').style.display='none'" data-k="${esc(p.key)}">copy &amp; dismiss</button>`;
+    nk.style.display = '';
   }
   try {
     const c = await post('/oracle/predict', {player: p.player, key: p.key, series: OSEL, horizon: OHZ,

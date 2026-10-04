@@ -52,7 +52,7 @@
   const out = document.getElementById("out");
   async function call(path, qs="") {
     try {
-      const r = await fetch(`${base}/${path}${qs}`);
+      const r = await fetch(`${base}/_api/${path}${qs}`);
       out.textContent = JSON.stringify(await r.json(), null, 2);
     } catch (e) { out.textContent = "error: " + e; }
   }

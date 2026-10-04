@@ -1,7 +1,7 @@
 {
     "name": "ztensor",
-    "description": "Anonymous voting and consensus for miner/validator networks. Participants prove membership in the eligible set and cast votes without revealing which member they are (Merkle-commitment + nullifier, Semaphore-style). Private ballots, public books: votes are unlinkable, reward payouts are transparent and auditable. Local-first, pure python.",
-    "version": "0.1.0",
+    "description": "Anonymous voting and consensus for miner/validator networks. Members cast LSAG ring-signed votes: the tally proves a member of the eligible set voted without revealing which one; a per-topic key image blocks double-voting. Private ballots, public books: votes are unlinkable, reward payouts are transparent and auditable. Rust (axum) API serving a static Next.js console; keygen and signing run client-side so secrets never reach the service.",
+    "version": "0.2.0",
     "anchor": "mod.py",
     "port": 51180,
     "app_port": 51180,
@@ -24,17 +24,22 @@
         "register": {
             "method": "POST",
             "auth": false,
-            "docs": "{commitment} -> {index, root}; add a participant commitment to the eligible set (identity stays private)"
+            "docs": "{pub} -> {index, size}; add a PUBLIC key (hex) to the eligible set \u2014 secret keys never reach the service"
         },
         "set": {
             "method": "GET",
             "auth": false,
-            "docs": "-> {root, size}; current eligible-set Merkle root"
+            "docs": "-> {size, participants}; the current eligible set of public keys"
+        },
+        "ring": {
+            "method": "GET",
+            "auth": false,
+            "docs": "{topic} -> {ring, frozen, size}; the ring a vote on this topic must be signed against (frozen at the topic's first vote)"
         },
         "vote": {
             "method": "POST",
             "auth": false,
-            "docs": "{proof, nullifier, choice, topic} -> {accepted}; cast an anonymous vote; nullifier prevents double-voting per topic"
+            "docs": "{topic, choice, sig} -> {accepted}; cast an anonymous LSAG-signed vote; the key-image tag prevents double-voting per topic"
         },
         "tally": {
             "method": "GET",
@@ -44,7 +49,17 @@
         "payout": {
             "method": "GET",
             "auth": false,
-            "docs": "{topic} -> {instructions}; transparent, signed reward instructions derived from the tally (public and linkable by design)"
+            "docs": "{topic, pool} -> {instructions}; transparent reward instructions derived from the tally (public and linkable by design)"
+        },
+        "topics": {
+            "method": "GET",
+            "auth": false,
+            "docs": "-> {topics}; every topic with its ring size and vote count"
+        },
+        "status": {
+            "method": "GET",
+            "auth": false,
+            "docs": "-> {participants, topics}"
         }
     },
     "fns": [
@@ -55,9 +70,10 @@
         "tally",
         "payout",
         "test",
+        "build",
         "serve",
         "kill",
         "status"
     ],
-    "schema": "QmckfcFcSpfNpXmbikTmLfiduP5HDUbK4SkfdWrh2CfrKj"
+    "schema": "QmbjPMbHgNnJPQw4iwdCqxKDYQo3RC7X4NhUaZF9DCx1pj"
 }
