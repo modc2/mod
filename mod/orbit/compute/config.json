@@ -1,7 +1,7 @@
 {
     "name": "compute",
     "version": "1.0.0",
-    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Every market that publishes a location comes back placed, so the console draws the world and an agent can ask compute_map where the cheap H100s physically are. A prediction game rides on top: every 20 minutes each popular card gets a price index (median per-GPU $/hr across every market), players and baseline bots call where it will be in 1h to 7d, and a leaderboard scores them against what the market actually did. Twenty-five MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
+    "description": "One interface to every decentralized compute market, and a way to actually use what you rent. Targon and Lium (Bittensor SN4/SN51), Akash, Vast.ai, Clore, Nosana, Aleph Cloud, Cathedral confidential TDX, Prime Intellect, Polaris, Hyperbolic, RunPod, Fluence, Shadeform and your own docker hosts, normalized to one offer/instance shape priced in USD/hr and addressed as provider:ref. Then compute/deploy turns a rented box into a mod protocol node: it installs mod core over the same transport it rents with, and the browser console gets a shell, the node's module list, and a call button for every function on them \u2014 no port has to be open on the box. Every market that publishes a location comes back placed, so the console draws the world and an agent can ask compute_map where the cheap H100s physically are. A prediction game rides on top: every 20 minutes each popular card gets a price index (median per-GPU $/hr across every market), players and baseline bots call where it will be in 1h to 7d, and a leaderboard scores them against what the market actually did. Twenty-six MCP tools replace fourteen provider APIs. BYOK throughout: every call spends the caller's own credits on their own provider account, and the no-KYC crypto-native markets come first.",
     "icon": "\u25a6",
     "anchor": "mod.py",
     "protocol": "mcp/2025-06-18",
@@ -38,6 +38,7 @@
         "compute_mods",
         "compute_search",
         "compute_map",
+        "compute_show_map",
         "compute_offer",
         "compute_quote",
         "compute_rent",

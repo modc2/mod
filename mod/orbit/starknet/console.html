@@ -46,6 +46,10 @@
       white-space:pre-wrap;word-break:break-all}
   pre.err{border-color:var(--err);color:var(--err)}
   .hint{color:var(--dim);font-size:12px;margin-top:8px}
+  .hint code{color:var(--ink)}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:5px;
+       padding:0 6px;font-size:11px;color:var(--dim);margin-left:6px}
+  .tag.ok{color:var(--ok);border-color:#1f4d2b}
 </style>
 </head>
 <body>
@@ -60,12 +64,56 @@
   <h2>MODULE</h2>
   <div class="kv" id="modkv">
     <span class="k">name</span><span class="v">starknet</span>
-    <span class="k">desc</span><span class="v">Starknet via api + app, local first</span>
+    <span class="k">desc</span><span class="v">Starknet + STRK20 privacy pool &middot; api, app, mcp</span>
     <span class="k">chain</span><span class="v" id="kchain">&mdash;</span>
     <span class="k">block</span><span class="v" id="kblock">&mdash;</span>
     <span class="k">rpc</span><span class="v" id="krpc">&mdash;</span>
     <span class="k">spec</span><span class="v" id="kspec">&mdash;</span>
   </div>
+</div>
+
+<div class="card">
+  <h2>STRK20 PRIVACY POOL <span class="tag" id="ppaused">&mdash;</span></h2>
+  <div class="kv">
+    <span class="k">pool</span><span class="v" id="ppool">&mdash;</span>
+    <span class="k">version</span><span class="v" id="pver">&mdash;</span>
+    <span class="k">holds</span><span class="v" id="phold">&mdash;</span>
+    <span class="k">proofs</span><span class="v" id="pproof">&mdash;</span>
+  </div>
+  <div class="chips" style="margin-top:12px">
+    <button class="chip" onclick="run('strk20/activity?limit=25')">activity</button>
+    <button class="chip" onclick="run('strk20/activity?event=Deposit&limit=15')">deposits</button>
+    <button class="chip" onclick="run('strk20/activity?event=Withdrawal&limit=15')">withdrawals</button>
+    <button class="chip" onclick="run('strk20/helpers')">anonymizer helpers</button>
+    <button class="chip" onclick="run('strk20/docs?page=helpers/privacy-invoke')">privacy_invoke docs</button>
+    <button class="chip" onclick="run('strk20/pool')">full state</button>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <input id="p_addr" placeholder="0x address &mdash; registered? deposits? withdrawals?" spellcheck="false">
+    <button class="go" onclick="pUser()">CHECK</button>
+  </div>
+  <div class="hint">inside the pool, senders, recipients and amounts are encrypted &mdash;
+    only the public edges (deposits, withdrawals) and the helpers it calls are readable</div>
+</div>
+
+<div class="card">
+  <h2>CONTRACT</h2>
+  <div class="row">
+    <input id="k_addr" placeholder="0x contract, or strk / eth / usdc / strk20" spellcheck="false">
+    <button class="go" onclick="kInspect()">INSPECT</button>
+  </div>
+  <div class="row">
+    <input id="k_fn" placeholder="function e.g. balance_of" spellcheck="false" style="max-width:220px">
+    <input id="k_args" placeholder='args JSON e.g. {"account":"0x..."}' spellcheck="false">
+    <button class="go" onclick="kRead()">READ</button>
+  </div>
+  <div class="hint">reads the contract's own ABI from chain &mdash; args go in typed, results come back decoded</div>
+</div>
+
+<div class="card">
+  <h2>MCP <span class="tag ok" id="mcpn">&mdash;</span></h2>
+  <pre id="mcpcfg">&mdash;</pre>
+  <div class="hint">every tool is read-only; POST JSON-RPC 2.0 to <code>/mcp</code>, or run <code>python3 mcp.py</code> for stdio</div>
 </div>
 
 <div class="card">
@@ -136,6 +184,54 @@ async function doCall() {
   } catch (e) { show(e, true); }
 }
 
+function pUser() {
+  const a = $('p_addr').value.trim();
+  if (a) run('strk20/user?address=' + encodeURIComponent(a));
+}
+function kInspect() {
+  const a = $('k_addr').value.trim();
+  if (a) run('contract?address=' + encodeURIComponent(a));
+}
+async function kRead() {
+  let args = $('k_args').value.trim();
+  try { args = args ? JSON.parse(args) : {}; }
+  catch (e) { return show({error: 'args must be JSON'}, true); }
+  show({running: 'read'});
+  try {
+    show(await api('read', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({contract: $('k_addr').value.trim(),
+        function: $('k_fn').value.trim(), args, network: net()})}));
+  } catch (e) { show(e, true); }
+}
+async function pool() {
+  try {
+    const p = await api('strk20/pool');
+    $('ppool').textContent = p.pool;
+    $('pver').textContent = p.version + '  \u00b7  fee ' + p.fee_amount_1e18;
+    const h = p.public_holdings || {};
+    $('phold').textContent = Object.entries(h)
+      .map(([k, v]) => (typeof v === 'number' ? v.toLocaleString(undefined, {maximumFractionDigits: 2}) : '?') + ' ' + k.toUpperCase())
+      .join('  \u00b7  ');
+    $('pproof').textContent = 'valid for ' + p.proof_validity_blocks + ' blocks';
+    $('ppaused').textContent = p.paused ? 'paused' : 'live';
+    $('ppaused').className = 'tag' + (p.paused ? '' : ' ok');
+  } catch (e) {
+    $('ppool').textContent = (e && e.error) || 'unavailable on this network';
+    $('pver').textContent = $('phold').textContent = $('pproof').textContent = '\u2014';
+    $('ppaused').textContent = '\u2014';
+  }
+}
+async function mcpCard() {
+  try {
+    const t = await api('tools');
+    $('mcpn').textContent = t.count + ' tools';
+    const url = new URL('mcp', location.href.replace(/[^/]*$/, '')).href;
+    $('mcpcfg').textContent = JSON.stringify({mcpServers: {starknet: {type: 'http', url}}}, null, 2)
+      + '\n\n' + t.tools.map(x => x.name).join('  ');
+  } catch (e) { $('mcpn').textContent = 'down'; }
+}
+
 const FNS = ['status', 'block_number', 'block?id=latest', 'test',
              'selector?name=balanceOf', 'balance?address=&token=eth',
              'tx?hash=', 'receipt?hash=', 'nonce?address=', 'class_hash?address='];
@@ -163,8 +259,8 @@ async function refresh() {
     $('livetxt').textContent = 'api down';
   }
 }
-$('network').onchange = refresh;
-refresh();
+$('network').onchange = () => { refresh(); pool(); };
+refresh(); pool(); mcpCard();
 setInterval(refresh, 30000);
 </script>
 </body>

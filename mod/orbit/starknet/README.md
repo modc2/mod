@@ -1,7 +1,22 @@
 # starknet
 
-Starknet as one mod — the chain behind an API and an app, local first,
-zero dependencies.
+Starknet as one mod — the chain and its STRK20 privacy pool behind an API,
+an app and an MCP server, local first, zero dependencies.
+
+- **Any contract, by its own ABI**: Starknet stores every class's ABI on
+  chain, so `abi.py` fetches it (cached by class hash) and reads any
+  function by name — typed JSON args in, structs / enums / u256 / arrays /
+  ByteArray / events decoded out.
+- **STRK20 privacy pool** ([docs](https://strk20.starknet.io/docs)): the
+  mainnet pool `0x040337b1…e812a` — live parameters, its public event tape,
+  per-address registration and public edges, notes and nullifiers, and every
+  `privacy_invoke` anonymizer contract it has called (with each one's
+  signature, checked against the `Span<OpenNoteDeposit>` contract).
+  `strk20_invoke_action` ABI-encodes the `InvokeExternal` client action for
+  a helper. Nothing proves, signs or submits — that needs the user's viewing
+  key, which belongs in their wallet / the Privacy SDK.
+- **MCP**: 20 read-only tools over stdio (`python3 mcp.py`) and Streamable
+  HTTP (`POST /mcp` on the same port).
 
 - **Reads everything**: blocks, transactions, receipts, account balances
   (ETH / STRK / USDC / any ERC-20 with Uint256 decoding), nonces, class
@@ -22,6 +37,9 @@ zero dependencies.
 
 ```
 chain.py       the Starknet client as plain importable functions (reusable alone)
+abi.py         Cairo ABI codec: iface / read / encode / events for any contract
+strk20.py      the STRK20 privacy pool: state, activity, users, notes, helpers, docs
+mcp.py         MCP server (JSON-RPC 2.0, stdio + mounted at POST /mcp)
 api.py         REST API + console server (http.server, one port)
 console.html   the app — status, account lookup, contract calls
 mod.py         module anchor: every fn callable through the mod protocol
@@ -56,7 +74,21 @@ unchanged behind the gateway (`/{mod}` → app, prefix kept).
 | `GET\|POST /call` | read any contract: `{contract, entrypoint\|selector, calldata}` |
 | `POST /rpc` | raw JSON-RPC escape hatch: `{method, params}` |
 
-Every read takes `?network=mainnet|sepolia`. Errors return HTTP 400 with a
+| `GET /contract?address=` | a contract's functions + events from its on-chain ABI |
+| `GET\|POST /read` | `{contract, function, args}` — typed call, decoded result |
+| `GET\|POST /encode` | `{contract, function, args}` — calldata only |
+| `GET /events?address=&name=&limit=` | decoded events, newest first |
+| `GET /strk20/pool` | pool version, fee, proof window, keys, holdings |
+| `GET /strk20/activity?event=` | the pool's public tape |
+| `GET /strk20/user?address=` | registered? channels, deposits, withdrawals |
+| `GET /strk20/note?id=` · `/strk20/nullifier?value=` | one note / spend check |
+| `GET /strk20/helpers` · `/strk20/helper?address=` | anonymizer contracts |
+| `POST /strk20/invoke_action` | `{helper, args}` → InvokeExternal action felts |
+| `GET /strk20/docs?page=&q=` | the official docs as markdown |
+| `POST /mcp` | MCP JSON-RPC 2.0 · `GET /tools` lists, `POST /tools/<name>` runs |
+
+Every read takes `?network=mainnet|sepolia`. Contract arguments accept the
+aliases `eth`, `strk`, `usdc` and `strk20`. Errors return HTTP 400 with a
 JSON body (never 5xx — proxies strip those bodies).
 
 ```bash
@@ -64,6 +96,18 @@ curl -s localhost:51020/status
 curl -s 'localhost:51020/balance?address=0x0498...&token=strk'
 curl -s localhost:51020/call -d '{"contract":"0x049d...","entrypoint":"balanceOf","calldata":["0x0498..."]}'
 ```
+
+## MCP
+
+```json
+{"mcpServers": {"starknet": {"type": "http", "url": "http://localhost:51020/mcp"}}}
+```
+
+or stdio: `{"command": "python3", "args": ["/path/to/starknet/mcp.py"]}`.
+
+Tools: `starknet_status block tx account balance contract read encode events
+storage rpc` and `strk20_pool activity user note nullifier helpers helper
+invoke_action docs`. All are read-only (`readOnlyHint`).
 
 ## Env
 
@@ -73,6 +117,8 @@ curl -s localhost:51020/call -d '{"contract":"0x049d...","entrypoint":"balanceOf
 | `STARKNET_NETWORK` | default network (`mainnet`) |
 | `STARKNET_RPC` | your own node — always tried first |
 | `STARKNET_TIMEOUT` | per-endpoint timeout, seconds (default 15) |
+| `STRK20_POOL[_SEPOLIA]` | override the pool address (no sepolia pool is built in) |
+| `STARKNET_ABI_CACHE` | ABI cache dir (default `~/.mod/starknet/abi`) |
 
 ## Test
 
@@ -85,9 +131,12 @@ The offline vectors pin `keccak256(b'') = c5d24601…` and
 `selector('balanceOf') = 0x2e4263af…` — the live chain agrees (verified with
 a real `starknet_call` on mainnet).
 
-## v0.1 scope
+## Scope
 
-Reads only. No keys are held anywhere, so there is nothing to leak. Writes
+Reads only (v0.2). No keys are held anywhere, so there is nothing to leak.
+STRK20 private transactions need a viewing key and a Stwo proof; this module
+explains and encodes them but leaves proving/signing to the wallet or the
+`@starkware-libs/starknet-privacy-sdk`. Writes
 (account deployment, invoke transactions, a keystore under
 `~/.mod/starknet/`) are a later version, following the near module's shape:
 testnet by default, explicit confirm for mainnet, secrets never in the repo.

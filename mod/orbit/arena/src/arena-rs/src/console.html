@@ -1258,8 +1258,13 @@ function agentChip(m) {
 }
 
 async function loadMe() {
-  try { me = await call("/whoami"); } catch { me = { address: null, box_owner: false, host: "" }; }
-  if (lsGet(TOKEN_KEY) && !me.address) {
+  // A server the page cannot reach is not a rejected token: say so out loud
+  // and keep the token, so a restart blip never silently signs anyone out.
+  let unreachable = null;
+  try { me = await call("/whoami"); }
+  catch (e) { unreachable = e.message || "unreachable"; me = { address: null, box_owner: false, host: "" }; }
+  if (unreachable) toast(`the arena is unreachable — ${unreachable}`, true);
+  else if (lsGet(TOKEN_KEY) && !me.address) {
     lsSet(TOKEN_KEY, null);
     if (me.error) toast(`signed out — ${me.error}`, true);
   }
@@ -2906,8 +2911,15 @@ function studioShow(card) {
 }
 
 $("s-send").onclick = async () => {
-  if (!studio?.card) return;
+  if (!studio) return;
   if (!me.address && !(await signIn())) return;
+  // The session may have refused to start anonymously (edit/fork of someone
+  // else's module): now that there is an address, ask for it again rather
+  // than leaving a button that says "sign in" doing nothing.
+  if (!studio.card) {
+    try { studioShow(await post("/vibe", studioStartBody())); }
+    catch (e) { return toast(e.message, true); }
+  }
   const prompt = $("s-say").value.trim();
   if (!prompt) { $("s-say").focus(); return toast("say what to write or change", true); }
   $("s-send").disabled = true;

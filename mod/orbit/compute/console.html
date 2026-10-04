@@ -408,6 +408,29 @@
   .fchip b{font-weight:400;color:var(--gold-hi)} .fchip:hover{color:var(--badv)}
   .fchip.clear{background:linear-gradient(180deg,var(--btn1),var(--btn2))}
   .more{margin:10px 0 0}
+  /* ── CHAT: the desk talks back, and draws on the world as it does ── */
+  .askgrid{display:grid;grid-template-columns:minmax(300px,5fr) minmax(320px,7fr);
+           gap:14px;align-items:start}
+  @media(max-width:1000px){.askgrid{grid-template-columns:1fr}}
+  .chatlog{height:48vh;min-height:280px;overflow-y:auto;scrollbar-width:thin;
+           display:flex;flex-direction:column;gap:8px;padding:12px}
+  .msg{max-width:92%;padding:7px 10px;font-size:11px;line-height:1.55;
+       white-space:pre-wrap;word-break:break-word}
+  .msg.me{align-self:flex-end;background:var(--sel);border:2px solid var(--edge);color:var(--ink)}
+  .msg.ai{align-self:flex-start;background:var(--well);box-shadow:inset 0 0 0 1px var(--rule);color:var(--dim)}
+  .msg.err{align-self:flex-start;background:var(--well);color:var(--badv);
+           box-shadow:inset 0 0 0 1px var(--badv)}
+  .toolchip{align-self:flex-start;font:7px/1.9 var(--px);color:var(--faint);
+            padding:1px 7px;box-shadow:inset 0 0 0 1px var(--rule)}
+  .toolchip.mapcall{color:var(--gold)}
+  .composer{display:flex;gap:8px;padding:10px 12px;border-top:2px solid var(--rule)}
+  .composer input{flex:1;min-width:0}
+  /* the agent's map: same landmask, but with a camera the directives fly.
+     Pins counter-scale by --iz so a zoomed city is not a 100px square. */
+  .ainner{position:absolute;inset:0;transform-origin:0 0;
+          transition:transform .9s cubic-bezier(.25,.8,.25,1)}
+  .ainner canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+  .ainner .pin{transform:translate(-50%,-50%) scale(var(--iz,1));cursor:default}
   .dimtxt{color:var(--dim)} .faint{color:var(--faint)}
   .warnv{color:var(--warn)} .badv{color:var(--badv)} .hotv{color:var(--hot)}
 
@@ -581,6 +604,7 @@
   </div>
   <nav>
     <button data-tab="market" class="on">MARKET</button>
+    <button data-tab="ask">CHAT</button>
     <button data-tab="oracle">ORACLE</button>
     <button data-tab="nodes">NODES</button>
     <button data-tab="running">RUNNING</button>
@@ -628,6 +652,35 @@
   <div id="m-more" class="more"></div>
 </section>
 <div class="tip" id="tip"></div>
+
+<!-- ── CHAT: ask the desk, and watch it draw on the world ────────────── -->
+<section id="ask">
+  <div class="askgrid">
+    <div class="pane">
+      <div class="head"><span class="pipe" aria-hidden="true"></span><b>ASK COMPUTE</b>
+        <span class="faint" id="a-status"></span></div>
+      <div class="chatlog" id="a-log"></div>
+      <div class="composer">
+        <input id="a-input" placeholder="where are the cheapest H100s?" autocomplete="off">
+        <button class="go" id="a-send" onclick="askSend()">SEND</button>
+      </div>
+    </div>
+    <div class="pane">
+      <div class="head"><span class="pipe" aria-hidden="true"></span><b>THE WORLD</b>
+        <span class="faint" id="a-mhead"></span>
+        <span class="grow" style="flex:1"></span>
+        <button class="ghost" onclick="askWorld()">WORLD</button>
+        <button class="ghost" onclick="askToMarket()" title="carry these filters into the MARKET tab">OPEN IN MARKET</button></div>
+      <div class="body">
+        <div class="amap map" id="amap">
+          <div class="ainner" id="ainner"><canvas width="200" height="78"></canvas><span id="a-pins"></span></div>
+        </div>
+        <div class="axis"><span id="a-caption">ask, and the agent draws what it finds</span>
+          <span id="a-counts"></span></div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ── ORACLE ─────────────────────────────────────────────────────────── -->
 <section id="oracle">
@@ -845,7 +898,7 @@ const ago = t => { if (!t) return ''; const s = Date.now()/1000 - t;
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
-  ({oracle, nodes: loadNodes, running, providers, keys: keysPanel, mcp: tools}[b.dataset.tab] || (() => {}))();
+  ({oracle, ask: askOpen, nodes: loadNodes, running, providers, keys: keysPanel, mcp: tools}[b.dataset.tab] || (() => {}))();
 });
 document.querySelectorAll('.subnav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('.subnav button').forEach(x => x.classList.toggle('on', x === b));
@@ -1303,14 +1356,17 @@ function landCells() {
   return LAND;
 }
 
-function drawLand() {
-  const c = document.querySelector('#map canvas');
+function paintLand(c) {
   if (!c) return;
   const g = c.getContext('2d');
   const css = getComputedStyle(document.documentElement);
   g.clearRect(0, 0, MW, MH);
   g.fillStyle = css.getPropertyValue('--panel2').trim() || '#26262c';
   for (const [x, y] of landCells()) g.fillRect(x, y, 1, 1);
+}
+function drawLand() {           // both worlds: the WHERE panel and the chat's
+  paintLand(document.querySelector('#map canvas'));
+  paintLand(document.querySelector('#ainner canvas'));
 }
 
 function wireMap() {
@@ -1350,6 +1406,194 @@ function placeLabel(k) {
   if (k === '__none') return 'no location published';
   const o = ALL.find(x => cellOf(x) === k);
   return o && o.geo ? o.geo.place : k;
+}
+
+// ── CHAT: ask the desk; the agent answers over SSE and every validated
+//    compute_show_map directive lands here and redraws the world beside the
+//    conversation — points, caption, and a camera move. Owner-only upstream:
+//    each turn runs an agent on the box, so a locked console gets a 401 with
+//    the set-token hint rather than a silent dead composer.
+let ASK = {sid: null, dir: null, busy: false, booted: false, z: 1};
+
+function askOpen() {
+  if (!ASK.booted) {
+    ASK.booted = true;
+    paintLand(document.querySelector('#ainner canvas'));
+    askNote('Ask about the markets - cheapest H100s, what Germany costs, who '
+          + 'rents with no KYC. I answer from a live read of every market and '
+          + 'draw what I find on the map as I go.');
+    document.getElementById('a-input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') askSend();
+    });
+    call('/chat/health').then(h => {
+      if (!h.available) askErr('no claude CLI on this host - the chat agent cannot run');
+    }).catch(() => {});
+  }
+  // the camera math needs real pixels — re-aim once the section has layout
+  if (ASK.dir && ASK.dir.focus) requestAnimationFrame(() => askFly(ASK.dir.focus));
+  document.getElementById('a-input').focus();
+}
+
+const alog = () => document.getElementById('a-log');
+function askScroll() { const l = alog(); l.scrollTop = l.scrollHeight }
+function askMsg(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls; d.textContent = text;
+  alog().appendChild(d); askScroll(); return d;
+}
+const askNote = t => askMsg('ai', t);
+const askErr = t => askMsg('err', t);
+function askChip(name, input) {
+  const d = document.createElement('div');
+  d.className = 'toolchip' + (name === 'compute_show_map' ? ' mapcall' : '');
+  const args = Object.entries(input || {}).filter(([k]) => k !== 'caption')
+    .map(([k, v]) => `${k}=${v}`).join(' ');
+  d.textContent = '▸ ' + name.replace('compute_', '') + (args ? ' ' + args.slice(0, 90) : '');
+  alog().appendChild(d); askScroll();
+}
+
+// what the agent is told the user is looking at, so "only the US" and
+// "zoom back out" resolve against the current view
+function askState() {
+  const d = ASK.dir;
+  if (!d) return {view: 'world', filters: {}, note: 'nothing drawn yet'};
+  return {filters: d.filters || {}, placed: d.placed, unplaced: d.unplaced,
+          countries: d.countries, caption: d.caption || '',
+          camera: d.focus && !d.focus.world && d.focus.label ? d.focus.label : 'world'};
+}
+
+async function askSend() {
+  const inp = document.getElementById('a-input');
+  const msg = inp.value.trim();
+  if (!msg || ASK.busy) return;
+  inp.value = '';
+  askMsg('me', msg);
+  ASK.busy = true;
+  document.getElementById('a-send').disabled = true;
+  document.getElementById('a-status').textContent = 'thinking...';
+  let cur = null;                       // the ai bubble being streamed into
+  try {
+    const h = {'content-type': 'application/json'};
+    if (token) h['authorization'] = 'Bearer ' + token;
+    const r = await fetch(API + '/chat', {method: 'POST', headers: h,
+      body: JSON.stringify({message: msg, session_id: ASK.sid, map_state: askState()})});
+    if (!r.ok) {
+      const b = await r.json().catch(() => ({}));
+      throw new Error((b.error || 'http ' + r.status) +
+        (r.status === 401 ? ' - press the owner chip up top to set it' : ''));
+    }
+    const rd = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const {done, value} = await rd.read();
+      if (done) break;
+      buf += dec.decode(value, {stream: true});
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+        if (!line.startsWith('data:')) continue;
+        let ev; try { ev = JSON.parse(line.slice(5)) } catch { continue }
+        if (ev.type === 'session') ASK.sid = ev.id || ASK.sid;
+        else if (ev.type === 'text') {
+          if (!cur) cur = askMsg('ai', '');
+          cur.textContent += (cur.textContent ? '\n\n' : '') + ev.text;
+          askScroll();
+        } else if (ev.type === 'tool') { askChip(ev.name, ev.input); cur = null }
+        else if (ev.type === 'display') askDraw(ev.directive);
+        else if (ev.type === 'error') askErr(ev.error || 'agent failed');
+        else if (ev.type === 'done') ASK.sid = ev.session_id || ASK.sid;
+      }
+    }
+  } catch (e) { askErr(e.message); blip('bad') }
+  ASK.busy = false;
+  document.getElementById('a-send').disabled = false;
+  document.getElementById('a-status').textContent = '';
+  inp.focus();
+}
+
+function askDraw(d) {
+  if (!d || !Array.isArray(d.points)) return;
+  ASK.dir = d;
+  const pts = d.points;
+  const peak = Math.max(1, ...pts.map(p => p.count));
+  document.getElementById('a-pins').innerHTML = pts.map(p => {
+    const side = Math.round(5 + 13 * Math.sqrt(p.count / peak));
+    const inner = Math.max(2, side - 4);
+    return `<i class="pin" data-id="${esc(p.id)}" style="left:${mapX(p.lon).toFixed(2)}%;` +
+      `top:${mapY(p.lat).toFixed(2)}%;width:${side}px;height:${side}px">` +
+      `<b style="width:${inner}px;height:${inner}px"></b></i>`;
+  }).join('');
+  document.getElementById('a-counts').textContent =
+    `${d.placed} placed · ${d.unplaced} nowhere · ${d.countries} countries`;
+  document.getElementById('a-caption').textContent = d.caption ||
+    Object.entries(d.filters || {}).map(([k, v]) => `${k} ${v}`).join(' · ') ||
+    'every offer that places';
+  document.getElementById('a-mhead').textContent =
+    d.focus && !d.focus.world && d.focus.label ? String(d.focus.label).toLowerCase() : '';
+  if (d.focus) askFly(d.focus);         // no focus in the directive = hold the camera
+  askWireTips();
+  blip('coin');
+}
+
+// the camera: scale the inner world and keep the aim point centred, clamped
+// so the frame never slides off the map
+function askFly(f) {
+  const el = document.getElementById('ainner');
+  const r = document.getElementById('amap').getBoundingClientRect();
+  if (!f || f.world || !r.width) {
+    ASK.z = 1;
+    el.style.transform = '';
+    el.style.setProperty('--iz', 1);
+    document.getElementById('a-mhead').textContent = '';
+    return;
+  }
+  const z = Math.max(1.2, Math.min(8, Number(f.zoom) || 3));
+  ASK.z = z;
+  const px = r.width * mapX(f.lon) / 100, py = r.height * mapY(f.lat) / 100;
+  const tx = Math.min(0, Math.max(r.width / 2 - z * px, r.width * (1 - z)));
+  const ty = Math.min(0, Math.max(r.height / 2 - z * py, r.height * (1 - z)));
+  el.style.transform = `translate(${tx.toFixed(1)}px,${ty.toFixed(1)}px) scale(${z})`;
+  // pins shrink by root-z: still readable close up, never a 100px square
+  el.style.setProperty('--iz', (1 / Math.sqrt(z)).toFixed(3));
+}
+
+function askWorld() { askFly(null); if (ASK.dir) ASK.dir.focus = {world: true} }
+
+// carry the drawn filters into the MARKET tab's own search bar
+function askToMarket() {
+  const f = (ASK.dir && ASK.dir.filters) || {};
+  const set = (id, v) => { document.getElementById(id).value = v == null ? '' : v };
+  const sel = document.getElementById('q-gpu');
+  sel.value = f.gpu ? '__other' : '';
+  gpuPicked();
+  set('q-gpu-text', f.gpu || '');
+  set('q-gpus', f.min_gpus); set('q-vram', f.min_vram_gb);
+  set('q-min', f.min_usd_hr); set('q-max', f.max_usd_hr);
+  set('q-region', f.region); set('q-kyc', f.kyc || ''); set('q-kind', f.kind || '');
+  document.querySelector('nav button[data-tab="market"]').click();
+  search();
+}
+
+function askWireTips() {
+  const m = document.getElementById('amap');
+  if (m.dataset.wired) return;
+  m.dataset.wired = '1';
+  const tip = document.getElementById('tip');
+  m.addEventListener('mouseleave', () => { tip.style.display = 'none' });
+  m.addEventListener('mousemove', e => {
+    const pin = e.target.closest('.pin');
+    const pts = (ASK.dir && ASK.dir.points) || [];
+    const p = pin && pts.find(x => x.id === pin.dataset.id);
+    if (!p) { tip.style.display = 'none'; return }
+    const mk = Object.entries(p.providers || {}).map(([n, v]) => `${n} ${v}`).join(' · ');
+    tip.innerHTML = `<b>${esc(p.place)}</b>${p.place === p.country ? '' : ', ' + esc(p.country)}` +
+      `<br>${p.count} offer${p.count === 1 ? '' : 's'}` +
+      (p.min_usd_hr != null ? ` · from ${usd(p.min_usd_hr)} · med ${usd(p.median_usd_hr)}` : '') +
+      (mk ? `<br><span class="faint">${esc(mk)}</span>` : '');
+    tip.style.display = 'block';
+    const w = tip.offsetWidth, x = e.clientX + 14 + w > window.innerWidth ? e.clientX - w - 14 : e.clientX + 14;
+    tip.style.left = x + 'px'; tip.style.top = (e.clientY + 16) + 'px';
+  });
 }
 
 function renderPicks(rows) {

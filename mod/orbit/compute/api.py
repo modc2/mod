@@ -75,6 +75,10 @@ def info():
             'POST /oracle/join': '{player} — mints the player key, returned once',
             'POST /oracle/predict': '{player, key, series, horizon, value, note}',
             'POST /oracle/tick': 'owner — read the markets now and score what is due',
+            'POST /chat': '{message, session_id, map_state} — ASK the desk '
+                          'agent (SSE; owner-only). It answers from the same '
+                          'tools and draws what it finds on the console map',
+            'GET /chat/health': 'whether the chat agent is available here',
             'POST /mcp': 'MCP JSON-RPC 2.0',
             f'GET {BASE}': 'browser console',
         },
@@ -208,6 +212,9 @@ def route(method, path, query, body, keys, owner=False):
     if path == '/tools':
         return {'tools': mcp.tool_list(), 'count': len(mcp.TOOLS),
                 'instructions': mcp.INSTRUCTIONS}
+    if path == '/chat/health':
+        import chat
+        return chat.health()
     raise ProviderError(f'no route {method} {path} — GET / lists them', status=404)
 
 
@@ -354,6 +361,20 @@ def serve(port=PORT, base=BASE):
             p, query, _ = self._path()
             p = p.rstrip('/') or '/'
             owner = self._owner()
+            if p == '/chat':
+                # SSE, so it cannot go through `route` (one JSON answer);
+                # owner-only — each turn runs an agent on this box with the
+                # operator's Claude credentials.
+                if self.command != 'POST':
+                    return self._send(405, b'POST {"message": "..."} here',
+                                      'text/plain')
+                if not owner:
+                    return self._send(401, {
+                        'error': 'chat runs an agent on this box with the '
+                                 'operator\'s credentials — owner only',
+                        'hint': 'send Authorization: Bearer <token from '
+                                '`m compute/token`>'})
+                return self._stream_chat(self._read())
             if p == '/mcp':
                 if self.command != 'POST':
                     return self._send(405, b'POST JSON-RPC 2.0 here', 'text/plain')
@@ -382,6 +403,29 @@ def serve(port=PORT, base=BASE):
                                   e.dict())
             except Exception as e:
                 return self._send(500, {'error': f'{type(e).__name__}: {e}'})
+
+        def _stream_chat(self, body):
+            import chat
+            self.send_response(200)
+            self.send_header('content-type', 'text/event-stream')
+            self.send_header('cache-control', 'no-cache')
+            self.send_header('access-control-allow-origin', '*')
+            # no content-length on a stream: the connection is the framing
+            self.send_header('connection', 'close')
+            self.end_headers()
+            self.close_connection = True
+            events = chat.stream(body.get('message'),
+                                 session_id=body.get('session_id'),
+                                 map_state=body.get('map_state'))
+            try:
+                for ev in events:
+                    self.wfile.write(
+                        f'data: {json.dumps(ev, default=str)}\n\n'.encode())
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            finally:
+                events.close()   # client left mid-answer → kill the agent too
 
         do_GET = do_POST = do_DELETE = _dispatch
 

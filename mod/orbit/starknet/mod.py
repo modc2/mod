@@ -6,7 +6,9 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import abi  # noqa: E402
 import chain  # noqa: E402
+import strk20  # noqa: E402
 
 
 class Mod:
@@ -82,6 +84,60 @@ class Mod:
     def rpc(self, method, params=None, network=None):
         return chain.rpc(method, params, network=network)
 
+    # ---- any contract, by its on-chain ABI (abi.py) -------------------
+
+    def contract(self, address, network=None):
+        return abi.iface(address, network=network)
+
+    def read(self, contract, function, args=None, network=None):
+        return abi.read(contract, function, args, network=network)
+
+    def encode(self, contract, function, args=None, network=None):
+        return abi.encode(contract, function, args, network=network)
+
+    def events(self, address, name=None, limit=20, network=None):
+        return abi.events(address, name, limit=limit, network=network)
+
+    # ---- STRK20 privacy pool (strk20.py) ------------------------------
+
+    def strk20_pool(self, network=None):
+        return strk20.state(network=network)
+
+    def strk20_activity(self, event=None, limit=20, network=None):
+        return strk20.activity(event, limit=limit, network=network)
+
+    def strk20_user(self, address, network=None):
+        return strk20.user(address, network=network)
+
+    def strk20_note(self, note_id, network=None):
+        return strk20.note(note_id, network=network)
+
+    def strk20_nullifier(self, nullifier, network=None):
+        return strk20.nullifier(nullifier, network=network)
+
+    def strk20_helpers(self, network=None):
+        return strk20.helpers(network=network)
+
+    def strk20_helper(self, address, network=None):
+        return strk20.helper(address, network=network)
+
+    def strk20_invoke_action(self, helper, args=None, network=None):
+        return strk20.invoke_action(helper, args, network=network)
+
+    def strk20_docs(self, page=None, q=None):
+        return strk20.docs(page, q)
+
+    # ---- MCP (mcp.py) --------------------------------------------------
+
+    def tools(self):
+        import mcp
+        return mcp.tool_list()
+
+    def mcp(self, name, **args):
+        """Run one MCP tool by name: Mod().mcp('strk20_pool')."""
+        import mcp
+        return mcp.call_tool(name, args)
+
     # ---- server -------------------------------------------------------
 
     def serve(self, port=None, background=False):
@@ -105,7 +161,7 @@ class Mod:
 
     def test(self, offline=False):
         """Self-test: offline crypto vectors, then a live read unless offline."""
-        result = {'offline': chain.selftest()}
+        result = {'offline': {**chain.selftest(), **abi.selftest()}}
         if not offline:
             s = chain.status()
             result['live'] = {'chain': s['chain'],

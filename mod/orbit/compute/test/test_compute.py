@@ -322,12 +322,57 @@ def test_a_market_with_no_location_is_counted_not_guessed(monkeypatch):
 def test_the_map_is_open_and_spends_nothing():
     import auth
     assert '/map' in auth.OPEN and 'compute_map' in auth.OPEN_TOOLS
+    assert 'compute_show_map' in auth.OPEN_TOOLS   # the chat's display tool reads only
+
+
+# ── the chat's display tool: what reaches the page is validated here ──
+
+def test_show_map_returns_a_directive_the_console_can_draw(monkeypatch):
+    class Fake:
+        name, caps, kyc = 'f', ('search',), 'none'
+
+        def search(self, f):
+            return [mk_offer('f', 'a', usd_hr=1.0, gpu='H100', region='DE'),
+                    mk_offer('f', 'b', usd_hr=2.0, region='Paris, France')]
+
+    monkeypatch.setattr(P, 'every', lambda *a, **k: [Fake()])
+    out = mcp.TOOLS['compute_show_map']['handler'](
+        {'gpu': 'H100', 'focus': 'Germany', 'caption': 'H100s'})
+    d = out['directive']
+    assert d['filters'] == {'gpu': 'H100'}
+    assert d['caption'] == 'H100s'
+    assert d['points'] and {'place', 'lat', 'lon', 'count'} <= set(d['points'][0])
+    assert d['focus']['cc'] == 'DE' and d['focus']['zoom'] > 1
+    assert out['top_places'][0]['offers'] >= 1
+
+
+def test_show_map_focus_rules(monkeypatch):
+    monkeypatch.setattr(P, 'every', lambda *a, **k: [])
+    assert mcp._focus_point('world') == {'world': True}
+    assert mcp._focus_point('europe')['zoom'] == 3.0
+    us = mcp._focus_point('United States')
+    assert us['cc'] == 'US' and us['zoom'] < 3    # a big country gets a wide camera
+    with pytest.raises(ProviderError):            # a bad focus never reaches the page
+        mcp._focus_point('narnia-on-sea')
+
+
+def test_the_chat_mcp_lane_is_read_only():
+    """COMPUTE_MCP_READONLY drops stdio to the open tier: a typed message
+    must never be able to rent a box or open a shell on a node."""
+    import chat
+    for t in chat.ALLOWED.split(','):
+        name = t.replace('mcp__compute__', '')
+        assert name in mcp.TOOLS
+        import auth
+        assert name in auth.OPEN_TOOLS, f'{name} is not open-tier'
+    assert 'compute_rent' not in chat.ALLOWED
+    assert 'node' not in chat.ALLOWED
 
 
 # ── mcp wire ──
 
 def test_every_tool_is_declared_and_callable():
-    assert len(mcp.TOOLS) == 25
+    assert len(mcp.TOOLS) == 26
     for name, t in mcp.TOOLS.items():
         assert name.startswith('compute_')
         assert t['description'] and t['inputSchema']['type'] == 'object'

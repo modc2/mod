@@ -32,6 +32,8 @@ SECRET_FILE = os.path.join(STATE, 'server.secret')
 
 OPEN = {'', '/', '/health', '/providers', '/search', '/map', '/offer', '/quote',
         '/mods', '/tools', '/console', '/index.html', '/identity',
+        # whether the chat agent exists — the chat itself is owner-only
+        '/chat/health',
         # the prediction game: a call spends nothing and carries its own player key
         '/oracle', '/oracle/series', '/oracle/board', '/oracle/calls',
         '/oracle/join', '/oracle/predict'}
@@ -39,8 +41,8 @@ BYOK = {'/instances', '/status', '/logs', '/balance', '/keys'}
 
 # Tool name → tier, for the MCP endpoint, which is one URL for everything.
 OPEN_TOOLS = {'compute_providers', 'compute_search', 'compute_map',
-              'compute_offer', 'compute_quote', 'compute_mods',
-              'compute_oracle', 'compute_predict'}
+              'compute_show_map', 'compute_offer', 'compute_quote',
+              'compute_mods', 'compute_oracle', 'compute_predict'}
 BYOK_TOOLS = {'compute_instances', 'compute_status', 'compute_logs',
               'compute_balance'}
 

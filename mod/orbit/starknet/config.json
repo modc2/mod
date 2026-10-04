@@ -1,7 +1,7 @@
 {
     "name": "starknet",
-    "version": "0.1.0",
-    "description": "Starknet as one mod: JSON-RPC reads over a failover pool of free public endpoints (your own node first via STARKNET_RPC), starknet_keccak entry-point hashing in-tree, account balances (ETH/STRK/any ERC-20 Uint256), blocks, transactions, receipts, nonces, class hashes, storage and arbitrary contract calls. Python stdlib only, zero dependencies. One port serves the REST API and the browser console.",
+    "version": "0.2.0",
+    "description": "Starknet as one mod, MCP-native: JSON-RPC reads over a failover pool of free public endpoints (your own node first via STARKNET_RPC), every contract readable by its own on-chain ABI (typed args in, decoded structs/enums/u256/events out), and the STRK20 privacy pool \u2014 pool state, public tape, registrations, notes, nullifiers, and the privacy_invoke anonymizer contracts private DeFi runs through. 20 MCP tools over stdio and POST /mcp. Python stdlib only, zero dependencies.",
     "icon": "S",
     "anchor": "mod.py",
     "port": 51020,
@@ -11,7 +11,9 @@
     "urls": {
         "api": "http://localhost:51020",
         "app": "http://localhost:51020/starknet",
-        "explorer": "https://voyager.online"
+        "explorer": "https://voyager.online",
+        "mcp": "http://localhost:51020/mcp",
+        "strk20_docs": "https://strk20.starknet.io/docs"
     },
     "networks": {
         "mainnet": "https://starknet-rpc.publicnode.com",
@@ -33,6 +35,21 @@
         "selector": "GET /selector?name=",
         "call": "GET|POST /call {contract, entrypoint|selector, calldata}",
         "rpc": "POST /rpc {method, params}",
+        "contract": "GET /contract?address=",
+        "read": "GET|POST /read {contract, function, args}",
+        "encode": "GET|POST /encode {contract, function, args}",
+        "events": "GET /events?address=&name=&limit=",
+        "strk20_pool": "GET /strk20/pool",
+        "strk20_activity": "GET /strk20/activity?event=&limit=",
+        "strk20_user": "GET /strk20/user?address=",
+        "strk20_note": "GET /strk20/note?id=",
+        "strk20_nullifier": "GET /strk20/nullifier?value=",
+        "strk20_helpers": "GET /strk20/helpers",
+        "strk20_helper": "GET /strk20/helper?address=",
+        "strk20_invoke_action": "POST /strk20/invoke_action {helper, args}",
+        "strk20_docs": "GET /strk20/docs?page=&q=",
+        "mcp": "POST /mcp",
+        "tools": "GET /tools \u00b7 POST /tools/<name>",
         "app": "GET /starknet/"
     },
     "fns": [
@@ -52,18 +69,68 @@
         "call",
         "selector",
         "rpc",
+        "contract",
+        "read",
+        "encode",
+        "events",
+        "strk20_pool",
+        "strk20_activity",
+        "strk20_user",
+        "strk20_note",
+        "strk20_nullifier",
+        "strk20_helpers",
+        "strk20_helper",
+        "strk20_invoke_action",
+        "strk20_docs",
+        "mcp",
+        "tools",
         "serve",
         "kill",
         "test",
         "readme"
     ],
-    "backend": "python stdlib only (http.server + urllib); keccak-256 and starknet_keccak selectors in-tree",
-    "auth": "reads only in v0.1 \u2014 no keys are held, nothing to leak; writes (account deploy, invoke) are a later version with the keystore under ~/.mod/starknet/, never the repo",
+    "backend": "python stdlib only (http.server + urllib); keccak-256 and starknet_keccak selectors in-tree; Cairo ABI codec in-tree (abi.py); MCP server in-tree (mcp.py, no mcp package)",
+    "auth": "read-only \u2014 no keys are held, nothing to leak. STRK20 private transactions need the user's viewing key and a STARK proof; this module encodes actions (strk20_invoke_action) but never asks for a viewing key, proves, signs or submits.",
     "env": {
         "PORT": "port for API and console (default 51020)",
         "STARKNET_NETWORK": "default network (mainnet)",
         "STARKNET_RPC": "your own node \u2014 always tried first, no third party contacted if it answers",
-        "STARKNET_TIMEOUT": "per-endpoint RPC timeout in seconds (default 15)"
+        "STARKNET_TIMEOUT": "per-endpoint RPC timeout in seconds (default 15)",
+        "STRK20_POOL": "override the STRK20 pool address (STRK20_POOL_SEPOLIA for sepolia, none is built in)",
+        "STARKNET_ABI_CACHE": "where class ABIs are cached by class hash (default ~/.mod/starknet/abi)"
     },
-    "schema": "QmXNjmyAFYAUw5fp2hGSbG2mie46FxWBg2xpUKU53HSnEi"
+    "schema": "Qmf2ZiuCeJf1A2P2QGgvCCCqPTQf1GLojhdzXGjc7o7AHa",
+    "mcp": {
+        "endpoint": "POST /mcp",
+        "transport": "Streamable HTTP (JSON-RPC 2.0)",
+        "stdio": "python3 mcp.py",
+        "tools": [
+            "starknet_status",
+            "starknet_block",
+            "starknet_tx",
+            "starknet_account",
+            "starknet_balance",
+            "starknet_contract",
+            "starknet_read",
+            "starknet_encode",
+            "starknet_events",
+            "starknet_storage",
+            "starknet_rpc",
+            "strk20_pool",
+            "strk20_activity",
+            "strk20_user",
+            "strk20_note",
+            "strk20_nullifier",
+            "strk20_helpers",
+            "strk20_helper",
+            "strk20_invoke_action",
+            "strk20_docs"
+        ]
+    },
+    "mcp_port": 51020,
+    "contracts": {
+        "mainnet": {
+            "strk20_pool": "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a"
+        }
+    }
 }

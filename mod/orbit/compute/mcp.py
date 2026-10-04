@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """compute mcp — one MCP tool layer over every compute market.
 
-Twenty-two tools instead of a hundred: the aggregation *is* the interface. An
+Twenty-six tools instead of a hundred: the aggregation *is* the interface. An
 agent that learns `compute_search` → `compute_quote` → `compute_rent` →
 `compute_stop` can drive Targon, Lium, Cathedral, Akash, Vast, Nosana, Prime,
 Polaris and its own hardware without learning any of them.
@@ -92,6 +92,78 @@ def _t_map(a):
         max_usd_hr=a.get('max_usd_hr'), min_usd_hr=a.get('min_usd_hr'),
         region=a.get('region'), kind=a.get('kind'),
         available_only=a.get('available_only', True), limit=a.get('limit') or 2000)
+
+
+# ── the display tool: the chat agent drawing on the user's map ──
+#
+# `compute_show_map` is how ASK drives the console: the same fan-out as
+# compute_map, but the browser also gets back a validated `directive` it
+# draws — points on the landmask, a camera move, a caption. The tool is a
+# pure read; a bad focus comes back to the model as an error, so nothing
+# unvalidated ever reaches the page.
+
+# the gazetteer knows cities, states and countries — a chat asks for these
+CONTINENTS = {
+    'europe': (54.0, 15.0, 3.0), 'north america': (45.0, -100.0, 2.2),
+    'south america': (-15.0, -60.0, 2.4), 'asia': (34.0, 100.0, 2.0),
+    'africa': (2.0, 20.0, 2.2), 'oceania': (-25.0, 140.0, 2.5),
+    'middle east': (27.0, 45.0, 3.5),
+}
+# a whole-country centroid on a 2° camera is still mostly that country
+_BIG_CC = ('US', 'RU', 'CN', 'CA', 'BR', 'AU', 'IN')
+
+
+def _focus_point(name, zoom=None):
+    """A spoken place → where the camera flies. None means pull back out."""
+    import geo
+    key = geo.norm(name)
+    if key in ('', 'world', 'earth', 'everywhere', 'all', 'out'):
+        return {'world': True}
+    if key in CONTINENTS:
+        lat, lon, z = CONTINENTS[key]
+        return {'lat': lat, 'lon': lon, 'zoom': float(zoom or z), 'label': name}
+    g = geo.place(name)
+    if not g:
+        raise ProviderError(
+            f'focus "{name}" is not a place the gazetteer knows — '
+            f'try a city, country or continent, or "world" to zoom out')
+    z = {'city': 6.0, 'state': 5.0, 'region': 4.5, 'country': 3.0}[g['precision']]
+    if g['precision'] == 'country' and g['cc'] in _BIG_CC:
+        z = 2.2
+    return {'lat': g['lat'], 'lon': g['lon'], 'zoom': float(zoom or z),
+            'label': g['place'], 'cc': g['cc'], 'precision': g['precision']}
+
+
+def _t_show_map(a):
+    filters = {k: a[k] for k in ('gpu', 'provider', 'kyc', 'min_gpus',
+                                 'min_vram_gb', 'max_usd_hr', 'min_usd_hr',
+                                 'region', 'kind')
+               if a.get(k) not in (None, '')}
+    focus = _focus_point(a['focus'], a.get('zoom')) if a.get('focus') else None
+    got = _hub(a).map(limit=2000, **filters)
+    points = []
+    for p in got['points'][:250]:
+        q = dict(p)
+        q['providers'] = dict(list(p['providers'].items())[:3])
+        points.append(q)
+    directive = {
+        'filters': filters,
+        'points': points,
+        'placed': got['placed'], 'unplaced': got['unplaced'],
+        'countries': got['countries'], 'total_found': got['total_found'],
+        'focus': focus,
+        'caption': str(a.get('caption') or '')[:200],
+    }
+    return {
+        'directive': directive,
+        'drawn': f"{got['placed']} offers on {len(got['points'])} places "
+                 f"({got['countries']} countries), {got['unplaced']} nowhere",
+        'top_places': [{'place': p['place'], 'country': p['country'],
+                        'offers': p['count'], 'from_usd_hr': p['min_usd_hr'],
+                        'median_usd_hr': p['median_usd_hr']}
+                       for p in got['points'][:10]],
+        'unplaced_providers': got.get('unplaced_providers', {}),
+    }
 
 
 def _t_offer(a):
@@ -316,6 +388,35 @@ TOOLS = {
             'limit': _num('offers to place (default 2000)'),
         }},
         'handler': _t_map,
+    },
+    'compute_show_map': {
+        'description': 'DISPLAY TOOL — draw on the world map the user is looking '
+                       'at. Runs the same fan-out as compute_map with the given '
+                       'filters, then pushes the placed offers to the browser: the '
+                       'map redraws, and `focus` flies the camera to a named city, '
+                       'country or continent ("Germany", "Des Moines", "europe"; '
+                       '"world" pulls back out). Call it whenever the conversation '
+                       'is about where compute is or what it costs by place — the '
+                       'user watches the map move as you answer. Returns the top '
+                       'places so you can speak to exactly what is now shown.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'gpu': _str('GPU to match, loosely: "H100", "4090", "a100"'),
+            'min_gpus': _num('at least this many GPUs on one node'),
+            'min_vram_gb': _num('at least this much VRAM per GPU'),
+            'max_usd_hr': _num('price ceiling per hour'),
+            'min_usd_hr': _num('price floor per hour'),
+            'region': _str('substring of the region/country'),
+            'provider': _str('comma-separated providers to limit the fan-out to'),
+            'kyc': _str('only markets at this KYC level',
+                        enum=['none', 'email', 'account', 'full']),
+            'kind': _str('gpu | cpu | confidential | job | storage | all'),
+            'focus': _str('fly the camera: a city, country or continent — '
+                          '"world" zooms back out; omit to leave it where it is'),
+            'zoom': _num('camera zoom 1-8 (optional — focus picks a sane one)'),
+            'caption': _str('one line drawn under the map, '
+                            'e.g. "H100s under $2/hr"'),
+        }},
+        'handler': _t_show_map,
     },
     'compute_offer': {
         'description': 'Re-read one offer from its provider — confirms it still exists '
@@ -678,8 +779,11 @@ def serve_stdio():
         except Exception:
             resp = _error(None, -32700, 'parse error: line is not valid JSON')
         else:
-            # stdio: whoever started this process is the operator by definition.
-            resp = handle(body, owner=True)
+            # stdio: whoever started this process is the operator by definition
+            # — except the console's chat agent, which starts us with this env
+            # set so a typed message can never rent a machine or reach a node.
+            owner = os.environ.get('COMPUTE_MCP_READONLY') != '1'
+            resp = handle(body, owner=owner)
         if resp is not None:
             sys.stdout.write(json.dumps(resp, default=str) + '\n')
             sys.stdout.flush()

@@ -63,6 +63,13 @@ m compute/map gpu=4090 kyc=none
 In the console this is the **WHERE** panel on the MARKET tab: click a square to
 filter every other panel to that place.
 
+`compute_show_map` is the chat agent's display tool: the same fan-out, but the
+console also draws the returned `directive` — points, a caption, and a camera
+`focus` ("Germany", "Des Moines", "europe"; "world" zooms out) geocoded against
+the baked gazetteer. The console's **CHAT** tab talks to `POST /chat`
+(owner-only SSE; the local Claude CLI confined to the read-tier tools via
+`COMPUTE_MCP_READONLY=1`), and the user watches the map move as it answers.
+
 ## Markets
 
 | provider | KYC | pays with | notes |

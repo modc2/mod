@@ -178,6 +178,35 @@ The gazetteer is GeoNames `cities5000` and Natural Earth 110m, baked into
 dependency — the same rules as the rest of the module. Re-run
 `python3 geo/build.py` to refresh it.
 
+## Chat — ask the desk, and watch it draw
+
+The console's **CHAT** tab is a conversation with the desk that draws on the
+map as it answers. Ask "where are the cheapest H100s?" and the agent reads the
+markets live, redraws the world beside the chat, and flies the camera —
+"only the US", "just H100s under $2", "zoom into Europe" are map edits it
+applies and confirms in a line. **OPEN IN MARKET** carries whatever is drawn
+into the MARKET tab's own search bar.
+
+The machinery is three layers (`chat.py`, same shape as orbit/nyc's ASK):
+
+- The answerer is the local **Claude CLI in print mode**, sandboxed to this
+  module's own MCP tools over stdio — and only the read tier of them. The MCP
+  subprocess runs with `COMPUTE_MCP_READONLY=1`, so a typed message can
+  search, quote and map every market but can never rent, stop, exec or touch
+  a node; the CLI's allow/deny lists say the same thing a second time.
+- `compute_show_map` is the **display tool**: the same fan-out as
+  `compute_map`, returned as a validated `directive` — points for the
+  landmask, a camera move (`focus` geocoded against the baked gazetteer, so a
+  made-up place is an error back to the model, never a draw), a caption.
+- `POST /chat` streams SSE (`session` / `text` / `tool` / `display` / `done`)
+  and forwards only tool_results from the display tool as `display` events,
+  so nothing unvalidated ever reaches the page. Each turn is prefixed with
+  what the user's map shows right now, which is how "zoom back out" resolves.
+
+**Owner-only**: every turn runs an agent on this box with the operator's
+Claude credentials, so `/chat` needs the bearer token (or localhost).
+`GET /chat/health` is open and says whether the agent is available at all.
+
 ## Oracle — a GPU price prediction game with a leaderboard
 
 Every 20 minutes the API server reads every market once and turns it into a
