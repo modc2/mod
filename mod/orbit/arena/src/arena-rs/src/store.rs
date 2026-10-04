@@ -393,7 +393,7 @@ impl Match {
             "seats": self.seats.iter().map(|s| json!({
                 "seat": s.seat, "player_id": s.player_id, "player_name": s.player_name,
                 "score": s.score, "moves": s.moves, "illegal": s.illegal, "timeouts": s.timeouts,
-                "mcp": s.mcp,
+                "ms": s.ms, "mcp": s.mcp,
                 "elo_after": round1(s.elo_after), "delta": round1(s.elo_after - s.elo_before),
                 "error": s.error,
             })).collect::<Vec<_>>(),

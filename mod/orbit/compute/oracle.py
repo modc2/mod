@@ -195,7 +195,8 @@ def detail(series, days=7):
             'history': [[round(h['t']), h['value']]
                         for h in _thin(b.history(series, since=since), 400)],
             'open': b.calls(series=series, state='open', limit=200),
-            'scored': b.calls(series=series, state='scored', limit=100)}
+            'scored': b.calls(series=series, state='scored', limit=100),
+            'void': b.calls(series=series, state='void', limit=100)}
 
 
 def join(name):

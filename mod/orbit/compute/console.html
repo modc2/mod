@@ -2037,6 +2037,7 @@ async function oraclePick(series, quiet) {
 
 function oracleHz(h) {
   OHZ = h; document.querySelectorAll('#o-hz button').forEach(b => b.classList.toggle('on', b.textContent === h));
+  if (ODET) drawCalls();
 }
 function oracleNudge(n) {
   const s = O.series.find(x => x.series === OSEL);
@@ -2098,11 +2099,13 @@ function drawChart() {
 
 function drawCalls() {
   const mine = me().player;
+  const voidMine = (ODET.void || []).filter(c => c.player === mine);
   const rows = ODET.open.filter(c => !c.player.startsWith('bot.') || c.horizon === OHZ)
-    .concat(ODET.scored.slice(0, 40)).sort((a, b) => b.made - a.made).slice(0, 60);
+    .concat(ODET.scored.slice(0, 40)).sort((a, b) => b.made - a.made).slice(0, 60)
+    .concat(voidMine);
   document.getElementById('o-callsub').textContent = `on ${OSEL} - ${ODET.open.length} open, ` +
     `latest ${ODET.scored.length} scored`;
-  document.getElementById('o-calls').innerHTML = rows.map(c => `<tr class="${c.player === mine ? 'me' : ''}">
+  document.getElementById('o-calls').innerHTML = rows.map(c => `<tr class="${c.player === mine ? 'me' : ''}${c.state === 'void' ? ' faint' : ''}">
     <td>${esc(c.player)}${c.player.startsWith('bot.') ? '<span class="bot">BOT</span>' : ''}</td>
     <td>${esc(c.series.split(':')[1].toUpperCase())}</td><td>${c.horizon}</td>
     <td class="price">${per(c.value)}</td><td class="dimtxt">${per(c.base)}</td>

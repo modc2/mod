@@ -217,7 +217,12 @@ class Mod:
         feed = feed[:n]
 
         if mark_seen:
-            for r, sha in newest.items():
+            shown = {}
+            for c in feed:
+                r = c.get('repo')
+                if r and r not in shown:
+                    shown[r] = c['full_sha']
+            for r, sha in shown.items():
                 st['repos'].setdefault(r, {'branch': br[r]})['last_seen'] = sha
             self._save(st)
 
@@ -411,20 +416,42 @@ class Mod:
         if style == 'discord':
             # no emoji: it renders as tofu in the app's own preview (this host
             # ships no emoji font) and the bold header carries it fine anyway
-            parts = [f'**{repo} `{br}` — {d["label"]}**',
+            _head = [f'**{repo} `{br}` — {d["label"]}**',
                      ' · '.join(f'`{s}`' for s in stats)]
-            if d['modules']:
-                shown = d['modules'][:10]
-                rest = len(d['modules']) - len(shown)
-                parts += ['', '**modules touched**']
-                parts += [f'• `{x["name"]}` — {plural(x["files"], "file")}' for x in shown]
-                if rest:
-                    parts.append(f'• …and {rest} more')
-            if d['highlights']:
-                parts += ['', '**highlights**'] + [f'• {h}' for h in d['highlights']]
-            parts += ['', f'<{link}>']                          # <> = no link preview card
-            text = '\n'.join(parts)
-            return text if len(text) <= self.DISCORD_MAX else text[:self.DISCORD_MAX - 1] + '…'
+            _footer = ['', f'<{link}>']                        # <> = no link preview card
+            _mods = d['modules']
+            _hi = d['highlights']
+
+            def _build(mod_keep, hi_keep):
+                p = list(_head)
+                if _mods:
+                    shown = _mods[:mod_keep]
+                    rest = len(_mods) - len(shown)
+                    p += ['', '**modules touched**']
+                    p += [f'• `{x["name"]}` — {plural(x["files"], "file")}' for x in shown]
+                    if rest:
+                        p.append(f'• …and {rest} more')
+                if _hi:
+                    shown_hi = _hi[:hi_keep]
+                    rest_hi = len(_hi) - len(shown_hi)
+                    p += ['', '**highlights**'] + [f'• {h}' for h in shown_hi]
+                    if rest_hi:
+                        p.append(f'• …and {rest_hi} more')
+                p += _footer
+                return '\n'.join(p)
+
+            # drop modules until the post fits (preserving all highlights)
+            for mod_keep in range(min(10, len(_mods)), -1, -1):
+                text = _build(mod_keep, len(_hi))
+                if len(text) <= self.DISCORD_MAX:
+                    return text
+            # modules exhausted — trim highlights too
+            for hi_keep in range(len(_hi) - 1, -1, -1):
+                text = _build(0, hi_keep)
+                if len(text) <= self.DISCORD_MAX:
+                    return text
+            # last resort: slice (only truly irreducible content)
+            return text[:self.DISCORD_MAX - 1] + '…'
 
         # markdown / plain — release notes, changelogs, anywhere else
         parts = [f'{repo} ({br}) — {d["date"]}', ' · '.join(stats), '']

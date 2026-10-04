@@ -113,6 +113,24 @@ def test_single_repo_view_does_not_touch_others(up, monkeypatch):
     assert res['tracking'] == ['modc2/mod']         # scoped to one repo
 
 
+def test_displaced_repo_marker_not_advanced(up, monkeypatch):
+    """Repo B's commits pushed out by repo A must keep last_seen=None after poll."""
+    up.track('foo/bar')
+    recent = '2026-06-{:02d}'.format
+    pages = {
+        'modc2/mod': [_commit('modc2/mod', f'm{i}', recent(30 - i)) for i in range(15)],
+        'foo/bar':   [_commit('foo/bar',   f'f{i}', '2026-05-{:02d}'.format(15 - i)) for i in range(15)],
+    }
+    monkeypatch.setattr(up, 'commits', lambda repo=None, branch=None, n=20, **k: pages[up._parse_repo(repo)])
+
+    up.updates(n=15, mark_seen=True)
+
+    st = up._load()
+    # modc2/mod filled all 15 slots; foo/bar's marker must still be None
+    assert st['repos']['modc2/mod']['last_seen'] == 'm0'
+    assert st['repos'].get('foo/bar', {}).get('last_seen') is None
+
+
 def test_local_git_log_smoke(up):
     """Real local fallback against the checked-out repo's dev branch."""
     if not up.toplevel:

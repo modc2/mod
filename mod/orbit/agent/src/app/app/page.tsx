@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
 import { API_URL } from './config'
 import Library from './components/Library'
 import type { LibItem } from './components/Library'
@@ -328,6 +328,25 @@ type KeyBalance = {
   keyless?: boolean          // LFM providers: local/browser compute, no key, no bill
   balance?: number | null; total_credits?: number; total_usage?: number
   balances?: Record<string, number>; error?: string
+}
+
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <span className="code-block block relative group">
+      {lang && <span className="code-lang block">{lang}</span>}
+      <button
+        onClick={() => {
+          navigator.clipboard?.writeText(code).catch(() => {})
+          setCopied(true)
+          setTimeout(() => setCopied(false), 1500)
+        }}
+        className="absolute top-1.5 right-1.5 w-5 h-5 flex items-center justify-center rounded text-[10px] text-gray-500 hover:text-emerald-300 hover:bg-emerald-500/10 opacity-0 group-hover:opacity-100 transition"
+        title="Copy"
+      >{copied ? '✓' : '⧉'}</button>
+      {code}
+    </span>
+  )
 }
 
 export default function Home() {
@@ -2061,27 +2080,81 @@ export default function Home() {
     return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`
   }
 
-  // markdown-lite: render ``` code fences and `inline code` in agent text
+  // markdown-lite: render ``` fences, `inline code`, **bold**, *italic*, ## headings, bullet lists
   const renderText = (text: string) => {
-    if (!text.includes('`')) return text
+    const hasAny = text.includes('`') || /\*\*|\*[^*]|^[*\-] |^#{2,3} /m.test(text)
+    if (!hasAny) return text
+
+    // inline pass: **bold**, *italic*, `code` within a single string
+    const renderInline = (s: string, kb: string) => {
+      const out: React.ReactNode[] = []
+      s.split('`').forEach((b, j) => {
+        if (j % 2 === 1) { out.push(<code key={`${kb}-ic${j}`} className="inline-code">{b}</code>); return }
+        const re = /\*\*(.+?)\*\*|\*([^*\n]+?)\*/g
+        let last = 0, n = 0, m: RegExpExecArray | null
+        while ((m = re.exec(b)) !== null) {
+          if (m.index > last) out.push(b.slice(last, m.index))
+          out.push(m[1] !== undefined
+            ? <strong key={`${kb}-b${n++}`}>{m[1]}</strong>
+            : <em key={`${kb}-e${n++}`}>{m[2]}</em>)
+          last = m.index + m[0].length
+        }
+        if (last < b.length) out.push(b.slice(last))
+      })
+      return out
+    }
+
+    // per-segment renderer: headings, bullet lists, then inline
+    const renderSeg = (seg: string, si: number) => {
+      const hasBlock = /^#{2,3} |^[*\-] /m.test(seg)
+      if (!hasBlock) return <Fragment key={si}>{renderInline(seg, `${si}`)}</Fragment>
+
+      const lines = seg.split('\n')
+      const nodes: React.ReactNode[] = []
+      let listBuf: React.ReactNode[][] = []
+      let k = 0
+
+      const flushList = () => {
+        if (!listBuf.length) return
+        nodes.push(
+          <ul key={`${si}-ul${k++}`} style={{ listStyle: 'none', padding: '0 0 0 0.5rem', margin: '0.125rem 0' }}>
+            {listBuf.map((item, li) => (
+              <li key={li} style={{ display: 'flex', gap: '0.375rem', lineHeight: '1.5' }}>
+                <span style={{ color: 'rgb(75 85 99)', flexShrink: 0 }}>–</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        )
+        listBuf = []
+      }
+
+      lines.forEach((line, li) => {
+        if (line.startsWith('### ')) {
+          flushList()
+          nodes.push(<h3 key={`${si}-h3${k++}`} style={{ fontSize: '0.65rem', fontWeight: 600, color: 'rgb(107 114 128)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.375rem 0 0.125rem' }}>{renderInline(line.slice(4), `${si}-h3${li}`)}</h3>)
+        } else if (line.startsWith('## ')) {
+          flushList()
+          nodes.push(<h2 key={`${si}-h2${k++}`} style={{ fontSize: '0.7rem', fontWeight: 600, color: 'rgb(156 163 175)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(3), `${si}-h2${li}`)}</h2>)
+        } else if (/^[*\-] /.test(line)) {
+          listBuf.push(renderInline(line.slice(2), `${si}-li${li}`))
+        } else {
+          flushList()
+          nodes.push(<Fragment key={`${si}-t${k++}`}>{renderInline(line, `${si}-ln${li}`)}{li < lines.length - 1 ? '\n' : ''}</Fragment>)
+        }
+      })
+      flushList()
+      return <Fragment key={si}>{nodes}</Fragment>
+    }
+
     return text.split('```').map((seg, i) => {
       if (i % 2 === 1) {
         const nl = seg.indexOf('\n')
         const lang = nl > -1 ? seg.slice(0, nl).trim() : ''
         const code = (nl > -1 ? seg.slice(nl + 1) : seg).replace(/\n$/, '')
-        return (
-          <span key={i} className="code-block block">
-            {lang && <span className="code-lang block">{lang}</span>}
-            {code}
-          </span>
-        )
+        return <CodeBlock key={i} lang={lang} code={code} />
       }
-      const bits = seg.split('`')
-      return (
-        <span key={i}>
-          {bits.map((b, j) => j % 2 === 1 ? <code key={j} className="inline-code">{b}</code> : b)}
-        </span>
-      )
+      return renderSeg(seg, i)
     })
   }
 

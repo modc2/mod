@@ -307,6 +307,7 @@ details[open] summary{margin-bottom:10px}
     <div class="row" style="justify-content:space-between;margin-bottom:16px">
       <div><h2 style="font-size:20px">My pods</h2><div class="mut" style="font-size:13px" id="p_note">Machines you are renting right now.</div></div>
       <button class="btn sm" id="p_refresh"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button>
+      <span id="p_poll" class="mut" style="font-size:12px;display:none">auto-refreshing…</span>
     </div>
     <div class="pods" id="p_list"></div>
   </section>
@@ -445,6 +446,7 @@ const API = location.pathname.startsWith('/lium') ? '/lium/api' : '';
 const $ = (id) => document.getElementById(id);
 let KEY = sessionStorage.getItem('lium_key') || '';
 let rpcId = 0;
+let podPoll = null;
 
 // Upstream strings (pod names, locations, CPU names) go into innerHTML, so
 // they are escaped on the way in rather than trusted.
@@ -726,6 +728,7 @@ function since(t){
   return h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`;
 }
 async function loadPods(){
+  clearInterval(podPoll); podPoll = null; $('p_poll').style.display = 'none';
   const el = $('p_list');
   if (!KEY) {
     $('pod_badge').hidden = true;
@@ -754,7 +757,7 @@ async function loadPods(){
           <span class="dot ${st}"></span>
           <div><h3>${esc(p.name || 'pod')}</h3>
             <div class="sub">${esc(gpuName(p.gpu))} ×${p.gpu_count ?? '?'} · ${money(p.price_per_hr)}/hr · <span class="tag ${st}">${esc((p.status || '—').toLowerCase())}</span>
-            ${p.created_at ? ` · ${icon('clock', 'width:12px;height:12px;vertical-align:-2px')} ${since(p.created_at)}` : ''}</div></div>
+            ${p.created_at ? ` · ${icon('clock', 'width:12px;height:12px;vertical-align:-2px')} ${since(p.created_at)}${/RUNNING/i.test(p.status) && p.price_per_hr != null ? ` · ~${money((Date.now() - Date.parse(p.created_at)) / 36e5 * Number(p.price_per_hr))} spent` : ''}` : ''}</div></div>
           <div class="acts">
             <button class="btn sm" data-logs>Logs</button>
             <button class="btn sm" data-reboot>Reboot</button>
@@ -793,6 +796,10 @@ async function loadPods(){
         catch { toast('Copy failed — select the text instead'); }
       };
     });
+    if (pods.some((p) => podState(p.status) === 'warn')) {
+      $('p_poll').style.display = '';
+      podPoll = setInterval(loadPods, 20000);
+    }
   } catch (e) {
     el.innerHTML = keyIssue(e)
       ? `<div class="empty"><h3>That key didn't work</h3>Get a fresh one at lium.io → Settings → API Keys.<br><button class="btn pri" id="p_key">Reconnect</button></div>`
