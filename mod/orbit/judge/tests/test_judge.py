@@ -1,12 +1,18 @@
 """Offline tests: rule judges only, throwaway store, no network."""
 
+import json
 import os
 import sys
 
 import pytest
 
+# Small Merkle tree for the hash-based keys — keygen at the default 2^8
+# leaves is ~1s per judge, pointless in tests. 2^3 = 8 signatures each.
+os.environ.setdefault('JUDGE_XMSS_HEIGHT', '3')
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import keys  # noqa: E402
 import panel  # noqa: E402
 
 LONG = {'name': 'long', 'kind': 'rule', 'min_len': 20}
@@ -97,3 +103,86 @@ def test_judge_validation(book):
     assert book.judge('nope', 'x')['error']                              # no panel
     book.create('x', 'a', [LONG])
     assert book.judge('x', '')['error']                                  # no input
+
+
+# ── keyrings: multiple key types, quantum-resistant included ──────
+
+
+def test_key_kinds_include_quantum_resistant():
+    kinds = keys.kinds()
+    avail = keys.available()
+    assert len(avail) >= 2, 'a judge ring must hold multiple key types'
+    assert any(kinds[k]['quantum_resistant'] for k in avail)
+    assert 'wots-sha256' in avail  # the stdlib PQ fallback is always there
+
+
+def test_new_judges_get_keyrings(book):
+    p = book.create('pr', 'alice', [LONG, CLEAN])
+    for j in p['judges']:
+        ring = j['keys']
+        assert set(ring) == set(keys.available())
+        assert any(k['quantum_resistant'] for k in ring.values())
+        for k in ring.values():
+            assert k['public'] and k['fingerprint']
+            assert 'secret' not in k and 'sk' not in k
+    # Updating the bench issues keys only for the newcomer.
+    old = {kt: k['public'] for kt, k in p['judges'][0]['keys'].items()}
+    p2 = book.update('pr', 'alice', judges=[LONG, CLEAN,
+                                            {'name': 'third', 'kind': 'rule'}])
+    by_name = {j['name']: j for j in p2['judges']}
+    assert {kt: k['public'] for kt, k in by_name['long']['keys'].items()} == old
+    assert set(by_name['third']['keys']) == set(keys.available())
+
+
+def test_client_supplied_keys_are_stripped(book):
+    p = book.create('pr', 'alice', [dict(LONG, keys={'ed25519': {'public': 'ff'}})])
+    assert p['judges'][0]['keys']['ed25519']['public'] != 'ff'
+    raw = json.loads(book.db.execute(
+        'SELECT judges FROM panels WHERE name=?', ('pr',)).fetchone()['judges'])
+    assert 'keys' not in raw[0]  # the stored row holds params only
+
+
+def test_votes_are_signed_and_verify(book):
+    book.create('pr', 'alice', [LONG, CLEAN])
+    v = book.judge('pr', 'a perfectly reasonable sentence with no faults')
+    for s in v['scores']:
+        assert set(s['sigs']) == set(keys.available())
+        assert all('sig' in e for e in s['sigs'].values())
+    r = book.verify_verdict(v['id'])
+    assert r['verified']
+    assert all(c['ok'] for j in r['judges'] for c in j['checks'].values())
+    # Signatures survive panel removal — the record stands on its own.
+    book.remove('pr', 'alice')
+    assert book.verify_verdict(v['id'])['verified']
+
+
+def test_tampered_verdict_fails_verification(book):
+    book.create('pr', 'alice', [CLEAN])
+    v = book.judge('pr', 'a clean input')
+    scores = book.verdict(v['id'])['scores']
+    scores[0]['score'] = 1.0  # doctor the recorded vote
+    book.db.execute('UPDATE verdicts SET scores=? WHERE id=?',
+                    (json.dumps(scores), v['id']))
+    book.db.commit()
+    r = book.verify_verdict(v['id'])
+    assert not r['verified']
+    assert not any(c['ok'] for j in r['judges'] for c in j['checks'].values())
+
+
+def test_hash_key_exhaustion_degrades_gracefully(book):
+    book.create('pr', 'alice', [CLEAN])
+    for i in range(2 ** 3):  # spend every one-time leaf
+        book.judge('pr', f'input number {i}')
+    v = book.judge('pr', 'one past the tree')
+    assert v['average'] == 100  # the vote itself still counts
+    sigs = v['scores'][0]['sigs']
+    assert 'sig' not in sigs['wots-sha256']
+    assert 'exhausted' in sigs['wots-sha256']['note']
+    others = [k for k in sigs if k != 'wots-sha256']
+    assert others and all('sig' in sigs[k] for k in others)
+    r = book.verify_verdict(v['id'])
+    checks = r['judges'][0]['checks']
+    assert all(checks[k]['ok'] for k in others)
+    # Still verified: ml-dsa-65 keeps the quantum-resistant attestation.
+    assert r['verified'] == any(
+        keys.kinds()[k]['quantum_resistant'] for k in others)

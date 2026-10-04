@@ -12,15 +12,24 @@ Judge kinds:
   llm  — an agent: asks an OpenAI-compatible chat endpoint to score the
          input against the judge's criteria prompt.
 
+Every judge gets a keyring the first time it sits on a panel: one keypair
+per key type in keys.py (classical ed25519 plus the quantum-resistant
+ml-dsa-65 and wots-sha256). Every vote is signed by every key in the ring,
+so the append-only verdict record is tamper-evident — see verify_verdict.
+Secrets stay in the local store; panels publish only public keys.
+
 State is one SQLite file in ~/.mod/judge/ (override with JUDGE_DIR).
 """
 
+import hashlib
 import json
 import os
 import re
 import sqlite3
 import time
 import urllib.request
+
+import keys
 
 DEFAULT_LLM_URL = os.environ.get('JUDGE_LLM_URL',
                                  'http://localhost:50600/v1/chat/completions')
@@ -61,6 +70,16 @@ class Panels:
                 reason   TEXT NOT NULL,
                 created  REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS judge_keys (
+                panel   TEXT NOT NULL,
+                judge   TEXT NOT NULL,
+                ktype   TEXT NOT NULL,
+                public  TEXT NOT NULL,
+                secret  TEXT NOT NULL,
+                state   TEXT NOT NULL,
+                created REAL NOT NULL,
+                PRIMARY KEY (panel, judge, ktype)
+            );
         """)
 
     # ── panels (creator sets the params) ─────────────────────────
@@ -88,6 +107,7 @@ class Panels:
             self.db.commit()
         except sqlite3.IntegrityError:
             return {'error': f'panel {name!r} already exists'}
+        self._ensure_keys(name, judges)
         return self.get(name)
 
     def get(self, name):
@@ -96,6 +116,8 @@ class Panels:
             return {'error': f'no panel {name!r}'}
         p = dict(r)
         p['judges'] = json.loads(p['judges'])
+        for j in p['judges']:
+            j['keys'] = self._public_ring(name, j['name'])
         return p
 
     def list(self):
@@ -103,6 +125,8 @@ class Panels:
         for r in self.db.execute('SELECT * FROM panels ORDER BY name'):
             p = dict(r)
             p['judges'] = json.loads(p['judges'])
+            for j in p['judges']:
+                j['keys'] = self._public_ring(p['name'], j['name'])
             p['verdicts'] = self.db.execute(
                 'SELECT COUNT(*) FROM verdicts WHERE panel=?', (p['name'],)).fetchone()[0]
             out.append(p)
@@ -131,10 +155,13 @@ class Panels:
             if not 1 <= min_votes <= len(p['judges']):
                 return {'error': f'min_votes must be 1-{len(p["judges"])}'}
             p['min_votes'] = min_votes
+        # The stored row holds only the judge params — rings live in judge_keys.
+        stored = [{k: v for k, v in j.items() if k != 'keys'} for j in p['judges']]
         self.db.execute(
             'UPDATE panels SET threshold=?, min_votes=?, judges=?, updated=? WHERE name=?',
-            (p['threshold'], p['min_votes'], json.dumps(p['judges']), time.time(), name))
+            (p['threshold'], p['min_votes'], json.dumps(stored), time.time(), name))
         self.db.commit()
+        self._ensure_keys(name, stored)
         return self.get(name)
 
     def remove(self, name, creator):
@@ -160,6 +187,7 @@ class Panels:
         for j in judges:
             if not isinstance(j, dict) or not j.get('name'):
                 return {'error': 'each judge needs a name'}
+            j.pop('keys', None)  # rings are issued here, never client-supplied
             if j['name'] in names:
                 return {'error': f'duplicate judge name {j["name"]!r}'}
             names.add(j['name'])
@@ -171,6 +199,45 @@ class Panels:
             if float(j.get('weight', 1)) <= 0:
                 return {'error': f'judge {j["name"]!r}: weight must be > 0'}
         return judges
+
+    # ── keyrings: one keypair per key type, per judge ────────────
+
+    def _ensure_keys(self, panel, judges):
+        """Issue the missing keys for every judge on the panel. A judge keeps
+        its ring across panel updates; only brand-new (panel, judge, type)
+        combinations generate. Keys are never deleted — verdicts outlive
+        panels, and so must the keys that signed them."""
+        for j in judges:
+            have = {r['ktype'] for r in self.db.execute(
+                'SELECT ktype FROM judge_keys WHERE panel=? AND judge=?',
+                (panel, j['name']))}
+            for ktype in keys.available():
+                if ktype in have:
+                    continue
+                k = keys.generate(ktype)
+                self.db.execute(
+                    'INSERT INTO judge_keys VALUES (?,?,?,?,?,?,?)',
+                    (panel, j['name'], ktype, k['public'],
+                     json.dumps(k['secret']), json.dumps(k['state']), time.time()))
+        self.db.commit()
+
+    def _public_ring(self, panel, judge):
+        """The judge's keyring, public side only — secrets never leave."""
+        ring, kinds = {}, keys.kinds()
+        for r in self.db.execute(
+                'SELECT ktype, public, secret, state FROM judge_keys'
+                ' WHERE panel=? AND judge=?', (panel, judge)):
+            info = kinds.get(r['ktype'], {})
+            entry = {'public': r['public'],
+                     'fingerprint': keys.fingerprint(r['public']),
+                     'quantum_resistant': bool(info.get('quantum_resistant')),
+                     'algo': info.get('algo')}
+            state = json.loads(r['state'])
+            if 'next' in state:  # one-time-leaf schemes report what's left
+                height = int(json.loads(r['secret'])['height'])
+                entry['sigs_left'] = 2 ** height - int(state['next'])
+            ring[r['ktype']] = entry
+        return ring
 
     # ── judging ──────────────────────────────────────────────────
 
@@ -194,6 +261,8 @@ class Panels:
             reason = (f'average {average:.1f} '
                       f'{">=" if approved else "<"} threshold {p["threshold"]:g}')
         now = time.time()
+        for s in scores:
+            s['sigs'] = self._sign_vote(panel, input, s, now)
         cur = self.db.execute(
             'INSERT INTO verdicts (panel, input, scores, average, threshold,'
             ' approved, reason, created) VALUES (?,?,?,?,?,?,?,?)',
@@ -203,6 +272,61 @@ class Panels:
         return {'id': cur.lastrowid, 'panel': panel, 'approved': approved,
                 'average': average, 'threshold': p['threshold'],
                 'reason': reason, 'scores': scores, 'created': now}
+
+    def _sign_vote(self, panel, input, score, created):
+        """Sign one judge's vote with every key in its ring. Each entry
+        carries the public key it was made under, so a verdict stays
+        verifiable on its own even after the panel is gone. State updates
+        (one-time leaves) ride the verdict's commit."""
+        msg = _vote_msg(panel, input, score, created)
+        sigs = {}
+        for r in self.db.execute(
+                'SELECT ktype, public, secret, state FROM judge_keys'
+                ' WHERE panel=? AND judge=?', (panel, score['name'])):
+            state = json.loads(r['state'])
+            try:
+                sig, note = keys.sign(r['ktype'], json.loads(r['secret']),
+                                      state, msg)
+            except Exception as e:  # a broken key must not block the verdict
+                sig, note = None, f'signing error: {e}'
+            entry = {'pub': r['public']}
+            if sig is not None:
+                entry['sig'] = sig
+            if note:
+                entry['note'] = note
+            sigs[r['ktype']] = entry
+            self.db.execute(
+                'UPDATE judge_keys SET state=? WHERE panel=? AND judge=? AND ktype=?',
+                (json.dumps(state), panel, score['name'], r['ktype']))
+        return sigs
+
+    def verify_verdict(self, id):
+        """Re-check every signature on one verdict against the stored record.
+        verified is True only when no signature fails AND every judge's vote
+        carries at least one valid quantum-resistant signature — a single
+        bad signature means the record was altered, and a vote attested
+        only classically doesn't count as verified."""
+        v = self.verdict(id)
+        if 'error' in v:
+            return v
+        judges, all_ok, kinds = [], True, keys.kinds()
+        for s in v['scores']:
+            msg = _vote_msg(v['panel'], v['input'], s, v['created'])
+            checks, qr_good = {}, 0
+            for ktype, e in (s.get('sigs') or {}).items():
+                if 'sig' not in e:
+                    checks[ktype] = {'ok': None, 'note': e.get('note', 'unsigned')}
+                    continue
+                ok = keys.verify(ktype, e['pub'], e['sig'], msg)
+                checks[ktype] = {'ok': ok,
+                                 'fingerprint': keys.fingerprint(e['pub'])}
+                if ok and kinds.get(ktype, {}).get('quantum_resistant'):
+                    qr_good += 1
+                all_ok = all_ok and ok
+            all_ok = all_ok and qr_good > 0
+            judges.append({'judge': s['name'], 'checks': checks})
+        return {'id': v['id'], 'panel': v['panel'], 'verified': all_ok,
+                'judges': judges}
 
     def verdict(self, id):
         r = self.db.execute('SELECT * FROM verdicts WHERE id=?', (id,)).fetchone()
@@ -247,6 +371,19 @@ class Panels:
             score, reason = None, f'judge error: {e}'
         return {'name': j['name'], 'kind': kind, 'score': score,
                 'weight': float(j.get('weight', 1)), 'reason': reason}
+
+
+def _vote_msg(panel, input, score, created):
+    """The canonical bytes a vote signature covers: the vote's own fields
+    plus the panel, a hash of the input, and the verdict's timestamp.
+    Keys sorted, no whitespace — byte-identical at sign and verify time."""
+    return json.dumps(
+        {'panel': panel,
+         'input_sha256': hashlib.sha256(input.encode()).hexdigest(),
+         'judge': score['name'], 'kind': score['kind'], 'score': score['score'],
+         'weight': score['weight'], 'reason': score['reason'],
+         'created': created},
+        sort_keys=True, separators=(',', ':')).encode()
 
 
 def _rule_score(j, text):

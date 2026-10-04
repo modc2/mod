@@ -1,0 +1,48 @@
+{
+  "name": "recurse",
+  "version": "0.1.0",
+  "description": "A tiny, safe playground for recursion. Computes well-defined recursive functions (factorial, Fibonacci, greatest common divisor) with a hard recursion-depth guard so a call can never run away. Pure stdlib, no accounts, no keys, no network, no process spawning. The point is to demonstrate bounded recursion, not to run anything that runs itself.",
+  "icon": "R",
+  "color": "#6aa9ff",
+  "anchor": "mod.py",
+  "network": "local",
+  "port": 51200,
+  "app_port": 51200,
+  "gateway_port": 51200,
+  "base_path": "/recurse",
+  "route": true,
+  "deps": [],
+  "urls": {
+    "app": "http://localhost:51200/recurse/",
+    "api": "http://localhost:51200"
+  },
+  "state": "none (stateless, pure functions)",
+  "fns": [
+    "forward",
+    "info",
+    "health",
+    "readme",
+    "factorial",
+    "fibonacci",
+    "gcd",
+    "test"
+  ],
+  "api_fns": [
+    "info",
+    "health",
+    "readme",
+    "factorial",
+    "fibonacci",
+    "gcd"
+  ],
+  "endpoints": {
+    "GET /info": "Null call \u2014 what this module is",
+    "GET /health": "Liveness \u2014 pure, touches nothing",
+    "GET /readme": "The project README",
+    "GET /factorial": "n! computed recursively, depth-guarded (n, max_depth=1000)",
+    "GET /fibonacci": "The n-th Fibonacci number, depth-guarded (n, max_depth=1000)",
+    "GET /gcd": "Greatest common divisor by recursive Euclid (a, b)"
+  },
+  "key": "recurse",
+  "schema": "QmQx1yAeZrXM4EyE4JNf6S6ieRqjFXuMVDfm2uSN3jcUGM"
+}

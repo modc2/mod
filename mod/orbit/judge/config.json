@@ -1,7 +1,7 @@
 {
     "name": "judge",
     "version": "0.1.0",
-    "description": "Approval as a multisig of agents. A panel's creator sets the params: the judges that sit on it (LLM agents with criteria prompts, or deterministic rule judges), the approval threshold (0-100) and the quorum. Every judge scores an input 0-100; if the weighted average falls under the threshold, or too few judges manage to vote, the verdict is FAIL. Errors fail closed. Every verdict is recorded with each judge's score and reason. One local SQLite file, stdlib only.",
+    "description": "Approval as a multisig of agents. A panel's creator sets the params: the judges that sit on it (LLM agents with criteria prompts, or deterministic rule judges), the approval threshold (0-100) and the quorum. Every judge scores an input 0-100; if the weighted average falls under the threshold, or too few judges manage to vote, the verdict is FAIL. Errors fail closed. Every new judge is issued a keyring of multiple key types — classical ed25519 plus the quantum-resistant ml-dsa-65 (FIPS 204) and wots-sha256 (stdlib hash-based) — and every vote is signed by the whole ring, so the append-only verdict record is tamper-evident (GET /verify). One local SQLite file; core is stdlib, ed25519/ml-dsa use the cryptography and dilithium-py libs when present.",
     "icon": "JD",
     "color": "#8a6ff0",
     "anchor": "mod.py",
@@ -11,7 +11,7 @@
     "gateway_port": 51150,
     "base_path": "/judge",
     "route": true,
-    "deps": [],
+    "deps": ["dilithium-py"],
     "urls": {
         "app": "http://localhost:51150/judge/",
         "api": "http://localhost:51150"
@@ -30,6 +30,8 @@
         "judge",
         "verdict",
         "verdicts",
+        "verify",
+        "key_kinds",
         "serve",
         "test",
         "kill"
@@ -45,7 +47,9 @@
         "remove_panel",
         "judge",
         "verdict",
-        "verdicts"
+        "verdicts",
+        "verify",
+        "key_kinds"
     ],
     "endpoints": {
         "GET /info": "Null call \u2014 what this module is, with store stats",
@@ -54,11 +58,13 @@
         "GET /panel": "One panel's full params (name)",
         "GET /verdicts": "The verdict record, newest first (panel, limit, offset)",
         "GET /verdict": "One verdict with every judge's score and reason (id)",
+        "GET /verify": "Re-check every signature on one verdict (id) — tamper check",
+        "GET /key_kinds": "The signature key types judges are issued (classical + quantum-resistant)",
         "POST /judge": "Put an input before a panel {panel, input} \u2014 avg score vs threshold",
         "POST /create_panel": "Create a panel {name, creator, judges, threshold, min_votes} \u2014 loopback callers only",
         "POST /update_panel": "Change params {name, creator, ...} \u2014 creator only, loopback only",
         "POST /remove_panel": "Delete a panel {name, creator} \u2014 creator only, loopback only"
     },
     "key": "judge",
-    "schema": "QmNRjVunfiMfLTPVNo8Xw7DmkwpD2f4dHd5ya9kPBHbXGU"
+    "schema": "QmQHPHtrdgCDYFdhAxDAc2WGSTX6yMcPhX6kkwqxhy9XN9"
 }

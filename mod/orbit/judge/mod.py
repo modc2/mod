@@ -129,6 +129,17 @@ class Mod:
         """The verdict record, newest first, optionally for one panel."""
         return {'verdicts': self.book.verdicts(panel, limit, offset)}
 
+    def verify(self, id):
+        """Re-check every signature on one verdict. Each vote is signed by
+        the judge's whole keyring — classical ed25519 plus the quantum-
+        resistant ml-dsa-65 and wots-sha256 — so a tampered record fails."""
+        return self.book.verify_verdict(int(id))
+
+    def key_kinds(self):
+        """The signature key types judges are issued, and their availability."""
+        import keys
+        return {'kinds': keys.kinds()}
+
     # ── surfaces ─────────────────────────────────────────────────
 
     def serve(self, port=None, background=False):

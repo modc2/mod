@@ -33,7 +33,8 @@ if MODULE_DIR not in sys.path:
 
 import panel  # noqa: E402
 
-READ_FNS = ('health', 'info', 'readme', 'panels', 'panel', 'verdict', 'verdicts')
+READ_FNS = ('health', 'info', 'readme', 'panels', 'panel', 'verdict',
+            'verdicts', 'verify', 'key_kinds')
 WRITE_FNS = ('judge', 'create_panel', 'update_panel', 'remove_panel')
 LOCAL_ONLY = ('create_panel', 'update_panel', 'remove_panel')
 
@@ -76,6 +77,11 @@ def api(fn, a):
         return b.get(a.get('name', ''))
     if fn == 'verdict':
         return b.verdict(int(a.get('id', 0)))
+    if fn == 'verify':
+        return b.verify_verdict(int(a.get('id', 0)))
+    if fn == 'key_kinds':
+        import keys
+        return {'kinds': keys.kinds()}
     if fn == 'verdicts':
         return {'verdicts': b.verdicts(a.get('panel', ''),
                                        a.get('limit', 50), a.get('offset', 0))}
@@ -163,12 +169,12 @@ class Handler(SimpleHTTPRequestHandler):
             args = {k: v[0] for k, v in parse_qs(parsed.query).items()}
             return self._run(fn, args)
 
-        # The console. Bare /judge + relative asset paths is the gateway trap.
+        # The console. The gateway publishes the BARE /judge form (its 308
+        # goes /judge/ -> /judge), so redirecting the other way loops; serve
+        # index.html at both, with <base href="/judge/"> anchoring the assets.
         if raw == PREFIX:
-            self.send_response(301)
-            self.send_header('Location', PREFIX + '/')
-            self.end_headers()
-            return
+            self.path = '/index.html'
+            return super().do_GET()
         if raw.startswith(PREFIX + '/'):
             self.path = self.path[len(PREFIX):]
         if urlparse(self.path).path.rstrip('/') in ('', '/'):
