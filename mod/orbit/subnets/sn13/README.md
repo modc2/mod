@@ -2,7 +2,7 @@
 
 Scraping the world's social media data
 
-Bittensor subnet **13** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **13** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/macrocosm-os/data-universe) · [url](https://datauniverse.macrocosmos.ai/) · [discord](https://discord.gg/adsQPnFRY)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/macrocosm-os/data-universe) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004712 | -0.00% | -0.14% | -6.75% | 29,097 | 18,342 | 39.02 |
+| 0.004714 | +0.00% | +0.04% | -0.93% | 29,143 | 18,346 | 11.42 |
 
 ## Last 24h flow
 
-375 trades by 135 coldkeys · 7 buys (13.21 τ) / 368 sells (25.43 τ) · net -12.23 τ
+245 trades by 133 coldkeys · 10 buys (7.44 τ) / 235 sells (3.56 τ) · net 3.88 τ
 
 ## News
 

@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9200279,
+  "block": 9207487,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6868798.372503952,
-    "tao_in": 5489630.527969923,
-    "alpha_in": 1379167.844534029,
-    "alpha_out": 5489630.527969923,
-    "volume": 58710549.01395509,
-    "vol_24h": 41075.22732091695,
+    "market_cap": 6868933.969072088,
+    "tao_in": 5488966.548949597,
+    "alpha_in": 1379967.42012249,
+    "alpha_out": 5488966.548949597,
+    "volume": 58731615.5719252,
+    "vol_24h": 21066.557970114052,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,12 +81,36 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791007010,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor subnets are generating real revenue, but the cheap prices hide a subsidy",
+      "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxOdkNaZFJ3bDBpcGtFMG1rNkdZS2oyelcwSkJUbVNLbWtvd2t6WmJLZmpIYXVJNkRDSldRSnN4NHU4cXd4dFVtcHJJOW81aUZJWExkVTdiM2Rvb2UxRXh1RWltejBYWm51bmVmMjJBZ19DSXctZzNubTE3cWp0T0xFNFJMOTFwdmpVamNLal9vLVdXWS1Sb1dXWkdfcm9fZnBhZlhsS3BrNHUza05ZV3c?oc=5",
+      "publisher": "Startup Fortune"
+    },
+    {
+      "ts": 1790997470,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor Unveils Gamma Tokens to Let AI Subnets Pay Each Other",
+      "url": "https://news.google.com/rss/articles/CBMilgFBVV95cUxNV3Z2YUloWGtVLVFZNHBjbHl2VXVyeWZuQnBLSFYwYkhySmVqaENjMzJGTVdmbnpVc1RKdVAtRlRsZFUxZlBKQ2pQLUZNdVd0bFNaYzZYOHNib1JJQkpLUnVIMGFZaW1rS3hHcWYtNmhjdnpManplYllmdkt6MHlITTUzaDg3dXpCaTZzM1pHLU1nRmdIMmc?oc=5",
+      "publisher": "Startup Fortune"
+    },
+    {
       "ts": 1790956995,
       "kind": "news",
       "source": "gnews",
       "title": "Quant, Sui, and Bittensor in Focus as Key Altcoins to Monitor in October 2026",
       "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxPRnVYcE9qN3ZOZWFwWVhDMmNCRVpnVUZGY09Ldm50UVhhRWktRnVicG5TSHNfNWFIamRfQmlYOUUzdDVhZDZBRFFxMFNkVGZlZDVLVHVSYmEyUzRQTC1nWVVYNzJMMXJCdFREcTdZV2c1c05MYm9qSUFhdWdBUGE0ZzBwM3NSYVcxVkFBQjNITkx3VzJOejVfWUtadExaZ1hJSXJaNkZKc1NYTU5UZFE?oc=5",
       "publisher": "KuCoin"
+    },
+    {
+      "ts": 1790949962,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor Crash: $900 Million Wiped as Covenant AI Exits TAO Ecosystem",
+      "url": "https://news.google.com/rss/articles/CBMickFVX3lxTFBTN19udXNLWlFiU1VaaWZ3dk9iazlJMi1ZV05RQTlaaDZZVjllZWNGeWtCQUo5STVKbk5Cc2tSaDBFLVlXNzBZT05yMU1fejFGbEJncFhvSnV5YzN1bUV5UTBoMGtfT0VVbWNGb0RZUEwwdw?oc=5",
+      "publisher": "CryptoTicker"
     },
     {
       "ts": 1790942880,
@@ -119,32 +143,8 @@
       "title": "Bittensor (TAO) Drops 3.1% Amid AI Token Sector Correction",
       "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE1VSWs0aUo1emRic1dONFNQb3U1VzFoZk9MNUg4eGlYODlVdGFXcTZXNHdSbDRGM2M3MVNqcDZCWWxtRURNdEdObHk0ZXd1YW1oTGZSSzhTNGlyX01keTZhQ0h1cnkzalE5dEFhTDR0U1M?oc=5",
       "publisher": "CoinMarketCap"
-    },
-    {
-      "ts": 1790757747,
-      "kind": "social",
-      "source": "reddit",
-      "title": "SubWallet now supports manual claim for Bittensor native staking",
-      "url": "https://www.reddit.com/r/bittensor_/comments/1wtzpon/subwallet_now_supports_manual_claim_for_bittensor/",
-      "publisher": "r/bittensor_"
-    },
-    {
-      "ts": 1790712417,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor subnet operator revenue surpasses $32M amid growing AI service deals and token demand.",
-      "url": "https://news.google.com/rss/articles/CBMijwFBVV95cUxNbzlObm5Hc2Z1ODlLRU0tRFJFdkF1TU1fQmVKRGs3cEotMzYtRjZnYkJqaGxPOFJBWkc2QkF1NUZqaXF2VkhyS0N2Q1hFYV9VUXlvT2xYcElXMEVPcUItRE1SM2M5Y3dfOVJaRkZBQXN0eWI2eTB6cXQ0bE9KMUVtX3NUdFNzQ19UdldCY0RtOA?oc=5",
-      "publisher": "Pluang"
-    },
-    {
-      "ts": 1790711628,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor adoption grows as AI subnets find paying customers, Yuma CRO says",
-      "url": "https://news.google.com/rss/articles/CBMifkFVX3lxTE5ramdOUm00SnR0ZF9zc3R1Rm5OdjE1YmRiTGhoNS1PNDN6dV9hYWpHblBxTjJXcjdrbEE5ZTF5Vk05LTdnZjZ2NG5hc0RhalU4YlozMkZWWEVUd3pYMklGbjE2cjhLdXVWMHNmdjVkM25nbGdxTEdlLUl6T0tuZw?oc=5",
-      "publisher": "Crypto News"
     }
   ],
-  "updated": 1791006061,
-  "updated_day": "2026-10-03"
+  "updated": 1791092461,
+  "updated_day": "2026-10-04"
 }

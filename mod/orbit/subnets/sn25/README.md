@@ -2,7 +2,7 @@
 
 The peer to peer privacy network and encryption layer for the internet
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006737 | +0.00% | +0.89% | -1.33% | 41,027 | 13,270 | 155.08 |
+| 0.006689 | +0.00% | -0.71% | -0.29% | 40,782 | 13,222 | 247.02 |
 
 ## Last 24h flow
 
-27 trades by 20 coldkeys · 10 buys (107.01 τ) / 17 sells (47.52 τ) · net 59.49 τ
+27 trades by 20 coldkeys · 14 buys (99.76 τ) / 13 sells (146.64 τ) · net -46.88 τ
 
 ## News
 
-- 2026-10-03 · commit · [Verify combined published Connect recovery dependency](https://github.com/urfoundation/sn/commit/265807c109d7df12a0efda67cf16562be5a57e88) — urfoundation/sn
-- 2026-10-03 · commit · [Track complete-owner restore scope and preserve current dependency floor](https://github.com/urfoundation/sn/commit/055c0a0fb092623f704a93123ea10a84bcfd6e27) — urfoundation/sn
-- 2026-10-03 · commit · [Complete current migration candidate gate and preserve upstream publi…](https://github.com/urfoundation/sn/commit/67a160aa2efc32750f0025aa54a6080c346e3781) — urfoundation/sn
-- 2026-10-03 · commit · [Record current migration race qualification](https://github.com/urfoundation/sn/commit/59ced028b7254231bc5052e79948a8f5db92366d) — urfoundation/sn
-- 2026-10-03 · commit · [Record current payout migration qualification and recovery test contr…](https://github.com/urfoundation/sn/commit/bdbd42f9fe7834cb5f21506f9544b8a6e7660969) — urfoundation/sn
-- 2026-10-02 · commit · [Record private-root preparation source qualification](https://github.com/urfoundation/sn/commit/404262054f41144af3fceeff64d4d3d33de9ed2a) — urfoundation/sn
-- 2026-10-02 · commit · [Record guarded inactive cache reclaim for ongoing qualification](https://github.com/urfoundation/sn/commit/11ca89776005c5026dabc06dc9c27b6f8549fff2) — urfoundation/sn
-- 2026-10-02 · commit · [Record integrated provider monitoring qualification and scope](https://github.com/urfoundation/sn/commit/a692bbbae43327b76af0161a2bc2e6a21ea29fe0) — urfoundation/sn
+- 2026-10-04 · commit · [Publish qualified Core recovery fix and retain final consumer gate](https://github.com/urfoundation/sn/commit/6b4cccf57f756cf33ce4448625decdab135ae767) — urfoundation/sn
+- 2026-10-04 · commit · [Record parallel mainnet critical-path qualification and successors](https://github.com/urfoundation/sn/commit/5fcad09cffbf2db9819486f55da03fd9fa57d7d2) — urfoundation/sn
+- 2026-10-04 · commit · [Retain Core preflight and reviewed concurrent qualification guards](https://github.com/urfoundation/sn/commit/d05416969a7f63fffdfdd1886480f6c71b7502a0) — urfoundation/sn
+- 2026-10-04 · commit · [Record normal model outcomes and exact combined release gaps](https://github.com/urfoundation/sn/commit/22983ee47c44e4ba3740518bfcfeafa65adb0e6b) — urfoundation/sn
+- 2026-10-04 · commit · [Track bounded error traversal and companion accounting lessons](https://github.com/urfoundation/sn/commit/403d1e90cb0af84f531857cef5d7cd16988433f8) — urfoundation/sn
+- 2026-10-03 · commit · [docs(mainnet): retain expanded model failure batch and grant lessons](https://github.com/urfoundation/sn/commit/8f87548e993650f255a0740f0fff1592d323fb05) — urfoundation/sn
+- 2026-10-03 · commit · [docs(mainnet): bind startup and foreground hardening review](https://github.com/urfoundation/sn/commit/76ca9390d5f6d1c3fbeef49d57f18865d88d92b8) — urfoundation/sn
+- 2026-10-03 · commit · [docs(mainnet): retain final Claim source qualification scope](https://github.com/urfoundation/sn/commit/3a82938ed4cb3b57e3f7cad57d86971236125fd2) — urfoundation/sn
 
 ## Use
 

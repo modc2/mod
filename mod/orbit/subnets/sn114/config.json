@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-03",
+  "updated": "2026-10-04",
   "urls": {
     "bt": "/bt/markets?sn=114",
     "news": "/bt/news?netuid=114"

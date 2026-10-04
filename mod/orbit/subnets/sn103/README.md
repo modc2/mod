@@ -2,7 +2,7 @@
 
 Capability Composition Subnet
 
-Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/orgs/Capcomp-AI/repositories) · [url](http://capcomp.ai/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/orgs/Capcomp-AI/repositories) · [url](http:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.000942 | +0.00% | -8.95% | -25.60% | 524.3272 | 294.6412 | 34.43 |
+| 0.000943 | +0.00% | +0.10% | -28.80% | 531.6643 | 294.7994 | 22.71 |
 
 ## Last 24h flow
 
-33 trades by 14 coldkeys · 9 buys (10.14 τ) / 24 sells (23.90 τ) · net -13.75 τ
+13 trades by 10 coldkeys · 8 buys (11.38 τ) / 5 sells (10.93 τ) · net 0.45 τ
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Verifiable and distributed inference on Bittensor
 
-Bittensor subnet **2** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **2** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/inference-labs-inc/subnet-2) · [url](https://subnet2.inferencelabs.com)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/inference-labs-inc/subnet-2) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003050 | +0.00% | -0.52% | -0.89% | 17,938 | 7,719 | 23.96 |
+| 0.003044 | +0.00% | -0.21% | -0.27% | 17,922 | 7,711 | 14.04 |
 
 ## Last 24h flow
 
-22 trades by 14 coldkeys · 5 buys (1.81 τ) / 17 sells (21.91 τ) · net -20.10 τ
+22 trades by 11 coldkeys · 7 buys (2.97 τ) / 15 sells (10.81 τ) · net -7.84 τ
 
 ## News
 
@@ -22,10 +22,6 @@ Links: [github](https://github.com/inference-labs-inc/subnet-2) · [url](https:/
 - 2026-09-08 · release · [Testnet (testnet-92c75cee)](https://github.com/inference-labs-inc/subnet-2/releases/tag/testnet-92c75cee) — inference-labs-inc/subnet-2
 - 2026-09-08 · commit · [Merge testnet into main for 14.14.3 release](https://github.com/inference-labs-inc/subnet-2/commit/96d03c44729a350df79160e2ea8e3e175d492ce5) — inference-labs-inc/subnet-2
 - 2026-09-08 · commit · [Introduce weight commit guard for epochs with zero miner scores (#627)](https://github.com/inference-labs-inc/subnet-2/commit/92c75cee84551e73e7629b7a7306a0ca90f91e6d) — inference-labs-inc/subnet-2
-- 2026-09-03 · release · [Testnet (testnet-308f96c5)](https://github.com/inference-labs-inc/subnet-2/releases/tag/testnet-308f96c5) — inference-labs-inc/subnet-2
-- 2026-09-03 · release · [14.14.2](https://github.com/inference-labs-inc/subnet-2/releases/tag/14.14.2) — inference-labs-inc/subnet-2
-- 2026-09-03 · commit · [Merge testnet into main for 14.14.2 release](https://github.com/inference-labs-inc/subnet-2/commit/2a01e0596f1fc0369da62ec3c609fb07e56dbbd5) — inference-labs-inc/subnet-2
-- 2026-09-03 · commit · [Introduce reconnecting chain RPC transport with websocket keepalive p…](https://github.com/inference-labs-inc/subnet-2/commit/308f96c5e2ea646703ee11a6a185072f6f298b3d) — inference-labs-inc/subnet-2
 
 ## Use
 

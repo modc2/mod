@@ -1,12 +1,12 @@
 # sn82 — uruz ᚢ
 
-Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004456 | +0.00% | +0.00% | +124.10% | 630.6429 | 629.7015 | 0.00 |
+| 0.004456 | +0.00% | +0.00% | +0.00% | 630.6429 | 629.7015 | 0.00 |
 
 ## Use
 

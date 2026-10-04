@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006037 | +0.00% | +0.32% | +1.07% | 33,597 | 17,826 | 1,703 |
+| 0.006097 | -0.05% | +1.00% | +2.58% | 33,978 | 17,915 | 523.21 |
 
 ## Last 24h flow
 
-103 trades by 55 coldkeys · 41 buys (865.67 τ) / 62 sells (835.93 τ) · net 29.73 τ
+70 trades by 34 coldkeys · 31 buys (306.29 τ) / 39 sells (216.31 τ) · net 89.98 τ
 
 ## News
 
-- 2026-10-03 · commit · [Merge pull request #306 from reliquadotai/fix/corpus-judge-pass-speed](https://github.com/reliquadotai/reliquary/commit/423cefe751e7360aa4529ba6339059a3918df36b) — reliquadotai/reliquary
-- 2026-10-03 · commit · [perf(corpus): a math pass in ~75 s: no listing per pass, one re-audit…](https://github.com/reliquadotai/reliquary/commit/af69280e0ef115fedc6d3ae7840815a6c6ca7d72) — reliquadotai/reliquary
-- 2026-10-03 · commit · [Merge pull request #305 from reliquadotai/fix/corpus-judge-drand-bound](https://github.com/reliquadotai/reliquary/commit/782e5906643c16fb3a8cb83d6224acc6880c2cc8) — reliquadotai/reliquary
-- 2026-10-02 · commit · [fix(corpus): bound a pass's siblings, race each drand round once, pac…](https://github.com/reliquadotai/reliquary/commit/a27e17743663eef7eb404185c2178fdbd90347d0) — reliquadotai/reliquary
-- 2026-10-02 · commit · [Merge pull request #303 from reliquadotai/fix/corpus-judge-seed-metadata](https://github.com/reliquadotai/reliquary/commit/124e9241b56b8624eff1d86494427152ae8603e8) — reliquadotai/reliquary
-- 2026-10-02 · commit · [Merge pull request #300 from reliquadotai/feat/corpus-split-processes](https://github.com/reliquadotai/reliquary/commit/674e0a2b0f580a71f610c93721f51aad55d43297) — reliquadotai/reliquary
-- 2026-10-02 · commit · [test(corpus): check pass counts while the judges run; the final stop …](https://github.com/reliquadotai/reliquary/commit/0f84bd4bf5a0ce3f64b4d3c15efed30a3f5c5a26) — reliquadotai/reliquary
-- 2026-10-02 · commit · [test(corpus): give the crash tests' first verdicts 360 s on a loaded box](https://github.com/reliquadotai/reliquary/commit/5d3e4a1115331658742327b389106d61e8d68096) — reliquadotai/reliquary
+- 2026-10-03 · commit · [Merge pull request #310 from reliquadotai/design/sft-period-clock](https://github.com/reliquadotai/reliquary/commit/31371e19fd09be11a58eae1367d101ffc2b356cd) — reliquadotai/reliquary
+- 2026-10-03 · commit · [Merge pull request #311 from reliquadotai/feat/register-reliquary-sci…](https://github.com/reliquadotai/reliquary/commit/5734d639f57289300592f46c2753e2f6dbe8d101) — reliquadotai/reliquary
+- 2026-10-03 · commit · [feat(env): register reliquary-science and declare it in the Teutonic …](https://github.com/reliquadotai/reliquary/commit/421513a486a3e9074ae77777604631976d76c246) — reliquadotai/reliquary
+- 2026-10-03 · commit · [fix(corpus): period pay conserves under backlogs, crashes and late wr…](https://github.com/reliquadotai/reliquary/commit/f804c4e8609582677de3f54f405506b6d3d7bd39) — reliquadotai/reliquary
+- 2026-10-03 · commit · [docs(design): the entry period is the one after settlement](https://github.com/reliquadotai/reliquary/commit/fcf88118b18d0cf557d316c59205428610d57201) — reliquadotai/reliquary
+- 2026-10-03 · commit · [Merge pull request #309 from reliquadotai/feat/agentic-corpus-swe](https://github.com/reliquadotai/reliquary/commit/e701dbee90e2db38b666576dfa441da3d4d74fc4) — reliquadotai/reliquary
+- 2026-10-03 · commit · [Merge pull request #308 from reliquadotai/feat/eval-validator-mode](https://github.com/reliquadotai/reliquary/commit/09d68fe84106af3b8f0591e687dd119684d9af73) — reliquadotai/reliquary
+- 2026-10-03 · commit · [docs(corpus): replayed actions come from the proven tokens in production](https://github.com/reliquadotai/reliquary/commit/810aac3af9957ff7fff816401d5f3fc07db17de5) — reliquadotai/reliquary
 
 ## Use
 

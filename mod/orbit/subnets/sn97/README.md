@@ -2,7 +2,7 @@
 
 Alchemical intelligence
 
-Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hippius.com/albedo/index.html) · discord `@arbos`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hi
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.016253 | +0.02% | +0.31% | -2.83% | 30,665 | 11,638 | 267.89 |
+| 0.016320 | -0.05% | +0.41% | -0.44% | 30,948 | 11,702 | 170.57 |
 
 ## Last 24h flow
 
-42 trades by 28 coldkeys · 17 buys (109.25 τ) / 25 sells (105.39 τ) · net 3.85 τ
+18 trades by 14 coldkeys · 8 buys (64.69 τ) / 10 sells (62.32 τ) · net 2.37 τ
 
 ## News
 

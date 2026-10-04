@@ -2,7 +2,7 @@
 
 Best AutoML plaftorm in the world
 
-Bittensor subnet **56** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **56** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/gradients-ai/G.O.D) · [url](https://www.gradients.io/) · discord `None`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/gradients-ai/G.O.D) · [url](https://www.grad
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.014932 | -0.05% | -0.14% | -3.51% | 91,789 | 49,500 | 234.83 |
+| 0.014897 | +0.01% | -0.24% | -4.65% | 91,694 | 49,456 | 214.74 |
 
 ## Last 24h flow
 
-39 trades by 36 coldkeys · 13 buys (22.23 τ) / 26 sells (133.31 τ) · net -111.07 τ
+55 trades by 45 coldkeys · 23 buys (6.84 τ) / 32 sells (134.77 τ) · net -127.92 τ
 
 ## News
 

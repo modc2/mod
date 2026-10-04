@@ -2,7 +2,7 @@
 
 verified execution of agentic workflows for enterprise, delivering Proof of Assurance
 
-Bittensor subnet **87** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **87** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [url](https://provenonce.ai) · [discord](https://discord.com/channels/799672011265015819/1521124924759080972)
 
@@ -10,11 +10,11 @@ Links: [url](https://provenonce.ai) · [discord](https://discord.com/channels/79
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004890 | -0.73% | +3.93% | +15.80% | 11,313 | 1,830 | 1,518 |
+| 0.004676 | +0.71% | -4.38% | +1.84% | 10,852 | 1,790 | 586.58 |
 
 ## Last 24h flow
 
-173 trades by 70 coldkeys · 104 buys (776.53 τ) / 69 sells (723.96 τ) · net 52.57 τ
+157 trades by 45 coldkeys · 85 buys (273.03 τ) / 72 sells (304.69 τ) · net -31.66 τ
 
 ## Use
 

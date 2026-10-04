@@ -2,7 +2,7 @@
 
 Predictive intelligence for financial markets and beyond
 
-Bittensor subnet **50** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **50** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/mode-network/synth-subnet) · [url](https://synthdata.co)
 
@@ -10,17 +10,16 @@ Links: [github](https://github.com/mode-network/synth-subnet) · [url](https://s
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004111 | +0.00% | +2.51% | +4.09% | 24,118 | 10,338 | 324.93 |
+| 0.004695 | +1.32% | +14.20% | +17.89% | 27,579 | 11,050 | 2,250 |
 
 ## Last 24h flow
 
-98 trades by 64 coldkeys · 33 buys (224.67 τ) / 65 sells (98.22 τ) · net 126.44 τ
+281 trades by 132 coldkeys · 134 buys (1,480 τ) / 147 sells (769.20 τ) · net 710.95 τ
 
 ## News
 
 - 2026-09-22 · release · [v1.13.0](https://github.com/synthdataco/synth-subnet/releases/tag/v1.13.0) — mode-network/synth-subnet
 - 2026-09-14 · commit · [feat(validator): add a volatility CRPS term to the crypto-1h score (#…](https://github.com/synthdataco/synth-subnet/commit/2cfb24b29b745c37a143984e3e86e6c54f342293) — mode-network/synth-subnet
-- 2026-09-03 · commit · [base miner: gzip-compress axon responses (#319)](https://github.com/synthdataco/synth-subnet/commit/a91a1f044f620d277cfa87eeb3b02d91ea79ad78) — mode-network/synth-subnet
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT.
 
-Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://ormas.ai) · discord `ormasheroncovelabs_43871`
 
@@ -10,14 +10,16 @@ Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005347 | +0.00% | -9.62% | -18.29% | 1,015 | 481.0051 | 32.99 |
+| 0.005989 | -0.03% | +12.00% | -10.64% | 1,180 | 509.0476 | 88.51 |
 
 ## Last 24h flow
 
-38 trades by 15 coldkeys · 6 buys (4.02 τ) / 32 sells (26.18 τ) · net -22.16 τ
+16 trades by 11 coldkeys · 13 buys (58.15 τ) / 3 sells (26.70 τ) · net 31.45 τ
 
 ## News
 
+- 2026-10-03 · commit · [docs: queue route, offers and limit settlement are live since gateway…](https://github.com/heroncovelabs/ormas-subnet/commit/876a546d6ed78a91c7b10dd61e06b0eaa598dacb) — heroncovelabs/ormas-subnet
+- 2026-10-03 · commit · [sync: public_subnet @ tensorbox-spec 29170e22ee — firm-or-limit offer…](https://github.com/heroncovelabs/ormas-subnet/commit/bf379667556e93ba23e65b540cbad427edc1b86a) — heroncovelabs/ormas-subnet
 - 2026-09-16 · commit · [fix(skeleton): renew through the whole lease, retry a transient compl…](https://github.com/heroncovelabs/ormas-subnet/commit/b5bd859fdcac9dbd84980a8d3779052deeb43e4a) — heroncovelabs/ormas-subnet
 - 2026-09-16 · commit · [test(63982bd8): fail-on-base for completion retry, lease renewal and …](https://github.com/heroncovelabs/ormas-subnet/commit/8cca6c4d3fddf74ccb60a50350f03e0679666918) — heroncovelabs/ormas-subnet
 - 2026-09-16 · commit · [feat(client): optional chosen miner_id on registration — receipts, pr…](https://github.com/heroncovelabs/ormas-subnet/commit/98161f8483e231f4be64928e8d8e3b8013dfef8b) — heroncovelabs/ormas-subnet

@@ -2,7 +2,7 @@
 
 tokenized ai compute
 
-Bittensor subnet **106** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **106** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/nodexo-ai/nodexo) · [url](https://nodexo.ai) · [discord](https://discord.gg/fwjBwxUcdX)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/nodexo-ai/nodexo) · [url](https://nodexo.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002374 | +0.02% | +11.43% | +1.56% | 11,805 | 5,938 | 833.51 |
+| 0.002296 | -0.02% | -3.28% | +7.77% | 11,434 | 5,840 | 162.98 |
 
 ## Last 24h flow
 
-77 trades by 36 coldkeys · 36 buys (573.30 τ) / 41 sells (259.89 τ) · net 313.41 τ
+44 trades by 27 coldkeys · 5 buys (32.35 τ) / 39 sells (130.32 τ) · net -97.97 τ
 
 ## Use
 

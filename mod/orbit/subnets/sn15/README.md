@@ -2,7 +2,7 @@
 
 AI commerce agents
 
-Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **15** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) · [discord](https://discord.gg/MHqAVWTdka)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) �
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.024519 | -0.02% | -0.61% | +0.51% | 54,181 | 14,043 | 601.56 |
+| 0.024835 | +0.04% | +1.29% | +2.19% | 55,104 | 14,188 | 919.52 |
 
 ## Last 24h flow
 
-157 trades by 79 coldkeys · 37 buys (255.53 τ) / 120 sells (294.16 τ) · net -38.63 τ
+131 trades by 85 coldkeys · 57 buys (431.65 τ) / 74 sells (409.55 τ) · net 22.10 τ
 
 ## News
 
+- 2026-10-03 · release · [Validator v2.1.0: runtime contract on claim and delivery load (#361)](https://github.com/ORO-AI/oro/releases/tag/v2.1.0) — ORO-AI/oro
 - 2026-10-02 · commit · [Validator v2.0.41: per-event market notices, preflight replay parity …](https://github.com/ORO-AI/oro/commit/35fc09ddd49f51d3898e6a26f19c49269c60e1cf) — ORO-AI/oro
 - 2026-10-02 · commit · [chore: remove unused load_problems from subnet.sandbox (#359)](https://github.com/ORO-AI/oro/commit/f3600d1fe6eef8c5476c491bf44df0736c8557f1) — ORO-AI/oro
 - 2026-10-02 · commit · [Capture cached input tokens in private evaluation usage](https://github.com/ORO-AI/oro/commit/535d58559ea7ab817310d06992940f5071771516) — ORO-AI/oro
@@ -25,7 +26,6 @@ Links: [github](https://github.com/ORO-AI/oro) · [url](https://oroagents.com) �
 - 2026-10-01 · release · [v2.0.40: Composed situation tasks: validator, proxy and local testing](https://github.com/ORO-AI/oro/releases/tag/v2.0.40) — ORO-AI/oro
 - 2026-09-30 · commit · [Pin the JDK used by the search index builder and base image](https://github.com/ORO-AI/oro/commit/9eb8525194ccb320733efa2eeada77026c637540) — ORO-AI/oro
 - 2026-09-30 · commit · [Translate live Chutes model IDs on OpenRouter runs (#345)](https://github.com/ORO-AI/oro/commit/d1ca50d692abd9397b9d411267cac04573720467) — ORO-AI/oro
-- 2026-09-30 · release · [v2.0.39: Translate live Chutes model IDs on OpenRouter runs (#345)](https://github.com/ORO-AI/oro/releases/tag/v2.0.39) — ORO-AI/oro
 
 ## Use
 

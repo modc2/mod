@@ -2,7 +2,7 @@
 
 revolutionizing the democratization of compute
 
-Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/Datura-ai/lium-io) · [url](https://lium.io) · discord `p383_54249`
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `lium`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.093087 | +0.00% | -0.25% | +3.81% | 562,306 | 163,478 | 2,500 |
+| 0.095036 | +0.02% | +2.09% | +5.05% | 574,864 | 165,277 | 5,545 |
 
 ## Last 24h flow
 
-396 trades by 213 coldkeys · 188 buys (776.96 τ) / 208 sells (1,344 τ) · net -567.05 τ
+500 trades by 275 coldkeys · 281 buys (3,258 τ) / 219 sells (1,901 τ) · net 1,357 τ
 
 ## News
 

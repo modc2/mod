@@ -2,7 +2,7 @@
 
 Pushing weather forecasts beyond state-of-the-art
 
-Bittensor subnet **18** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **18** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/Orpheus-AI/Zeus) · [url](https://www.zeussubnet.com/) · discord `wouter_orpheusai`
 
@@ -10,17 +10,16 @@ Links: [github](https://github.com/Orpheus-AI/Zeus) · [url](https://www.zeussub
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003849 | +0.00% | -3.67% | +4.26% | 22,605 | 9,959 | 396.69 |
+| 0.003811 | +0.00% | -0.97% | +2.97% | 22,414 | 9,912 | 130.78 |
 
 ## Last 24h flow
 
-92 trades by 61 coldkeys · 51 buys (104.50 τ) / 41 sells (291.73 τ) · net -187.23 τ
+70 trades by 64 coldkeys · 17 buys (41.02 τ) / 53 sells (89.36 τ) · net -48.34 τ
 
 ## News
 
 - 2026-09-07 · release · [Release 2.1.4](https://github.com/Orpheus-AI/Zeus/releases/tag/v2.1.4) — Orpheus-AI/Zeus
 - 2026-09-07 · commit · [Stop emissions for non-participating miners (#88)](https://github.com/Orpheus-AI/Zeus/commit/024eb19eeca724aaad135b4492091abf658694ce) — Orpheus-AI/Zeus
-- 2026-09-03 · commit · [HOTFIX : Punish negative SSRD only for challenges with start_timestam…](https://github.com/Orpheus-AI/Zeus/commit/f9e505478aa6f078f6e5ade4ff4a77ab60294c31) — Orpheus-AI/Zeus
 
 ## Use
 

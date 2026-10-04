@@ -1,6 +1,6 @@
 # sn124 — Swarm 𑀁
 
-Bittensor subnet **124** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **124** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/swarm-subnet/swarm) · [url](https://www.swarm124.com)
 
@@ -8,11 +8,11 @@ Links: [github](https://github.com/swarm-subnet/swarm) · [url](https://www.swar
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.009184 | +0.01% | -1.83% | -6.47% | 44,880 | 11,952 | 275.53 |
+| 0.009498 | +0.03% | +3.42% | -3.17% | 46,494 | 12,166 | 500.88 |
 
 ## Last 24h flow
 
-92 trades by 28 coldkeys · 14 buys (62.22 τ) / 78 sells (179.66 τ) · net -117.44 τ
+97 trades by 38 coldkeys · 39 buys (329.72 τ) / 58 sells (148.29 τ) · net 181.42 τ
 
 ## News
 

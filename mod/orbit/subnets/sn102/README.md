@@ -2,7 +2,7 @@
 
 Contributors train specialized expert modules that are aggregated into powerful AI systems, without massive centralized compute.
 
-Bittensor subnet **102** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **102** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/Connito-AI/Connito) · [url](https://connito.ai/) · discord `isabella618033`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Connito-AI/Connito) · [url](https://connito.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005861 | +0.01% | +2.93% | -7.27% | 9,688 | 3,474 | 423.47 |
+| 0.005773 | +0.01% | -1.50% | -9.46% | 9,585 | 3,450 | 171.37 |
 
 ## Last 24h flow
 
-57 trades by 28 coldkeys · 27 buys (234.15 τ) / 30 sells (182.95 τ) · net 51.20 τ
+40 trades by 24 coldkeys · 13 buys (70.03 τ) / 27 sells (89.75 τ) · net -19.73 τ
 
 ## News
 

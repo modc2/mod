@@ -2,7 +2,7 @@
 
 Verified inference for frontier open models.
 
-Bittensor subnet **53** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **53** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/hanlinai/engy) · [url](https://engy.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/hanlinai/engy) · [url](https://engy.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.034629 | +0.55% | -4.52% | -6.94% | 212,350 | 38,265 | 8,287 |
+| 0.032689 | -1.31% | -5.60% | -6.65% | 200,725 | 37,211 | 5,653 |
 
 ## Last 24h flow
 
-547 trades by 242 coldkeys · 235 buys (3,543 τ) / 312 sells (4,608 τ) · net -1,064 τ
+997 trades by 706 coldkeys · 185 buys (2,112 τ) / 812 sells (3,339 τ) · net -1,226 τ
 
 ## News
 

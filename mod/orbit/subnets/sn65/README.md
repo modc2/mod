@@ -2,7 +2,7 @@
 
 Distributed AI model compression & optimization engine
 
-Bittensor subnet **65** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **65** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/taofu-labs/true-performance-network) · [url](https://www.trueperformancenetwork.com/) · [discord](https://discord.com/invite/GRVZyPYd6G)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/taofu-labs/true-performance-network) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002019 | -0.00% | -1.12% | -9.07% | 12,151 | 5,445 | 148.30 |
+| 0.002046 | +0.00% | +1.34% | -8.35% | 12,328 | 5,482 | 67.45 |
 
 ## Last 24h flow
 
-37 trades by 20 coldkeys · 7 buys (58.83 τ) / 30 sells (89.25 τ) · net -30.42 τ
+23 trades by 16 coldkeys · 13 buys (51.89 τ) / 10 sells (15.38 τ) · net 36.52 τ
 
 ## News
 

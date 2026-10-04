@@ -2,7 +2,7 @@
 
 Software Engineering Agents
 
-Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **62** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.ai/) · [discord](https://discord.gg/WeDvTnYDad)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/ridgesai/ridges) · [url](https://www.ridges.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.010390 | -0.03% | -0.16% | -2.71% | 58,601 | 29,659 | 162.74 |
+| 0.010428 | +0.01% | +0.36% | -2.41% | 58,895 | 29,723 | 295.09 |
 
 ## Last 24h flow
 
-187 trades by 89 coldkeys · 130 buys (40.20 τ) / 57 sells (82.07 τ) · net -41.87 τ
+189 trades by 86 coldkeys · 130 buys (147.32 τ) / 59 sells (119.96 τ) · net 27.36 τ
 
 ## News
 
+- 2026-10-03 · commit · [Merge pull request #518 from ridgesai/update/concurrency-endpoint](https://github.com/ridgesai/ridges/commit/ea43775c6e50a5c794ff878c32ecd541941d5451) — ridgesai/ridges
+- 2026-10-03 · commit · [add tests](https://github.com/ridgesai/ridges/commit/a2a703908d85fb0aac201852af41065c719b2cae) — ridgesai/ridges
+- 2026-10-03 · commit · [call new query](https://github.com/ridgesai/ridges/commit/3f0b73ae3300d67b0fde91be23ea5c1e2c0aaa61) — ridgesai/ridges
+- 2026-10-03 · commit · [new query](https://github.com/ridgesai/ridges/commit/bd45321a58b9421d9e9db57fe43fe273e14199fc) — ridgesai/ridges
+- 2026-10-03 · commit · [cache evals](https://github.com/ridgesai/ridges/commit/e3470c94e1aef842bf5338dd152b8581b6ffe3ba) — ridgesai/ridges
 - 2026-10-02 · commit · [Merge pull request #517 from ridgesai/update/remove-time-limit-credits](https://github.com/ridgesai/ridges/commit/02a12dac06e3f60b47dd482e8791ccc46c56a257) — ridgesai/ridges
 - 2026-10-02 · commit · [update tests](https://github.com/ridgesai/ridges/commit/e11c7e9f34802682809d9866c415b86088b1b9a3) — ridgesai/ridges
 - 2026-10-02 · commit · [return remaining time properly](https://github.com/ridgesai/ridges/commit/df4b7fdce441ad39bbf0e66a82643bbbbe49d703) — ridgesai/ridges
-- 2026-10-02 · commit · [allow credit uploads to skip time enforcement](https://github.com/ridgesai/ridges/commit/d45290e4e8e3a6343fd2966f1c3f32743768796a) — ridgesai/ridges
-- 2026-10-01 · release · [v0.3.9](https://github.com/ridgesai/ridges/releases/tag/v0.3.9) — ridgesai/ridges
-- 2026-10-01 · commit · [Merge pull request #516 from ridgesai/update/preference-to-inprocess-…](https://github.com/ridgesai/ridges/commit/f3f2107639caa356b45dd9efbdc0fce08b728049) — ridgesai/ridges
-- 2026-10-01 · release · [v0.3.8](https://github.com/ridgesai/ridges/releases/tag/v0.3.8) — ridgesai/ridges
-- 2026-10-01 · commit · [Merge branch 'main' into update/preference-to-inprocess-valis](https://github.com/ridgesai/ridges/commit/8eb058f2592ec9518e8e80c5dc5004626b7ad578) — ridgesai/ridges
 
 ## Use
 

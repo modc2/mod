@@ -2,7 +2,7 @@
 
 Universal motion to meaning
 
-Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-03 (block 9200279).
+Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
 
 Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vision) · [discord](https://discord.gg/8pexneWef)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004946 | -0.14% | +18.19% | +22.41% | 7,330 | 1,671 | 3,813 |
+| 0.004700 | +3.02% | -4.97% | +19.52% | 7,001 | 1,630 | 1,154 |
 
 ## Last 24h flow
 
-755 trades by 188 coldkeys · 384 buys (1,974 τ) / 371 sells (1,827 τ) · net 147.78 τ
+492 trades by 219 coldkeys · 188 buys (555.69 τ) / 304 sells (588.72 τ) · net -33.03 τ
 
 ## News
 
-- 2026-10-02 · commit · [Merge pull request #205 from Umi-BitSign/codex/heartbeat-successor-st…](https://github.com/Umi-BitSign/umi/commit/69610837511b8e9fe40649ff50679b891c488c86) — Umi-BitSign/umi
-- 2026-10-02 · commit · [fix successor heartbeat status compatibility](https://github.com/Umi-BitSign/umi/commit/71f234072c283a230148b0efbaeda109eb1fd514) — Umi-BitSign/umi
-- 2026-10-02 · commit · [Merge pull request #204 from Umi-BitSign/codex/c6-automatic-model-review](https://github.com/Umi-BitSign/umi/commit/86dc6a9c4f700476e58714044904d06f29dbac05) — Umi-BitSign/umi
-- 2026-10-02 · commit · [Format automatic model review changes](https://github.com/Umi-BitSign/umi/commit/c4cc8c470084033c3303d34546275e295bc2f20e) — Umi-BitSign/umi
-- 2026-10-02 · commit · [Automate model artifact review and staging cleanup](https://github.com/Umi-BitSign/umi/commit/75e6d5a85d0a54e578f8eca1278812d50d3d372a) — Umi-BitSign/umi
-- 2026-10-02 · commit · [Merge pull request #203 from Umi-BitSign/codex/c6-unattended-artifact…](https://github.com/Umi-BitSign/umi/commit/90dc9d782bd85a2495785a5e0f503c88e8ce1fed) — Umi-BitSign/umi
-- 2026-10-02 · news · [UMI Launches Bittensor AI Network for Motion-to-Meaning Intelligence, Starting With Sign Language](https://news.google.com/rss/articles/CBMingFBVV95cUxOQXBvQlNpaUdHUFdoMml1TkhudG5ISzd6QkVXQlU0WDN3UFBGcDctbmZETWphSkVZTDJHUklCLTRiTkZ1TUpNd1lYeVhjQ2pLVmY5V3NxQXNRbWxncnFXRmhVbEpYZUNQdng2MTc3WC1VWnY1bkRMMjJXUS00QjRJOTRZZkItc2k2c3RHdFhycExhVTZGVDhJOHdxWDhLUQ?oc=5) — Yahoo Finance
-- 2026-10-02 · commit · [Format stale container recovery](https://github.com/Umi-BitSign/umi/commit/38bdab9c44cc175a14c5fc5e4188eea3deddb4d8) — Umi-BitSign/umi
+- 2026-10-04 · commit · [Merge pull request #209 from Umi-BitSign/codex/model-router-concurren…](https://github.com/Umi-BitSign/umi/commit/09005ad34c8d393d5752bef4a75939ad85a35f77) — Umi-BitSign/umi
+- 2026-10-04 · commit · [Preserve model router upload capacity](https://github.com/Umi-BitSign/umi/commit/0b74da6b888310ca01ff046275f4b3764376d2a0) — Umi-BitSign/umi
+- 2026-10-04 · commit · [Merge pull request #208 from Umi-BitSign/codex/checkpoint-incremental…](https://github.com/Umi-BitSign/umi/commit/74e120891b4432ed4416d99a685d1a550143a873) — Umi-BitSign/umi
+- 2026-10-03 · commit · [Bound submission checkpoint replay](https://github.com/Umi-BitSign/umi/commit/46933fa4a460e74792ea8dd8c6539ec54ecfe946) — Umi-BitSign/umi
+- 2026-10-03 · commit · [Merge pull request #207 from Umi-BitSign/codex/successor-series-harde…](https://github.com/Umi-BitSign/umi/commit/6c5387282df7f85cc68b88576a9838733f138cdb) — Umi-BitSign/umi
+- 2026-10-03 · commit · [Select standing successor handoffs explicitly](https://github.com/Umi-BitSign/umi/commit/1018f702dda1192eca8d3ff3713e974b0d763173) — Umi-BitSign/umi
+- 2026-10-03 · commit · [Replay standing predecessor opportunities natively](https://github.com/Umi-BitSign/umi/commit/0680251798bbafd7cb7dc939515a6abefd4ef672) — Umi-BitSign/umi
+- 2026-10-03 · commit · [Migrate standing reward hosts across successor series](https://github.com/Umi-BitSign/umi/commit/3c6ba1c70589d0e80fad30f94e8cea13111de542) — Umi-BitSign/umi
 
 ## Use
 
