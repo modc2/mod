@@ -234,6 +234,23 @@ class GraphImportRequest(BaseModel):
     cid: str
     key: Optional[str] = None
 
+class GraphVibeRequest(BaseModel):
+    """A plain description in, a wired graph out — see /graphs/vibe. With
+    `graph` (the canvas as it stands) or `id` (a saved one), the description
+    is an EDIT applied to that graph instead of a fresh design."""
+    description: str
+    graph: Optional[dict] = None     # {name?, nodes, edges} — edit this
+    id: Optional[str] = None         # …or a saved graph to edit
+    model: Optional[str] = None      # the DRAFTING run's model
+    provider: Optional[str] = None
+    free: bool = False
+    steps: int = 4                   # the drafting agent's own budget
+    save: bool = False               # true = file a VALID draft now
+    # hand the drafting run to an external agent CLI ('build' = the build
+    # console, 'claude' = Claude Code) — host / console-owner only
+    harness: Optional[str] = None
+    key: Optional[str] = None
+
 class ToolRunRequest(BaseModel):
     name: str
     params: dict = {}
@@ -248,6 +265,7 @@ class AgentCreateRequest(BaseModel):
     model: Optional[str] = None
     memory: Optional[str] = None    # memory module: 'default' | 'ephemeral' | dotted path
     harness: Optional[str] = None   # 'claude' | 'codex' — run on that CLI instead
+    interface: Optional[str] = None # the agent's own UI: '/hermes' or an http(s) URL
     key: Optional[str] = None
 
 class AgentUpdateRequest(BaseModel):
@@ -258,10 +276,12 @@ class AgentUpdateRequest(BaseModel):
     model: Optional[str] = None
     harness: Optional[str] = None
     memory: Optional[str] = None # memory module the agent thinks with
+    interface: Optional[str] = None # the agent's own UI: '/hermes' or an http(s) URL
     clear_tools: bool = False    # explicit: reset to every tool
     clear_model: bool = False    # explicit: reset to default model
     clear_memory: bool = False   # explicit: back to the default memory module
     clear_harness: bool = False  # explicit: back to this module's own loop
+    clear_interface: bool = False # explicit: no interface of its own
     key: Optional[str] = None
 
 class DefaultAgentRequest(BaseModel):
@@ -3519,6 +3539,35 @@ def get_graph(graph_id: str, key: Optional[str] = None):
 def validate_graph(req: GraphSaveRequest):
     """What is wrong with this graph, without saving it."""
     return get_mod().forward('graph_validate', graph=req.model_dump())
+
+
+@app.post("/graphs/vibe")
+def graph_vibe(req: GraphVibeRequest):
+    """Vibecode a flow: a plain description in, a wired graph out.
+
+    The flow-builder agent designs it against the live agent registry, the
+    draft is cleaned to the protocol's shape, laid out for the canvas, and
+    validated like a save would be. Send `graph` (or `id`) and the
+    description is an edit applied to that graph. The draft comes back for
+    the canvas to show; `save=true` files a valid one under the caller's
+    address straight away. This is a model run, so it needs whatever a run
+    needs: the host, a granted address, or credits.
+    """
+    if not signed_in(req.key):
+        return {"error": "sign in to vibecode a flow", "code": 401}
+    try:
+        return get_mod().forward('graph_vibe', key=req.key,
+                                 description=req.description,
+                                 graph=req.graph, id=req.id,
+                                 model=req.model, provider=req.provider,
+                                 free=req.free, steps=req.steps,
+                                 save=req.save, harness=req.harness)
+    except PermissionError as e:
+        return {"error": str(e), "code": 403}
+    except KeyError as e:
+        return {"error": str(e), "code": 404}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.post("/graphs")

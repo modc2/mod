@@ -14,6 +14,7 @@ neither can drift away from the other when a rule changes.
     agent_build        write a new one
     agent_vibe         vibecode one: a description in, a whole agent out
     agent_task_vibe    vibecode an arena task: a description in, a graded spec out
+    agent_graph_vibe   vibecode a flow: a description in, a wired graph out
     agent_parts        the live agent box: model, memory, toolbox, prompt
     agent_tools        the whole registry — shipped, custom, and the fleet
     agent_toolbox      the bundles, and snapping one on
@@ -444,6 +445,15 @@ def _t_graph_run(a: dict, key):
     return _clean(res)
 
 
+def _t_graph_vibe(a: dict, key):
+    return _clean(_fwd('graph_vibe', key,
+                       description=a.get('description') or '',
+                       graph=a.get('graph'), id=a.get('id'),
+                       model=a.get('model'), provider=a.get('provider'),
+                       free=bool(a.get('free')), steps=a.get('steps') or 4,
+                       save=bool(a.get('save')), harness=a.get('harness')))
+
+
 def _t_vibe(a: dict, key):
     return _clean(_fwd('agent_vibe', key,
                        description=a.get('description') or '',
@@ -855,6 +865,37 @@ TOOLS: Dict[str, dict] = {
             'key': _KEY,
         }},
         'handler': _t_graph_run,
+    },
+    'agent_graph_vibe': {
+        'auth': True,
+        'description': 'Vibecode a flow: describe what should happen and the '
+                       'flow-builder designs the whole graph — nodes, edges, '
+                       'gates — against the live agent registry, so every agent '
+                       'node names one that exists. Pass `graph` (inline) or '
+                       '`id` (saved) and the description is an EDIT applied to '
+                       'that graph, keeping the layout of what it keeps. The '
+                       'draft comes back cleaned, laid out and validated; '
+                       'save=true files a valid one under your address. This is '
+                       'a model run, so it answers to run policy like agent_run '
+                       'does.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'description': _str('what the flow should do — or the change to '
+                                'make to the graph you passed'),
+            'graph': {'type': 'object',
+                      'description': 'the graph to edit: {name?, nodes, edges}'},
+            'id': _str('a saved graph to edit instead'),
+            'save': _bool('file a VALID draft now instead of returning it'),
+            'model': _str("the DRAFTING run's model"),
+            'provider': _str('openrouter | venice | liquidai | …'),
+            'free': _bool('draft on a zero-cost model'),
+            'steps': _num("the drafting run's step budget (default 4, max 8)"),
+            'harness': _str('hand the DRAFTING run to an external agent CLI '
+                            'instead of this loop: build (the build console) | '
+                            'claude | codex | chainmod — host / console-owner '
+                            'only, like any harness run'),
+            'key': _KEY,
+        }, 'required': ['description']},
+        'handler': _t_graph_vibe,
     },
     'agent_vibe': {
         'auth': True,

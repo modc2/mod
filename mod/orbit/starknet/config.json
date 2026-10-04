@@ -99,7 +99,7 @@
         "STRK20_POOL": "override the STRK20 pool address (STRK20_POOL_SEPOLIA for sepolia, none is built in)",
         "STARKNET_ABI_CACHE": "where class ABIs are cached by class hash (default ~/.mod/starknet/abi)"
     },
-    "schema": "Qmf2ZiuCeJf1A2P2QGgvCCCqPTQf1GLojhdzXGjc7o7AHa",
+    "schema": "QmUE31BVY6DeHCXCoVfoqWJL7kukzuBZWEFZpJ1turrzN4",
     "mcp": {
         "endpoint": "POST /mcp",
         "transport": "Streamable HTTP (JSON-RPC 2.0)",

@@ -333,3 +333,147 @@ class TestTaskVibe:
         assert name == "buildmod"
         assert kw.get("agent_type") == "task-builder"
         assert kw.get("goal")  # the shipped task-builder's own prompt
+
+
+# ── vibecode a flow — POST /graphs/vibe and the machinery under it ──
+
+from src.graph.mod import Graphs
+
+GRAPHS_DIR = Path("/tmp/agent_vibe_test_graphs")
+
+FLOW = {
+    "name": "Review Loop",
+    "description": "plan, build, judge",
+    "nodes": [
+        {"id": "in", "kind": "input", "data": {"label": "request"}},
+        {"id": "plan", "kind": "agent", "data": {"agent": "architect", "prompt": "plan it"}},
+        {"id": "out", "kind": "output", "data": {"label": "answer"}},
+    ],
+    "edges": [
+        {"from": "in", "to": "plan", "port": "out"},
+        {"from": "plan", "to": "out", "port": "out"},
+    ],
+}
+
+
+def _graph_mod():
+    shutil.rmtree(GRAPHS_DIR, ignore_errors=True)
+    mod = _make_mod()
+    ident = SimpleNamespace(
+        require_signed_in=lambda key=None, operation=None: None,
+        addr=lambda key=None: "0xvibe",
+        is_the_host=lambda key=None: False,
+        owner_of=lambda a: {"owner": a},
+        require=lambda owner, key, op=None: None)
+    mod.graphs = Graphs(identity=ident, agents=mod.agents, dir=str(GRAPHS_DIR))
+    return mod
+
+
+class TestParseGraphJson:
+    def test_fenced_block(self):
+        spec = Mod._parse_graph_json('sure\n```json\n' + json.dumps(FLOW) + '\n```')
+        assert spec and [n["id"] for n in spec["nodes"]] == ["in", "plan", "out"]
+
+    def test_no_nodes_is_no_spec(self):
+        assert Mod._parse_graph_json('{"name": "x", "edges": []}') is None
+        assert Mod._parse_graph_json('{"nodes": "not a list"}') is None
+
+
+class TestGraphLayout:
+    def test_columns_follow_depth(self):
+        nodes = [{"id": "in", "kind": "input"}, {"id": "a", "kind": "agent"},
+                 {"id": "out", "kind": "output"}]
+        edges = [{"from": "in", "to": "a"}, {"from": "a", "to": "out"}]
+        Mod._graph_layout(nodes, edges)
+        xs = {n["id"]: n["x"] for n in nodes}
+        assert xs["in"] < xs["a"] < xs["out"]
+
+    def test_placed_nodes_stay_put(self):
+        nodes = [{"id": "in", "kind": "input", "x": 123.0, "y": 45.0},
+                 {"id": "a", "kind": "agent"}]
+        Mod._graph_layout(nodes, [{"from": "in", "to": "a"}])
+        assert nodes[0]["x"] == 123.0 and nodes[0]["y"] == 45.0
+        assert nodes[1]["x"] and nodes[1]["y"]
+
+    def test_a_cycle_does_not_hang_it(self):
+        nodes = [{"id": "a", "kind": "agent"}, {"id": "b", "kind": "loop"}]
+        edges = [{"from": "a", "to": "b"}, {"from": "b", "to": "a"}]
+        Mod._graph_layout(nodes, edges)
+        assert all(n.get("x") is not None for n in nodes)
+
+
+class TestGraphVibe:
+    def test_short_description_refused(self):
+        mod = _graph_mod()
+        try:
+            mod.graph_vibe("hm")
+            assert False, "should refuse"
+        except ValueError:
+            pass
+
+    def test_draft_comes_back_wired_and_laid_out(self):
+        mod = _graph_mod()
+        mod._draft_trace = lambda **kw: _finish_trace(FLOW)
+        out = mod.graph_vibe("plan it then answer")
+        d = out["draft"]
+        assert [n["kind"] for n in d["nodes"]] == ["input", "agent", "output"]
+        assert all(n["x"] or n["y"] for n in d["nodes"])
+        assert all(e["port"] for e in d["edges"])
+        assert out["valid"]["ok"], out["valid"]
+        assert "saved" not in out
+
+    def test_unknown_kind_dropped_and_reported(self):
+        mod = _graph_mod()
+        bad = {**FLOW, "nodes": FLOW["nodes"] + [
+            {"id": "x", "kind": "prompt", "data": {}}]}
+        mod._draft_trace = lambda **kw: _finish_trace(bad)
+        out = mod.graph_vibe("plan it then answer")
+        assert out["nodes_dropped"] == ["prompt"]
+        assert len(out["draft"]["nodes"]) == 3
+
+    def test_edit_rides_the_current_graph_and_keeps_its_id(self):
+        mod = _graph_mod()
+        seen = {}
+
+        def capture(**kw):
+            seen.update(kw)
+            return _finish_trace(FLOW)
+        mod._draft_trace = capture
+        current = {"id": "my-flow", **FLOW}
+        out = mod.graph_vibe("add nothing, just rename it", graph=current)
+        assert "CURRENT GRAPH" in seen["query"]
+        assert out["draft"]["id"] == "my-flow"
+
+    def test_save_files_a_valid_draft(self):
+        mod = _graph_mod()
+        mod._draft_trace = lambda **kw: _finish_trace(FLOW)
+        out = mod.graph_vibe("plan it then answer", save=True)
+        assert out["saved"] and out["graph"]["id"] == "review-loop"
+        assert any(g["id"] == "review-loop" for g in mod.graphs.ls())
+
+    def test_invalid_draft_never_saves(self):
+        mod = _graph_mod()
+        bad = {**FLOW, "nodes": [
+            FLOW["nodes"][0],
+            {"id": "plan", "kind": "agent", "data": {"agent": "no-such-agent"}},
+            FLOW["nodes"][2]]}
+        mod._draft_trace = lambda **kw: _finish_trace(bad)
+        out = mod.graph_vibe("plan it then answer", save=True)
+        assert out["invalid"] and "saved" not in out
+        assert not any(g["id"] == "review-loop" for g in mod.graphs.ls())
+
+    def test_no_spec_is_an_error_with_the_answer(self):
+        mod = _graph_mod()
+        mod._draft_trace = lambda **kw: [
+            {"tool": "finish", "params": {"summary": "I could not decide"}}]
+        out = mod.graph_vibe("plan it then answer")
+        assert "error" in out and out["answer"]
+
+
+class TestFlowBuilderShips:
+    def test_registered_and_off_the_board(self):
+        mod = _make_mod()
+        cfg = mod.agents.get("flow-builder")
+        assert cfg["arena"] is False
+        assert "flow-builder" in BUILTINS
+        assert set(cfg["tools"]) == {"think", "finish"}

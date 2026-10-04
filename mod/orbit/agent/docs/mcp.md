@@ -1,6 +1,6 @@
 # MCP
 
-The module's API, spoken as Model Context Protocol. Twenty-five tools, seven
+The module's API, spoken as Model Context Protocol. Thirty tools, seven
 resources, and the prompt library — over one endpoint.
 
 ```
@@ -83,6 +83,7 @@ connection dying under it.
 | `agent_graphs` | graphs of agents, and the protocol they are written in |
 | `agent_graph_save` | wire agents together — nodes, edges, ports; never an agent |
 | `agent_graph_run` | run a graph, saved or inline; outputs, trail, what it cost |
+| `agent_graph_vibe` | vibecode a flow: a description in, a wired graph out; pass `graph`/`id` to EDIT that graph; `save` files a valid one |
 | `agent_parts` | the live agent box |
 | `agent_tools` | the registry: shipped, custom, and the fleet |
 | `agent_toolbox` | the bundles; snap one on, pin an exact list, save a box |

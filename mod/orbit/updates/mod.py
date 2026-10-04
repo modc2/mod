@@ -912,8 +912,9 @@ INDEX_HTML = r"""<!doctype html>
     background:linear-gradient(180deg,rgba(8,10,15,.92),rgba(8,10,15,.72));
     backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:13px 22px}
   .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-  .brand{display:flex;align-items:baseline;gap:9px;font-weight:800;font-size:17px;letter-spacing:.2px}
-  .brand .logo{font-size:18px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:17px;letter-spacing:.2px}
+  .brand .logo{display:block}
+  .isvg{vertical-align:-2px}
   .brand .dot{color:var(--accent)}
   .sub{color:var(--muted);font-size:12px}
   .grow{flex:1}
@@ -945,8 +946,10 @@ INDEX_HTML = r"""<!doctype html>
     display:inline-flex;align-items:center;gap:6px;transition:.15s}
   .pill:hover{border-color:var(--line2);color:var(--text)}
   .pill.active{color:#fff;border-color:var(--accent);background:rgba(91,140,255,.18)}
-  .pill .x{opacity:.5;font-size:11px}
+  .pill.arm{color:#fff;border-color:var(--pink);background:rgba(255,107,157,.18)}
+  .pill .x{opacity:.5;display:inline-flex;align-items:center}
   .pill .x:hover{opacity:1;color:var(--pink)}
+  .pill.arm .x{opacity:1;color:var(--pink)}
   /* layout */
   main{max-width:1080px;margin:0 auto;padding:22px 22px 90px}
   .view{display:none}.view.on{display:block;animation:fade .25s ease}
@@ -1033,7 +1036,7 @@ INDEX_HTML = r"""<!doctype html>
 <body>
 <header>
   <div class="row">
-    <div class="brand"><span class="logo">📡</span>updates<span class="dot">.</span></div>
+    <div class="brand"><svg class="logo" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" d="M4.9 4.9a10 10 0 0 1 14.2 0M7.8 7.8a6 6 0 0 1 8.4 0"/><circle cx="12" cy="12" r="2.2" fill="var(--accent)"/><path stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" d="M12 14.8V20"/></svg>updates<span class="dot">.</span></div>
     <div class="seg">
       <button id="tab-feed" class="on" onclick="setView('feed')">Feed <span class="n" id="n-feed">·</span></button>
       <button id="tab-daily" onclick="setView('daily')">Daily <span class="n" id="n-daily">·</span></button>
@@ -1067,6 +1070,14 @@ const BR = '<svg class="brsvg" viewBox="0 0 16 16" width="11" height="11" aria-h
   + '<path fill="none" stroke="currentColor" stroke-width="1.6" d="M4.5 3v10M4.5 8h5a2 2 0 0 0 2-2V4.5"/>'
   + '<circle cx="4.5" cy="2.5" r="1.7" fill="currentColor"/><circle cx="4.5" cy="13.5" r="1.7" fill="currentColor"/>'
   + '<circle cx="11.5" cy="3" r="1.7" fill="currentColor"/></svg>';
+// same rule for every other icon — typed glyphs (✕ ↻ ✓ ⚠ ↗) are tofu here too
+const I = {
+  x:'<svg class="isvg" viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>',
+  ref:'<svg class="isvg" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M13.3 9.2A5.5 5.5 0 1 1 12 4.3"/><path fill="currentColor" d="M13.9 1.6v4l-4-.6z"/></svg>',
+  ok:'<svg class="isvg" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M2.5 8.5l3.5 3.5 7.5-8.5"/></svg>',
+  warn:'<svg class="isvg" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M8 2 1.5 13.5h13z"/><path stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8 6.5v3.2"/><circle cx="8" cy="11.8" r=".9" fill="currentColor"/></svg>',
+  ext:'<svg class="isvg" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6 3h7v7M13 3 6.5 9.5"/></svg>'
+};
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function ago(d){if(!d)return'';const t=new Date(d),s=(Date.now()-t)/1e3;
   if(s<60)return Math.floor(s)+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';
@@ -1097,7 +1108,7 @@ function renderActions(){
     el.innerHTML = `<input id="add" placeholder="track owner/repo or github URL"/>
       <button class="btn" onclick="track()">+ track</button>
       <button class="btn ghost" onclick="markRead()" title="mark all commits seen">mark read</button>
-      <button class="btn primary" onclick="loadFeed()">↻</button>`;
+      <button class="btn primary" onclick="loadFeed()" title="refresh">${I.ref}</button>`;
     const a=$('#add'); a.addEventListener('keydown',e=>{if(e.key==='Enter')track()});
   } else if(VIEW==='daily'){
     el.innerHTML = `<div class="seg">`+
@@ -1107,10 +1118,10 @@ function renderActions(){
       <select id="dsel" class="btn" onchange="DAYS=+this.value;loadDaily()">
         ${[7,14,30].map(d=>`<option value="${d}" ${DAYS===d?'selected':''}>last ${d} days</option>`).join('')}
       </select>
-      <button class="btn primary" onclick="loadDaily()">↻</button>`;
+      <button class="btn primary" onclick="loadDaily()" title="refresh">${I.ref}</button>`;
   } else {
     el.innerHTML = `<input id="msearch" placeholder="filter modules…" value="${esc(MODQ)}"/>
-      <button class="btn primary" onclick="loadMods(true)" title="re-scan registrar">↻ rescan</button>`;
+      <button class="btn primary" onclick="loadMods(true)" title="re-scan registrar">${I.ref} rescan</button>`;
     const s=$('#msearch');
     s.addEventListener('input',()=>{MODQ=s.value;renderMods()});
     s.focus();
@@ -1131,32 +1142,49 @@ async function loadFeed(){
     renderFeed(data.updates, data.errors);
   }catch(e){ $('#feed').innerHTML = `<div class="err">${esc(''+e)}</div>` }
 }
+let TRACKING=[], ARM=null, ARMT=null;
 function renderFilters(repos){
+  TRACKING=repos;
   const el=$('#filters');
   el.innerHTML = `<span class="pill ${!FILTER?'active':''}" onclick="setFilter(null)">all</span>`+
-    repos.map(r=>`<span class="pill ${FILTER===r?'active':''}" onclick="setFilter('${r}')">${esc(r)}
-      <span class="x" onclick="event.stopPropagation();untrack('${r}')">✕</span></span>`).join('');
+    repos.map(r=>{
+      const armed = ARM===r;
+      if(armed) return `<span class="pill arm" onclick="untrack('${r}')">untrack ${esc(r)}?
+        <span class="x">${I.ok}</span></span>`;
+      return `<span class="pill ${FILTER===r?'active':''}" onclick="setFilter('${r}')">${esc(r)}
+        <span class="x" onclick="event.stopPropagation();untrack('${r}')">${I.x}</span></span>`;
+    }).join('');
+}
+// bot pushes all read "root push · N files · 2026-10-04 20:49" — pull the file
+// count into the meta row and drop the timestamp (the card already shows "Nm ago")
+function prettyMsg(msg){
+  const m=/^(.+?) · (\d+) files? · \d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?$/.exec(msg||'');
+  return m ? {title:m[1], files:+m[2]} : {title:msg||'(no message)', files:null};
 }
 function renderFeed(items, errors){
   let html='';
   if(errors) for(const [r,e] of Object.entries(errors))
-    html += `<div class="err" style="padding:10px 0">⚠ ${esc(r)}: ${esc(e)}</div>`;
+    html += `<div class="err" style="padding:10px 0">${I.warn} ${esc(r)}: ${esc(e)}</div>`;
   if(!items||!items.length){ $('#feed').innerHTML = html||'<div class="empty">no commits yet</div>'; return; }
-  html += items.map(c=>`
+  html += items.map(c=>{
+    const p=prettyMsg(c.message);
+    return `
     <div class="card ${c.new?'new':''}">
       <div class="av" style="background:${grad(c.author)}">${initials(c.author)}</div>
       <div class="msg">
-        <a class="title" href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.message)||'(no message)'}</a>
+        <a class="title" href="${esc(c.url)}" target="_blank" rel="noopener">${esc(p.title)}</a>
         <div class="meta">
           <span class="repo">${esc(c.repo)}</span>
           <span class="br">${BR} ${esc(c.branch||'')}</span>
           <span class="sha">${esc(c.sha)}</span>
+          ${p.files!==null?`<span><b>${p.files}</b> file${p.files===1?'':'s'}</span>`:''}
           <span>${esc(c.author)}</span>
           <span>${ago(c.date)}</span>
           ${c.new?'<span class="badge">NEW</span>':''}
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   $('#feed').innerHTML = html;
 }
 function setFilter(r){ FILTER=r; loadFeed(); }
@@ -1166,7 +1194,13 @@ async function track(){
     body:JSON.stringify({repo:v})}); $('#add').value=''; loadFeed();
 }
 async function untrack(r){
-  if(!confirm('stop tracking '+r+'?')) return;
+  // two-click inline confirm — no native confirm() box, the armed pill reverts after 3s
+  if(ARM!==r){
+    ARM=r; clearTimeout(ARMT);
+    ARMT=setTimeout(()=>{ARM=null;renderFilters(TRACKING)},3000);
+    renderFilters(TRACKING); return;
+  }
+  ARM=null; clearTimeout(ARMT);
   await fetch(api('/api/untrack'),{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({repo:r})}); if(FILTER===r)FILTER=null; loadFeed();
 }
@@ -1229,7 +1263,7 @@ async function copyPost(i){
     const ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta);
     ta.select(); document.execCommand('copy'); ta.remove();
   }
-  const b=$('#cp-'+i); if(b){ const t=b.textContent; b.textContent='✓ copied'; setTimeout(()=>b.textContent=t,1400); }
+  const b=$('#cp-'+i); if(b){ const t=b.innerHTML; b.innerHTML=I.ok+' copied'; setTimeout(()=>b.innerHTML=t,1400); }
   if(!d.posted) await togglePosted(i, true);   // copying IS posting — keeps it once a day
 }
 
@@ -1271,7 +1305,7 @@ function renderMods(data){
       <div class="foot">
         <span class="chip ${m.registered?'reg':'local'}">${m.registered?'REGISTERED':'LOCAL'}</span>
         ${m.updated?`<span class="sub">${tago(m.updated)}</span>`:''}
-        <a class="open ${live?'':'off'}" href="${esc(url)}" target="_blank" rel="noopener">open ↗</a>
+        <a class="open ${live?'':'off'}" href="${esc(url)}" target="_blank" rel="noopener">open ${I.ext}</a>
       </div>
     </div>`;
   }).join('');

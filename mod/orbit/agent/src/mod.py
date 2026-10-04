@@ -2252,6 +2252,8 @@ class Mod(Agent):
                                 # and, being a model run, run policy — exactly
                                 # like a task draft
                                 'agent_vibe',
+                                # same self-gating as agent_vibe
+                                'graph_vibe',
                                 # scouting is vibe with the internet in front
                                 # of it — same self-gating; reading runs back
                                 # is filtered to the caller's own
@@ -3130,6 +3132,8 @@ class Mod(Agent):
 
           Signed-in (self-scoped to the caller's verified address):
             graph_save  - Save a graph of agents (graph={...})
+            graph_vibe  - Vibecode one: description in, a wired draft out;
+                          graph=/id= edits that graph instead (save= files it)
             graph_rm    - Delete one of yours (id=)
             graph_import- Install a shared graph (cid=)
             vaults      - List your key-value vaults
@@ -3374,6 +3378,15 @@ class Mod(Agent):
                 save=bool(kwargs.get('save')), key=key),
             'arena_task_add': lambda: self.arena_task_add(
                 kwargs.get('spec') or {}, slug=kwargs.get('slug'), key=key),
+            # vibecode a flow: description (+ optionally the graph as it
+            # stands) in, a wired draft out — see graph_vibe
+            'graph_vibe': lambda: self.graph_vibe(
+                kwargs.get('description', ''),
+                graph=kwargs.get('graph') or kwargs.get('id'),
+                model=kwargs.get('model'), provider=kwargs.get('provider'),
+                free=bool(kwargs.get('free')), steps=kwargs.get('steps', 4),
+                save=bool(kwargs.get('save')),
+                harness=kwargs.get('harness'), key=key),
             # vibecode an agent: description in, a reviewed draft (or, with
             # save=true, a filed agent) out — see agent_vibe
             'agent_vibe': lambda: self.agent_vibe(
@@ -3939,6 +3952,32 @@ class Mod(Agent):
         except Exception:
             return None
 
+    def agent_interface(self, name: str) -> Dict[str, Any]:
+        """The agent's own UI, resolved: the `interface` the agent declares,
+        or — for a hub-installed agent — its module's local port. `proxy`
+        says whether /agents/{name}/ui may relay a loopback interface to the
+        browser: only interfaces the host answers for (hub installs are
+        owner-gated, and host-owned agents are the host's word) are relayed,
+        so a guest-written agent cannot aim this server at an arbitrary
+        local port.
+        """
+        cfg = self.agents.get(name)
+        url, source = cfg.get('interface'), 'agent'
+        if not url:
+            try:
+                rec = self.agenthub.installed().get(cfg.get('harness') or name)
+            except Exception:
+                rec = None
+            if rec and rec.get('port'):
+                url, source = f"http://127.0.0.1:{rec['port']}/", 'hub'
+        if not url:
+            return {'agent': name, 'url': None, 'source': None, 'proxy': False}
+        host = (getattr(self.agents.identity, 'host', None) or '').lower()
+        host_owned = (cfg.get('owner_source') == 'host'
+                      or (host and (cfg.get('owner') or '').lower() == host))
+        return {'agent': name, 'url': url, 'source': source,
+                'proxy': source == 'hub' or bool(host_owned)}
+
     def _run_harness(self, name: str, goal: str = None, model: str = None,
                      arena_match: bool = False, **kwargs) -> List[Dict[str, Any]]:
         """Hand the run to an external agent CLI and stream back its steps.
@@ -4494,6 +4533,204 @@ class Mod(Agent):
             if isinstance(out, dict) and (out.get('prompt') or out.get('goal')):
                 return out
         return None
+
+    # ── vibecode a flow (a described wiring in, a runnable graph out) ─
+    # The graph layer CONNECTS agents, so its drafter gets the opposite brief
+    # from vibe-builder's: not the tool catalog but the agent registry — the
+    # whole point is that every node names an agent that already exists. It
+    # also EDITS: handed the graph as it stands plus an instruction, it
+    # returns the whole graph rewired, which is what makes the canvas's vibe
+    # box work on a flow mid-draw and not just on an empty one.
+
+    FLOW_BUILDER = 'flow-builder'
+
+    def _graph_vibe_brief(self, graph: Dict = None) -> str:
+        """The live half of the flow-builder's context: the agents a node may
+        name, the gate ops, the tools a tool node may call — and, when the
+        caller is editing, the graph as it stands."""
+        schemas = self.agents.schema()
+        agent_lines = '\n'.join(
+            f"  {name} — {str(cfg.get('description') or '').strip()[:90]}"
+            for name, cfg in sorted(schemas.items())
+            if isinstance(cfg, dict) and not cfg.get('error'))
+        try:
+            ops = ', '.join(self.graphs.kinds().get('ops', {}))
+        except Exception:
+            ops = ''
+        try:
+            tool_names = ', '.join(t.get('name') for t in self.tools.items()
+                                   if t.get('name'))[:2000]
+        except Exception:
+            tool_names = ''
+        parts = [f"AGENT REGISTRY (a node's data.agent must be one of these, "
+                 f"verbatim):\n{agent_lines}"]
+        if ops:
+            parts.append(f"GATE/ROUTER/LOOP RULE OPS (the fixed set): {ops}")
+        if tool_names:
+            parts.append(f"TOOLS a tool node may call (plus mod.<name> for a "
+                         f"fleet module): {tool_names}")
+        if graph:
+            keep = {k: graph.get(k) for k in
+                    ('id', 'name', 'description', 'nodes', 'edges')
+                    if graph.get(k) is not None}
+            parts.append("CURRENT GRAPH — apply the request to THIS graph and "
+                         "return the whole thing back. Keep the id, x and y "
+                         "of every node you keep:\n"
+                         + json.dumps(keep, default=str)[:20000])
+        return '\n\n'.join(parts)
+
+    @staticmethod
+    def _parse_graph_json(text: str) -> Optional[Dict[str, Any]]:
+        """The graph spec out of the drafter's answer — fenced block first,
+        then the outermost braces. The field that cannot be missing is
+        `nodes`; a spec without wiring is not a graph."""
+        text = str(text or '')
+        candidates = re.findall(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.S)
+        start, end = text.find('{'), text.rfind('}')
+        if start != -1 and end > start:
+            candidates.append(text[start:end + 1])
+        for raw in candidates:
+            try:
+                out = json.loads(raw)
+            except Exception:
+                continue
+            if (isinstance(out, dict) and isinstance(out.get('nodes'), list)
+                    and any(isinstance(n, dict) and n.get('kind')
+                            for n in out['nodes'])):
+                return out
+        return None
+
+    @staticmethod
+    def _graph_layout(nodes: List[Dict], edges: List[Dict]) -> List[Dict]:
+        """Positions for drafted nodes, in place. The drafter thinks in
+        wiring, not pixels: anything that arrives without coordinates is laid
+        out in columns by its distance from the inputs, so the canvas opens
+        on a readable left-to-right flow instead of a pile at the origin.
+        Nodes that came with positions (an edit keeping the old layout) are
+        left exactly where they were."""
+        kids: Dict[str, List[str]] = {}
+        for e in edges:
+            kids.setdefault(str(e.get('from')), []).append(str(e.get('to')))
+        targets = {str(e.get('to')) for e in edges}
+        depth = {n['id']: 0 for n in nodes
+                 if n.get('kind') == 'input' or n['id'] not in targets}
+        queue, hops = list(depth), 0
+        while queue and hops < 10000:
+            cur = queue.pop(0)
+            hops += 1
+            for ch in kids.get(cur, []):
+                d = depth[cur] + 1
+                # the cap keeps a drafted cycle from walking forever
+                if d <= len(nodes) and depth.get(ch, -1) < d:
+                    depth[ch] = d
+                    queue.append(ch)
+        rows: Dict[int, int] = {}
+        for n in nodes:
+            if n.get('x') or n.get('y'):
+                continue
+            col = depth.get(n['id'], 0)
+            row = rows.get(col, 0)
+            rows[col] = row + 1
+            n['x'] = 60.0 + col * 300
+            n['y'] = 80.0 + row * 190
+        return nodes
+
+    def graph_vibe(self, description: str, graph=None, model: str = None,
+                   provider: str = None, free: bool = False, steps: int = 4,
+                   save: bool = False, harness: str = None, key=None,
+                   on_step=None, on_live=None) -> dict:
+        """Vibecode a graph of agents: a plain description in, a wired flow
+        out — or, with `graph` (a saved graph's id, or the canvas inline),
+        that graph back with the described change applied.
+
+        The flow-builder agent designs it with the live agent registry in
+        front of it, so the agents it wires are real; the draft is cleaned to
+        the protocol's own shape (an invented node kind is dropped and
+        reported), laid out for the canvas, and validated like any save
+        would be. `harness` hands the drafting run to an external agent CLI
+        ('build' / 'buildmod' is the build console, 'claude' is Claude Code)
+        — same gate as any harness run.
+
+        `save=False` returns the draft for the canvas to show — nothing is
+        filed until the save button is; `save=True` files a VALID draft under
+        the caller's address in the same call, and an invalid one still comes
+        back for fixing, unsaved.
+        """
+        self.identity.require_signed_in(key, operation="vibecode a flow")
+        # a draft is a model run on somebody's key, so it answers to the same
+        # policy a run does: the host, a granted address, or credits on hand
+        self.require_allowed(key, 'run')
+        description = str(description or '').strip()
+        if len(description) < 8:
+            raise ValueError("describe the flow in a sentence or two first")
+        current = None
+        if isinstance(graph, str) and graph.strip():
+            current = self.graphs.get(graph.strip(), key=key)
+        elif isinstance(graph, dict) and graph.get('nodes'):
+            current = graph
+        verb = "Edit this graph of agents as asked" if current else \
+               "Design a graph of agents for this request"
+        query = (f"{verb}:\n\n{description}\n\n"
+                 f"{self._graph_vibe_brief(current)}")
+        trace = self._draft_trace(
+            query=query,
+            agent_type=self.FLOW_BUILDER, harness=harness, model=model,
+            provider=provider, steps=steps, free=free, key=key,
+            # the agent has no file tools, but a stray write must not land
+            # in whatever directory the API happens to be running from
+            path=str(Path.home() / '.mod' / 'agent'),
+            on_step=on_step, on_live=on_live,
+        )
+        answer = self._answer_text([trace] if trace and isinstance(trace, list) else [])
+        spec = self._parse_graph_json(answer)
+        if spec is None and isinstance(trace, list):
+            spec = self._spec_scan(trace, self._parse_graph_json)
+        if spec is None:
+            return {"error": "the flow-builder did not return a graph spec — "
+                             "try describing the flow more concretely",
+                    "answer": answer}
+        nodes, dropped = [], []
+        for n in (spec.get('nodes') or []):
+            if not isinstance(n, dict):
+                continue
+            try:
+                nodes.append(self.graphs._clean_node(n))
+            except ValueError:
+                dropped.append(str(n.get('kind')))
+        ids = {n['id'] for n in nodes}
+        edges = [{'id': str(e.get('id') or uuid.uuid4().hex[:8]),
+                  'from': str(e.get('from')), 'to': str(e.get('to')),
+                  'port': str(e.get('port') or 'out')}
+                 for e in (spec.get('edges') or [])
+                 if isinstance(e, dict)
+                 and str(e.get('from')) in ids and str(e.get('to')) in ids]
+        self._graph_layout(nodes, edges)
+        draft = {
+            # an edit keeps the id it opened — that is what makes the save an
+            # update of your graph rather than a stray copy
+            'id': (current or {}).get('id') or None,
+            'name': str(spec.get('name')
+                        or (current or {}).get('name')
+                        # last resort: the request's own words, so save=True
+                        # never dies on a drafter that forgot to name it
+                        or ' '.join(description.split()[:4])).strip()[:80],
+            'description': str(spec.get('description')
+                               or (current or {}).get('description')
+                               or '').strip()[:200],
+            'nodes': nodes,
+            'edges': edges,
+        }
+        valid = self.graphs.validate(draft)
+        out = {"draft": draft, "valid": valid,
+               **({"nodes_dropped": dropped} if dropped else {})}
+        if not save:
+            return out
+        if not valid.get('ok'):
+            # a draft that doesn't validate is still worth showing — the
+            # canvas it fills is editable, and the message says what to fix
+            return {**out, "invalid": '; '.join(valid.get('errors') or [])}
+        return {**out, "graph": self.graphs.save(draft, key=key),
+                "saved": True}
 
     # ── scout: go on the internet, come back with an agent idea ──────
     # Vibe needs a description; scout writes one. Five phases, each an event

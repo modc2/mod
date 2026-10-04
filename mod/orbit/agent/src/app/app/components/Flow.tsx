@@ -23,6 +23,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { API_URL } from '../config'
 import Select from './Select'
+import { useDraftEngines } from './useDraftEngines'
 
 // ── the protocol, as the server describes it ──
 type KindSpec = {
@@ -105,6 +106,18 @@ export default function Flow({
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [paletteQ, setPaletteQ] = useState('')
+
+  // ── vibe — describe the flow (or a change to it), the canvas is drafted ──
+  // POST /graphs/vibe runs the flow-builder against the live agent registry;
+  // with the current graph along, the description is an EDIT. The draft only
+  // fills the canvas — nothing is saved until the save button is.
+  const [vibeOpen, setVibeOpen] = useState(true)
+  const [vibeText, setVibeText] = useState('')
+  const [vibing, setVibing] = useState(false)
+  // '' = the flow-builder on this module's loop; a harness name hands the
+  // drafting run to that CLI (the build console, Claude Code, …)
+  const [vibeEngine, setVibeEngine] = useState('')
+  const engines = useDraftEngines(token)
 
   // ── the run ──
   const [query, setQuery] = useState('')
@@ -307,6 +320,52 @@ export default function Flow({
     const d = await res.json()
     if (d.error) { flash(false, d.error); return }
     loadGraphs(); blank(null); flash(true, `deleted "${loadedId}"`)
+  }
+
+  // ── vibe ──
+  // an untouched starter pair is a blank page, not a graph worth editing —
+  // anything beyond it rides along so the description becomes a rewiring
+  const isBlankish = !loadedId && nodes.length <= 2
+    && nodes.every(n => n.kind === 'input' || n.kind === 'output')
+
+  const vibe = async () => {
+    const brief = vibeText.trim()
+    if (brief.length < 8 || vibing) return
+    if (!token) { flash(false, 'sign in to vibecode a flow'); onSignIn?.(); return }
+    setVibing(true)
+    try {
+      const res = await fetch(`${API_URL}/graphs/vibe`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // a draft is a whole model run — give a harness engine even longer
+        signal: AbortSignal.timeout(vibeEngine ? 620000 : 180000),
+        body: JSON.stringify({
+          description: brief,
+          graph: isBlankish ? null
+            : { id: loadedId || undefined, name: name || undefined,
+                description: description || undefined, nodes, edges },
+          harness: vibeEngine || null,
+          key: token,
+        }),
+      })
+      const d = await res.json()
+      if (d.error) { flash(false, d.error); return }
+      const draft = d.draft || {}
+      setNodes((draft.nodes || []).map((n: any) => ({ ...n, data: n.data || {} })))
+      setEdges((draft.edges || []).map((e: any) => ({ ...e, id: e.id || nid(), port: e.port || 'out' })))
+      if (draft.name) setName(draft.name)
+      if (draft.description) setDescription(draft.description)
+      if (isBlankish) setLoadedId(null)
+      setStates({}); setResult(null); setLog([])
+      setDirty(true)
+      setVibeText('')
+      setViewport({ x: 40, y: 40, k: 0.9 })
+      flash(!!d.valid?.ok, d.valid?.ok
+        ? `drafted "${draft.name || 'flow'}" — look it over, then save`
+        : `drafted, but: ${d.valid?.errors?.[0] || 'it needs fixing'}`)
+    } catch (e: any) {
+      flash(false, e?.name === 'TimeoutError'
+        ? 'the draft timed out — try again' : e?.message || 'vibe failed')
+    } finally { setVibing(false) }
   }
 
   // ── run ──
@@ -702,6 +761,13 @@ export default function Flow({
             className="px-2.5 py-1.5 rounded-md text-xs border border-white/[0.08] text-gray-500 hover:text-gray-300 hover:border-white/20 transition">
             new
           </button>
+          <button onClick={() => setVibeOpen(o => !o)}
+            title="Describe the flow in words — the flow-builder wires it"
+            className={`px-2.5 py-1.5 rounded-md text-xs border transition ${
+              vibeOpen ? 'border-violet-400/40 text-violet-200 bg-violet-500/10'
+                       : 'border-white/[0.08] text-gray-500 hover:text-violet-300 hover:border-violet-400/30'}`}>
+            ✧ vibe
+          </button>
           {loadedId && (
             <button onClick={del}
               className="px-2.5 py-1.5 rounded-md text-xs border border-red-500/20 text-red-400/80 hover:text-red-300 hover:bg-red-500/10 transition">
@@ -732,6 +798,40 @@ export default function Flow({
             </button>
           </div>
         </div>
+
+        {/* vibe — say it, get it wired. Fills the canvas, never saves. */}
+        {vibeOpen && (
+          <div className="shrink-0 border-b border-white/[0.06] bg-violet-500/[0.04] px-3 py-2">
+            <div className="flex items-center gap-2">
+              <span className="text-violet-300/90 text-sm select-none shrink-0">✧</span>
+              <input value={vibeText} onChange={e => setVibeText(e.target.value)}
+                disabled={vibing}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); vibe() } }}
+                placeholder={isBlankish
+                  ? 'describe the flow — "architect plans it, builder builds it, a judge loops it back twice on fail"…'
+                  : 'describe the change to THIS flow — "add a judge before the output, route errors to a human"…'}
+                className={`flex-1 min-w-0 bg-white/[0.05] border border-white/[0.09] rounded-md px-2.5 py-1.5 text-xs text-gray-200 outline-none placeholder:text-gray-600 focus:border-violet-400/40 transition ${vibing ? 'opacity-60' : ''}`} />
+              {/* who drafts it — this module's loop, or a harness CLI this
+                  caller may hand a run to (the build console, Claude Code) */}
+              {engines.length > 0 && (
+                <Select value={vibeEngine} accent="violet" size="sm"
+                  className="w-32 shrink-0" title="Which agent drafts it"
+                  onChange={setVibeEngine}
+                  options={[{ value: '', label: 'flow-builder' },
+                            ...engines.map(e => ({ value: e.name, label: e.label }))]} />
+              )}
+              <button onClick={vibe} disabled={vibing || vibeText.trim().length < 8}
+                className="shrink-0 text-[11px] uppercase tracking-wider px-3 py-1.5 rounded-md border border-violet-400/40 text-violet-200 bg-violet-500/10 hover:bg-violet-500/20 disabled:opacity-40 transition">
+                {vibing ? 'wiring…' : isBlankish ? 'draft flow' : 'apply change'}
+              </button>
+            </div>
+            {vibing && (
+              <div className="text-[10px] text-violet-300/80 mt-1 pl-6">
+                the flow-builder is wiring it against the live agent registry — this takes a minute
+              </div>
+            )}
+          </div>
+        )}
 
         {/* validation — what the server says about this graph, before it runs */}
         {valid && (valid.errors.length > 0 || valid.warnings.length > 0) && (

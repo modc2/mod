@@ -226,11 +226,6 @@
     "saved": 1790956530.3948343
   },
   {
-    "cid": "QmWZKK8qPKgwj5jT2at18gdCn2DvjUbhT1Vjp6cjf1qpar",
-    "name": "vibe-smoke-test-agent",
-    "saved": 1790956555.785093
-  },
-  {
     "cid": "QmXCt8udkeS75i5X8y2atu9PZjqotpvamVxX84ZFvoChVo",
     "name": "rs-dep-tracer",
     "saved": 1790956590.4035132
@@ -974,5 +969,10 @@
     "cid": "QmZKkTsbAqDwmPHq1QZjHUZrwk1Q57Taxjw2bmciHDyPcx",
     "name": "nyc-atlas",
     "saved": 1791134846.525989
+  },
+  {
+    "cid": "QmUPPu7dgd9urhwx9Ljzjz4Kw7x7z9orVLYuUvqCf2Ug1J",
+    "name": "vibe-smoke-test-agent",
+    "saved": 1791150457.3572876
   }
 ]

@@ -44,7 +44,8 @@ except ImportError:  # running the registry standalone
 # shipped agents — host-owned; anyone else must clone them into a custom agent
 BUILTINS = {"default", "architect", "reviewer", "debugger", "builder", "refactorer",
             "safety", "claude-code", "codex", "claude-mod", "build-mod", "chain-mod",
-            "task-builder", "vibe-builder", "idea-scout", "tool-builder"}
+            "task-builder", "vibe-builder", "idea-scout", "tool-builder",
+            "flow-builder"}
 
 # the integrations an agent is built from. An agent is one node; these are
 # the four things wired into it, and the template written below declares all
@@ -63,6 +64,7 @@ class Agent:
     model = {model}
     memory = {memory}
     harness = {harness}
+    interface = {interface}
     owner = {owner}
 
     # the integrations this agent requires wired in: its prompt, the model it
@@ -132,6 +134,11 @@ class Agents:
             # set -> the run is handed to an external CLI (see harness/mod.py)
             # instead of this module's own loop
             "harness": getattr(cls, "harness", None),
+            # the agent's own UI — a gateway path ('/hermes') or a URL the
+            # console connects to when this agent is selected. None = the
+            # console itself is the interface. Hub-installed agents get one
+            # derived from their module's port even when this is unset.
+            "interface": getattr(cls, "interface", None),
             # the integrations the agent's template requires wired in. A
             # shipped agent written before the template declared them still
             # requires all four — that is what an agent is made of.
@@ -186,10 +193,29 @@ class Agents:
             raise ValueError(f"unknown harness: {harness} (have: {', '.join(h.names())})")
         return harness
 
+    @staticmethod
+    def _check_interface(interface: Optional[str]) -> Optional[str]:
+        """Validate an agent's own-UI location: a gateway path ('/hermes')
+        or an http(s) URL. It is written into the agent file and handed to
+        an iframe, so anything else is refused here."""
+        if not interface:
+            return None
+        interface = str(interface).strip()
+        if len(interface) > 400:
+            raise ValueError("interface too long (400 chars max)")
+        if any(c in interface for c in " \t\n\r\"'\\"):
+            raise ValueError("interface cannot contain spaces or quotes")
+        if not (interface.startswith("/")
+                or interface.startswith("http://")
+                or interface.startswith("https://")):
+            raise ValueError(
+                "interface must be a path like /hermes or an http(s) URL")
+        return interface
+
     def create(self, name: str, description: str = "", goal: str = "",
                icon: str = ">_", tools: list = None, model: str = None,
                memory: str = None, harness: str = None,
-               key: str = None) -> Dict[str, Any]:
+               interface: str = None, key: str = None) -> Dict[str, Any]:
         """Create a new agent locally in agents/ directory.
 
         Signed-in callers only — the agent is filed under the address that
@@ -207,10 +233,14 @@ class Agents:
                     None = the default one.
             harness: external CLI to hand the run to ('claude', 'codex'), or
                      None to run on this module's own loop
+            interface: the agent's own UI — a gateway path ('/hermes') or an
+                       http(s) URL the console connects to when the agent is
+                       selected. None = no interface of its own.
             key: caller auth token — the resolved address becomes the owner
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
         harness = self._check_harness(harness)
+        interface = self._check_interface(interface)
         self.identity.require_signed_in(key, f"create agent: {name}")
         agent_dir = self._dir / name
         if agent_dir.exists():
@@ -228,6 +258,7 @@ class Agents:
             model=repr(model) if model else "None",
             memory=repr(memory) if memory else "None",
             harness=repr(harness) if harness else "None",
+            interface=repr(interface) if interface else "None",
             owner=repr(owner) if owner else "None",
             goal=goal or f"You are a {label} agent.",
         )
@@ -240,15 +271,15 @@ class Agents:
 
     def update(self, name: str, description: str = None, goal: str = None,
                icon: str = None, tools: list = ..., model: str = ...,
-               memory: str = ..., harness: str = ...,
+               memory: str = ..., harness: str = ..., interface: str = ...,
                key: str = None) -> Dict[str, Any]:
         """Update an agent in place. The owner or the host may edit it —
         for everyone else built-ins are read-only, so clone them instead.
 
         Only the fields passed are changed; the rest keep their current value.
-        tools/model/memory/harness use `...` as the not-passed sentinel so an
-        explicit None can clear them (None = every tool / default model /
-        default memory / own loop).
+        tools/model/memory/harness/interface use `...` as the not-passed
+        sentinel so an explicit None can clear them (None = every tool /
+        default model / default memory / own loop / no interface).
         """
         name = name.lower().replace(" ", "-").replace("_", "-")
         agent_dir = self._dir / name
@@ -261,6 +292,8 @@ class Agents:
         new_model = current.get("model") if model is ... else model
         new_memory = current.get("memory") if memory is ... else memory
         new_harness = current.get("harness") if harness is ... else self._check_harness(harness)
+        new_interface = (current.get("interface") if interface is ...
+                         else self._check_interface(interface))
         label = name.replace("-", " ").title()
         content = AGENT_TEMPLATE.format(
             name=name,
@@ -271,6 +304,7 @@ class Agents:
             model=repr(new_model) if new_model else "None",
             memory=repr(new_memory) if new_memory else "None",
             harness=repr(new_harness) if new_harness else "None",
+            interface=repr(new_interface) if new_interface else "None",
             # an edit never transfers ownership
             owner=repr(self._recorded_owner(name)) if self._recorded_owner(name) else "None",
             goal=goal if goal is not None else (current.get("goal") or f"You are a {label} agent."),
@@ -296,7 +330,7 @@ class Agents:
     def _build_config(self, name: str = None, description: str = None,
                       goal: str = None, icon: str = ">_", tools: list = None,
                       model: str = None, memory: str = None,
-                      harness: str = None) -> Dict[str, Any]:
+                      harness: str = None, interface: str = None) -> Dict[str, Any]:
         """Build an agent config dict from name/overrides."""
         config = {}
         if name and name in self.ls():
@@ -318,6 +352,8 @@ class Agents:
             config["memory"] = memory
         if harness is not None:
             config["harness"] = harness
+        if interface is not None:
+            config["interface"] = interface
         if name:
             config["name"] = name
 
@@ -490,6 +526,7 @@ class Agents:
             model=data.get("model"),
             memory=data.get("memory"),
             harness=data.get("harness"),
+            interface=data.get("interface"),
             key=key,
         )
 
@@ -586,6 +623,7 @@ class Agents:
                 model=kwargs.get("model"),
                 memory=kwargs.get("memory"),
                 harness=kwargs.get("harness"),
+                interface=kwargs.get("interface"),
                 key=kwargs.get("key"),
             )
         if action == "update":
@@ -598,6 +636,7 @@ class Agents:
                 model=kwargs.get("model", ...),
                 memory=kwargs.get("memory", ...),
                 harness=kwargs.get("harness", ...),
+                interface=kwargs.get("interface", ...),
                 key=kwargs.get("key"),
             )
         if action == "remove":

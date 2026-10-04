@@ -146,6 +146,20 @@ The three starters are the old chain presets (`src/agents/chains.json`), which
 were already pipelines — a list of agents each feeding the next — and are the
 honest floor of a graph language rather than a separate feature.
 
+## Vibecoding one
+
+`POST /graphs/vibe` turns a sentence into a wired graph: the **flow-builder**
+agent drafts it with the live agent registry in front of it (every node names
+an agent that exists), the draft is cleaned to the protocol's shape, laid out
+in columns for the canvas, and validated like a save would be. Send `graph`
+(the canvas as it stands) or `id` (a saved one) and the description becomes
+an **edit** — the whole graph comes back rewired, keeping the ids and
+positions of everything it kept. Nothing is saved unless `save=true`, and an
+invalid draft comes back unsaved either way, with validation saying what to
+fix. Like any draft it is a model run (run policy applies), and `harness=`
+hands the drafting to an external CLI (the build console, Claude Code). The
+canvas's **✧ vibe** box is this route; so is the `agent_graph_vibe` MCP tool.
+
 ## Surfaces
 
 | | |
@@ -154,7 +168,8 @@ honest floor of a graph language rather than a separate feature.
 | `GET /graphs` · `GET /graphs/{id}` | what is saved |
 | `POST /graphs` · `DELETE /graphs/{id}` | save (sign-in) / delete (yours) |
 | `POST /graphs/validate` | what is wrong with one |
+| `POST /graphs/vibe` | a description in, a wired draft out; `graph`/`id` = edit |
 | `POST /graphs/run` · `/run/stream` | run a saved one, or one off the canvas |
-| MCP | `agent_graphs`, `agent_graph_save`, `agent_graph_run` |
+| MCP | `agent_graphs`, `agent_graph_save`, `agent_graph_run`, `agent_graph_vibe` |
 | console | HUB → AGENTS → **FLOW** |
 | code | `src/graph/protocol.py` · `runner.py` · `mod.py` · `tests/test_graph.py` |

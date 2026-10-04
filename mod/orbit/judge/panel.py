@@ -8,9 +8,14 @@ don't vote — and if fewer than `min_votes` judges manage to vote,
 the verdict fails closed.
 
 Judge kinds:
-  rule — deterministic, offline: length bounds, required / forbidden words.
-  llm  — an agent: asks an OpenAI-compatible chat endpoint to score the
-         input against the judge's criteria prompt.
+  rule  — deterministic, offline: length bounds, required / forbidden words.
+  llm   — asks an OpenAI-compatible chat endpoint to score the input
+          against the judge's criteria prompt.
+  agent — an agent-protocol agent (orbit/agent POST /run with an
+          agent_type); its finish summary is parsed as the score.
+  panel — another panel sits as one judge: its vote is that panel's
+          weighted average. Judges of judges — cycles fail closed.
+          The agent/panel kinds and the judge market live in market.py.
 
 Every judge gets a keyring the first time it sits on a panel: one keypair
 per key type in keys.py (classical ed25519 plus the quantum-resistant
@@ -30,6 +35,7 @@ import time
 import urllib.request
 
 import keys
+import market
 
 DEFAULT_LLM_URL = os.environ.get('JUDGE_LLM_URL',
                                  'http://localhost:50600/v1/chat/completions')
@@ -89,7 +95,7 @@ class Panels:
             return {'error': 'name must be lowercase letters/digits/-/_'}
         if not creator:
             return {'error': 'creator is required'}
-        judges = self._check_judges(judges)
+        judges = self._check_judges(judges, name)
         if isinstance(judges, dict):
             return judges
         threshold = float(threshold)
@@ -139,7 +145,7 @@ class Panels:
         if creator != p['creator']:
             return {'error': 'only the creator can change a panel'}
         if judges is not None:
-            judges = self._check_judges(judges)
+            judges = self._check_judges(judges, name)
             if isinstance(judges, dict):
                 return judges
             p['judges'] = judges
@@ -174,7 +180,7 @@ class Panels:
         self.db.commit()
         return {'removed': name}
 
-    def _check_judges(self, judges):
+    def _check_judges(self, judges, panel_name=None):
         """Validate a judges list; return the cleaned list or an {'error': ...}."""
         if isinstance(judges, str):
             try:
@@ -192,10 +198,13 @@ class Panels:
                 return {'error': f'duplicate judge name {j["name"]!r}'}
             names.add(j['name'])
             kind = j.get('kind', 'llm')
-            if kind not in ('llm', 'rule'):
-                return {'error': f'judge {j["name"]!r}: kind must be llm or rule'}
+            if kind not in ('llm', 'rule', 'agent', 'panel'):
+                return {'error': f'judge {j["name"]!r}: kind must be llm, rule, agent or panel'}
             if kind == 'llm' and not j.get('prompt'):
                 return {'error': f'judge {j["name"]!r}: llm judge needs a criteria prompt'}
+            err = market.check_judge(self, j, kind, panel_name)
+            if err:
+                return err
             if float(j.get('weight', 1)) <= 0:
                 return {'error': f'judge {j["name"]!r}: weight must be > 0'}
         return judges
@@ -241,14 +250,18 @@ class Panels:
 
     # ── judging ──────────────────────────────────────────────────
 
-    def judge(self, panel, input):
-        """Put one input before the panel and record the verdict."""
+    def judge(self, panel, input, _seen=None):
+        """Put one input before the panel and record the verdict. `_seen`
+        is the chain of panels already deliberating this input — panel-kind
+        judges thread it down so a panel can never (transitively) sit on
+        its own bench at judge time."""
         p = self.get(panel)
         if 'error' in p:
             return p
         if not input:
             return {'error': 'nothing to judge'}
-        scores = [self._score(j, input) for j in p['judges']]
+        seen = (_seen or frozenset()) | {panel}
+        scores = [self._score(j, input, seen) for j in p['judges']]
         voted = [s for s in scores if s['score'] is not None]
         if len(voted) < p['min_votes']:
             approved, average = False, None
@@ -358,12 +371,16 @@ class Panels:
 
     # ── the judges themselves ────────────────────────────────────
 
-    def _score(self, j, text):
+    def _score(self, j, text, seen=frozenset()):
         """One judge's vote: {name, score 0-100 | None, weight, reason}."""
         kind = j.get('kind', 'llm')
         try:
             if kind == 'rule':
                 score, reason = _rule_score(j, text)
+            elif kind == 'agent':
+                score, reason = market.agent_score(j, text)
+            elif kind == 'panel':
+                score, reason = market.panel_score(self, j, text, seen)
             else:
                 score, reason = _llm_score(j, text)
             score = max(0.0, min(100.0, float(score)))

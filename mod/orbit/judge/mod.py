@@ -140,6 +140,37 @@ class Mod:
         import keys
         return {'kinds': keys.kinds()}
 
+    # ── the judge market ─────────────────────────────────────────
+
+    @property
+    def shop(self):
+        if getattr(self, '_market', None) is None:
+            import market as mkt
+            self._market = mkt.Market(self.book)
+        return self._market
+
+    def market(self, q='', kind=''):
+        """Browse the judge market — most installed first; q searches
+        name/author/description/tags, kind filters rule/llm/agent/panel."""
+        return {'listings': self.shop.list(q, kind)}
+
+    def listing(self, id):
+        """One market listing with its full judge spec."""
+        return self.shop.get(int(id))
+
+    def publish_judge(self, name, author, spec, description='', tags=None):
+        """List a judge spec on the market; re-publishing your own name
+        updates the listing in place."""
+        return self.shop.publish(name, author, spec, description, tags)
+
+    def unpublish_judge(self, id, author):
+        """Take a listing off the market — its author only."""
+        return self.shop.unpublish(int(id), author)
+
+    def install_judge(self, id, panel, creator, name=None, weight=None):
+        """Seat a market judge on a panel — the panel's creator only."""
+        return self.shop.install(int(id), panel, creator, name, weight)
+
     # ── surfaces ─────────────────────────────────────────────────
 
     def serve(self, port=None, background=False):
