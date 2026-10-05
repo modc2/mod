@@ -815,7 +815,12 @@ async function loadPods(){
         catch { toast('Copy failed — select the text instead'); }
       };
       const saved = openLogs.get(id);
-      if (saved) { out.textContent = saved.content; out.dataset.k = saved.k; out.hidden = false; }
+      if (saved) {
+        out.textContent = saved.content; out.dataset.k = saved.k; out.hidden = false;
+        if (saved.k === 'logs') tool('logs', { pod_id: id, tail: 200 }).then(r => {
+          if (out.dataset.k === 'logs') out.textContent = r.logs ?? (typeof r === 'string' ? r : JSON.stringify(r, null, 2));
+        }).catch(() => {});
+      }
     });
     if (pods.some((p) => podState(p.status) === 'warn')) {
       $('p_poll').style.display = '';

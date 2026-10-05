@@ -274,7 +274,7 @@ pub fn tool_list() -> Value {
                     "a": { "type": "string", "description": "Player id or name — one side" },
                     "b": { "type": "string", "description": "Player id or name — the other side" },
                     "games": { "type": "array", "items": { "type": "string" }, "description": "Game ids or names to play on. Left out, the three most-played games stand in." },
-                    "count": { "type": "integer", "default": 2, "description": "Matches per game (1–20; even numbers seat each side first equally often)" },
+                    "count": { "type": "integer", "default": 2, "description": "Matches per game (2–20; even numbers seat each side first equally often)" },
                     "seed": { "type": "integer", "description": "Base seed — match k plays seed+k, so a whole experiment replays" },
                     "timeout_ms": { "type": "integer", "description": "Per-match budget in milliseconds; agents writing code need more than the default five minutes" }
                 },

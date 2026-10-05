@@ -2220,7 +2220,7 @@ function renderAb() {
   abPlan();
 }
 
-const abCount = () => Math.min(Math.max(Number($("ab-count").value) || 2, 1), 20);
+const abCount = () => Math.min(Math.max(Number($("ab-count").value) || 2, 2), 20);
 
 function abPlan() {
   const n = abPicked.size * abCount();

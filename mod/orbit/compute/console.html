@@ -698,7 +698,7 @@
         <span class="faint" id="o-sub"></span></div>
       <div class="body">
         <div class="ochart" id="o-chart"></div>
-        <div class="axis"><span>7 days ago</span><span class="hotv">now</span><span>+7d</span></div>
+        <div class="axis"><span>7 days ago</span><span class="hotv">now</span><span id="a-fut">+7d</span></div>
         <div class="bar" style="margin-top:12px">
           <input id="o-player" placeholder="your name" style="width:140px" autocomplete="off">
           <input id="o-key" placeholder="player key" style="width:170px;display:none" autocomplete="off">
@@ -2038,7 +2038,7 @@ async function oraclePick(series, quiet) {
 
 function oracleHz(h) {
   OHZ = h; document.querySelectorAll('#o-hz button').forEach(b => b.classList.toggle('on', b.textContent === h));
-  if (ODET) drawCalls();
+  if (ODET) { drawChart(); drawCalls(); }
 }
 function oracleNudge(n) {
   const s = O.series.find(x => x.series === OSEL);
@@ -2050,7 +2050,9 @@ function oracleNudge(n) {
 function drawChart() {
   const el = document.getElementById('o-chart');
   const W = el.clientWidth || 600, H = el.clientHeight || 240, L = 46, R = 8, T = 10, B = 18;
-  const now = Date.now() / 1000, t0 = now - 7 * 86400, t1 = now + 7 * 86400;
+  const now = Date.now() / 1000, t0 = now - 7 * 86400;
+  const hzSec = {'1h':3600,'6h':21600,'24h':86400,'7d':604800}[OHZ] || 86400;
+  const t1 = now + hzSec * 1.5;
   const hist = ODET.history.filter(p => p[0] >= t0);
   const mine = me().player;
   const calls = ODET.open.filter(c => c.target <= t1);
@@ -2063,12 +2065,13 @@ function drawChart() {
   const ticks = [0, .5, 1].map(k => lo + (hi - lo) * k);
   const line = hist.map((p, i) => (i ? 'L' : 'M') + x(p[0]).toFixed(1) + ' ' + y(p[1]).toFixed(1)).join(' ');
   const area = hist.length ? line + ` L${x(hist[hist.length-1][0]).toFixed(1)} ${H-B} L${x(hist[0][0]).toFixed(1)} ${H-B} Z` : '';
-  const days = [-6,-4,-2,2,4,6].map(d => now + d * 86400);
+  const fmtTick = t => { const s = t - now, a = Math.abs(s); return a >= 75600 ? (s > 0 ? '+' : '') + Math.round(s / 86400) + 'd' : a >= 1800 ? (s > 0 ? '+' : '-') + Math.round(a / 3600) + 'h' : (s > 0 ? '+' : '-') + Math.round(a / 60) + 'm'; };
+  const days = [-6,-4,-2].map(d => now + d * 86400).concat([1,2].map(k => now + hzSec * k / 2));
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}">
     <rect class="future" x="${x(now)}" y="${T}" width="${W - R - x(now)}" height="${H - T - B}"/>
     ${ticks.map(v => `<line class="grid" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/>
       <text class="lbl" x="${L-6}" y="${y(v)+3}" text-anchor="end">${per(v)}</text>`).join('')}
-    ${days.map(t => `<text class="lbl" x="${x(t)}" y="${H-4}" text-anchor="middle">${t < now ? '' : '+'}${Math.round((t-now)/86400)}d</text>`).join('')}
+    ${days.map(t => `<text class="lbl" x="${x(t)}" y="${H-4}" text-anchor="middle">${fmtTick(t)}</text>`).join('')}
     <path class="area" d="${area}"/><path class="line" d="${line}"/>
     <line class="now" x1="${x(now)}" x2="${x(now)}" y1="${T}" y2="${H-B}"/>
     <line class="hair" id="o-hair" y1="${T}" y2="${H-B}"/><circle class="dot" id="o-dot" r="4"/>
@@ -2076,6 +2079,7 @@ function drawChart() {
       data-i="${i}" cx="${x(c.target)}" cy="${y(c.value)}" r="${c.player === mine ? 6 : 4.5}"/>`).join('')}
     ${scored.map(c => `<line class="call mine scored" x1="${x(c.target).toFixed(1)}" x2="${x(c.target).toFixed(1)}" y1="${y(c.value).toFixed(1)}" y2="${y(c.actual).toFixed(1)}" fill="none"/><circle class="call mine scored" cx="${x(c.target).toFixed(1)}" cy="${y(c.value).toFixed(1)}" r="5"/>`).join('')}
   </svg>`;
+  const afut = document.getElementById('a-fut'); if (afut) afut.textContent = '+' + OHZ;
   const tip = document.getElementById('tip'), svg = el.querySelector('svg');
   const hair = document.getElementById('o-hair'), dot = document.getElementById('o-dot');
   const show = (e, html) => { tip.innerHTML = html; tip.style.display = 'block';

@@ -3937,6 +3937,13 @@ export default function Home() {
           </div>
         )
       })()}
+      {(() => {
+        const lastAgentMsg = [...t.messages].reverse().find(m => m.role === 'agent' && !m.live && m.text.trim())
+        if (!lastAgentMsg) return null
+        const preview = lastAgentMsg.text.split('\n').find(l => l.trim())?.trim().slice(0, 90) ?? ''
+        if (!preview) return null
+        return <div className="mt-0.5 pl-[18px] text-[10px] text-gray-500 truncate">{preview}</div>
+      })()}
       <div className="flex items-center gap-1.5 mt-0.5 pl-[18px] text-[10px] text-gray-600 font-mono">
         <span>{t.stepCount !== undefined ? `${t.stepCount} step${t.stepCount !== 1 ? 's' : ''} · ` : ''}{taskTime(t)}</span>
         {t.cid && (
