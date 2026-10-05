@@ -405,6 +405,10 @@ details[open] summary{margin-bottom:10px}
         <label class="f">Template<select id="r_tpl"><option value="">Automatic — a verified image for this GPU</option></select></label>
       </details>
       <div id="r_needkey" class="note err" hidden>Connect your Lium account first — renting is billed to your Lium credits.</div>
+      <div id="r_sshwarn" hidden>
+        <div class="note err">No SSH key on your Lium account — you won't be able to log in to this pod</div>
+        <label class="f" style="margin-top:8px">Paste your public key to continue<textarea id="r_pubkey" rows="3" placeholder="ssh-rsa AAAA… or ssh-ed25519 AAAA…" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea></label>
+      </div>
     </div>
     <div id="r_out"></div>
     <div class="acts">
@@ -679,8 +683,16 @@ async function openRent(node){
   $('r_gpus').innerHTML = Array.from({ length: free }, (_, i) => `<option value="${i + 1}">${plural(i + 1, 'GPU')}</option>`).join('');
   $('r_gpus').value = String(free);
   $('r_needkey').hidden = !!KEY;
-  $('r_go').disabled = false;
+  $('r_sshwarn').hidden = true; $('r_pubkey').value = '';
+  $('r_go').disabled = !!KEY;  // hold until SSH key check resolves
   paintCost();
+  if (KEY) {
+    tool('ssh_keys').then((r) => {
+      if (RENT_NODE !== node) return;
+      if ((r.ssh_keys || []).length > 0) { $('r_go').disabled = false; }
+      else { $('r_sshwarn').hidden = false; }
+    }).catch(() => { if (RENT_NODE === node) $('r_go').disabled = false; });
+  }
   const tk = `${node.gpu}|${node.driver || ''}`;
   const fill = (list) => {
     $('r_tpl').innerHTML = '<option value="">Automatic — a verified image for this GPU</option>' +
@@ -696,6 +708,7 @@ async function openRent(node){
 }
 $('r_gpus').onchange = paintCost;
 $('r_hours').onchange = paintCost;
+$('r_pubkey').oninput = () => { $('r_go').disabled = !$('r_pubkey').value.trimStart().startsWith('ssh-'); };
 $('r_close').onclick = () => $('rent').classList.remove('on');
 $('r_go').onclick = async () => {
   if (!KEY) { $('rent').classList.remove('on'); openKey(); return; }
@@ -703,6 +716,7 @@ $('r_go').onclick = async () => {
   args.gpu_count = Number($('r_gpus').value);
   if ($('r_hours').value) args.termination_hours = Number($('r_hours').value);
   if ($('r_tpl').value) args.template_id = $('r_tpl').value;
+  const pub = $('r_pubkey').value.trim(); if (pub) args.public_key = pub;
   $('r_go').disabled = true; $('r_go').textContent = 'Renting…';
   try {
     await tool('up', args);
@@ -750,6 +764,11 @@ async function loadPods(){
       $('p_go').onclick = () => showTab('market');
       return;
     }
+    const openLogs = new Map();
+    el.querySelectorAll('.pod').forEach((card) => {
+      const pre = card.querySelector('pre');
+      if (pre && !pre.hidden) openLogs.set(card.dataset.id, { content: pre.textContent, k: pre.dataset.k });
+    });
     el.innerHTML = pods.map((p) => {
       const st = podState(p.status);
       return `<div class="pod" data-id="${esc(p.id)}">
@@ -795,6 +814,8 @@ async function loadPods(){
         try { await navigator.clipboard.writeText(cp.dataset.copy); toast('SSH command copied'); }
         catch { toast('Copy failed — select the text instead'); }
       };
+      const saved = openLogs.get(id);
+      if (saved) { out.textContent = saved.content; out.dataset.k = saved.k; out.hidden = false; }
     });
     if (pods.some((p) => podState(p.status) === 'warn')) {
       $('p_poll').style.display = '';

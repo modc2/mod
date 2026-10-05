@@ -88,6 +88,18 @@ class Mod:
             headers['Authorization'] = f'Bearer {tok}'
         r = requests.get(f'https://api.github.com{path}', headers=headers,
                          params=params or {}, timeout=15)
+        if r.status_code in (403, 429):
+            rate_limited = r.headers.get('X-RateLimit-Remaining') == '0'
+            if not rate_limited:
+                try:
+                    rate_limited = 'rate limit' in r.json().get('message', '').lower()
+                except Exception:
+                    pass
+            if rate_limited:
+                raise RuntimeError(
+                    'GitHub API rate limit exceeded — set GITHUB_TOKEN or GH_TOKEN'
+                    ' for higher limits (60→5000 req/hr)'
+                )
         r.raise_for_status()
         return r.json()
 
@@ -680,7 +692,9 @@ class Mod:
                 stdout=logf, stderr=subprocess.STDOUT, env=env, start_new_session=True)
             with open(os.path.join(log_dir, 'app.pid'), 'w') as f:
                 f.write(str(proc.pid))
-            self._wait_health(port)
+            healthy = self._wait_health(port)
+            if not healthy:
+                raise RuntimeError(f'app did not start on port {port}; check {logf.name}')
             url = f'http://localhost:{port}'
             return {'running': True, 'pid': proc.pid, 'url': url,
                     'api': f'{url}/api/updates', 'log': os.path.join(log_dir, 'app.log')}
@@ -739,7 +753,9 @@ class Mod:
         if r.returncode != 0:
             raise RuntimeError(f'pm2 start failed: {r.stderr or r.stdout}')
         subprocess.run(['pm2', 'save'], capture_output=True, text=True)
-        self._wait_health(port)
+        healthy = self._wait_health(port)
+        if not healthy:
+            raise RuntimeError(f'worker did not start on port {port}')
         return {'worker': name, 'port': port, 'running': True}
 
     def stop_worker(self, name=None):

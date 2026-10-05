@@ -218,7 +218,8 @@ fn verdict(a: &str, b: &str, ta: &Tally, tb: &Tally, voids: u64, played: u64) ->
     } else if tb.wins > ta.wins {
         format!("{b} beats {a} {}", score(tb))
     } else {
-        format!("{a} and {b} are level at {}–{}", ta.wins, tb.wins)
+        format!("{a} and {b} are level at {}–{}{}", ta.wins, tb.wins,
+            if ta.draws > 0 { format!(" with {} drawn", ta.draws) } else { String::new() })
     };
     // Wins can tie while the play does not: an illegal-move rate apart is the
     // number that matters for a model, so it gets the second clause.
@@ -302,7 +303,7 @@ pub async fn start(args: &Value) -> Result<Value, String> {
         return Err("no games stored here — add one first".into());
     }
 
-    let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(DEFAULT_COUNT).clamp(1, 20);
+    let count = args.get("count").and_then(|v| v.as_u64()).unwrap_or(DEFAULT_COUNT).clamp(2, 20);
     let planned = games.len() as u64 * count;
     if planned > MAX_MATCHES {
         return Err(format!(
@@ -367,9 +368,9 @@ async fn run(
     let mut played_index: i64 = 0;
     for (gi, (game, game_name)) in games.iter().enumerate() {
         for n in 0..count {
-            // Seat-swap: even matches seat A first, odd matches seat B first,
+            // Seat-swap: even global-match index seats A first, odd seats B first,
             // so a game with a first-mover edge cannot decide the experiment.
-            let (first, second) = if n % 2 == 0 { (&a, &b) } else { (&b, &a) };
+            let (first, second) = if played_index % 2 == 0 { (&a, &b) } else { (&b, &a) };
             with_reports(|reports| {
                 if let Some(r) = reports.iter_mut().find(|r| r.id == id) {
                     r.current = format!("{game_name} · match {} of {}", n + 1, count);
@@ -537,6 +538,12 @@ mod tests {
         assert!(v.contains("alpha leads on score"), "{v}");
         assert!(v.contains("8.20"), "{v}");
         assert!(v.contains("2.10"), "{v}");
+    }
+
+    #[test]
+    fn verdict_level_includes_draw_count() {
+        let v = verdict("alpha", "beta", &tally(3, 2, 3, 80, 0), &tally(3, 2, 3, 80, 0), 0, 8);
+        assert!(v.contains("level at 3–3 with 2 drawn"), "{v}");
     }
 
     #[test]

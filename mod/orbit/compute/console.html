@@ -521,6 +521,7 @@
   .ochart .call{fill:var(--accent);stroke:var(--well);stroke-width:2}
   .ochart .call.mine{fill:var(--hot)}
   .ochart .call.bot{fill:var(--faint)}
+  .ochart .call.scored{opacity:.55;stroke-dasharray:2 2;stroke:var(--hot)}
   .ochart .hair{stroke:var(--dim);stroke-width:1;display:none}
   .ochart .dot{fill:var(--gold-hi);stroke:var(--well);stroke-width:2;display:none}
   .hz{display:flex;gap:5px}
@@ -2053,7 +2054,8 @@ function drawChart() {
   const hist = ODET.history.filter(p => p[0] >= t0);
   const mine = me().player;
   const calls = ODET.open.filter(c => c.target <= t1);
-  const vs = hist.map(p => p[1]).concat(calls.map(c => c.value));
+  const scored = (ODET.scored || []).filter(c => c.player === mine && c.target >= t0 && c.target <= now && c.actual != null);
+  const vs = hist.map(p => p[1]).concat(calls.map(c => c.value)).concat(scored.map(c => c.value)).concat(scored.map(c => c.actual));
   let lo = Math.min(...vs), hi = Math.max(...vs);
   const pad = (hi - lo) * .12 || hi * .05 || 1; lo = Math.max(0, lo - pad); hi += pad;
   const x = t => L + (t - t0) / (t1 - t0) * (W - L - R);
@@ -2072,6 +2074,7 @@ function drawChart() {
     <line class="hair" id="o-hair" y1="${T}" y2="${H-B}"/><circle class="dot" id="o-dot" r="4"/>
     ${calls.map((c, i) => `<circle class="call ${c.player === mine ? 'mine' : c.player.startsWith('bot.') ? 'bot' : ''}"
       data-i="${i}" cx="${x(c.target)}" cy="${y(c.value)}" r="${c.player === mine ? 6 : 4.5}"/>`).join('')}
+    ${scored.map(c => `<line class="call mine scored" x1="${x(c.target).toFixed(1)}" x2="${x(c.target).toFixed(1)}" y1="${y(c.value).toFixed(1)}" y2="${y(c.actual).toFixed(1)}" fill="none"/><circle class="call mine scored" cx="${x(c.target).toFixed(1)}" cy="${y(c.value).toFixed(1)}" r="5"/>`).join('')}
   </svg>`;
   const tip = document.getElementById('tip'), svg = el.querySelector('svg');
   const hair = document.getElementById('o-hair'), dot = document.getElementById('o-dot');
@@ -2083,11 +2086,14 @@ function drawChart() {
     // the nearest call within reach wins over the line: they are the small targets
     let best = null, bd = 14 * 14;
     calls.forEach(c => { const d = (x(c.target) - px) ** 2 + (y(c.value) - py) ** 2; if (d < bd) { bd = d; best = c } });
+    scored.forEach(c => { const d = (x(c.target) - px) ** 2 + (y(c.value) - py) ** 2; if (d < bd) { bd = d; best = c } });
     if (best) {
       hair.style.display = dot.style.display = 'none';
-      return show(e, `<b>${esc(best.player)}</b> calls ${per(best.value)} in ${best.horizon}<br>` +
-        `was ${per(best.base)} (${opct((best.value / best.base - 1) * 100)}) - due in ${until(best.target)}` +
-        (best.note ? `<br><span class="dimtxt">${esc(best.note)}</span>` : ''));
+      return show(e, best.actual != null
+        ? `<b>you called</b> ${per(best.value)}, actual ${per(best.actual)} (±${Math.abs((best.actual / best.value - 1) * 100).toFixed(1)}%${best.points != null ? ', ' + Math.round(best.points) + ' pts' : ''})`
+        : `<b>${esc(best.player)}</b> calls ${per(best.value)} in ${best.horizon}<br>` +
+          `was ${per(best.base)} (${opct((best.value / best.base - 1) * 100)}) - due in ${until(best.target)}` +
+          (best.note ? `<br><span class="dimtxt">${esc(best.note)}</span>` : ''));
     }
     if (!hist.length || px > x(now)) { tip.style.display = 'none'; hair.style.display = dot.style.display = 'none'; return }
     let h = hist[0]; for (const p of hist) if (Math.abs(x(p[0]) - px) < Math.abs(x(h[0]) - px)) h = p;

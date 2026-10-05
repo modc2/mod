@@ -133,7 +133,7 @@ The UI has three views, switched with the segmented control in the header:
   copying a day marks it **POSTED**, so the tab count is "days still owed".
 - **Feed** — the merged commit feed (mod `dev` by default), repo filter pills, a
   **NEW** badge on unseen commits, a "track owner/repo" box, and a "mark read"
-  button; auto-refreshes every 60s.
+  button; auto-refreshes every 5 minutes.
 - **Modules** — a launcher backed by the **registrar** (`core/registry`): every
   module it knows about as a card with a registered/local chip, last-updated time,
   and an **open ↗** link to the module's live app (gateway path `modc2.com/<name>`).

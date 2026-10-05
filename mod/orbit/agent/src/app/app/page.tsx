@@ -2082,7 +2082,7 @@ export default function Home() {
 
   // markdown-lite: render ``` fences, `inline code`, **bold**, *italic*, ## headings, bullet lists
   const renderText = (text: string) => {
-    const hasAny = text.includes('`') || /\*\*|\*[^*]|^[*\-] |^#{2,3} /m.test(text)
+    const hasAny = text.includes('`') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text)
     if (!hasAny) return text
 
     // inline pass: **bold**, *italic*, `code` within a single string
@@ -2090,13 +2090,16 @@ export default function Home() {
       const out: React.ReactNode[] = []
       s.split('`').forEach((b, j) => {
         if (j % 2 === 1) { out.push(<code key={`${kb}-ic${j}`} className="inline-code">{b}</code>); return }
-        const re = /\*\*(.+?)\*\*|\*([^*\n]+?)\*/g
+        const re = /\*\*(.+?)\*\*|\*([^*\n]+?)\*|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
         let last = 0, n = 0, m: RegExpExecArray | null
         while ((m = re.exec(b)) !== null) {
           if (m.index > last) out.push(b.slice(last, m.index))
-          out.push(m[1] !== undefined
-            ? <strong key={`${kb}-b${n++}`}>{m[1]}</strong>
-            : <em key={`${kb}-e${n++}`}>{m[2]}</em>)
+          if (m[1] !== undefined)
+            out.push(<strong key={`${kb}-b${n++}`}>{m[1]}</strong>)
+          else if (m[2] !== undefined)
+            out.push(<em key={`${kb}-e${n++}`}>{m[2]}</em>)
+          else
+            out.push(<a key={`${kb}-a${n++}`} href={m[4]} target="_blank" rel="noopener noreferrer" className="text-emerald-300 underline underline-offset-2 hover:text-emerald-200">{m[3]}</a>)
           last = m.index + m[0].length
         }
         if (last < b.length) out.push(b.slice(last))
@@ -2106,12 +2109,13 @@ export default function Home() {
 
     // per-segment renderer: headings, bullet lists, then inline
     const renderSeg = (seg: string, si: number) => {
-      const hasBlock = /^#{2,3} |^[*\-] /m.test(seg)
+      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. /m.test(seg)
       if (!hasBlock) return <Fragment key={si}>{renderInline(seg, `${si}`)}</Fragment>
 
       const lines = seg.split('\n')
       const nodes: React.ReactNode[] = []
       let listBuf: React.ReactNode[][] = []
+      let olistBuf: React.ReactNode[][] = []
       let k = 0
 
       const flushList = () => {
@@ -2129,21 +2133,43 @@ export default function Home() {
         listBuf = []
       }
 
+      const flushOList = () => {
+        if (!olistBuf.length) return
+        nodes.push(
+          <ol key={`${si}-ol${k++}`} style={{ listStyle: 'none', padding: '0 0 0 0.5rem', margin: '0.125rem 0' }}>
+            {olistBuf.map((item, li) => (
+              <li key={li} style={{ display: 'flex', gap: '0.375rem', lineHeight: '1.5' }}>
+                <span style={{ color: 'rgb(75 85 99)', flexShrink: 0 }}>{li + 1}.</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ol>
+        )
+        olistBuf = []
+      }
+
       lines.forEach((line, li) => {
         if (line.startsWith('### ')) {
-          flushList()
+          flushList(); flushOList()
           nodes.push(<h3 key={`${si}-h3${k++}`} style={{ fontSize: '0.65rem', fontWeight: 600, color: 'rgb(107 114 128)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.375rem 0 0.125rem' }}>{renderInline(line.slice(4), `${si}-h3${li}`)}</h3>)
         } else if (line.startsWith('## ')) {
-          flushList()
+          flushList(); flushOList()
           nodes.push(<h2 key={`${si}-h2${k++}`} style={{ fontSize: '0.7rem', fontWeight: 600, color: 'rgb(156 163 175)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(3), `${si}-h2${li}`)}</h2>)
+        } else if (line.startsWith('# ')) {
+          flushList(); flushOList()
+          nodes.push(<h1 key={`${si}-h1${k++}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgb(209 213 219)', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(2), `${si}-h1${li}`)}</h1>)
         } else if (/^[*\-] /.test(line)) {
+          flushOList()
           listBuf.push(renderInline(line.slice(2), `${si}-li${li}`))
-        } else {
+        } else if (/^\d+\. /.test(line)) {
           flushList()
+          olistBuf.push(renderInline(line.replace(/^\d+\. /, ''), `${si}-oli${li}`))
+        } else {
+          flushList(); flushOList()
           nodes.push(<Fragment key={`${si}-t${k++}`}>{renderInline(line, `${si}-ln${li}`)}{li < lines.length - 1 ? '\n' : ''}</Fragment>)
         }
       })
-      flushList()
+      flushList(); flushOList()
       return <Fragment key={si}>{nodes}</Fragment>
     }
 
