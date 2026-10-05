@@ -22,6 +22,7 @@ CLI:
     m updates/repos                             # what's being watched
     m updates/poll                              # only NEW commits since last poll
 """
+import json
 import os
 import re
 import subprocess
@@ -31,6 +32,7 @@ PRIMARY = 'modc2/mod'        # the mod repo
 DEFAULT_OWNER = 'modc2'
 DEFAULT_BRANCH = 'dev'       # mod repo's default-shown branch
 APP_PORT = 50180
+X_API = os.environ.get('UPDATES_X_API', 'http://localhost:50350')  # orbit/x — holds the X account credentials
 GH_RE = re.compile(r'(?:https?://github\.com/|git@github\.com:)?([^/\s]+)/([^/\s]+?)(?:\.git)?/?$')
 
 
@@ -38,8 +40,9 @@ class Mod:
     description = ('GitHub commit-feed monitor: watch the mod repo (modc2/mod, dev branch) '
                   'and any other repos, and show recent commits flagging new ones')
 
-    def __init__(self, key='updates', state_path=None):
+    def __init__(self, key='updates', state_path=None, x_api=None):
         self.state_path = m.abspath(state_path or '~/.mod/updates/state.json')
+        self.x_api = (x_api or X_API).rstrip('/')
         self._toplevel = None
 
     # --- watchlist state ----------------------------------------------------
@@ -546,6 +549,64 @@ class Mod:
         self._save(st)
         return {'repo': repo, 'branch': branch, 'date': date, 'posted': bool(book.get(date))}
 
+    # --- the X account (via orbit/x, which owns the credentials) -------------
+
+    def _x(self, method, path, body=None):
+        """One call against the local orbit/x API. Credentials never live in
+        this module — x-api reads ~/.mod/x/credentials.json per request."""
+        import urllib.request
+        import urllib.error
+        req = urllib.request.Request(
+            self.x_api + path,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={'Content-Type': 'application/json'}, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.loads(r.read().decode() or '{}')
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f'x-api {e.code} on {path}: {e.read().decode()[:400]}') from None
+        except urllib.error.URLError as e:
+            raise RuntimeError(f'x-api unreachable at {self.x_api} ({e.reason}) — '
+                               'is orbit/x running?') from None
+
+    def x_status(self) -> dict:
+        """Is the X (Twitter) account connected and able to post? Proxies
+        orbit/x's /auth so agents can check before calling post_to_x."""
+        try:
+            auth = self._x('GET', '/auth')
+        except RuntimeError as e:
+            return {'connected': False, 'error': str(e), 'x_api': self.x_api}
+        return {'connected': True, 'x_api': self.x_api,
+                'can_read': bool(auth.get('reads')), 'can_post': bool(auth.get('writes')),
+                'auth': auth}
+
+    def post_to_x(self, date=None, repo=None, branch=None, force=False,
+                  dry_run=False, text=None) -> dict:
+        """Build the day's digest and actually tweet it from the connected X
+        account (through orbit/x). The day is marked posted only after X
+        accepts it, so once-per-day still holds. dry_run shows what would be
+        sent; text= tweets that instead of a digest (and marks nothing)."""
+        digest = text is None
+        if digest:
+            res = self.post(date=date, style='twitter', repo=repo, branch=branch,
+                            force=force, mark=False)
+            if res.get('skip'):
+                return res
+            text = res['text']
+        else:
+            res = {'style': 'twitter', 'text': text, 'chars': self._weighted_len(text, '')}
+        if dry_run:
+            return {**res, 'dry_run': True, 'sent': False}
+        sent = self._x('POST', '/posts', {'text': text})
+        out = {**res, 'sent': True, 'x': sent}
+        tweet_id = (sent.get('data') or {}).get('id') if isinstance(sent, dict) else None
+        if tweet_id:
+            out['url'] = f'https://x.com/i/status/{tweet_id}'
+        if digest:
+            self.mark_posted(res['date'], repo=res['repo'], branch=res['branch'])
+            out['marked'] = True
+        return out
+
     # --- managing the watchlist ---------------------------------------------
 
     def track(self, repo, branch=None) -> dict:
@@ -906,6 +967,16 @@ class Mod:
                 except Exception:
                     body = {}
                 try:
+                    if u.path == '/mcp':
+                        # local = a direct loopback client; anything the gateway
+                        # proxied carries X-Forwarded-For and may not tweet
+                        fwd = self.headers.get('X-Forwarded-For') or self.headers.get('X-Real-IP')
+                        local = not fwd and self.client_address[0] in (
+                            '127.0.0.1', '::1', '::ffff:127.0.0.1')
+                        resp = gov._mcp_rpc(body, local=local)
+                        if resp is None:
+                            return self._send(202, b'', 'text/plain')
+                        return self._send(200, resp)
                     if u.path == '/api/track':
                         return self._send(200, gov.track(body.get('repo'), body.get('branch')))
                     if u.path == '/api/untrack':
@@ -921,6 +992,120 @@ class Mod:
                     return self._send(500, {'error': str(e)})
 
         return H
+
+    # --- MCP server (zero-dep JSON-RPC, HTTP POST /mcp or stdio) --------------
+
+    MCP_PROTOCOL = '2025-06-18'
+    MCP_LOCAL_ONLY = {'post_to_x'}   # tweets as the owner — never over the gateway
+
+    def _mcp_tools(self) -> list:
+        S = {'type': 'string'}
+        I = {'type': 'integer'}
+        B = {'type': 'boolean'}
+        repo = {**S, 'description': 'owner/repo, a github URL, or a bare name (→ modc2/<name>)'}
+        date = {**S, 'description': "'latest', 'today', 'yesterday', or YYYY-MM-DD"}
+
+        def t(name, desc, **props):
+            return {'name': name, 'description': desc,
+                    'inputSchema': {'type': 'object', 'properties': props}}
+        return [
+            t('updates', 'Aggregated commit feed across every tracked repo, newest first, '
+              'flagging commits NEW since last look (advances markers unless mark_seen=false)',
+              n=I, repo=repo, branch=S, mark_seen=B),
+            t('poll', 'Only commits NEW since the last poll — advances markers; for cron loops', n=I),
+            t('commits', 'Recent commits for one repo+branch (local git log fallback for the checkout)',
+              repo=repo, branch=S, n=I, prefer_local=B),
+            t('repos', 'The watchlist: each tracked repo with its branch and latest commit'),
+            t('track', 'Attach a GitHub repo to the feed', repo=repo, branch=S),
+            t('untrack', 'Remove a repo from the feed', repo=repo),
+            t('set_branch', 'Change which branch a tracked repo follows', repo=repo, branch=S),
+            t('daily', 'Per-UTC-day rollup: commits, files, modules touched, and paste-ready '
+              'post text in every style', repo=repo, branch=S, days=I, n=I),
+            t('post', 'Build THE once-a-day update text without sending it anywhere '
+              '(marks the day posted unless mark=false)',
+              date=date, style={**S, 'enum': ['twitter', 'discord', 'markdown']},
+              repo=repo, branch=S, force=B, mark=B),
+            t('mark_posted', "Set or clear a day's posted flag (what makes once-per-day hold)",
+              date=date, repo=repo, branch=S, posted=B),
+            t('x_status', 'Is the X (Twitter) account connected and able to post? '
+              '(proxies the local orbit/x API, which owns the credentials)'),
+            t('post_to_x', "Build the day's digest and tweet it from the connected X account "
+              'via orbit/x; the day is marked posted only after X accepts it. '
+              'Local callers only. dry_run previews; text= tweets that instead.',
+              date=date, repo=repo, branch=S, force=B, dry_run=B,
+              text={**S, 'description': 'override: tweet this text instead of the digest'}),
+        ]
+
+    def _mcp_dispatch(self, name, args):
+        fns = {'updates': self.updates, 'poll': self.poll, 'commits': self.commits,
+               'repos': self.repos, 'track': self.track, 'untrack': self.untrack,
+               'set_branch': self.set_branch, 'daily': self.daily, 'post': self.post,
+               'mark_posted': self.mark_posted, 'x_status': self.x_status,
+               'post_to_x': self.post_to_x}
+        spec = next((x for x in self._mcp_tools() if x['name'] == name), None)
+        if spec is None:
+            raise KeyError(f'unknown tool: {name}')
+        allowed = spec['inputSchema']['properties']
+        return fns[name](**{k: v for k, v in (args or {}).items() if k in allowed})
+
+    def _mcp_rpc(self, msg: dict, local=True):
+        """Answer one MCP JSON-RPC message. Returns None for notifications.
+        `local` is False for requests that arrived through the gateway — those
+        may read everything but cannot spend the X write rail."""
+        rid = msg.get('id') if isinstance(msg, dict) else None
+        method = msg.get('method') if isinstance(msg, dict) else None
+
+        def ok(result):
+            return {'jsonrpc': '2.0', 'id': rid, 'result': result}
+
+        def err(code, text):
+            return {'jsonrpc': '2.0', 'id': rid, 'error': {'code': code, 'message': text}}
+        if isinstance(method, str) and method.startswith('notifications/'):
+            return None
+        if not method:
+            return err(-32600, 'invalid request: no method')
+        if method == 'initialize':
+            return ok({'protocolVersion': self.MCP_PROTOCOL, 'capabilities': {'tools': {}},
+                       'serverInfo': {'name': 'updates', 'version': '0.2.0'}})
+        if method == 'ping':
+            return ok({})
+        if method == 'tools/list':
+            return ok({'tools': self._mcp_tools()})
+        if method == 'tools/call':
+            params = msg.get('params') or {}
+            name = params.get('name')
+            if name in self.MCP_LOCAL_ONLY and not local:
+                return ok({'isError': True, 'content': [{'type': 'text', 'text':
+                           f'{name} is local-only: it posts as the account owner, so it '
+                           'refuses callers that arrive through the gateway'}]})
+            try:
+                res = self._mcp_dispatch(name, params.get('arguments'))
+            except KeyError as e:
+                return err(-32602, str(e).strip("'"))
+            except Exception as e:
+                return ok({'isError': True, 'content': [{'type': 'text', 'text': str(e)}]})
+            structured = res if isinstance(res, dict) else {'result': res}
+            return ok({'isError': False, 'structuredContent': structured,
+                       'content': [{'type': 'text', 'text': json.dumps(res, default=str)}]})
+        return err(-32601, f'method not found: {method}')
+
+    def mcp(self):
+        """Serve MCP over stdio (newline-delimited JSON-RPC) — for clients that
+        spawn their servers. The HTTP transport is the running app's POST /mcp."""
+        import sys
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except Exception:
+                print(json.dumps({'jsonrpc': '2.0', 'id': None,
+                                  'error': {'code': -32700, 'message': 'parse error'}}), flush=True)
+                continue
+            resp = self._mcp_rpc(msg, local=True)
+            if resp is not None:
+                print(json.dumps(resp, default=str), flush=True)
 
     # --- meta ---------------------------------------------------------------
 
