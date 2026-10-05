@@ -2,7 +2,7 @@
 
 Verifiable and distributed inference on Bittensor
 
-Bittensor subnet **2** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **2** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/inference-labs-inc/subnet-2) · [url](https://subnet2.inferencelabs.com)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/inference-labs-inc/subnet-2) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003044 | +0.00% | -0.21% | -0.27% | 17,922 | 7,711 | 14.04 |
+| 0.003039 | -0.20% | -0.16% | -0.98% | 17,915 | 7,704 | 68.32 |
 
 ## Last 24h flow
 
-22 trades by 11 coldkeys · 7 buys (2.97 τ) / 15 sells (10.81 τ) · net -7.84 τ
+45 trades by 16 coldkeys · 8 buys (31.01 τ) / 37 sells (36.42 τ) · net -5.41 τ
 
 ## News
 

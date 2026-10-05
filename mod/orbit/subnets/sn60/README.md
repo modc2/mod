@@ -2,7 +2,7 @@
 
 find and fix exploits in codebases
 
-Bittensor subnet **60** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **60** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/Bitsec-AI/sandbox) · [url](https://bitsec.ai) · discord `yubo`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/Bitsec-AI/sandbox) · [url](https://bitsec.ai
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003945 | +0.00% | -1.04% | +0.36% | 22,892 | 6,927 | 416.21 |
+| 0.003875 | +0.00% | -1.78% | -2.39% | 22,512 | 6,865 | 320.55 |
 
 ## Last 24h flow
 
-44 trades by 28 coldkeys · 18 buys (189.96 τ) / 26 sells (225.79 τ) · net -35.83 τ
+43 trades by 27 coldkeys · 18 buys (129.32 τ) / 25 sells (189.91 τ) · net -60.59 τ
 
 ## News
 

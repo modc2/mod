@@ -1,16 +1,16 @@
 # sn58 — dippy-speach خ
 
-Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006453 | +0.00% | +1.84% | +11.56% | 5,231 | 1,009 | 33.18 |
+| 0.006245 | -0.98% | -3.23% | +8.68% | 5,107 | 992.9213 | 16.41 |
 
 ## Last 24h flow
 
-9 trades by 7 coldkeys · 7 buys (21.12 τ) / 2 sells (5.05 τ) · net 16.07 τ
+10 trades by 8 coldkeys · 0 buys (0.00 τ) / 10 sells (7.42 τ) · net -7.42 τ
 
 ## Use
 

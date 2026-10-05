@@ -2,7 +2,7 @@
 
 Ormas is an Outcomes API for coding work on Bittensor subnet 76, in development. Clients post a change and the test that proves it; miners quote a firm price for the passing result and deliver a branch. Miners will be paid only when independent validators accept the delivery, and clients will be charged the accepted quote and nothing on a miss. Protocol, thin client, reference miner and reference validator: MIT.
 
-Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **76** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://ormas.ai) · discord `ormasheroncovelabs_43871`
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/heroncovelabs/ormas-subnet) · [url](https://
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005989 | -0.03% | +12.00% | -10.64% | 1,180 | 509.0476 | 88.51 |
+| 0.005600 | -0.16% | -6.48% | -14.18% | 1,144 | 492.2684 | 69.00 |
 
 ## Last 24h flow
 
-16 trades by 11 coldkeys · 13 buys (58.15 τ) / 3 sells (26.70 τ) · net 31.45 τ
+29 trades by 15 coldkeys · 11 buys (26.10 τ) / 18 sells (36.26 τ) · net -10.17 τ
 
 ## News
 
+- 2026-10-05 · commit · [sync: public_subnet @ tensorbox-spec 6cdf6088b5 — catalog 2026-10-04.…](https://github.com/heroncovelabs/ormas-subnet/commit/29acff137f8bb2238e4b07c2ce415e3f1846a606) — heroncovelabs/ormas-subnet
 - 2026-10-03 · commit · [docs: queue route, offers and limit settlement are live since gateway…](https://github.com/heroncovelabs/ormas-subnet/commit/876a546d6ed78a91c7b10dd61e06b0eaa598dacb) — heroncovelabs/ormas-subnet
 - 2026-10-03 · commit · [sync: public_subnet @ tensorbox-spec 29170e22ee — firm-or-limit offer…](https://github.com/heroncovelabs/ormas-subnet/commit/bf379667556e93ba23e65b540cbad427edc1b86a) — heroncovelabs/ormas-subnet
 - 2026-09-16 · commit · [fix(skeleton): renew through the whole lease, retry a transient compl…](https://github.com/heroncovelabs/ormas-subnet/commit/b5bd859fdcac9dbd84980a8d3779052deeb43e4a) — heroncovelabs/ormas-subnet

@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9207487,
+  "block": 9214666,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6868933.969072088,
-    "tao_in": 5488966.548949597,
-    "alpha_in": 1379967.42012249,
-    "alpha_out": 5488966.548949597,
-    "volume": 58731615.5719252,
-    "vol_24h": 21066.557970114052,
+    "market_cap": 6869626.502052771,
+    "tao_in": 5477649.432282222,
+    "alpha_in": 1391977.069770549,
+    "alpha_out": 5477649.432282222,
+    "volume": 58765502.93335125,
+    "vol_24h": 33887.36142604798,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -97,6 +97,14 @@
       "publisher": "Startup Fortune"
     },
     {
+      "ts": 1790963957,
+      "kind": "news",
+      "source": "gnews",
+      "title": "TAO Price Doubles After Bittensor Proves Distributed AI Can Compete",
+      "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxON2RQQ2lZZlpZYV9KVnl0ZTdPRXFlNlA0R3hxeDdJM1VtUHA0cm9tQ3publJTOHFkS0tjN1NwTGV0aHVNajI1TjhscVpHWUN5ZGJSRlZIblN0Unk3bFptQWttaU9iZ2NWdWRoS05OVlJGQV8zUURid19aRnk0dFdzb2xKN1kzY2VvdEFzbk5aanBQZDlJZXd1OHB4WW1pcmgwbWg1QUV4S2Q5MUpJaHc?oc=5",
+      "publisher": "CoinMarketCap"
+    },
+    {
       "ts": 1790956995,
       "kind": "news",
       "source": "gnews",
@@ -135,16 +143,8 @@
       "title": "AI News: Market Volatility, Bittensor Drama, and Malicious Router Discoveries",
       "url": "https://news.google.com/rss/articles/CBMitwFBVV95cUxPTjNYRjNwejZEYnBfdlZrcGJmVEs1eHVUMmx2bE92NTZMTDk2bnh5Q1BQbEN4SFpPYUZTbjJ0ekRJQ3VYUTBvYlZMNVB6dlgxV1hvYVRZa2tKWHFVZHFCVEJIaWJhdUVaWktkRnhXZmY3cDJqckhFT3cyYWtTSE9KVVY0LUhIcjZIbXhtZi1GbnRMSWljNk5oUkZTSlN0NVFwLUg2WlRoZWNzdjNQaU1ZUDVJdkNjOXc?oc=5",
       "publisher": "CoinMarketCap"
-    },
-    {
-      "ts": 1790780640,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor (TAO) Drops 3.1% Amid AI Token Sector Correction",
-      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE1VSWs0aUo1emRic1dONFNQb3U1VzFoZk9MNUg4eGlYODlVdGFXcTZXNHdSbDRGM2M3MVNqcDZCWWxtRURNdEdObHk0ZXd1YW1oTGZSSzhTNGlyX01keTZhQ0h1cnkzalE5dEFhTDR0U1M?oc=5",
-      "publisher": "CoinMarketCap"
     }
   ],
-  "updated": 1791092461,
-  "updated_day": "2026-10-04"
+  "updated": 1791178861,
+  "updated_day": "2026-10-05"
 }

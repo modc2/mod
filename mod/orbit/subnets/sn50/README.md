@@ -2,7 +2,7 @@
 
 Predictive intelligence for financial markets and beyond
 
-Bittensor subnet **50** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **50** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/mode-network/synth-subnet) · [url](https://synthdata.co)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/mode-network/synth-subnet) · [url](https://s
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004695 | +1.32% | +14.20% | +17.89% | 27,579 | 11,050 | 2,250 |
+| 0.004804 | -0.04% | +2.32% | +23.24% | 28,257 | 11,181 | 1,804 |
 
 ## Last 24h flow
 
-281 trades by 132 coldkeys · 134 buys (1,480 τ) / 147 sells (769.20 τ) · net 710.95 τ
+250 trades by 129 coldkeys · 138 buys (961.80 τ) / 112 sells (835.09 τ) · net 126.72 τ
 
 ## News
 

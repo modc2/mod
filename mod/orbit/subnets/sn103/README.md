@@ -1,20 +1,16 @@
-# sn103 — Capcomp Ա
+# sn103 — Deprecated Ա
 
-Capability Composition Subnet
-
-Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
-
-Links: [github](https://github.com/orgs/Capcomp-AI/repositories) · [url](http://capcomp.ai/)
+Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.000943 | +0.00% | +0.10% | -28.80% | 531.6643 | 294.7994 | 22.71 |
+| 0.000961 | +1.36% | +1.96% | -23.23% | 548.9902 | 297.6811 | 735.82 |
 
 ## Last 24h flow
 
-13 trades by 10 coldkeys · 8 buys (11.38 τ) / 5 sells (10.93 τ) · net 0.45 τ
+70 trades by 26 coldkeys · 39 buys (369.44 τ) / 31 sells (363.75 τ) · net 5.68 τ
 
 ## Use
 

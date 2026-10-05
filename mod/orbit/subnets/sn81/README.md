@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006097 | -0.05% | +1.00% | +2.58% | 33,978 | 17,915 | 523.21 |
+| 0.006087 | +0.00% | -0.17% | +11.08% | 33,965 | 17,900 | 436.78 |
 
 ## Last 24h flow
 
-70 trades by 34 coldkeys · 31 buys (306.29 τ) / 39 sells (216.31 τ) · net 89.98 τ
+54 trades by 32 coldkeys · 16 buys (210.91 τ) / 38 sells (223.17 τ) · net -12.25 τ
 
 ## News
 
-- 2026-10-03 · commit · [Merge pull request #310 from reliquadotai/design/sft-period-clock](https://github.com/reliquadotai/reliquary/commit/31371e19fd09be11a58eae1367d101ffc2b356cd) — reliquadotai/reliquary
-- 2026-10-03 · commit · [Merge pull request #311 from reliquadotai/feat/register-reliquary-sci…](https://github.com/reliquadotai/reliquary/commit/5734d639f57289300592f46c2753e2f6dbe8d101) — reliquadotai/reliquary
-- 2026-10-03 · commit · [feat(env): register reliquary-science and declare it in the Teutonic …](https://github.com/reliquadotai/reliquary/commit/421513a486a3e9074ae77777604631976d76c246) — reliquadotai/reliquary
-- 2026-10-03 · commit · [fix(corpus): period pay conserves under backlogs, crashes and late wr…](https://github.com/reliquadotai/reliquary/commit/f804c4e8609582677de3f54f405506b6d3d7bd39) — reliquadotai/reliquary
-- 2026-10-03 · commit · [docs(design): the entry period is the one after settlement](https://github.com/reliquadotai/reliquary/commit/fcf88118b18d0cf557d316c59205428610d57201) — reliquadotai/reliquary
-- 2026-10-03 · commit · [Merge pull request #309 from reliquadotai/feat/agentic-corpus-swe](https://github.com/reliquadotai/reliquary/commit/e701dbee90e2db38b666576dfa441da3d4d74fc4) — reliquadotai/reliquary
-- 2026-10-03 · commit · [Merge pull request #308 from reliquadotai/feat/eval-validator-mode](https://github.com/reliquadotai/reliquary/commit/09d68fe84106af3b8f0591e687dd119684d9af73) — reliquadotai/reliquary
-- 2026-10-03 · commit · [docs(corpus): replayed actions come from the proven tokens in production](https://github.com/reliquadotai/reliquary/commit/810aac3af9957ff7fff816401d5f3fc07db17de5) — reliquadotai/reliquary
+- 2026-10-04 · commit · [Merge pull request #314 from reliquadotai/fix/weight-only-period-time](https://github.com/reliquadotai/reliquary/commit/3ac492c9123036334756fc55bee84149e7f95073) — reliquadotai/reliquary
+- 2026-10-04 · commit · [fix(weights): import time for the period-settled replay](https://github.com/reliquadotai/reliquary/commit/17860c728bcc9c768340d7237b0b3c7cb67eb2fb) — reliquadotai/reliquary
+- 2026-10-04 · commit · [Merge pull request #313 from reliquadotai/feat/agentic-corpus-split](https://github.com/reliquadotai/reliquary/commit/8c33bbce69708ed282dab6885d2bfa4219ad597d) — reliquadotai/reliquary
+- 2026-10-04 · commit · [fix(corpus): check the replay lease on every hot add, refuse a bad pi…](https://github.com/reliquadotai/reliquary/commit/92e3a80c9f4b3181ba1f593faa8a5497113bb2cc) — reliquadotai/reliquary
+- 2026-10-04 · commit · [fix(corpus): review minors for the split episode front](https://github.com/reliquadotai/reliquary/commit/eedd75c23e3069930fe14a3b1c8cfb928628ed22) — reliquadotai/reliquary
+- 2026-10-04 · commit · [Merge pull request #312 from reliquadotai/feat/agentic-corpus-v1](https://github.com/reliquadotai/reliquary/commit/178590ae86f969e6c308d3f578953920bc193f38) — reliquadotai/reliquary
+- 2026-10-04 · commit · [test(miner): check the mine-agentic option list, not ANSI-styled help](https://github.com/reliquadotai/reliquary/commit/35247d7d8c8a781350bf02437cd01ddf55e6884d) — reliquadotai/reliquary
+- 2026-10-04 · commit · [fix(corpus): keep a voteless replay out of attempts unjudged](https://github.com/reliquadotai/reliquary/commit/40ef55b341bb8f7861e69b37894be3c545388d4d) — reliquadotai/reliquary
 
 ## Use
 

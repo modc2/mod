@@ -329,7 +329,10 @@ class Mod:
     def _api_files(self, repo: str, base: str, head: str) -> list:
         """Paths touched between two commits — one API call for a whole day."""
         data = self._api(f'/repos/{repo}/compare/{base}...{head}')
-        return [f.get('filename', '') for f in (data.get('files') or []) if f.get('filename')]
+        files = [f.get('filename', '') for f in (data.get('files') or []) if f.get('filename')]
+        if len(files) >= 300:
+            raise RuntimeError('GitHub compare returned ≥300 files — list is likely truncated; set GITHUB_TOKEN or use a local checkout for accurate module counts')
+        return files
 
     def _day_files(self, repo: str, rows: list) -> list:
         """Distinct paths a day's commits touched. Local git first (free and
@@ -1122,7 +1125,7 @@ const $ = s => document.querySelector(s);
 const BASE = location.pathname.replace(/\/+$/,'').replace(/\/index\.html$/,'');
 const api = p => BASE + p;
 let VIEW='feed', FILTER=null, INFO={}, MODS=null, MODQ='';
-let STYLE=localStorage.getItem('updates.style')||'twitter', DAYS=7, DAILY=null;
+let STYLE=localStorage.getItem('updates.style')||'twitter', DAYS=7, DAILY=null, DAILY_REPO=null;
 const STYLES={twitter:{label:'X / Twitter',limit:280},discord:{label:'Discord',limit:2000},markdown:{label:'Plain',limit:0}};
 
 // branch glyph as inline SVG: this box (and plenty of others) ships no font
@@ -1178,6 +1181,10 @@ function renderActions(){
       `</div>
       <select id="dsel" class="btn" onchange="DAYS=+this.value;loadDaily()">
         ${[7,14,30].map(d=>`<option value="${d}" ${DAYS===d?'selected':''}>last ${d} days</option>`).join('')}
+      </select>
+      <select id="drsel" class="btn" onchange="DAILY_REPO=this.value||null;DAILY=null;loadDaily()">
+        <option value="" ${!DAILY_REPO?'selected':''}>primary</option>
+        ${TRACKING.map(r=>`<option value="${esc(r)}" ${DAILY_REPO===r?'selected':''}>${esc(r)}</option>`).join('')}
       </select>
       <button class="btn primary" onclick="loadDaily()" title="refresh">${I.ref}</button>`;
   } else {
@@ -1273,7 +1280,7 @@ function setStyle(k){ STYLE=k; localStorage.setItem('updates.style',k); renderAc
 async function loadDaily(){
   $('#days').innerHTML='<div class="skeleton" style="height:180px"></div><div class="skeleton" style="height:180px"></div>';
   try{
-    const r=await fetch(api(`/api/daily?days=${DAYS}&n=400`));
+    const r=await fetch(api(`/api/daily?days=${DAYS}&n=400`+(DAILY_REPO?'&repo='+encodeURIComponent(DAILY_REPO):'')));
     DAILY=await r.json();
     renderDaily();
   }catch(e){ $('#days').innerHTML=`<div class="err">${esc(''+e)}</div>`; }

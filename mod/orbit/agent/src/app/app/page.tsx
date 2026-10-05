@@ -385,6 +385,8 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const [atBottom, setAtBottom] = useState(true)
   let taskId = useRef(0)
   // abort handle for the in-flight run (Stop button)
   const abortRef = useRef<AbortController | null>(null)
@@ -1648,8 +1650,19 @@ export default function Home() {
   }, [loading])
 
   useEffect(() => {
+    setAtBottom(true)
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [tasks, selectedTask])
+  }, [selectedTask])
+
+  useEffect(() => {
+    if (atBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [tasks])
+
+  const handleTranscriptScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+  }, [])
 
   // the composer grows with its content (up to ~a third of the screen) —
   // "adjustable" without a second drag handle
@@ -3644,7 +3657,8 @@ export default function Home() {
 
   // --- Transcript — the console body: the run's messages, its tool trace, or the agent roster ---
   const transcript = (
-    <div className="h-full overflow-y-auto min-h-0">
+    <div className="h-full min-h-0 relative">
+    <div ref={scrollContainerRef} onScroll={handleTranscriptScroll} className="h-full overflow-y-auto min-h-0">
       {activeTab === 'tools' ? toolTrace : activeTab === 'memory' ? (
         <MemoryPanel token={auth?.token} session={sessionId()} memSel={memSel} onToggleMem={toggleNote}
           onNotesChanged={() => { fetchLibrary(); libChanged() }} />
@@ -3806,7 +3820,7 @@ export default function Home() {
             const agentTag = msg.role === 'user' ? (msg.agent || legacyTag?.[1] || null) : null
             const bodyText = legacyTag ? msg.text.slice(legacyTag[0].length) : msg.text
             return (
-            <div key={i} className={`${msg.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-full'}`}>
+            <div key={i} className={`group ${msg.role === 'user' ? 'ml-auto max-w-[85%]' : 'max-w-full'}`}>
               <div className={`rounded-lg px-3 py-2.5 msg-in ${
                 msg.role === 'user' ? 'bg-emerald-500/10 border border-emerald-500/20' :
                 msg.role === 'system' ? notice ? 'bg-white/[0.02] border border-white/[0.07]'
@@ -3819,6 +3833,17 @@ export default function Home() {
                     <span className="text-xs text-gray-500">{msg.role}</span>
                     {agentTag && (
                       <span className="text-[10px] text-emerald-400/60 font-mono truncate max-w-[16rem]" title={`sent to ${agentTag}`}>→ {agentTag}</span>
+                    )}
+                    {msg.role === 'agent' && !msg.live && msg.text && (
+                      <button
+                        onClick={() => copy(msg.text)}
+                        title="Copy message text"
+                        className="ml-auto opacity-0 group-hover:opacity-100 transition text-gray-600 hover:text-gray-300"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                        </svg>
+                      </button>
                     )}
                   </div>
                 )}
@@ -3925,6 +3950,15 @@ export default function Home() {
           <div ref={bottomRef} />
         </div>
       )}
+    </div>
+    {!atBottom && (
+      <button
+        onClick={() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); setAtBottom(true) }}
+        className="absolute bottom-4 right-4 z-10 text-[10px] text-emerald-300 border border-emerald-500/25 bg-black/60 rounded-full px-2 py-0.5"
+      >
+        ↓
+      </button>
+    )}
     </div>
   )
 

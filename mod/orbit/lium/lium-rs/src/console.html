@@ -797,6 +797,8 @@ async function loadPods(){
         </div>
         ${p.ssh ? `<div class="cmd"><code title="${esc(p.ssh)}">${esc(p.ssh)}</code><button class="btn sm" data-copy="${esc(p.ssh)}">${icon('copy')}Copy</button></div>`
                 : `<div class="cmd"><code class="mut" style="color:var(--dim)">SSH login appears once the pod is running…</code></div>`}
+        ${p.jupyter_url ? `<div class="cmd"><code title="${esc(p.jupyter_url)}">${esc(p.jupyter_url)}</code><a class="btn sm" href="${esc(p.jupyter_url)}" target="_blank" rel="noopener noreferrer">Open</a><button class="btn sm" data-copy="${esc(p.jupyter_url)}">${icon('copy')}Copy</button></div>` : ''}
+        ${(() => { const pm = p.ports; if (!pm || typeof pm !== 'object') return ''; return (Array.isArray(pm) ? pm.map((e, i) => [String(i), String(e)]) : Object.entries(pm)).map(([k, v]) => { const label = `${k} → ${v}`; return `<div class="cmd"><code>${esc(label)}</code><button class="btn sm" data-copy="${esc(label)}">${icon('copy')}Copy</button></div>`; }).join(''); })()}
         <pre hidden></pre>
       </div>`;
     }).join('');
@@ -821,11 +823,12 @@ async function loadPods(){
       card.querySelector('[data-down]').onclick = async () => {
         if (await ask(`Stop ${name}?`, 'The rental ends and the machine is wiped. Billing stops right away. This cannot be undone.', 'Stop pod')) act('down', { pod_id: id }, 'stopping');
       };
-      const cp = card.querySelector('[data-copy]');
-      if (cp) cp.onclick = async () => {
-        try { await navigator.clipboard.writeText(cp.dataset.copy); toast('SSH command copied'); }
-        catch { toast('Copy failed — select the text instead'); }
-      };
+      card.querySelectorAll('[data-copy]').forEach((cp) => {
+        cp.onclick = async () => {
+          try { await navigator.clipboard.writeText(cp.dataset.copy); toast('Copied'); }
+          catch { toast('Copy failed — select the text instead'); }
+        };
+      });
       const saved = openLogs.get(id);
       if (saved) {
         out.textContent = saved.content; out.dataset.k = saved.k; out.hidden = false;

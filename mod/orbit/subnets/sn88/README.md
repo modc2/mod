@@ -2,7 +2,7 @@
 
 Decentralized AUM
 
-Bittensor subnet **88** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **88** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/mobiusfund/investing) · [url](https://Investing88.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/mobiusfund/investing) · [url](https://Invest
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002829 | +0.08% | +0.59% | -5.35% | 15,223 | 5,966 | 201.09 |
+| 0.002869 | -0.50% | +1.41% | -3.96% | 15,460 | 6,008 | 160.70 |
 
 ## Last 24h flow
 
-44 trades by 30 coldkeys · 22 buys (109.34 τ) / 22 sells (91.42 τ) · net 17.92 τ
+45 trades by 32 coldkeys · 16 buys (101.34 τ) / 29 sells (58.21 τ) · net 43.13 τ
 
 ## News
 

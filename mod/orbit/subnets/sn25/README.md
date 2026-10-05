@@ -2,7 +2,7 @@
 
 The peer to peer privacy network and encryption layer for the internet
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006689 | +0.00% | -0.71% | -0.29% | 40,782 | 13,222 | 247.02 |
+| 0.006845 | -0.61% | +2.33% | -1.23% | 41,783 | 13,376 | 1,786 |
 
 ## Last 24h flow
 
-27 trades by 20 coldkeys · 14 buys (99.76 τ) / 13 sells (146.64 τ) · net -46.88 τ
+89 trades by 45 coldkeys · 48 buys (970.12 τ) / 41 sells (814.17 τ) · net 155.95 τ
 
 ## News
 
-- 2026-10-04 · commit · [Publish qualified Core recovery fix and retain final consumer gate](https://github.com/urfoundation/sn/commit/6b4cccf57f756cf33ce4448625decdab135ae767) — urfoundation/sn
-- 2026-10-04 · commit · [Record parallel mainnet critical-path qualification and successors](https://github.com/urfoundation/sn/commit/5fcad09cffbf2db9819486f55da03fd9fa57d7d2) — urfoundation/sn
-- 2026-10-04 · commit · [Retain Core preflight and reviewed concurrent qualification guards](https://github.com/urfoundation/sn/commit/d05416969a7f63fffdfdd1886480f6c71b7502a0) — urfoundation/sn
-- 2026-10-04 · commit · [Record normal model outcomes and exact combined release gaps](https://github.com/urfoundation/sn/commit/22983ee47c44e4ba3740518bfcfeafa65adb0e6b) — urfoundation/sn
-- 2026-10-04 · commit · [Track bounded error traversal and companion accounting lessons](https://github.com/urfoundation/sn/commit/403d1e90cb0af84f531857cef5d7cd16988433f8) — urfoundation/sn
-- 2026-10-03 · commit · [docs(mainnet): retain expanded model failure batch and grant lessons](https://github.com/urfoundation/sn/commit/8f87548e993650f255a0740f0fff1592d323fb05) — urfoundation/sn
-- 2026-10-03 · commit · [docs(mainnet): bind startup and foreground hardening review](https://github.com/urfoundation/sn/commit/76ca9390d5f6d1c3fbeef49d57f18865d88d92b8) — urfoundation/sn
-- 2026-10-03 · commit · [docs(mainnet): retain final Claim source qualification scope](https://github.com/urfoundation/sn/commit/3a82938ed4cb3b57e3f7cad57d86971236125fd2) — urfoundation/sn
+- 2026-10-05 · commit · [docs: retain adopted metadata and alert qualification admissions](https://github.com/urfoundation/sn/commit/f8488151a7e4bce9090ef78e7b81744253730883) — urfoundation/sn
+- 2026-10-05 · commit · [docs: record source hardening lessons and remaining launch gates](https://github.com/urfoundation/sn/commit/9fe09ce49455cad2bce0c3c04f39b447f55da321) — urfoundation/sn
+- 2026-10-05 · commit · [Record corrected monitor build and database qualification admissions](https://github.com/urfoundation/sn/commit/02eabd9f7a5a8df6f31a4b0af519e1a49604a6ab) — urfoundation/sn
+- 2026-10-05 · commit · [Retain monitor fixture correction qualification admissions](https://github.com/urfoundation/sn/commit/62620e46e52d8b2a739513812e5e7f08593b60a5) — urfoundation/sn
+- 2026-10-05 · commit · [docs: reconcile exact owner funding and model qualification](https://github.com/urfoundation/sn/commit/644c0fad852b9f342e4fa8fc917924d6ed09543b) — urfoundation/sn
+- 2026-10-04 · commit · [Link exact source checkpoint and admit compiler beside retained history](https://github.com/urfoundation/sn/commit/2a23c4b3c1b72c8f41e7e8725e36bf418a00c1b4) — urfoundation/sn
+- 2026-10-04 · commit · [Reconcile mainnet requirements with exact source and qualification ev…](https://github.com/urfoundation/sn/commit/5703417f87344210b24497a7b5ea57d71c6f5e74) — urfoundation/sn
+- 2026-10-04 · commit · [Scope prebuilt model qualification alongside retained history bodies](https://github.com/urfoundation/sn/commit/d1a0e24d96e3384efbc412b94868f6519a80de82) — urfoundation/sn
 
 ## Use
 

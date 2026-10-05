@@ -2,7 +2,7 @@
 
 Incentivized Compute Marketplace powered by the Targon Virtual Machine (TVM).
 
-Bittensor subnet **4** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **4** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/manifold-inc/targon) · [url](https://targon.com)
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `targon`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.051527 | -0.00% | -0.03% | -3.86% | 328,137 | 133,152 | 1,095 |
+| 0.051513 | -0.02% | -0.03% | -3.82% | 328,472 | 133,185 | 539.87 |
 
 ## Last 24h flow
 
-191 trades by 103 coldkeys · 89 buys (321.07 τ) / 102 sells (552.96 τ) · net -231.89 τ
+120 trades by 81 coldkeys · 41 buys (64.88 τ) / 79 sells (262.23 τ) · net -197.34 τ
 
 ## News
 

@@ -1,13 +1,13 @@
 {
   "name": "sn116",
   "version": "1.0.0",
-  "description": "SN116 for sale — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN116 Carbon — Transforming engineering simulation through Machine Learning. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "ъ",
   "chain": "bittensor",
   "netuid": 116,
-  "subnet": "for sale",
+  "subnet": "Carbon",
   "symbol": "ъ",
-  "owner": "5F48aA3Pw1vFRfnhhfu7EJKqzrj8y9VBWtS4PE9xJ1chHXqB",
+  "owner": "5D5RwyMPFaKLwChEcfb5yPA6VENHxJBagcHkP5aztfg8Ynj9",
   "github": null,
   "url": null,
   "discord": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-04",
+  "updated": "2026-10-05",
   "urls": {
     "bt": "/bt/markets?sn=116",
     "news": "/bt/news?netuid=116"
@@ -34,5 +34,14 @@
     "snapshot",
     "readme",
     "refresh"
+  ],
+  "previous": [
+    {
+      "subnet": "for sale",
+      "owner": "5F48aA3Pw1vFRfnhhfu7EJKqzrj8y9VBWtS4PE9xJ1chHXqB",
+      "github": null,
+      "url": null,
+      "updated": "2026-10-04"
+    }
   ]
 }

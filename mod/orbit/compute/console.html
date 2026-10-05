@@ -502,6 +502,7 @@
        cursor:pointer;text-align:left;color:var(--ink);font:inherit;display:flex;flex-direction:column;gap:2px}
   .ixc:hover{box-shadow:inset 0 0 0 2px var(--inset),0 3px 0 var(--edge)}
   .ixc.on{box-shadow:inset 0 0 0 2px var(--gold),0 3px 0 var(--edge)}
+  .ixc.active{box-shadow:inset 0 0 0 2px var(--hot),0 3px 0 var(--edge)}
   .ixc .m{font:9px/1.6 var(--px);color:var(--gold)}
   .ixc .v{font-size:15px;font-weight:600}
   .ixc .d{font-size:10px;display:flex;justify-content:space-between;color:var(--faint)}
@@ -1968,7 +1969,7 @@ async function stop(id) {
 // ── oracle: the price prediction game ──
 // The player's name and key live in this browser only; the server keeps a hash.
 const OP = 'compute_oracle_player';
-let O = null, OSEL = null, OHZ = '24h', ODET = null;
+let O = null, OSEL = null, OHZ = '24h', ODET = null, OMYCALLS = [];
 const me = () => { try { return JSON.parse(localStorage.getItem(OP) || '{}') } catch { return {} } };
 const opct = v => v == null ? '-' : (v > 0 ? '+' : '') + Number(v).toFixed(1) + '%';
 const until = t => { const s = t - Date.now()/1000; if (s <= 0) return 'due';
@@ -1981,6 +1982,8 @@ async function oracle() {
   document.getElementById('o-player').value = p.player || '';
   try {
     O = await call('/oracle');
+    const mp = me().player;
+    if (mp) try { const mc = await call('/oracle/calls?player=' + encodeURIComponent(mp) + '&state=open&limit=200'); OMYCALLS = mc.calls || [] } catch { OMYCALLS = [] }
     f.textContent = O.ticker.last_error ? 'ticker: ' + O.ticker.last_error : '';
     const secLeft = O.ticker.next ? Math.round(O.ticker.next - Date.now() / 1000) : null;
     const el = document.getElementById('o-tick-next');
@@ -2017,8 +2020,10 @@ function spark(pts) {
 }
 
 function drawIx() {
-  document.getElementById('o-ix').innerHTML = O.series.map(s => `
-    <button class="ixc ${s.series === OSEL ? 'on' : ''}" onclick="oraclePick('${s.series}')"
+  document.getElementById('o-ix').innerHTML = O.series.map(s => {
+    const called = OMYCALLS.some(c => c.series === s.series && c.horizon === OHZ);
+    return `
+    <button class="ixc ${s.series === OSEL ? 'on' : ''}${called ? ' active' : ''}" onclick="oraclePick('${s.series}')"
             title="${esc((s.meta.markets || []).join(', '))}">
       <span class="m">${esc(s.model)}</span>
       <span class="v">${per(s.value)}<span class="faint" style="font-size:10px">/hr</span></span>
@@ -2026,7 +2031,8 @@ function drawIx() {
         ${s.change_24h_pct == null ? 'new' : opct(s.change_24h_pct) + ' 24h'}</span>
         <span>${s.meta.offers || 0} offers</span></span>
       ${spark(s.spark)}
-    </button>`).join('');
+    </button>`;
+  }).join('');
 }
 
 async function oraclePick(series, quiet) {
@@ -2046,6 +2052,7 @@ async function oraclePick(series, quiet) {
 
 function oracleHz(h) {
   OHZ = h; document.querySelectorAll('#o-hz button').forEach(b => b.classList.toggle('on', b.textContent === h));
+  if (O) drawIx();
   if (ODET) { drawChart(); drawCalls(); syncCallForm(); }
 }
 
@@ -2207,7 +2214,7 @@ async function oracleCall() {
       value: Number(document.getElementById('o-val').value), note: document.getElementById('o-note').value || null});
     f.textContent = `called ${per(c.value)} for ${c.series.split(':')[1].toUpperCase()} in ${c.horizon} - scored in ${until(c.target)}`;
     document.getElementById('o-note').value = '';
-    blip('coin'); oraclePick(OSEL, true); oracleBoard();
+    OMYCALLS.push(c); drawIx(); blip('coin'); oraclePick(OSEL, true); oracleBoard();
   } catch (e) {
     if (/wrong key/.test(e.message)) { localStorage.removeItem(OP); keyIn.style.display = '' }
     f.textContent = e.message; blip('bad');

@@ -2,7 +2,7 @@
 
 Decentralized bandwidth. A global network. Powering the open internet.
 
-Bittensor subnet **105** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-04 (block 9207487).
+Bittensor subnet **105** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
 
 Links: [github](https://github.com/orgs/Beam-Network/repositories) · [url](https://b1m.ai) · [discord](https://discord.com/channels/799672011265015819/1437473346026475702)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/orgs/Beam-Network/repositories) · [url](http
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006641 | +0.11% | +0.10% | +37.91% | 20,214 | 5,256 | 988.50 |
+| 0.006051 | +1.85% | -8.89% | +2.47% | 18,471 | 5,027 | 1,228 |
 
 ## Last 24h flow
 
-183 trades by 96 coldkeys · 84 buys (495.41 τ) / 99 sells (490.58 τ) · net 4.83 τ
+223 trades by 100 coldkeys · 89 buys (494.26 τ) / 134 sells (729.20 τ) · net -234.94 τ
 
 ## Use
 

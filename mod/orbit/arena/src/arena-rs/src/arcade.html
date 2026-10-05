@@ -210,7 +210,7 @@
     catch (e) { d = { players: [] }; }
     const sel = $("player");
     sel.innerHTML = "";
-    for (const p of d.players || []) {
+    for (const p of (d.players || []).filter(p => p.kind !== 'human')) {
       const o = document.createElement("option");
       o.value = p.id;
       o.textContent = `${p.name} · ${p.kind}`;
