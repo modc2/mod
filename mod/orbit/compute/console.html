@@ -728,7 +728,8 @@
       <div class="body" style="padding:0">
         <table><thead><tr><th>#</th><th>player</th><th title="mean points per scored call">score</th>
           <th title="scored / open">calls</th><th title="mean abs % error">err</th>
-          <th title="% of calls closer than 'nothing changes'">beat naive</th></tr></thead>
+          <th title="% of calls closer than 'nothing changes'">beat naive</th>
+          <th title="% of calls where price direction was called correctly">dir</th></tr></thead>
           <tbody id="o-board"></tbody></table>
       </div>
     </div>
@@ -2144,7 +2145,8 @@ function drawCalls() {
     <td class="price">${per(c.value)}</td><td class="dimtxt">${per(c.base)}</td>
     <td>${c.actual == null ? '<span class="faint">-</span>' : per(c.actual)}</td>
     <td>${c.points == null ? '<span class="faint">-</span>' : `<span class="pts">${Math.round(c.points)}</span>` +
-      (c.beat_naive ? ' <span class="hotv" title="closer than nothing-changes">+</span>' : '')}</td>
+      (c.beat_naive ? ' <span class="hotv" title="closer than nothing-changes">+</span>' : '') +
+      (c.direction_ok === 1 ? ' <span class="hotv" title="direction correct">&#9650;</span>' : c.direction_ok === 0 ? ' <span class="badv" title="direction wrong">&#9660;</span>' : '')}</td>
     <td class="dimtxt">${c.state === 'open' ? until(c.target) : c.state}</td></tr>`).join('') ||
     '<tr><td colspan="8" class="dimtxt">no calls yet - be first</td></tr>';
 }
@@ -2163,7 +2165,8 @@ async function oracleBoard() {
     <td class="dimtxt">${r.n} / ${r.open}</td>
     <td class="dimtxt">${r.mape == null ? '-' : r.mape.toFixed(1) + '%'}</td>
     <td class="${(r.beat || 0) >= 50 ? 'hotv' : 'dimtxt'}">${r.beat == null ? '-' : r.beat.toFixed(0) + '%'}</td>
-  </tr>`).join('') || '<tr><td colspan="6" class="dimtxt">nobody has been scored yet - the first ' +
+    <td class="${(r.hit || 0) >= 50 ? 'hotv' : 'dimtxt'}">${r.hit == null ? '-' : r.hit.toFixed(0) + '%'}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="dimtxt">nobody has been scored yet - the first ' +
     '1h calls resolve an hour after they are made</td></tr>';
 }
 

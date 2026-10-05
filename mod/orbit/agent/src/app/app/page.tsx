@@ -2082,7 +2082,7 @@ export default function Home() {
 
   // markdown-lite: render ``` fences, `inline code`, **bold**, *italic*, ## headings, bullet lists
   const renderText = (text: string) => {
-    const hasAny = text.includes('`') || text.includes('\n> ') || text.startsWith('> ') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text)
+    const hasAny = text.includes('`') || text.includes('\n> ') || text.startsWith('> ') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text) || /^\|/m.test(text)
     if (!hasAny) return text
 
     // inline pass: **bold**, *italic*, `code` within a single string
@@ -2109,7 +2109,7 @@ export default function Home() {
 
     // per-segment renderer: headings, bullet lists, then inline
     const renderSeg = (seg: string, si: number) => {
-      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. |^> /m.test(seg)
+      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. |^> |^\|/m.test(seg)
       if (!hasBlock) return <Fragment key={si}>{renderInline(seg, `${si}`)}</Fragment>
 
       const lines = seg.split('\n')
@@ -2161,31 +2161,75 @@ export default function Home() {
         quoteBuf = []
       }
 
+      let tableBuf: string[] = []
+
+      const flushTable = () => {
+        if (!tableBuf.length) return
+        const rows = tableBuf.map(line => line.split('|').slice(1, -1).map(c => c.trim()))
+        const sepIdx = rows.findIndex(cells => cells.length > 0 && cells.every(c => /^[\s\-:]+$/.test(c)))
+        const headerRows = sepIdx >= 0 ? rows.slice(0, sepIdx) : []
+        const bodyRows = sepIdx >= 0 ? rows.slice(sepIdx + 1) : rows
+        nodes.push(
+          <div key={`${si}-tbl${k++}`} style={{ overflowX: 'auto', margin: '0.25rem 0' }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: '0.75rem', width: '100%' }}>
+              {headerRows.length > 0 && (
+                <thead>
+                  {headerRows.map((cells, ri) => (
+                    <tr key={ri}>
+                      {cells.map((cell, ci) => (
+                        <th key={ci} style={{ padding: '0.2rem 0.5rem', border: '1px solid rgba(255,255,255,0.08)', color: 'rgb(209 213 219)', fontWeight: 500, textAlign: 'left' }}>
+                          {renderInline(cell, `${si}-th${ri}-${ci}`)}
+                        </th>
+                      ))}
+                    </tr>
+                  ))}
+                </thead>
+              )}
+              <tbody>
+                {bodyRows.map((cells, ri) => (
+                  <tr key={ri}>
+                    {cells.map((cell, ci) => (
+                      <td key={ci} style={{ padding: '0.2rem 0.5rem', border: '1px solid rgba(255,255,255,0.08)', color: 'rgb(156 163 175)' }}>
+                        {renderInline(cell, `${si}-td${ri}-${ci}`)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+        tableBuf = []
+      }
+
       lines.forEach((line, li) => {
         if (line.startsWith('### ')) {
-          flushList(); flushOList()
+          flushList(); flushOList(); flushTable()
           nodes.push(<h3 key={`${si}-h3${k++}`} style={{ fontSize: '0.65rem', fontWeight: 600, color: 'rgb(107 114 128)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.375rem 0 0.125rem' }}>{renderInline(line.slice(4), `${si}-h3${li}`)}</h3>)
         } else if (line.startsWith('## ')) {
-          flushList(); flushOList()
+          flushList(); flushOList(); flushTable()
           nodes.push(<h2 key={`${si}-h2${k++}`} style={{ fontSize: '0.7rem', fontWeight: 600, color: 'rgb(156 163 175)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(3), `${si}-h2${li}`)}</h2>)
         } else if (line.startsWith('# ')) {
-          flushList(); flushOList()
+          flushList(); flushOList(); flushTable()
           nodes.push(<h1 key={`${si}-h1${k++}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgb(209 213 219)', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(2), `${si}-h1${li}`)}</h1>)
         } else if (/^[*\-] /.test(line)) {
-          flushOList()
+          flushOList(); flushTable()
           listBuf.push(renderInline(line.slice(2), `${si}-li${li}`))
         } else if (/^\d+\. /.test(line)) {
-          flushList()
+          flushList(); flushTable()
           olistBuf.push(renderInline(line.replace(/^\d+\. /, ''), `${si}-oli${li}`))
         } else if (line.startsWith('> ')) {
-          flushList(); flushOList()
+          flushList(); flushOList(); flushTable()
           quoteBuf.push(renderInline(line.slice(2), `${si}-bq${li}`))
-        } else {
+        } else if (/^\s*\|/.test(line)) {
           flushList(); flushOList(); flushQuote()
+          tableBuf.push(line)
+        } else {
+          flushList(); flushOList(); flushQuote(); flushTable()
           nodes.push(<Fragment key={`${si}-t${k++}`}>{renderInline(line, `${si}-ln${li}`)}{li < lines.length - 1 ? '\n' : ''}</Fragment>)
         }
       })
-      flushList(); flushOList(); flushQuote()
+      flushList(); flushOList(); flushQuote(); flushTable()
       return <Fragment key={si}>{nodes}</Fragment>
     }
 
@@ -3909,7 +3953,8 @@ export default function Home() {
   }
   const visibleChats = tasks.filter(t => {
     const s = chatSearch.trim().toLowerCase()
-    return !s || t.query.toLowerCase().includes(s)
+    return !s || t.query.toLowerCase().includes(s) ||
+      t.messages.some(m => m.role === 'agent' && !m.live && m.text.toLowerCase().includes(s))
   })
 
   const chatRow = (t: TaskEntry) => (

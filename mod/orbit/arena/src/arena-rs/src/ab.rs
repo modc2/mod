@@ -284,7 +284,7 @@ pub async fn start(args: &Value) -> Result<Value, String> {
     let mut games: Vec<(String, String)> = Vec::new();
     if asked.is_empty() {
         let mut all = store::read(|st| {
-            st.module_list().iter().filter(|m| m.role == "game")
+            st.module_list().iter().filter(|m| m.role == "game" && m.superseded.is_empty())
                 .map(|m| (m.id.clone(), m.name.clone(), m.runs)).collect::<Vec<_>>()
         });
         all.sort_by_key(|(_, _, runs)| std::cmp::Reverse(*runs));

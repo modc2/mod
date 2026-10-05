@@ -1270,6 +1270,7 @@ pub fn arcade(args: &Value) -> Result<Value, String> {
             s.modules
                 .values()
                 .filter(|m| m.role == "game")
+                .filter(|m| m.superseded.is_empty())
                 .map(|m| {
                     let rows = arcade_rows(&s.players, &s.matches, &m.id);
                     let mut v = json!({ "id": m.id, "name": m.name, "runs": m.runs, "players": rows.len() });

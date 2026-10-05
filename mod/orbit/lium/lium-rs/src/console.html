@@ -722,6 +722,7 @@ $('r_go').onclick = async () => {
   $('r_go').disabled = true; $('r_go').textContent = 'Renting…';
   try {
     await tool('up', args);
+    if (pub) tool('add_ssh_key', { public_key: pub, name: 'default' }).catch(() => {});
     $('r_form').hidden = true; $('r_go').hidden = true; $('r_close').textContent = 'Close';
     $('r_out').innerHTML = `<div class="note ok">Rented. Your pod is starting — it takes a minute or two, then its SSH login shows up under My pods.</div>
       <div class="acts" style="justify-content:flex-start"><button class="btn pri sm" id="r_topods">Go to My pods</button></div>`;
@@ -742,6 +743,15 @@ function since(t){
   const h = (Date.now() - Date.parse(t)) / 36e5;
   if (!isFinite(h)) return '';
   return h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} days`;
+}
+function until(t){
+  if (!t) return '';
+  const h = (Date.parse(t) - Date.now()) / 36e5;
+  if (!isFinite(h)) return '';
+  if (h <= 0) return '<span class="tag err">stopping…</span>';
+  const hf = Math.floor(h), m = Math.round((h - hf) * 60);
+  const label = h < 1 ? `${Math.max(1, Math.round(h * 60))}m` : h < 48 ? `${hf}h ${m}m` : `${Math.round(h / 24)} days`;
+  return `<span class="tag warn">stops in ${label}</span>`;
 }
 async function loadPods(){
   clearInterval(podPoll); podPoll = null; $('p_poll').style.display = 'none';
@@ -778,7 +788,7 @@ async function loadPods(){
           <span class="dot ${st}"></span>
           <div><h3>${esc(p.name || 'pod')}</h3>
             <div class="sub">${esc(gpuName(p.gpu))} ×${p.gpu_count ?? '?'} · ${money(p.price_per_hr)}/hr · <span class="tag ${st}">${esc((p.status || '—').toLowerCase())}</span>
-            ${p.created_at ? ` · ${icon('clock', 'width:12px;height:12px;vertical-align:-2px')} ${since(p.created_at)}${/RUNNING/i.test(p.status) && p.price_per_hr != null ? ` · ~${money((Date.now() - Date.parse(p.created_at)) / 36e5 * Number(p.price_per_hr))} spent` : ''}` : ''}</div></div>
+            ${p.created_at ? ` · ${icon('clock', 'width:12px;height:12px;vertical-align:-2px')} ${since(p.created_at)}${/RUNNING/i.test(p.status) && p.price_per_hr != null ? ` · ~${money((Date.now() - Date.parse(p.created_at)) / 36e5 * Number(p.price_per_hr))} spent` : ''}` : ''}${p.removal_scheduled_at ? ` · ${until(p.removal_scheduled_at)}` : ''}</div></div>
           <div class="acts">
             <button class="btn sm" data-logs>Logs</button>
             <button class="btn sm" data-reboot>Reboot</button>

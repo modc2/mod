@@ -211,7 +211,7 @@ class Mod:
             targets = list(st['repos'])
             br = {r: (st['repos'][r].get('branch') or self._branch_of(r)) for r in targets}
 
-        feed, errors, newest = [], {}, {}
+        feed, errors = [], {}
         per = max(1, n if len(targets) == 1 else min(n, 15))
         for r in targets:
             try:
@@ -220,8 +220,6 @@ class Mod:
                 errors[r] = str(e)
                 continue
             seen = (st['repos'].get(r) or {}).get('last_seen')
-            if cs:
-                newest[r] = cs[0]['full_sha']
             for c in cs:
                 feed.append(dict(c, new=self._is_new(cs, seen, c)))
 
@@ -345,10 +343,7 @@ class Mod:
             except Exception:
                 pass
         base = rows[0].get('parent') or shas[0]
-        try:
-            return sorted(set(self._api_files(repo, base, shas[-1])))
-        except Exception:
-            return []
+        return sorted(set(self._api_files(repo, base, shas[-1])))
 
     def daily(self, repo=None, branch=None, days=7, n=200, files=True) -> dict:
         """Roll a branch's commits up into ONE entry per calendar day (UTC),
@@ -366,7 +361,12 @@ class Mod:
         out = []
         for day in sorted(buckets, reverse=True)[:int(days)]:
             rows = sorted(buckets[day], key=lambda c: c.get('date', ''))   # oldest → newest
-            paths = self._day_files(repo, rows) if files else []
+            files_error = None
+            try:
+                paths = self._day_files(repo, rows) if files else []
+            except Exception as e:
+                paths = []
+                files_error = str(e)
             counts = {}
             for p in paths:
                 mod_name = self._module_of(p)
@@ -385,6 +385,7 @@ class Mod:
                 'shas': [c['sha'] for c in rows][::-1],
                 'url': f'https://github.com/{repo}/commits/{branch}',
                 'posted': bool(posted.get(day)),
+                **({'files_error': files_error} if files_error else {}),
             }
             entry['post'] = {s: self._render(entry, s) for s in ('twitter', 'discord', 'markdown')}
             entry['chars'] = {s: self._weighted_len(entry['post'][s], entry['url'])
@@ -543,9 +544,11 @@ class Mod:
     # --- managing the watchlist ---------------------------------------------
 
     def track(self, repo, branch=None) -> dict:
-        """Attach a GitHub repo to the feed. `repo` may be owner/repo, a github
-        URL, or (for modc2) a bare name. Branch defaults to the repo's default
-        branch (dev for the mod repo)."""
+        """Attach a GitHub repo to the feed. `repo` may be owner/repo[@branch],
+        a github URL, or (for modc2) a bare name. Branch defaults to the repo's
+        default branch (dev for the mod repo)."""
+        if branch is None and isinstance(repo, str) and '@' in repo.split('/')[-1]:
+            repo, branch = repo.rsplit('@', 1)
         repo = self._parse_repo(repo)
         branch = branch or self._branch_of(repo)
         st = self._load()
@@ -1161,7 +1164,7 @@ function setView(v){
 function renderActions(){
   const el=$('#actions');
   if(VIEW==='feed'){
-    el.innerHTML = `<input id="add" placeholder="track owner/repo or github URL"/>
+    el.innerHTML = `<input id="add" placeholder="track owner/repo[@branch] or github URL"/>
       <button class="btn" onclick="track()">+ track</button>
       <button class="btn ghost" onclick="markRead()" title="mark all commits seen">mark read</button>
       <button class="btn primary" onclick="loadFeed()" title="refresh">${I.ref}</button>`;
@@ -1298,8 +1301,10 @@ function renderDaily(){
         <span class="grow"></span>
         <span class="chip ${d.posted?'posted':'pending'}">${d.posted?'POSTED':'TO POST'}</span>
       </div>
-      <div class="stats"><span><b>${d.commits}</b> commits</span><span><b>${d.files}</b> files</span>
-        <span><b>${(d.modules||[]).length}</b> modules</span>
+      <div class="stats"><span><b>${d.commits}</b> commits</span>
+        ${d.files_error
+          ? `<span style="color:var(--faint)" title="${esc(d.files_error)}">file list unavailable</span>`
+          : `<span><b>${d.files}</b> files</span><span><b>${(d.modules||[]).length}</b> modules</span>`}
         <span>${esc((d.authors||[]).join(', '))}</span></div>
       <div class="mchips">${mods}${more>0?`<span class="mchip">+${more}</span>`:''}</div>
       ${(d.highlights&&d.highlights.length)?`<ul class="hi-list">${d.highlights.map(h=>`<li>${esc(h)}</li>`).join('')}</ul>`:''}
