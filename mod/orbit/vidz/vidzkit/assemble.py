@@ -18,7 +18,7 @@ def playlist(clips: List[Path], out_dir: Path) -> Path:
     return p
 
 
-def stitch(clips: List[Path], out: Path) -> dict:
+def stitch(clips: List[Path], out: Path, audio: Path = None) -> dict:
     clips = [c for c in clips if c.exists()]
     if not clips:
         return {'error': 'no clips to stitch'}
@@ -26,15 +26,24 @@ def stitch(clips: List[Path], out: Path) -> dict:
     exe = ffmpeg()
     if not exe:
         return {'film': None, 'playlist': str(pl),
-                'hint': 'install ffmpeg to get one file (nix profile install nixpkgs#ffmpeg)'}
+                'hint': 'install ffmpeg to get one file (nix profile install nixpkgs#ffmpeg) — '
+                        'or `m vidz/edit <id>`: the artist studio compiles in the browser'}
     lst = out.parent / 'concat.txt'
     lst.write_text(''.join(f"file '{c.resolve()}'\n" for c in clips))
     base = [exe, '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', str(lst)]
-    r = subprocess.run(base + ['-c', 'copy', str(out)], capture_output=True, text=True)
+    mux = []
+    if audio and Path(audio).exists():  # a soundtrack replaces the clips' own audio, cut to length
+        base += ['-i', str(audio)]
+        mux = ['-map', '0:v:0', '-map', '1:a:0', '-shortest']
+    first = mux + (['-c:v', 'copy', '-c:a', 'aac'] if mux else ['-c', 'copy'])
+    r = subprocess.run(base + first + [str(out)], capture_output=True, text=True)
     if r.returncode:  # providers differ in codec/size: re-encode to a common one
-        r = subprocess.run(base + ['-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=24', '-c:v', 'libx264',
-                                   '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(out)],
+        r = subprocess.run(base + mux + ['-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=24', '-c:v', 'libx264',
+                                         '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(out)],
                            capture_output=True, text=True)
     if r.returncode:
         return {'film': None, 'playlist': str(pl), 'error': r.stderr[-500:]}
-    return {'film': str(out), 'playlist': str(pl), 'bytes': out.stat().st_size}
+    res = {'film': str(out), 'playlist': str(pl), 'bytes': out.stat().st_size}
+    if mux:
+        res['soundtrack'] = str(audio)
+    return res

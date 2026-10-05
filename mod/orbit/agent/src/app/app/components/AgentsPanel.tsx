@@ -43,7 +43,7 @@ export interface AgentSchema {
   owner_source?: string
 }
 
-interface Provider {
+export interface Provider {
   key: string
   models: string[]
   default_model: string | null
@@ -91,8 +91,18 @@ type Props = {
 
 const ICONS = ['>_', '△', '◉', '⬡', '◈', '✦', '⚙', '◆', '▣', '✧']
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '/agent'
+
 /** Where an agent's code lives, relative to this module. */
 export function agentFile(name: string) { return `src/agents/${name}/mod.py` }
+
+/** An agent's own standalone page — the registry entry made linkable. */
+export function agentPageHref(name: string) { return `${BASE}/a/${encodeURIComponent(name)}` }
+
+/** A model's own page: /m/<provider>/<model…> — the id may hold slashes. */
+export function modelPageHref(provider: string, model: string) {
+  return `${BASE}/m/${encodeURIComponent(provider)}/${model.split('/').map(encodeURIComponent).join('/')}`
+}
 
 // Per-agent NOTE bindings. The schema binds a memory *module*, but the notes
 // carried into a run are a per-run argument, so which ones this agent should
@@ -338,7 +348,10 @@ export default function AgentsPanel({
         <span className="text-[10px] text-gray-500">
           <b className="text-gray-300">{order.length}</b> agents
           <span className="text-gray-700 px-1.5">·</span>
-          <b className="text-gray-300">{allModels}</b> models
+          <a href={`${BASE}/m`} title="Every model, each on its own page"
+            className="hover:text-emerald-300 transition">
+            <b className="text-gray-300">{allModels}</b> models ↗
+          </a>
         </span>
         <span className="text-[10px] text-gray-600 truncate min-w-0 hidden sm:block">
           each one a folder of code under src/agents/
@@ -450,6 +463,11 @@ export default function AgentsPanel({
                   <span className="block font-mono text-[9px] text-gray-600 truncate">{agentFile(selected!)}</span>
                 </span>
                 <div className="ml-auto flex items-center gap-1.5">
+                  <a href={agentPageHref(selected!)}
+                    className="px-2.5 py-1 rounded-md text-[10px] uppercase tracking-wider border border-white/[0.08] text-gray-400 hover:text-gray-200 hover:border-white/[0.16] transition"
+                    title="This agent's own page — a URL you can share">
+                    page ↗
+                  </a>
                   {current.harness && (
                     <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border border-violet-400/25 bg-violet-400/10 text-violet-300"
                       title="This agent hands the whole run to an external CLI instead of this module's loop">
@@ -617,7 +635,17 @@ export default function AgentsPanel({
                 <div className={`${card} p-4 space-y-4`}>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`${legend} mb-0`}>Bound model</span>
-                    <span className="font-mono text-[11px] text-emerald-300">{draft.model || '— agent default —'}</span>
+                    {draft.model ? (() => {
+                      const p = providers.find(pr => pr.models.includes(draft.model!))
+                      return p ? (
+                        <a href={modelPageHref(p.key, draft.model!)} title="This model's own page"
+                          className="font-mono text-[11px] text-emerald-300 hover:text-emerald-200 underline underline-offset-2">
+                          {draft.model}
+                        </a>
+                      ) : <span className="font-mono text-[11px] text-emerald-300">{draft.model}</span>
+                    })() : (
+                      <span className="font-mono text-[11px] text-emerald-300">— agent default —</span>
+                    )}
                     {draft.model && canEdit && (
                       <button onClick={() => setDraft(d => ({ ...d, model: null }))}
                         className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded border border-red-500/25 text-red-300 hover:bg-red-500/10 transition">
@@ -651,6 +679,10 @@ export default function AgentsPanel({
                         </span>
                         {p.free && <span className="text-[8px] uppercase tracking-wider text-emerald-300/80">free</span>}
                         <span className="ml-auto text-[9px] text-gray-600">{p.models.length} models</span>
+                        <a href={`${BASE}/m`} title="Every model, each on its own page"
+                          className="text-[9px] uppercase tracking-wider text-gray-600 hover:text-emerald-300 transition">
+                          pages ↗
+                        </a>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {p.models.map(m => {

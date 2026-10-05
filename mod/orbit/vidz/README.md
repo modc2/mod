@@ -70,6 +70,33 @@ Responses are read loosely: the video URL is any `video`/`video_url`/`url`/`outp
 `status_url` field. Shipped: **treza** (live), **render402** (disabled: domain down),
 **x402gate** (WaveSpeed: Wan/Kling/Sora; set the model path, then enable).
 
+## Connected tools — the fleet's editing suite
+
+vidz renders the raw clips; the rest of the suite finishes the film. `m vidz/tools`
+shows every connection and whether it is up right now (a slept peer is woken
+through the activator automatically):
+
+| tool | port | what vidz uses it for |
+|---|---|---|
+| **artist** | 51140 | `m vidz/edit <id>` pushes clips + soundtrack into its two-lane timeline; EXPORT compiles in the browser — the no-ffmpeg path to one file |
+| **artlist** | 51190 | `m vidz/music "<q>"` royalty-free songs (`source=sfx` for effects), `m vidz/footage "<q>"` stock b-roll, and `soundtrack` downloads previews off its CDN |
+| **musica** | 50780 | `m vidz/music "<q>" source=musica` — Bandcamp / SoundCloud / YouTube / archive.org crate, streamed through musica's proxy |
+| **sound2text** | 50640 | `m vidz/captions <id>` → `captions.json` + `captions.srt` (its host needs ffmpeg to decode mp4; wav/mp3 decode natively) |
+| **voice** | 50980 | in-browser transcription, the human-driven alternative to `captions` |
+
+```bash
+m vidz/soundtrack <id> query="synthwave chase"     # search artlist, download the top pick into the project,
+                                                   # mux under the film when ffmpeg exists — else staged for artist
+m vidz/soundtrack <id> source=musica query="..."   # same, from the five-platform crate
+m vidz/edit <id>                                   # open the cut in the artist studio (re-runs update the same artist project)
+m vidz/captions <id>                               # subtitles via sound2text
+```
+
+Tools are `config.json → tools` entries (`{url, health, about}`) — plain HTTP to
+peer modules, no SDKs. The bridge lives in `vidzkit/fleet.py` and knocks on the
+activator's proxy path (`:9000/api/<mod>/health`) once when a peer refuses the
+connection, then retries.
+
 ## Local-first
 
 - Projects, clips, receipts and the key live in `~/.vidz` (override with `VIDZ_HOME`); the key can instead come from `VIDZ_PRIVATE_KEY`. It is never written to config.
@@ -80,11 +107,13 @@ Responses are read loosely: the video URL is any `video`/`video_url`/`url`/`outp
 
 ```
 mod.py              Mod: wallet · plan · quote · make · render · assemble · projects
+                        · tools · music · footage · soundtrack · captions · edit
 vidzkit/x402.py     402 parsing (v1+v2), EIP-3009 signing, quote/pay
 vidzkit/providers.py config-driven provider adapter + async polling
 vidzkit/planner.py  seconds → shots, story arc beats, custom storyboards
-vidzkit/assemble.py ffmpeg concat (copy, re-encode fallback) / playlist
-test/test_vidz.py   offline e2e: fake x402 seller, real signatures, v1 + v2
+vidzkit/assemble.py ffmpeg concat (copy, re-encode fallback), soundtrack mux / playlist
+vidzkit/fleet.py    bridge to artist · artlist · musica · sound2text (+ activator wake)
+test/test_vidz.py   offline e2e: fake x402 seller + fake peer tools, real signatures
 ```
 
 `m vidz/test` or `pytest mod/orbit/vidz/test` runs the offline end-to-end check.
@@ -92,6 +121,6 @@ test/test_vidz.py   offline e2e: fake x402 seller, real signatures, v1 + v2
 ## Next
 
 - An LLM pass that turns a one-line idea into a real storyboard (via the local `model` module).
-- Narration and music tracks from x402 audio providers, mixed in at assemble time.
+- Narration from x402 audio providers (music is wired: `soundtrack` muxes at assemble time).
 - Image-to-video continuity: feed each shot's last frame into the next shot.
 - A small console app on :51100.

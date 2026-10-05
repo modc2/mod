@@ -18,6 +18,13 @@ CLI:
     m vidz/render <project_id> confirm=1        # resume a project where it stopped
     m vidz/projects | m vidz/project <id> | m vidz/assemble <id>
     m vidz/test                                 # offline: fake x402 seller, real signatures
+
+Connected tools (the fleet's editing suite — `m vidz/tools` shows what's up):
+    m vidz/music "synthwave chase"              # artlist royalty-free; source=sfx|musica for effects / the crate
+    m vidz/footage "city at night"              # artlist stock clips (b-roll)
+    m vidz/soundtrack <id> query="synthwave"    # download the pick, mux under the film (ffmpeg) or stage for artist
+    m vidz/captions <id>                        # sound2text -> captions.json + captions.srt
+    m vidz/edit <id>                            # push clips + soundtrack into the artist studio timeline
 """
 import json
 import os
@@ -32,9 +39,20 @@ MODULE_DIR = Path(__file__).resolve().parent
 if str(MODULE_DIR) not in sys.path:
     sys.path.append(str(MODULE_DIR))
 
-from vidzkit import assemble, planner, providers, x402  # noqa: E402
+from vidzkit import assemble, fleet, planner, providers, x402  # noqa: E402
 
 HOME = Path(os.environ.get('VIDZ_HOME', Path.home() / '.vidz'))
+
+
+def _ts(t: float) -> str:
+    h, rem = divmod(max(0.0, float(t)), 3600)
+    m, s = divmod(rem, 60)
+    return f'{int(h):02d}:{int(m):02d}:{int(s):02d},{int(round((s % 1) * 1000)):03d}'
+
+
+def _srt(segments: list) -> str:
+    return '\n'.join(f"{i + 1}\n{_ts(s.get('start', 0))} --> {_ts(s.get('end', 0))}\n{(s.get('text') or '').strip()}\n"
+                     for i, s in enumerate(segments))
 
 
 class Mod:
@@ -53,6 +71,7 @@ class Mod:
     def info(self) -> dict:
         return {'name': 'vidz', 'description': self.description,
                 'defaults': self.defaults, 'providers': self.providers(),
+                'tools': sorted(fleet.registry(self.config)),
                 'wallet': self.wallet().get('address'), 'ffmpeg': bool(assemble.ffmpeg()),
                 'home': str(self.home), 'fns': self.config['fns']}
 
@@ -231,7 +250,7 @@ class Mod:
     def assemble(self, pid: str) -> dict:
         proj, d = self._load(pid), self._pdir(pid)
         clips = [d / f"shot_{s['i']:02d}.mp4" for s in proj['shots']]
-        res = assemble.stitch(clips, d / 'film.mp4')
+        res = assemble.stitch(clips, d / 'film.mp4', audio=self._soundtrack_file(d))
         proj['film'] = res.get('film')
         proj['status'] = 'done' if res.get('film') else ('clips' if all(c.exists() for c in clips) else proj['status'])
         self._save(proj)
@@ -252,6 +271,144 @@ class Mod:
                 'model': proj['model'], 'seconds': proj['seconds'], 'clips': len(proj['shots']),
                 'quote': proj.get('quote'), 'max_usd': proj['max_usd'], 'spent_usd': proj['spent_usd'],
                 'dir': str(self.projects_dir / proj['id']), 'film': proj.get('film')}
+
+    # ── connected tools (the fleet's editing suite) ─────────────────
+
+    def tools(self) -> dict:
+        """Every connected media tool (artist, artlist, musica, sound2text, voice) and whether it is up."""
+        return {'tools': fleet.probe(self.config),
+                'flow': 'make → soundtrack (artlist/musica) → captions (sound2text) → edit (artist) → export'}
+
+    def music(self, query: str = '', k: int = 10, source: str = 'artlist') -> dict:
+        """Find a soundtrack. source: artlist (royalty-free songs), sfx, or musica (Bandcamp/SoundCloud/YouTube/archive)."""
+        k = int(k)
+        if source in ('artlist', 'sfx'):
+            r = fleet.artlist(self.config, 'music' if source == 'artlist' else 'sfx', query, k)
+            return {'source': source, 'total': r.get('total'),
+                    'tracks': [{'id': t.get('id'), 'name': t.get('name'), 'artist': t.get('artist'),
+                                'duration': t.get('duration'), 'url': t.get('preview_url')}
+                               for t in r.get('results') or []]}
+        if source == 'musica':
+            r = fleet.musica(self.config, 'search', q=query, kind='track', limit=k)
+            return {'source': 'musica', 'tracks': [
+                {'id': i.get('id'), 'name': i.get('name'), 'artist': i.get('artists'),
+                 'platform': i.get('source'), 'duration': i.get('duration_ms'),
+                 'track': i.get('track')}
+                for i in (r.get('items') or []) if i.get('source') != 'spotify'][:k]}
+        return {'error': 'source must be artlist, sfx or musica'}
+
+    def footage(self, query: str = '', k: int = 10) -> dict:
+        """Stock footage search (Artlist clips) — b-roll to cut into an edit."""
+        r = fleet.artlist(self.config, 'footage', query, k)
+        return {'total': r.get('total'), 'clips': r.get('results') or []}
+
+    def _soundtrack_file(self, d: Path) -> Optional[Path]:
+        return next(iter(sorted(d.glob('soundtrack.*'))), None)
+
+    def soundtrack(self, pid: str, query: str = '', source: str = 'artlist', id: str = '',
+                   url: str = '', platform: str = '', pick: int = 0) -> dict:
+        """Put music under a film: search artlist/sfx/musica (or pass url=), save into the project, restitch if ffmpeg."""
+        import urllib.parse
+        proj, d = self._load(pid), self._pdir(pid)
+        pick, chosen = int(pick), {'source': source}
+        if not url and source in ('artlist', 'sfx'):
+            tracks = self.music(query or proj['title'], k=pick + 1, source=source).get('tracks') or []
+            tracks = [t for t in tracks if t.get('url')]
+            if not tracks:
+                return {'error': f'nothing playable on {source} for {(query or proj["title"])!r}'}
+            t = tracks[min(pick, len(tracks) - 1)]
+            chosen.update(t)
+            url = t['url']
+        elif not url and source == 'musica':
+            if not (id and platform):
+                tracks = self.music(query or proj['title'], k=pick + 1, source='musica').get('tracks') or []
+                if not tracks:
+                    return {'error': f'nothing streamable on musica for {(query or proj["title"])!r}'}
+                t = tracks[min(pick, len(tracks) - 1)]
+                chosen.update(t)
+                id, platform = t.get('id'), t.get('platform')
+            for old in d.glob('soundtrack.*'):
+                old.unlink()
+            out = d / 'soundtrack.mp3'
+            r = fleet.musica_download(self.config, platform, id, out, track=chosen.get('track'))
+            if 'error' in r:
+                return r
+        if url:
+            host = urllib.parse.urlparse(url).hostname or ''
+            is_artlist = host == 'artlist.io' or host.endswith('.artlist.io')
+            # artlist CDN paths are base64 and carry no suffix; its previews are AAC
+            ext = Path(urllib.parse.urlparse(url).path).suffix or ('.aac' if is_artlist else '.mp3')
+            for old in d.glob('soundtrack.*'):
+                old.unlink()
+            out = d / f'soundtrack{ext}'
+            if is_artlist:
+                fleet.artlist_download(url, out)
+            else:
+                self._download(url, out)
+            chosen['url'] = url
+        elif source not in ('musica',):
+            return {'error': 'pass query=, url= or (source=musica, platform=, id=)'}
+        proj['soundtrack'] = {**{k: v for k, v in chosen.items() if v is not None}, 'file': str(out)}
+        self._save(proj)
+        res = {'id': pid, 'soundtrack': proj['soundtrack']}
+        if assemble.ffmpeg() and any(s['status'] == 'done' for s in proj['shots']):
+            res.update(self.assemble(pid))
+        else:
+            res['hint'] = f'no ffmpeg on this host — `m vidz/edit {pid}` opens it in artist with the music on the AUDIO lane'
+        return res
+
+    def edit(self, pid: str, name: str = '') -> dict:
+        """Open a project in the artist studio: clips on the VIDEO lane, soundtrack on AUDIO; edit + export in the browser."""
+        proj, d = self._load(pid), self._pdir(pid)
+        video, pushed = [], []
+        for s in proj['shots']:
+            clip = d / f"shot_{s['i']:02d}.mp4"
+            if not clip.exists():
+                continue
+            a = fleet.artist_add(self.config, f"vidz_{pid}_shot{s['i']:02d}.mp4", clip.read_bytes())
+            if not isinstance(a, dict) or a.get('error') or not a.get('id'):
+                return {'error': f"artist refused shot {s['i']}: {(a or {}).get('error', 'no response')}"}
+            video.append({'asset': a['id']})
+            pushed.append(a['id'])
+        if not video:
+            return {'error': 'no rendered clips on disk — `m vidz/render <id> confirm=1` first'}
+        audio = []
+        snd = self._soundtrack_file(d)
+        if snd:
+            a = fleet.artist_add(self.config, f'vidz_{pid}_{snd.name}', snd.read_bytes())
+            if isinstance(a, dict) and a.get('id'):
+                audio.append({'asset': a['id']})
+        ap = fleet.artist_save(self.config, name or f"vidz · {proj['title']}",
+                               {'video': video, 'audio': audio}, proj.get('artist_project'))
+        if not isinstance(ap, dict) or ap.get('error') or not ap.get('id'):
+            return {'error': f"artist did not save the project: {(ap or {}).get('error', 'no response')}"}
+        proj['artist_project'] = ap['id']
+        self._save(proj)
+        return {'id': pid, 'artist_project': ap['id'], 'clips': len(video), 'audio_tracks': len(audio),
+                'assets': pushed, 'open': '/artist',
+                'hint': 'EXPORT compiles in the browser (webm); RENDER appears when that host has ffmpeg'}
+
+    def captions(self, pid: str, engine: str = '', policy: str = 'fast') -> dict:
+        """Transcribe the film with sound2text; writes captions.json and, when it segments, captions.srt."""
+        proj, d = self._load(pid), self._pdir(pid)
+        target = proj.get('film')
+        if not target:
+            have = [d / f"shot_{s['i']:02d}.mp4" for s in proj['shots'] if (d / f"shot_{s['i']:02d}.mp4").exists()]
+            if not have:
+                return {'error': 'nothing rendered yet — `m vidz/render <id> confirm=1` first'}
+            target = str(have[0])
+        r = fleet.transcribe(self.config, target, engine=engine, policy=policy)
+        if not isinstance(r, dict) or r.get('error'):
+            return {'error': (r or {}).get('error', 'no response'),
+                    'hint': 'sound2text decodes wav/mp3/flac itself; an mp4 needs ffmpeg on its host'}
+        (d / 'captions.json').write_text(json.dumps(r, indent=2))
+        out = {'id': pid, 'captions': str(d / 'captions.json'),
+               'text': r.get('transcript') or r.get('text')}
+        segs = r.get('segments') or []
+        if segs:
+            (d / 'captions.srt').write_text(_srt(segs))
+            out['srt'] = str(d / 'captions.srt')
+        return out
 
     # ── self-check ───────────────────────────────────────────────────
 
