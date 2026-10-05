@@ -904,6 +904,7 @@ const ago = t => { if (!t) return ''; const s = Date.now()/1000 - t;
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
   document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === b.dataset.tab));
+  if (b.dataset.tab !== 'oracle' && _oTickIv) { clearInterval(_oTickIv); _oTickIv = null; }
   ({oracle, ask: askOpen, nodes: loadNodes, running, providers, keys: keysPanel, mcp: tools}[b.dataset.tab] || (() => {}))();
 });
 document.querySelectorAll('.subnav button').forEach(b => b.onclick = () => {
@@ -1969,7 +1970,7 @@ async function stop(id) {
 // ── oracle: the price prediction game ──
 // The player's name and key live in this browser only; the server keeps a hash.
 const OP = 'compute_oracle_player';
-let O = null, OSEL = null, OHZ = '24h', ODET = null, OMYCALLS = [];
+let O = null, OSEL = null, OHZ = '24h', ODET = null, OMYCALLS = [], _oTickIv = null;
 const me = () => { try { return JSON.parse(localStorage.getItem(OP) || '{}') } catch { return {} } };
 const opct = v => v == null ? '-' : (v > 0 ? '+' : '') + Number(v).toFixed(1) + '%';
 const until = t => { const s = t - Date.now()/1000; if (s <= 0) return 'due';
@@ -1990,6 +1991,15 @@ async function oracle() {
     if (el) el.textContent = secLeft == null ? '' :
       secLeft > 0 ? 'next update in ' + (secLeft >= 120 ? Math.round(secLeft/60) + 'm' : secLeft + 's') :
       'updating…';
+    if (_oTickIv) clearInterval(_oTickIv);
+    if (O.ticker.next) {
+      _oTickIv = setInterval(() => {
+        const te = document.getElementById('o-tick-next');
+        if (!te) return;
+        const s = Math.round(O.ticker.next - Date.now() / 1000);
+        te.textContent = s > 0 ? 'next update in ' + (s >= 120 ? Math.round(s/60) + 'm' : s + 's') : 'updating…';
+      }, 10000);
+    }
   } catch (e) { f.textContent = e.message; return }
   if (!O.series.length) {
     document.getElementById('o-ix').innerHTML = '<p class="note">No index yet &mdash; the first ' +
