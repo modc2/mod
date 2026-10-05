@@ -197,6 +197,15 @@ def test_tweet_trims_modules_to_fit_280(up, monkeypatch):
     assert '+25 more' in tweet                           # 5 shown, rest summarised
 
 
+def test_markdown_overflow_appends_and_n_more(up, monkeypatch):
+    files = [f'mod/orbit/m{i}/f.py' for i in range(20)]
+    _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')], files)
+    day = up.daily(days=1)['days'][0]
+    assert len(day['modules']) == 20
+    md = day['post']['markdown']
+    assert '…and 5 more modules' in md
+
+
 def test_post_goes_out_once_per_day(up, monkeypatch):
     _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')],
               ['mod/orbit/polymarket/a.py'])

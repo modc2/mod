@@ -683,7 +683,7 @@ async function openRent(node){
     <br><span style="font-family:var(--mono);font-size:11px;color:var(--faint)">${esc(node.id)}</span>`;
   const free = node.available_gpu_count || node.gpu_count || 1;
   $('r_gpus').innerHTML = Array.from({ length: free }, (_, i) => `<option value="${i + 1}">${plural(i + 1, 'GPU')}</option>`).join('');
-  $('r_gpus').value = String(free);
+  $('r_gpus').value = '1';
   $('r_needkey').hidden = !!KEY;
   $('r_sshwarn').hidden = true; $('r_pubkey').value = '';
   $('r_go').disabled = !!KEY;  // hold until SSH key check resolves
@@ -834,7 +834,7 @@ async function loadPods(){
         }).catch(() => {});
       }
     });
-    if (pods.some((p) => podState(p.status) === 'warn')) {
+    if (pods.some((p) => podState(p.status) === 'warn' || p.removal_scheduled_at)) {
       $('p_poll').style.display = '';
       podPoll = setInterval(loadPods, 20000);
     }

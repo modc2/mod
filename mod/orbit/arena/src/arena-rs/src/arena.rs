@@ -12,7 +12,7 @@ use crate::rsklass;
 use crate::rustc;
 use crate::storelink;
 use crate::store::{self, round1, round3, Match, Player, Rating, Seat, Turn, WasmModule};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use crate::wasm;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -972,16 +972,18 @@ pub async fn play(key: &str, view: &str, seat: usize, answer: &str) -> Result<Va
 /// the seed and every move are recorded, the game module is pure over its
 /// state, so anyone can replay a match and get the same scores. A leaderboard
 /// here is a claim with its working attached.
-fn bump(r: &mut Rating, score: f64, result: &str, delta: f64) {
-    r.matches += 1;
-    r.score_sum += score;
+fn bump(r: &mut Rating, score: f64, result: &str, delta: f64, rated: bool) {
     r.best = Some(r.best.map_or(score, |b| b.max(score)));
-    match result {
-        "win" => r.wins += 1,
-        "draw" => r.draws += 1,
-        _ => r.losses += 1,
-    }
     r.elo += delta;
+    if rated {
+        r.matches += 1;
+        r.score_sum += score;
+        match result {
+            "win" => r.wins += 1,
+            "draw" => r.draws += 1,
+            _ => r.losses += 1,
+        }
+    }
 }
 
 pub fn record_match(rec: &Value) -> Result<Value, String> {
@@ -1057,8 +1059,8 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
                 pl.timeouts += timeouts;
                 pl.mcp += mcp;
                 pl.move_ms_sum += ms;
-                bump(&mut pl.overall, scores[i], result, overall_deltas[i]);
-                bump(pl.by_game.entry(game.id.clone()).or_default(), scores[i], result, deltas[i]);
+                bump(&mut pl.overall, scores[i], result, overall_deltas[i], rated);
+                bump(pl.by_game.entry(game.id.clone()).or_default(), scores[i], result, deltas[i], rated);
             }
 
             seats.push(Seat {
@@ -1205,6 +1207,11 @@ fn arcade_rows(players: &HashMap<String, Player>, matches: &[Match], game_id: &s
                 ArcadeRow {
                     name: p.name.clone(),
                     kind: p.kind.clone(),
+                    // `best` is the durable hi-score record — it survives matches
+                    // scrolling off the window. Seed `runs` and `score_sum` from the
+                    // Rating (all-time rated counts) so that players whose matches
+                    // have all scrolled off the 500-match window still show real
+                    // counts rather than zeros.
                     best: r.best,
                     runs: r.matches,
                     score_sum: r.score_sum,
@@ -1214,8 +1221,6 @@ fn arcade_rows(players: &HashMap<String, Player>, matches: &[Match], game_id: &s
         }
     }
 
-    let registered: HashSet<String> = rows.keys().cloned().collect();
-
     for m in matches.iter().filter(|m| m.game == game_id) {
         for s in &m.seats {
             let row = rows.entry(s.player_id.clone()).or_default();
@@ -1224,8 +1229,10 @@ fn arcade_rows(players: &HashMap<String, Player>, matches: &[Match], game_id: &s
                 row.name = s.player_name.clone();
                 row.kind = "gone".into();
             }
-            if !registered.contains(&s.player_id) {
-                // No rating to lean on — count every match the window holds.
+            // Rated matches are already counted in r.matches / r.score_sum above;
+            // re-counting them would inflate the totals. Unrated (solo practice)
+            // matches are not tracked by the Rating, so they must come from here.
+            if !m.rated {
                 row.runs += 1;
                 row.score_sum += s.score;
             }
@@ -1361,7 +1368,9 @@ mod arcade_tests {
         let rows = arcade_rows(&players, &[], "g1");
         assert_eq!(rows[0].1["name"], "B");
         assert_eq!(rows[0].1["best"], 99.0);
+        assert_eq!(rows[0].1["runs"], 1);
         assert_eq!(rows[1].1["best"], 10.0);
+        assert_eq!(rows[1].1["runs"], 5);
     }
 
     #[test]
@@ -1373,7 +1382,8 @@ mod arcade_tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].1["best"], 5.0);
         assert_eq!(rows[0].1["last"], 200);
-        assert_eq!(rows[0].1["runs"], 2);
+        // 2 rated runs from the Rating + 2 unrated window runs = 4
+        assert_eq!(rows[0].1["runs"], 4);
     }
 
     #[test]

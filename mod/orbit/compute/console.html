@@ -690,6 +690,7 @@
     <span class="dimtxt">Call where GPU prices go. Every 20 minutes each card gets an index &mdash;
       the median per-GPU $/hr across every market &mdash; and every call is scored against it.</span>
     <span class="grow" style="flex:1"></span>
+    <span class="dimtxt" id="o-tick-next"></span>
     <span class="flash" id="o-flash"></span>
   </div>
   <div class="ix" id="o-ix"></div>
@@ -1981,6 +1982,11 @@ async function oracle() {
   try {
     O = await call('/oracle');
     f.textContent = O.ticker.last_error ? 'ticker: ' + O.ticker.last_error : '';
+    const secLeft = O.ticker.next ? Math.round(O.ticker.next - Date.now() / 1000) : null;
+    const el = document.getElementById('o-tick-next');
+    if (el) el.textContent = secLeft == null ? '' :
+      secLeft > 0 ? 'next update in ' + (secLeft >= 120 ? Math.round(secLeft/60) + 'm' : secLeft + 's') :
+      'updating…';
   } catch (e) { f.textContent = e.message; return }
   if (!O.series.length) {
     document.getElementById('o-ix').innerHTML = '<p class="note">No index yet &mdash; the first ' +

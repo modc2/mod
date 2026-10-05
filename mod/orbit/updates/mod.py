@@ -469,6 +469,8 @@ class Mod:
         # markdown / plain — release notes, changelogs, anywhere else
         parts = [f'{repo} ({br}) — {d["date"]}', ' · '.join(stats), '']
         parts += [f'- {x["name"]}: {plural(x["files"], "file")}' for x in d['modules'][:15]]
+        if len(d['modules']) > 15:
+            parts.append(f'- …and {len(d["modules"]) - 15} more modules')
         if d['highlights']:
             parts += [''] + [f'- {h}' for h in d['highlights']]
         parts += ['', link]

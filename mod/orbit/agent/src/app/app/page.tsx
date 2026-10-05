@@ -2080,6 +2080,15 @@ export default function Home() {
     return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${String(sec % 60).padStart(2, '0')}s`
   }
 
+  // short locale date for conversations not from today ("Oct 3"), empty string for today
+  const taskDate = (t: TaskEntry) => {
+    if (!t.startedAt) return ''
+    const d = new Date(t.startedAt)
+    const now = new Date()
+    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) return ''
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  }
+
   // markdown-lite: render ``` fences, `inline code`, **bold**, *italic*, ## headings, bullet lists
   const renderText = (text: string) => {
     const hasAny = text.includes('`') || text.includes('\n> ') || text.startsWith('> ') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text) || /^\|/m.test(text)
@@ -4006,7 +4015,7 @@ export default function Home() {
         return <div className="mt-0.5 pl-[18px] text-[10px] text-gray-500 truncate">{preview}</div>
       })()}
       <div className="flex items-center gap-1.5 mt-0.5 pl-[18px] text-[10px] text-gray-600 font-mono">
-        <span>{t.stepCount !== undefined ? `${t.stepCount} step${t.stepCount !== 1 ? 's' : ''} · ` : ''}{taskTime(t)}</span>
+        <span>{t.stepCount !== undefined ? `${t.stepCount} step${t.stepCount !== 1 ? 's' : ''} · ` : ''}{taskTime(t)}{taskDate(t) ? ` · ${taskDate(t)}` : ''}</span>
         {t.cid && (
           <span
             onClick={e => { e.stopPropagation(); try { navigator.clipboard?.writeText(t.cid!) } catch {} }}
