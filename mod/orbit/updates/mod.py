@@ -954,6 +954,9 @@ class Mod:
                     if u.path == '/api/commits':
                         return self._send(200, gov.commits(repo=q.get('repo'), branch=q.get('branch'),
                                                            n=int(q.get('n', 30))))
+                    if u.path == '/mcp':
+                        return self._send(405, {'error': 'MCP is POST JSON-RPC',
+                                                'protocol': gov.MCP_PROTOCOL})
                     return self._send(404, {'error': 'not found'})
                 except Exception as e:
                     return self._send(500, {'error': str(e)})
@@ -1042,9 +1045,7 @@ class Mod:
                'set_branch': self.set_branch, 'daily': self.daily, 'post': self.post,
                'mark_posted': self.mark_posted, 'x_status': self.x_status,
                'post_to_x': self.post_to_x}
-        spec = next((x for x in self._mcp_tools() if x['name'] == name), None)
-        if spec is None:
-            raise KeyError(f'unknown tool: {name}')
+        spec = next(x for x in self._mcp_tools() if x['name'] == name)
         allowed = spec['inputSchema']['properties']
         return fns[name](**{k: v for k, v in (args or {}).items() if k in allowed})
 
@@ -1074,14 +1075,14 @@ class Mod:
         if method == 'tools/call':
             params = msg.get('params') or {}
             name = params.get('name')
+            if not any(x['name'] == name for x in self._mcp_tools()):
+                return err(-32602, f'unknown tool: {name}')
             if name in self.MCP_LOCAL_ONLY and not local:
                 return ok({'isError': True, 'content': [{'type': 'text', 'text':
                            f'{name} is local-only: it posts as the account owner, so it '
                            'refuses callers that arrive through the gateway'}]})
             try:
                 res = self._mcp_dispatch(name, params.get('arguments'))
-            except KeyError as e:
-                return err(-32602, str(e).strip("'"))
             except Exception as e:
                 return ok({'isError': True, 'content': [{'type': 'text', 'text': str(e)}]})
             structured = res if isinstance(res, dict) else {'result': res}
@@ -1123,6 +1124,9 @@ class Mod:
             'authenticated': bool(os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')),
             'registrar': 'registry',
             'state': self.state_path,
+            'mcp': {'http': f'http://localhost:{APP_PORT}/mcp', 'stdio': 'm updates/mcp',
+                    'tools': [x['name'] for x in self._mcp_tools()]},
+            'x_api': self.x_api,
         }
 
 

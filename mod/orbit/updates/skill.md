@@ -1,6 +1,6 @@
 ---
 name: updates
-description: GitHub commit-feed monitor and daily update digest. Tracks the mod repo (modc2/mod) and shows its dev-branch commit history by default, and attaches any other GitHub repo into one aggregated updates feed that flags commits new since you last looked. Rolls each calendar day up into ONE paste-ready update for X/Twitter or Discord — commits, files, and which modules were touched — marked posted so it goes out once per day. GitHub REST API (optional $GITHUB_TOKEN) with a local `git log` fallback. Use to see what changed, watch repos, write the daily update post, or poll for new commits on a schedule.
+description: GitHub commit-feed monitor and daily update digest. Tracks the mod repo (modc2/mod) and shows its dev-branch commit history by default, and attaches any other GitHub repo into one aggregated updates feed that flags commits new since you last looked. Rolls each calendar day up into ONE paste-ready update for X/Twitter or Discord — commits, files, and which modules were touched — marked posted so it goes out once per day. GitHub REST API (optional $GITHUB_TOKEN) with a local `git log` fallback. Ships an MCP server (POST /mcp on :50180, or stdio) whose post_to_x tool tweets the digest from the connected X account via orbit/x. Use to see what changed, watch repos, write or send the daily update post, or poll for new commits on a schedule.
 ---
 
 # updates
@@ -59,6 +59,20 @@ day posted, and an amber TO POST badge for days still owed), **Modules**.
 `POST /api/mark_posted`, `/api/updates`, `/api/commits`, `/api/repos`,
 `/api/poll`, `POST /api/track|untrack|set_branch`.
 
+## MCP + the X account
+The app port speaks MCP: `POST http://localhost:50180/mcp` (registered
+user-scope as `updates`), or stdio via `m updates/mcp`. 12 tools = the fns above
+plus `x_status` / `post_to_x`, which connect to the X account through `orbit/x`
+(`:50350`, env `UPDATES_X_API`; credentials stay in `~/.mod/x/credentials.json`):
+```bash
+m updates/x_status                          # connected? can it post?
+m updates/post_to_x dry_run=True            # preview the tweet, send nothing
+m updates/post_to_x                         # tweet today's digest; marks posted on success
+```
+`post_to_x` is loopback-only (refuses X-Forwarded-For) — the app is public at
+modc2.com/updates and must not let the world tweet as the owner. A failed send
+does NOT mark the day posted.
+
 ## Notes
 - `repo` = `owner/repo`, a GitHub URL, or a bare name (assumed `modc2/…`).
 - Data: GitHub REST API (set `$GITHUB_TOKEN`/`$GH_TOKEN` for higher limits / private
@@ -67,5 +81,5 @@ day posted, and an amber TO POST badge for days still owed), **Modules**.
 - Each commit: `{repo, branch, sha, full_sha, author, date, message, url, new}`.
 - For a rolling monitor: `/loop 10m m updates/poll`.
 
-Tests: `pytest mod/orbit/updates/tests/test_updates.py` (25). Related: `git`,
-`gitsearch`, `gitbot`.
+Tests: `pytest mod/orbit/updates/tests/test_updates.py` (35). Related: `git`,
+`gitsearch`, `gitbot`, `x`.

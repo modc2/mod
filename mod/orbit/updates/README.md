@@ -107,7 +107,10 @@ the module list to `+N more`; `discord` is capped at 2000.
 | `repos` | the watchlist with each repo's branch + latest commit |
 | `modules` | modules known to the **registrar** (`core/registry`), each with its live URL — `{name, key, registered, cid, updated, app, api, path, desc}`; cached ~90s, `refresh=True` to re-scan |
 | `register` | register `updates` itself with the registrar |
-| `info` | module + watchlist + auth status + registrar |
+| `x_status` | is the X (Twitter) account connected and able to post? (proxies `orbit/x`'s `/auth`) |
+| `post_to_x` | build the day's digest and **tweet it from the connected account** via `orbit/x`; `dry_run=True` previews, `text=` overrides the digest; the day is marked posted only after X accepts it |
+| `mcp` | serve MCP over stdio (the HTTP transport is the running app's `POST /mcp`) |
+| `info` | module + watchlist + auth status + registrar + MCP endpoints |
 
 Each commit comes back as
 `{repo, branch, sha, full_sha, parent, author, date, message, url, new}`
@@ -146,6 +149,34 @@ JSON API (same port): `GET /api/daily?days=&repo=&branch=`,
 `GET /api/info`, `POST /api/track {repo,branch}`, `POST /api/untrack {repo}`,
 `POST /api/set_branch {repo,branch}`.
 
+## MCP server + the X account
+
+The app port also speaks MCP (zero-dep JSON-RPC, protocol `2025-06-18`), so any
+MCP client — Claude Code, an agent harness — can drive the feed and the daily
+update directly:
+
+```bash
+claude mcp add --transport http updates http://localhost:50180/mcp   # HTTP
+m updates/mcp                                                        # stdio
+```
+
+12 tools: `updates`, `poll`, `commits`, `repos`, `track`, `untrack`,
+`set_branch`, `daily`, `post`, `mark_posted`, `x_status`, `post_to_x`.
+
+The X connection goes through **`orbit/x`** (`:50350`, override with
+`$UPDATES_X_API`), which owns the account credentials
+(`~/.mod/x/credentials.json` — this module never sees them):
+
+- `x_status` — is the account connected, can it read/post.
+- `post_to_x` — build the day's twitter-style digest and actually tweet it;
+  marks the day posted **only after X accepts the post**, so once-per-day still
+  holds, and a failed send leaves the amber TO POST badge alone.
+
+`post_to_x` is **local-only**: the app is gateway-wired to `modc2.com/updates`,
+and a public route that can tweet as the owner is a foot-gun, so the tool
+refuses any request carrying `X-Forwarded-For` / arriving off-loopback. All
+read tools work for gateway callers.
+
 ## Continuous monitoring
 
 `poll` is designed to be run on a schedule — pair it with the `loop` skill, e.g.
@@ -154,6 +185,6 @@ every repo you track.
 
 ## Tests
 
-`pytest mod/orbit/updates/tests/test_updates.py` (25 cases; feed/watchlist logic
-runs with the API stubbed, plus a real local-`git log` smoke test — no network
-required).
+`pytest mod/orbit/updates/tests/test_updates.py` (35 cases; feed/watchlist/MCP/X
+logic runs with the API stubbed, plus a real local-`git log` smoke test — no
+network required).

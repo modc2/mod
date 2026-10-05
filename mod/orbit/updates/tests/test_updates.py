@@ -240,5 +240,101 @@ def test_daily_smoke_over_local_dev_branch(up):
     assert day['post']['twitter'].startswith('modc2/mod · dev · ')
 
 
+# --- MCP server + the X account bridge ---------------------------------------
+
+def _rpc(up, method, local=True, **params):
+    return up._mcp_rpc({'jsonrpc': '2.0', 'id': 1, 'method': method,
+                        'params': params or None}, local=local)
+
+
+def _call(up, name, local=True, **args):
+    return _rpc(up, 'tools/call', local=local, name=name, arguments=args)
+
+
+def test_mcp_initialize_and_tools_list(up):
+    init = _rpc(up, 'initialize')['result']
+    assert init['serverInfo']['name'] == 'updates' and init['protocolVersion']
+    tools = {t['name'] for t in _rpc(up, 'tools/list')['result']['tools']}
+    assert {'updates', 'poll', 'daily', 'post', 'x_status', 'post_to_x'} <= tools
+    assert up._mcp_rpc({'jsonrpc': '2.0', 'method': 'notifications/initialized'}) is None
+    assert _rpc(up, 'nope')['error']['code'] == -32601
+
+
+def test_mcp_call_filters_args_and_wraps_result(up, monkeypatch):
+    monkeypatch.setattr(up, 'commits',
+                        lambda repo=None, branch=None, n=20, **k: [
+                            _commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')])
+    out = _call(up, 'updates', n=5, junk='ignored')['result']
+    assert out['isError'] is False
+    assert out['structuredContent']['count'] == 1
+    assert 'c1' in out['content'][0]['text']
+    assert _call(up, 'no_such_tool')['error']['code'] == -32602
+
+
+def test_mcp_tool_exception_is_tool_error_not_rpc_error(up):
+    out = _call(up, 'set_branch', repo='foo/bar', branch='main')['result']
+    assert out['isError'] is True and 'not tracked' in out['content'][0]['text']
+
+
+def test_post_to_x_refuses_gateway_callers(up):
+    out = _call(up, 'post_to_x', local=False)['result']
+    assert out['isError'] is True and 'local-only' in out['content'][0]['text']
+    # reads are still fine over the gateway
+    assert _rpc(up, 'tools/list', local=False)['result']['tools']
+
+
+def test_post_to_x_dry_run_sends_nothing(up, monkeypatch):
+    _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')],
+              ['mod/orbit/polymarket/a.py'])
+    monkeypatch.setattr(up, '_x', lambda *a, **k: pytest.fail('dry_run must not call x-api'))
+    out = up.post_to_x(dry_run=True)
+    assert out['sent'] is False and out['text'] and out['chars'] <= 280
+    assert up.daily(days=1)['days'][0]['posted'] is False     # nothing marked
+
+
+def test_post_to_x_tweets_and_marks_only_on_success(up, monkeypatch):
+    _stub_day(up, monkeypatch, [_commit('modc2/mod', 'c1', '2026-09-10T01:00:00Z')],
+              ['mod/orbit/polymarket/a.py'])
+    calls = []
+
+    def fake_x(method, path, body=None):
+        calls.append((method, path, body))
+        return {'data': {'id': '1234567890'}}
+    monkeypatch.setattr(up, '_x', fake_x)
+    out = up.post_to_x()
+    assert calls == [('POST', '/posts', {'text': out['text']})]
+    assert out['sent'] is True and out['marked'] is True
+    assert out['url'] == 'https://x.com/i/status/1234567890'
+    assert up.post()['skip'] is True                          # once per day holds
+
+    # x-api down -> the day is NOT marked posted
+    up.mark_posted('2026-09-10', posted=False)
+
+    def down(method, path, body=None):
+        raise RuntimeError('x-api unreachable')
+    monkeypatch.setattr(up, '_x', down)
+    with pytest.raises(RuntimeError):
+        up.post_to_x()
+    assert up.daily(days=1)['days'][0]['posted'] is False
+
+
+def test_post_to_x_text_override_marks_nothing(up, monkeypatch):
+    monkeypatch.setattr(up, '_x', lambda m_, p, body=None: {'data': {'id': '7'}})
+    out = up.post_to_x(text='hello world')
+    assert out['sent'] is True and 'marked' not in out
+
+
+def test_x_status_reports_unreachable_api(up, monkeypatch):
+    def down(method, path, body=None):
+        raise RuntimeError('x-api unreachable at http://localhost:50350')
+    monkeypatch.setattr(up, '_x', down)
+    st = up.x_status()
+    assert st['connected'] is False and 'unreachable' in st['error']
+
+    monkeypatch.setattr(up, '_x', lambda m_, p, body=None: {'reads': True, 'writes': False})
+    st = up.x_status()
+    assert st['connected'] is True and st['can_read'] is True and st['can_post'] is False
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
