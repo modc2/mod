@@ -581,6 +581,16 @@ export default function Home() {
   const [libVersion, setLibVersion] = useState(0)
   const marketSide: SidebarSide = sidebarSide === 'left' ? 'right' : 'left'
 
+  // the chat dock — the console riding along on the AGENTS and ARENA tabs.
+  // Those views used to replace the chat wholesale; now they share the body
+  // with it, and only an on-purpose collapse (persisted) turns it into a strip.
+  const [chatDockOpen, setChatDockOpen] = useState(true)
+  const [chatDockW, setChatDockW] = useState(430)
+  const setChatDockOpenPersist = (open: boolean) => {
+    setChatDockOpen(open)
+    try { localStorage.setItem('agent_chat_dock_open', open ? '1' : '0') } catch {}
+  }
+
   // phone layout: the rail becomes a slide-over drawer, the dock header wraps
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -635,6 +645,13 @@ export default function Home() {
       const marketPref = localStorage.getItem('agent_market_open')
       const wide = window.innerWidth
       setMarketOpen(marketPref ? marketPref !== '0' : wide >= 1100)
+      // the chat dock stays open on every tab unless it was collapsed on
+      // purpose — no width-based default here, because losing the chat is
+      // exactly what the dock exists to prevent
+      const cdw = Number(localStorage.getItem('agent_chat_dock_w'))
+      if (cdw >= 320) setChatDockW(cdw)
+      const cdPref = localStorage.getItem('agent_chat_dock_open')
+      if (cdPref) setChatDockOpen(cdPref !== '0')
       if (!localStorage.getItem('agent_rail_closed') && wide < 900) setSidebarCollapsed(true)
       // floating prompt: width, position, and whether it was left undocked
       const pw = Number(localStorage.getItem('agent_prompt_w'))
@@ -644,9 +661,11 @@ export default function Home() {
       if (pp) setPromptPos(clampPromptPos(JSON.parse(pp), pwv))
       if (localStorage.getItem('agent_prompt_float') === '1' && pp) setPromptFloat(true)
       if (window.matchMedia('(max-width: 767px)').matches) {
-        // phones: both rails start as drawers so the console has the screen
+        // phones: both rails start as drawers so the console has the screen,
+        // and the chat dock starts as a strip — a 430px dock IS the screen
         setSidebarCollapsed(true)
         setMarketOpen(false)
+        setChatDockOpen(false)
       }
     } catch {}
   }, [])
@@ -712,6 +731,37 @@ export default function Home() {
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerup', onPointerUp)
   }, [marketWidth, marketSide])
+
+  // chat dock drag resize — the dock sits on the body's right edge on the
+  // AGENTS and ARENA tabs, so its handle is on its left side
+  const onChatDockDragStart = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = chatDockW
+    let last = startW
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    // the arena tab is an iframe — it swallows pointermove the moment the
+    // drag crosses into it, freezing the resize. Deaf iframes for the drag.
+    const frames = Array.from(document.querySelectorAll('iframe'))
+    frames.forEach(f => { f.style.pointerEvents = 'none' })
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const maxWidth = Math.floor(window.innerWidth * 0.6)
+      last = Math.max(320, Math.min(maxWidth, startW + (startX - ev.clientX)))
+      setChatDockW(last)
+    }
+    const onPointerUp = () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      frames.forEach(f => { f.style.pointerEvents = '' })
+      try { localStorage.setItem('agent_chat_dock_w', String(last)) } catch {}
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
+    }
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
+  }, [chatDockW])
 
   // ── floating prompt: undock, drag, resize ─────────────────────────
   const togglePromptFloat = useCallback(() => {
@@ -4602,6 +4652,80 @@ export default function Home() {
     </div>
   )
 
+  // the chat dock — the same console, riding along on the AGENTS and ARENA
+  // tabs so switching tabs never loses the conversation. Collapses to a
+  // strip like the rails, and only that on-purpose collapse hides it.
+  const chatDock = (
+    <div
+      className={`flex min-h-0 sidebar-panel relative shrink-0 ${chatDockOpen ? '' : 'w-[42px]'}`}
+      style={chatDockOpen ? { width: chatDockW, maxWidth: '85vw' } : undefined}
+    >
+      {chatDockOpen && (
+        <div
+          className="absolute top-0 bottom-0 -left-[4px] z-20 w-[9px] cursor-col-resize touch-none group"
+          onPointerDown={onChatDockDragStart}
+        >
+          <div className="h-full w-[1px] ml-[4px] bg-white/[0.06] group-hover:bg-emerald-500/60 group-active:bg-emerald-500 transition-colors" />
+        </div>
+      )}
+      <div className="flex-1 border-l border-white/[0.06] flex flex-col min-h-0 min-w-0 overflow-hidden">
+        {chatDockOpen ? (
+          <>
+            <div className="px-2 py-1 border-b border-white/[0.06] flex items-center gap-1.5 shrink-0">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className="text-emerald-300/80 shrink-0" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="text-[10px] uppercase tracking-widest text-gray-500 select-none">chat</span>
+              <button
+                onClick={() => {
+                  setView('chat')
+                  if (activeTab === 'agents') setActiveTab('output')
+                }}
+                title="Open the chat full width"
+                className="ml-auto w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-gray-300 hover:bg-white/5 transition text-[11px]"
+              >⤢</button>
+              <button
+                onClick={() => setChatDockOpenPersist(false)}
+                title="Collapse the chat"
+                className="w-6 h-6 flex items-center justify-center rounded text-gray-600 hover:text-gray-300 hover:bg-white/5 transition"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </button>
+            </div>
+            {consoleDock}
+          </>
+        ) : (
+          <div className="flex flex-col items-center py-3 gap-2 h-full">
+            <button
+              onClick={() => setChatDockOpenPersist(true)}
+              className="text-gray-600 hover:text-gray-400 transition p-1"
+              title="Show the chat"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setChatDockOpenPersist(true)}
+              title="Chat — the conversation keeps going here"
+              className="[writing-mode:vertical-rl] text-[10px] uppercase tracking-widest text-gray-600 hover:text-emerald-300 transition py-2"
+            >
+              chat
+            </button>
+            {loading && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mt-1"
+                title="a run is working in the chat" />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+
   // --- Hub: the AGENTS shelf — the registry (where an agent is made), the
   //     FLOW canvas (where agents are connected to each other) and the TASK
   //     mode that writes what they are scored on. ---
@@ -4779,7 +4903,7 @@ export default function Home() {
       <div className="flex-1 flex min-h-0">
         {/* HUB — the agents canvas, the library and the background runs, one
             shelf strip instead of three tabs crowding the chat */}
-        {view === 'hub' && (
+        {view === 'hub' && (<>
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="border-b border-white/[0.06] px-3 py-1.5 shrink-0 flex items-center gap-1.5 flex-wrap">
               {/* the third shelf is the RUNS shelf, not the "tasks" shelf: a
@@ -4827,7 +4951,8 @@ export default function Home() {
               {hubPane === 'library' && libraryPage}
             </div>
           </div>
-        )}
+          {chatDock}
+        </>)}
 
         {/* arena — migrated to the arena mod. The board itself is the
             standalone /agent/arena route (components/Arena mounted with its
@@ -4837,7 +4962,7 @@ export default function Home() {
             the framed board through shared localStorage. In dev there is no
             gateway (no /arena route on :3117), so the tab frames the local
             route directly. */}
-        {view === 'arena' && (
+        {view === 'arena' && (<>
           <div className="flex-1 min-h-0 flex">
             <iframe
               src={process.env.NODE_ENV === 'development'
@@ -4846,7 +4971,8 @@ export default function Home() {
               title="arena — every agent on the same tasks, one ranked board"
               className="flex-1 w-full h-full border-0 bg-surface-0" />
           </div>
-        )}
+          {chatDock}
+        </>)}
 
         {/* console: chats + agents rail on one side, the market on the other,
             console docked at the bottom */}
