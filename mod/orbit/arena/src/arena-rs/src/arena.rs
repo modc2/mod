@@ -12,7 +12,7 @@ use crate::rsklass;
 use crate::rustc;
 use crate::storelink;
 use crate::store::{self, round1, round3, Match, Player, Rating, Seat, Turn, WasmModule};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::wasm;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -1214,13 +1214,18 @@ fn arcade_rows(players: &HashMap<String, Player>, matches: &[Match], game_id: &s
         }
     }
 
+    let registered: HashSet<String> = rows.keys().cloned().collect();
+
     for m in matches.iter().filter(|m| m.game == game_id) {
         for s in &m.seats {
             let row = rows.entry(s.player_id.clone()).or_default();
             if row.name.is_empty() {
+                // First time we see this gone player — set name and kind.
                 row.name = s.player_name.clone();
                 row.kind = "gone".into();
-                // No rating to lean on — count what the window still holds.
+            }
+            if !registered.contains(&s.player_id) {
+                // No rating to lean on — count every match the window holds.
                 row.runs += 1;
                 row.score_sum += s.score;
             }
@@ -1378,6 +1383,21 @@ mod arcade_tests {
         assert_eq!(rows[0].1["name"], "GHOST");
         assert_eq!(rows[0].1["kind"], "gone");
         assert_eq!(rows[0].1["best"], 42.0);
+    }
+
+    #[test]
+    fn gone_player_multiple_matches_counts_all_runs() {
+        let players = HashMap::new();
+        let matches = vec![
+            a_match("g1", 100, vec![seat("ghost", 30.0)]),
+            a_match("g1", 200, vec![seat("ghost", 50.0)]),
+        ];
+        let rows = arcade_rows(&players, &matches, "g1");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1["runs"], 2);
+        assert_eq!(rows[0].1["best"], 50.0);
+        // avg = (30 + 50) / 2 = 40.0
+        assert_eq!(rows[0].1["avg_score"], 40.0);
     }
 
     #[test]

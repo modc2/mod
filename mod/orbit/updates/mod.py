@@ -436,7 +436,7 @@ class Mod:
 
             def _build(mod_keep, hi_keep):
                 p = list(_head)
-                if _mods:
+                if _mods and mod_keep > 0:
                     shown = _mods[:mod_keep]
                     rest = len(_mods) - len(shown)
                     p += ['', '**modules touched**']
@@ -1045,6 +1045,10 @@ INDEX_HTML = r"""<!doctype html>
   .mchip{font-size:11px;padding:3px 9px;border-radius:999px;background:var(--panel2);
     border:1px solid var(--line);color:var(--muted)}
   .mchip b{color:var(--accent2);font-weight:700}
+  .hi-list{margin:10px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px}
+  .hi-list li{font-size:12.5px;color:var(--muted);padding-left:14px;position:relative;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hi-list li::before{content:'•';position:absolute;left:0;color:var(--faint)}
   .post{margin:13px 0 0;background:#06080d;border:1px solid var(--line);border-radius:11px;
     padding:13px 15px;white-space:pre-wrap;word-break:break-word;font:13px/1.6 ui-sans-serif,system-ui;
     color:var(--text);max-height:340px;overflow:auto}
@@ -1298,6 +1302,7 @@ function renderDaily(){
         <span><b>${(d.modules||[]).length}</b> modules</span>
         <span>${esc((d.authors||[]).join(', '))}</span></div>
       <div class="mchips">${mods}${more>0?`<span class="mchip">+${more}</span>`:''}</div>
+      ${(d.highlights&&d.highlights.length)?`<ul class="hi-list">${d.highlights.map(h=>`<li>${esc(h)}</li>`).join('')}</ul>`:''}
       <pre class="post" id="post-${i}">${esc((d.post||{})[STYLE]||'')}</pre>
       <div class="dfoot">
         <button class="btn primary" onclick="copyPost(${i})" id="cp-${i}">copy for ${esc(STYLES[STYLE].label)}</button>

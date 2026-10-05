@@ -2082,7 +2082,7 @@ export default function Home() {
 
   // markdown-lite: render ``` fences, `inline code`, **bold**, *italic*, ## headings, bullet lists
   const renderText = (text: string) => {
-    const hasAny = text.includes('`') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text)
+    const hasAny = text.includes('`') || text.includes('\n> ') || text.startsWith('> ') || /\*\*|\*[^*]|\[.+\]\(https?:\/\/|^[*\-] |^#{1,3} |^\d+\. /m.test(text)
     if (!hasAny) return text
 
     // inline pass: **bold**, *italic*, `code` within a single string
@@ -2109,13 +2109,14 @@ export default function Home() {
 
     // per-segment renderer: headings, bullet lists, then inline
     const renderSeg = (seg: string, si: number) => {
-      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. /m.test(seg)
+      const hasBlock = /^#{1,3} |^[*\-] |^\d+\. |^> /m.test(seg)
       if (!hasBlock) return <Fragment key={si}>{renderInline(seg, `${si}`)}</Fragment>
 
       const lines = seg.split('\n')
       const nodes: React.ReactNode[] = []
       let listBuf: React.ReactNode[][] = []
       let olistBuf: React.ReactNode[][] = []
+      let quoteBuf: React.ReactNode[][] = []
       let k = 0
 
       const flushList = () => {
@@ -2148,6 +2149,18 @@ export default function Home() {
         olistBuf = []
       }
 
+      const flushQuote = () => {
+        if (!quoteBuf.length) return
+        nodes.push(
+          <blockquote key={`${si}-bq${k++}`} style={{ borderLeft: '2px solid rgb(75 85 99)', paddingLeft: '0.625rem', margin: '0.25rem 0', color: 'rgb(156 163 175)' }}>
+            {quoteBuf.map((item, qi) => (
+              <div key={qi}>{item}</div>
+            ))}
+          </blockquote>
+        )
+        quoteBuf = []
+      }
+
       lines.forEach((line, li) => {
         if (line.startsWith('### ')) {
           flushList(); flushOList()
@@ -2164,12 +2177,15 @@ export default function Home() {
         } else if (/^\d+\. /.test(line)) {
           flushList()
           olistBuf.push(renderInline(line.replace(/^\d+\. /, ''), `${si}-oli${li}`))
-        } else {
+        } else if (line.startsWith('> ')) {
           flushList(); flushOList()
+          quoteBuf.push(renderInline(line.slice(2), `${si}-bq${li}`))
+        } else {
+          flushList(); flushOList(); flushQuote()
           nodes.push(<Fragment key={`${si}-t${k++}`}>{renderInline(line, `${si}-ln${li}`)}{li < lines.length - 1 ? '\n' : ''}</Fragment>)
         }
       })
-      flushList(); flushOList()
+      flushList(); flushOList(); flushQuote()
       return <Fragment key={si}>{nodes}</Fragment>
     }
 

@@ -290,6 +290,7 @@ details[open] summary{margin-bottom:10px}
         <option value="vram">Most memory</option><option value="gpus">Most GPUs</option>
       </select>
       <button class="btn sm" id="f_more"><svg class="i"><use href="#i-sliders"/></svg>Filters</button>
+      <button class="btn sm" id="m_refresh"><svg class="i"><use href="#i-refresh"/></svg>Refresh</button>
     </div>
     <div class="more" id="more">
       <label class="f">Max price <em>$ per GPU-hour</em><input id="f_price" type="number" step="0.01" placeholder="any"></label>
@@ -658,6 +659,7 @@ async function loadMarket(){
 ['f_avail', 'f_sort', 'f_tier'].forEach((i) => $(i).onchange = () => { SHOWN = 24; renderMarket(); });
 $('f_more').onclick = () => { $('more').classList.toggle('on'); $('f_more').classList.toggle('pri', $('more').classList.contains('on')); };
 $('m_more').onclick = () => { SHOWN += 24; renderMarket(); };
+$('m_refresh').onclick = () => { SHOWN = 24; loadMarket(); };
 loadMarket();
 
 // ── rent dialog ────────────────────────────────────────

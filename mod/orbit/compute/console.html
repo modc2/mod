@@ -522,6 +522,7 @@
   .ochart .call.mine{fill:var(--hot)}
   .ochart .call.bot{fill:var(--faint)}
   .ochart .call.scored{opacity:.55;stroke-dasharray:2 2;stroke:var(--hot)}
+  .ochart .call.scored-act{fill:none;stroke:var(--hot);stroke-width:2;opacity:.75}
   .ochart .hair{stroke:var(--dim);stroke-width:1;display:none}
   .ochart .dot{fill:var(--gold-hi);stroke:var(--well);stroke-width:2;display:none}
   .hz{display:flex;gap:5px}
@@ -2032,13 +2033,29 @@ async function oraclePick(series, quiet) {
   document.getElementById('o-val').value = s.value;
   try { ODET = await call('/oracle/series?series=' + encodeURIComponent(series)) }
   catch (e) { document.getElementById('o-flash').textContent = e.message; return }
-  drawChart(); drawCalls();
+  drawChart(); drawCalls(); syncCallForm();
   if (document.getElementById('o-bscope').value === 'sel') oracleBoard();
 }
 
 function oracleHz(h) {
   OHZ = h; document.querySelectorAll('#o-hz button').forEach(b => b.classList.toggle('on', b.textContent === h));
-  if (ODET) { drawChart(); drawCalls(); }
+  if (ODET) { drawChart(); drawCalls(); syncCallForm(); }
+}
+
+function syncCallForm() {
+  const existing = ODET && ODET.open.find(c => c.player === me().player && c.horizon === OHZ);
+  const btn = document.querySelector('button[onclick="oracleCall()"]');
+  const f = document.getElementById('o-flash');
+  if (existing) {
+    document.getElementById('o-val').value = existing.value;
+    f.textContent = 'open call: ' + per(existing.value) + ' — resolves in ' + until(existing.target);
+    if (btn) btn.disabled = true;
+  } else {
+    const s = O && O.series.find(x => x.series === OSEL);
+    if (s) document.getElementById('o-val').value = s.value;
+    if (f.textContent.startsWith('open call:')) f.textContent = '';
+    if (btn) btn.disabled = false;
+  }
 }
 function oracleNudge(n) {
   const s = O.series.find(x => x.series === OSEL);
@@ -2077,7 +2094,7 @@ function drawChart() {
     <line class="hair" id="o-hair" y1="${T}" y2="${H-B}"/><circle class="dot" id="o-dot" r="4"/>
     ${calls.map((c, i) => `<circle class="call ${c.player === mine ? 'mine' : c.player.startsWith('bot.') ? 'bot' : ''}"
       data-i="${i}" cx="${x(c.target)}" cy="${y(c.value)}" r="${c.player === mine ? 6 : 4.5}"/>`).join('')}
-    ${scored.map(c => `<line class="call mine scored" x1="${x(c.target).toFixed(1)}" x2="${x(c.target).toFixed(1)}" y1="${y(c.value).toFixed(1)}" y2="${y(c.actual).toFixed(1)}" fill="none"/><circle class="call mine scored" cx="${x(c.target).toFixed(1)}" cy="${y(c.value).toFixed(1)}" r="5"/>`).join('')}
+    ${scored.map(c => `<line class="call mine scored" x1="${x(c.target).toFixed(1)}" x2="${x(c.target).toFixed(1)}" y1="${y(c.value).toFixed(1)}" y2="${y(c.actual).toFixed(1)}" fill="none"/><circle class="call mine scored" cx="${x(c.target).toFixed(1)}" cy="${y(c.value).toFixed(1)}" r="5"/><circle class="call scored-act" cx="${x(c.target).toFixed(1)}" cy="${y(c.actual).toFixed(1)}" r="4"/>`).join('')}
   </svg>`;
   const afut = document.getElementById('a-fut'); if (afut) afut.textContent = '+' + OHZ;
   const tip = document.getElementById('tip'), svg = el.querySelector('svg');
@@ -2090,7 +2107,13 @@ function drawChart() {
     // the nearest call within reach wins over the line: they are the small targets
     let best = null, bd = 14 * 14;
     calls.forEach(c => { const d = (x(c.target) - px) ** 2 + (y(c.value) - py) ** 2; if (d < bd) { bd = d; best = c } });
-    scored.forEach(c => { const d = (x(c.target) - px) ** 2 + (y(c.value) - py) ** 2; if (d < bd) { bd = d; best = c } });
+    scored.forEach(c => {
+      const d = Math.min(
+        (x(c.target) - px) ** 2 + (y(c.value) - py) ** 2,
+        (x(c.target) - px) ** 2 + (y(c.actual) - py) ** 2
+      );
+      if (d < bd) { bd = d; best = c }
+    });
     if (best) {
       hair.style.display = dot.style.display = 'none';
       return show(e, best.actual != null
