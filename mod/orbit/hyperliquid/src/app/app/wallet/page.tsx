@@ -103,15 +103,33 @@ export default function WalletPage() {
 
   if (!eoa) {
     return (
-      <div className="max-w-xl space-y-4">
-        <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">Wallet</h1>
-        <div className="panel p-6 text-center space-y-3">
-          <p className="text-xs text-muted">
-            Connect MetaMask to deposit and withdraw funds, invest in vaults and strats, and enable copy-trading.
+      <div className="max-w-3xl space-y-5">
+        <div>
+          <h1 className="text-gradient text-[24px] font-bold tracking-tight leading-tight">Wallet</h1>
+          <p className="text-xs text-muted mt-1">
+            Fund your Hyperliquid account, pull money back out, and authorize copy-trading — all signed by you.
           </p>
-          <button className="btn-primary" onClick={() => connect()} disabled={!hasProvider}>
-            {hasProvider ? "connect metamask" : "MetaMask not detected"}
-          </button>
+        </div>
+
+        <div className="panel p-6 space-y-5">
+          <div className="grid sm:grid-cols-3 gap-4">
+            <CanDo title="Deposit from 12 chains"
+              body="USDC — or any token — on Arbitrum, Ethereum, Base and nine more lands in your Hyperliquid account in one signed transaction." />
+            <CanDo title="Withdraw anywhere"
+              body="Back to any of the same chains. Withdrawals are master-signed: the server builds the intent, your wallet signs it." />
+            <CanDo title="Authorize once, copy forever"
+              body="One signature approves a trading agent for your account. It can trade for you; it can never withdraw." />
+          </div>
+          <div className="flex flex-wrap items-center gap-3 border-t border-white/[0.06] pt-4">
+            <button className="btn-primary" onClick={() => connect()} disabled={!hasProvider}>
+              {hasProvider ? "connect metamask" : "MetaMask not detected"}
+            </button>
+            <p className="text-[11px] text-muted">
+              {hasProvider
+                ? "Nothing moves without a signature from you."
+                : "Install the MetaMask extension, or use CONNECT (top right) to watch an address read-only."}
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -256,6 +274,15 @@ export default function WalletPage() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function CanDo({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="text-[11px] text-muted mt-1 leading-relaxed">{body}</div>
     </div>
   );
 }

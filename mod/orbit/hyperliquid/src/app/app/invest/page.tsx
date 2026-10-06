@@ -233,18 +233,53 @@ function SignedOut() {
     <section className="space-y-5">
       <PageHead title="Invest"
         blurb="Put money behind the traders on the board, or into a Hyperliquid vault — and watch it in one place." />
-      <div className="panel p-8 text-center space-y-4">
-        <p className="text-sm text-muted max-w-lg mx-auto">
-          Connect your wallet (top right) to see your positions. Nothing here can move money
-          without a signature from you, and you can preview exactly what any amount would buy
-          before connecting anything.
+
+      {/* What happens when you do — the three facts a first visit needs,
+          in the order they happen. */}
+      <div className="panel p-6">
+        <div className="eyebrow mb-4">how it works</div>
+        <div className="grid sm:grid-cols-3 gap-4">
+          <Step n={1} title="Pick"
+            body="A trader off the board, or one of Hyperliquid's own vaults. Both pages are open — browse before connecting anything." />
+          <Step n={2} title="Size it"
+            body="Say how many dollars ride along. You see exactly what that amount would buy before any signature is asked for." />
+          <Step n={3} title="It stays matched"
+            body="The engine keeps your account holding what they hold, scaled to your money — it joins late, self-heals, and stops when you say so." />
+        </div>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <Choice href="/" title="Back a trader"
+          body="Your account holds what they hold, scaled to your money. No lockup — browse the board." />
+        <Choice href="/vaults" title="Deposit into a vault"
+          body="Hyperliquid's own vaults. The leader trades it; HL does the accounting — browse vaults." />
+      </div>
+
+      <div className="panel p-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs text-muted max-w-lg">
+          Your money never leaves your own Hyperliquid account, and nothing here can move
+          it without a signature from you. Connect your wallet (top right) to see your positions.
         </p>
-        <div className="flex items-center justify-center gap-2">
-          <Link href="/" className="btn">browse traders</Link>
-          <Link href="/vaults" className="btn">browse vaults</Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link href="/" className="btn-ghost text-xs">browse traders</Link>
+          <Link href="/vaults" className="btn-ghost text-xs">browse vaults</Link>
         </div>
       </div>
     </section>
+  );
+}
+
+function Step({ n, title, body }: { n: number; title: string; body: string }) {
+  return (
+    <div className="flex gap-3">
+      <div className="num shrink-0 grid h-7 w-7 place-items-center rounded-full border border-accent/30 bg-accent/[0.07] text-xs text-accent">
+        {n}
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="text-[11px] text-muted mt-1 leading-relaxed">{body}</div>
+      </div>
+    </div>
   );
 }
 
