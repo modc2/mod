@@ -9,6 +9,9 @@ from typing import Dict, List, Optional, Tuple
 from ..chain.client import BLOCKS_PER_DAY, SubtensorClient
 from ..db import Database
 
+# A book below this can't be meaningfully ranked on a percentage.
+DUST_TAO = 0.5
+
 
 @dataclass
 class SubnetPnl:
@@ -33,14 +36,16 @@ class PnlResult:
     start_value_tao: float
     end_value_tao: float
     pnl_tao: float
+    # Flow-normalized: market gain over the capital employed, so TAO wired
+    # in or out moves the base, never the gain. pnl_tao stays the raw Δvalue.
     pnl_pct: float
     by_subnet: List[SubnetPnl] = field(default_factory=list)
     # Δvalue splits exactly into a price move on the book we already held and
     # the stake that came in or out over the window:
     #   market = Σ alpha_start·(price_end − price_start)
     #   flow   = Σ (alpha_end − alpha_start)·price_end
-    # Without this a coldkey that merely deposited outranks every real trader
-    # on the board — "+1,474,529%" is a wire transfer, not skill.
+    # Without this split a coldkey that merely deposited outranks every real
+    # trader on the board — "+1,474,529%" is a wire transfer, not skill.
     market_pnl_tao: float = 0.0
     flow_tao: float = 0.0
     market_pct: float = 0.0
@@ -153,9 +158,15 @@ def calculate_pnl(client: SubtensorClient, db: Database,
         ))
 
     total_pnl = total_end - total_start
-    total_pnl_pct = (total_pnl / total_start * 100) if total_start > 0 else (
-        100.0 if total_end > 0 else 0.0
-    )
+    # TAO going in and out is normalized out of the percentage: only the
+    # market gain counts, over the capital employed. Two snapshots can't
+    # time a flow, so a deposit is assumed in the book for the whole window
+    # (the conservative read) and a withdrawal leaves the base alone. Books
+    # under DUST_TAO can't carry a percentage at all — 0.0005 τ growing
+    # into a funded book is a wire transfer, not a +10^7 % return.
+    employed = total_start + max(flow_total, 0.0)
+    total_pnl_pct = (market_total / employed * 100) \
+        if employed >= DUST_TAO else 0.0
 
     return PnlResult(
         ss58=ss58,
@@ -170,7 +181,8 @@ def calculate_pnl(client: SubtensorClient, db: Database,
         baseline=baseline,
         market_pnl_tao=market_total,
         flow_tao=flow_total,
-        market_pct=(market_total / total_start * 100) if total_start > 0 else 0.0,
+        market_pct=(market_total / total_start * 100)
+        if total_start >= DUST_TAO else 0.0,
     )
 
 

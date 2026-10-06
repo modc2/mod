@@ -27,6 +27,7 @@ not thread-safe), so API calls never wait behind a snapshot.
 from __future__ import annotations
 
 import json
+import math
 import os
 import sqlite3
 import threading
@@ -465,6 +466,15 @@ def traders(sort_by: str = 'total_tao', limit: int = 0,
 BOARD_SORTS = ('market_pct', 'market_pnl_tao', 'pnl_pct', 'pnl_tao',
                'total_stake_tao', 'num_subnets')
 
+# How many snapshots a board row is priced across. Two points can't tell a
+# deposit from a gain once money moves mid-window; sixteen keep the walk
+# cheap (~1 JSON parse per point) while every flow lands in the step where
+# it actually happened.
+BOARD_PTS = 16
+# A book below this can't carry a percentage: 0.000001 τ growing to 1 τ is
+# a +10^8 % step that would dominate any chained return.
+BOARD_DUST_TAO = 0.5
+
 
 def _board_row(conn, t: Dict, window: int, prices: Dict[int, float],
                sparks: bool, names: Dict[int, str]) -> Dict:
@@ -497,48 +507,105 @@ def _board_row(conn, t: Dict, window: int, prices: Dict[int, float],
     # for less than the horizon is ranked over the history that exists, and
     # window_days says so — a 30d column must never quietly show 3 days for
     # one trader and 30 for the next.
-    start = conn.execute(
-        'SELECT ts, positions FROM trader_snaps WHERE ss58 = ? AND ts >= ? '
-        'ORDER BY ts LIMIT 1', (t['ss58'], now - window)).fetchone()
-    if start is None or start[0] >= end[0]:
+    # Most books moved no money inside the window, and with zero flow two
+    # points already give the exact answer (the chained return telescopes to
+    # end/start) — so the multi-point walk, whose cost is parsing big
+    # position blobs, only runs for traders the flow tape says actually
+    # staked in or out. That's what keeps a 537-trader board in seconds.
+    moved = conn.execute(
+        'SELECT 1 FROM trader_flows WHERE ss58 = ? AND ts > ? LIMIT 1',
+        (t['ss58'], now - window)).fetchone() is not None
+    if moved:
+        ts_list = [r[0] for r in conn.execute(
+            'SELECT ts FROM trader_snaps WHERE ss58 = ? AND ts >= ? AND ts < ? '
+            'ORDER BY ts', (t['ss58'], now - window, end[0])).fetchall()]
+    else:
+        first = conn.execute(
+            'SELECT ts FROM trader_snaps WHERE ss58 = ? AND ts >= ? AND ts < ? '
+            'ORDER BY ts LIMIT 1', (t['ss58'], now - window, end[0])).fetchone()
+        ts_list = [first[0]] if first else []
+    if not ts_list:
         return row
+    if len(ts_list) > BOARD_PTS - 1:  # sample evenly, always keep the ends
+        step = (len(ts_list) - 1) / (BOARD_PTS - 2)
+        ts_list = [ts_list[round(i * step)] for i in range(BOARD_PTS - 1)]
 
-    before = _by_netuid(json.loads(start[1]))
-    start_value = market = flow = 0.0
-    top_uid, top_pnl = None, 0.0
+    books = []
+    for ts in ts_list:
+        snap = conn.execute(
+            'SELECT positions FROM trader_snaps WHERE ss58 = ? AND ts = ? '
+            'LIMIT 1', (t['ss58'], ts)).fetchone()
+        books.append((ts, _by_netuid(json.loads(snap[0]))))
+    books.append((end[0], after))
 
-    for uid in set(before) | set(after):
-        b, a = before.get(uid), after.get(uid)
-        alpha_b = b['alpha'] if b else 0.0
-        alpha_a = a['alpha'] if a else 0.0
-        price_b = (b['price'] if b else 0.0) or 0.0
-        # A position that left the book has no live mark of its own; value it
-        # at the price it had, so the exit reads as a withdrawal not a wipeout.
-        price_a = prices.get(uid) or (a['price'] if a else 0.0) or price_b
-        price_b = price_b or price_a
+    # Priced step by step so money moving mid-window lands as flow in the
+    # step it moved, not as a gain across the whole span. Two returns come
+    # out of the walk:
+    #   market_pct — time-weighted: step price-returns chained, so a deposit
+    #     or withdrawal cannot move it at all. What copying would have earned.
+    #   pnl_pct — money-weighted: everything the book earned on price, over
+    #     the capital actually employed (start value plus each flow weighted
+    #     by how long it was in the book). A deposit grows the base, never
+    #     the gain.
+    start_value = sum(((b['price'] or 0.0) * b['alpha'])
+                      for b in books[0][1].values())
+    span = max(1, books[-1][0] - books[0][0])
+    market = flow = 0.0
+    growth = 1.0              # Π(1 + step market return)
+    employed = start_value    # Dietz base: start + time-weighted flows
+    sn_market: Dict[int, float] = {}
 
-        start_value += alpha_b * price_b
-        market += alpha_b * (price_a - price_b)
-        flow += (alpha_a - alpha_b) * price_a
+    for i in range(1, len(books)):
+        before, (ts_a, after_i) = books[i - 1][1], books[i]
+        live = i == len(books) - 1
+        v_before = step_market = step_flow = 0.0
+        for uid in set(before) | set(after_i):
+            b, a = before.get(uid), after_i.get(uid)
+            alpha_b = b['alpha'] if b else 0.0
+            alpha_a = a['alpha'] if a else 0.0
+            price_b = (b['price'] if b else 0.0) or 0.0
+            # Only the final step marks at live prices — intermediate steps
+            # are history and keep their recorded marks. A position that
+            # left the book has no mark of its own; value it at the price it
+            # had, so the exit reads as a withdrawal not a wipeout.
+            price_a = (a['price'] if a else 0.0) or 0.0
+            price_a = ((prices.get(uid) or price_a) if live else price_a) \
+                or price_b
+            price_b = price_b or price_a
 
-        sn_pnl = alpha_a * price_a - alpha_b * price_b
-        if sn_pnl > top_pnl:
-            top_uid, top_pnl = uid, sn_pnl
+            v_before += alpha_b * price_b
+            m = alpha_b * (price_a - price_b)
+            step_market += m
+            sn_market[uid] = sn_market.get(uid, 0.0) + m
+            step_flow += (alpha_a - alpha_b) * price_a
+
+        market += step_market
+        flow += step_flow
+        if v_before >= BOARD_DUST_TAO:
+            growth *= 1.0 + step_market / v_before
+        # A flow that arrived with 40% of the window left was employed for
+        # 40% of it; one landing on the final mark earned nothing yet.
+        employed += step_flow * (books[-1][0] - ts_a) / span
 
     # market + flow is exactly end_value − start_value, by construction.
     pnl = market + flow
+    market_pct = (growth - 1.0) * 100.0
+    pnl_pct = (market / employed * 100.0) if employed >= BOARD_DUST_TAO else 0.0
+    top_uid = max(sn_market, key=sn_market.get, default=None)
+    if top_uid is not None and sn_market[top_uid] <= 0:
+        top_uid = None
     row.update({
         'baseline': True,
-        'window_days': round((end[0] - start[0]) / 86400, 2),
+        'window_days': round((end[0] - books[0][0]) / 86400, 2),
         'start_value_tao': start_value,
         'pnl_tao': pnl,
-        'pnl_pct': (pnl / start_value * 100) if start_value > 0 else 0.0,
+        'pnl_pct': pnl_pct if math.isfinite(pnl_pct) else 0.0,
         'market_pnl_tao': market,
-        'market_pct': (market / start_value * 100) if start_value > 0 else 0.0,
+        'market_pct': market_pct if math.isfinite(market_pct) else 0.0,
         'flow_tao': flow,
         'top_subnet': top_uid,
         'top_subnet_name': names.get(top_uid) if top_uid is not None else None,
-        'top_subnet_pnl': top_pnl,
+        'top_subnet_pnl': sn_market.get(top_uid, 0.0) if top_uid is not None else 0.0,
     })
     return row
 
@@ -547,17 +614,19 @@ def board(days: int = 7, top: int = 0, min_subnets: int = 0,
           sort_by: str = 'market_pct', sparks: bool = False) -> Dict:
     """Rank every tracked trader by what they actually earned over `days`.
 
-    One pass over the index — no chain round-trip, no archive node. For each
-    trader the oldest snapshot inside the window is the baseline and the
-    newest is the mark, and the change between them splits exactly into
+    One pass over the index — no chain round-trip, no archive node. Each
+    trader is priced across up to BOARD_PTS snapshots in the window; every
+    step splits exactly into
 
-        market = Σ alpha_start · (price_end − price_start)   what the book did
-        flow   = Σ (alpha_end − alpha_start) · price_end     what was staked
+        market = Σ alpha_before · Δprice      what the book did
+        flow   = Σ Δalpha · price_after       what was staked in or out
 
-    Both are reported because ranking on the raw percentage puts every fresh
-    deposit above every real trader: a coldkey that merely wired stake in
-    shows a huge pnl_pct and a market_pct of nothing. `market_pct` is the
-    column that measures trading, so it is the default sort.
+    and TAO going in and out is normalized out of both percentages:
+    `market_pct` chains the step returns (time-weighted — a deposit cannot
+    move it), `pnl_pct` is the market gain over the capital employed
+    (money-weighted — a deposit grows the base, never the gain). A coldkey
+    that merely wired 100 τ in reads ~0% on both, +100 τ of flow_tao.
+    `market_pct` is the default sort.
     """
     window = max(1, int(days)) * 86400
     prices = _prices_now()

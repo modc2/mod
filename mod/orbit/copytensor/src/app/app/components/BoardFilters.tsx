@@ -13,8 +13,8 @@ import { useFilters, type SortKey } from "../context/FiltersContext";
  */
 
 const RANKS: { k: SortKey; label: string; hint: string }[] = [
-  { k: "market_pct", label: "RETURN", hint: "Price gains only — deposits stripped out. What copying would have earned you." },
-  { k: "pnl_pct", label: "TOTAL", hint: "Everything the account did, deposits included." },
+  { k: "market_pct", label: "RETURN", hint: "Price gains only, step by step — deposits and withdrawals can't move it. What copying would have earned you." },
+  { k: "pnl_pct", label: "TOTAL", hint: "Market gains over all the τ the account had at work — deposits grow the base, never the gain." },
   { k: "total_stake_tao", label: "SIZE", hint: "Biggest books first." },
   { k: "num_subnets", label: "SPREAD", hint: "Most subnets held first." },
 ];

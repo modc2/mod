@@ -234,6 +234,17 @@ def serve(port=PORT, bind=None, base=BASE, block_loop=True):
                 return p[len(base):], query
             return p, query
 
+        def _is_local(self):
+            """Only the file= tools key off this: true for loopback with no
+            forwarding header. Caddy and the gateway proxy from this same box,
+            so loopback alone is not enough — a proxied request is recognised
+            by the X-Forwarded-For/X-Real-IP/Forwarded header the proxy adds."""
+            if self.client_address[0] not in ('127.0.0.1', '::1',
+                                              '::ffff:127.0.0.1'):
+                return False
+            return not any(self.headers.get(h) for h in
+                           ('x-forwarded-for', 'x-real-ip', 'forwarded'))
+
         def _may_write(self):
             """The write gate: open with no server.secret, else the bearer."""
             token_needed = secret()
@@ -303,6 +314,9 @@ def serve(port=PORT, bind=None, base=BASE, block_loop=True):
             return True
 
         def _dispatch(self):
+            # Every HTTP path into the tools runs in this request's thread —
+            # REST, /mcp and the agent — so one mark here covers them all.
+            mcpsrv.set_remote(not self._is_local())
             p, query = self._path()
             p = p.rstrip('/') or '/'
             if p == '/mcp':

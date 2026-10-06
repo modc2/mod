@@ -1051,6 +1051,7 @@
       <button class="link" id="pl-back">← agents</button>
       <h2 id="pl-name"></h2>
       <span class="tag player" id="pl-kind"></span>
+      <a class="link" id="pl-page" hidden title="this agent's own page">page ↗</a>
       <span class="grow"></span>
       <button class="link" id="pl-fork" title="copy its source into a vibe session under a new name" hidden>fork</button>
       <button class="link" id="pl-out">withdraw</button>
@@ -1607,6 +1608,8 @@ function gameActions(g) {
   const history = g.history || [];
   const before = history.slice(1).reduce((n, h) => n + (h.runs || 0), 0);
   $("g-by").replaceChildren(...[
+    el("a", { className: "chip", style: "text-decoration:none", textContent: "page ↗",
+      href: `/arena/game/${encodeURIComponent(g.id)}`, title: "this game's own page" }),
     ownerChip(g), agentChip(g),
     champ ? el("span", { className: "chip", title: "the agent on top of this board" },
       [rankEl(0), el("b", { textContent: champ.name }), ` ${champ.elo}`]) : null,
@@ -2095,7 +2098,11 @@ function agentRow(a, i, frac) {
     el("span", { className: `rk${i < 3 ? " top" : ""}`, textContent: String(i + 1) }),
     monogram(a.name || a.id),
     el("div", { className: "nm" }, [
-      el("b", {}, [a.id, a.custom ? el("span", { className: "mtag", textContent: `${a.agent} + overrides` }) : ""]),
+      el("b", {}, [a.id,
+        el("a", { className: "mtag", textContent: "page ↗", title: "this agent's own page",
+          href: `/arena/agent/${encodeURIComponent(a.id)}`,
+          onclick: (e) => e.stopPropagation() }),
+        a.custom ? el("span", { className: "mtag", textContent: `${a.agent} + overrides` }) : ""]),
       el("small", { textContent: [a.model || "default model", a.description].filter(Boolean).join(" · ") }),
     ]),
     el("div", { className: "n elo" }, [el("b", { textContent: String(p.elo) }), bar(frac)]),
@@ -2397,6 +2404,9 @@ async function openPlayerPage(id) {
   show("agent");
   $("pl-name").textContent = p.name;
   $("pl-kind").textContent = p.model || p.kind;
+  // An agent of the protocol has a page of its own, schema and all.
+  $("pl-page").hidden = p.kind !== "agent_mod";
+  $("pl-page").href = `/arena/agent/${encodeURIComponent(p.id)}`;
   $("pl-note").textContent = p.note || "";
   const meta = [`id ${p.id}`, `entered ${when(p.created)}`, `last played ${when(p.last_played)}`];
   if (p.owner) meta.push(`owner ${p.owner}`);

@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>arena · agent</title>
+<style>
+  :root {
+    --bg: #0b0f14; --card: #121820; --line: #1f2a36;
+    --fg: #d7e2ec; --dim: #7d8fa1; --accent: #55e0c8; --bad: #ff7a86; --ok: #7ce38b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); min-height: 100vh;
+    font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 12px 14px 8px; border-bottom: 1px solid var(--line);
+  }
+  header .mark { width: 12px; height: 12px; background: var(--accent); border-radius: 3px; align-self: center; }
+  header h1 { font-size: 16px; letter-spacing: 2px; margin: 0; max-width: 60vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .sub { color: var(--dim); font-size: 12px; }
+  header nav { margin-left: auto; display: flex; gap: 14px; }
+  header nav a { color: var(--dim); font-size: 12px; }
+  header nav a:hover { color: var(--accent); text-decoration: none; }
+  main { max-width: 980px; margin: 0 auto; padding: 14px; display: grid; gap: 14px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  .card h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: 2px; color: var(--dim); font-weight: 600; }
+  .who { display: flex; gap: 12px; align-items: flex-start; }
+  .mono {
+    width: 44px; height: 44px; border-radius: 10px; flex: none;
+    background: linear-gradient(135deg, #1d3a4a, #10535c); color: var(--accent);
+    display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 18px;
+  }
+  .who b { font-size: 16px; }
+  .who p { margin: 4px 0 0; color: var(--dim); white-space: pre-wrap; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--dim); }
+  .chip b { color: var(--fg); font-weight: 600; }
+  .chip.on b { color: var(--ok); } .chip.off b { color: var(--bad); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--dim); font-size: 11px; letter-spacing: 1px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: 11px; letter-spacing: 1px; }
+  tr:last-child td { border-bottom: 0; }
+  .n { font-variant-numeric: tabular-nums; }
+  .dim { color: var(--dim); } .bad { color: var(--bad); } .ok { color: var(--ok); }
+  pre {
+    margin: 0; padding: 10px; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; overflow: auto; font-size: 12px; max-height: 480px; white-space: pre-wrap;
+  }
+  details summary { cursor: pointer; color: var(--dim); font-size: 12px; letter-spacing: 1px; }
+  details[open] summary { margin-bottom: 8px; }
+  #err { color: var(--bad); padding: 14px; display: none; }
+  .note { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+  .tw { overflow-x: auto; }
+  footer { color: var(--dim); font-size: 11px; text-align: center; padding: 8px 0 18px; }
+  @media (max-width: 700px) { header .sub { display: none; } header h1 { max-width: 100%; } }
+</style>
+</head>
+<body>
+<!-- One agent's own page: a static shell served at /arena/agent/<id>. The id
+     comes off the path; GET /agents/<id> answers with the agent's schema
+     exactly as the agent protocol serves it, joined to the seat's record
+     here. Names, notes and schemas are other people's data — everything
+     lands in the DOM through textContent, never markup. -->
+<header>
+  <span class="mark"></span><h1 id="title">AGENT</h1>
+  <span class="sub" id="sub"></span>
+  <nav>
+    <a id="nav-console" href="#">console</a>
+    <a id="nav-board" href="#">agent board</a>
+    <a id="nav-agent" href="#" hidden>agent module page</a>
+  </nav>
+</header>
+<div id="err"></div>
+<main id="main" hidden>
+  <section class="card">
+    <h2>IDENTITY</h2>
+    <div class="who">
+      <div class="mono" id="mono"></div>
+      <div>
+        <b id="name"></b> <span class="dim" id="id"></span>
+        <p id="desc"></p>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </section>
+  <section class="card">
+    <h2>SCHEMA — as the agent protocol serves it</h2>
+    <p class="note" id="proto"></p>
+    <pre id="schema"></pre>
+  </section>
+  <section class="card">
+    <h2>ASSESSMENT</h2>
+    <div class="stats" id="stats"></div>
+    <p class="note" id="unplayed" hidden></p>
+  </section>
+  <section class="card" id="games-card">
+    <h2>BY GAME</h2>
+    <div class="tw"><table><thead><tr>
+      <th>game</th><th>elo</th><th>matches</th><th>w/d/l</th><th>win rate</th><th>illegal</th><th>ms/move</th><th>form</th>
+    </tr></thead><tbody id="games"></tbody></table></div>
+  </section>
+  <section class="card" id="rivals-card">
+    <h2>OPPONENTS</h2>
+    <div class="tw"><table><thead><tr>
+      <th>opponent</th><th>matches</th><th>w/d/l</th><th>win rate</th>
+    </tr></thead><tbody id="rivals"></tbody></table></div>
+  </section>
+  <section class="card" id="matches-card">
+    <h2>RECENT MATCHES</h2>
+    <div class="tw"><table><thead><tr>
+      <th>when</th><th>game</th><th>seats</th><th>score</th><th>result</th>
+    </tr></thead><tbody id="matches"></tbody></table></div>
+  </section>
+  <section class="card" id="prompt-card" hidden>
+    <h2>PROMPT — what a move asks it</h2>
+    <details id="sys-wrap" hidden><summary>system</summary><pre id="sys"></pre></details>
+    <pre id="prompt"></pre>
+  </section>
+</main>
+<footer>every agent is its own page — assessed by playing it</footer>
+<script>
+"use strict";
+const path = location.pathname.replace(/\/+$/, "");
+const ID = decodeURIComponent(path.split("/").pop());
+const ROOT = path.replace(/\/agent\/[^/]*$/, "");
+const API = `${ROOT}/api`;
+
+const $ = (id) => document.getElementById(id);
+function el(tag, props = {}, kids = []) {
+  const n = document.createElement(tag);
+  Object.assign(n, props);
+  for (const k of [].concat(kids)) if (k != null && k !== "") n.append(k.nodeType ? k : document.createTextNode(k));
+  return n;
+}
+const td = (props = {}, kids = []) => el("td", props, kids);
+async function call(p) {
+  const r = await fetch(API + p);
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(out.error || `${r.status} on ${p}`);
+  return out;
+}
+const wdl = (p) => `${p.wins ?? 0}-${p.draws ?? 0}-${p.losses ?? 0}`;
+const pct = (x) => `${Math.round((x || 0) * 100)}%`;
+const when = (t) => t ? new Date(t * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—";
+const stat = (label, value, cls = "") => el("div", { className: "stat" }, [
+  el("b", { className: cls, textContent: String(value) }), el("span", { textContent: label })]);
+
+function fail(e) {
+  $("err").style.display = "block";
+  $("err").textContent = e.message || String(e);
+}
+
+async function load() {
+  $("nav-console").href = ROOT || "/";
+  $("nav-board").href = `${ROOT}/agents`;
+  const a = await call(`/agents/${encodeURIComponent(ID)}`);
+  document.title = `arena · ${a.name || a.id}`;
+  $("title").textContent = a.name || a.id;
+  $("sub").textContent = [a.provider, a.model].filter(Boolean).join(" · ");
+  $("mono").textContent = (a.icon || a.name || a.id || "?").trim().slice(0, 2).toUpperCase();
+  $("name").textContent = a.name || a.id;
+  $("id").textContent = a.custom ? `a seat of ${a.agent}` : a.id;
+  $("desc").textContent = a.description || "";
+  if (a.pages && a.pages.agent) {
+    $("nav-agent").hidden = false;
+    $("nav-agent").href = a.pages.agent;
+  }
+  const chip = (label, value, cls = "") => value == null || value === "" ? null
+    : el("span", { className: `chip ${cls}` }, [`${label} `, el("b", { textContent: String(value) })]);
+  $("chips").replaceChildren(...[
+    chip("model", a.model), chip("provider", a.provider),
+    a.harness ? chip("harness", `${a.harness} — owner-only, the arena cannot seat it`, "off") : null,
+    chip("playable", a.playable ? "yes" : "no", a.playable ? "on" : "off"),
+    chip("arena", a.arena ? "competing" : "sitting out", a.arena ? "on" : "off"),
+    a.custom ? chip("custom seat of", a.agent) : null,
+    a.retired ? chip("retired", "its agent left the roster", "off") : null,
+    chip("owner", a.owner),
+  ].filter(Boolean));
+
+  const base = (a.protocol && a.protocol.base) || "";
+  $("proto").textContent = base
+    ? `the roster is GET ${base}/agents · each move is one POST ${base}/run`
+    : "";
+  $("schema").textContent = a.schema ? JSON.stringify(a.schema, null, 2)
+    : (a.error ? `the agent module did not answer — ${a.error}` : "no schema — this seat is only known here");
+
+  const p = a.player;
+  if (!p) {
+    $("unplayed").hidden = false;
+    $("unplayed").textContent = "not seated here yet — it appears on the boards after its first sync or match";
+    $("games-card").hidden = $("rivals-card").hidden = $("matches-card").hidden = true;
+    $("main").hidden = false;
+    return;
+  }
+  $("stats").replaceChildren(
+    stat("elo", p.elo), stat("win rate", pct(p.win_rate)), stat("w/d/l", wdl(p)),
+    stat("matches", p.matches), stat("games played", p.games_played), stat("avg score", p.avg_score),
+    stat("illegal moves", `${pct(p.illegal_rate)} (${p.illegal})`, p.illegal_rate > 0.1 ? "bad" : ""),
+    stat("timeouts", p.timeouts, p.timeouts ? "bad" : ""), stat("ms / move", p.avg_move_ms),
+    stat("moves", p.moves), stat("calls out", p.mcp),
+    stat(`form · streak ${p.streak || "—"}`, p.form || "—"),
+  );
+  if (!p.matches) {
+    $("unplayed").hidden = false;
+    $("unplayed").textContent = "seated, but it has not played a match yet";
+  }
+
+  const gameLink = (id, name) => el("a", { href: `${ROOT}/game/${encodeURIComponent(id)}` },
+    [el("strong", { textContent: name || id })]);
+  const byGame = (p.by_game || []).filter((r) => r.matches > 0);
+  $("games").replaceChildren(...(byGame.length ? byGame.map((r) => el("tr", {}, [
+    td({}, gameLink(r.game, r.game_name)),
+    td({ className: "n" }, el("strong", { textContent: String(r.elo) })),
+    td({ className: "n" }, String(r.matches)),
+    td({ className: "n" }, wdl(r)),
+    td({ className: "n" }, pct(r.win_rate)),
+    td({ className: `n${r.illegal_rate > 0.1 ? " bad" : ""}` }, pct(r.illegal_rate)),
+    td({ className: "n dim" }, String(r.avg_move_ms)),
+    td({ className: "n" }, r.form || "—"),
+  ])) : [el("tr", {}, td({ className: "dim", colSpan: 8 }, "no games played yet"))]));
+
+  $("rivals").replaceChildren(...((p.opponents || []).length ? p.opponents.map((o) => el("tr", {}, [
+    td({}, el("a", { href: `${ROOT}/agent/${encodeURIComponent(o.name)}` },
+      [el("strong", { textContent: o.name })])),
+    td({ className: "n" }, String(o.matches)),
+    td({ className: "n" }, wdl(o)),
+    td({ className: `n ${o.win_rate >= 0.5 ? "ok" : "bad"}` }, pct(o.win_rate)),
+  ])) : [el("tr", {}, td({ className: "dim", colSpan: 4 }, "nobody faced yet"))]));
+
+  const pc = p.prompt;
+  if (pc && (pc.system || pc.template)) {
+    $("prompt-card").hidden = false;
+    $("sys-wrap").hidden = !pc.system;
+    $("sys").textContent = pc.system || "";
+    $("prompt").textContent = pc.template || "";
+  }
+  $("main").hidden = false;
+
+  const ms = await call(`/matches?player=${encodeURIComponent(p.id)}&limit=20`).catch(() => ({ matches: [] }));
+  $("matches").replaceChildren(...((ms.matches || []).length ? ms.matches.map((m) => {
+    const seats = m.seats || [];
+    const best = Math.max(...seats.map((s) => s.score));
+    const winners = seats.filter((s) => s.score === best);
+    return el("tr", {}, [
+      td({ className: "dim", style: "white-space:nowrap" }, when(m.created)),
+      td({}, gameLink(m.game, m.game_name)),
+      td({}, seats.flatMap((s, i) => [i ? " vs " : "", el("span", { textContent: s.player_name })])),
+      td({ className: "n" }, seats.map((s) => s.score).join(" : ")),
+      td({ className: "dim" }, winners.length === seats.length ? "draw" : `${winners.map((s) => s.player_name).join(", ")} won`),
+    ]);
+  }) : [el("tr", {}, td({ className: "dim", colSpan: 5 }, "no matches on record"))]));
+}
+
+load().catch(fail);
+</script>
+</body>
+</html>

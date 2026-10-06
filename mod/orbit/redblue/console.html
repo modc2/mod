@@ -1288,10 +1288,13 @@ async function loadAbout() {
 
 // ── boot ───────────────────────────────────────────────────────
 api('/targets').then(t => {
-  const ps = Object.entries(t.providers).filter(([, p]) => p.ready);
+  // Every backend is shown, not just the ready ones — the arena is model
+  // agnostic, so the pill names all of them and dims the ones still needing a
+  // key rather than hiding the provider list down to whatever this box has.
+  const ps = Object.entries(t.providers);
   $('#sub').innerHTML = `<span>target</span><b>${esc(t.default)}</b><span class="sep"></span>`
-    + (ps.length ? ps.map(([n, p]) => `<span class="p ok" title="${esc(p.note || p.how || '')}"><i></i>${esc(n)}</span>`).join('')
-                 : '<span class="p"><i></i>no backend ready</span>');
+    + (ps.length ? ps.map(([n, p]) => `<span class="p${p.ready ? ' ok' : ''}" title="${esc(p.note || p.how || '')}"><i></i>${esc(n)}</span>`).join('')
+                 : '<span class="p"><i></i>no backend</span>');
   $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
 }).catch(() => {});
 loadBoard();

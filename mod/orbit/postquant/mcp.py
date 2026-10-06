@@ -58,7 +58,11 @@ INSTRUCTIONS = (
     'with how fast the state is growing. Pass data= to pq_set to store the '
     'SHA3-256 of some text and keep the text off-chain — that is the pattern '
     'this chain is priced for; value= with value_kind=raw stores literal bytes '
-    'and costs more. pq_get reads a key, pq_prove returns a Merkle path from it '
+    'and costs more. A LOCAL caller (shell, stdio MCP, loopback) can pass '
+    'file= instead: the node streams that file on its own disk through '
+    'SHA3-256 and commits the digest, anchoring a filesystem artifact without '
+    'the bytes ever leaving the disk; the public HTTP surface refuses file= '
+    'because it reads this node\'s disk. pq_get reads a key, pq_prove returns a Merkle path from it '
     'to the state root (what a light client needs to trust a hash), pq_check '
     'tests whether some data matches what a key committed to. '
     'The market: pq_list offers a key you own at a price, pq_buy takes it with '
@@ -73,6 +77,40 @@ INSTRUCTIONS = (
 
 _NODE = None
 _NODE_LOCK = threading.Lock()
+
+# file= hashes a file on THIS node's disk, and that must never be offered to
+# the open HTTP surface: a public caller who can ask "what is the SHA3-256 of
+# /path/i/guessed" has an existence-and-content oracle on the operator's box.
+# api.py marks each request's thread remote unless it arrived on loopback with
+# no forwarding header; stdio, the shell, tests and direct imports never mark
+# anything and stay local, because those callers already own the disk.
+_CALLER = threading.local()
+
+
+def set_remote(flag):
+    """api.py calls this at the top of every HTTP dispatch."""
+    _CALLER.remote = bool(flag)
+
+
+def _file_digest(path):
+    """Stream a local file through SHA3-256. Local callers only."""
+    if getattr(_CALLER, 'remote', False):
+        raise StateError(
+            'file= reads this node\'s own disk and is local-only (shell, '
+            'stdio MCP, loopback) — hash the file where it lives and pass '
+            'hash= or value= instead', code='local_only', status=403)
+    p = os.path.realpath(os.path.expanduser(str(path)))
+    h = hashlib.sha3_256()
+    size = 0
+    try:
+        with open(p, 'rb') as f:
+            for chunk in iter(lambda: f.read(1 << 20), b''):
+                h.update(chunk)
+                size += len(chunk)
+    except OSError as e:
+        raise StateError(f'cannot read {p}: {e.strerror or e}',
+                         code='bad_file', status=400)
+    return {'path': p, 'sha3_256': h.hexdigest(), 'bytes': size}
 
 
 def node():
@@ -253,6 +291,7 @@ def _t_quote(a):
     """The tool to call before writing anything."""
     n = node()
     key = a['key']
+    _, a = _file_args(a)
     kind = a.get('value_kind') or ('raw' if a.get('value') and not a.get('data')
                                    else 'hash')
     value = _value_for(a, kind)
@@ -408,17 +447,21 @@ def _t_check(a):
     e = n.state.entry(key, int(time.time()))
     if e is None:
         raise StateError(f'no entry at {key!r}', code='no_entry', status=404)
+    finfo = _file_digest(a['file']) if a.get('file') else None
     data = a.get('data')
-    digest = a.get('hash') or (
+    digest = a.get('hash') or (finfo['sha3_256'] if finfo else (
         hashlib.sha3_256(data.encode() if isinstance(data, str) else data)
-        .hexdigest() if data is not None else None)
+        .hexdigest() if data is not None else None))
     if digest is None:
-        raise StateError('pass data= (which is hashed) or hash= (a digest)',
+        raise StateError('pass file= (a local path, hashed here), data= '
+                         '(which is hashed) or hash= (a digest)',
                          code='bad_args')
     return {'key': key, 'committed': e['value'], 'computed': digest.lower(),
             'matches': e['value'] == digest.lower(),
             'value_kind': e['value_kind'],
             'expired': e['expired'],
+            **({'file': {'path': finfo['path'], 'bytes': finfo['bytes']}}
+               if finfo else {}),
             'note': ('a match means this data is what the key committed to at '
                      'the time it was written — the chain stores the digest, '
                      'never the data')}
@@ -464,8 +507,26 @@ def _value_for(a, kind):
     return value.lower()
 
 
+def _file_args(a):
+    """file= resolves to a hash commitment before the normal shaping runs.
+    Returns (finfo, args) — args rewritten so _value_for never sees the path."""
+    if not a.get('file'):
+        return None, a
+    if a.get('data') is not None or a.get('value'):
+        raise StateError('pass one of file=, data= or value= — not two',
+                         code='bad_args')
+    if a.get('value_kind') == 'raw':
+        raise StateError('file= always commits the SHA3-256 digest — raw '
+                         'would put the file itself on-chain, which the 8KB '
+                         'value cap and the per-byte price both exist to '
+                         'prevent', code='bad_value')
+    finfo = _file_digest(a['file'])
+    return finfo, {**a, 'value': finfo['sha3_256'], 'value_kind': 'hash'}
+
+
 def _t_set(a):
     n = node()
+    finfo, a = _file_args(a)
     w = _wallet(a.get('wallet'))
     key = a['key']
     kind = a.get('value_kind') or ('raw' if a.get('value') and not a.get('data')
@@ -493,7 +554,12 @@ def _t_set(a):
                     'deposit': _money(deposit),
                     'lease_seconds': seconds,
                     'billable_bytes': q['billable_bytes']}
-    if a.get('data') is not None:
+    if finfo:
+        out['committed'] = {'value': value,
+                            'of': f'sha3-256 of {finfo["path"]}',
+                            'file_bytes': finfo['bytes'],
+                            'stored_on_chain': '32 bytes, not the file'}
+    elif a.get('data') is not None:
         out['committed'] = {'value': value, 'of': 'sha3-256 of your data',
                             'stored_on_chain': '32 bytes, not the data'}
     return out
@@ -669,6 +735,9 @@ TOOLS = {
             'key': _str('the key you intend to write'),
             'data': _str('text to commit to — it is hashed with SHA3-256 and '
                          'only the 32-byte digest is priced and stored'),
+            'file': _str('price committing to a local file — the digest is '
+                         '32 bytes whatever the file weighs (local callers '
+                         'only)'),
             'value': _str('hex bytes to store literally, instead of data='),
             'value_kind': _str('hash (32-byte commitment, cheaper per byte) or '
                                'raw', enum=['hash', 'raw']),
@@ -709,7 +778,9 @@ TOOLS = {
     'pq_set': {
         'description': 'Write a key. Pass data= to store the SHA3-256 of some '
                        'text (the text stays off-chain — this is the pattern '
-                       'the chain is priced for), or value= with '
+                       'the chain is priced for), file= to commit to a file '
+                       'on this node\'s disk the same way (local callers '
+                       'only), or value= with '
                        'value_kind=raw for literal hex bytes. Claims the key if '
                        'it is free, and only its owner can overwrite it. The '
                        'deposit is sized from days=/hours= automatically; it '
@@ -718,6 +789,10 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {
             'key': _str('the key to write'),
             'data': _str('text to commit to — hashed with SHA3-256'),
+            'file': _str('path to a file on this node\'s disk — streamed '
+                         'through SHA3-256, only the 32-byte digest lands '
+                         'on-chain. Local callers only (shell, stdio MCP, '
+                         'loopback); the public API refuses it'),
             'value': _str('hex bytes to store literally'),
             'value_kind': _str('hash or raw', enum=['hash', 'raw']),
             'days': _int('how long to lease it for (default 1 hour)'),
@@ -861,6 +936,8 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {
             'key': _str('the key holding the commitment'),
             'data': _str('the data to test'),
+            'file': _str('or a path on this node\'s disk — hashed here and '
+                         'compared (local callers only)'),
             'hash': _str('or a digest you computed yourself')},
             'required': ['key']},
         'handler': _t_check,

@@ -1325,3 +1325,36 @@ def test_a_vibe_round_needs_a_signed_in_caller(arena):
     # anonymous caller gets a round.
     assert code in (401, 424), out
     assert 'sign in' in out['error'] or out['error'].startswith('build:')
+
+
+# ── every game and every agent has a page of its own ─────────────────────
+
+
+def test_each_game_and_each_agent_has_its_own_page(arena):
+    # Static shells: the server serves the page for any id — the page reads
+    # its own path and asks the API, so a dead id fails in the browser, not
+    # here. What the server must guarantee is that the routes exist.
+    for path, marker in [('/arena/game/anything', 'LEADERBOARD'),
+                         ('/arena/agent/anything', 'SCHEMA')]:
+        r = requests.get(f'{arena}{path}', timeout=30)
+        assert r.ok and 'text/html' in r.headers['content-type'], path
+        assert marker in r.text, path
+
+
+def test_an_agent_card_follows_the_agent_protocol(arena):
+    # A seat is known here even when the agent module is not reachable: the
+    # card still answers — the protocol schema (or null and the error said)
+    # joined to the seat's full sheet.
+    post(arena, '/players', {'name': 'proto-probe-page', 'kind': 'agent_mod',
+                             'note': 'a seat for the page test',
+                             'config': {'agent': 'default'}})
+    code, card = get(arena, '/agents/proto-probe-page')
+    assert code == 200, card
+    assert 'schema' in card and card['agent'] == 'default'
+    assert card['protocol']['run'] == 'POST /run'
+    assert card['pages']['arena'].endswith('/arena/agent/proto-probe-page')
+    assert card['pages']['agent'].endswith('/agent/a/default')
+    assert card['player']['name'] == 'proto-probe-page'
+
+    code, out = get(arena, '/agents/no-such-agent-ever')
+    assert code == 404 and 'error' in out

@@ -18,6 +18,11 @@ API `:51030` (`/postquant/api`) · console `/postquant` · MCP `POST /mcp`
 
 - committing to data verifiably without publishing it: `pq_set data=` stores
   only the SHA3-256; `pq_check` later proves what was committed and when
+- anchoring local files: `pq_set file=/path` streams a file on this box
+  through SHA3-256 and commits the digest; `pq_check file=` re-verifies it
+  against the chain. Local callers only (shell, stdio MCP, loopback) — the
+  public API refuses `file=` with 403 `local_only`, because a node that hashes
+  any path a remote caller names is an oracle on the operator's disk
 - a namespace market: human-readable keys that are claimed, leased, listed
   and bought (`pq_list` / `pq_buy`), with expiry enforced by paid sweepers
 - studying state-rent economics: EIP-1559 over state growth instead of
@@ -52,8 +57,10 @@ same bearer gate as `POST /set`; without it they come back as dry runs.
    the witness for the scheme that will actually sign (`scheme=` overrides —
    an SLH-DSA witness costs ~7x an ML-DSA-44 one).
 4. `pq_set key=… data=…` — data is hashed, only the digest lands on-chain.
-   `value=` + `value_kind=raw` stores literal hex at 2.5x the per-byte rate.
-5. `pq_get`, `pq_check data=`, `pq_prove` — read, test, prove.
+   `file=…` does the same to a local file (local callers only). `value=` +
+   `value_kind=raw` stores literal hex at 2.5x the per-byte rate.
+5. `pq_get`, `pq_check data=` (or `file=`/`hash=`), `pq_prove` — read, test,
+   prove.
 6. Lease upkeep: `pq_fund` (anyone may pay anyone's rent), `pq_del` (refunds
    escrow + bond), `pq_sweep` (clear an expired key, collect its bond —
    `pq_keys include_expired=true` finds targets).

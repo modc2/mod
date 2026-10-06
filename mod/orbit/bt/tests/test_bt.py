@@ -304,17 +304,58 @@ def test_board_ranks_trading_above_deposits(tstore, monkeypatch):
     assert trader_row['market_pnl_tao'] == pytest.approx(25.0)   # 100 × Δ0.25
     assert trader_row['flow_tao'] == pytest.approx(0.0)
     assert trader_row['market_pct'] == pytest.approx(100.0)
+    assert trader_row['pnl_pct'] == pytest.approx(100.0)
     assert dep_row['market_pnl_tao'] == pytest.approx(0.0)
     assert dep_row['flow_tao'] == pytest.approx(100.0)          # 50 α × 2.0
-    assert dep_row['pnl_pct'] == pytest.approx(500.0)           # flatters him
+    # the deposit is normalized out: 100 τ wired in earns 0%, on BOTH columns
+    assert dep_row['market_pct'] == pytest.approx(0.0)
+    assert dep_row['pnl_pct'] == pytest.approx(0.0)
 
-    # pnl_pct crowns the depositor; market_pct — the default — crowns the trader
-    assert traders.board(days=7, sort_by='pnl_pct')['rows'][0]['ss58'] == DEPOSITOR
+    # every percentage sort crowns the trader — flows can't buy a headline
+    assert traders.board(days=7, sort_by='pnl_pct')['rows'][0]['ss58'] == WHALE
     assert traders.board(days=7)['rows'][0]['ss58'] == WHALE
     # market + flow accounts for the change exactly, for both
     for r in (trader_row, dep_row):
         assert r['start_value_tao'] + r['market_pnl_tao'] + r['flow_tao'] \
             == pytest.approx(r['total_stake_tao'])
+
+
+def test_board_normalizes_mid_window_flows(tstore, monkeypatch):
+    """A deposit landing mid-window must neither inflate the time-weighted
+    return nor escape the money-weighted base for the half it was at work."""
+    monkeypatch.setattr(traders, 'snapshot', lambda a, bt=None: {
+        'ts': 1, 'total_tao': 0.0, 'positions': [], 'flows': []})
+    now = int(time.time())
+    traders.track(WHALE)
+    # 25 τ doubles, then 100 α (50 τ) arrives halfway; price flat after.
+    _snap(WHALE, now - 2 * 86400, [_pos(1, 100.0, 0.25)])
+    _snap(WHALE, now - 86400, [_pos(1, 200.0, 0.5)])
+    _snap(WHALE, now, [_pos(1, 200.0, 0.5)])
+
+    row = traders.board(days=7)['rows'][0]
+    assert row['market_pnl_tao'] == pytest.approx(25.0)
+    assert row['flow_tao'] == pytest.approx(50.0)
+    assert row['market_pct'] == pytest.approx(100.0)   # the price doubled
+    # 25 τ earned over 25 start + 50 employed for half the window
+    assert row['pnl_pct'] == pytest.approx(50.0)
+    assert row['start_value_tao'] + row['market_pnl_tao'] + row['flow_tao'] \
+        == pytest.approx(row['total_stake_tao'])
+
+
+def test_board_dust_book_cannot_post_a_headline(tstore, monkeypatch):
+    """0.0005 τ growing into a funded 50 τ book is a deposit, not a +10^7 %
+    return — the dust floor keeps both percentages at zero."""
+    monkeypatch.setattr(traders, 'snapshot', lambda a, bt=None: {
+        'ts': 1, 'total_tao': 0.0, 'positions': [], 'flows': []})
+    now = int(time.time())
+    traders.track(WHALE)
+    _snap(WHALE, now - 2 * 86400, [_pos(1, 0.002, 0.25)])
+    _snap(WHALE, now, [_pos(1, 100.0, 0.5)])
+
+    row = traders.board(days=7)['rows'][0]
+    assert row['market_pct'] == pytest.approx(0.0)
+    assert row['pnl_pct'] == pytest.approx(0.0)
+    assert row['flow_tao'] == pytest.approx(49.999, abs=0.01)
 
 
 def test_board_reports_the_window_it_actually_covers(tstore, monkeypatch):

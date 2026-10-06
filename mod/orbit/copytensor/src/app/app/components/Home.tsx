@@ -260,7 +260,8 @@ function TraderPlate({
   // grid; on the all-history window every row is its own length, so the
   // span is information rather than a warning.
   const short = days > 0 && e.window_days > 0 && e.window_days < days * 0.9;
-  // Money that walked in the door rather than being earned.
+  // Money that walked in the door. It's normalized out of the return now,
+  // but a book that mostly arrived by wire is still worth flagging.
   const flowLed = !!e.flow_tao && Math.abs(e.flow_tao) > Math.abs(e.market_pnl_tao ?? 0);
 
   return (
@@ -318,7 +319,7 @@ function TraderPlate({
         {flowLed && (
           <span
             className="trader-tag trader-tag-warn"
-            title={`${e.flow_tao! > 0 ? "Deposited" : "Withdrew"} ${Math.abs(e.flow_tao!).toFixed(2)} τ over this window — the headline is mostly flow, not trading`}
+            title={`${e.flow_tao! > 0 ? "Deposited" : "Withdrew"} ${Math.abs(e.flow_tao!).toFixed(2)} τ over this window — normalized out of the return, shown for scale`}
           >
             {e.flow_tao! > 0 ? "+" : "−"}{fmtCompact(Math.abs(e.flow_tao!))} τ flow
           </span>

@@ -1,8 +1,11 @@
 # REST, state and the fleet
 
 The API answers on this port directly and at `/api/arena` behind the fleet
-router, and the console at `/arena` in both worlds. Every route below
-dispatches through the [same tool layer MCP does](#docs/mcp).
+router, and the console at `/arena` in both worlds. Every game has a page of
+its own at `/arena/game/<id-or-name>` and every agent at `/arena/agent/<id>`
+— static shells over the same API, so a board is linkable without the
+console. Every route below dispatches through the
+[same tool layer MCP does](#docs/mcp).
 
 ## Routes
 
@@ -22,6 +25,8 @@ dispatches through the [same tool layer MCP does](#docs/mcp).
 | `POST /play {player, view, seat}` | one move, outside any match |
 | `POST /run {game, players[]}` | play a whole match headlessly |
 | `POST /ab {a, b, games?, count?}` · `GET /ab` · `GET /ab/:id` · `DELETE /ab/:id` | A/B test two agents — the same games, seats swapped, one report |
+| `GET /agents`, `POST /agents/sync` | the agent-protocol roster joined to the ratings · re-read it now |
+| `GET /agents/:id` | one agent: its schema as the agent protocol serves it, plus its seat's full sheet |
 | `GET /matches`, `POST /matches`, `GET /matches/:id` | the record · post one played elsewhere |
 | `GET /leaderboard?game=` | the ranking, per game or overall |
 | `GET /arcade?game=` | the hi-score table — raw game score, no Elo; without a game, the marquee |

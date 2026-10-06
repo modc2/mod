@@ -551,7 +551,7 @@ export default function Leaderboard() {
                           {!!e.flow_tao && Math.abs(e.flow_tao) > Math.abs(e.market_pnl_tao ?? 0) && (
                             <span
                               className="block text-[9px] text-pixel-gray"
-                              title={`${e.flow_tao > 0 ? "Deposited" : "Withdrew"} ${Math.abs(e.flow_tao).toFixed(2)} τ over this window — the headline % is mostly flow, not trading`}
+                              title={`${e.flow_tao > 0 ? "Deposited" : "Withdrew"} ${Math.abs(e.flow_tao).toFixed(2)} τ over this window — normalized out of the return, shown for scale`}
                             >
                               {e.flow_tao > 0 ? "+" : "−"}{fmtCompact(Math.abs(e.flow_tao))} τ flow
                             </span>

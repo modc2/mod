@@ -134,6 +134,19 @@ POST /check   {"key":"docs/readme","data":"hello"}       # matches: true
 GET  /prove?key=docs/readme                              # Merkle path to the root
 ```
 
+A local caller — the shell, stdio MCP, or loopback with no proxy in front —
+can anchor a file on this box's disk instead of inline data: `file=` streams
+it through SHA3-256 and only the 32-byte digest lands on-chain.
+
+```
+POST /set     {"key":"fs/model.bin","file":"/path/on/this/box","days":7}
+POST /check   {"key":"fs/model.bin","file":"/path/on/this/box"}   # re-verify
+```
+
+The public HTTP surface refuses `file=` (403 `local_only`): a node that will
+hash any path a remote caller names is an existence-and-content oracle on the
+operator's disk. Remote callers hash the file where it lives and pass `hash=`.
+
 Amounts: a **string** (`"1.5"`, `"25"`) is PQ, the display unit; a **bare
 integer** is nq, the base unit (1 PQ = 1e9 nq). Nothing is guessed from
 magnitude.
