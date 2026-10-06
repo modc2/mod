@@ -1,16 +1,16 @@
 # sn73 — Parked ك
 
-Bittensor subnet **73** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **73** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003095 | +0.00% | -0.07% | -4.77% | 17,991 | 6,838 | 2.31 |
+| 0.003087 | -0.00% | -0.26% | -4.65% | 17,966 | 6,829 | 327.34 |
 
 ## Last 24h flow
 
-7 trades by 4 coldkeys · 0 buys (0.00 τ) / 7 sells (1.22 τ) · net -1.22 τ
+38 trades by 9 coldkeys · 6 buys (159.17 τ) / 32 sells (167.06 τ) · net -7.89 τ
 
 ## Use
 

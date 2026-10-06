@@ -2,7 +2,7 @@
 
 The peer to peer privacy network and encryption layer for the internet
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006845 | -0.61% | +2.33% | -1.23% | 41,783 | 13,376 | 1,786 |
+| 0.006961 | +0.24% | +1.69% | +4.41% | 42,541 | 13,488 | 1,294 |
 
 ## Last 24h flow
 
-89 trades by 45 coldkeys · 48 buys (970.12 τ) / 41 sells (814.17 τ) · net 155.95 τ
+86 trades by 58 coldkeys · 39 buys (703.37 τ) / 47 sells (587.72 τ) · net 115.66 τ
 
 ## News
 
-- 2026-10-05 · commit · [docs: retain adopted metadata and alert qualification admissions](https://github.com/urfoundation/sn/commit/f8488151a7e4bce9090ef78e7b81744253730883) — urfoundation/sn
-- 2026-10-05 · commit · [docs: record source hardening lessons and remaining launch gates](https://github.com/urfoundation/sn/commit/9fe09ce49455cad2bce0c3c04f39b447f55da321) — urfoundation/sn
-- 2026-10-05 · commit · [Record corrected monitor build and database qualification admissions](https://github.com/urfoundation/sn/commit/02eabd9f7a5a8df6f31a4b0af519e1a49604a6ab) — urfoundation/sn
-- 2026-10-05 · commit · [Retain monitor fixture correction qualification admissions](https://github.com/urfoundation/sn/commit/62620e46e52d8b2a739513812e5e7f08593b60a5) — urfoundation/sn
-- 2026-10-05 · commit · [docs: reconcile exact owner funding and model qualification](https://github.com/urfoundation/sn/commit/644c0fad852b9f342e4fa8fc917924d6ed09543b) — urfoundation/sn
-- 2026-10-04 · commit · [Link exact source checkpoint and admit compiler beside retained history](https://github.com/urfoundation/sn/commit/2a23c4b3c1b72c8f41e7e8725e36bf418a00c1b4) — urfoundation/sn
-- 2026-10-04 · commit · [Reconcile mainnet requirements with exact source and qualification ev…](https://github.com/urfoundation/sn/commit/5703417f87344210b24497a7b5ea57d71c6f5e74) — urfoundation/sn
-- 2026-10-04 · commit · [Scope prebuilt model qualification alongside retained history bodies](https://github.com/urfoundation/sn/commit/d1a0e24d96e3384efbc412b94868f6519a80de82) — urfoundation/sn
+- 2026-10-06 · commit · [Archive retained historical qualification planning reviews](https://github.com/urfoundation/sn/commit/2b9b5810c3d0f71eecc7bce0d9398864b0e10bc9) — urfoundation/sn
+- 2026-10-06 · commit · [Record focused retained heap response qualification](https://github.com/urfoundation/sn/commit/76dd43acdfeee2c1c902e2a996faf4023772d784) — urfoundation/sn
+- 2026-10-06 · commit · [Record completed code and guide delivery](https://github.com/urfoundation/sn/commit/a3ef2d3fe8d627d41c22385dfc94e0fa91b62e88) — urfoundation/sn
+- 2026-10-06 · commit · [Record completed code docs and focused delivery checks](https://github.com/urfoundation/sn/commit/334dc521e6034ffe223563b0ae8fa07c0ed2825c) — urfoundation/sn
+- 2026-10-06 · commit · [Record current carry and treasury qualification](https://github.com/urfoundation/sn/commit/3a3fc0014b79a232dbedfa935adfbcc96f33d399) — urfoundation/sn
+- 2026-10-05 · commit · [Merge transient HTTP 500 retries for mainnet reads](https://github.com/urfoundation/sn/commit/6a1470730f8a8f4364d8e024b60227a28fdbe796) — urfoundation/sn
+- 2026-10-05 · commit · [Retry transient HTTP 500 failures in mainnet read observations](https://github.com/urfoundation/sn/commit/ef833695087f542022321b22656356441bbdf122) — urfoundation/sn
+- 2026-10-05 · commit · [Merge read-only original allocator observation snapshots](https://github.com/urfoundation/sn/commit/78907037ad79a401d8070bfce2b35f3d32a3a7b8) — urfoundation/sn
 
 ## Use
 

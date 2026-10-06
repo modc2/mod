@@ -2,7 +2,7 @@
 
 Pioneering Simulation-First Robotics Development
 
-Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www.nepher.ai/) · [discord](https://discord.gg/qZUc3vdjVq)
 
@@ -10,14 +10,17 @@ Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.008582 | -0.29% | -1.74% | -9.89% | 25,738 | 4,657 | 1,056 |
+| 0.008573 | -3.43% | -0.12% | +0.47% | 25,774 | 4,656 | 1,645 |
 
 ## Last 24h flow
 
-140 trades by 68 coldkeys · 69 buys (500.48 τ) / 71 sells (542.69 τ) · net -42.21 τ
+295 trades by 88 coldkeys · 172 buys (820.08 τ) / 123 sells (818.74 τ) · net 1.34 τ
 
 ## News
 
+- 2026-10-05 · commit · [Merge pull request #11 from nepher-ai/feat/isaacsim-6.1-isaaclab-3.0](https://github.com/nepher-ai/nepher-subnet/commit/dfbd06a5dc1e2fa996c5925a9e7a96c19adfb1ea) — nepher-ai/nepher-subnet
+- 2026-09-30 · commit · [Fix issue: IsaacLab 3.0.0 rejects --headless](https://github.com/nepher-ai/nepher-subnet/commit/8d01570718f988296575e2aaa688cdd6cf16c3b0) — nepher-ai/nepher-subnet
+- 2026-09-30 · commit · [Upgrade validator sandbox to Isaac Sim 6.1 / Isaac Lab 3.0.0](https://github.com/nepher-ai/nepher-subnet/commit/1e23cf0664621ece7696cf0375e205d911595892) — nepher-ai/nepher-subnet
 - 2026-09-30 · release · [v1.0.0](https://github.com/nepher-ai/nepher-subnet/releases/tag/v1.0.0) — nepher-ai/nepher-subnet
 - 2026-09-18 · commit · [Merge branch 'main' of https://github.com/nepher-ai/nepher-subnet](https://github.com/nepher-ai/nepher-subnet/commit/650a8c592310daa868f200dd7965fd7a61b5dce8) — nepher-ai/nepher-subnet
 - 2026-09-18 · commit · [Updated API URLs in configuration files and documentation to reflect …](https://github.com/nepher-ai/nepher-subnet/commit/047306b993019b0deefe190510650e8e2cc24ed3) — nepher-ai/nepher-subnet

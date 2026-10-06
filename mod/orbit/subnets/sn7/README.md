@@ -2,7 +2,7 @@
 
 universal transaction layer
 
-Bittensor subnet **7** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **7** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/entrius/allways) · [url](https://all-ways.io/) · discord ` `
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/entrius/allways) · [url](https://all-ways.io
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002462 | +0.00% | +0.06% | +0.90% | 13,307 | 5,589 | 4.46 |
+| 0.002457 | -0.00% | -0.22% | +1.04% | 13,296 | 5,583 | 46.26 |
 
 ## Last 24h flow
 
-8 trades by 7 coldkeys · 2 buys (2.98 τ) / 6 sells (0.36 τ) · net 2.63 τ
+13 trades by 11 coldkeys · 3 buys (20.08 τ) / 10 sells (25.30 τ) · net -5.22 τ
 
 ## News
 
@@ -25,7 +25,6 @@ Links: [github](https://github.com/entrius/allways) · [url](https://all-ways.io
 - 2026-09-25 · commit · [Drop tao↔alpha pairs: subtensor swaps them natively (#761)](https://github.com/entrius/allways/commit/0a1276e92f06320da718006f4024340a83c8c3a3) — entrius/allways
 - 2026-09-25 · commit · [Say an alpha leg makes a valid pair in the CLI pair refusal (#759)](https://github.com/entrius/allways/commit/253db2a931ddb0f8b3c55840cfcc0755104acf66) — entrius/allways
 - 2026-09-11 · release · [release-20260911-013831](https://github.com/entrius/allways/releases/tag/release-20260911-013831) — entrius/allways
-- 2026-09-05 · release · [release-20260905-204833](https://github.com/entrius/allways/releases/tag/release-20260905-204833) — entrius/allways
 
 ## Use
 

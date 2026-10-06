@@ -2,7 +2,7 @@
 
 "The RedTeam subnet by Innerworks is a decentralized platform designed to drive innovation in cybersecurity through competitive programming challenges. The subnet incentivizes miners to develop and submit code solutions to various technical challenges, with a focus on enhancing security. These solutions can be integrated into real-world products to improve their security features."
 
-Bittensor subnet **61** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **61** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/RedTeamSubnet/RedTeam) · [url](https://www.theredteam.io/) · [discord](https://discord.com/channels/799672011265015819/1319313447435108413)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/RedTeamSubnet/RedTeam) · [url](https://www.t
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.011026 | +0.13% | -1.50% | -6.96% | 68,725 | 13,893 | 1,366 |
+| 0.010645 | +0.08% | -3.45% | -3.72% | 66,435 | 13,662 | 897.76 |
 
 ## Last 24h flow
 
-123 trades by 74 coldkeys · 52 buys (602.22 τ) / 71 sells (728.23 τ) · net -126.01 τ
+180 trades by 110 coldkeys · 62 buys (294.68 τ) / 118 sells (565.93 τ) · net -271.26 τ
 
 ## News
 
+- 2026-10-05 · commit · [docs: update changelog version '4.10.9'](https://github.com/RedTeamSubnet/RedTeam/commit/e65f97cf2944c03246bd2e2a40a63b7acc2defbb) — RedTeamSubnet/RedTeam
+- 2026-10-05 · release · [4.10.9](https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.9) — RedTeamSubnet/RedTeam
+- 2026-10-05 · commit · [version: bump version to '4.10.9'.](https://github.com/RedTeamSubnet/RedTeam/commit/549769ce4be5137909caab119189999fff8b0444) — RedTeamSubnet/RedTeam
+- 2026-10-05 · commit · [refactor: increase max_unique_commits for ada_detection_v3 challenge](https://github.com/RedTeamSubnet/RedTeam/commit/346139b7e119a1656be66377107dbe8deed84255) — RedTeamSubnet/RedTeam
 - 2026-09-29 · release · [4.10.8](https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.8) — RedTeamSubnet/RedTeam
 - 2026-09-29 · commit · [docs: update changelog version '4.10.8'](https://github.com/RedTeamSubnet/RedTeam/commit/d5a268dd5b25c9a3ac49c31ac16117eebd04b21d) — RedTeamSubnet/RedTeam
 - 2026-09-29 · commit · [version: bump version to '4.10.8'.](https://github.com/RedTeamSubnet/RedTeam/commit/6ab18eb24d153fb87d8e791563c3b11b961b4358) — RedTeamSubnet/RedTeam
 - 2026-09-29 · commit · [Merge remote-tracking branch 'origin/dev'](https://github.com/RedTeamSubnet/RedTeam/commit/fa41dbfaba0a4e11e0e402f8d88aed891567b85c) — RedTeamSubnet/RedTeam
-- 2026-09-29 · commit · [refactor: move bot_virus to inactive challenges and update bex_tracer…](https://github.com/RedTeamSubnet/RedTeam/commit/2668250d5836cd6cc105143e5b2ab9697aa17315) — RedTeamSubnet/RedTeam
-- 2026-09-29 · commit · [chore: remove todo-tree extension from recommendations](https://github.com/RedTeamSubnet/RedTeam/commit/6033bc2f29cd9181f6dca9bdf8ec0574f1ab435f) — RedTeamSubnet/RedTeam
-- 2026-09-27 · release · [4.10.7](https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.7) — RedTeamSubnet/RedTeam
-- 2026-09-19 · release · [4.10.6](https://github.com/RedTeamSubnet/RedTeam/releases/tag/4.10.6) — RedTeamSubnet/RedTeam
 
 ## Use
 

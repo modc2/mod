@@ -2,7 +2,7 @@
 
 Proof of Edge - Trading signals
 
-Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **89** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url](https://infinitequant.app)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/DeltaCompute24/InfiniteQuant-Subnet) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003000 | -0.01% | -0.19% | -0.79% | 15,012 | 6,136 | 11.35 |
+| 0.002995 | +0.00% | -0.14% | -0.72% | 15,012 | 6,132 | 13.10 |
 
 ## Last 24h flow
 
-43 trades by 35 coldkeys · 1 buys (2.66 τ) / 42 sells (7.62 τ) · net -4.95 τ
+52 trades by 44 coldkeys · 5 buys (4.13 τ) / 47 sells (7.55 τ) · net -3.41 τ
 
 ## News
 

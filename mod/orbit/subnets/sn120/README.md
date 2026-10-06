@@ -2,7 +2,7 @@
 
 Reason Mining
 
-Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www.affine.io) · discord `consttt`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.046152 | +0.02% | +0.10% | -1.07% | 202,899 | 76,951 | 984.72 |
+| 0.046554 | +0.06% | +0.87% | -5.94% | 205,021 | 77,347 | 1,452 |
 
 ## Last 24h flow
 
-287 trades by 83 coldkeys · 46 buys (301.43 τ) / 241 sells (450.45 τ) · net -149.02 τ
+235 trades by 87 coldkeys · 62 buys (690.35 τ) / 173 sells (537.25 τ) · net 153.10 τ
 
 ## News
 
-- 2026-10-05 · commit · [Record learned-parent completion and capacity-bound hourly audit budgets](https://github.com/AffineFoundation/affine/commit/1a4e9272570f5c736ac95b56810c43455730715f) — AffineFoundation/affine
-- 2026-10-05 · commit · [Honor signed artifact budget when decoding owned miner commitments](https://github.com/AffineFoundation/affine/commit/32331b1bff7fc3ade5a0c3f3094447644b92a5ed) — AffineFoundation/affine
-- 2026-10-05 · commit · [Record measured hourly bottlenecks and bounded audit preparation](https://github.com/AffineFoundation/affine/commit/ffa84e91311237a6a4ecaefb6b984adf9cf65dca) — AffineFoundation/affine
-- 2026-10-05 · commit · [Project readback inventory while preserving full tensor descriptor bi…](https://github.com/AffineFoundation/affine/commit/5158eb5d86b0696151254edd4d006d3ceac37afd) — AffineFoundation/affine
-- 2026-10-05 · commit · [Record actual training completion and hourly qualification blockers](https://github.com/AffineFoundation/affine/commit/fdabb4be3a2cc764a5e8c1fdfef8d8673c24589d) — AffineFoundation/affine
-- 2026-10-04 · commit · [Document qualified reused H200 as fourth live verifier](https://github.com/AffineFoundation/affine/commit/2bada823f377a750323b4f821184f9802c9ac9db) — AffineFoundation/affine
-- 2026-10-04 · commit · [Record E9 receipt training admission and failed legacy GPU controls](https://github.com/AffineFoundation/affine/commit/d28d2e93e749590b71173e5202842552157a62b1) — AffineFoundation/affine
-- 2026-10-04 · commit · [Publish isolated full-forward sampler qualification and H200 controls](https://github.com/AffineFoundation/affine/commit/eb5be1f5f2c0ae5b40bf32db284b0b476183c591) — AffineFoundation/affine
+- 2026-10-06 · commit · [Document current cache acknowledgment and prospective fast evaluation](https://github.com/AffineFoundation/affine/commit/a019dc611a340775b9956854c368ea41e287ee81) — AffineFoundation/affine
+- 2026-10-06 · commit · [Add explicit trusted native evaluation with unchanged sampling](https://github.com/AffineFoundation/affine/commit/8a597f18fb360073f2a6f682ba440a8ebcfea4fa) — AffineFoundation/affine
+- 2026-10-06 · commit · [Publish measured E19 durable completion and remaining warm-cache vali…](https://github.com/AffineFoundation/affine/commit/af48df1aa3ffb72761c0d9fd5f39900cac2a0f7a) — AffineFoundation/affine
+- 2026-10-06 · commit · [Report completed training backend and measured compact H200 qualifica…](https://github.com/AffineFoundation/affine/commit/e02de4c5e27923e49059e3ccc69d517ab0254128) — AffineFoundation/affine
+- 2026-10-06 · commit · [Reject unsupported compact probability policies before queue admission](https://github.com/AffineFoundation/affine/commit/e48787d9c29e912c6594fce437e422d4ddead4c2) — AffineFoundation/affine
+- 2026-10-05 · commit · [Distinguish prospective evaluator hooks from live historical diagnostics](https://github.com/AffineFoundation/affine/commit/ec939a6fe6b2033b08f3c1bac7a0a6badbfa87d2) — AffineFoundation/affine
+- 2026-10-05 · commit · [Retain evaluator current checkpoint and automatically retire authenti…](https://github.com/AffineFoundation/affine/commit/013c27015e5c00ddbc9001627804d6c46e32a054) — AffineFoundation/affine
+- 2026-10-05 · commit · [Keep evaluator adoption standalone and reject escaping catalog paths …](https://github.com/AffineFoundation/affine/commit/7ca21ad18b611c97cd3a44e24a74690ffabd106b) — AffineFoundation/affine
 
 ## Use
 

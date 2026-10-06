@@ -2,7 +2,7 @@
 
 The Decentralized Creators Economy
 
-Bittensor subnet **93** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **93** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/bitcast-network/bitcast) · [url](https://stats.bitcast.network/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/bitcast-network/bitcast) · [url](https://sta
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.020980 | -0.03% | +3.54% | +10.31% | 110,177 | 25,364 | 2,750 |
+| 0.020791 | -0.23% | -0.90% | +13.60% | 109,360 | 25,273 | 1,333 |
 
 ## Last 24h flow
 
-311 trades by 205 coldkeys · 192 buys (1,528 τ) / 119 sells (1,143 τ) · net 384.65 τ
+211 trades by 127 coldkeys · 76 buys (540.73 τ) / 135 sells (707.32 τ) · net -166.60 τ
 
 ## News
 

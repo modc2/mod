@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003725 | +0.04% | -1.34% | -4.45% | 21,831 | 4,860 | 469.64 |
+| 0.003701 | -0.08% | -0.65% | -5.22% | 21,716 | 4,844 | 336.60 |
 
 ## Last 24h flow
 
-73 trades by 37 coldkeys · 33 buys (218.47 τ) / 40 sells (249.64 τ) · net -31.17 τ
+63 trades by 36 coldkeys · 34 buys (160.45 τ) / 29 sells (174.46 τ) · net -14.01 τ
 
 ## News
 
-- 2026-10-04 · commit · [Recover exact Oct 4 shadow Scrapingdog charges](https://github.com/leadpoet/leadpoet/commit/55e1be5ac508eb5672fe5db23ed84742b4be884d) — leadpoet/leadpoet
-- 2026-10-04 · commit · [Settle known Scrapingdog charge after storage 403](https://github.com/leadpoet/leadpoet/commit/3da6a86eaff185e1c9be988f27727f910f56803f) — leadpoet/leadpoet
-- 2026-10-04 · commit · [Bind local verifier fix to protected workflow manifest](https://github.com/leadpoet/leadpoet/commit/3f7051d89ec69c888c5d65235faef3febbcde102) — leadpoet/leadpoet
-- 2026-10-04 · commit · [Keep completed unproven company reviews local after typed source refusal](https://github.com/leadpoet/leadpoet/commit/3cb476b6c8f288be0f634ccbee37e0d077f90058) — leadpoet/leadpoet
-- 2026-10-04 · commit · [Merge pull request #210 from leadpoet/codex/arena-untransitioned-host…](https://github.com/leadpoet/leadpoet/commit/7fc86ae0c0a5bb2b0b5deff6b4fba3f23733e0de) — leadpoet/leadpoet
-- 2026-10-04 · commit · [Merge pull request #207 from leadpoet/codex/arena-execute-host-cooldo…](https://github.com/leadpoet/leadpoet/commit/98e2f6291c48dc01bb5708d776b8f3cf4ef7e536) — leadpoet/leadpoet
-- 2026-10-04 · commit · [Cool down repeated zero-call execute host failures](https://github.com/leadpoet/leadpoet/commit/215eb9f90da56b199e45449f9473a120253364b2) — leadpoet/leadpoet
-- 2026-10-04 · commit · [Merge pull request #205 from leadpoet/codex/daily-miner-admission](https://github.com/leadpoet/leadpoet/commit/7f2d9f3b738ea1b2bf26bbfb21136baad38f6fc2) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Merge pull request #232 from leadpoet/codex/arena-idle-recovery-resta…](https://github.com/leadpoet/leadpoet/commit/fa8796375a76b8fa75867236d8fef516b5f8fa59) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Number restart guard migration after concurrent billing recovery](https://github.com/leadpoet/leadpoet/commit/2179dcec80c6ff41184898efe136daa2bd640c07) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Merge remote-tracking branch 'origin/main' into codex/arena-idle-reco…](https://github.com/leadpoet/leadpoet/commit/1eb64d379486446be9ca52d6765499a1b8485ceb) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Keep Arena worker and billing recovery progressing independently (#231)](https://github.com/leadpoet/leadpoet/commit/1abfa02cf5859d199f4855d5ed0d5b3bf0763154) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Preserve restart drain receipts during abandoned host recovery](https://github.com/leadpoet/leadpoet/commit/eba88ce52a14e851d44ca85a81e17fdce797b23e) — leadpoet/leadpoet
+- 2026-10-05 · commit · [Merge pull request #225 from leadpoet/op/V7jOJiWPpT/ci-name-failures](https://github.com/leadpoet/leadpoet/commit/ca0faa53256a1a3b9a747d99ce36c1eb739f3c4b) — leadpoet/leadpoet
+- 2026-10-05 · commit · [Make the pytest lane name the tests that fail](https://github.com/leadpoet/leadpoet/commit/d7ce5a51f1ac4d2742f3ecb7471df915ddf8f259) — leadpoet/leadpoet
+- 2026-10-05 · commit · [Merge pull request #224 from leadpoet/codex/arena-delay-recovery-oct05](https://github.com/leadpoet/leadpoet/commit/e8f7bd73568f27652248d79e255c9f9cbed6b30d) — leadpoet/leadpoet
 
 ## Use
 

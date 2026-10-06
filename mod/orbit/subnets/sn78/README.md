@@ -2,7 +2,7 @@
 
 Universal motion to meaning
 
-Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vision) · [discord](https://discord.gg/8pexneWef)
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004511 | +0.48% | -4.02% | +21.07% | 6,752 | 1,598 | 850.21 |
+| 0.004219 | +3.73% | -6.42% | +23.95% | 6,347 | 1,546 | 805.58 |
 
 ## Last 24h flow
 
-357 trades by 195 coldkeys · 120 buys (407.88 τ) / 237 sells (437.51 τ) · net -29.63 τ
+431 trades by 205 coldkeys · 138 buys (376.78 τ) / 293 sells (427.41 τ) · net -50.63 τ
 
 ## News
 
+- 2026-10-06 · commit · [Restore C5 request delivery and retained-work recovery (#223)](https://github.com/Umi-BitSign/umi/commit/b8819bfccdcbde9afd423cf069491918e6f69fb9) — Umi-BitSign/umi
 - 2026-10-04 · commit · [Merge pull request #222 from Umi-BitSign/codex/c5-request-start-timeo…](https://github.com/Umi-BitSign/umi/commit/5c0cadf5533e76d8886b0171537288766fe611bb) — Umi-BitSign/umi
 - 2026-10-04 · commit · [Allow verified forward chain runtime succession](https://github.com/Umi-BitSign/umi/commit/72bec89daec2f50ec6cc5f370e86f0b438f73e3a) — Umi-BitSign/umi
 - 2026-10-04 · commit · [Preserve request rests across timeout growth](https://github.com/Umi-BitSign/umi/commit/5e6e251a09f69f0f369e879e022bf9d55fc89153) — Umi-BitSign/umi
@@ -25,7 +26,6 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 - 2026-10-04 · commit · [Allow reviewed endpoint cache rollback](https://github.com/Umi-BitSign/umi/commit/812adfa4e08c69716750867467881adc15a62b90) — Umi-BitSign/umi
 - 2026-10-04 · commit · [Merge pull request #217 from Umi-BitSign/codex/c5-automatic-service-c…](https://github.com/Umi-BitSign/umi/commit/82f874b37f3e1e2f2097f5f5ea8bfe32b72f597f) — Umi-BitSign/umi
 - 2026-10-04 · commit · [Complete endpoint enrollment with service claims](https://github.com/Umi-BitSign/umi/commit/6e3ed63e019ebdbf05ad665a37552c308c12dab5) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Merge pull request #216 from Umi-BitSign/codex/c5-lightweight-lifecyc…](https://github.com/Umi-BitSign/umi/commit/e403be20f9219e9c08ece4b1e96bffaf6e76cf9b) — Umi-BitSign/umi
 
 ## Use
 

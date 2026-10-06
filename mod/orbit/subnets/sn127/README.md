@@ -2,7 +2,7 @@
 
 The capital axis for Bittensor.
 
-Bittensor subnet **127** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **127** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/astridintelligence/sn-127) · [url](https://www.astrid.global/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/astridintelligence/sn-127) · [url](https://w
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002275 | +0.00% | -0.11% | -2.15% | 9,858 | 3,000 | 1.96 |
+| 0.002117 | -0.00% | -6.96% | -8.11% | 9,187 | 2,893 | 106.62 |
 
 ## Last 24h flow
 
-8 trades by 6 coldkeys · 1 buys (0.16 τ) / 7 sells (0.84 τ) · net -0.68 τ
+19 trades by 10 coldkeys · 3 buys (0.17 τ) / 16 sells (105.47 τ) · net -105.30 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 Numinous is a forecasting protocol whose goal is to aggregate agents into superhuman LLM forecasters.
 
-Bittensor subnet **6** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **6** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/numinouslabs/numinous) · [url](https://numinouslabs.io/) · discord `amedeo_ma`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/numinouslabs/numinous) · [url](https://numin
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002292 | +0.00% | -1.58% | +0.74% | 13,575 | 7,442 | 107.97 |
+| 0.002290 | -0.01% | -0.08% | +1.11% | 13,581 | 7,439 | 63.96 |
 
 ## Last 24h flow
 
-36 trades by 19 coldkeys · 4 buys (24.02 τ) / 32 sells (83.09 τ) · net -59.07 τ
+40 trades by 22 coldkeys · 6 buys (30.33 τ) / 34 sells (32.42 τ) · net -2.09 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 The Intelligence Layer for AI Inference
 
-Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pareton.ai/)
 
@@ -10,14 +10,16 @@ Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pare
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006192 | -0.01% | -0.58% | -2.18% | 37,680 | 16,217 | 1,924 |
+| 0.006134 | -0.05% | -0.93% | -2.58% | 37,373 | 16,141 | 1,539 |
 
 ## Last 24h flow
 
-105 trades by 44 coldkeys · 52 buys (938.25 τ) / 53 sells (983.29 τ) · net -45.04 τ
+103 trades by 49 coldkeys · 41 buys (731.69 τ) / 62 sells (804.13 τ) · net -72.44 τ
 
 ## News
 
+- 2026-10-05 · commit · [feat(bench): add tier concurrency scoring with failure penalties (#187)](https://github.com/Pareton-ai/pareton/commit/8ca3970fb075d953597d2359492667c88bce3da9) — Pareton-ai/pareton
+- 2026-10-05 · commit · [feat: configure campaign patch visibility outside the manifest hash (…](https://github.com/Pareton-ai/pareton/commit/25e21a5fde77fe40f568d3e98f0f9552e712a188) — Pareton-ai/pareton
 - 2026-09-27 · commit · [Merge pull request #182 from Pareton-ai/bohdan/par-136-builder-cleanu…](https://github.com/Pareton-ai/pareton/commit/36852d8533b4d73e0392ea113bd803c8e8f50b3d) — Pareton-ai/pareton
 - 2026-09-24 · commit · [fix(ops): page a full disk while a build holds the cleanup lock](https://github.com/Pareton-ai/pareton/commit/bfc99f86cd976b65b4e790007012d054052c9f23) — Pareton-ai/pareton
 - 2026-09-23 · commit · [Merge pull request #184 from Pareton-ai/chore/simplify-artifact-handling](https://github.com/Pareton-ai/pareton/commit/7f60bd35cc078f6ed21ece42e351a685b49047ec) — Pareton-ai/pareton

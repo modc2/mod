@@ -2,7 +2,7 @@
 
 Yanez SN54 generates synthetic identities for challenging Yanez humanhood, presence, and uniqueness detection models.
 
-Bittensor subnet **54** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **54** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/yanez-compliance/MIID-subnet) · [url](https://www.yanez.ai) · [discord](https://discord.com/channels/799672011265015819/1351934165964296232)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/yanez-compliance/MIID-subnet) · [url](https:
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006290 | -0.04% | -4.22% | +11.52% | 37,858 | 10,042 | 1,673 |
+| 0.006062 | +0.30% | -3.60% | +10.64% | 36,533 | 9,861 | 1,668 |
 
 ## Last 24h flow
 
-184 trades by 91 coldkeys · 84 buys (728.33 τ) / 100 sells (940.88 τ) · net -212.55 τ
+187 trades by 82 coldkeys · 78 buys (743.19 τ) / 109 sells (922.87 τ) · net -179.68 τ
 
 ## News
 

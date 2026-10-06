@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006087 | +0.00% | -0.17% | +11.08% | 33,965 | 17,900 | 436.78 |
+| 0.006071 | -0.00% | -0.26% | +13.54% | 33,920 | 17,877 | 276.60 |
 
 ## Last 24h flow
 
-54 trades by 32 coldkeys · 16 buys (210.91 τ) / 38 sells (223.17 τ) · net -12.25 τ
+66 trades by 29 coldkeys · 7 buys (126.59 τ) / 59 sells (147.87 τ) · net -21.28 τ
 
 ## News
 
-- 2026-10-04 · commit · [Merge pull request #314 from reliquadotai/fix/weight-only-period-time](https://github.com/reliquadotai/reliquary/commit/3ac492c9123036334756fc55bee84149e7f95073) — reliquadotai/reliquary
-- 2026-10-04 · commit · [fix(weights): import time for the period-settled replay](https://github.com/reliquadotai/reliquary/commit/17860c728bcc9c768340d7237b0b3c7cb67eb2fb) — reliquadotai/reliquary
-- 2026-10-04 · commit · [Merge pull request #313 from reliquadotai/feat/agentic-corpus-split](https://github.com/reliquadotai/reliquary/commit/8c33bbce69708ed282dab6885d2bfa4219ad597d) — reliquadotai/reliquary
-- 2026-10-04 · commit · [fix(corpus): check the replay lease on every hot add, refuse a bad pi…](https://github.com/reliquadotai/reliquary/commit/92e3a80c9f4b3181ba1f593faa8a5497113bb2cc) — reliquadotai/reliquary
-- 2026-10-04 · commit · [fix(corpus): review minors for the split episode front](https://github.com/reliquadotai/reliquary/commit/eedd75c23e3069930fe14a3b1c8cfb928628ed22) — reliquadotai/reliquary
-- 2026-10-04 · commit · [Merge pull request #312 from reliquadotai/feat/agentic-corpus-v1](https://github.com/reliquadotai/reliquary/commit/178590ae86f969e6c308d3f578953920bc193f38) — reliquadotai/reliquary
-- 2026-10-04 · commit · [test(miner): check the mine-agentic option list, not ANSI-styled help](https://github.com/reliquadotai/reliquary/commit/35247d7d8c8a781350bf02437cd01ddf55e6884d) — reliquadotai/reliquary
-- 2026-10-04 · commit · [fix(corpus): keep a voteless replay out of attempts unjudged](https://github.com/reliquadotai/reliquary/commit/40ef55b341bb8f7861e69b37894be3c545388d4d) — reliquadotai/reliquary
+- 2026-10-06 · commit · [Add pinned task contracts and immutable platform delivery (#330)](https://github.com/reliquadotai/reliquary/commit/c45f729b7b8798ed7c0753ec63aa4465f8795fc2) — reliquadotai/reliquary
+- 2026-10-05 · commit · [Merge pull request #329 from reliquadotai/fix/period-pay-catchup](https://github.com/reliquadotai/reliquary/commit/41c622dbb682e3724981a64de10653934c436de7) — reliquadotai/reliquary
+- 2026-10-05 · commit · [fix(corpus): pay a period backlog back within a few periods](https://github.com/reliquadotai/reliquary/commit/bcb27910f8de8f7ca345ed80da0634715baa024c) — reliquadotai/reliquary
+- 2026-10-05 · commit · [Merge pull request #316 from reliquadotai/feat/instruction-dataset-ex…](https://github.com/reliquadotai/reliquary/commit/da00d2b9dd6945bceacaebf62b919b9b51ccddd2) — reliquadotai/reliquary
+- 2026-10-05 · commit · [feat: export bounded instruction datasets alongside corpus deliveries](https://github.com/reliquadotai/reliquary/commit/c1f43e9a1c6f5765953db7cd86b14ab0b4644d83) — reliquadotai/reliquary
+- 2026-10-05 · commit · [Merge pull request #315 from reliquadotai/fix/grade-single-provider-l…](https://github.com/reliquadotai/reliquary/commit/484f2cd8910b4cfb3e194dbfaf72e50d6bf7c9e8) — reliquadotai/reliquary
+- 2026-10-05 · commit · [fix(grade): leave an expired lease to the sweep, not the heartbeat ta…](https://github.com/reliquadotai/reliquary/commit/c6c974bde9070345ed4f29aca5cbed533fb1f444) — reliquadotai/reliquary
+- 2026-10-05 · commit · [fix(grade): take back leases the executor does not hold; avoid stale …](https://github.com/reliquadotai/reliquary/commit/edc050e54b6970f976e02dd7d00ac35c3690c5f2) — reliquadotai/reliquary
 
 ## Use
 

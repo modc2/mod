@@ -1,6 +1,6 @@
 # sn124 — Swarm 𑀁
 
-Bittensor subnet **124** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **124** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/swarm-subnet/swarm) · [url](https://www.swarm124.com)
 
@@ -8,19 +8,22 @@ Links: [github](https://github.com/swarm-subnet/swarm) · [url](https://www.swar
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.009516 | +0.01% | +0.18% | -1.93% | 46,657 | 12,189 | 1,802 |
+| 0.009595 | -0.03% | +0.83% | -0.08% | 47,126 | 12,251 | 414.45 |
 
 ## Last 24h flow
 
-188 trades by 61 coldkeys · 62 buys (888.07 τ) / 126 sells (890.05 τ) · net -1.98 τ
+123 trades by 34 coldkeys · 19 buys (212.63 τ) / 104 sells (180.20 τ) · net 32.43 τ
 
 ## News
 
+- 2026-10-05 · commit · [Merge pull request #204 from swarm-subnet/feature/ali/miner-bug-fixes](https://github.com/swarm-subnet/swarm/commit/38b36a2c55967e5e7abc66932fee696a39852bac) — swarm-subnet/swarm
+- 2026-10-05 · commit · [Merge pull request #195 from swarm-subnet/feature/ali/docker-model-ve…](https://github.com/swarm-subnet/swarm/commit/6f0a800d495cb719b5a7eaf41d6fd976d61123d6) — swarm-subnet/swarm
+- 2026-10-03 · commit · [Bump version to 5.1.6.5](https://github.com/swarm-subnet/swarm/commit/9d559e6db16a2a5391d6cbb4f6a55eff98e0c905) — swarm-subnet/swarm
+- 2026-10-03 · commit · [Draw the forest difficulty from its own seed stream](https://github.com/swarm-subnet/swarm/commit/bd1c619372900252da45977eb4d2c10f6eda192d) — swarm-subnet/swarm
+- 2026-10-03 · commit · [Publish the forest hills mesh cache only once it is fully written](https://github.com/swarm-subnet/swarm/commit/8538ca2367ed8312821bbdc53ee08e9ea1beb5af) — swarm-subnet/swarm
 - 2026-10-01 · commit · [Merge pull request #189 from swarm-subnet/feature/ali/office-king-zer…](https://github.com/swarm-subnet/swarm/commit/e54bebb93ba852712900a4d791b3dd24034b33a5) — swarm-subnet/swarm
 - 2026-10-01 · commit · [Bump version to 5.1.6.4](https://github.com/swarm-subnet/swarm/commit/7f7ef5f87b790bd735a6188fdb5823b4a4832307) — swarm-subnet/swarm
 - 2026-10-01 · commit · [Keep the ladder seat for a king crowned inside the headroom floor](https://github.com/swarm-subnet/swarm/commit/7e70cc21f74ffa9cf3354c078f58635822bb01a8) — swarm-subnet/swarm
-- 2026-09-28 · commit · [Merge pull request #174 from swarm-subnet/feature/ali/village-pad-dis…](https://github.com/swarm-subnet/swarm/commit/2248c2533723bd908a011cb8e54aa47560978157) — swarm-subnet/swarm
-- 2026-09-28 · commit · [Bump version to 5.1.6.3](https://github.com/swarm-subnet/swarm/commit/2cbff1e1d7e62163ddaa5f4e6db81410af76e1ab) — swarm-subnet/swarm
 
 ## Use
 

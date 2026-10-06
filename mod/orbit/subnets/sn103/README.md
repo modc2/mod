@@ -1,16 +1,16 @@
 # sn103 — Deprecated Ա
 
-Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **103** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.000961 | +1.36% | +1.96% | -23.23% | 548.9902 | 297.6811 | 735.82 |
+| 0.000933 | -2.28% | -2.98% | -19.64% | 539.3852 | 293.2262 | 90.94 |
 
 ## Last 24h flow
 
-70 trades by 26 coldkeys · 39 buys (369.44 τ) / 31 sells (363.75 τ) · net 5.68 τ
+66 trades by 24 coldkeys · 34 buys (43.25 τ) / 32 sells (46.32 τ) · net -3.08 τ
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Coordinated Learning
 
-Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **3** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teutonic.ai/) · discord `@unarbos`
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/unarbos/teutonic) · [url](https://www.teuton
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.025705 | -0.16% | -0.41% | -12.94% | 159,484 | 76,068 | 743.04 |
+| 0.025579 | -0.02% | -0.49% | -10.02% | 158,917 | 75,907 | 772.07 |
 
 ## Last 24h flow
 
-63 trades by 42 coldkeys · 28 buys (196.99 τ) / 35 sells (438.46 τ) · net -241.47 τ
+73 trades by 54 coldkeys · 25 buys (198.88 τ) / 48 sells (464.35 τ) · net -265.47 τ
 
 ## News
 
+- 2026-10-05 · commit · [Switch evaluator to single-GPU replicas and adjust batch size](https://github.com/unarbos/teutonic/commit/6aa0783a6650451dcf1eaa59bbde1278da98d45a) — unarbos/teutonic
 - 2026-09-24 · commit · [Code benchmarks naming change](https://github.com/unarbos/teutonic/commit/5479810a8c8b8635ede24e5be93515ffa9db4c6f) — unarbos/teutonic
 - 2026-09-24 · commit · [Add code benchmarks to dashboard](https://github.com/unarbos/teutonic/commit/3c8631ed7ea5a4549e746c9f73749e45c325d47e) — unarbos/teutonic
 - 2026-09-22 · commit · [Update benchmark specifications and improve key handling in dashboard](https://github.com/unarbos/teutonic/commit/124c66bc5db5ae6531cf3cf1b5e706fb0e6ca505) — unarbos/teutonic

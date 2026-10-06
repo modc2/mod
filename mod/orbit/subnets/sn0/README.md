@@ -1,23 +1,23 @@
 # sn0 — root Τ
 
-Bittensor subnet **0** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **0** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 1.000000 | +0.00% | +0.00% | +0.00% | 6,869,627 | 5,477,649 | 33,887 |
+| 1.000000 | +0.00% | +0.00% | +0.00% | 6,870,152 | 5,471,199 | 39,879 |
 
 ## News
 
+- 2026-10-05 · news · [Grayscale Bittensor Trust (Tao) - Enters Amendment To Bitgo Custodial Services Agreement On Sept 30, 2026 - SEC Filing](https://news.google.com/rss/articles/CBMijgJBVV95cUxOelk0REpuTUtxYWJpbGlfSjFUV3BDZzRkRS1TazdLX3Q3YlhQc216bzdmX3k4RmJlN2dVTy1hcGhnVDE5NlE0djNUMTYzakVJYU1TZHJjT3hUQ1ppOEZHX0xkQVVuczMxSGVOTkJlLTdjZnBpYlo4d1ExWE9WU0Jaa1FKal9jZHZQR0s4UUltQ3JCYzNVVG96Qm9VWDNIdjh3UVBUNlU2TGJMSTZLMzExUUh3WU9QeVhPdEwwY1V2VkotNXowSzZHTVRKSEhmbF9qMHV0SUJ4V3p0Y0hFbzZqWEtIVXA4NmFMdHM3WWwzMG9TWC1WMEJVY2xxU1FXX3NQS0I5UEpZa0xPWTdVUnc?oc=5) — TradingView
+- 2026-10-05 · news · [Grayscale Bittensor Trust Revises Custody Agreements, Adds Coinbase as Secondary Custodian](https://news.google.com/rss/articles/CBMi0gFBVV95cUxPVGYzblJGRHBmdkxXUzhZMzFObTZCa0ZmZWd2NXgtUldjNmZucFZzcnZjX1BXazloTkxDcV9WLUtScnFLSm1Xc3YtZEY0QjBFUXo0N2dhNm9RQXU0djkzV3BlOERZUGI0elE5a0RuQ091VmptaS13VGFfbzBOc3BLWnVqSVJad0NpUTdJUngzcnNYaUF5aFFLMTFOSzJkbmp1Zzc1V2l1dTkzOXhZeXJPNjQ3RUJaUnl3QVpmcTA5TGtnNDFnWXQ1alROVk9HSWNwUmc?oc=5) — Kalkine Media
+- 2026-10-05 · news · [Grayscale Bittensor Trust Expands TAO Custody With Coinbase, Updates BitGo Deal; Retires 2025 Pact](https://news.google.com/rss/articles/CBMi7wFBVV95cUxPS0wxNU1MbjRwYXJ0eTIzT2ZzbThieFZWekk3SXhvQ2t3VDRpNjBia2I4ZzEyZENmXzlyZk5KVTl2eXpRMzZ1RWhCMTl2aXczdVNwRTNYOE9BYnlOQkNiRHRuUTRDeWdFdXAzZk1vY2FhMzBzdTFJakNTSmRmTXE0R0RtdzlWYkZ1c293SENjZjJLU3BiXzZDWm9IU2Z0bkZNWjV3RTF1YzY1Ri0zVU9veHlPZTFSWmdHdkU1NEFsMENNeHhybjM0WVZkVlpzNkFLZmRfdnlPWlZXNzc2LWNpX2lFZk9pUDdHLUdUM3lTSQ?oc=5) — TradingView
+- 2026-10-05 · news · [TAO price Bittensor TA TAO Technical Analysis](https://news.google.com/rss/articles/CBMinwFBVV95cUxNcVU2Z25adWtJT185VnBHQk1KVkJZNndkOVY2LTljUGgzLWVsa2R4a1VXaHNtY0hVOTY3cHVERkVLSGt6WDJCUllVNktVSXhwMGduVllmVnNydFZXc0V1NjJrTG50RTB4SWt6VU1MQTg2dTYtWkdZMW5FT2NrNml1U0dLbk16amxTTkFNNHdkVnVlZ2hfbk5DbXlvenJoeDA?oc=5) — Altcoin Buzz
+- 2026-10-05 · release · [Runtime 473 (proposed)](https://github.com/RaoFoundation/subtensor/releases/tag/v473) — subtensor releases
 - 2026-10-03 · news · [Bittensor subnets are generating real revenue, but the cheap prices hide a subsidy](https://news.google.com/rss/articles/CBMirgFBVV95cUxOdkNaZFJ3bDBpcGtFMG1rNkdZS2oyelcwSkJUbVNLbWtvd2t6WmJLZmpIYXVJNkRDSldRSnN4NHU4cXd4dFVtcHJJOW81aUZJWExkVTdiM2Rvb2UxRXh1RWltejBYWm51bmVmMjJBZ19DSXctZzNubTE3cWp0T0xFNFJMOTFwdmpVamNLal9vLVdXWS1Sb1dXWkdfcm9fZnBhZlhsS3BrNHUza05ZV3c?oc=5) — Startup Fortune
 - 2026-10-03 · news · [Bittensor Unveils Gamma Tokens to Let AI Subnets Pay Each Other](https://news.google.com/rss/articles/CBMilgFBVV95cUxNV3Z2YUloWGtVLVFZNHBjbHl2VXVyeWZuQnBLSFYwYkhySmVqaENjMzJGTVdmbnpVc1RKdVAtRlRsZFUxZlBKQ2pQLUZNdVd0bFNaYzZYOHNib1JJQkpLUnVIMGFZaW1rS3hHcWYtNmhjdnpManplYllmdkt6MHlITTUzaDg3dXpCaTZzM1pHLU1nRmdIMmc?oc=5) — Startup Fortune
 - 2026-10-02 · news · [TAO Price Doubles After Bittensor Proves Distributed AI Can Compete](https://news.google.com/rss/articles/CBMirgFBVV95cUxON2RQQ2lZZlpZYV9KVnl0ZTdPRXFlNlA0R3hxeDdJM1VtUHA0cm9tQ3publJTOHFkS0tjN1NwTGV0aHVNajI1TjhscVpHWUN5ZGJSRlZIblN0Unk3bFptQWttaU9iZ2NWdWRoS05OVlJGQV8zUURid19aRnk0dFdzb2xKN1kzY2VvdEFzbk5aanBQZDlJZXd1OHB4WW1pcmgwbWg1QUV4S2Q5MUpJaHc?oc=5) — CoinMarketCap
-- 2026-10-02 · news · [Quant, Sui, and Bittensor in Focus as Key Altcoins to Monitor in October 2026](https://news.google.com/rss/articles/CBMirgFBVV95cUxPRnVYcE9qN3ZOZWFwWVhDMmNCRVpnVUZGY09Ldm50UVhhRWktRnVicG5TSHNfNWFIamRfQmlYOUUzdDVhZDZBRFFxMFNkVGZlZDVLVHVSYmEyUzRQTC1nWVVYNzJMMXJCdFREcTdZV2c1c05MYm9qSUFhdWdBUGE0ZzBwM3NSYVcxVkFBQjNITkx3VzJOejVfWUtadExaZ1hJSXJaNkZKc1NYTU5UZFE?oc=5) — KuCoin
-- 2026-10-02 · news · [Bittensor Crash: $900 Million Wiped as Covenant AI Exits TAO Ecosystem](https://news.google.com/rss/articles/CBMickFVX3lxTFBTN19udXNLWlFiU1VaaWZ3dk9iazlJMi1ZV05RQTlaaDZZVjllZWNGeWtCQUo5STVKbk5Cc2tSaDBFLVlXNzBZT05yMU1fejFGbEJncFhvSnV5YzN1bUV5UTBoMGtfT0VVbWNGb0RZUEwwdw?oc=5) — CryptoTicker
-- 2026-10-02 · news · [UMI Launches Bittensor AI Network for Motion-to-Meaning Intelligence, Starting With Sign Language](https://news.google.com/rss/articles/CBMingFBVV95cUxOQXBvQlNpaUdHUFdoMml1TkhudG5ISzd6QkVXQlU0WDN3UFBGcDctbmZETWphSkVZTDJHUklCLTRiTkZ1TUpNd1lYeVhjQ2pLVmY5V3NxQXNRbWxncnFXRmhVbEpYZUNQdng2MTc3WC1VWnY1bkRMMjJXUS00QjRJOTRZZkItc2k2c3RHdFhycExhVTZGVDhJOHdxWDhLUQ?oc=5) — Yahoo Finance
-- 2026-10-01 · news · [Astrid Intelligence continues to expand its Bittensor platform](https://news.google.com/rss/articles/CBMimwFBVV95cUxPbmhTV3dPWl9MU1owc0s5Zk14WUlsUXBmd3Q1ZXEzNDNCN1NfMUVpb3N5ekJnaFZMTXMyY19ramUxeUh3NmdXSkszZmd0Nmd6MUNaUnJxTkU2Q0VUaGRJbGIyOVpaX1NHNWVHZmxiMklnMk9qMDNsNVhJUG9sNEhRQjl0YndXVG9Ed21TcFVWRmdublBqMkVCSzE5VQ?oc=5) — uk.finance.yahoo.com
-- 2026-09-30 · news · [AI News: Market Volatility, Bittensor Drama, and Malicious Router Discoveries](https://news.google.com/rss/articles/CBMitwFBVV95cUxPTjNYRjNwejZEYnBfdlZrcGJmVEs1eHVUMmx2bE92NTZMTDk2bnh5Q1BQbEN4SFpPYUZTbjJ0ekRJQ3VYUTBvYlZMNVB6dlgxV1hvYVRZa2tKWHFVZHFCVEJIaWJhdUVaWktkRnhXZmY3cDJqckhFT3cyYWtTSE9KVVY0LUhIcjZIbXhtZi1GbnRMSWljNk5oUkZTSlN0NVFwLUg2WlRoZWNzdjNQaU1ZUDVJdkNjOXc?oc=5) — CoinMarketCap
 
 ## Use
 

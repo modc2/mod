@@ -2,7 +2,7 @@
 
 Living AI Companions that create memories alongside you
 
-Bittensor subnet **98** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **98** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/neverplayalone/neverplayalone_subnet) · [url](https://neverplayalone.ai) · [discord](https://discord.com/invite/MG3nkhayjh)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/neverplayalone/neverplayalone_subnet) · [url
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002138 | +0.00% | +0.43% | +0.29% | 10,637 | 4,550 | 15.10 |
+| 0.002152 | -0.00% | +0.64% | +1.11% | 10,720 | 4,565 | 25.57 |
 
 ## Last 24h flow
 
-12 trades by 6 coldkeys · 5 buys (11.47 τ) / 7 sells (1.84 τ) · net 9.63 τ
+9 trades by 8 coldkeys · 3 buys (20.02 τ) / 6 sells (4.78 τ) · net 15.24 τ
 
 ## News
 

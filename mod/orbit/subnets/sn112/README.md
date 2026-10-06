@@ -1,16 +1,16 @@
 # sn112 — for sale Ђ
 
-Bittensor subnet **112** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **112** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005846 | +0.00% | -0.93% | -4.18% | 21,551 | 5,478 | 41.52 |
+| 0.005784 | -0.40% | -1.06% | -3.05% | 21,364 | 5,449 | 108.08 |
 
 ## Last 24h flow
 
-22 trades by 13 coldkeys · 3 buys (8.00 τ) / 19 sells (31.27 τ) · net -23.27 τ
+21 trades by 15 coldkeys · 9 buys (39.50 τ) / 12 sells (66.20 τ) · net -26.70 τ
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Alchemical intelligence
 
-Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hippius.com/albedo/index.html) · discord `@arbos`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hi
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.016007 | -0.07% | -1.92% | -1.31% | 30,508 | 11,629 | 406.76 |
+| 0.015372 | +0.02% | -3.97% | -3.32% | 29,444 | 11,434 | 472.32 |
 
 ## Last 24h flow
 
-45 trades by 28 coldkeys · 12 buys (116.38 τ) / 33 sells (244.03 τ) · net -127.65 τ
+45 trades by 30 coldkeys · 16 buys (86.84 τ) / 29 sells (341.28 τ) · net -254.44 τ
 
 ## News
 
+- 2026-10-05 · commit · [chore: increase scoring timeout](https://github.com/unarbos/albedo/commit/0f321d7e1fa2109b85c17ab7ac47bd30a4096771) — unarbos/albedo
+- 2026-10-05 · commit · [fix: engy timeouts fall through to OpenRouter at once, engy queue dep…](https://github.com/unarbos/albedo/commit/111a83455738eb372d460d3cda99f03d149a25ce) — unarbos/albedo
+- 2026-10-05 · commit · [feat: pairs are judged as soon as both their trajectories end, while …](https://github.com/unarbos/albedo/commit/9e3ca6f52300a77042ab7739299c93bdea1d59e9) — unarbos/albedo
+- 2026-10-05 · commit · [feat: engy serves judge and reference calls first, up to a bounded qu…](https://github.com/unarbos/albedo/commit/80c75a38d864ca339020dc5ad237d829bc45d5ad) — unarbos/albedo
+- 2026-10-05 · commit · [feat: GLM-5.3-flash for judging, questions and references](https://github.com/unarbos/albedo/commit/2beef43b529c514f21ced9765acfab873b17b004) — unarbos/albedo
+- 2026-10-05 · commit · [feat: Jev for milestone alignment, question dedup and reference pruning](https://github.com/unarbos/albedo/commit/e5b4919873d0748629d8e9f3329b5c359793923f) — unarbos/albedo
+- 2026-10-05 · commit · [chore: rotate deepseek providers](https://github.com/unarbos/albedo/commit/2032ac98f7d0e5f48747ea0a008313257664dde9) — unarbos/albedo
 - 2026-10-02 · commit · [fix: the simulator stops inventing git history for git show and git log](https://github.com/unarbos/albedo/commit/7cf5f2a45df149a1b6fc76af4db3713a90f2d8d9) — unarbos/albedo
-- 2026-10-02 · commit · [fix: swesmith tasks are served as one upstream commit, and git show r…](https://github.com/unarbos/albedo/commit/0e29f5cb6174c58db9a887536fffdf24a95fdf54) — unarbos/albedo
-- 2026-10-02 · commit · [fix: repo-context grounds chains stage by stage and replays the overl…](https://github.com/unarbos/albedo/commit/a27382f828a1064d065083c5019c0a0cb6fd753f) — unarbos/albedo
-- 2026-10-02 · commit · [fix: pre-eval keeps the model's reasoning in each turn like eval and …](https://github.com/unarbos/albedo/commit/8eb80024fc0ab53ff9fde2fb4bd2d9d23e779578) — unarbos/albedo
-- 2026-10-02 · commit · [fix: pre-eval redraws a sample whose micro-task can't be generated in…](https://github.com/unarbos/albedo/commit/1cd927a6c1ecf681fcdb89b7ad8afd9180f0d0d3) — unarbos/albedo
-- 2026-10-02 · commit · [fix: pre-eval stops counting wrong submits across the trajectory and …](https://github.com/unarbos/albedo/commit/1c6895a8347d3b33c0f80021ad3936d50c162969) — unarbos/albedo
-- 2026-09-30 · commit · [fix: Display on website nonet bench runs if avaiable](https://github.com/unarbos/albedo/commit/b99ca91a7c25b8cdd13324466063c384627e708c) — unarbos/albedo
-- 2026-09-29 · commit · [fix: eval reads a command including the tag](https://github.com/unarbos/albedo/commit/7f331a7996325b5cfbb9f440bc4a5ebaa9a920d9) — unarbos/albedo
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 revolutionizing the democratization of compute
 
-Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-05 (block 9214666).
+Bittensor subnet **51** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
 
 Links: [github](https://github.com/Datura-ai/lium-io) · [url](https://lium.io) · discord `p383_54249`
 
@@ -12,22 +12,22 @@ Fleet mods for this subnet: `lium`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.093933 | +0.01% | -1.16% | +3.17% | 568,961 | 164,410 | 3,178 |
+| 0.093622 | +0.03% | -0.33% | +0.03% | 567,843 | 164,231 | 3,005 |
 
 ## Last 24h flow
 
-427 trades by 237 coldkeys · 127 buys (751.55 τ) / 300 sells (2,035 τ) · net -1,284 τ
+339 trades by 184 coldkeys · 133 buys (1,011 τ) / 206 sells (1,608 τ) · net -597.36 τ
 
 ## News
 
-- 2026-10-04 · commit · [validator: keep a banned node verified while a live rental is running…](https://github.com/Datura-ai/lium-io/commit/ea2dd112af6f082e1fa2a4c7d315bf7918ae35cd) — Datura-ai/lium-io
-- 2026-10-02 · commit · [DAH-3980 - validator: check a present Docker Hub image's tag from the…](https://github.com/Datura-ai/lium-io/commit/5ace8c148ccc47a796622c92670354aa3894d843) — Datura-ai/lium-io
-- 2026-10-02 · release · [validator-v2026.10.02.2](https://github.com/Datura-ai/lium-io/releases/tag/validator-v2026.10.02.2) — Datura-ai/lium-io
-- 2026-10-02 · commit · [DAH-3964 - [P1] validator: rented node inactive on host-confirmed GPU…](https://github.com/Datura-ai/lium-io/commit/eec20430b7a15255704773e213a61c2f7adf4b6a) — Datura-ai/lium-io
-- 2026-10-02 · release · [validator-v2026.10.02](https://github.com/Datura-ai/lium-io/releases/tag/validator-v2026.10.02) — Datura-ai/lium-io
-- 2026-10-02 · commit · [NO-TICKET - [P1] validator: a shell lost mid-check sends its reason c…](https://github.com/Datura-ai/lium-io/commit/010bd5f86d0b0310b883d965f02340068687574a) — Datura-ai/lium-io
-- 2026-10-02 · commit · [NO-TICKET - [P1] validator: report a rented node that lost a GPU on t…](https://github.com/Datura-ai/lium-io/commit/58f36cea3516d13cff5f45429d58493446a8c28f) — Datura-ai/lium-io
-- 2026-10-01 · commit · [NO-TICKET - [P2] validator: remove INSPECTOR_ENFORCE_ENABLED, finding…](https://github.com/Datura-ai/lium-io/commit/a425a36af8a7ce975c4f70f863037c6e50de06e3) — Datura-ai/lium-io
+- 2026-10-05 · release · [executor-v1.137](https://github.com/Datura-ai/lium-io/releases/tag/executor-v1.137) — Datura-ai/lium-io
+- 2026-10-05 · commit · [NO-TICKET - [P1] verifyx: vendor libverifyx.so from celium-gpu-verifi…](https://github.com/Datura-ai/lium-io/commit/2b4dc97bf014e9a3944420b72c2a4a8b5c3c0d49) — Datura-ai/lium-io
+- 2026-10-05 · commit · [DAH-3980 - validator: connector reads the chain off its event loop an…](https://github.com/Datura-ai/lium-io/commit/2535a5af297a53ab038af4a46c52b162367f8a44) — Datura-ai/lium-io
+- 2026-10-05 · commit · [DAH-3980 - validator: port mapping works on a copy of the preferred p…](https://github.com/Datura-ai/lium-io/commit/c2b652889cb202e3d00b13ba5367a05c51b9abf2) — Datura-ai/lium-io
+- 2026-10-05 · commit · [DAH-3803 - [P1] VerifyX: keep the upload EMA when the Cloudflare prob…](https://github.com/Datura-ai/lium-io/commit/7684a2490637ba6a88399d9f50576b003b87453b) — Datura-ai/lium-io
+- 2026-10-05 · commit · [DAH-3887 - [P1] Docker Hub login by OIDC, no static token (Guard 3) (…](https://github.com/Datura-ai/lium-io/commit/e8eef9be981b14923d829ff2b2ad160068addd10) — Datura-ai/lium-io
+- 2026-10-05 · commit · [NO-TICKET - [P2] Validator scrape: record the host's Sysbox version (…](https://github.com/Datura-ai/lium-io/commit/95cabc382818f6e0cf8f6e9835ee3698cd71510e) — Datura-ai/lium-io
+- 2026-10-05 · commit · [NO-TICKET - [P1] validator: accept GB300 and pay it idle at the B300 …](https://github.com/Datura-ai/lium-io/commit/2faaffe3ffcba2a082cd62244cde4e24575d7529) — Datura-ai/lium-io
 
 ## Use
 
