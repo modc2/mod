@@ -23,6 +23,8 @@ use tower_http::cors::CorsLayer;
 const CONSOLE_HTML: &str = include_str!("console.html");
 const ARCADE_HTML: &str = include_str!("arcade.html");
 const AGENTS_HTML: &str = include_str!("agents.html");
+const GAME_HTML: &str = include_str!("game.html");
+const AGENT_HTML: &str = include_str!("agent.html");
 
 /// The execution layer, served to the browser from the same binary that
 /// stores the modules — so a tab needs nothing but this port. `pyhost.mjs` and
@@ -106,6 +108,25 @@ async fn arcade_page() -> Html<&'static str> {
 /// board inside it is the agent module's own /agent/arena route.
 async fn agents_page() -> Html<&'static str> {
     Html(AGENTS_HTML)
+}
+
+/// Every game has its own page, every agent has its own page — one static
+/// shell each; the page reads the id off its own path and asks the API. The
+/// path parameter is matched so the route exists, not so the server reads it.
+async fn game_page() -> Html<&'static str> {
+    Html(GAME_HTML)
+}
+
+async fn agent_profile_page() -> Html<&'static str> {
+    Html(AGENT_HTML)
+}
+
+/// One agent: its schema as the agent protocol serves it, joined to its seat.
+async fn agent_card(Path(id): Path<String>) -> Response {
+    match crate::agentproto::one(&id).await {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(json!({ "error": e }))).into_response(),
+    }
 }
 
 async fn mcp_endpoint(Json(msg): Json<Value>) -> Response {
@@ -629,6 +650,7 @@ fn api_routes() -> Router {
         .route("/ab", get(ab_list).post(ab_start))
         .route("/agents", get(agent_board))
         .route("/agents/sync", post(agent_sync))
+        .route("/agents/:id", get(agent_card))
         .route("/ab/:id", get(ab_get).delete(ab_delete))
         .route("/leaderboard", get(leaderboard))
         .route("/arcade", get(arcade))
@@ -665,6 +687,8 @@ pub async fn serve(port: u16) {
         .route("/arena/classic", get(console))
         .route("/arena/arcade", get(arcade_page))
         .route("/arena/agents", get(agents_page))
+        .route("/arena/game/:id", get(game_page))
+        .route("/arena/agent/:id", get(agent_profile_page))
         .merge(api_routes())
         // The console lives at /arena in both worlds and always calls
         // /arena/api (canonical; /api/arena is the permanently supported

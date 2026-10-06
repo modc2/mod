@@ -99,14 +99,70 @@ fn agent_of(id: &str, schema: &Value) -> Value {
     })
 }
 
+/// The protocol's `schemas` map, verbatim — one schema per agent, exactly as
+/// the agent module serves it. Everything else here is a reading of this.
+pub async fn schemas() -> Result<serde_json::Map<String, Value>, String> {
+    let (_, body) = get_json("/agents").await?;
+    body.get("schemas")
+        .and_then(|v| v.as_object())
+        .cloned()
+        .ok_or_else(|| "agent module answered /agents without `schemas`".into())
+}
+
 /// `GET /agents` — every agent the protocol knows, in its own order.
 pub async fn roster() -> Result<Vec<Value>, String> {
-    let (_, body) = get_json("/agents").await?;
-    let schemas = body
-        .get("schemas")
-        .and_then(|v| v.as_object())
-        .ok_or("agent module answered /agents without `schemas`")?;
-    Ok(schemas.iter().map(|(id, sc)| agent_of(id, sc)).collect())
+    Ok(schemas().await?.iter().map(|(id, sc)| agent_of(id, sc)).collect())
+}
+
+/// One agent, whole: the arena's cut of it, its `schema` exactly as the agent
+/// protocol serves it, and its seat's full sheet if it has one. `key` is an
+/// agent id, or a custom seat's player id or name (whose config names the
+/// roster agent it runs as). The agent module being down degrades this — the
+/// seat still answers, with `schema: null` and the error said — rather than
+/// hiding a player whose matches are all on record here.
+pub async fn one(key: &str) -> Result<Value, String> {
+    let (schemas, error) = match schemas().await {
+        Ok(s) => (s, None),
+        Err(e) => (Default::default(), Some(e)),
+    };
+    let seat = store::read(|st| st.player(key).cloned()).filter(|p| p.kind == "agent_mod");
+    let agent_id = seat
+        .as_ref()
+        .map(|p| p.config.get("agent").and_then(|v| v.as_str()).unwrap_or(&p.name).to_string())
+        .unwrap_or_else(|| key.to_string());
+    let schema = schemas.get(&agent_id);
+    if schema.is_none() && seat.is_none() {
+        return Err(error.map_or_else(|| format!("no agent `{key}`"), |e| format!("no agent `{key}` seated here, and {e}")));
+    }
+    let mut out = schema.map(|sc| agent_of(&agent_id, sc)).unwrap_or_else(|| json!({
+        "id": agent_id, "name": agent_id, "playable": false, "arena": false,
+    }));
+    out["agent"] = json!(agent_id);
+    out["schema"] = schema.cloned().unwrap_or(Value::Null);
+    if let Some(p) = &seat {
+        if p.name != agent_id {
+            out["id"] = json!(p.name);
+            out["name"] = json!(p.name);
+            out["custom"] = json!(true);
+            if !p.note.is_empty() {
+                out["description"] = json!(p.note);
+            }
+        }
+        out["retired"] = json!(p.config.get("retired").and_then(|v| v.as_bool()).unwrap_or(false));
+        out["player"] = crate::arena::get_player(&p.id).unwrap_or(Value::Null);
+    } else {
+        out["player"] = Value::Null;
+    }
+    let shown = out["id"].as_str().unwrap_or(key).to_string();
+    out["protocol"] = json!({ "base": base(None), "roster": "GET /agents", "run": "POST /run" });
+    out["pages"] = json!({
+        "arena": format!("/arena/agent/{shown}"),
+        "agent": format!("/agent/a/{agent_id}"),
+    });
+    if let Some(e) = error {
+        out["error"] = json!(e);
+    }
+    Ok(out)
 }
 
 /// Mirror the roster into the players registry: every agent that set
