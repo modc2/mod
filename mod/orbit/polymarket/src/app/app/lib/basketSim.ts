@@ -154,6 +154,7 @@ export function replaySleeve(
     pollMinutes: p.pollMinutes,
     sizing: idx.sizing,
     turnover: idx.turnover,
+    depthCap: idx.depthCap,
     resolved: feeds.resolved,
     ...(opts.asOf ? { asOf: opts.asOf } : {}),
   });

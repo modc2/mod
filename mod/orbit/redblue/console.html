@@ -37,6 +37,16 @@
   .tchip .p i{width:6px;height:6px;border-radius:50%;background:#3a4756}
   .tchip .p.ok i{background:var(--good);box-shadow:0 0 6px var(--good)}
   .tchip .p.ok{color:var(--ink)}
+  .tchip .tgt{cursor:pointer;border-bottom:1px dashed var(--line)}
+  .tchip .tgt:hover{color:#fff;border-bottom-color:var(--blue)}
+  .tchip .p{cursor:pointer}
+  .tchip .p:hover{color:var(--ink)}
+  .tchip .p.sel{color:#fff;text-decoration:underline;text-underline-offset:3px}
+  .tchip input.tgt-ed{background:#0b1420;border:1px solid var(--blue);color:#fff;
+    font:inherit;font-weight:600;border-radius:4px;padding:1px 6px;outline:none}
+  .tchip .runv{cursor:pointer;background:#14202d;border:1px solid #2a4058;color:#cfe6ff;
+    border-radius:4px;padding:2px 9px;font:inherit;font-size:11px;letter-spacing:.04em}
+  .tchip .runv:hover{border-color:var(--blue);color:#fff}
   nav{display:flex;align-items:center;gap:2px;margin-left:auto;flex-wrap:wrap;
       border:1px solid var(--line);background:#0a0f15;border-radius:10px;padding:3px}
   nav .gap{width:1px;height:16px;background:var(--line);margin:0 4px}
@@ -1286,16 +1296,88 @@ async function loadAbout() {
       POST /mcp · version ${esc(i.version)}</p>`;
 }
 
+// ── target selector (the header chip) ──────────────────────────
+// The chip is the one place the active target lives. Clicking a provider dot
+// targets it; the three catalog providers also open the MODELS browser so a
+// specific model can be picked and TESTed. Clicking the model name edits it
+// to any provider:model. Only an explicit pick propagates into the run forms —
+// boot leaves them on the safe mock:naive default rather than silently arming
+// a live, billable target.
+let TARGET = 'claude:haiku', TPROV = null;
+// Each provider's keyless/default model, so a bare dot click yields a real id.
+const PDEF = {claude: 'claude:haiku', openrouter: 'openrouter:openai/gpt-4o-mini',
+  venice: 'venice:venice-uncensored', anthropic: 'anthropic:claude-haiku-4-5-20251001',
+  openai: 'openai:gpt-4o-mini', mock: 'mock:naive'};
+const CATALOG = ['venice', 'openrouter', 'mock'];  // providers with a MODELS list
+
+function drawChip() {
+  if (!TPROV) return;
+  const prov = TARGET.split(':')[0];
+  $('#sub').innerHTML = `<span>target</span>`
+    + `<b class="tgt" title="click to type any provider:model">${esc(TARGET)}</b>`
+    + `<span class="sep"></span>`
+    + (Object.keys(TPROV).length ? Object.entries(TPROV).map(([n, p]) =>
+        `<span class="p${p.ready ? ' ok' : ''}${n === prov ? ' sel' : ''}" data-prov="${esc(n)}"
+          title="${esc(p.note || p.how || '')}${CATALOG.includes(n) ? ' · click to browse its models' : ' · click to target'}"><i></i>${esc(n)}</span>`).join('')
+       : '<span class="p"><i></i>no backend</span>')
+    + `<span class="sep"></span>`
+    + `<button class="runv" id="chip-run" title="open the run form, every attack × every defense vs ${esc(TARGET)}">run &rarr;</button>`;
+  const b = $('#sub .tgt'); if (b) b.onclick = editTarget;
+  document.querySelectorAll('#sub .p[data-prov]').forEach(el =>
+    el.onclick = () => pickProvider(el.dataset.prov));
+  const r = $('#chip-run'); if (r) r.onclick = runTarget;
+}
+
+// Arm the chosen target: propagate into every run form and the cost hint.
+function setTarget(model) {
+  model = (model || '').trim(); if (!model) { drawChip(); return; }
+  TARGET = model;
+  ['#r-model', '#f-model', '#l-model'].forEach(s => { if ($(s)) $(s).value = model; });
+  if ($('#cost-hint')) $('#cost-hint').textContent = model.startsWith('mock:')
+    ? `${model} is offline and free` : `${model} spends real model calls`;
+  drawChip();
+}
+
+function pickProvider(prov) {
+  setTarget(PDEF[prov] || prov);
+  if (CATALOG.includes(prov)) {           // let the user pick a concrete model
+    MS.provider = prov; MS.scope = 'all'; MS.q = ''; saveMS();
+    document.querySelector('nav button[data-tab=models]').click();
+  }
+}
+
+function editTarget() {
+  const b = $('#sub .tgt'); if (!b) return;
+  const inp = document.createElement('input');
+  inp.className = 'tgt-ed'; inp.value = TARGET;
+  inp.size = Math.max(10, TARGET.length + 1);
+  b.replaceWith(inp); inp.focus(); inp.select();
+  let done = false;
+  const commit = () => { if (done) return; done = true; setTarget(inp.value || TARGET); };
+  inp.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { done = true; drawChip(); } };
+  inp.onblur = commit;
+}
+
+// The run form spends real calls on RUN ROUND — this only navigates + prefills,
+// leaving the existing one-click-to-spend gate in place.
+function runTarget() {
+  setTarget(TARGET);
+  document.querySelector('nav button[data-tab=rounds]').click();
+  const s = $('#r-status');
+  if (s) s.textContent = `armed: every attack × every defense vs ${TARGET} — press RUN ROUND`;
+}
+
 // ── boot ───────────────────────────────────────────────────────
 api('/targets').then(t => {
   // Every backend is shown, not just the ready ones — the arena is model
   // agnostic, so the pill names all of them and dims the ones still needing a
   // key rather than hiding the provider list down to whatever this box has.
-  const ps = Object.entries(t.providers);
-  $('#sub').innerHTML = `<span>target</span><b>${esc(t.default)}</b><span class="sep"></span>`
-    + (ps.length ? ps.map(([n, p]) => `<span class="p${p.ready ? ' ok' : ''}" title="${esc(p.note || p.how || '')}"><i></i>${esc(n)}</span>`).join('')
-                 : '<span class="p"><i></i>no backend</span>');
-  $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
+  TPROV = t.providers || {};
+  TARGET = t.default || TARGET;
+  drawChip();                                    // show, but do not arm, the default
+  if ($('#cost-hint')) $('#cost-hint').textContent = `${TARGET} is the default; mock:* is free`;
 }).catch(() => {});
 loadBoard();
 </script>

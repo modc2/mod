@@ -230,6 +230,7 @@ export default function CopySimPanel({
         pollMinutes: p.pollMinutes,
         sizing: idx.sizing,
         turnover: idx.turnover,
+        depthCap: idx.depthCap,
         resolved,
         loading,
       });

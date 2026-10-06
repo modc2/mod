@@ -387,6 +387,38 @@ console.log("\n─ fills of one leader action collapse into one trade ─");
   near(sell[0].price, 0.81, 1e-9, "while `price` stays the level the leader traded at");
 }
 
+console.log("\n─ book depth: a mirrored BUY caps at the leader's own fill ─");
+{
+  // A $50-bankroll leader's $5 longshot at 2¢, copied by a $1,000 wallet:
+  // copyRatio 20 wants a $100 fill at 2¢ — 50× shares at a price where the
+  // tape only ever proved $5 of liquidity. That invented depth is what pushed
+  // longshot-heavy strats to triple-digit windows on the hub cards. The sim
+  // may only fill what the leader's own fill proved existed.
+  const input = {
+    watchlist: [LEADER],
+    traderTrades: new Map([[LEADER, [...trackRecord(),
+      trade({ side: "BUY", price: 0.02, size: 250, hoursAgo: 6, outcome: "Yes" })]]]),
+    traderPositions: new Map<string, PolymarketPosition[]>([[LEADER, []]]),
+    traderWeights: { [LEADER]: 100 },
+    traderBankrolls: new Map([[LEADER, 50]]),
+    strat: openStrat(),
+    days: 7,
+    capital: DEFAULT_CAPITAL,
+    minTrade: 1, maxTrade: 1000, maxOpenPositions: 20,
+    stopLossPct: 0, takeProfitFrac: 0, marketQuery: "", pollMinutes: 1,
+  };
+  const longshot = (sim: ReturnType<typeof replay>) =>
+    sim.rows.find((r) => r.side === "BUY" && Math.abs(r.price - 0.02) < 1e-6);
+
+  const capped = runBacktest(input).sim;
+  near(longshot(capped)?.amount ?? 0, 5, 0.01, "the mirror fills the leader's $5, not the proportional $100");
+  ok((capped.funnel.reasons["BOOK DEPTH"] ?? 0) === 1, "and the clip is named in the funnel");
+
+  const unbounded = runBacktest({ ...input, depthCap: null }).sim;
+  near(longshot(unbounded)?.amount ?? 0, 100, 0.01, "depthCap null opts back into the old unbounded fill");
+  ok(!("BOOK DEPTH" in unbounded.funnel.reasons), "with nothing to clip, nothing in the funnel");
+}
+
 // ── MULTI-STRAT DEPOSIT ───────────────────────────────────────
 // The two numbers the DEPOSIT panel refuses on. Both are pure arithmetic and
 // both were wrong in the obvious implementation: a naive even split loses the

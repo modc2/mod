@@ -1756,6 +1756,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
     // Size the preview off the same denominator the live session will.
     sizing: activeIndex?.sizing,
     turnover: activeIndex?.turnover,
+    depthCap: activeIndex?.depthCap,
     resolved: resolvedLegs,
     // Live Polygon gas price + POL price, so the GAS line is a real number
     // rather than a constant. Falls back to a labelled estimate until it lands.
@@ -1766,7 +1767,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
        backtestDays, capital, minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac,
        marketQuery, activeIndex?.livePollMinutes, rebalanceMinutes, rebalancePeriod,
        rebalanceHour, samplePct, showAllTrades, loading, activeIndex?.sizing,
-       activeIndex?.turnover, resolvedLegs, gasQuote, priceTape]);
+       activeIndex?.turnover, activeIndex?.depthCap, resolvedLegs, gasQuote, priceTape]);
 
   const traderCopyRatio = backtest.copyRatio;
   const backtestHistory = backtest.history;

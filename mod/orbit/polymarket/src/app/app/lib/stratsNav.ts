@@ -22,9 +22,30 @@ export const STRATS_VIEWS: StratsView[] = ["strats", "copy", "money", "backtest"
 
 export const isStratsView = (v: unknown): v is StratsView => STRATS_VIEWS.includes(v as StratsView);
 
-/** Path WITHOUT basePath — Next prepends "/polymarket" itself. */
-export function stratsHref(view: StratsView = "strats"): string {
-  return view === "strats" ? "/strats" : `/strats?tab=${view}`;
+// The STRATS view's own sub-tabs (?sec=). The manager used to be one long
+// scroll — INVESTED, SCORE STRATS, MY STRATS, BUILD, COMMUNITY, CODE, SCORE
+// FUNCTIONS stacked — and "need to have tabs of this" (2026-10-06) split it.
+// INVESTED stays pinned above the strip on every section; the rest tab:
+//
+//   mine       MY STRATS — the saved cards + the recipe shelf (the default)
+//   scores     SCORE STRATS (each score fn as a TOP-N strat) + the ▦ SCORE
+//              MARKET's score functions for the board
+//   build      VIBE · AUTO STRAT · STRAT LAB — the machines that write strats
+//   community  the public gallery — fork anyone's back in
+//   code       user-written strat.py / strat.rs / strat.ts + the CID path
+export type StratsSection = "mine" | "scores" | "build" | "community" | "code";
+
+export const STRATS_SECTIONS: StratsSection[] = ["mine", "scores", "build", "community", "code"];
+
+export const isStratsSection = (v: unknown): v is StratsSection =>
+  STRATS_SECTIONS.includes(v as StratsSection);
+
+/** Path WITHOUT basePath — Next prepends "/polymarket" itself.
+    `sec` only means anything on the "strats" view; the defaults keep the
+    canonical addresses short (/strats, /strats?tab=live, /strats?sec=build). */
+export function stratsHref(view: StratsView = "strats", sec: StratsSection = "mine"): string {
+  if (view !== "strats") return `/strats?tab=${view}`;
+  return sec === "mine" ? "/strats" : `/strats?sec=${sec}`;
 }
 
 /** Ask for a tab of /strats from anywhere without importing the router —

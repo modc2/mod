@@ -130,6 +130,7 @@ export function replayAtSize(
     strat: stratFromIndex(idx),
     sizing: idx.sizing,
     turnover: idx.turnover,
+    depthCap: idx.depthCap,
     resolved,
     days,
     asOf,

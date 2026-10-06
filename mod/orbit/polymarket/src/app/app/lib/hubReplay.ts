@@ -380,6 +380,9 @@ export function signature(idx: SavedIndex, days: number): string {
     p.takeProfitFrac, p.marketQuery, p.pollMinutes, p.minMinutesToClose,
     idx.maxPerCycle ?? 3, idx.tradeFilters ?? null, idx.filter ?? null,
     idx.sizing ?? null, idx.turnover ?? null, idx.maxUpscale ?? null,
+    // The book-depth fill model: snapshots computed under the old unbounded
+    // fills must recompute, not keep serving +977%-style longshot fiction.
+    idx.depthCap ?? null,
     // Gates the replay applies must all be in the signature, or editing one
     // leaves the hub serving a snapshot computed under the old gate.
     idx.maxTradeAgeSec ?? null,
@@ -609,6 +612,7 @@ export async function backtestOne(
     strat: stratFromIndex(idx),
     sizing: idx.sizing,
     turnover: idx.turnover,
+    depthCap: idx.depthCap,
     resolved,
     days,
     asOf,

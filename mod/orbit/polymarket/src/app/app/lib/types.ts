@@ -413,6 +413,13 @@ export interface SavedIndex {
   // instead of all being placed at the same minimum. undefined ⇒ 2; explicit
   // 0/null ⇒ legacy unbounded clamp-to-floor.
   maxUpscale?: number | null;
+  // BACKTEST-only book-depth clamp: a sim BUY may fill at most `depthCap ×`
+  // the leader's own notional at that price — the only liquidity the replay
+  // has evidence of. Without it a small-bankroll leader's $5 longshot at 2¢
+  // mirrored at copyRatio 20 filled $100 at 2¢, liquidity that never existed.
+  // undefined ⇒ 1; explicit null ⇒ legacy unbounded fills. The live engine
+  // never reads this — the real CLOB enforces depth itself.
+  depthCap?: number | null;
   // What mirrors are sized proportionally TO (see copyRatioFor).
   // "bankroll" (default) copies the leader's RISK — the fraction of net worth
   // they staked — and needs capital in their league to clear the order floor.

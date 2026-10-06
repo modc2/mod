@@ -15,15 +15,27 @@
 //              toggle publishes it to the community gallery, and the
 //              gallery below lets you fork anyone else's back in.
 //
-// Five sections, top to bottom in the order a user grows into them:
+// The sections used to stack in one long scroll; 2026-10-06 ("need to have
+// tabs of this") they became sub-tabs (?sec=, lib/stratsNav.ts). INVESTED
+// stays pinned above the strip — "where is my money" must never hide behind
+// a tab. The sub-tabs, in the order a user grows into them:
 //
 //   MY STRATS   the saved list with full management — the one place a strat
 //               is renamed, forked, deleted or published. Selecting still
-//               sets the ACTIVE strat (BACKTEST/LIVE read it).
-//   BUILD       the machines that write strats for you: the AUTO STRAT
-//               factory (one agent run invents + benches a recipe) and the
-//               STRAT LAB (an agent that iterates until the data clears the
-//               confidence bar). Both register their output in MY STRATS.
+//               sets the ACTIVE strat (BACKTEST/LIVE read it). The recipe
+//               shelf and the dashed new-strat tiles live here too.
+//   SCORES      SCORE STRATS (each score function as a TOP-N copy strat,
+//               ranked + backtested out of sample) and the ▦ SCORE MARKET —
+//               its ONE home (it used to sit inside the board's ƒ SCORE
+//               panel). USE broadcasts the source over the formula bus
+//               (scoreFormula.FORMULA_EVENT), so the board's score box
+//               adopts it live; + PUBLISH reads whatever that box currently
+//               holds, synced back over the same bus.
+//   BUILD       the machines that write strats for you: VIBE (words in,
+//               backtest out), the AUTO STRAT factory (one agent run invents
+//               + benches a recipe) and the STRAT LAB (an agent that iterates
+//               until the data clears the confidence bar). Both agents
+//               register their output in MY STRATS.
 //   COMMUNITY   every published recipe strat on this deploy — fork one into
 //               a private copy you own. Your own published cards show here
 //               too so you can see exactly what's public and pull it back.
@@ -31,11 +43,6 @@
 //               — upload, publish, and the CID share/import path that works
 //               across deploys. The header row's ⇪ UPLOAD and the grid's
 //               UPLOAD CODE tile both feed this store.
-//   SCORE       the ▦ SCORE MARKET — this is its ONE home (it used to sit
-//               inside the board's ƒ SCORE panel). USE broadcasts the source
-//               over the formula bus (scoreFormula.FORMULA_EVENT), so the
-//               board's score box adopts it live; + PUBLISH reads whatever
-//               that box currently holds, synced back over the same bus.
 //
 // Publishing a RECIPE strat goes through useStratManager.setVisibility → the
 // plaintext /strats/public gallery (stratSync.ts); the local token that
@@ -56,7 +63,7 @@ import { FORMULA_EVENT, broadcastFormula, loadSavedFormula } from "../lib/scoreF
 import { isTraderIndex } from "../lib/traderIndex";
 import { describeTraderFilter } from "../lib/strats/strat";
 import { shortAddress } from "../lib/auth";
-import { isStratsView, stratsHref, type StratsView } from "../lib/stratsNav";
+import { isStratsSection, isStratsView, stratsHref, type StratsSection, type StratsView } from "../lib/stratsNav";
 import AccountsPanel from "./AccountsPanel";
 import AutoStratPanel from "./AutoStratPanel";
 import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
@@ -92,6 +99,29 @@ function curveHover(points: StratPnlPoint[]) {
     return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
   };
 }
+
+// The STRATS view's sections, each a sub-tab pill (?sec=). INVESTED first —
+// it is the landing tab, same as it used to be the top of the stack.
+type StratsSection = "invested" | "score" | "mine" | "build" | "community" | "code" | "fns";
+const SECTION_TABS: [StratsSection, string, string][] = [
+  ["invested", "INVESTED", "Where your money is right now"],
+  ["score", "SCORE STRATS", "Each score function copies its top N traders — backtested on picks made before the test window"],
+  ["mine", "MY STRATS", "Every strat you saved — rename, fork, publish, delete, backtest ladder"],
+  ["build", "BUILD", "Describe a strat and test it, or let an agent invent one"],
+  ["community", "COMMUNITY", "Published recipe strats — fork one into a private copy you own"],
+  ["code", "CODE", "Your own strat.py / strat.rs / strat.ts — upload, publish, share by CID"],
+  ["fns", "FUNCTIONS", "Rank/filter functions for the trader board"],
+];
+const isSection = (v: unknown): v is StratsSection => SECTION_TABS.some(([s]) => s === v);
+
+// The STRATS view's own sub-tabs — the old one-page scroll, cut into rooms.
+const SECTION_TABS: [StratsSection, string, string][] = [
+  ["mine", "MY STRATS", "Every strat you saved — rename, fork, publish, delete · click a card = active"],
+  ["scores", "SCORES", "Score strats (each score function copies its top N) + score functions for the trader board"],
+  ["build", "BUILD", "Machines that write strats — vibe one from words, or let an agent invent and refine one"],
+  ["community", "COMMUNITY", "Published strats on this deploy — fork one into a private copy you own"],
+  ["code", "CODE", "Your own strat.py / strat.rs / strat.ts — upload, publish, share by CID"],
+];
 
 const VIEW_TABS: [StratsView, string, string][] = [
   ["strats", "STRATS", "Build, manage and share your strats"],

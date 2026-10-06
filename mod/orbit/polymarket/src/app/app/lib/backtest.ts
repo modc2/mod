@@ -114,7 +114,9 @@ export interface EntryFunnel {
   /** Reached the wallet but couldn't be placed — sizing floor, cash, position
       cap. Counted in `BacktestSim.skipped` too (which also counts SELLs). */
   skipped: number;
-  /** label → count, e.g. {"time-to-close": 225, "SUB_SCALE": 12}. */
+  /** label → count, e.g. {"time-to-close": 225, "SUB_SCALE": 12}. Mostly
+      terminal drops; "BOOK DEPTH" is informational — BUYs that executed but
+      were clipped to the leader's own fill size (see `depthCap`). */
   reasons: Record<string, number>;
 }
 
@@ -292,6 +294,10 @@ export interface BacktestInput {
       bankroll model, exactly as before. */
   sizing?: SizingModel;
   turnover?: number;
+  /** Book-depth clamp: a sim BUY fills at most `depthCap ×` the leader's own
+      notional (`price × size`) — the only liquidity the replay has evidence
+      of. undefined ⇒ 1; explicit null ⇒ legacy unbounded fills. */
+  depthCap?: number | null;
   /** Live Polygon gas price + POL price. Defaults to `FALLBACK_GAS_QUOTE`, so
       a sim that never fetched one still books a plausible (and clearly
       labelled) gas bill instead of zero. */
@@ -590,6 +596,7 @@ export function runBacktestSim(
     watchlist, traderTrades, traderPositions, traderWeights, strat, days, capital,
     minTrade, maxTrade, maxOpenPositions, stopLossPct, takeProfitFrac, marketQuery,
     rebalancePeriod = 0, rebalanceHour = 0, samplePct = 100, showAllTrades = false, loading = false,
+    depthCap = 1,
     resolved = new Map<string, number>(),
     gasQuote = FALLBACK_GAS_QUOTE, gasOps = NEW_DEPLOYMENT_GAS_OPS,
   } = input;
@@ -991,6 +998,19 @@ export function runBacktestSim(
     let realized = 0;
     if (t.side === "BUY") {
       amount = gatedAmount;
+      // Book-depth clamp: the leader's fill (`price × size`) is the ONLY
+      // liquidity the replay knows existed at this price, so a mirror can't
+      // fill more than depthCap × it. Without this a small-bankroll leader's
+      // $5 longshot at 2¢ became a $100 sim fill at 2¢ and longshot-heavy
+      // strats compounded fills the market could never have given. SHOW ALL
+      // stays unconstrained — it previews the proportional mirror, not fills.
+      if (!showAllTrades && depthCap != null && depthCap > 0) {
+        const bookDepth = depthCap * t.stratTrade.notional;
+        if (amount > bookDepth) {
+          tally(funnel, "BOOK DEPTH");
+          amount = bookDepth;
+        }
+      }
       const shares = t.price > 0 ? amount / t.price : 0;
       fee = ledger.charge({
         conditionId: t.conditionId, market: t.market, slug: t.stratTrade.slug,
