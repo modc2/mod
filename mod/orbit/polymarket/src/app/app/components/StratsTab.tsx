@@ -16,10 +16,12 @@
 //              gallery below lets you fork anyone else's back in.
 //
 // The sections used to stack in one long scroll; 2026-10-06 ("need to have
-// tabs of this") they became sub-tabs (?sec=, lib/stratsNav.ts). INVESTED
-// stays pinned above the strip — "where is my money" must never hide behind
-// a tab. The sub-tabs, in the order a user grows into them:
+// tabs of this") they became sub-tabs (?sec=, lib/stratsNav.ts). The
+// sub-tabs, in the order a user grows into them:
 //
+//   INVESTED    just the strats money is on — name · $ in play · PnL · STOP.
+//               Pinned above the strip at first; same day, "can we have the
+//               invested be a tab", so it leads the strip instead.
 //   MY STRATS   the saved list with full management — the one place a strat
 //               is renamed, forked, deleted or published. Selecting still
 //               sets the ACTIVE strat (BACKTEST/LIVE read it). The recipe
@@ -100,22 +102,13 @@ function curveHover(points: StratPnlPoint[]) {
   };
 }
 
-// The STRATS view's sections, each a sub-tab pill (?sec=). INVESTED first —
-// it is the landing tab, same as it used to be the top of the stack.
-type StratsSection = "invested" | "score" | "mine" | "build" | "community" | "code" | "fns";
+// The STRATS view's own sub-tabs — the old one-page scroll, cut into rooms
+// (?sec=, lib/stratsNav.ts — the URL is the state, same as ?tab=). Inactive
+// sections stay MOUNTED, css-hidden — ScoreStratsPanel's re-rank loop and
+// the other panels' background fetches must keep running off-screen
+// (unmounting StratHub is how the ladder manifest went stale).
 const SECTION_TABS: [StratsSection, string, string][] = [
-  ["invested", "INVESTED", "Where your money is right now"],
-  ["score", "SCORE STRATS", "Each score function copies its top N traders — backtested on picks made before the test window"],
-  ["mine", "MY STRATS", "Every strat you saved — rename, fork, publish, delete, backtest ladder"],
-  ["build", "BUILD", "Describe a strat and test it, or let an agent invent one"],
-  ["community", "COMMUNITY", "Published recipe strats — fork one into a private copy you own"],
-  ["code", "CODE", "Your own strat.py / strat.rs / strat.ts — upload, publish, share by CID"],
-  ["fns", "FUNCTIONS", "Rank/filter functions for the trader board"],
-];
-const isSection = (v: unknown): v is StratsSection => SECTION_TABS.some(([s]) => s === v);
-
-// The STRATS view's own sub-tabs — the old one-page scroll, cut into rooms.
-const SECTION_TABS: [StratsSection, string, string][] = [
+  ["invested", "INVESTED", "Where your money is right now — every strat holding capital, with its P&L"],
   ["mine", "MY STRATS", "Every strat you saved — rename, fork, publish, delete · click a card = active"],
   ["scores", "SCORES", "Score strats (each score function copies its top N) + score functions for the trader board"],
   ["build", "BUILD", "Machines that write strats — vibe one from words, or let an agent invent and refine one"],
@@ -167,9 +160,15 @@ export default function StratsTab() {
   // MONEY (account + liquidity), BACKTEST and LIVE (the workspace). The URL
   // (?tab=) is the state — see lib/stratsNav.ts.
   const router = useRouter();
-  const tabParam = useSearchParams()?.get("tab");
+  const params = useSearchParams();
+  const tabParam = params?.get("tab");
   const view: StratsView = isStratsView(tabParam) ? tabParam : "strats";
   const setView = useCallback((v: StratsView) => router.replace(stratsHref(v), { scroll: false }), [router]);
+  // Which room of the STRATS view is showing (?sec=) — same contract as ?tab=:
+  // the URL is the state, so a section is linkable and the back button works.
+  const secParam = params?.get("sec");
+  const sec: StratsSection = isStratsSection(secParam) ? secParam : "mine";
+  const setSec = useCallback((s: StratsSection) => router.replace(stratsHref("strats", s), { scroll: false }), [router]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   // Held by ID, not by object: the list re-reads every couple of seconds and
@@ -245,15 +244,16 @@ export default function StratsTab() {
         } catch {}
         throw new Error(detail);
       }
-      setStatus(`Uploaded "${id}.${ext}" — it's under CODE STRATS below, private and yours. Publish or SHARE it from there.`);
+      setStatus(`Uploaded "${id}.${ext}" — it's here under CODE STRATS, private and yours. Publish or SHARE it from this list.`);
       window.dispatchEvent(new Event(USER_STRATS_CHANGED_EVENT));
+      setSec("code");
     } catch (e) {
       setStatus(`Upload failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setUploading(false);
       if (uploadRef.current) uploadRef.current.value = "";
     }
-  }, [myAddr]);
+  }, [myAddr, setSec]);
 
   // The SCORE MARKET's view of the board's score box, over the formula bus:
   // seeded from the shared sessionStorage key, kept live by FORMULA_EVENT
@@ -308,7 +308,7 @@ export default function StratsTab() {
           }}
         />
         <button
-          onClick={() => { uploadRef.current?.click(); setView("strats"); }}
+          onClick={() => uploadRef.current?.click()}
           disabled={uploading}
           title="Add a strat from code — upload a strat.py, strat.rs or strat.ts. It lands under CODE STRATS, private until you publish it."
           className={`ml-auto shrink-0 px-2.5 py-1 rounded-full border border-pixel-border text-[10px] font-mono font-semibold tracking-[0.1em] text-pixel-gray hover:text-green-400 hover:border-green-400/50 transition-colors ${uploading ? "opacity-40" : ""}`}
@@ -316,14 +316,14 @@ export default function StratsTab() {
           {uploading ? "UPLOADING…" : "⇪ UPLOAD"}
         </button>
         <button
-          onClick={() => { setView("strats"); focusVibe(); }}
-          title="Vibecode a strat — describe it in plain words, an agent writes the params and backtests them over 1/3/7 days. Jumps to the VIBE box below."
+          onClick={() => { setSec("build"); focusVibe(); }}
+          title="Vibecode a strat — describe it in plain words, an agent writes the params and backtests them over 1/3/7 days. Opens the BUILD tab's VIBE box."
           className="shrink-0 px-2.5 py-1 rounded-full border border-pixel-border text-[10px] font-mono font-semibold tracking-[0.1em] text-pixel-gray hover:text-green-400 hover:border-green-400/50 transition-colors"
         >
           ✧ VIBE
         </button>
         <button
-          onClick={() => { forkDefault(traderIndexTemplate()); setView("strats"); }}
+          onClick={() => { forkDefault(traderIndexTemplate()); setSec("mine"); }}
           title="New strat from the default COPY TRADING template — a TRADER INDEX seeded with this week's best traders, every trade scaled to your capital. Private until you publish it."
           className="shrink-0 px-2.5 py-1 rounded-full border border-green-400/50 text-[10px] font-mono font-semibold tracking-[0.1em] text-green-400 hover:bg-green-400/10 transition-colors"
         >
@@ -374,9 +374,38 @@ export default function StratsTab() {
         <span className="text-pixel-white">COPY</span>, run on <span className="text-pixel-white">LIVE</span>.
       </div>
 
+      {/* ── The sub-tab strip — the manager's rooms (?sec=) ──
+          Underline style, not pills: the pill row above switches VIEWS, this
+          switches rooms within one. The sections below stay MOUNTED and hide
+          with CSS — ScoreStratsPanel's re-rank loop, the gallery refresh and
+          the ladder polling must keep running off-screen (unmounting is how
+          the ladder manifest went stale, see polymarket_window_ladder). */}
+      <div className="flex flex-wrap items-center px-1 border-b border-pixel-border/60">
+        {SECTION_TABS.map(([s, label, hint]) => (
+          <button
+            key={s}
+            onClick={() => setSec(s)}
+            title={hint}
+            className={`px-2.5 py-1.5 -mb-px border-b-2 text-[10px] font-mono font-semibold tracking-[0.12em] transition-colors ${
+              sec === s
+                ? "border-green-400 text-green-400"
+                : "border-transparent text-pixel-gray hover:text-pixel-white"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Feedback from uploads / publish toggles — above the sections, so it
+          is visible no matter which room the action landed the user in. */}
+      {status && (
+        <div className="px-1 text-[9.5px] font-mono leading-snug text-pixel-gray-light break-words">{status}</div>
+      )}
+
       {/* ── INVESTED — just the strats your money is on, nothing else ──
-          The full roster below is a management surface; with 16 strats the
-          two or three that actually hold capital drown in it. This is the
+          The full roster on MY STRATS is a management surface; with 16 strats
+          the two or three that actually hold capital drown in it. This is the
           plain answer to "where is my money": name · $ in play · PnL. */}
       {(() => {
         // Every dollar, not just the dollars with a local card: sessions the
@@ -400,7 +429,7 @@ export default function StratsTab() {
           .sort((a, b) => b.money - a.money);
         const total = rows.reduce((t, r) => t + r.money, 0);
         return (
-          <section className="space-y-1">
+          <section className={`space-y-1 ${sec === "invested" ? "" : "hidden"}`}>
             <div className="flex items-baseline justify-between gap-2">
               <SectionHeader label="INVESTED" hint="where your money is right now" />
               {rows.length > 0 && (
@@ -488,9 +517,9 @@ export default function StratsTab() {
       })()}
 
       {/* ── SCORE STRATS — every score function is a strat: copy its top N ──
-          Each row is also a card in MY STRATS below (id scorefn-*), kept
+          Each row is also a card under MY STRATS (id scorefn-*), kept
           ranked and backtested out of sample by useScoreStrats. */}
-      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+      <section className={`space-y-1 ${sec === "scores" ? "" : "hidden"}`}>
         <SectionHeader label="SCORE STRATS" hint="each score function copies its top N traders · backtested on picks made before the test window" />
         <ScoreStratsPanel
           indexes={indexes}
@@ -502,7 +531,7 @@ export default function StratsTab() {
       </section>
 
       {/* ── MY STRATS — the management list ── */}
-      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+      <section className={`space-y-1 ${sec === "mine" ? "" : "hidden"}`}>
         <SectionHeader label="MY STRATS" hint="every strat you saved · money on it first · click = active" />
         {/* Cards: each strat is a self-contained card. Columns come from the
             CONTAINER's width (auto-fill), not a viewport breakpoint — this tab
@@ -770,8 +799,8 @@ export default function StratsTab() {
           })}
 
           <button
-            onClick={() => focusVibe()}
-            title="Vibecode a strat — describe it in plain words and an agent writes the params, picks real traders off the board, and backtests it over 1/3/7 days. SAVE if the numbers are good."
+            onClick={() => { setSec("build"); focusVibe(); }}
+            title="Vibecode a strat — describe it in plain words and an agent writes the params, picks real traders off the board, and backtests it over 1/3/7 days. SAVE if the numbers are good. Opens the BUILD tab."
             className="flex flex-col justify-center gap-1 rounded-[var(--radius-sm)] border border-dashed border-green-400/40 px-3 py-3 text-left text-pixel-gray hover:text-green-400 hover:border-green-400/70 transition-colors min-h-[72px]"
           >
             <span className="text-[11px] font-mono font-semibold tracking-[0.08em] text-green-400/90">✧ VIBE A STRAT</span>
@@ -797,14 +826,10 @@ export default function StratsTab() {
           >
             <span className="text-[11px] font-mono font-semibold tracking-[0.08em]">{uploading ? "UPLOADING…" : "⇪ UPLOAD CODE"}</span>
             <span className="text-[9.5px] font-mono leading-snug text-pixel-gray/80">
-              your own strat.py · strat.rs · strat.ts — lands under CODE STRATS below
+              your own strat.py · strat.rs · strat.ts — lands under the CODE tab
             </span>
           </button>
         </div>
-
-        {status && (
-          <div className="px-1 text-[9.5px] font-mono leading-snug text-pixel-gray-light break-words">{status}</div>
-        )}
 
         {/* Curated starting points, folded — a first-time user meeting eleven
             recipes has not been helped. */}
@@ -844,7 +869,7 @@ export default function StratsTab() {
       </section>
 
       {/* ── BUILD — the machines that write strats for you ── */}
-      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+      <section className={`space-y-1 ${sec === "build" ? "" : "hidden"}`}>
         <SectionHeader label="BUILD" hint="describe a strat and test it, or let an agent invent one" />
         {/* VIBE first, and unfolded: describing what you want is the shortest
             path from an idea to a backtest, so it is the one that gets the
@@ -860,7 +885,7 @@ export default function StratsTab() {
       </section>
 
       {/* ── COMMUNITY — the public recipe gallery on this deploy ── */}
-      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+      <section className={`space-y-1 ${sec === "community" ? "" : "hidden"}`}>
         <div className="flex items-center gap-2 px-1 pt-1">
           <SectionHeader label="COMMUNITY" hint="published recipe strats — fork one into a private copy you own" />
           <button
@@ -873,7 +898,7 @@ export default function StratsTab() {
         </div>
         {gallery.length === 0 ? (
           <div className="px-1.5 py-1 text-[10px] font-mono text-pixel-gray">
-            Nothing published yet. Flip one of your strats to PUBLIC above and it lists here for everyone.
+            Nothing published yet. Flip one of your strats to PUBLIC on MY STRATS and it lists here for everyone.
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">
@@ -907,9 +932,9 @@ export default function StratsTab() {
                     </button>
                   ) : (
                     <button
-                      onClick={() => importPublic(entry)}
+                      onClick={() => { importPublic(entry); setSec("mine"); }}
                       className="shrink-0 px-1.5 py-0.5 rounded border border-pixel-border text-[9px] font-mono font-semibold tracking-[0.1em] text-pixel-gray hover:text-green-400 hover:border-green-400/60 transition-colors"
-                      title={`Fork "${entry.strat.name}" into your strats — the copy is private, stopped and yours`}
+                      title={`Fork "${entry.strat.name}" into your strats — the copy is private, stopped and yours. Opens MY STRATS on it.`}
                     >
                       FORK
                     </button>
@@ -922,13 +947,13 @@ export default function StratsTab() {
       </section>
 
       {/* ── CODE — user-written Strat classes, with the CID share path ── */}
-      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+      <section className={`space-y-1 ${sec === "code" ? "" : "hidden"}`}>
         <SectionHeader label="CODE STRATS" hint="your own strat.py / strat.rs / strat.ts — upload, publish, share by CID across deploys" />
         <UserStratsPanel eoa={auth.address ?? undefined} />
       </section>
 
-      {/* ── SCORE — the ▦ SCORE MARKET's one home ── */}
-      <section className="space-y-1" style={{ borderTop: "1px solid var(--border)" }}>
+      {/* ── SCORE — the ▦ SCORE MARKET's one home; shares the SCORES tab ── */}
+      <section className={`space-y-1 ${sec === "scores" ? "" : "hidden"}`} style={{ borderTop: "1px solid var(--border)" }}>
         <SectionHeader label="SCORE FUNCTIONS" hint="rank/filter functions for the trader board — USE drops one into its score box" />
         <div className="px-1">
           <ScoreMarket formula={formula} setFormula={setFormula} />

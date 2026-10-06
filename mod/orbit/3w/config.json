@@ -1,38 +1,38 @@
 {
-  "name": "3w",
-  "title": "3w \u00b7 3world \u2014 free 3D city models & open asset marketplace",
-  "description": "Free 3D models of any city, starting with NYC and Toronto. Geocodes a place (Nominatim), pulls building footprints + heights from OpenStreetMap (Overpass), and extrudes them into a ready-to-use OBJ model \u2014 no keys, no cost. Catalogs the official free city 3D datasets (NYC 3D Building Massing, Toronto 3D Massing, Overture buildings). The marketplace side (3world) starts with Poly Haven's CC0 model catalog and will grow into a free, open 3D-asset exchange. Stdlib-only.",
-  "version": "0.1.0",
-  "anchor": "mod.py",
-  "network": "local",
-  "port": 51220,
-  "route": false,
-  "deps": [],
-  "urls": {
-    "api": "http://localhost:51220"
-  },
-  "state": "~/.mod/3w/models/ (exported OBJ) \u00b7 ~/.mod/3w/cache/ (Overpass/geocode responses)",
-  "sources": {
-    "openstreetmap_overpass": "https://overpass-api.de",
-    "nominatim": "https://nominatim.openstreetmap.org",
-    "nyc_3d_massing": "https://www.nyc.gov/site/planning/data-maps/open-data/dwn-nyc-3d-model-download.page",
-    "toronto_3d_massing": "https://open.toronto.ca/dataset/3d-massing/",
-    "overture_maps": "https://overturemaps.org",
-    "polyhaven": "https://polyhaven.com"
-  },
-  "fns": [
-    "forward",
-    "cities",
-    "city",
-    "sources",
-    "where",
-    "buildings",
-    "model",
-    "assets",
-    "asset",
-    "status",
-    "test"
-  ],
-  "key": "3w",
-  "schema": "QmT76nsiLBv4wKR1Diinv9eLXj3Thfrxj22qnrUviqPEFd"
+    "name": "3w",
+    "title": "3w \u00b7 3world \u2014 free 3D city models & open asset marketplace",
+    "description": "Free 3D models of any city, starting with NYC and Toronto. Geocodes a place (Nominatim), pulls building footprints + heights from OpenStreetMap (Overpass), and extrudes them into a ready-to-use OBJ model \u2014 no keys, no cost. Catalogs the official free city 3D datasets (NYC 3D Building Massing, Toronto 3D Massing, Overture buildings). The marketplace side (3world) starts with Poly Haven's CC0 model catalog and will grow into a free, open 3D-asset exchange. Stdlib-only.",
+    "version": "0.1.0",
+    "anchor": "mod.py",
+    "network": "local",
+    "port": 51220,
+    "route": false,
+    "deps": [],
+    "urls": {
+        "api": "http://localhost:51220"
+    },
+    "state": "~/.mod/3w/models/ (exported OBJ) \u00b7 ~/.mod/3w/cache/ (Overpass/geocode responses)",
+    "sources": {
+        "openstreetmap_overpass": "https://overpass-api.de",
+        "nominatim": "https://nominatim.openstreetmap.org",
+        "nyc_3d_massing": "https://www.nyc.gov/site/planning/data-maps/open-data/dwn-nyc-3d-model-download.page",
+        "toronto_3d_massing": "https://open.toronto.ca/dataset/3d-massing/",
+        "overture_maps": "https://overturemaps.org",
+        "polyhaven": "https://polyhaven.com"
+    },
+    "fns": [
+        "forward",
+        "cities",
+        "city",
+        "sources",
+        "where",
+        "buildings",
+        "model",
+        "assets",
+        "asset",
+        "status",
+        "test"
+    ],
+    "key": "3w",
+    "schema": "QmX7MwoMno9Hcumk9Bq3B3MTM4MSHNHz87og1qvhaMpuzL"
 }
