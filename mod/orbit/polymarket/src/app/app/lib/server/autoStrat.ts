@@ -267,9 +267,9 @@ function emitStratClass(run: AutoStratRun, strat: SavedIndex): string {
   const recipe = JSON.stringify(strat, null, 2).replace(/'''/g, "\\u0027\\u0027\\u0027");
   const src = [
     `#!/usr/bin/env python3`,
-    `# ${strat.name} — generated ${new Date(run.at).toISOString()} by AUTO STRAT (${run.origin}).`,
-    `# Lens: ${run.theme.replace(/\n/g, " ")}`,
-    `# ${run.note ? run.note.replace(/\n/g, " ") : "no note"}`,
+    `# ${String(strat.name || "").replace(/[\u0000-\u001f\u2028\u2029]+/g, " ")} — generated ${new Date(run.at).toISOString()} by AUTO STRAT (${run.origin}).`,
+    `# Lens: ${String(run.theme || "").replace(/[\u0000-\u001f\u2028\u2029]+/g, " ")}`,
+    `# ${run.note ? String(run.note).replace(/[\u0000-\u001f\u2028\u2029]+/g, " ") : "no note"}`,
     `#`,
     `# A registered copy-index recipe compiled into the module's canonical Strat`,
     `# class. Run it directly and it IS an MCP server (stdio):`,
@@ -288,7 +288,7 @@ function emitStratClass(run: AutoStratRun, strat: SavedIndex): string {
     ``,
     ``,
     `class AutoStrat(CopyTrader):`,
-    `    """${strat.name} (auto-generated). The recipe's trade gates, applied`,
+    `    """${String(strat.name || "").replace(/[\u0000-\u001f\u2028\u2029"\\]+/g, " ")} (auto-generated). The recipe's trade gates, applied`,
     `    through the canonical _should_mirror hook."""`,
     ``,
     `    def _should_mirror(self, trade):`,

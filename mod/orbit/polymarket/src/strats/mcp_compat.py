@@ -180,6 +180,8 @@ def serve(build: Callable[..., Strat], name: str, description: str = '',
         method, id_, params = body['method'], body.get('id'), body.get('params') or {}
         if id_ is None or method.startswith('notifications/'):
             return None
+        if not isinstance(params, dict):
+            return error(id_, -32602, 'invalid params: expected an object')
         if method == 'initialize':
             v = str(params.get('protocolVersion') or '')
             return result(id_, {

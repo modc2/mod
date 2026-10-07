@@ -196,6 +196,22 @@ curl -N /api/hyperliquid/ask -H "Authorization: Bearer $TOKEN" \
      -d '{"question":"best APR vault over $1M TVL?"}'   # SSE event stream
 ```
 
+**Chat — the general chatbot** (UI `/chat`, same `POST /ask` route with
+`mode:"chat"`): ask *anything*, trading-related or not. General knowledge is
+allowed (the desk analyst's answer-only-from-tools rule is swapped out), the
+read tools stay on hand for live market facts, writes are ALWAYS denied no
+matter what the body says, and the stream's `session_id` resumes the
+conversation so the thread keeps context:
+
+```python
+r = hl.chat('explain funding rates simply')
+hl.chat('and how do they differ on HL?', session=r['session_id'])
+```
+
+Model auth can ride the claude mod's credential keeper
+(`~/.mod/build/private/claude_host.json`); a credential that turns out
+revoked mid-run is retried once on the keeper token automatically.
+
 Two guarantees hold it in place:
 
 * **No new authority.** The caller's token rides to the stdio MCP server as

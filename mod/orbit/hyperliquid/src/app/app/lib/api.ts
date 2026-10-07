@@ -846,17 +846,19 @@ export type AskStatus = {
 export const askStatus = () => j<AskStatus>(`/ask/status`);
 
 export type AskEvent =
-  | { type: "ready"; tools: number; act: boolean; signed_in: boolean }
-  | { type: "start"; model: string; tools: number }
+  | { type: "ready"; tools: number; act: boolean; mode?: string; signed_in: boolean }
+  | { type: "start"; model: string; tools: number; session_id?: string }
   | { type: "text"; text: string }
   | { type: "tool"; name: string; args: Record<string, any> }
   | { type: "tool_done"; error: boolean }
-  | { type: "done"; answer: string; turns?: number; ms?: number; cost_usd?: number }
+  | { type: "done"; answer: string; session_id?: string; turns?: number; ms?: number; cost_usd?: number }
   | { type: "error"; error: string };
 
-/** POST /ask and dispatch its SSE events as they arrive. */
+/** POST /ask and dispatch its SSE events as they arrive. `mode: "chat"` is
+ *  the general chatbot (read-only toolbox, any topic); `session` resumes a
+ *  prior conversation with the id a `start`/`done` event carried. */
 export async function askStream(
-  body: { question: string; act?: boolean },
+  body: { question: string; act?: boolean; mode?: "chat"; session?: string },
   onEvent: (ev: AskEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

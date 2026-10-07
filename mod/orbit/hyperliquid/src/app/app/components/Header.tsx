@@ -9,8 +9,8 @@ import { useSession } from "../lib/auth";
 import ThemePicker from "./ThemePicker";
 import { useDock } from "../lib/dock";
 
-// The console is six nouns: four places to find something to back, one book
-// of what you've backed, and the desk agent. Everything else — the money
+// The console is seven nouns: four places to find something to back, one book
+// of what you've backed, the desk agent, and the chatbot. Everything else — the money
 // plumbing and the two older copy engines the invest book superseded — lives
 // under MORE, which also holds the primary links when they're hidden on a
 // narrow viewport, so no page is ever unreachable.
@@ -21,6 +21,7 @@ const NAV = [
   { href: "/strats", label: "Strats" },
   { href: "/vaults", label: "Vaults" },
   { href: "/ask", label: "Ask" },
+  { href: "/chat", label: "Chat" },
 ];
 
 const MORE = [

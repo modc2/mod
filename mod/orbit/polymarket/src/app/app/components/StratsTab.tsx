@@ -82,7 +82,7 @@ import StratLab from "./StratLab";
 import StratVibe, { focusVibe } from "./StratVibe";
 import UserStratsPanel, { USER_STRATS_CHANGED_EVENT } from "./UserStratsPanel";
 import WindowStrip from "./WindowStrip";
-import { useStratWindows } from "../lib/hubBacktest";
+import { HUB_WINDOWS, useStratWindows } from "../lib/hubBacktest";
 
 function timeSince(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -564,6 +564,17 @@ export default function StratsTab() {
             const totalPnl = money?.totalPnl ?? 0;
             const traded = openPos > 0 || (money?.fills ?? 0) > 0;
             const hasBt = idx.lastBacktestAt != null;
+            // No manual backtest saved on the strat, but the background
+            // worker may have replayed it anyway — headline the widest
+            // window that actually traded rather than saying "never run"
+            // over a populated ladder.
+            const ladderRow = ladder.byId[idx.id];
+            const ladderBest = (!hasBt && ladderRow)
+              ? [...HUB_WINDOWS].reverse().map((d) => {
+                  const bt = ladderRow[d];
+                  return bt && bt.trades > 0 ? { d, bt } : null;
+                }).find(Boolean) ?? null
+              : null;
             // 7-day live PnL curve (server sidecar). Absent until the strat
             // has traded and the sidecar has sampled — the band then hides.
             const curve = pnlHistory[idx.id];
@@ -703,7 +714,7 @@ export default function StratsTab() {
                       </>
                     ) : (
                       onIt <= 0 && (
-                        <div className="text-[9.5px] font-mono text-pixel-gray/60">
+                        <div className="text-[10px] font-mono text-pixel-gray">
                           {isRunning ? "running · no positions" : "not trading"}
                         </div>
                       )
@@ -737,14 +748,27 @@ export default function StratsTab() {
                           )}
                         </div>
                       </>
+                    ) : ladderBest ? (
+                      <>
+                        <div className={`text-[11px] font-mono font-semibold tabular-nums ${ladderBest.bt.pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                          {ladderBest.bt.pnl >= 0 ? "+" : "−"}{fmtUsd(Math.abs(ladderBest.bt.pnl))}
+                        </div>
+                        <div className={`text-[9.5px] font-mono tabular-nums ${ladderBest.bt.roi >= 0 ? "text-green-400/80" : "text-red-400/80"}`}>
+                          {ladderBest.bt.roi >= 0 ? "+" : ""}{ladderBest.bt.roi.toFixed(1)}% over {ladderBest.d}D
+                        </div>
+                        <div className="text-[9px] font-mono text-pixel-gray">
+                          {ladderBest.bt.trades} trades
+                          <span className="text-pixel-gray/60"> · {timeSince(ladderBest.bt.at)}</span>
+                        </div>
+                      </>
                     ) : (
-                      <div className="text-[9.5px] font-mono text-pixel-gray/60">never run</div>
+                      <div className="text-[10px] font-mono text-pixel-gray">never run</div>
                     )}
                   </div>
                 </div>
 
                 {/* ── Backtest ladder: 1D · 3D · 7D · 14D · 30D ── */}
-                <WindowStrip row={ladder.byId[idx.id]} loading={ladder.loading} running={ladder.worker?.running} />
+                <WindowStrip row={ladderRow} loading={ladder.loading} running={ladder.worker?.running} traderCount={idx.traders.length} />
 
                 {/* ── Action strip — mt-auto pins it so cards in a grid row
                     stay equal-height with actions on the bottom edge ── */}

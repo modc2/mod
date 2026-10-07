@@ -43,6 +43,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import requests
@@ -203,6 +204,25 @@ def env_api_key() -> str:
     return "" if key.startswith("sk-ant-oat") else key
 
 
+def keeper_token() -> str:
+    """A live token from the claude mod's credential keeper, or ''.
+
+    The keeper file is republished every ~5 min; trust it only while it says
+    ready and its expiry (with a minute of slack) is still ahead.
+    """
+    try:
+        with open(KEEPER_FILE) as f:
+            k = json.load(f)
+    except (OSError, ValueError):
+        return ""
+    if not (isinstance(k, dict) and k.get("ready") and k.get("token")):
+        return ""
+    exp = k.get("expires_at")
+    if isinstance(exp, (int, float)) and exp < time.time() + 60:
+        return ""
+    return str(k["token"])
+
+
 def ensure_auth() -> Tuple[bool, Optional[str], Optional[str], Dict[str, str]]:
     """(ready, method, hint, extra_env) — creates KEY_FILE if nothing exists."""
     if env_api_key():
@@ -219,6 +239,9 @@ def ensure_auth() -> Tuple[bool, Optional[str], Optional[str], Dict[str, str]]:
         tok = ""
     if tok:
         return True, "oauth-token-file", None, {"CLAUDE_CODE_OAUTH_TOKEN": tok}
+    tok = keeper_token()
+    if tok:
+        return True, "claude-mod-keeper", None, {"CLAUDE_CODE_OAUTH_TOKEN": tok}
     if os.path.exists(OAUTH_FILE):
         return True, "claude-cli", None, {}
     os.makedirs(os.path.dirname(KEY_FILE), exist_ok=True)
@@ -252,8 +275,13 @@ def status(api_url: str) -> Dict[str, Any]:
 # ─── run ─────────────────────────────────────────────────────────────────
 
 def build_cmd(question: str, allowed: List[str], denied: List[str], act: bool,
-              api_url: str, token: str) -> List[str]:
-    return [
+              api_url: str, token: str, mode: str = "ask",
+              session: str = "") -> List[str]:
+    if mode == "chat":
+        prompt = CHAT_PROMPT
+    else:
+        prompt = SYSTEM_PROMPT + code_prompt() + (ACT_PROMPT if act else "")
+    cmd = [
         CLAUDE_BIN, "-p", question,
         "--output-format", "stream-json", "--verbose",
         "--model", MODEL,
@@ -261,9 +289,11 @@ def build_cmd(question: str, allowed: List[str], denied: List[str], act: bool,
         "--strict-mcp-config", "--mcp-config", json.dumps(mcp_config(api_url, token)),
         "--allowedTools", ",".join(allowed),
         "--disallowedTools", ",".join(denied),
-        "--append-system-prompt",
-        SYSTEM_PROMPT + code_prompt() + (ACT_PROMPT if act else ""),
+        "--append-system-prompt", prompt,
     ]
+    if session:
+        cmd += ["--resume", session]
+    return cmd
 
 
 def _events(msg: Dict) -> Generator[Dict, None, None]:
@@ -271,6 +301,7 @@ def _events(msg: Dict) -> Generator[Dict, None, None]:
     t = msg.get("type")
     if t == "system" and msg.get("subtype") == "init":
         yield {"type": "start", "model": msg.get("model"),
+               "session_id": msg.get("session_id"),
                "tools": sum(1 for x in msg.get("tools", [])
                             if str(x).startswith(TOOL_PREFIX))}
     elif t == "assistant":
@@ -288,56 +319,42 @@ def _events(msg: Dict) -> Generator[Dict, None, None]:
                 yield {"type": "tool_done", "error": bool(c.get("is_error"))}
     elif t == "result":
         yield {"type": "done", "answer": msg.get("result") or "",
+               "session_id": msg.get("session_id"),
                "turns": msg.get("num_turns"), "ms": msg.get("duration_ms"),
                "cost_usd": msg.get("total_cost_usd")}
 
 
-def ask(question: str, api_url: str = "", token: str = "",
-        act: bool = False) -> Generator[Dict, None, None]:
-    """Stream one agent run as console events."""
-    api_url = api_url or os.environ.get("HL_API_URL", "http://127.0.0.1:8919")
-    token = token or os.environ.get("HYPERLIQUID_TOKEN", "")
-    question = (question or "").strip()
-    if not question:
-        yield {"type": "error", "error": "ask what?"}
-        return
-    if act and not token:
-        yield {"type": "error", "error": "action mode needs a signed-in wallet — sign in first"}
-        return
+def _fail_text(ev: Dict) -> str:
+    return str(ev.get("text") or ev.get("answer") or "").strip()
 
-    ready, _, hint, extra = ensure_auth()
-    if not ready:
-        yield {"type": "error", "error": hint}
-        return
-    if not _api_binary():
-        yield {"type": "error", "error": "hyperliquid-api binary not built — run `cargo build --release`"}
-        return
-    try:
-        reads, writes = tool_policy(api_url)
-    except Exception as e:
-        yield {"type": "error", "error": f"MCP schema unreachable at {api_url}: {e}"}
-        return
 
-    allowed = (reads + writes if act else reads) + [CODE_READ]
-    denied = LOCAL_TOOLS + ([] if act else writes)
-    yield {"type": "ready", "tools": len(allowed), "act": act,
-           "signed_in": bool(token)}
+def _auth_failed(ev: Dict) -> bool:
+    """True when a text/done event is really the CLI reporting dead auth.
 
-    env = {**os.environ, **extra}
-    # Keep the child from thinking it is nested inside a Claude Code session —
-    # including that session's OAuth token masquerading as an API key.
-    env.pop("CLAUDECODE", None)
-    env.pop("CLAUDE_CODE_ENTRYPOINT", None)
-    if not env_api_key():
-        env.pop("ANTHROPIC_API_KEY", None)
+    The CLI surfaces a revoked/expired credential as the run's *answer*
+    ("Failed to authenticate. API Error: 401 …"), cost $0 — anchored so a
+    genuine model reply can't trip it.
+    """
+    if ev.get("type") not in ("text", "done"):
+        return False
+    return _fail_text(ev).startswith("Failed to authenticate")
+
+
+def _spawn_run(cmd: List[str], env: Dict[str, str],
+               hold_auth_failures: bool = False) -> Generator[Dict, None, List[Dict]]:
+    """One CLI run: spawn, watchdog, translate, stream.
+
+    Returns (via StopIteration value) the auth-failure events it held back
+    instead of yielding, so the caller can decide to retry or to error.
+    """
+    held: List[Dict] = []
     try:
         proc = subprocess.Popen(
-            build_cmd(question, allowed, denied, act, api_url, token),
-            cwd=ROOT_DIR, env=env, stdout=subprocess.PIPE,
+            cmd, cwd=ROOT_DIR, env=env, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, bufsize=1)
     except FileNotFoundError:
         yield {"type": "error", "error": f"{CLAUDE_BIN} CLI not found on this host"}
-        return
+        return held
 
     watchdog = threading.Timer(TIMEOUT_SEC, proc.kill)
     watchdog.start()
@@ -352,10 +369,13 @@ def ask(question: str, api_url: str = "", token: str = "",
             except json.JSONDecodeError:
                 continue
             for ev in _events(msg):
+                if hold_auth_failures and _auth_failed(ev):
+                    held.append(ev)
+                    continue
                 finished = finished or ev["type"] == "done"
                 yield ev
         proc.wait(timeout=10)
-        if not finished:
+        if not finished and not held:
             err = (proc.stderr.read() or "")[-400:].strip()
             yield {"type": "error",
                    "error": err or f"agent exited early (code {proc.returncode})"}
@@ -363,19 +383,92 @@ def ask(question: str, api_url: str = "", token: str = "",
         watchdog.cancel()
         if proc.poll() is None:
             proc.kill()
+    return held
+
+
+def ask(question: str, api_url: str = "", token: str = "",
+        act: bool = False, mode: str = "ask",
+        session: str = "") -> Generator[Dict, None, None]:
+    """Stream one agent run as console events."""
+    api_url = api_url or os.environ.get("HL_API_URL", "http://127.0.0.1:8919")
+    token = token or os.environ.get("HYPERLIQUID_TOKEN", "")
+    mode = mode if mode in ("ask", "chat") else "ask"
+    # Chat can never write — a conversation must not be one typo from an order.
+    if mode == "chat":
+        act = False
+    question = (question or "").strip()
+    if not question:
+        yield {"type": "error", "error": "ask what?"}
+        return
+    if act and not token:
+        yield {"type": "error", "error": "action mode needs a signed-in wallet — sign in first"}
+        return
+
+    ready, method, hint, extra = ensure_auth()
+    if not ready:
+        yield {"type": "error", "error": hint}
+        return
+    if not _api_binary():
+        yield {"type": "error", "error": "hyperliquid-api binary not built — run `cargo build --release`"}
+        return
+    try:
+        reads, writes = tool_policy(api_url)
+    except Exception as e:
+        yield {"type": "error", "error": f"MCP schema unreachable at {api_url}: {e}"}
+        return
+
+    allowed = (reads + writes if act else reads) + [CODE_READ]
+    denied = LOCAL_TOOLS + ([] if act else writes)
+    yield {"type": "ready", "tools": len(allowed), "act": act, "mode": mode,
+           "signed_in": bool(token)}
+
+    # Keep the child from thinking it is nested inside a Claude Code session —
+    # CLAUDECODE / CLAUDE_CODE_* (child-session markers, a dead parent's
+    # socket) make the spawned CLI skip its own OAuth refresh; `extra` is
+    # re-applied after the sweep so the auth tier we chose survives it.
+    env = {k: v for k, v in os.environ.items()
+           if k != "CLAUDECODE" and not k.startswith("CLAUDE_CODE_")}
+    env.update(extra)
+    if not env_api_key():
+        env.pop("ANTHROPIC_API_KEY", None)
+    cmd = build_cmd(question, allowed, denied, act, api_url, token,
+                    mode=mode, session=session)
+
+    # A credential can look fine on disk and still be revoked — the CLI only
+    # finds out mid-run, and reports it as the *answer*. Hold those events
+    # back and retry once on the claude mod keeper's self-refreshing token;
+    # if that is also dead (or there is no keeper), surface a real error
+    # instead of letting "Failed to authenticate" pose as a model reply.
+    retry_tok = "" if method == "claude-mod-keeper" else keeper_token()
+    held = yield from _spawn_run(cmd, env, hold_auth_failures=True)
+    if not held:
+        return
+    if retry_tok:
+        yield {"type": "retry",
+               "reason": "model auth stale — retrying via the claude mod's credential keeper"}
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = retry_tok
+        env.pop("ANTHROPIC_API_KEY", None)
+        held = yield from _spawn_run(cmd, env, hold_auth_failures=True)
+    if held:
+        yield {"type": "error", "error": (
+            f"{_fail_text(held[0])} — model auth is dead on this host: paste a "
+            f"fresh `claude setup-token` into {OAUTH_TOKEN_FILE}, or sign the "
+            "claude console back in so its credential keeper recovers")}
 
 
 def answer(question: str, api_url: str = "", token: str = "",
-           act: bool = False) -> Dict[str, Any]:
+           act: bool = False, mode: str = "ask",
+           session: str = "") -> Dict[str, Any]:
     """Run to completion and collapse the stream into one result."""
     out: Dict[str, Any] = {"question": question, "answer": "", "tools": [],
                            "act": act, "ok": False}
-    for ev in ask(question, api_url, token, act):
+    for ev in ask(question, api_url, token, act, mode=mode, session=session):
         if ev["type"] == "tool":
             out["tools"].append({"name": ev["name"], "args": ev["args"]})
         elif ev["type"] == "done":
             out.update(ok=True, answer=ev["answer"], turns=ev.get("turns"),
-                       ms=ev.get("ms"), cost_usd=ev.get("cost_usd"))
+                       ms=ev.get("ms"), cost_usd=ev.get("cost_usd"),
+                       session_id=ev.get("session_id"))
         elif ev["type"] == "error":
             out["error"] = ev["error"]
     return out
@@ -392,11 +485,15 @@ def main() -> int:
     # The question arrives on stdin so it never lands in a process listing.
     question = sys.stdin.read()
     act = "--act" in args or os.environ.get("HL_AGENT_ACT") == "1"
+    mode = "chat" if ("--chat" in args or
+                      os.environ.get("HL_AGENT_MODE") == "chat") else "ask"
+    session = os.environ.get("HL_AGENT_SESSION", "")
     if "--stream" in args:
-        for ev in ask(question, api_url, act=act):
+        for ev in ask(question, api_url, act=act, mode=mode, session=session):
             print(json.dumps(ev), flush=True)
         return 0
-    print(json.dumps(answer(question, api_url, act=act)))
+    print(json.dumps(answer(question, api_url, act=act, mode=mode,
+                            session=session)))
     return 0
 
 

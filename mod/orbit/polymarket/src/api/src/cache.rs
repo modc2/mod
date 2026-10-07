@@ -51,8 +51,27 @@ const PERSIST_PREFIXES: &[&str] = &[
 
 impl ProxyCache {
     pub fn new(max_entries: usize) -> Self {
-        let disk_dir = std::env::temp_dir().join("polymarket-proxy-cache");
+        // Durable, NOT temp_dir(), same reasoning as PipelineCache below: the
+        // PERSIST_PREFIXES tier is "never re-fetched once cached", but /tmp is
+        // wiped at boot, so a reboot silently dropped gigabytes of trader
+        // history and the warmup re-pulled it all from the data-api (429-heavy,
+        // multi-hour). One-time migration drains the old /tmp dir so existing
+        // deployments keep their warm cache across the upgrade.
+        let disk_dir = crate::access::state_dir().join("proxy-cache");
         std::fs::create_dir_all(&disk_dir).ok();
+        let old_dir = std::env::temp_dir().join("polymarket-proxy-cache");
+        if old_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&old_dir) {
+                for entry in entries.flatten() {
+                    let dest = disk_dir.join(entry.file_name());
+                    // Keep the newer copy if the new dir already has one.
+                    if !dest.exists() {
+                        std::fs::rename(entry.path(), &dest).ok();
+                    }
+                }
+            }
+            std::fs::remove_dir(&old_dir).ok();
+        }
         Self {
             entries: RwLock::new(HashMap::new()),
             max_entries,

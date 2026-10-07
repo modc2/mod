@@ -31,6 +31,13 @@ ALLOW_LIVE, pm_copy_allocate and pm_copy_rebalance refuse while any session on
 that wallet is executing, so an ungated agent can never grow real exposure.
 Stopping is always allowed; it only ever reduces exposure.
 
+CONSOLE CHAT. When this server is spawned by the console's chat agent (env
+POLYMARKET_AGENT_RUN), money-moving and strat-changing tools additionally
+park as approval cards the owner answers in the browser — see "the approval
+gate" section below. The pm_strat_create/update/delete tools exist ONLY for
+that path: private strats are encrypted with a browser-held key, so the
+approved operation is applied by the console itself at the APPROVE click.
+
 Transports:
     python3 src/mcp.py                    # stdio — one JSON-RPC msg per line
     python3 src/mcp.py --http [--port N]  # Streamable HTTP — POST /mcp (:50092)
@@ -940,6 +947,24 @@ def _t_copy_stop(args):
             'book': _summarize_book(res.get('book') or {})}
 
 
+def _t_strat_console(args):
+    """pm_strat_* outside the console chat: explain why there's nothing to do.
+
+    Private strats are encrypted with a key held only by the owner's browser,
+    so the server cannot author, edit or delete them. Inside the console chat
+    these calls park as approval cards and the APPROVE click applies them in
+    the console itself (see the approval gate below); any other caller gets
+    this honest refusal instead of a silent no-op."""
+    return {
+        'error': 'this tool only works inside the console chat',
+        'why': "private strats are encrypted with a key that never leaves the owner's "
+               'browser — the server cannot author or edit them. In the console chat this '
+               "call becomes an approval card, and the owner's APPROVE click applies it.",
+        'what_you_can_do': 'read strats with pm_strats, or ask the owner to open the console '
+                           'chat (the green mark, top-left).',
+    }
+
+
 TOOLS = {
     'pm_health': {
         'description': 'Is the module up? API health, the trader-sync schedule, and the '
@@ -1282,6 +1307,51 @@ TOOLS = {
         }},
         'handler': _t_autostrat,
     },
+    'pm_strat_create': {
+        'description': 'Create a new PRIVATE strat in the owner\'s console: a copy-index '
+                       'watching the given traders, saved PAUSED (creating is never starting). '
+                       'CONSOLE-CHAT ONLY: private strats live encrypted under a key that '
+                       'never leaves the owner\'s browser, so this call parks as an approval '
+                       'card and the owner\'s APPROVE click is what actually saves it — the '
+                       'result you get back is what the console applied. Addresses must come '
+                       'from tool results (pm_top_traders / pm_trader), never from memory.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'name': {'type': 'string', 'description': 'strat name'},
+            'traders': {'type': 'array', 'items': {'type': 'string'},
+                        'description': '0x… trader wallets to watch (max 10)'},
+            'weights': {'type': 'array', 'items': {'type': 'number'},
+                        'description': 'relative weights, same order as traders '
+                                       '(optional — default equal)'},
+            'capital': {'type': 'number', 'description': 'simulation capital in USD (default 1000)'},
+            'params': {'type': 'object', 'description': 'optional parameters, the same editable '
+                                                        'set as the strat CHAT: minTrade, maxTrade, '
+                                                        'stopLoss, takeProfit, maxPerCycle, '
+                                                        'marketQuery, tradeFilters, filter, momentum…'},
+        }, 'required': ['name', 'traders']},
+        'handler': _t_strat_console,
+    },
+    'pm_strat_update': {
+        'description': 'Change a saved strat\'s parameters (ids come from pm_strats). '
+                       'CONSOLE-CHAT ONLY — parks for owner approval; the patch is validated '
+                       'against the console\'s editable parameter specs and every rejected '
+                       'field comes back named, so read the result before claiming success.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': {'type': 'string', 'description': 'strat id (from pm_strats)'},
+            'patch': {'type': 'object', 'description': 'param: value pairs to change — a PATCH, '
+                                                       'omitted fields keep their value'},
+        }, 'required': ['id', 'patch']},
+        'handler': _t_strat_console,
+    },
+    'pm_strat_delete': {
+        'description': 'Delete a saved strat from the owner\'s console (ids come from '
+                       'pm_strats). CONSOLE-CHAT ONLY — parks for owner approval. If the strat '
+                       'has a live session, stop it first (pm_copy_stop / the LIVE tab); '
+                       'deleting the strat does not place or cancel orders.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'id': {'type': 'string', 'description': 'strat id (from pm_strats)'},
+        }, 'required': ['id']},
+        'handler': _t_strat_console,
+    },
     'pm_live_sessions': {
         'description': 'Live copy-engine sessions for the owner wallet: which strats are '
                        'running, whether they are executing or dry-running, capital, account '
@@ -1304,6 +1374,173 @@ TOOLS = {
 }
 
 
+# ── the approval gate (console chat) ──
+#
+# When this server is spawned BY THE CONSOLE CHAT AGENT (the env var
+# POLYMARKET_AGENT_RUN carries the chat run's id), money-moving and
+# strat-changing tools do not execute on the agent's say-so: the call PARKS
+# as a file under <state>/approvals/ which the console renders as an approval
+# card, and only the owner's APPROVE lets it proceed. The gate sits HERE,
+# below the agent, so no prompt — and no resumed session — can route around
+# it. Everything fails closed: no answer → declined at the TTL; an unreadable
+# queue → declined. A decline is a successful tool RESULT (isError false)
+# carrying the owner's note, so the model adapts instead of retrying.
+#
+# What is gated is NAMED, never derived. pm_copy_stop stays free — stopping
+# only ever reduces exposure, the same rule as the live engine's ungated
+# exits — and reads are never parked. The pm_strat_* tools are CONSOLE ops:
+# private strats are encrypted with a browser-held key, so an approved
+# create/update/delete is executed by the console at the APPROVE click and
+# the decision file carries the applied result back as the tool's answer.
+# This gate is additive: POLYMARKET_MCP_ALLOW_LIVE still rules real-money
+# starts, approval or not.
+
+GATED_TOOLS = {
+    'pm_copy_allocate': 'money',    # sizes real budget against a trader
+    'pm_copy_remove': 'money',      # drops an allocation the owner set up
+    'pm_copy_rebalance': 'money',   # re-sizes the whole book at once
+    'pm_copy_start': 'money',       # starts sessions (even DRY RUN is a commitment)
+    'pm_lab_start': 'spend',        # background run that spends inference
+    'pm_autostrat': 'spend',        # op=run/on only — see _gate_kind
+    'pm_strat_create': 'strat',
+    'pm_strat_update': 'strat',
+    'pm_strat_delete': 'strat',
+}
+
+# Tools the CONSOLE executes at the APPROVE click (browser-held strat key).
+CONSOLE_TOOLS = {'pm_strat_create', 'pm_strat_update', 'pm_strat_delete'}
+
+
+def _agent_run() -> str:
+    return os.environ.get('POLYMARKET_AGENT_RUN') or ''
+
+
+def _approvals_dir() -> str:
+    d = os.path.join(_state_dir(), 'approvals')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _approval_ttl() -> int:
+    try:
+        return max(10, int(os.environ.get('POLYMARKET_APPROVAL_TTL') or 180))
+    except ValueError:
+        return 180
+
+
+def _approval_poll() -> float:
+    try:
+        return max(0.05, float(os.environ.get('POLYMARKET_APPROVAL_POLL') or 0.5))
+    except ValueError:
+        return 0.5
+
+
+def _gate_kind(name: str, args: dict):
+    """'money' | 'spend' | 'strat' when this exact call needs the owner, else None."""
+    kind = GATED_TOOLS.get(name)
+    if not kind:
+        return None
+    # pm_autostrat op=status reads, op=off only stops spend — both free.
+    if name == 'pm_autostrat' and str(args.get('op') or 'status') not in ('run', 'on'):
+        return None
+    return kind
+
+
+def _gate_summary(name: str, args: dict) -> str:
+    """One card-sized line saying what the owner would be approving."""
+    try:
+        if name == 'pm_copy_allocate':
+            return f"copy {args.get('address', '?')} with ${float(args.get('allocationUsd') or 0):g}"
+        if name == 'pm_copy_remove':
+            return f"remove {args.get('address', '?')} from the copy book"
+        if name == 'pm_copy_rebalance':
+            return 'rebalance the whole copy book'
+        if name == 'pm_copy_start':
+            mode = 'REAL MONEY' if _truthy(args.get('autoExecute')) else 'DRY RUN'
+            return f"start copying {args.get('address') or 'the whole book'} ({mode})"
+        if name == 'pm_lab_start':
+            return f"start a STRAT LAB run: {str(args.get('goal') or 'best copy-index')[:80]}"
+        if name == 'pm_autostrat':
+            theme = str(args.get('theme') or '')[:60]
+            return f"AUTO STRAT {args.get('op')}" + (f': {theme}' if theme else '')
+        if name == 'pm_strat_create':
+            n = len(args.get('traders') or [])
+            return f'create strat "{str(args.get("name") or "")[:40]}" watching {n} trader{"s" if n != 1 else ""}'
+        if name == 'pm_strat_update':
+            keys = ', '.join(list((args.get('patch') or {}).keys())[:6]) or 'nothing'
+            return f"change strat {args.get('id', '?')}: {keys}"
+        if name == 'pm_strat_delete':
+            return f"DELETE strat {args.get('id', '?')}"
+    except Exception:
+        pass
+    return name
+
+
+def _write_json_atomic(path: str, obj: dict) -> None:
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(obj, f, indent=2, default=str)
+    os.replace(tmp, path)
+
+
+def _park_and_wait(name: str, args: dict, kind: str) -> dict:
+    """Park one gated call and block until the owner answers (or the TTL does).
+
+    Returns the decision entry; `decision` is always set on the way out —
+    'approve', 'decline', or 'expired'. Every failure mode is a decline."""
+    now = time.time()
+    entry = {
+        'id': f'ap_{int(now * 1000):x}_{os.urandom(3).hex()}',
+        'run': _agent_run(),
+        'tool': name,
+        'args': args,
+        'kind': kind,
+        'summary': _gate_summary(name, args),
+        'at': now,
+        'expires_at': now + _approval_ttl(),
+        'decision': None,
+        'note': '',
+        'result': None,
+    }
+    path = os.path.join(_approvals_dir(), entry['id'] + '.json')
+    try:
+        _write_json_atomic(path, entry)
+    except Exception as e:
+        return {**entry, 'decision': 'decline',
+                'note': f'approval queue unreachable ({e}) — failing closed'}
+    while True:
+        time.sleep(_approval_poll())
+        try:
+            with open(path) as f:
+                cur = json.load(f)
+        except FileNotFoundError:
+            return {**entry, 'decision': 'decline',
+                    'note': 'approval vanished from the queue — treated as declined'}
+        except Exception:
+            cur = None  # mid-write — re-read next tick
+        if isinstance(cur, dict) and cur.get('decision'):
+            return cur
+        if time.time() > entry['expires_at']:
+            expired = {**entry, 'decision': 'expired', 'decided_at': time.time(),
+                       'note': 'the owner did not answer in time'}
+            try:
+                _write_json_atomic(path, expired)
+            except Exception:
+                pass
+            return expired
+
+
+def _gate_text(decision: dict) -> str:
+    """The tool result a model can act on — a decline is information, not an error."""
+    note = str(decision.get('note') or '').strip()
+    if decision.get('decision') == 'expired':
+        return (f'NOT EXECUTED — the approval expired unanswered after {_approval_ttl()}s '
+                'and is treated as declined. The owner may be away; do not retry unprompted.')
+    return ('NOT EXECUTED — DECLINED by the owner'
+            + (f': "{note}"' if note else '')
+            + '. Do not retry the same call; adapt to the note or ask what they want instead.')
+
+
 # ── JSON-RPC 2.0 ──
 
 def _result(id_, result: dict) -> dict:
@@ -1322,6 +1559,21 @@ def _call_tool(id_, params: dict) -> dict:
     args = params.get('arguments') or {}
     if not isinstance(args, dict):
         return _error(id_, -32602, 'arguments must be an object')
+    kind = _gate_kind(name, args)
+    if kind and _agent_run():
+        decision = _park_and_wait(name, args, kind)
+        if decision.get('decision') != 'approve':
+            return _result(id_, {'content': [{'type': 'text', 'text': _gate_text(decision)}],
+                                 'isError': False})
+        if name in CONSOLE_TOOLS:
+            # The console already executed this at the APPROVE click; its
+            # result IS the tool result (validation rejects ride it too).
+            result = decision.get('result')
+            if not isinstance(result, dict):
+                result = {'ok': True, 'note': 'approved — applied in the console'}
+            return _result(id_, {'content': [{'type': 'text',
+                                              'text': json.dumps(result, indent=2, default=str)}],
+                                 'isError': False, 'structuredContent': result})
     try:
         result = tool['handler'](args)
     except Exception as e:
@@ -1345,6 +1597,8 @@ def handle(body):
     method, id_, params = body['method'], body.get('id'), body.get('params') or {}
     if id_ is None or method.startswith('notifications/'):
         return None
+    if not isinstance(params, dict):
+        return _error(id_, -32602, 'invalid params: expected an object')
     if method == 'initialize':
         client_ver = str(params.get('protocolVersion') or '')
         return _result(id_, {

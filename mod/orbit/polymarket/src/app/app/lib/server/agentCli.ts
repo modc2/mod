@@ -7,6 +7,7 @@
 
 import { spawn } from "child_process";
 import { existsSync, readFileSync } from "fs";
+import { homedir } from "os";
 import { join } from "path";
 
 import { stateDir } from "./ownerToken";
@@ -37,16 +38,38 @@ export const CLAUDE_BIN = process.env.POLYMARKET_CLAUDE_BIN
 const TOKEN_FILE = () => join(stateDir(), "claude_oauth_token");
 const deadTokens = new Set<string>();
 
-export function oauthToken(): string | null {
-  let t = process.env.CLAUDE_CODE_OAUTH_TOKEN || "";
-  if (!t) {
-    try {
-      t = readFileSync(TOKEN_FILE(), "utf8").trim();
-    } catch {
-      t = "";
-    }
+/** The build module's host credential keeper (~/.mod/build/private/
+    claude_host.json): a 5-min loop that publishes a known-good token when
+    root's login (or the owner's session) is alive. Third in line after the
+    env and the module's own pinned token — it's what keeps every CLI-spawning
+    module from dying together on "OAuth session expired". */
+function keeperToken(): string | null {
+  try {
+    const o = JSON.parse(
+      readFileSync(join(homedir(), ".mod", "build", "private", "claude_host.json"), "utf8"),
+    ) as { ready?: boolean; token?: string; expires_at?: number };
+    if (!o?.ready || typeof o.token !== "string" || !o.token) return null;
+    if (o.expires_at && o.expires_at <= Date.now() / 1000 + 60) return null;
+    return o.token;
+  } catch {
+    return null;
   }
-  return t && !deadTokens.has(t) ? t : null;
+}
+
+export function oauthToken(): string | null {
+  const candidates = [
+    process.env.CLAUDE_CODE_OAUTH_TOKEN || "",
+    (() => {
+      try {
+        return readFileSync(TOKEN_FILE(), "utf8").trim();
+      } catch {
+        return "";
+      }
+    })(),
+    keeperToken() || "",
+  ];
+  for (const t of candidates) if (t && !deadTokens.has(t)) return t;
+  return null;
 }
 
 /** The env every spawned CLI gets: the process env plus the pinned token —
@@ -54,7 +77,12 @@ export function oauthToken(): string | null {
     the box's own login. */
 export function claudeEnv(token: string | null = oauthToken()): NodeJS.ProcessEnv {
   const env = { ...process.env };
-  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  // A server restarted from inside an agent session inherits that session's
+  // CLAUDE_CODE_* vars (child-session markers, a dead parent's socket, an
+  // sk-ant-oat… in ANTHROPIC_API_KEY the CLI rejects as an API key). Scrub
+  // them all so the child authenticates on its own feet.
+  for (const k of Object.keys(env)) if (k.startsWith("CLAUDE_CODE_")) delete env[k];
+  if (env.ANTHROPIC_API_KEY?.startsWith("sk-ant-oat")) delete env.ANTHROPIC_API_KEY;
   return token ? { ...env, CLAUDE_CODE_OAUTH_TOKEN: token } : env;
 }
 

@@ -26,13 +26,51 @@ function ago(ts: number): string {
   return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
 }
 
-export default function WindowStrip({ row, loading, running }: {
+/** The worker's 0-trade notes, said in the user's terms. "no traders to
+    copy" describes the roster AT REPLAY TIME — a score-fn strat whose re-rank
+    landed since (traderCount > 0 now) is just waiting on the next pass, not
+    missing traders. */
+function friendlyNote(note: string, traderCount?: number): string {
+  if (note === "no traders to copy") {
+    return traderCount && traderCount > 0
+      ? "roster was empty at last replay — refreshes next pass"
+      : "0 traders on this strat — add traders to backtest";
+  }
+  if (note === "no leader flow in this window") return "leader didn't trade in these windows";
+  return note;
+}
+
+export default function WindowStrip({ row, loading, running, traderCount }: {
   row: WindowRow | undefined;
   /** The worker cache hasn't been read yet. */
   loading?: boolean;
   /** The worker is mid-pass — missing cells are on their way. */
   running?: boolean;
+  /** The strat's CURRENT roster size, to caption 0-trade notes honestly. */
+  traderCount?: number;
 }) {
+  // When every window came back 0-trade for the same reason, a row of five
+  // "—" cells just looks broken. Say the reason once, where it can be seen —
+  // the hover tooltip alone buried it ("i can't see the performance of
+  // these tests").
+  const cells = HUB_WINDOWS.map((d) => row?.[d]);
+  const ranEmpty = cells.filter((bt) => bt && bt.trades === 0 && bt.note);
+  if (row && ranEmpty.length === HUB_WINDOWS.length) {
+    const note = ranEmpty[0]!.note!;
+    const uniform = ranEmpty.every((bt) => bt!.note === note);
+    return (
+      <div
+        className="mx-3 mb-2 rounded-[var(--radius-sm)] px-2 py-1.5"
+        style={{ border: "1px solid var(--border)" }}
+        title={HUB_WINDOWS.map((d) => `${d}D — 0 trades: ${row[d]?.note ?? "?"}`).join("\n")}
+      >
+        <div className="text-[8px] font-semibold tracking-[0.14em] text-pixel-gray">BACKTEST 1–30D</div>
+        <div className="text-[10px] font-mono text-amber-300/90">
+          {friendlyNote(uniform ? note : "0 trades in every window", traderCount)}
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className="grid grid-cols-5 mx-3 mb-2 rounded-[var(--radius-sm)] overflow-hidden"
@@ -42,7 +80,7 @@ export default function WindowStrip({ row, loading, running }: {
       {HUB_WINDOWS.map((d, i) => {
         const bt = row?.[d];
         const empty = !bt || (bt.trades === 0 && !!bt.note);
-        const tone = !bt || empty ? "text-pixel-gray/60"
+        const tone = !bt || empty ? "text-pixel-gray"
           : bt.pnl > 0 ? "text-green-400" : bt.pnl < 0 ? "text-red-400" : "text-pixel-gray";
         const tip = !bt
           ? `${d}D — not run yet. ${running ? "The background worker is replaying it now." : "The background worker replays every window each pass."}`
@@ -62,11 +100,11 @@ export default function WindowStrip({ row, loading, running }: {
             style={i > 0 ? { borderLeft: "1px solid var(--border)" } : undefined}
           >
             <div className="text-[8px] font-semibold tracking-[0.14em] text-pixel-gray">{d}D</div>
-            <div className={`text-[10px] font-mono font-semibold tabular-nums truncate ${tone}`}>
-              {bt ? (empty ? "—" : shortUsd(bt.pnl)) : loading || running ? "…" : "·"}
+            <div className={`text-[11px] font-mono font-semibold tabular-nums truncate ${tone}`}>
+              {bt ? (empty ? "0t" : shortUsd(bt.pnl)) : loading || running ? "…" : "·"}
             </div>
             {bt && !empty && (
-              <div className={`text-[8.5px] font-mono tabular-nums ${tone} opacity-80`}>
+              <div className={`text-[9px] font-mono tabular-nums ${tone}`}>
                 {bt.roi >= 0 ? "+" : ""}{bt.roi.toFixed(bt.roi !== 0 && Math.abs(bt.roi) < 10 ? 1 : 0)}%
               </div>
             )}

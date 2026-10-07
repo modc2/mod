@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { askStatus, askStream, AskEvent, AskStatus } from "../lib/api";
 import { useWallet } from "../lib/wallet";
 
-// The desk agent, transcript + composer. One implementation, two homes: the
-// /ask page (full width) and the right-hand dock (compact column).
+// The desk agent, transcript + composer. One implementation, three homes: the
+// /ask page (full width), the right-hand dock (compact column), and the /chat
+// page (mode="chat": the general chatbot — any topic, read-only toolbox,
+// multi-turn via the Claude session id the stream hands back).
 
 // One transcript entry. Tool calls render inline between the model's text so
 // you can see what the answer was actually built from.
@@ -20,6 +22,13 @@ const EXAMPLES = [
   "what's the BTC orderbook look like right now?",
   "which vaults have the best APR above $1M TVL?",
   "analyze 0x… — is this trader worth copying?",
+];
+
+const CHAT_EXAMPLES = [
+  "explain funding rates like I'm new to perps",
+  "what's the difference between cross and isolated margin?",
+  "what's BTC trading at right now?",
+  "how should I think about position sizing?",
 ];
 
 // The model writes light markdown whatever you tell it, so render the two
@@ -56,13 +65,23 @@ function ToolChip({ t, compact }: { t: Extract<Turn, { kind: "tool" }>; compact?
   );
 }
 
-export default function AskConsole({ compact = false }: { compact?: boolean }) {
+export default function AskConsole({
+  compact = false,
+  mode = "desk",
+}: {
+  compact?: boolean;
+  mode?: "desk" | "chat";
+}) {
+  const chat = mode === "chat";
   const { token } = useWallet();
   const [status, setStatus] = useState<AskStatus | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState("");
   const [act, setAct] = useState(false);
   const [running, setRunning] = useState(false);
+  // The Claude session of this conversation — set by the first reply's
+  // start/done event, sent back on every later turn so the thread remembers.
+  const session = useRef<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   const tail = useRef<HTMLDivElement>(null);
 
@@ -72,6 +91,8 @@ export default function AskConsole({ compact = false }: { compact?: boolean }) {
   const push = (t: Turn) => setTurns((prev) => [...prev, t]);
 
   const onEvent = (ev: AskEvent) => {
+    if ((ev.type === "start" || ev.type === "done") && ev.session_id)
+      session.current = ev.session_id;
     if (ev.type === "text") push({ kind: "text", text: ev.text });
     else if (ev.type === "tool") push({ kind: "tool", name: ev.name, args: ev.args });
     else if (ev.type === "tool_done")
@@ -97,7 +118,13 @@ export default function AskConsole({ compact = false }: { compact?: boolean }) {
     setRunning(true);
     abort.current = new AbortController();
     try {
-      await askStream({ question, act }, onEvent, abort.current.signal);
+      await askStream(
+        chat
+          ? { question, mode: "chat", session: session.current ?? undefined }
+          : { question, act },
+        onEvent,
+        abort.current.signal,
+      );
     } catch (e: any) {
       if (e?.name !== "AbortError") push({ kind: "note", text: String(e?.message ?? e), bad: true });
     } finally {
@@ -121,29 +148,37 @@ export default function AskConsole({ compact = false }: { compact?: boolean }) {
         )}
         <div className="flex items-center gap-2">
           {turns.length > 0 && (
-            <button className="btn !px-2" onClick={() => setTurns([])} title="Clear transcript">clear</button>
+            <button
+              className="btn !px-2"
+              onClick={() => { setTurns([]); session.current = null; }}
+              title={chat ? "Start a fresh conversation" : "Clear transcript"}
+            >
+              {chat ? "new chat" : "clear"}
+            </button>
           )}
-          <button
-            className={act ? "btn-danger" : "btn"}
-            disabled={blocked}
-            title={
-              blocked
-                ? "sign in to enable actions"
-                : act
-                ? "write tools ON — the agent can place orders and move funds"
-                : "read-only: only GET-backed tools"
-            }
-            onClick={() => setAct((v) => !v)}
-          >
-            {act ? "actions on" : "read-only"}
-          </button>
+          {!chat && (
+            <button
+              className={act ? "btn-danger" : "btn"}
+              disabled={blocked}
+              title={
+                blocked
+                  ? "sign in to enable actions"
+                  : act
+                  ? "write tools ON — the agent can place orders and move funds"
+                  : "read-only: only GET-backed tools"
+              }
+              onClick={() => setAct((v) => !v)}
+            >
+              {act ? "actions on" : "read-only"}
+            </button>
+          )}
         </div>
       </div>
 
       {!status?.ready && status?.hint && (
         <div className="panel p-3 text-xs text-warn">{status.hint}</div>
       )}
-      {act && (
+      {act && !chat && (
         <div className="panel p-3 text-[11px] text-loss leading-snug">
           Action mode: the agent can place orders, move funds and edit follows
           with your wallet&apos;s agent key. It confirms nothing with you first.
@@ -154,7 +189,7 @@ export default function AskConsole({ compact = false }: { compact?: boolean }) {
         {turns.length === 0 && (
           <div className="space-y-2">
             <div className="text-xs text-dim uppercase tracking-wider">try</div>
-            {EXAMPLES.map((e) => (
+            {(chat ? CHAT_EXAMPLES : EXAMPLES).map((e) => (
               <button key={e} className={`block text-left text-muted hover:text-accent transition-colors ${compact ? "text-xs leading-snug" : "text-sm"}`}
                 onClick={() => setQ(e)}>
                 → {e}
@@ -181,7 +216,17 @@ export default function AskConsole({ compact = false }: { compact?: boolean }) {
       <div className="flex items-center gap-2">
         <input
           className="input flex-1 min-w-0"
-          placeholder={blocked ? "sign in with your wallet to ask" : act ? "tell the agent what to do…" : compact ? "ask the desk — markets, or the code…" : "ask about traders, markets, vaults, your account — or how the code works…"}
+          placeholder={
+            blocked
+              ? "sign in with your wallet to ask"
+              : chat
+              ? "ask anything — the conversation keeps context…"
+              : act
+              ? "tell the agent what to do…"
+              : compact
+              ? "ask the desk — markets, or the code…"
+              : "ask about traders, markets, vaults, your account — or how the code works…"
+          }
           value={q}
           disabled={blocked}
           onChange={(e) => setQ(e.target.value)}
@@ -190,7 +235,7 @@ export default function AskConsole({ compact = false }: { compact?: boolean }) {
         {running ? (
           <button className="btn-danger shrink-0" onClick={() => abort.current?.abort()}>stop</button>
         ) : (
-          <button className="btn-primary shrink-0" disabled={blocked || !q.trim()} onClick={send}>ask</button>
+          <button className="btn-primary shrink-0" disabled={blocked || !q.trim()} onClick={send}>{chat ? "send" : "ask"}</button>
         )}
       </div>
     </div>

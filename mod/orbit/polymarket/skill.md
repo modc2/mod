@@ -10,6 +10,21 @@ The console is **three tabs**: `STRATS` (`/polymarket/strats`) → `TRADERS`
 (`/polymarket/traders`) → `TEST & LIVE` (`/polymarket/live`). Money is not a
 tab; topping up and taking out live in the side panel, open from anywhere.
 
+**THE DESK CHAT** (v2.11): the left column (green mark, top-left) is a chat
+agent with hands — ask it anything, and it can research traders, manage strats
+and run the copy desk through the module's own MCP tools
+(`/_api/agent/chat`, SSE; owner-gated). Money-moving and strat-changing calls
+NEVER run on its say-so: an approval gate inside `src/mcp.py`'s dispatcher
+(armed by `POLYMARKET_AGENT_RUN`) parks each one as a card in the chat —
+APPROVE / DECLINE / note, TTL ~3 min, fail-closed — recorded via
+`/_api/agent/approvals` into `~/.mod/polymarket/approvals/`.
+`pm_strat_create/update/delete` are console ops: private strats are encrypted
+with a browser-held key, so the owner's APPROVE click applies them in the
+browser (`app/lib/agentStratOps.ts`) and the applied result becomes the tool
+result. `pm_copy_stop` stays ungated (stopping only reduces exposure), and
+`POLYMARKET_MCP_ALLOW_LIVE` still rules real-money starts regardless of
+approval. Contract pinned by `tests/test_agent_gate.py`.
+
 **The default strat is a TRADER INDEX.** One bench of traders, one pot of
 capital, and no per-name dollar amounts — every trade is re-sized by the ratio
 between your capital and that trader's own net worth:

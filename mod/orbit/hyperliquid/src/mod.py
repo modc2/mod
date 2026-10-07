@@ -78,7 +78,7 @@ class Hyperliquid(m.Mod):
         # MCP tool server (the same fn surface, spoken as JSON-RPC)
         "mcp", "mcp_tools", "mcp_call", "mcp_config",
         # agent — answers questions / runs tasks through that MCP server
-        "ask", "ask_status",
+        "ask", "ask_status", "chat",
         # strategies (modular Python classes)
         "strat", "list_strats", "run_strat",
         # identity
@@ -1102,6 +1102,17 @@ class Hyperliquid(m.Mod):
     def ask_status(self) -> Dict[str, Any]:
         """Agent readiness: model auth method, tool counts, hints."""
         return _agent().status(self.api_url)
+
+    def chat(self, question: str, session: str = "") -> Dict[str, Any]:
+        """The general chatbot: ask anything, trading-related or not.
+
+        Same Claude agent as `ask` (model auth can ride the claude mod's
+        credential keeper), but general knowledge is allowed, the toolbox is
+        read-only no matter what, and the returned `session_id` resumes the
+        conversation: `hl.chat('and in EUR?', session=prev['session_id'])`."""
+        return _agent().answer(question, api_url=self.api_url,
+                               token=self.token, mode="chat",
+                               session=session or "")
 
     # ── Modular strategies (see strat.py) ──
 

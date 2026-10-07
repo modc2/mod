@@ -739,7 +739,10 @@ async fn active_traders(
 ) -> impl IntoResponse {
     let days = q.days.unwrap_or(7).clamp(1, 365);
     let min_per_day = q.min_per_day.unwrap_or(0.0).max(0.0);
-    let pool = q.pool.unwrap_or(1000).clamp(50, 2000);
+    // Default 2000, matching what the background warmup actually warms
+    // ({days}:0:2000) — the old 1000 default meant any caller omitting `pool`
+    // keyed into a cache no warmup cycle ever fills and answered cold.
+    let pool = q.pool.unwrap_or(2000).clamp(50, 2000);
     let stream = q.stream.as_deref() == Some("1");
     let paged = q.paged.as_deref() == Some("1");
     let force = q.force.as_deref() == Some("1");
