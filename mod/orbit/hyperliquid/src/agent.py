@@ -7,7 +7,7 @@ surface any MCP client gets, the stdio transport forwards the caller's mod
 protocol token to the REST API, and `auth.rs` decides what that token may do.
 Signed out, the agent can only read what the public routes already serve.
 
-Two modes:
+Three modes:
     ask   — read-only. Only GET-backed tools are on the allowlist; anything
             that signs, spends or mutates stored state is explicitly denied,
             so a question can never place an order. The Read tool is allowed,
@@ -15,18 +15,26 @@ Two modes:
             answer questions about the module's code and design.
     act   — the full tool surface. Requires a token, and the caller has to opt
             in per run (`act=True` / `HL_AGENT_ACT=1`).
+    chat  — the general chatbot: any question, answered from the model's own
+            knowledge, with the read toolbox still on hand for live market
+            facts. Writes are ALWAYS denied in chat (act is ignored), and a
+            `session` id from a prior turn resumes the conversation, so the
+            thread keeps context across messages.
 
 The allow/deny split is derived from the live `GET /mcp/schema` — the same
 table `mcp.rs` publishes — so there is no second tool list to drift.
 
 Auth for the model resolves in order: ANTHROPIC_API_KEY env →
 ~/.mod/hyperliquid/anthropic.key → ~/.mod/hyperliquid/claude_oauth_token
-(long-lived setup token) → Claude CLI OAuth (~/.claude/.credentials.json).
-If none exist the key file is created empty (0600) and status()/ask() say so.
+(long-lived setup token) → the claude mod's credential keeper
+(~/.mod/build/private/claude_host.json, a self-refreshing token the build/claude
+console publishes for CLI-spawning mods) → Claude CLI OAuth
+(~/.claude/.credentials.json). If none exist the key file is created empty
+(0600) and status()/ask() say so.
 
 CLI (this is what the Rust `/ask` route drives):
     python3 agent.py --status
-    echo "<question>" | python3 agent.py --stream [--act]
+    echo "<question>" | python3 agent.py --stream [--act | --chat]
 """
 from __future__ import annotations
 
@@ -57,6 +65,10 @@ KEY_FILE = os.path.expanduser("~/.mod/hyperliquid/anthropic.key")
 # ~/.claude/.credentials.json, which expires and strands pm2-spawned children.
 OAUTH_TOKEN_FILE = os.path.expanduser("~/.mod/hyperliquid/claude_oauth_token")
 OAUTH_FILE = os.path.expanduser("~/.claude/.credentials.json")
+# The claude mod's credential keeper: a 5-min loop on this host republishes a
+# valid Claude token here (source: root login or the owner's self-refreshing
+# session), so CLI-spawning mods don't die on "OAuth session expired".
+KEEPER_FILE = os.path.expanduser("~/.mod/build/private/claude_host.json")
 
 MCP_SERVER = "hyperliquid"
 TOOL_PREFIX = f"mcp__{MCP_SERVER}__"
@@ -87,6 +99,22 @@ ACT_PROMPT = (
     "real funds. Confirm size, coin and side against the user's words before "
     "calling one, never place an order the user did not ask for, and after any "
     "write report exactly what came back. Prefer one order over several."
+)
+
+# Chat mode is the opposite contract from the desk analyst: general questions
+# are welcome and answered from the model's own knowledge — the tools are an
+# upgrade for live facts, not a requirement for speaking.
+CHAT_PROMPT = (
+    "You are a helpful chatbot living inside the Hyperliquid trading console. "
+    "Answer any question the user asks — trading or not — clearly and "
+    "concisely, from your own knowledge. When the question touches live "
+    "Hyperliquid data (prices, traders, vaults, an account), prefer a tool "
+    "call over memory: hl_mids / hl_candles / hl_orderbook for markets, "
+    "hl_top_traders / hl_analyze_trader for traders, hl_list_vaults for "
+    "vaults. All tools are read-only in this mode — if the user asks you to "
+    "trade or move funds, say the Ask page's action mode is where that lives. "
+    "Keep answers short, format USD compactly ($1.2M), and show addresses as "
+    "0x1234…abcd."
 )
 
 
