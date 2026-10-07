@@ -1,6 +1,6 @@
 # sn12 — Compute Horde μ
 
-Bittensor subnet **12** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **12** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/backend-developers-ltd/ComputeHorde/)
 
@@ -8,11 +8,11 @@ Links: [github](https://github.com/backend-developers-ltd/ComputeHorde/)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004860 | -0.00% | -2.05% | +3.32% | 30,908 | 12,766 | 135.59 |
+| 0.004848 | -0.00% | -0.24% | +2.74% | 30,869 | 12,750 | 42.30 |
 
 ## Last 24h flow
 
-30 trades by 28 coldkeys · 3 buys (1.22 τ) / 27 sells (133.02 τ) · net -131.79 τ
+21 trades by 18 coldkeys · 13 buys (13.49 τ) / 8 sells (28.35 τ) · net -14.86 τ
 
 ## News
 

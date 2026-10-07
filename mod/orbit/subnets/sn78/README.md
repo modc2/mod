@@ -2,7 +2,7 @@
 
 Universal motion to meaning
 
-Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **78** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vision) · [discord](https://discord.gg/8pexneWef)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/Umi-BitSign/umi) · [url](https://www.umi.vis
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004219 | +3.73% | -6.42% | +23.95% | 6,347 | 1,546 | 805.58 |
+| 0.003823 | -0.71% | -9.40% | +13.54% | 5,778 | 1,473 | 678.37 |
 
 ## Last 24h flow
 
-431 trades by 205 coldkeys · 138 buys (376.78 τ) / 293 sells (427.41 τ) · net -50.63 τ
+417 trades by 184 coldkeys · 121 buys (302.00 τ) / 296 sells (374.72 τ) · net -72.72 τ
 
 ## News
 
-- 2026-10-06 · commit · [Restore C5 request delivery and retained-work recovery (#223)](https://github.com/Umi-BitSign/umi/commit/b8819bfccdcbde9afd423cf069491918e6f69fb9) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Merge pull request #222 from Umi-BitSign/codex/c5-request-start-timeo…](https://github.com/Umi-BitSign/umi/commit/5c0cadf5533e76d8886b0171537288766fe611bb) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Allow verified forward chain runtime succession](https://github.com/Umi-BitSign/umi/commit/72bec89daec2f50ec6cc5f370e86f0b438f73e3a) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Preserve request rests across timeout growth](https://github.com/Umi-BitSign/umi/commit/5e6e251a09f69f0f369e879e022bf9d55fc89153) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Merge pull request #221 from Umi-BitSign/codex/c5-timeout-state-compat](https://github.com/Umi-BitSign/umi/commit/b3a219f1cb452b4adbde5841d075b78ecfceb326) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Allow reviewed endpoint cache rollback](https://github.com/Umi-BitSign/umi/commit/812adfa4e08c69716750867467881adc15a62b90) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Merge pull request #217 from Umi-BitSign/codex/c5-automatic-service-c…](https://github.com/Umi-BitSign/umi/commit/82f874b37f3e1e2f2097f5f5ea8bfe32b72f597f) — Umi-BitSign/umi
-- 2026-10-04 · commit · [Complete endpoint enrollment with service claims](https://github.com/Umi-BitSign/umi/commit/6e3ed63e019ebdbf05ad665a37552c308c12dab5) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Reduce intake seal contention and isolate upgraded miner imports (#230)](https://github.com/Umi-BitSign/umi/commit/e7ef2c16b9abe7487f2926de294a1ed57d8fa5f5) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Preserve manual miner state during upgrades and bound supervisor catc…](https://github.com/Umi-BitSign/umi/commit/4953ccf9c8d20bbab2d1174a2b5f3a51932d8dc5) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Recover paid service claims after shared finalized-head advances (#228)](https://github.com/Umi-BitSign/umi/commit/44d9e600b3a5a80857d263361cff680d4f234bdc) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Preserve service admission across local contention and expose safe mi…](https://github.com/Umi-BitSign/umi/commit/d473b1c25640cc4c36dc865ffa5a9722acd7ade4) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Merge pull request #226 from Umi-BitSign/codex/c5-rpc-cache](https://github.com/Umi-BitSign/umi/commit/75181fda550bf8630f73f4c8c83df0806840ce12) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Merge pull request #224 from Umi-BitSign/codex/c5-service-retention-r…](https://github.com/Umi-BitSign/umi/commit/a406db4ff3167bf61eb82617c8a62a07458ea485) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Match miner scoring runtime pins and diagnose admission holds](https://github.com/Umi-BitSign/umi/commit/84a1cda1c6422e376231e1d2301e405d7b4ac229) — Umi-BitSign/umi
+- 2026-10-06 · commit · [Allow bounded concurrent private cohort history replies](https://github.com/Umi-BitSign/umi/commit/8c2a959ff0a2a4267b4a575bda34c47d7879e0da) — Umi-BitSign/umi
 
 ## Use
 

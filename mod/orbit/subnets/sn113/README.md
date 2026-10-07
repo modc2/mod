@@ -2,17 +2,17 @@
 
 pivoting to long-short DEX of alpha token
 
-Bittensor subnet **113** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **113** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002826 | -0.70% | +13.92% | +46.80% | 7,111 | 1,934 | 980.63 |
+| 0.002884 | +0.02% | +2.03% | +49.99% | 7,276 | 1,953 | 287.12 |
 
 ## Last 24h flow
 
-152 trades by 51 coldkeys · 96 buys (551.39 τ) / 56 sells (427.45 τ) · net 123.94 τ
+82 trades by 38 coldkeys · 47 buys (153.34 τ) / 35 sells (132.96 τ) · net 20.38 τ
 
 ## Use
 

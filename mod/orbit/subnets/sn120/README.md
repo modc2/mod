@@ -2,7 +2,7 @@
 
 Reason Mining
 
-Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www.affine.io) · discord `consttt`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.046554 | +0.06% | +0.87% | -5.94% | 205,021 | 77,347 | 1,452 |
+| 0.046520 | +0.03% | -0.07% | +0.39% | 205,233 | 77,380 | 918.86 |
 
 ## Last 24h flow
 
-235 trades by 87 coldkeys · 62 buys (690.35 τ) / 173 sells (537.25 τ) · net 153.10 τ
+237 trades by 113 coldkeys · 69 buys (247.89 τ) / 168 sells (464.53 τ) · net -216.64 τ
 
 ## News
 
-- 2026-10-06 · commit · [Document current cache acknowledgment and prospective fast evaluation](https://github.com/AffineFoundation/affine/commit/a019dc611a340775b9956854c368ea41e287ee81) — AffineFoundation/affine
-- 2026-10-06 · commit · [Add explicit trusted native evaluation with unchanged sampling](https://github.com/AffineFoundation/affine/commit/8a597f18fb360073f2a6f682ba440a8ebcfea4fa) — AffineFoundation/affine
-- 2026-10-06 · commit · [Publish measured E19 durable completion and remaining warm-cache vali…](https://github.com/AffineFoundation/affine/commit/af48df1aa3ffb72761c0d9fd5f39900cac2a0f7a) — AffineFoundation/affine
-- 2026-10-06 · commit · [Report completed training backend and measured compact H200 qualifica…](https://github.com/AffineFoundation/affine/commit/e02de4c5e27923e49059e3ccc69d517ab0254128) — AffineFoundation/affine
-- 2026-10-06 · commit · [Reject unsupported compact probability policies before queue admission](https://github.com/AffineFoundation/affine/commit/e48787d9c29e912c6594fce437e422d4ddead4c2) — AffineFoundation/affine
-- 2026-10-05 · commit · [Distinguish prospective evaluator hooks from live historical diagnostics](https://github.com/AffineFoundation/affine/commit/ec939a6fe6b2033b08f3c1bac7a0a6badbfa87d2) — AffineFoundation/affine
-- 2026-10-05 · commit · [Retain evaluator current checkpoint and automatically retire authenti…](https://github.com/AffineFoundation/affine/commit/013c27015e5c00ddbc9001627804d6c46e32a054) — AffineFoundation/affine
-- 2026-10-05 · commit · [Keep evaluator adoption standalone and reject escaping catalog paths …](https://github.com/AffineFoundation/affine/commit/7ca21ad18b611c97cd3a44e24a74690ffabd106b) — AffineFoundation/affine
+- 2026-10-07 · commit · [docs: record qualified evaluation staging and latest heldout result](https://github.com/AffineFoundation/affine/commit/49610268a5270a1277a256cf5d2725a7aab66401) — AffineFoundation/affine
+- 2026-10-07 · commit · [docs: align live native training and eight-worker status](https://github.com/AffineFoundation/affine/commit/3a07fb469df339ae97ae8428387f8f43e7b9cd36) — AffineFoundation/affine
+- 2026-10-07 · commit · [docs: report first live native grading result](https://github.com/AffineFoundation/affine/commit/3b2a2b770ae7c4ee287643af717edf7710dbf385) — AffineFoundation/affine
+- 2026-10-07 · commit · [docs: distinguish native admission and wider evaluation repair status](https://github.com/AffineFoundation/affine/commit/7f376bf61dca3bb35ef8a280ae2180705121732d) — AffineFoundation/affine
+- 2026-10-07 · commit · [Reserve fresh original bytecode prefixes before requests and suppress…](https://github.com/AffineFoundation/affine/commit/1c40aa36a1f3fbcf08f8df8a3d27fcba918ea3db) — AffineFoundation/affine
+- 2026-10-06 · commit · [Add signed bounded parallel learner capture without changing historic…](https://github.com/AffineFoundation/affine/commit/2062935849892691db7ecbeac407dce8e0791f3f) — AffineFoundation/affine
+- 2026-10-06 · commit · [Distinguish proof population from bounded training capture coverage](https://github.com/AffineFoundation/affine/commit/23e8314e482f81c56d021d962c2e220c2cd80491) — AffineFoundation/affine
+- 2026-10-06 · commit · [Record observed training updates and trajectory length confound](https://github.com/AffineFoundation/affine/commit/bb60703ff9dc03326c635c0005069b3a3e3fdbc8) — AffineFoundation/affine
 
 ## Use
 

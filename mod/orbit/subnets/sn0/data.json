@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9221879,
+  "block": 9229089,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6870152.094068753,
-    "tao_in": 5471199.093125932,
-    "alpha_in": 1398953.000942821,
-    "alpha_out": 5471199.093125932,
-    "volume": 58806052.32545912,
-    "vol_24h": 39879.09442982823,
+    "market_cap": 6870423.270134982,
+    "tao_in": 5467177.467826402,
+    "alpha_in": 1403245.80230858,
+    "alpha_out": 5467177.467826402,
+    "volume": 58851048.5484034,
+    "vol_24h": 44996.222944274545,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,46 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791339970,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor (TAO) drops 4.61% in one hour, market cap at $3.44B, amid $650K long liquidations",
+      "url": "https://news.google.com/rss/articles/CBMilgFBVV95cUxNckpPOXpuRXplblkwN1BsZUtXS2ltcG1ZSWppRVR5Q3F4UjRtRVRtdXQ3YUcteFh6Tlo2WS1lbjdMSy03bFU1aktqU3pBZkEtMXhJV0RIRXdLeGI1YkhqMjhKcjJHS1RHckUzTGlBQVJDZDRjalFtMmstVkVVZXpKeWI0Z19WUFhBMkF2MjF4M0N2Z1BCa3c?oc=5",
+      "publisher": "Pluang"
+    },
+    {
+      "ts": 1791331500,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Inside the AI businesses being built on Bittensor",
+      "url": "https://news.google.com/rss/articles/CBMinAFBVV95cUxOUDhVN0FsQzhRSEVPZXNybVNoWXlkbTM2Q0tzWFpDWk9WWWtrYUdVenh4UkdBbURhNjVWNUdtTk02Y010NlBlVl9tcEZTakpPRXpIdEFGcmxnaVZzT3haY3JmNVZLeWR2VUx2cVRYdXFEMWtScEdxNUViZTFIalU1UXV0SUpOZHo0SDZySm5BTWJWdWtqWk00WF9qdUM?oc=5",
+      "publisher": "Yahoo Finance"
+    },
+    {
+      "ts": 1791303900,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Distributed AI Takes Center Stage as Exploit Summit Charts Bittensor's Next Chapter in Montreal",
+      "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxQRkJRNXZVTnh0Vmx5bFgyS3lKb2llMk9RVFdXYWRuN0FBSjh1dV91NzloX1pSb2pZVlROMExaOEdLcGlsdlNUdlhPaHlTNkxybHNvdUd3OHQyenRvUUdNVU4wS0hqWTJnWmFZeTZTV091blZDVWYyZFBWZXB5T1NVN3lKVm1mZ0hxajV2MXNpOTZhOFRXLWZtSGUxNWk1dw?oc=5",
+      "publisher": "Yahoo Finance"
+    },
+    {
+      "ts": 1791294071,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor consolidates near $302 after AI-drive...",
+      "url": "https://news.google.com/rss/articles/CBMijAFBVV95cUxOeGtLR01ITDNKUG1Cd2FYSk1kVkh1azlwM1FiN0xNcXk1MlUwYk1RenFjRmxMUHdYQUlsU3dFX0liemNXc2hQQVpRc21CSUJGTlRQb09OUTVodlVqbmZsdHEtcWVkMTYxYmdTODFYT3M0azJvcHdJMUtPWVpPTWdmMW9Od0RrVXBHNmpOUg?oc=5",
+      "publisher": "Pluang"
+    },
+    {
+      "ts": 1791291612,
+      "kind": "news",
+      "source": "gnews",
+      "title": "TAO crypto price consolidates – Why $318 is Bittensor’s next big test",
+      "url": "https://news.google.com/rss/articles/CBMikgFBVV95cUxQU1REVzVYVjJwLWVIUnl5YzRydGo4SlJ2NFZLcnZwQlFycVNydWUyNGtGelMyVmFpTU9ING83WXlKR0Y5SThTTTlTYXZfNWJpcUVDeTV6eEFtMTVKbnJBVi1UMjFLS29uMnBTdmM4eEExSUF0a242Ny1COFgtNXItQjVnNjBsTS03XzZzTVoyR1BxQQ?oc=5",
+      "publisher": "AMBCrypto"
+    },
+    {
       "ts": 1791236003,
       "kind": "news",
       "source": "gnews",
@@ -103,48 +143,8 @@
       "title": "Grayscale Bittensor Trust Expands TAO Custody With Coinbase, Updates BitGo Deal; Retires 2025 Pact",
       "url": "https://news.google.com/rss/articles/CBMi7wFBVV95cUxPS0wxNU1MbjRwYXJ0eTIzT2ZzbThieFZWekk3SXhvQ2t3VDRpNjBia2I4ZzEyZENmXzlyZk5KVTl2eXpRMzZ1RWhCMTl2aXczdVNwRTNYOE9BYnlOQkNiRHRuUTRDeWdFdXAzZk1vY2FhMzBzdTFJakNTSmRmTXE0R0RtdzlWYkZ1c293SENjZjJLU3BiXzZDWm9IU2Z0bkZNWjV3RTF1YzY1Ri0zVU9veHlPZTFSWmdHdkU1NEFsMENNeHhybjM0WVZkVlpzNkFLZmRfdnlPWlZXNzc2LWNpX2lFZk9pUDdHLUdUM3lTSQ?oc=5",
       "publisher": "TradingView"
-    },
-    {
-      "ts": 1791220692,
-      "kind": "news",
-      "source": "gnews",
-      "title": "TAO price Bittensor TA TAO Technical Analysis",
-      "url": "https://news.google.com/rss/articles/CBMinwFBVV95cUxNcVU2Z25adWtJT185VnBHQk1KVkJZNndkOVY2LTljUGgzLWVsa2R4a1VXaHNtY0hVOTY3cHVERkVLSGt6WDJCUllVNktVSXhwMGduVllmVnNydFZXc0V1NjJrTG50RTB4SWt6VU1MQTg2dTYtWkdZMW5FT2NrNml1U0dLbk16amxTTkFNNHdkVnVlZ2hfbk5DbXlvenJoeDA?oc=5",
-      "publisher": "Altcoin Buzz"
-    },
-    {
-      "ts": 1791208351,
-      "kind": "release",
-      "source": "feeds",
-      "title": "Runtime 473 (proposed)",
-      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v473",
-      "publisher": "subtensor releases"
-    },
-    {
-      "ts": 1791007010,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor subnets are generating real revenue, but the cheap prices hide a subsidy",
-      "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxOdkNaZFJ3bDBpcGtFMG1rNkdZS2oyelcwSkJUbVNLbWtvd2t6WmJLZmpIYXVJNkRDSldRSnN4NHU4cXd4dFVtcHJJOW81aUZJWExkVTdiM2Rvb2UxRXh1RWltejBYWm51bmVmMjJBZ19DSXctZzNubTE3cWp0T0xFNFJMOTFwdmpVamNLal9vLVdXWS1Sb1dXWkdfcm9fZnBhZlhsS3BrNHUza05ZV3c?oc=5",
-      "publisher": "Startup Fortune"
-    },
-    {
-      "ts": 1790997470,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor Unveils Gamma Tokens to Let AI Subnets Pay Each Other",
-      "url": "https://news.google.com/rss/articles/CBMilgFBVV95cUxNV3Z2YUloWGtVLVFZNHBjbHl2VXVyeWZuQnBLSFYwYkhySmVqaENjMzJGTVdmbnpVc1RKdVAtRlRsZFUxZlBKQ2pQLUZNdVd0bFNaYzZYOHNib1JJQkpLUnVIMGFZaW1rS3hHcWYtNmhjdnpManplYllmdkt6MHlITTUzaDg3dXpCaTZzM1pHLU1nRmdIMmc?oc=5",
-      "publisher": "Startup Fortune"
-    },
-    {
-      "ts": 1790963957,
-      "kind": "news",
-      "source": "gnews",
-      "title": "TAO Price Doubles After Bittensor Proves Distributed AI Can Compete",
-      "url": "https://news.google.com/rss/articles/CBMirgFBVV95cUxON2RQQ2lZZlpZYV9KVnl0ZTdPRXFlNlA0R3hxeDdJM1VtUHA0cm9tQ3publJTOHFkS0tjN1NwTGV0aHVNajI1TjhscVpHWUN5ZGJSRlZIblN0Unk3bFptQWttaU9iZ2NWdWRoS05OVlJGQV8zUURid19aRnk0dFdzb2xKN1kzY2VvdEFzbk5aanBQZDlJZXd1OHB4WW1pcmgwbWg1QUV4S2Q5MUpJaHc?oc=5",
-      "publisher": "CoinMarketCap"
     }
   ],
-  "updated": 1791265261,
-  "updated_day": "2026-10-06"
+  "updated": 1791351661,
+  "updated_day": "2026-10-07"
 }

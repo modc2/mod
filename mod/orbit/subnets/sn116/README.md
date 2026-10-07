@@ -2,7 +2,7 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://https://carbonphysics.ai) · discord `...`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://http
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.040483 | +5.75% | +95.20% | +2022.44% | 6,336 | 1,966 | 26,904 |
+| 0.046062 | +1.95% | +13.78% | +2117.73% | 7,540 | 2,097 | 8,207 |
 
 ## Last 24h flow
 
-2904 trades by 273 coldkeys · 1696 buys (13,737 τ) / 1208 sells (13,174 τ) · net 563.12 τ
+1384 trades by 221 coldkeys · 836 buys (4,163 τ) / 548 sells (4,008 τ) · net 155.50 τ
 
 ## News
 
-- 2026-10-06 · commit · [Merge pull request #606 from carbonphysicsai/claude/graphite-neutral-…](https://github.com/carbonphysicsai/Carbon/commit/cea20b7890e65fd29a23295d0eb608c6fa2e3d0a) — carbonphysicsai/Carbon
-- 2026-10-06 · commit · [Merge pull request #628 from carbonphysicsai/claude/readiness-q1](https://github.com/carbonphysicsai/Carbon/commit/764fe3a4f441a872dcfa136f651bf013055310a3) — carbonphysicsai/Carbon
-- 2026-10-06 · commit · [Merge pull request #673 from carbonphysicsai/prhead/hub-not-a-merge-r…](https://github.com/carbonphysicsai/Carbon/commit/9991598bd834f93d2fb8ccbc670bf9a79c08cff6) — carbonphysicsai/Carbon
-- 2026-10-06 · commit · [VALIDATOR-05: every phase-4 stand-in test registers the stand-in's ma…](https://github.com/carbonphysicsai/Carbon/commit/2f75ce1ee2b49a4f92e0236e38891bbf48b24bb5) — carbonphysicsai/Carbon
-- 2026-10-06 · commit · [Stop the Hub's own tools gating merges (OWNER-HUB-NO-MERGE-REQUIREMEN…](https://github.com/carbonphysicsai/Carbon/commit/fef3e05b82fbc8cb7bcca7c67f72005720c276ed) — carbonphysicsai/Carbon
-- 2026-10-05 · commit · [Merge pull request #641 from carbonphysicsai/claude/research-budget-r…](https://github.com/carbonphysicsai/Carbon/commit/c690f6f702dc91f9237b9853c9e6205cd7841f38) — carbonphysicsai/Carbon
-- 2026-10-05 · commit · [Merge pull request #644 from carbonphysicsai/claude/oracle-agreed-adm…](https://github.com/carbonphysicsai/Carbon/commit/7475e7cd29c3565fe6671103c3a19783563de533) — carbonphysicsai/Carbon
-- 2026-10-05 · commit · [Merge pull request #638 from carbonphysicsai/codex/motor-graphite-sco…](https://github.com/carbonphysicsai/Carbon/commit/742306785321e5c48d52517acdbd8cfcbfef57f6) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Merge pull request #728 from carbonphysicsai/claude/fix-finalist-test…](https://github.com/carbonphysicsai/Carbon/commit/82d7bf549caf82a2c2f7c9c31abf79d18f3b1ba9) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Fix main: the finalist test found slot 1 by file order](https://github.com/carbonphysicsai/Carbon/commit/b0abb7d68520274de75abe02a708f5e1d5c730a4) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Merge pull request #715 from carbonphysicsai/claude/commitment-freshn…](https://github.com/carbonphysicsai/Carbon/commit/e8dbc7c2e549673128e0734fd573df08a94cd1b8) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Launchpad: the next step for commitment_contested (D6)](https://github.com/carbonphysicsai/Carbon/commit/133521cc9843662b5947494478821a8e8af77947) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Merge remote-tracking branch 'origin/main' into claude/commitment-fre…](https://github.com/carbonphysicsai/Carbon/commit/bb71acf1f1e08f5c7cec742ef0b4c617d52a402d) — carbonphysicsai/Carbon
+- 2026-10-06 · commit · [Merge pull request #720 from carbonphysicsai/claude/owner-d6-tie](https://github.com/carbonphysicsai/Carbon/commit/92327087a0ca1427602d1b606cf0a3b2a5837a5d) — carbonphysicsai/Carbon
+- 2026-10-06 · commit · [OWNER-COMMITMENT-D6-TIE-01: a same-block D6 tie goes to the earlier t…](https://github.com/carbonphysicsai/Carbon/commit/56023332d8801b2a4ee54fae2139f1e42391b80d) — carbonphysicsai/Carbon
+- 2026-10-06 · release · [worker-images-v1](https://github.com/carbonphysicsai/Carbon/releases/tag/worker-images-v1) — carbonphysicsai/Carbon
 
 ## Use
 

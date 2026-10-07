@@ -2,7 +2,7 @@
 
 KubeTEE AI Factory: Confidential Computing TEE Multi-Cluster K8s
 
-Bittensor subnet **90** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **90** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/KubeTEE-AI/kubetee-subnet) · [url](https://kubetee.ai) · [discord](https://discord.gg/KUeXm9XQG4)
 
@@ -10,14 +10,16 @@ Links: [github](https://github.com/KubeTEE-AI/kubetee-subnet) · [url](https://k
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.021013 | +2.61% | -0.17% | +2.38% | 12,745 | 3,796 | 985.76 |
+| 0.021477 | +0.59% | +2.21% | -6.58% | 13,273 | 3,930 | 2,219 |
 
 ## Last 24h flow
 
-175 trades by 72 coldkeys · 83 buys (491.21 τ) / 92 sells (474.27 τ) · net 16.94 τ
+141 trades by 66 coldkeys · 62 buys (1,131 τ) / 79 sells (1,075 τ) · net 55.78 τ
 
 ## News
 
+- 2026-10-06 · commit · [docs(h3): note /v1/videos/sync exists in the serving stack but is not…](https://github.com/KubeTEE-AI/kubetee-subnet/commit/d96942841926eb294c12a626736fd7a4333230fe) — KubeTEE-AI/kubetee-subnet
+- 2026-10-06 · commit · [docs(h3): publish the H3 video generation API reference](https://github.com/KubeTEE-AI/kubetee-subnet/commit/6ddd2a01b3108524c0c2cfab5f4e78a6df4ebafb) — KubeTEE-AI/kubetee-subnet
 - 2026-09-24 · commit · [docs(attestation): TLS-possession proof on client-facing attestation](https://github.com/KubeTEE-AI/kubetee-subnet/commit/c9cb76085cdbf8171a8d507a85965e5f931ad352) — KubeTEE-AI/kubetee-subnet
 - 2026-09-24 · commit · [docs(saygm): record the mimo-v2.6-pro-ultraspeed declare (2026-09-24)](https://github.com/KubeTEE-AI/kubetee-subnet/commit/51aca950594a5c03105cc938c3a8c5449302d802) — KubeTEE-AI/kubetee-subnet
 - 2026-09-21 · commit · [docs(roadmap): mark Images + Videos live; MiniMax-H3 catalogue entry](https://github.com/KubeTEE-AI/kubetee-subnet/commit/e0e1f5ce3717d1aa19f3f137abf75c60996d6a76) — KubeTEE-AI/kubetee-subnet

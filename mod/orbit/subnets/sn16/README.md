@@ -1,16 +1,16 @@
 # sn16 — kenju π
 
-Bittensor subnet **16** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **16** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001027 | -0.01% | -0.55% | -4.19% | 922.8524 | 341.0013 | 28.93 |
+| 0.001020 | -0.00% | -0.68% | -5.47% | 923.9833 | 339.8589 | 7.43 |
 
 ## Last 24h flow
 
-20 trades by 14 coldkeys · 8 buys (14.00 τ) / 12 sells (13.75 τ) · net 0.26 τ
+13 trades by 11 coldkeys · 3 buys (3.14 τ) / 10 sells (3.77 τ) · net -0.63 τ
 
 ## Use
 

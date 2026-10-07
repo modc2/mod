@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003701 | -0.08% | -0.65% | -5.22% | 21,716 | 4,844 | 336.60 |
+| 0.004111 | +0.25% | +11.07% | +6.86% | 24,150 | 5,105 | 4,266 |
 
 ## Last 24h flow
 
-63 trades by 36 coldkeys · 34 buys (160.45 τ) / 29 sells (174.46 τ) · net -14.01 τ
+418 trades by 108 coldkeys · 246 buys (2,264 τ) / 172 sells (2,000 τ) · net 263.65 τ
 
 ## News
 
-- 2026-10-06 · commit · [Merge pull request #232 from leadpoet/codex/arena-idle-recovery-resta…](https://github.com/leadpoet/leadpoet/commit/fa8796375a76b8fa75867236d8fef516b5f8fa59) — leadpoet/leadpoet
-- 2026-10-06 · commit · [Number restart guard migration after concurrent billing recovery](https://github.com/leadpoet/leadpoet/commit/2179dcec80c6ff41184898efe136daa2bd640c07) — leadpoet/leadpoet
-- 2026-10-06 · commit · [Merge remote-tracking branch 'origin/main' into codex/arena-idle-reco…](https://github.com/leadpoet/leadpoet/commit/1eb64d379486446be9ca52d6765499a1b8485ceb) — leadpoet/leadpoet
-- 2026-10-06 · commit · [Keep Arena worker and billing recovery progressing independently (#231)](https://github.com/leadpoet/leadpoet/commit/1abfa02cf5859d199f4855d5ed0d5b3bf0763154) — leadpoet/leadpoet
-- 2026-10-06 · commit · [Preserve restart drain receipts during abandoned host recovery](https://github.com/leadpoet/leadpoet/commit/eba88ce52a14e851d44ca85a81e17fdce797b23e) — leadpoet/leadpoet
-- 2026-10-05 · commit · [Merge pull request #225 from leadpoet/op/V7jOJiWPpT/ci-name-failures](https://github.com/leadpoet/leadpoet/commit/ca0faa53256a1a3b9a747d99ce36c1eb739f3c4b) — leadpoet/leadpoet
-- 2026-10-05 · commit · [Make the pytest lane name the tests that fail](https://github.com/leadpoet/leadpoet/commit/d7ce5a51f1ac4d2742f3ecb7471df915ddf8f259) — leadpoet/leadpoet
-- 2026-10-05 · commit · [Merge pull request #224 from leadpoet/codex/arena-delay-recovery-oct05](https://github.com/leadpoet/leadpoet/commit/e8f7bd73568f27652248d79e255c9f9cbed6b30d) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Merge PR #247: clarify paid subscription evidence](https://github.com/leadpoet/leadpoet/commit/4148ec5215c76a399e85822c0bcc7b96d9887cf8) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Clarify supported paid subscription evidence in company review](https://github.com/leadpoet/leadpoet/commit/3878031f28a65a4a38d049a81bc71b4816148f2e) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Merge PR #246: prefer fresh verification evidence](https://github.com/leadpoet/leadpoet/commit/c5e5c2e08047f657e7bc94dac0d2f1c8d86a7b14) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Prefer fresh investigator source over cached priority marker](https://github.com/leadpoet/leadpoet/commit/f412c54201706ee0e7be92307c8530cec6ee8d76) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Merge PR #244: isolate repeated provider refusals](https://github.com/leadpoet/leadpoet/commit/62d4afe5ffade155aefd5b636a2d0497b9225a09) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Merge PR #238: retain validated company evidence](https://github.com/leadpoet/leadpoet/commit/ab6b32347e2a3d4bcfa48975b2ee4bb14b6b9fc6) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Bind reviewed profile evidence fix in protected manifest](https://github.com/leadpoet/leadpoet/commit/63b79d3b01b8095a4324596d5caf84b9a6545ba2) — leadpoet/leadpoet
+- 2026-10-06 · commit · [Bind adjacent quote-card prices to their exact issuer](https://github.com/leadpoet/leadpoet/commit/04a30acce9e3ca45a124f0d2daa964031e88fe93) — leadpoet/leadpoet
 
 ## Use
 

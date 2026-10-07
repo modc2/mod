@@ -2,7 +2,7 @@
 
 ChipForge decentralizes silicon design. Miners anywhere compete to build chips that accelerate AI, scored on real AI models.
 
-Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **108** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https://www.chipforge.io/) · [discord](https://discord.com/channels/799672011265015819/1408463235082092564)
 
@@ -10,21 +10,22 @@ Links: [github](https://github.com/TatsuProject/ChipForge_SN108) · [url](https:
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.015223 | -3.13% | +240.03% | +242.71% | 1,785 | 943.6231 | 8,205 |
+| 0.018342 | +2.53% | +20.49% | +312.92% | 2,278 | 1,036 | 5,647 |
 
 ## Last 24h flow
 
-1149 trades by 157 coldkeys · 748 buys (4,324 τ) / 401 sells (3,884 τ) · net 439.40 τ
+1203 trades by 204 coldkeys · 736 buys (2,860 τ) / 467 sells (2,772 τ) · net 88.40 τ
 
 ## News
 
+- 2026-10-06 · commit · [Minimum improvement comes from the challenge server (/validator/sync …](https://github.com/TatsuProject/ChipForge_SN108/commit/0f74767f11df47b2c8ca0000d03e1ff91f1ad000) — TatsuProject/ChipForge_SN108
+- 2026-10-06 · commit · [.env.example updated](https://github.com/TatsuProject/ChipForge_SN108/commit/3cd9f3cf6f75061f67ae7085d9fea6748a8ed02f) — TatsuProject/ChipForge_SN108
 - 2026-10-05 · commit · [docs: validator hardware requirements (min 16 physical cores + 32 GB,…](https://github.com/TatsuProject/ChipForge_SN108/commit/3e019f6fed612b085ca944cb1956d6aa16b015d2) — TatsuProject/ChipForge_SN108
 - 2026-10-05 · commit · [Stop tracking CHANGES_V2.md (local change log only) and ignore it](https://github.com/TatsuProject/ChipForge_SN108/commit/9a399e47329879b7be44f135add1c3dfd0f007b0) — TatsuProject/ChipForge_SN108
 - 2026-10-01 · commit · [Validator logs explain the MIN_IMPROVEMENT_PERCENT decision: % gain o…](https://github.com/TatsuProject/ChipForge_SN108/commit/c834a38011fa514a7101b5b52a4659373552a891) — TatsuProject/ChipForge_SN108
 - 2026-10-01 · commit · [Docs and config for public use: registration/permit/secret-key/EDA pr…](https://github.com/TatsuProject/ChipForge_SN108/commit/684c833fc87023598a982956adbf2373270b39e8) — TatsuProject/ChipForge_SN108
 - 2026-09-30 · commit · [Merge pull request #3 from TatsuProject/improvements/v2](https://github.com/TatsuProject/ChipForge_SN108/commit/306a82af6d03ea15ccaa8d6222ed19c7f0383af5) — TatsuProject/ChipForge_SN108
 - 2026-09-30 · commit · [Validator: periodic weight status line, change-only state logs, 409 a…](https://github.com/TatsuProject/ChipForge_SN108/commit/94eac8441c783316c97883162d7c00614b724842) — TatsuProject/ChipForge_SN108
-- 2026-09-30 · commit · [Miner downloads challenge packages from its own CHALLENGE_API_URL, no…](https://github.com/TatsuProject/ChipForge_SN108/commit/f3d1e657f8b2b193f230352138cd58579269ade0) — TatsuProject/ChipForge_SN108
 
 ## Use
 

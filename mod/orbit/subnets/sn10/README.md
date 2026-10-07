@@ -2,7 +2,7 @@
 
 The Intelligence Layer for AI Inference
 
-Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-06 (block 9221879).
+Bittensor subnet **10** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
 
 Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pareton.ai/)
 
@@ -10,21 +10,22 @@ Links: [github](https://github.com/Pareton-ai/pareton) · [url](https://www.pare
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006134 | -0.05% | -0.93% | -2.58% | 37,373 | 16,141 | 1,539 |
+| 0.006405 | +0.06% | +4.43% | -0.04% | 39,073 | 16,494 | 4,764 |
 
 ## Last 24h flow
 
-103 trades by 49 coldkeys · 41 buys (731.69 τ) / 62 sells (804.13 τ) · net -72.44 τ
+256 trades by 87 coldkeys · 139 buys (2,559 τ) / 117 sells (2,202 τ) · net 357.23 τ
 
 ## News
 
+- 2026-10-06 · commit · [fix(api): distinguish v5 completion failures from timing diagnostics …](https://github.com/Pareton-ai/pareton/commit/80540d9715fe73bd77651b4ab401b5336c361e72) — Pareton-ai/pareton
+- 2026-10-06 · commit · [fix(gpu): recover Lium RTX PRO 6000 inventory identity (#190)](https://github.com/Pareton-ai/pareton/commit/dfaf4bda1665373e6b5f615518054d388442d274) — Pareton-ai/pareton
+- 2026-10-06 · commit · [feat(ops): add private PRO6000 FP8 campaign with v5 C4 scoring (#188)](https://github.com/Pareton-ai/pareton/commit/7d327e9adb3e6d7e06852265ae8f769a427a4cb6) — Pareton-ai/pareton
 - 2026-10-05 · commit · [feat(bench): add tier concurrency scoring with failure penalties (#187)](https://github.com/Pareton-ai/pareton/commit/8ca3970fb075d953597d2359492667c88bce3da9) — Pareton-ai/pareton
 - 2026-10-05 · commit · [feat: configure campaign patch visibility outside the manifest hash (…](https://github.com/Pareton-ai/pareton/commit/25e21a5fde77fe40f568d3e98f0f9552e712a188) — Pareton-ai/pareton
 - 2026-09-27 · commit · [Merge pull request #182 from Pareton-ai/bohdan/par-136-builder-cleanu…](https://github.com/Pareton-ai/pareton/commit/36852d8533b4d73e0392ea113bd803c8e8f50b3d) — Pareton-ai/pareton
 - 2026-09-24 · commit · [fix(ops): page a full disk while a build holds the cleanup lock](https://github.com/Pareton-ai/pareton/commit/bfc99f86cd976b65b4e790007012d054052c9f23) — Pareton-ai/pareton
 - 2026-09-23 · commit · [Merge pull request #184 from Pareton-ai/chore/simplify-artifact-handling](https://github.com/Pareton-ai/pareton/commit/7f60bd35cc078f6ed21ece42e351a685b49047ec) — Pareton-ai/pareton
-- 2026-09-23 · commit · [Merge origin/main into artifact handling](https://github.com/Pareton-ai/pareton/commit/ef2a3d5b02066bf13a23c4c0c9638f630c4c8bde) — Pareton-ai/pareton
-- 2026-09-23 · commit · [Keep submitted artifacts private](https://github.com/Pareton-ai/pareton/commit/c525d9c832be8356bf70afc98044b1a9fe5826f3) — Pareton-ai/pareton
 
 ## Use
 
