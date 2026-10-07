@@ -231,6 +231,24 @@ def _bridged(name, watchlist, params=None, capital=1000.0):
                                  max_order_size=1e9))
 
 
+def test_sources_resolve_through_submods():
+    """Source discovery is submod-aware: copytensor lives INSIDE bt now
+    (orbit/bt/copytensor). If the package exists anywhere one level down,
+    the source must find it — a module move must fail here, loudly, not
+    silently drop a venue from the registry."""
+    venues_m = sys.modules["strat_venues"]
+    for mod, src in bridge.SOURCES.items():
+        d = venues_m.module_dir(mod)
+        if os.path.isfile(os.path.join(d, "src", "strats", "__init__.py")):
+            assert src.available(), \
+                f"{mod} ships strats at {d} but the source missed them"
+    # On this fleet copytensor is bt's submod — pin the resolution itself.
+    bt_sub = os.path.join(os.path.dirname(SELF), "bt", "copytensor")
+    if os.path.isdir(bt_sub):
+        assert venues_m.module_dir("copytensor") == bt_sub
+        assert SRC_PRESENT["copytensor"], "bittensor leg fell off the bridge"
+
+
 def test_bridge_sources_load_without_drift():
     """Every shipped strat package loads by path and the codec maps every
     native dataclass field — a schema change in polymarket / hyperliquid /

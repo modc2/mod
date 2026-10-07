@@ -85,6 +85,61 @@ impl Hub {
         self.entries.iter().any(|e| e.source.as_deref() == Some("bittensor"))
     }
 
+    /// The curated entry behind a DefiLlama project slug, if there is one.
+    pub fn curated(&self, project: &str) -> Option<&Entry> {
+        self.entries
+            .iter()
+            .find(|e| e.llama_projects.iter().any(|p| p.eq_ignore_ascii_case(project)))
+    }
+
+    /// The curated entry behind a finance-module row, whatever its source:
+    /// llama rows match on the project slug, the module-fed sources match on
+    /// the entry that declares that source.
+    fn curated_for_module(&self, row: &Value) -> Option<&Entry> {
+        match row.get("source").and_then(|v| v.as_str()) {
+            Some("bittensor") => self.entries.iter().find(|e| e.source.as_deref() == Some("bittensor")),
+            Some("hyperliquid") => self.entries.iter().find(|e| e.source.as_deref() == Some("hyperliquid")),
+            Some("polymarket") => self.entries.iter().find(|e| e.source.as_deref() == Some("polymarket")),
+            _ => self.curated(row.get("project").and_then(|v| v.as_str()).unwrap_or("")),
+        }
+    }
+
+    /// Stamp every finance-module row with ITS OWN risk list: the curated
+    /// protocol's written risks (when the module belongs to one), then the
+    /// risk-level conditions derived from the row's own numbers. A module
+    /// outside the curated hub still gets its derived risks — and a line
+    /// saying the curation never looked at it, which is itself a risk.
+    pub fn annotate_module(&self, row: &mut Value) {
+        let entry = self.curated_for_module(row);
+        let mut risks: Vec<String> = entry.map(|e| e.risks.clone()).unwrap_or_default();
+        for c in row.get("conditions").and_then(|v| v.as_array()).into_iter().flatten() {
+            if c.get("level").and_then(|l| l.as_str()) == Some("risk") {
+                if let Some(t) = c.get("text").and_then(|t| t.as_str()) {
+                    if !risks.iter().any(|r| r == t) {
+                        risks.push(t.to_string());
+                    }
+                }
+            }
+        }
+        if entry.is_none() && row.get("source").and_then(|v| v.as_str()) == Some("defillama") {
+            risks.push("not in this desk's curated hub — no one here vetted the team, audits or track record".into());
+        }
+        row["risks"] = json!(risks);
+        row["curated"] = match entry {
+            Some(e) => json!({ "id": e.id, "name": e.name, "tier": e.tier }),
+            None => Value::Null,
+        };
+    }
+
+    /// Same stamp for every row of a /modules payload.
+    pub fn annotate_modules(&self, payload: &mut Value) {
+        if let Some(rows) = payload.get_mut("modules").and_then(|m| m.as_array_mut()) {
+            for row in rows {
+                self.annotate_module(row);
+            }
+        }
+    }
+
     /// Same idea for the hyperliquid module's vault board.
     pub fn wants_hl_vaults(&self) -> bool {
         self.entries.iter().any(|e| e.source.as_deref() == Some("hyperliquid"))
@@ -281,30 +336,32 @@ impl Hub {
             by_chain.entry(pool.chain.as_str()).or_default().push(pool);
         }
 
-        let mut chains: Vec<Value> = by_chain
-            .into_iter()
-            .map(|(chain, mut group)| {
-                group.sort_by(|a, b| Self::score(b).partial_cmp(&Self::score(a)).unwrap_or(std::cmp::Ordering::Equal));
-                let tvl: f64 = group.iter().map(|p| p.tvl_usd).sum();
-                let desk = crate::dex::chain(&chain.to_lowercase()).filter(|c| !c.testnet);
-                let enterable = group.iter().any(|p| registry.adapter_for(p).is_some());
-                let best = group.first().map(|p| pool_row(p, registry));
-                let mut row = json!({
-                    "chain": chain,
-                    "desk": desk.map(|c| c.id),
-                    "module": desk.map(|c| c.module),
-                    "enterable": enterable,
-                    "pools": group.len(),
-                    "tvl_usd": round2(tvl),
-                    "best": best,
-                });
-                if full {
-                    let listed: Vec<Value> = group.iter().take(12).map(|p| pool_row(p, registry)).collect();
-                    row.as_object_mut().unwrap().insert("usd_pools".into(), json!(listed));
-                }
-                row
-            })
-            .collect();
+        let mut all_bands: Vec<Value> = Vec::new();
+        let mut chains: Vec<Value> = Vec::new();
+        for (chain, mut group) in by_chain {
+            group.sort_by(|a, b| Self::score(b).partial_cmp(&Self::score(a)).unwrap_or(std::cmp::Ordering::Equal));
+            let tvl: f64 = group.iter().map(|p| p.tvl_usd).sum();
+            let desk = crate::dex::chain(&chain.to_lowercase()).filter(|c| !c.testnet);
+            let enterable = group.iter().any(|p| registry.adapter_for(p).is_some());
+            let best = group.first().map(|p| pool_row(p, registry));
+            let bands: Vec<Value> = group.iter().map(|p| crate::yields::apr_band(p)).collect();
+            let mut row = json!({
+                "chain": chain,
+                "desk": desk.map(|c| c.id),
+                "module": desk.map(|c| c.module),
+                "enterable": enterable,
+                "pools": group.len(),
+                "tvl_usd": round2(tvl),
+                "apr_band": crate::yields::band_span(&bands, "pool"),
+                "best": best,
+            });
+            if full {
+                let listed: Vec<Value> = group.iter().take(12).map(|p| pool_row(p, registry)).collect();
+                row.as_object_mut().unwrap().insert("usd_pools".into(), json!(listed));
+            }
+            all_bands.extend(bands);
+            chains.push(row);
+        }
         chains.sort_by(|a, b| {
             b.get("tvl_usd")
                 .and_then(|v| v.as_f64())
@@ -351,6 +408,7 @@ impl Hub {
             "enterable_from_desk": chains.iter().any(|c| c.get("enterable") == Some(&json!(true))),
             "stable_tvl_usd": round2(stable_tvl),
             "chain_count": chains.len(),
+            "apr_band": crate::yields::band_span(&all_bands, "pool"),
             "best": best,
             "chains": chains,
         })
@@ -374,6 +432,7 @@ fn pool_row(pool: &Pool, registry: &Registry) -> Value {
         "apy_mean_30d": pool.apy_mean_30d.map(round2),
         "apy_scored": round2(Hub::score(pool)),
         "emissions_share": if apy > 0.0 { round2(((apy - base).max(0.0) / apy) * 100.0) } else { 0.0 },
+        "apr_band": crate::yields::apr_band(pool),
         "tvl_usd": round2(pool.tvl_usd),
         "enterable": registry.adapter_for(pool).is_some(),
     })
@@ -499,6 +558,9 @@ fn tao_row(
         "llama_projects": entry.llama_projects,
         "source": "bittensor",
         "enterable_from_desk": !chains.is_empty(),
+        // No band because no rate: a subnet pays alpha emission on a floating
+        // price, and bounds invented for that would be fiction.
+        "apr_band": Value::Null,
         "stable_tvl_usd": 0.0,
         "tvl_usd": tvl_usd,
         "tvl_tao": round2(total_tao),
@@ -531,6 +593,7 @@ fn hl_row(entry: &Entry, vaults: &[Value], want_chain: Option<&str>, full: bool)
             "apy_scored": round2(scored(v)),
             "note": "trailing APR — realized PnL annualized, not a promised rate",
             "apr_7d": v.get("apr_7d").and_then(|x| x.as_f64()).map(round2),
+            "apr_band": hl_band(v),
             "leader": v.get("leader"),
             "age_days": v.get("age_days"),
             "tvl_usd": round2(tvl_of(v)),
@@ -539,6 +602,26 @@ fn hl_row(entry: &Entry, vaults: &[Value], want_chain: Option<&str>, full: bool)
     };
 
     let wanted = want_chain.map(|w| w.eq_ignore_ascii_case("hyperliquid")).unwrap_or(true);
+    // The protocol-level span covers only the vaults the card actually lists
+    // (the top 12 by depth-adjusted score) and only their 7d and lifetime
+    // windows — a 24h of PnL annualized is noise at the protocol level, and a
+    // dust vault's would stretch the band into four digits of it.
+    let windows: Vec<f64> = list
+        .iter()
+        .take(12)
+        .flat_map(|v| ["apr", "apr_7d"].into_iter().filter_map(|k| v.get(k).and_then(|x| x.as_f64())))
+        .filter(|x| x.is_finite())
+        .collect();
+    let band = if windows.is_empty() {
+        Value::Null
+    } else {
+        json!({
+            "apr_lower": round2(windows.iter().cloned().fold(f64::INFINITY, f64::min)),
+            "apr_upper": round2(windows.iter().cloned().fold(f64::NEG_INFINITY, f64::max)),
+            "confidence": "low",
+            "basis": format!("min/max of the listed vaults' trailing realized PnL annualized (7d and lifetime windows, top {} vaults) — a track record, not a promise, and it can be negative", list.len().min(12)),
+        })
+    };
     let chains: Vec<Value> = if wanted && !list.is_empty() {
         let best = list.first().map(|v| vault_row(v));
         let mut row = json!({
@@ -549,6 +632,7 @@ fn hl_row(entry: &Entry, vaults: &[Value], want_chain: Option<&str>, full: bool)
             "pools": list.len(),
             "pool_word": "vault",
             "tvl_usd": round2(total),
+            "apr_band": band.clone(),
             "best": best,
         });
         if full {
@@ -589,8 +673,31 @@ fn hl_row(entry: &Entry, vaults: &[Value], want_chain: Option<&str>, full: bool)
         "stable_tvl_usd": 0.0,
         "tvl_usd": round2(total),
         "chain_count": chains.len(),
+        "apr_band": band,
         "best": best,
         "chains": chains,
+    })
+}
+
+/// A vault's observed APR band: the min and max of its trailing-PnL windows
+/// (24h, 7d, lifetime). Deliberately NOT floored at zero — this "APR" is a
+/// trader's realized PnL annualized, and a book that can lose says so.
+pub(crate) fn hl_band(v: &Value) -> Value {
+    let windows: Vec<f64> = ["apr", "apr_7d", "apr_24h"]
+        .iter()
+        .filter_map(|k| v.get(*k).and_then(|x| x.as_f64()))
+        .filter(|x| x.is_finite())
+        .collect();
+    if windows.is_empty() {
+        return Value::Null;
+    }
+    let lo = windows.iter().cloned().fold(f64::INFINITY, f64::min);
+    let hi = windows.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    json!({
+        "apr_lower": round2(lo),
+        "apr_upper": round2(hi),
+        "confidence": "low",
+        "basis": "min/max of the leader's trailing realized PnL annualized over 24h, 7d and lifetime windows — a track record, not a promise, and it can be negative",
     })
 }
 
@@ -632,6 +739,7 @@ fn pm_row(entry: &Entry, want_chain: Option<&str>) -> Value {
         "source": "polymarket",
         "gated": true,
         "enterable_from_desk": !chains.is_empty(),
+        "apr_band": Value::Null,
         "stable_tvl_usd": 0.0,
         "tvl_usd": Value::Null,
         "chain_count": chains.len(),
@@ -716,6 +824,9 @@ mod tests {
             exposure: Some("single".into()),
             pool_meta: None,
             outlier: false,
+            mu: Some(apy),
+            sigma: Some(1.0),
+            count: Some(365),
             reward_tokens: None,
             underlying_tokens: None,
             predictions: None,
@@ -724,6 +835,50 @@ mod tests {
 
     fn hub(entries: Vec<Entry>) -> Hub {
         Hub { note: String::new(), entries, load_error: None }
+    }
+
+    #[test]
+    fn every_level_of_the_hub_carries_an_apr_band() {
+        let h = hub(vec![entry("aave-v3", "core", &["aave-v3"])]);
+        let pools = vec![
+            pool("aave-v3", "Ethereum", "USDC", 4.0, 5e8, true),
+            pool("aave-v3", "Base", "USDC", 8.0, 2e8, true),
+        ];
+        let out = h.assemble(&pools, &Registry::default(), 0, None, 0.0, &[], None, &[]);
+        let card = &out["hub"][0];
+        // Protocol card: floor = 4 - 2σ = 2, ceiling = 8 + 2σ = 10.
+        assert_eq!(card["apr_band"]["apr_lower"], 2.0, "{card}");
+        assert_eq!(card["apr_band"]["apr_upper"], 10.0, "{card}");
+        // Chain rows and the best pool carry their own.
+        assert!(card["chains"][0]["apr_band"].is_object(), "{card}");
+        assert!(card["best"]["apr_band"].is_object(), "{card}");
+    }
+
+    #[test]
+    fn a_modules_row_gets_the_curated_risks_plus_its_own() {
+        let mut e = entry("aave-v3", "core", &["aave-v3"]);
+        e.risks = vec!["smart-contract risk".into(), "oracle risk".into()];
+        let h = hub(vec![e]);
+        let mut row = json!({
+            "source": "defillama", "project": "aave-v3",
+            "conditions": [
+                { "level": "risk", "text": "80% of the rate is token emissions — a farm with an expiry date, not a yield" },
+                { "level": "note", "text": "a note is not a risk" },
+            ],
+        });
+        h.annotate_module(&mut row);
+        let risks = row["risks"].as_array().unwrap();
+        assert_eq!(risks.len(), 3, "{row}");
+        assert_eq!(risks[0], "smart-contract risk");
+        assert!(risks[2].as_str().unwrap().contains("emissions"));
+        assert_eq!(row["curated"]["tier"], "core");
+
+        // An uncurated pool still gets its derived risks — and is told no one
+        // vetted it.
+        let mut stranger = json!({ "source": "defillama", "project": "degen-farm", "conditions": [] });
+        h.annotate_module(&mut stranger);
+        assert!(stranger["risks"][0].as_str().unwrap().contains("not in this desk's curated hub"), "{stranger}");
+        assert!(stranger["curated"].is_null());
     }
 
     #[test]

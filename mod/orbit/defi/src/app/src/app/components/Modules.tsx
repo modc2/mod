@@ -552,6 +552,12 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                   <div className="kv"><span>7d change</span><b>{detail.returns?.apy_change_7d == null ? "—" : `${Number(detail.returns.apy_change_7d) > 0 ? "+" : ""}${Number(detail.returns.apy_change_7d).toFixed(1)}%`}</b></div>
                 </div>
               )}
+              {detail.returns?.band && (
+                <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }} title={detail.returns.band.basis}>
+                  the record supports <b>{pct(detail.returns.band.apr_lower, 1)} – {pct(detail.returns.band.apr_upper, 1)}</b>
+                  {detail.returns.band.confidence === "low" && <span className="tag bad" style={{ marginLeft: 6 }}>thin history</span>}
+                </div>
+              )}
               <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }}>{detail.returns?.basis}</div>
               {detail.identity && (
                 <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -585,6 +591,27 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                 <div className="kv"><span>lock</span><b>{detail.liquidity?.lock_days ? `${detail.liquidity.lock_days} days` : "none"}</b></div>
               </div>
               <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }}>{detail.liquidity?.exit_note}</div>
+
+              {(detail.risks?.length ?? 0) > 0 && (
+                <>
+                  <div className="label" style={{ marginTop: 16 }}>
+                    What can go wrong
+                    {detail.curated && (
+                      <span className="tag ok" style={{ marginLeft: 6 }} title={`${detail.curated.name} is on the curated hub (${detail.curated.tier} tier) — its written risks ride on every one of its modules`}>
+                        {detail.curated.tier}
+                      </span>
+                    )}
+                  </div>
+                  <div className="conds">
+                    {detail.risks.map((t: string, i: number) => (
+                      <div key={i} className="cond risk">
+                        <span className="cond-dot" />
+                        <span>{t}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
 
               <div className="label" style={{ marginTop: 16 }}>Conditions</div>
               <div className="conds">

@@ -1,7 +1,7 @@
 {
     "name": "strat",
     "description": "Marketplace of trading strategies as mods \u2014 one class-defined Strat protocol across raydium, uniswap, hyperliquid, bittensor and polymarket, with adapters that mount the strats shipped inside the polymarket, hyperliquid and copytensor modules onto it unchanged. Discover, verify, fork, backtest, plan and board strats; execution is delegated to the module that owns each chain, keys never held here.",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "strat_protocol": {
         "version": 1,
         "methods": [
@@ -58,7 +58,7 @@
                 "backtest": "exchange closed_pnl x size ratio"
             },
             "copytensor": {
-                "package": "copytensor/src/strats",
+                "package": "bt/copytensor/src/strats (copytensor is a submod of bt)",
                 "venue": "bittensor",
                 "currency": "TAO",
                 "instrument": "netuid",

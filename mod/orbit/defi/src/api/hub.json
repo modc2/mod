@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "note": "The HUB: a curated shortlist of legitimate protocols this desk is willing to point USD at, joined live with DefiLlama's index. Curation criteria: a multi-year track record or >$1b deposited, a named team, public audits, and a way in for plain USD stablecoins — with one exception: Bittensor is TAO-in, says so on its card, and its numbers come from the bt module's live subnet list, not DefiLlama. Curated does not mean safe — every entry still lists what it is subject to, and the live numbers beside it are the index's, not ours.",
+  "note": "The HUB: a curated shortlist of legitimate protocols this desk is willing to point USD at, joined live with DefiLlama's index. Curation criteria: a multi-year track record or >$1b deposited, a named team, public audits, and a way in for plain USD stablecoins — with two exceptions it is honest about: Bittensor is TAO-in and quotes no APY, and the tokenized-treasury entries (BUIDL, USYC, Ondo, parts of Centrifuge) are KYC-gated, say so in their risks, and cannot be entered from this desk. Curated does not mean safe — every entry lists its own risks next to its credentials, every live number beside it is the index's (not ours), and every card now carries an observed APR band: the lower and upper bound the record itself supports, lifetime mean ± 2σ of daily APY widened to cover today's rate.",
   "protocols": [
     {
       "id": "aave-v3",
@@ -92,14 +92,15 @@
       "since": 2023,
       "website": "https://spark.fi",
       "llama_projects": [
-        "sparklend"
+        "sparklend",
+        "spark-savings"
       ],
       "usd_in": [
         "USDC",
         "USDS",
         "DAI"
       ],
-      "blurb": "The Sky ecosystem's lender — an Aave V3 fork seeded with Sky's own liquidity, so dollar deposit rates stay close to the savings rate with pool lending on top.",
+      "blurb": "The Sky ecosystem's lender — an Aave V3 fork seeded with Sky's own liquidity, so dollar deposit rates stay close to the savings rate with pool lending on top. Its savings side (sUSDS/sUSDC) pays the Sky Savings Rate directly.",
       "legit": [
         "around $5b supplied",
         "runs audited Aave V3 code, governed and backstopped by Sky",
@@ -274,7 +275,8 @@
       "since": 2020,
       "website": "https://curve.finance",
       "llama_projects": [
-        "curve-dex"
+        "curve-dex",
+        "curve-llamalend"
       ],
       "usd_in": [
         "USDC",
@@ -363,6 +365,378 @@
         "copies fill after the leader at worse prices; late fills bleed edge on fast markets",
         "positions held to resolution can expire worthless; stopping the session does not close what it already bought",
         "this deployment is owner-only — the board and the engine open only with its access token"
+      ]
+    },
+    {
+      "id": "uniswap",
+      "name": "Uniswap",
+      "category": "Stable LP",
+      "tier": "core",
+      "since": 2018,
+      "website": "https://uniswap.org",
+      "llama_projects": [
+        "uniswap-v3",
+        "uniswap-v4"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "DAI",
+        "+ paired"
+      ],
+      "paired": true,
+      "blurb": "Provide both sides of a stablecoin pair in a concentrated price range and earn the trading fees of everyone swapping through it. The deepest DEX there is; the yield is organic fees.",
+      "legit": [
+        "the largest decentralised exchange, live since 2018",
+        "v3 ran four years with no core-pool loss of LP funds",
+        "fees are paid by traders — no emissions needed to exist"
+      ],
+      "risks": [
+        "a concentrated position earns nothing while the price sits outside your range — stable pairs drift less, but it still needs tending",
+        "paired exposure: if one coin in the pair depegs, part of your dollars become it",
+        "v4 is new code (2025) and pools can attach third-party hooks — a hook is someone else's contract in your pool"
+      ]
+    },
+    {
+      "id": "pendle",
+      "name": "Pendle",
+      "category": "Fixed yield",
+      "tier": "established",
+      "since": 2021,
+      "website": "https://www.pendle.finance",
+      "llama_projects": [
+        "pendle-v2"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDe",
+        "via PT markets"
+      ],
+      "blurb": "Buy a principal token at a discount and hold it to maturity: the discount IS your rate, fixed on the day you enter. The other side (LP / yield tokens) trades the floating rate instead.",
+      "legit": [
+        "pioneered onchain yield tokenization, live since 2021",
+        "billions in PT/LP markets with the fixed-rate mechanism working through two full cycles",
+        "audited repeatedly and the maturity payoff is enforced by the contract, not a promise"
+      ],
+      "risks": [
+        "the fixed rate only holds if you stay to maturity — exiting early is a market sale at whatever the implied rate is that day",
+        "a PT inherits its underlying's risks: a PT on USDe carries Ethena's basis risk, not just Pendle's contract risk",
+        "LP-side APYs are partly PENDLE incentives — the farmed half fades with the token"
+      ]
+    },
+    {
+      "id": "convex",
+      "name": "Convex",
+      "category": "Boosted LP",
+      "tier": "established",
+      "since": 2021,
+      "website": "https://www.convexfinance.com",
+      "llama_projects": [
+        "convex-finance"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "DAI",
+        "+ paired"
+      ],
+      "paired": true,
+      "blurb": "Deposit Curve stable-LP tokens and Convex boosts the CRV gauge rewards with its pooled veCRV, no lockup on your side.",
+      "legit": [
+        "live since 2021 with the largest veCRV position in existence",
+        "billions staked through it without loss of depositor LP tokens",
+        "audited (MixBytes) and the base Curve fees underneath are organic"
+      ],
+      "risks": [
+        "most of the boosted rate is CRV/CVX emissions — it falls when those tokens do",
+        "two protocols stacked: a bug in either Curve's pool or Convex's wrapper reaches your deposit",
+        "paired exposure of the underlying Curve pool rides through unchanged"
+      ]
+    },
+    {
+      "id": "yearn",
+      "name": "Yearn",
+      "category": "Yield vaults",
+      "tier": "established",
+      "since": 2020,
+      "website": "https://yearn.fi",
+      "llama_projects": [
+        "yearn-finance"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "DAI"
+      ],
+      "blurb": "Automated vaults that route your stables across lenders and LPs, harvest and compound for you, and charge a fee on the yield.",
+      "legit": [
+        "the original yield aggregator, live since 2020",
+        "v3 vaults are audited and strategies are allowlisted by the DAO",
+        "a long public record — including honestly disclosed incidents"
+      ],
+      "risks": [
+        "a vault stacks strategy risk on top of every protocol the strategy touches",
+        "it has eaten exploits before (a 2021 DAI-vault strategy lost $11m) — the record is long partly because incidents are in it",
+        "the rate floats with wherever the strategy farms this week"
+      ]
+    },
+    {
+      "id": "orca",
+      "name": "Orca",
+      "category": "Stable LP",
+      "tier": "established",
+      "since": 2021,
+      "website": "https://www.orca.so",
+      "llama_projects": [
+        "orca-dex"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "+ paired"
+      ],
+      "paired": true,
+      "blurb": "Solana's main concentrated-liquidity DEX: provide a stable pair in a range, earn swap fees at Solana speed and cost.",
+      "legit": [
+        "Solana's reference CLMM since 2021, audited (Kudelski, Neodyme)",
+        "survived the full Solana cycle including FTX without protocol loss",
+        "fee yield is organic trading volume"
+      ],
+      "risks": [
+        "concentrated positions need tending — out of range earns nothing",
+        "paired exposure: a depeg in the pair is partly yours",
+        "everything here also inherits Solana's own history of network halts"
+      ]
+    },
+    {
+      "id": "frax",
+      "name": "Frax",
+      "category": "Stable issuer",
+      "tier": "established",
+      "since": 2020,
+      "website": "https://frax.finance",
+      "llama_projects": [
+        "frax"
+      ],
+      "usd_in": [
+        "USDC",
+        "frxUSD"
+      ],
+      "blurb": "Hold the issuer's staked dollar (sfrxUSD) and receive the protocol's own earnings — RWA interest and market operations — as a savings rate.",
+      "legit": [
+        "live since 2020 through every stablecoin stress since",
+        "moved from fractional to fully-collateralised by design, in public",
+        "the savings rate is paid from real protocol revenue, not emissions"
+      ],
+      "risks": [
+        "issuer risk: you hold one team's dollar, not a basket — its peg is their balance sheet",
+        "governance is concentrated and can retune the savings rate at will",
+        "the RWA leg adds custodian and banking-rail risk under the onchain wrapper"
+      ]
+    },
+    {
+      "id": "jupiter-lend",
+      "name": "Jupiter Lend",
+      "category": "Lending",
+      "tier": "frontier",
+      "since": 2025,
+      "website": "https://jup.ag",
+      "llama_projects": [
+        "jupiter-lend"
+      ],
+      "usd_in": [
+        "USDC",
+        "USDT",
+        "USDS"
+      ],
+      "blurb": "Solana lending by the Jupiter team on Fluid's licensed engine — deposit dollars, borrowers pay you, withdraw while liquidity lasts.",
+      "legit": [
+        "built by Solana's dominant aggregator team with Fluid's battle-tested design",
+        "grew to around a billion dollars of stables within months",
+        "audited before launch (Offside, Zenith among others)"
+      ],
+      "risks": [
+        "months old — the track record is shorter than one bad market",
+        "launch-phase rates are partly incentives and points, not all interest",
+        "Solana chain risk underneath everything"
+      ]
+    },
+    {
+      "id": "blackrock-buidl",
+      "name": "BlackRock BUIDL",
+      "category": "Tokenized treasuries",
+      "tier": "established",
+      "since": 2024,
+      "website": "https://securitize.io/blackrock",
+      "llama_projects": [
+        "blackrock-buidl"
+      ],
+      "usd_in": [
+        "USDC (KYC via Securitize)"
+      ],
+      "blurb": "BlackRock's tokenized T-bill fund: hold BUIDL and the US bill rate accrues daily. The safest rate in dollars, wrapped for chains — but behind a velvet rope.",
+      "legit": [
+        "issued by the world's largest asset manager through Securitize, a regulated transfer agent",
+        "around $3b parked in it — the largest tokenized fund",
+        "the yield is US Treasury bills, not a protocol's promise"
+      ],
+      "risks": [
+        "KYC and qualified-investor gated — this desk cannot put you in; entry is through Securitize",
+        "the token is transfer-restricted: liquidity is mint/redeem and whitelisted counterparties, not an open market",
+        "the rate is the bill rate — it falls the day the Fed cuts"
+      ]
+    },
+    {
+      "id": "ondo",
+      "name": "Ondo",
+      "category": "Tokenized treasuries",
+      "tier": "established",
+      "since": 2022,
+      "website": "https://ondo.finance",
+      "llama_projects": [
+        "ondo-yield-assets"
+      ],
+      "usd_in": [
+        "USDC (KYC, non-US for USDY)"
+      ],
+      "blurb": "Tokenized treasury products (USDY, OUSG): short-duration US government yield passed through to the token, with daily accrual.",
+      "legit": [
+        "over $2b issued with named management and regulated fund structures",
+        "backed by T-bills and bank deposits held with institutional custodians",
+        "live since 2022 across several chains"
+      ],
+      "risks": [
+        "gated: KYC always, and USDY is not offered to US persons — this desk cannot put you in",
+        "redemptions settle on fund timelines (days), not block time",
+        "issuer and custodian risk sit under the onchain wrapper"
+      ]
+    },
+    {
+      "id": "circle-usyc",
+      "name": "Circle USYC",
+      "category": "Tokenized treasuries",
+      "tier": "established",
+      "since": 2023,
+      "website": "https://www.circle.com/usyc",
+      "llama_projects": [
+        "circle-usyc"
+      ],
+      "usd_in": [
+        "USDC (institutional KYB)"
+      ],
+      "blurb": "Circle's tokenized money-market fund (ex-Hashnote): hold USYC, accrue the short-term treasury repo rate, redeem to USDC.",
+      "legit": [
+        "issued by Circle, the USDC issuer, after acquiring Hashnote",
+        "billions in it, with near-instant USYC/USDC convertibility for permitted holders",
+        "the yield is treasury repo, not a protocol's emissions"
+      ],
+      "risks": [
+        "institutional KYB gating — mint and redeem are for onboarded firms, not wallets",
+        "fund NAV and repo-market risk, tiny but not zero",
+        "concentration: issuer, cash leg and redemption rail are all one company"
+      ]
+    },
+    {
+      "id": "centrifuge",
+      "name": "Centrifuge",
+      "category": "RWA credit",
+      "tier": "established",
+      "since": 2021,
+      "website": "https://centrifuge.io",
+      "llama_projects": [
+        "centrifuge-protocol"
+      ],
+      "usd_in": [
+        "USDC (KYC per pool)"
+      ],
+      "blurb": "Lend dollars against real-world assets — invoices, treasuries, credit funds — through tranched onchain pools run by named asset managers.",
+      "legit": [
+        "the longest-running RWA credit protocol, pools live since 2021",
+        "institutional managers (including Janus Henderson, Anemoy) run named funds on it",
+        "tranche structure puts a junior buffer under senior lenders"
+      ],
+      "risks": [
+        "credit risk is the product: real borrowers can default, and recovery happens offchain in courts",
+        "KYC per pool and redemption queues — exits wait for the pool, not the chain",
+        "junior tranches absorb losses first — know which tranche you hold"
+      ]
+    },
+    {
+      "id": "justlend",
+      "name": "JustLend",
+      "category": "Lending",
+      "tier": "established",
+      "since": 2020,
+      "website": "https://justlend.org",
+      "llama_projects": [
+        "justlend-v1"
+      ],
+      "usd_in": [
+        "USDT",
+        "USDD"
+      ],
+      "blurb": "Tron's main money market — deposit dollars (mostly USDT, which lives on Tron at scale), borrowers pay you.",
+      "legit": [
+        "live since 2020 on the chain that settles most of the world's USDT",
+        "consistently among the largest lenders by deposits",
+        "simple Compound-style pool design with a long uptime record"
+      ],
+      "risks": [
+        "the whole stack — chain, lender, listed assets — orbits one founder's ecosystem; that is a single trust decision, not several",
+        "USDD exposure in the listings is an algorithmic-history stablecoin",
+        "governance and admin keys are concentrated and can move fast"
+      ]
+    },
+    {
+      "id": "venus",
+      "name": "Venus",
+      "category": "Lending",
+      "tier": "established",
+      "since": 2020,
+      "website": "https://venus.io",
+      "llama_projects": [
+        "venus-core-pool"
+      ],
+      "usd_in": [
+        "USDT",
+        "USDC"
+      ],
+      "blurb": "BNB Chain's main money market: deposit dollars into the core pool, borrowers post collateral and pay you.",
+      "legit": [
+        "live since 2020, the largest lender on BNB Chain",
+        "isolated-pool redesign and resilient oracle setup after early lessons",
+        "multiple audits (OpenZeppelin, Certik, Peckshield among them)"
+      ],
+      "risks": [
+        "it carries scar tissue: a 2021 price-manipulation event left bad debt the protocol had to absorb",
+        "BNB Chain's validator set is small and exchange-adjacent — chain trust is part of the deposit",
+        "rates have at times been flattered by XVS emissions"
+      ]
+    },
+    {
+      "id": "usual",
+      "name": "Usual",
+      "category": "Stable issuer",
+      "tier": "frontier",
+      "since": 2024,
+      "website": "https://usual.money",
+      "llama_projects": [
+        "usual-usd0"
+      ],
+      "usd_in": [
+        "USDC",
+        "USD0"
+      ],
+      "blurb": "Hold USD0++ — a staked, treasury-backed dollar — and earn the backing's yield plus USUAL emissions on top.",
+      "legit": [
+        "USD0 is fully backed by tokenized treasuries held with named custodians",
+        "grew to hundreds of millions quickly with audited contracts",
+        "the base yield comes from the T-bill backing, which is real"
+      ],
+      "risks": [
+        "terms changed under holders once already: the January 2025 USD0++ redemption-floor switch repriced exits overnight",
+        "a large share of the quoted rate is USUAL token emissions",
+        "young protocol, young token, young governance — all three are untested in a drawdown"
       ]
     }
   ]

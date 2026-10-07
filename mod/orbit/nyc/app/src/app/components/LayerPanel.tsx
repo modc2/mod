@@ -26,7 +26,7 @@ export default function LayerPanel({
   const [expanded, setExpanded] = useState<string | null>(null)
 
   if (!catalog) {
-    return <div className="pixel px-4 py-4 text-[8px] text-nes-ink3">LOADING LAYERS...</div>
+    return <div className="pixel px-4 py-4 text-[11px] text-nes-ink3">Loading layers…</div>
   }
 
   return (
@@ -64,20 +64,20 @@ export default function LayerPanel({
                       aria-label={`Toggle ${def.title}`}
                       // The pseudo-element extends the tap target past the 18px
                       // swatch without moving anything on the row.
-                      className="relative h-[18px] w-[18px] shrink-0 border-2 border-black
+                      className="relative h-[18px] w-[18px] shrink-0 rounded-[5px] border border-white/15
                                  after:absolute after:-inset-2.5 after:content-['']"
                       style={{
-                        background: on ? swatch(def) : '#1a2258',
+                        background: on ? swatch(def) : '#1b2130',
                         boxShadow: on
-                          ? 'inset 0 2px 0 rgba(255,255,255,.28), inset 0 -2px 0 rgba(0,0,0,.4)'
-                          : 'inset 0 2px 0 rgba(255,255,255,.1), inset 0 -2px 0 rgba(0,0,0,.4)',
+                          ? 'inset 0 1px 0 rgba(255,255,255,.25)'
+                          : 'inset 0 1px 0 rgba(255,255,255,.06)',
                       }}
                     >
                       {on && (
-                        <svg viewBox="0 0 12 12" className="absolute inset-0 h-full w-full p-[1px]"
-                             shapeRendering="crispEdges">
+                        <svg viewBox="0 0 12 12" className="absolute inset-0 h-full w-full p-[1px]">
                           <path d="M2.5 6.2 L4.8 8.5 L9.5 3.6" fill="none"
-                                stroke="#000" strokeWidth="2" />
+                                stroke="rgba(0,0,0,0.85)" strokeWidth="2"
+                                strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       )}
                     </button>
@@ -97,7 +97,7 @@ export default function LayerPanel({
                       </span>
                     )}
                     {!busy && on && counts[id] !== undefined && (
-                      <span className="pixel shrink-0 text-[7.5px] tabular-nums text-nes-coin">
+                      <span className="pixel shrink-0 text-[10px] tabular-nums text-nes-coin">
                         {counts[id].toLocaleString()}
                       </span>
                     )}
@@ -119,7 +119,7 @@ export default function LayerPanel({
                   )}
 
                   {expanded === id && (
-                    <div className="mb-1.5 ml-2 mr-2 border-2 border-black bg-black/40 px-2.5 py-2">
+                    <div className="mb-1.5 ml-2 mr-2 rounded-lg border border-white/10 bg-black/40 px-2.5 py-2">
                       <p className="text-[11.5px] leading-snug text-nes-ink2">
                         {def.description}
                       </p>
@@ -129,7 +129,7 @@ export default function LayerPanel({
                         <span className="text-nes-ink3">↗</span>
                       </a>
                       {on && (
-                        <label className="pixel mt-2.5 flex items-center gap-2 text-[7px] text-nes-ink3">
+                        <label className="pixel mt-2.5 flex items-center gap-2 text-[10px] text-nes-ink3">
                           FADE
                           <input
                             type="range" min={0.1} max={1} step={0.05}

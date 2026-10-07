@@ -16,6 +16,8 @@ type Props = {
   areasWithData?: number
   totalAreas?: number
   population?: Choropleth | null
+  /** The crime-by-precinct layer, whose payload carries its own breaks. */
+  crime?: (GeoJSON.FeatureCollection & { breaks?: Breaks; meta?: any }) | null
 }
 
 /**
@@ -24,7 +26,7 @@ type Props = {
  * units and its "no data" class explicitly.
  */
 export default function Legend({
-  breaks, metric, options, active, areasWithData, totalAreas, population,
+  breaks, metric, options, active, areasWithData, totalAreas, population, crime,
 }: Props) {
   const rows: React.ReactNode[] = []
 
@@ -33,25 +35,48 @@ export default function Legend({
     const pm = population!.meta as any
     rows.push(
       <div key="population">
-        <div className="mb-1.5 pixel text-[7.5px] leading-[1.7] text-nes-coin">
+        <div className="mb-1.5 pixel text-[10px] leading-snug text-nes-coin">
           {pm?.label ?? 'Population'}
         </div>
-        <div className="flex h-3 overflow-hidden border-2 border-black">
+        <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
           {rampOf(pb.stops.length, SEQUENTIAL).map((c, i) => (
             <div key={i} className="flex-1" style={{ background: c }} />
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-nes-ink3">
+        <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
           <span>under {byFormat(pb.stops[1], pm?.format)}</span>
           <span>{byFormat(pb.stops[pb.stops.length - 1], pm?.format)}+</span>
         </div>
         <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-nes-ink3">
-          <span className="h-3 w-3 border-2 border-black" style={{ background: NO_DATA }} />
+          <span className="h-3 w-3 border border-white/10" style={{ background: NO_DATA }} />
           No data / no residents
         </div>
       </div>,
     )
   }
+  const cb = crime?.breaks
+  if (active.includes('crime') && cb && cb.stops.length > 1) {
+    rows.push(
+      <div key="crime">
+        <div className="mb-1.5 pixel text-[10px] leading-snug text-nes-coin">
+          {(crime?.meta as any)?.label ?? 'Crime complaints'}
+        </div>
+        <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
+          {rampOf(cb.stops.length, SEQUENTIAL).map((c, i) => (
+            <div key={i} className="flex-1" style={{ background: c }} />
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
+          <span>under {byFormat(cb.stops[0], 'int')}</span>
+          <span>{byFormat(cb.stops[cb.stops.length - 1], 'int')}+</span>
+        </div>
+        <p className="mt-1 text-[11.5px] leading-snug text-nes-ink3">
+          Reported to the NYPD this year, by precinct
+        </p>
+      </div>,
+    )
+  }
+
   const meta = options?.metrics?.[metric]
   const fmt = meta?.format ?? 'usd'
 
@@ -68,7 +93,7 @@ export default function Legend({
             count won't share a 236px row — the count goes underneath rather
             than wrapping the title mid-phrase. */}
         <div className="mb-1.5">
-          <div className="pixel text-[7.5px] leading-[1.7] text-nes-coin">
+          <div className="pixel text-[10px] leading-snug text-nes-coin">
             {meta?.label ?? metric}
           </div>
           {areasWithData !== undefined && totalAreas !== undefined && (
@@ -77,12 +102,12 @@ export default function Legend({
             </div>
           )}
         </div>
-        <div className="flex h-3 overflow-hidden border-2 border-black">
+        <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
           {colors.map((c, i) => (
             <div key={i} className="flex-1" style={{ background: c }} />
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-nes-ink3">
+        <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
           <span>{labels[0]}</span>
           {labels.length > 2 && <span>{labels[Math.floor(labels.length / 2)]}</span>}
           <span>
@@ -90,11 +115,11 @@ export default function Legend({
           </span>
         </div>
         <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-nes-ink3">
-          <span className="h-3 w-3 border-2 border-black" style={{ background: NO_DATA }} />
+          <span className="h-3 w-3 border border-white/10" style={{ background: NO_DATA }} />
           No qualifying sales
         </div>
         {diverging && breaks.true_min !== undefined && (
-          <p className="mt-1 text-[9.5px] leading-snug text-nes-ink3">
+          <p className="mt-1 text-[11.5px] leading-snug text-nes-ink3">
             Scale clipped to the middle 90% ({breaks.true_min?.toFixed(0)}% to
             {' '}+{breaks.true_max?.toFixed(0)}% in full); thin-volume areas sit
             past the ends.
@@ -107,12 +132,12 @@ export default function Legend({
   if (active.includes('sales')) {
     rows.push(
       <Row key="sales" title="Sale price">
-        <div className="flex h-3 overflow-hidden border-2 border-black">
+        <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
           {rampOf(SALE_BREAKS.length, SEQUENTIAL).map((c, i) => (
             <div key={i} className="flex-1" style={{ background: c }} />
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[9.5px] tabular-nums text-nes-ink3">
+        <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
           <span>$0</span><span>$1M</span><span>$5M+</span>
         </div>
       </Row>,
@@ -125,13 +150,13 @@ export default function Legend({
         <div className="flex items-center gap-1">
           {[1, 2, 3, 4, 5, 6].map((z) => (
             <div key={z} className="flex flex-1 flex-col items-center gap-0.5">
-              <span className="h-3 w-full border-2 border-black"
+              <span className="h-3 w-full border border-white/10"
                     style={{ background: ZONE_COLOR[z] }} />
-              <span className="text-[9px] tabular-nums text-nes-ink3">{z}</span>
+              <span className="text-[11px] tabular-nums text-nes-ink3">{z}</span>
             </div>
           ))}
         </div>
-        <p className="mt-1 text-[9.5px] text-nes-ink3">Zone 1 evacuates first</p>
+        <p className="mt-1 text-[11.5px] text-nes-ink3">Zone 1 evacuates first</p>
       </Row>,
     )
   }
@@ -148,9 +173,21 @@ export default function Legend({
             </li>
           ))}
         </ul>
-        <p className="mt-1 text-[9.5px] leading-snug text-nes-ink3">
+        <p className="mt-1 text-[11.5px] leading-snug text-nes-ink3">
           Highway and arterial sensors only — local streets have no detector.
         </p>
+      </Row>,
+    )
+  }
+
+  if (active.includes('shootings')) {
+    rows.push(
+      <Row key="shootings" title="Shootings">
+        <div className="flex h-3 overflow-hidden rounded-md border border-white/10"
+             style={{ background: 'linear-gradient(90deg,#3b2a80,#7d2b6b,#b83c3c,#d95926,#eda100)' }} />
+        <div className="mt-1 flex justify-between text-[11.5px] text-nes-ink3">
+          <span>fewer</span><span>more incidents, 3 years</span>
+        </div>
       </Row>,
     )
   }
@@ -158,9 +195,9 @@ export default function Legend({
   if (active.includes('collisions')) {
     rows.push(
       <Row key="collisions" title="Traffic injuries">
-        <div className="flex h-3 overflow-hidden border-2 border-black"
+        <div className="flex h-3 overflow-hidden rounded-md border border-white/10"
              style={{ background: 'linear-gradient(90deg,#3b2a80,#7d2b6b,#b83c3c,#d95926,#eda100)' }} />
-        <div className="mt-1 flex justify-between text-[9.5px] text-nes-ink3">
+        <div className="mt-1 flex justify-between text-[11.5px] text-nes-ink3">
           <span>fewer</span><span>more crashes</span>
         </div>
       </Row>,
@@ -191,7 +228,7 @@ export default function Legend({
                 style={{ background: LAYER_COLOR[id] }}
               />
               <span>{label}</span>
-              {hint && <span className="text-[9.5px] text-nes-ink3">· {hint}</span>}
+              {hint && <span className="text-[11.5px] text-nes-ink3">· {hint}</span>}
             </li>
           ))}
         </ul>
@@ -220,9 +257,9 @@ export default function Legend({
 
 /** Layers that put a row in the key, besides the choropleth. */
 const ENCODED = [
-  'sales', 'evacuation_zones', 'collisions', 'subway_ridership',
-  'affordable_housing', 'subway_stations', 'bike_routes', 'parks', 'subway_lines',
-  'traffic_speeds', 'traffic_volume',
+  'sales', 'evacuation_zones', 'collisions', 'shootings', 'crime',
+  'subway_ridership', 'affordable_housing', 'subway_stations', 'bike_routes',
+  'parks', 'subway_lines', 'traffic_speeds', 'traffic_volume',
 ]
 
 /**
@@ -238,7 +275,7 @@ export function hasLegend(active: string[], breaks: Breaks | null): boolean {
 function Row({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      {title && <div className="mb-1 pixel text-[7.5px] text-nes-coin">{title}</div>}
+      {title && <div className="mb-1 pixel text-[10px] text-nes-coin">{title}</div>}
       {children}
     </div>
   )

@@ -50,10 +50,10 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
     // stays visible above it.
     <aside className="blk pointer-events-auto flex max-h-[62dvh] w-full flex-col overflow-hidden
                       md:max-h-[calc(100dvh-104px)] md:w-[292px]">
-      <header className="relative flex items-start gap-2 border-b-[3px] border-black bg-black/40 py-2.5 pl-4 pr-2.5">
-        <span className="brick brick-strip absolute inset-y-0 left-0 w-2.5" aria-hidden />
+      <header className="relative flex items-start gap-2 border-b border-white/10 bg-black/40 py-2.5 pl-4 pr-2.5">
+        <span className="accent-bar absolute inset-y-1.5 left-0 w-[3px]" aria-hidden />
         <div className="min-w-0 flex-1">
-          <div className="pixel truncate text-[7px] leading-none text-nes-coin">
+          <div className="pixel truncate text-[10px] leading-none text-nes-coin">
             {def?.title ?? selection.layerId}
           </div>
           <h2 className="mt-1.5 truncate text-[14px] font-medium text-white">
@@ -62,14 +62,9 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
         </div>
         <button onClick={onClose} aria-label="Close"
                 className="tap -m-1.5 grid shrink-0 place-items-center p-1.5 text-nes-ink3 hover:text-nes-red">
-          <svg width="14" height="14" viewBox="0 0 14 14" shapeRendering="crispEdges"
-               fill="currentColor">
-            {/* a whole-pixel X */}
-            <rect x="2" y="2" width="2" height="2" /><rect x="4" y="4" width="2" height="2" />
-            <rect x="6" y="6" width="2" height="2" /><rect x="8" y="4" width="2" height="2" />
-            <rect x="10" y="2" width="2" height="2" /><rect x="8" y="8" width="2" height="2" />
-            <rect x="10" y="10" width="2" height="2" /><rect x="4" y="8" width="2" height="2" />
-            <rect x="2" y="10" width="2" height="2" />
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+            <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6"
+                  strokeLinecap="round" />
           </svg>
         </button>
       </header>
@@ -98,7 +93,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
                     sales, so those rows are excluded.
                   </p>
                 )}
-                <div className="border-t-2 border-black pt-2.5">
+                <div className="border-t border-white/10 pt-2.5">
                   {trendFor === p.area && trend === null && (
                     <p className="text-[11px] text-nes-ink3">Loading history…</p>
                   )}
@@ -269,7 +264,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
               <Stat label="Busiest hour"
                     value={hourLabel(Number(p.peak_hour))} big tone="bad" />
             </div>
-            <div className="border-t-2 border-black pt-2.5">
+            <div className="border-t border-white/10 pt-2.5">
               <HourChart
                 profile={profileOf(p.profile)}
                 peakHour={Number(p.peak_hour)}
@@ -333,7 +328,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
       </div>
 
       {def && (
-        <footer className="border-t-2 border-black px-3.5 py-2
+        <footer className="border-t border-white/10 px-3.5 py-2
                            pb-[max(0.5rem,env(safe-area-inset-bottom))] md:pb-2">
           <a href={def.source.url} target="_blank" rel="noreferrer"
              className="inline-block py-1 text-[10.5px] text-nes-sky hover:underline">
@@ -428,10 +423,10 @@ function Stat({ label, value, big, tone }: {
   label: string; value: string; big?: boolean; tone?: 'good' | 'bad'
 }) {
   // Luigi green and Mario red — the same up/down pair the rest of the HUD uses.
-  const color = tone === 'good' ? '#43b047' : tone === 'bad' ? '#e52521' : '#ffffff'
+  const color = tone === 'good' ? '#3fb68b' : tone === 'bad' ? '#f0564a' : '#ffffff'
   return (
-    <div className="border-2 border-black bg-black/40 px-2.5 py-2">
-      <div className="pixel text-[6.5px] leading-[1.8] text-nes-ink3">{label}</div>
+    <div className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-2">
+      <div className="pixel text-[11.5px] leading-snug text-nes-ink3">{label}</div>
       <div className={`${big ? 'text-[16px]' : 'text-[13px]'} font-medium tabular-nums`}
            style={{ color }}>
         {value}

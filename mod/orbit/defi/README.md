@@ -26,17 +26,33 @@ API `:50500` (`/api/defi`) · console `/defi` (`:50501`) · MCP `POST /mcp`
 
 **The hub.** The console opens on the question most people actually arrive
 with: *which protocols are legitimate enough to put dollars into, and where do
-they run?* `/hub` is a hand-vetted shortlist — Aave V3, Morpho, Sky, Spark,
-Compound V3, Maple, Fluid, Ethena, Kamino, Save, Curve — each chosen for a
-multi-year track record or over $1b deposited, a named team, public audits and a
-plain-stablecoin way in. The names, tiers (`core` · `established` · `frontier`),
-credentials and risks are written by hand in `src/api/hub.json`; every number
-beside them is DefiLlama's, joined at request time. Each card lists every chain
-the index sees the protocol on, deepest first — Ethereum, Base and Solana marked
-as this desk's own (enterable when an adapter exists), the rest honestly
-read-only. Curated is not certified: what can go wrong sits beside why it is
-here on every card. PUT USD IN hands the pick to the MODULES room with the pool
-already open.
+they run?* `/hub` is a hand-vetted list of 28 — the lenders (Aave V3, Morpho,
+Sky, Spark, Compound V3, Maple, Fluid, Kamino, Save, Jupiter Lend, JustLend,
+Venus), the LPs (Curve, Uniswap, Orca, Convex), fixed yield (Pendle), vault
+aggregation (Yearn), stable issuers (Ethena, Frax, Usual), and the tokenized-
+treasury wing (BlackRock BUIDL, Circle USYC, Ondo, Centrifuge — KYC-gated and
+saying so on their cards) — each chosen for a multi-year track record or over
+$1b deposited, a named team, public audits and a plain-stablecoin way in. The
+names, tiers (`core` · `established` · `frontier`), credentials and risks are
+written by hand in `src/api/hub.json`; every number beside them is DefiLlama's,
+joined at request time. Each card lists every chain the index sees the protocol
+on, deepest first — Ethereum, Base and Solana marked as this desk's own
+(enterable when an adapter exists), the rest honestly read-only — and carries an
+**observed APR band**: the lower and upper bound the record itself supports
+(lifetime mean ± 2σ of each pool's daily APY, widened to cover today's rate),
+at every level — per pool, per chain, per protocol. Curated is not certified:
+what can go wrong sits beside why it is here on every card, and every finance
+module row carries its own `risks` list — the curated card's written risks plus
+whatever its own numbers add (emissions share, impermanent loss, outlier flags,
+thinness). PUT USD IN hands the pick to the MODULES room with the pool already
+open.
+
+**The registry door.** `POST /registry` lets anyone register their own module
+with a *claimed* APR band (`apr_lower`/`apr_upper`); vetting then judges the
+claim against the index's own daily record — how often the observed rate
+actually sat inside the claimed band, with the honest p5–p95 band reported
+back — blends in an agent second opinion (clamped ±20 so it can adjust, never
+overturn), and the verdict rides on `/modules` next to the live rate.
 
 **The composer.** A lending market, a yield vault and a liquidity mine are not
 monoliths — they are the same handful of parts wired differently. So the parts
@@ -71,6 +87,17 @@ go?* You pick a row, say how much and for how many weeks, and the choice becomes
 an allocation. Locking it is a real transaction against a real contract — the
 `treasury` block, `ModBlocTimeTreasury` — which pays out every Friday 12:00 EST
 and splits each payout across BLOC holders in proportion to what they hold.
+
+**The strats desk.** The fleet's trading strategies, unified: the strats
+shipped inside the polymarket, hyperliquid and copytensor (bittensor)
+modules are bridged unchanged onto the ONE canonical Strat protocol owned by
+`orbit/strat`, and this console's STRATS room is that registry's face —
+every strategy listed as `<module>.<strat>` beside the builtins, verified
+against the protocol contract, backtested on its own native model in its own
+currency, and reducible to a *plan*: the exact config its venue module's own
+live engine consumes. defi shells to the strat module's CLI (`/strats`,
+`/strats/board`, `/strats/sources`, `/strats/backtest`, `/strats/plan`) and
+never re-implements it; nothing on this desk signs or starts a live session.
 
 ## The point: it is a client, not a chain stack
 

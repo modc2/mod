@@ -22,6 +22,8 @@ bt.server — HTTP surface for the bt module on one port (:50280).
   POST /api/tx/submit   {id, signature} -> verified, broadcast, included
   GET  /api/tx          what this console has signed (?address=)
   GET  /api/blocks      the daily block ledger + daily-candle coverage
+  *    /ct/*         the copytensor submod (vendored at copytensor/) — its
+                    whole API proxied off :50150, e.g. /ct/status, /ct/mcp
 
 Run:  python3 -m bt.server   (or pm2: bt-app)
 """
@@ -31,9 +33,11 @@ import json
 import os
 import time
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.background import BackgroundTask
 
 from . import agent, blocks, chats, history, news, tools, traders, trades, tx
 from .mcp_server import PROTOCOL_VERSION, PROTOCOL_VERSIONS, SERVER_INFO
@@ -389,6 +393,40 @@ def mcp_get(request: Request):
         return console('mcp')
     return JSONResponse(status_code=405, content={
         'error': 'POST JSON-RPC here (MCP streamable HTTP); SSE stream not offered'})
+
+
+# ------------------------------------------------------- submod: copytensor
+#
+# copytensor/ is the copytensor module vendored into bt as a SUBMOD: it keeps
+# its own processes (pm2 copytensor-api :50150, copytensor-app :3150) running
+# out of this module's copytensor/ directory, and bt declares it in
+# config.json "submods". This proxy puts the whole submod API on bt's own
+# port — /ct/status here == :50150/status — so {host}/bt/ct/* works wherever
+# bt is routed. The public {host}/copytensor routes are pinned by a caddy
+# override (~/.mod/caddy/overrides.json) because auto-discovery only scans
+# top-level module dirs.
+
+CT_URL = os.environ.get('BT_CT_URL', 'http://127.0.0.1:50150')
+# 620s: the submod's ct_sync (whole-portfolio chain pass) allows itself 600s.
+_ct = httpx.AsyncClient(base_url=CT_URL, timeout=httpx.Timeout(620.0, connect=5.0))
+_CT_HOP = {'host', 'content-length', 'transfer-encoding', 'connection'}
+
+
+@app.api_route('/ct', methods=['GET'])
+@app.api_route('/ct/{path:path}', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+async def ct_proxy(request: Request, path: str = ''):
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in _CT_HOP}
+    try:
+        req = _ct.build_request(request.method, '/' + path,
+                                params=dict(request.query_params),
+                                headers=headers, content=await request.body())
+        r = await _ct.send(req, stream=True)
+    except httpx.HTTPError as e:
+        return JSONResponse(status_code=502, content={
+            'ok': False, 'error': f'copytensor submod unreachable: {e}'})
+    out = {k: v for k, v in r.headers.items() if k.lower() not in _CT_HOP}
+    return StreamingResponse(r.aiter_raw(), status_code=r.status_code,
+                             headers=out, background=BackgroundTask(r.aclose))
 
 
 # ------------------------------------------------------------------- app

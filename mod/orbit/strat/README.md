@@ -39,6 +39,15 @@ protocol by adapters. **No code in those modules is changed.** Each module's
 `backtest()` run unchanged, and a per-source codec translates the types
 (`token_id` / `coin` / `netuid`, `wallet_usdc` / `wallet_tao`, trade extras).
 
+Source discovery is **submod-aware**: a module may live inside another
+(`copytensor` is a submod of bt at `orbit/bt/copytensor`), and both the
+package loader and the peer-URL discovery resolve `orbit/<mod>` first, then
+one level of `orbit/*/<mod>/config.json`. The `orbit/defi` module fronts this
+registry on its API and console (`/strats`, `defi_strat_*` MCP tools, the
+STRATS room) over `python3 mod.py <fn> key=value` — the CLI at the bottom of
+mod.py, which prints one JSON document and reads a forwarded bearer from
+`STRAT_CLI_TOKEN` (environment, never argv).
+
 | source | venue | strats (named `<module>.<strat>`) | native backtest |
 |---|---|---|---|
 | polymarket | polymarket | copytrader, example_ev_strat | FIFO, 2% fee + gas |

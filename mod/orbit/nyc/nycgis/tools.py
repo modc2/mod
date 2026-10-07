@@ -26,6 +26,8 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from . import catalog as CAT
+from . import citydata as CD
 from . import layers as L
 from . import prices as P
 from . import scene as SC
@@ -153,9 +155,21 @@ def _sales_table(since: str = '2025-01-01', until: Optional[str] = None,
 # ─────────────────────────────────────────────────────────────────────────────
 
 def find_datasets(q: str, domain: str = 'nyc', limit: int = 15) -> dict:
-    """Search the full open-data catalogue for datasets matching ``q``."""
+    """
+    Search the full open-data catalogue for datasets matching ``q``.
+
+    If the full catalog has been harvested to disk (``nyc_catalog``,
+    ``nycgis.catalog``), the search runs locally over the WHOLE corpus —
+    fast, offline-capable, and ranked so name hits beat description hits.
+    With no harvest on disk it falls back to the live Discovery API rather
+    than blocking a first search on a ~35s crawl.
+    """
     dom = _domain(domain)
     limit = max(1, min(int(limit), 50))
+
+    local = CAT.search_local(q, dom, limit=limit)
+    if local is not None:
+        return local
 
     def fetch():
         import requests
@@ -181,6 +195,16 @@ def find_datasets(q: str, domain: str = 'nyc', limit: int = 15) -> dict:
                 'datasets': hits}
 
     return S.cached(f'catalog-{dom}-{str(q).lower()}-{limit}', S.DAY, fetch)
+
+
+def catalog_tool(domain: str = 'nyc', category: str = '',
+                 refresh: bool = False, limit: int = 25) -> dict:
+    """Catalog stats, or one category browsed; refresh re-harvests first."""
+    if refresh:
+        CAT.harvest(domain, refresh=True)
+    if str(category or '').strip():
+        return CAT.browse(domain, category, limit)
+    return CAT.stats(domain)
 
 
 def dataset_meta(id: str, domain: str = 'nyc') -> dict:
@@ -240,6 +264,17 @@ TITLES = {
     'nyc_homes': 'Find affordable homes',
     'nyc_affordable': 'Affordable housing built',
     'nyc_traffic': 'Traffic speeds and when to drive',
+    'nyc_crime': 'Crime and shootings',
+    'nyc_collisions': 'Vehicle collisions and injuries',
+    'nyc_311': '311 complaints',
+    'nyc_restaurants': 'Restaurant inspections and grades',
+    'nyc_trees': 'Street trees',
+    'nyc_air': 'Air quality by neighborhood',
+    'nyc_evictions': 'Marshal evictions',
+    'nyc_permits': 'Building permits',
+    'nyc_news': 'NYC news right now',
+    'nyc_market': 'The listing market (asking prices and rents)',
+    'nyc_catalog': 'The whole data catalog',
     'nyc_dataset': 'Describe a dataset',
     'nyc_query': 'Query any dataset (SoQL)',
     'nyc_map': 'Change the map on screen',
@@ -422,6 +457,132 @@ TOOLS: List[Tool] = [
              get_nyc().traffic(street=street, borough=borough,
                                hour=hour, limit=limit)),
 
+    # ── safety ───────────────────────────────────────────────────────────
+    Tool('nyc_crime',
+         'Public safety from NYPD open data: complaints and shootings this '
+         'year vs the same window last year, by borough and precinct, top '
+         'offense types, and a 3-year monthly trend. `part`: summary '
+         '(default), boroughs, offenses, trend, or precincts (GeoJSON — '
+         'large; prefer the others for answering questions). OR pass any of '
+         'offense / borough / severity / since / until / group_by for a '
+         'custom count instead (e.g. offense="robbery", borough="brooklyn", '
+         'since="2023-01-01", group_by="borough") — the window is stitched '
+         'across the historic and current-year files automatically.',
+         'safety',
+         {'part': _p('string', 'summary, boroughs, offenses, trend or precincts',
+                     'summary'),
+          'limit': _p('integer', 'Offense types / groups returned', 15),
+          'offense': _p('string', 'Offense substring, e.g. "robbery", "assault"'),
+          'borough': _p('string', 'Borough name, e.g. "brooklyn"'),
+          'severity': _p('string', 'felony, misdemeanor or violation'),
+          'since': _p('string', 'Window start, YYYY-MM-DD (custom count)'),
+          'until': _p('string', 'Window end, YYYY-MM-DD (custom count)'),
+          'group_by': _p('string', 'offense, borough, severity or precinct')},
+         lambda part='summary', limit=15, offense='', borough='', severity='',
+                since='', until='', group_by='':
+             (CD.crime(offense=offense, borough=borough, severity=severity,
+                       since=since, until=until,
+                       group_by=group_by or 'offense', limit=limit)
+              if (offense or borough or severity or since or until or group_by)
+              else get_nyc().crime(part=part, limit=limit))),
+    Tool('nyc_collisions',
+         'Motor-vehicle crashes, injuries and deaths (NYPD collision file, '
+         '~2.3M crashes since 2012, citywide ~150 reported crashes/day). Counts by '
+         'borough, year, or street — group_by="street" is the worst-streets '
+         'ranking, ordered by people injured. Window defaults to the last '
+         '365 days. Example: borough="queens", group_by="street", limit=10.',
+         'safety',
+         {'borough': _p('string', 'Borough name'),
+          'street': _p('string', 'Street-name substring, e.g. "atlantic av"'),
+          'since': _p('string', 'Window start, YYYY-MM-DD (default 1 year ago)'),
+          'until': _p('string', 'Window end, YYYY-MM-DD'),
+          'group_by': _p('string', 'borough, street or year', 'borough'),
+          'limit': _p('integer', 'Max groups returned', 25)},
+         CD.collisions),
+
+    # ── city life: 311, restaurants, trees, air ─────────────────────────
+    Tool('nyc_311',
+         '311 service requests (noise, heat, rats, parking…, ~39M rows, '
+         'tens of thousands of new complaints a day). Counts grouped by '
+         'complaint type, borough, ZIP, agency or status over a date window '
+         '(default: last 30 days), or recent=true for the newest matching '
+         'individual complaints (≤50). Examples: complaint="noise" '
+         'group_by="zip"; complaint="rodent" borough="bronx" recent=true.',
+         'city_life',
+         {'complaint': _p('string', 'Complaint-type substring, e.g. "noise", "rodent"'),
+          'borough': _p('string', 'Borough name'),
+          'since': _p('string', 'Window start, YYYY-MM-DD (default 30 days ago)'),
+          'until': _p('string', 'Window end, YYYY-MM-DD'),
+          'group_by': _p('string', 'type, borough, zip, agency or status', 'type'),
+          'limit': _p('integer', 'Max groups (or complaints if recent)', 25),
+          'recent': _p('boolean', 'List newest individual complaints instead')},
+         CD.complaints_311),
+    Tool('nyc_restaurants',
+         'DOHMH restaurant inspections. Search by name / cuisine / borough — '
+         'one row per restaurant with its LATEST grade, score (lower is '
+         'better: 0-13=A) and inspection date. mode="grades" returns the '
+         'grade distribution (distinct restaurants) for the same filters. '
+         'Example: cuisine="pizza", borough="brooklyn", grade="A".',
+         'city_life',
+         {'name': _p('string', 'Restaurant-name substring'),
+          'cuisine': _p('string', 'Cuisine substring, e.g. "pizza", "thai"'),
+          'borough': _p('string', 'Borough name'),
+          'grade': _p('string', 'A, B, C, N, Z or P'),
+          'mode': _p('string', '"search" (restaurants) or "grades" (distribution)',
+                     'search'),
+          'limit': _p('integer', 'Max restaurants returned', 20)},
+         CD.restaurants),
+    Tool('nyc_trees',
+         'NYC street trees: species, health and borough counts from the '
+         '2015 Street Tree Census (683,788 trees — the last file with '
+         'common names + health + borough per tree), or source="living" '
+         'for the Parks living inventory (1.1M points, updated daily, '
+         'Latin names + condition only). Examples: group_by="species" '
+         'borough="queens"; species="oak" group_by="health".',
+         'city_life',
+         {'species': _p('string', 'Species substring, e.g. "oak", "london planetree"'),
+          'borough': _p('string', 'Borough name (census source only)'),
+          'group_by': _p('string', 'species, health, borough or status', 'species'),
+          'source': _p('string', '"census" (2015, rich) or "living" (current, coarse)',
+                       'census'),
+          'limit': _p('integer', 'Max groups returned', 25)},
+         CD.trees),
+    Tool('nyc_air',
+         'DOHMH neighborhood air quality. With no arguments: every available '
+         'measure (PM 2.5, ozone, NO2, benzene, asthma attributable to PM…). '
+         'With measure="PM 2.5": the latest surveillance period\'s value for '
+         'every neighborhood, worst first. place filters to one area.',
+         'city_life',
+         {'measure': _p('string', 'Measure substring, e.g. "PM 2.5", "ozone"'),
+          'place': _p('string', 'Neighborhood/borough substring, e.g. "bushwick"'),
+          'limit': _p('integer', 'Max places returned', 50)},
+         CD.air),
+
+    # ── news ─────────────────────────────────────────────────────────────
+    Tool('nyc_news',
+         'New York City news right now, from key-free newsroom feeds '
+         '(Gothamist, THE CITY, NYT Metro), newest first with topic tags. '
+         'Pass `topic` to filter (housing, crime, transit, government) or '
+         '`q` to search wider coverage of any NYC subject (GDELT).',
+         'news',
+         {'topic': _p('string', 'housing, crime, transit or government'),
+          'q': _p('string', 'Search query (uses GDELT instead of the feeds)'),
+          'limit': _p('integer', 'Max stories', 25)},
+         lambda topic='', q='', limit=25:
+             get_nyc().news(topic=topic, q=q, limit=limit)),
+
+    # ── the listing market ───────────────────────────────────────────────
+    Tool('nyc_market',
+         'The real-estate listing market (what is ASKED, vs nyc_prices which '
+         'is what SOLD): median asking rent, asking price and rental '
+         'inventory with year-over-year change for the city and each '
+         'borough, the neighborhoods where rents are moving fastest, and '
+         'Zillow\'s NY-metro home-value and rent indices. Pass `area` for '
+         'one neighborhood\'s levels and 10-year monthly history.',
+         'housing',
+         {'area': _p('string', 'Neighborhood name, e.g. "Astoria"')},
+         lambda area='': get_nyc().market(area=area)),
+
     # ── affordable homes ─────────────────────────────────────────────────
     Tool('nyc_rents',
          'What affordable housing costs to rent in NYC: median, lowest and '
@@ -446,12 +607,53 @@ TOOLS: List[Tool] = [
          'borough — including the units HPD publishes with the address '
          'redacted, which the map cannot draw.',
          'housing', {}, lambda: get_nyc().affordable()),
+    Tool('nyc_evictions',
+         'Evictions executed by city marshals (2017–present, ~135k), by '
+         'year or borough, each row split residential vs commercial. '
+         'kind="residential" narrows to homes. Example: borough="bronx" '
+         'group_by="year" since="2022-01-01".',
+         'housing',
+         {'borough': _p('string', 'Borough name'),
+          'since': _p('string', 'Window start, YYYY-MM-DD (file starts 2017)'),
+          'until': _p('string', 'Window end, YYYY-MM-DD'),
+          'group_by': _p('string', '"year" or "borough"', 'year'),
+          'kind': _p('string', '"residential" or "commercial"')},
+         CD.evictions),
+    Tool('nyc_permits',
+         'Construction permits from DOB NOW (the live permitting system, '
+         '~2016-present, ~160k permits/year). Counts by year, borough, '
+         'work type (plumbing, electrical, general construction…) or '
+         'busiest street. Example: borough="manhattan" group_by="type" '
+         'since="2026-01-01".',
+         'housing',
+         {'borough': _p('string', 'Borough name'),
+          'work_type': _p('string', 'Work-type substring, e.g. "plumbing"'),
+          'since': _p('string', 'Window start, YYYY-MM-DD'),
+          'until': _p('string', 'Window end, YYYY-MM-DD'),
+          'group_by': _p('string', 'year, borough, type or street', 'year'),
+          'limit': _p('integer', 'Max groups returned', 25)},
+         CD.permits),
 
     # ── the whole open-data portal ───────────────────────────────────────
+    Tool('nyc_catalog',
+         'The harvested catalog of EVERY dataset on NYC Open Data (~2,400) '
+         'or NY State Open Data (~1,000): counts by category and freshness, '
+         'or pass category="Health" to browse one category newest-first. '
+         'refresh=true re-harvests the whole catalog from the Discovery API '
+         '(~30s; otherwise cached 7 days). Once harvested, '
+         'nyc_find_datasets searches this catalog offline.',
+         'open_data',
+         {'domain': _p('string', '"nyc" (city) or "nys" (state/MTA)', 'nyc'),
+          'category': _p('string', 'Browse one category, e.g. "Transportation"'),
+          'refresh': _p('boolean', 'Force a fresh harvest of the full catalog'),
+          'limit': _p('integer', 'Max datasets when browsing a category', 25)},
+         catalog_tool),
     Tool('nyc_find_datasets',
          'Search ALL of NYC Open Data (or NY State) for datasets on any '
          'topic — crime, 311, schools, health, budgets, permits, anything. '
-         'Returns dataset ids for nyc_dataset / nyc_query.',
+         'Returns dataset ids for nyc_dataset / nyc_query. Runs offline '
+         'over the harvested catalog when one exists (see nyc_catalog), '
+         'ranked name-first; otherwise the live Discovery API.',
          'open_data',
          {'q': _p('string', 'Topic to search for', required=True),
           'domain': _p('string', '"nyc" (city) or "nys" (state/MTA)', 'nyc'),

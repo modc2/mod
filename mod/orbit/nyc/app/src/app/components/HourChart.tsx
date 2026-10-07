@@ -38,7 +38,7 @@ export default function HourChart({
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
-        <span className="pixel text-[6.5px] leading-[1.8] text-nes-ink3">
+        <span className="pixel text-[11.5px] leading-snug text-nes-ink3">
           VEHICLES PER HOUR
         </span>
         <span className="text-[10px] tabular-nums text-nes-ink3">
@@ -76,7 +76,7 @@ export default function HourChart({
             coincide with the peak or calm bar without hiding either. */}
         {now !== undefined && (
           <rect x={now * bw + bw / 2 - 1} y={H - PB + 1} width="2" height="3"
-                fill="#fbd000" />
+                fill="#e8b64c" />
         )}
 
         <line x1="0" y1={H - PB} x2={W} y2={H - PB} stroke="#000000" strokeWidth="1" />

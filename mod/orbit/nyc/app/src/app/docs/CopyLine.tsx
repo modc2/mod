@@ -26,11 +26,11 @@ export default function CopyLine({ cmd, label }: { cmd: string; label?: string }
   return (
     <div>
       {label && (
-        <p className="pixel mb-2 text-[7.5px] leading-[2] text-nes-ink3">{label}</p>
+        <p className="pixel mb-2 text-[10px] leading-relaxed text-nes-ink3">{label}</p>
       )}
       <div className="flex items-stretch gap-2">
         <code
-          className="min-w-0 flex-1 overflow-x-auto whitespace-pre border-[3px] border-black
+          className="min-w-0 flex-1 overflow-x-auto whitespace-pre border border-white/10
                      bg-black px-3 py-2.5 text-[12.5px] leading-relaxed text-nes-coin"
         >
           {cmd}
@@ -38,7 +38,7 @@ export default function CopyLine({ cmd, label }: { cmd: string; label?: string }
         <button
           onClick={copy}
           aria-label={`Copy: ${cmd}`}
-          className={`btn pixel tap shrink-0 px-3 text-[7.5px] ${copied ? 'btn-on' : ''}`}
+          className={`btn pixel tap shrink-0 px-3 text-[10px] ${copied ? 'btn-on' : ''}`}
         >
           {copied ? 'OK' : 'COPY'}
         </button>

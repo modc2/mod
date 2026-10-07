@@ -60,7 +60,7 @@ export default function HousingControls({ options, query, onChange, busy }: Prop
             <button
               key={w.since}
               onClick={() => onChange({ since: w.since })}
-              className={`btn pixel px-1 py-2 text-[7.5px] ${
+              className={`btn pixel px-1 py-2 text-[10px] ${
                 query.since === w.since ? 'btn-on' : ''
               }`}
             >
@@ -71,7 +71,7 @@ export default function HousingControls({ options, query, onChange, busy }: Prop
       </Field>
 
       {query.metric === 'price_change' && win && (
-        <p className="border-2 border-black bg-black/40 px-2.5 py-2 text-[11px] leading-snug text-nes-ink3">
+        <p className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-2 text-[11px] leading-snug text-nes-ink3">
           Comparing {win.label} against {win.hint}. Areas with fewer than 5
           sales on either side are left uncoloured.
         </p>
@@ -83,7 +83,7 @@ export default function HousingControls({ options, query, onChange, busy }: Prop
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="pixel mb-1.5 block text-[7px] leading-none text-nes-ink3">
+      <span className="pixel mb-1.5 block text-[10px] leading-none text-nes-ink3">
         {label}
       </span>
       {children}
@@ -101,21 +101,19 @@ export function Select({ value, onChange, items }: {
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full appearance-none border-2 border-black bg-nes-raised px-2.5 py-2 pr-8 text-[12.5px] text-white outline-none focus:bg-[#232d6e]"
+        className="w-full appearance-none rounded-lg border border-white/10 bg-nes-raised px-2.5 py-2 pr-8 text-[12.5px] text-white outline-none focus:border-white/25"
         style={{ boxShadow: 'inset 0 2px 0 rgba(0,0,0,.4), inset 0 -2px 0 rgba(255,255,255,.08)' }}
       >
         {items.map(([k, label]) => (
-          <option key={k} value={k} className="bg-[#0e1330] text-white">
+          <option key={k} value={k} className="bg-nes-panel text-white">
             {label}
           </option>
         ))}
       </select>
-      {/* A whole-pixel caret, to match the section arrows. */}
-      <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-nes-coin"
-           width="8" height="8" viewBox="0 0 8 8" shapeRendering="crispEdges" fill="currentColor">
-        <rect x="0" y="2" width="8" height="2" />
-        <rect x="1" y="4" width="6" height="2" />
-        <rect x="3" y="6" width="2" height="2" />
+      <svg className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-nes-ink3"
+           width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden>
+        <path d="M2 3.5l3 4 3-4" stroke="currentColor" strokeWidth="1.5"
+              strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </div>
   )

@@ -11,5 +11,18 @@
         "mcp": "http://localhost:50280/mcp"
     },
     "network": "finney",
+    "submods": {
+        "copytensor": {
+            "dir": "copytensor",
+            "description": "Bittensor dTAO copy trading, vendored into bt as a submod — own processes (pm2 copytensor-api/copytensor-app) run from this directory; API proxied at /ct/*; public /copytensor route pinned via caddy override",
+            "port": 50150,
+            "app_port": 3150,
+            "urls": {
+                "api": "http://localhost:50280/ct",
+                "app": "http://localhost:3150/copytensor",
+                "mcp": "http://localhost:50150/mcp"
+            }
+        }
+    },
     "schema": "QmU38PFaR25xLLMNSJi5fHbzgZeXUKbXR3cu4gSd33ZjQ8"
 }

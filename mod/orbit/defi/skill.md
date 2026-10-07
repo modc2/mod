@@ -11,14 +11,27 @@ API `:50500` (`/api/defi`) · console `/defi` · MCP `POST /mcp`
 
 **The hub** — "where can I safely park USD", "which lenders are legit", "is
 Aave on Base", "best stablecoin rate on a protocol I'd trust". `defi_hub` is a
-hand-vetted shortlist (Aave V3, Morpho, Sky, Spark, Compound V3, Maple, Fluid,
-Ethena, Kamino, Save, Curve) joined live with the index: tier, plain-language
-blurb, credentials, risks, and USD pools grouped per chain across every chain
-they run on, each chain flagged enterable-from-here or read-only.
+hand-vetted list of 28 protocols (lenders: Aave V3, Morpho, Sky, Spark,
+Compound V3, Maple, Fluid, Kamino, Save, Jupiter Lend, JustLend, Venus; LPs:
+Curve, Uniswap, Orca, Convex; Pendle fixed yield; Yearn vaults; issuers:
+Ethena, Frax, Usual; KYC-gated RWA: BlackRock BUIDL, Circle USYC, Ondo,
+Centrifuge) joined live with the index: tier, plain-language blurb,
+credentials, risks, USD pools grouped per chain, and an `apr_band` at every
+level — the observed lower/upper APR bound (lifetime mean ± 2σ of daily APY,
+widened to cover today's rate), per pool, per chain, per protocol.
 `defi_hub_protocol` opens one with every USD pool and its `module_id`, which is
 what `defi_module_quote` and `defi_enter` take. Start here, not at
 `defi_modules`, when the user's question is about trust rather than the whole
-market. Curated is not certified — relay the risks with the rate.
+market. Every `defi_modules` row also carries its OWN `risks` list (the curated
+card's written risks plus derived ones) and `returns.band`. Curated is not
+certified — relay the risks and the band with the rate.
+
+**The registry** — "list my protocol", "verify my APR claim". `POST /registry`
+(REST; signed-in) registers a module with a claimed `apr_lower`/`apr_upper`
+band; the desk vets the claim against up to a year of the index's daily record
+(coverage of the band, mean-in-band, current-in-band, plus depth/age/organic
+safety checks) and reports the observed p5–p95 band an honest registration
+would have claimed. Verdicts annotate `/modules` rows as `vetted`.
 
 **Composing** — "build me a vault that farms", "wire a lending market to an
 oracle", "what would this protocol cost to deploy", "type-check this graph".
@@ -199,6 +212,35 @@ never confirm-gated; open copied positions are sold/redeemed on the polymarket
 console, not by stopping. The whole polymarket deployment is owner-only: its
 access token (`auth=` or your bearer) opens the board and the engine, and
 anonymous callers see the gate stated honestly instead of stale numbers.
+
+## Strats: every venue under one protocol
+
+The STRATS desk is the unification of the fleet's trading strategies: the
+strats shipped **inside** the polymarket, hyperliquid and copytensor
+(bittensor — copytensor is a submod of bt, `orbit/bt/copytensor`) modules,
+bridged **unchanged** onto the canonical Strat protocol
+(`setup/sync/signal/execute/tick/backtest/teardown/state`) that `orbit/strat`
+owns, next to the builtins (`mirror`, `whale`, `momentum`) and orbit strat
+mods. defi fronts that registry — `GET /strats` et al. shell to the strat
+module's `mod.py` CLI, cached — it does not re-implement it.
+
+- `defi_strats` — the registry (`venue=` / `origin=builtin|orbit|bridge`
+  filters); bridged rows are named `<module>.<strat>`, e.g.
+  `copytensor.top_n`, `hyperliquid.whales`, `polymarket.copytrader`.
+- `defi_strat_sources` — unification health: each bridged package and its
+  schema `drift` (empty = the bridge maps every native field; a venue
+  module changing its strat schema shows up HERE first).
+- `defi_strats_board` — the cross-venue board with cached backtest perf.
+  **TAO rows and USDC rows are different currencies AND different native
+  backtest models (FIFO vs closed-PnL vs mark-to-market) — never compare
+  raw numbers across venues.**
+- `defi_strat_backtest {name}` — pure read; a self-selecting strat picks
+  its own leaders from its venue module's live board.
+- `defi_strat_plan {name}` — PURE DATA: the exact body that venue module's
+  own live engine consumes (hyperliquid `hl_live_start` needs `eoa=`;
+  copytensor copy rows need `hotkey=`; polymarket `/live/start` keeps
+  `autoExecute:false`). defi never signs and never starts — executing the
+  plan stays with that module and its gates.
 
 ## Browser wallets · whitepapers · the protocol store
 

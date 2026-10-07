@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mandamistan — how Mamdani fixes the New York housing crisis</title>
+<style>
+  /* Palette roles (dark mode selected, validated set) */
+  :root {
+    color-scheme: dark;
+    --page:        #0d0d0d;
+    --surface:     #1a1a19;
+    --ink:         #ffffff;
+    --ink-2:       #c3c2b7;
+    --muted:       #898781;
+    --grid:        #2c2c2a;
+    --baseline:    #383835;
+    --border:      rgba(255,255,255,0.10);
+    --plan:        #3987e5;   /* series 1: the plan */
+    --quo:         #d95926;   /* series 2: the status quo */
+    --aqua:        #199e70;   /* series 3 */
+    --good:        #0ca30c;
+    --critical:    #d03b3b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 20px 80px; }
+
+  /* hero */
+  header { padding: 64px 0 12px; }
+  .kicker { color: var(--plan); font-weight: 700; letter-spacing: .14em;
+            text-transform: uppercase; font-size: 12px; }
+  h1 { font-size: 42px; line-height: 1.12; margin: 10px 0 14px; max-width: 760px; }
+  .sub { color: var(--ink-2); max-width: 680px; font-size: 17px; }
+  .live { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px;
+          border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px;
+          font-size: 13px; color: var(--ink-2); background: var(--surface); }
+  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+               box-shadow: 0 0 8px var(--good); }
+  .live b { color: var(--ink); font-weight: 600; }
+
+  h2 { font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+       color: var(--muted); margin: 56px 0 6px; font-weight: 700; }
+  .lede { color: var(--ink-2); margin: 0 0 20px; max-width: 700px; }
+
+  /* stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--border);
+          border-radius: 12px; padding: 16px 18px; }
+  .tile .v { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .tile .v small { font-size: 16px; font-weight: 600; color: var(--ink-2); }
+  .tile .l { color: var(--ink-2); font-size: 13px; margin-top: 4px; }
+  .tile .n { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .tile.bad .v { color: var(--critical); }
+  .tile.good .v { color: var(--good); }
+
+  /* cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--border);
+          border-radius: 12px; padding: 18px; }
+  .card h3 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 10px; }
+  .glyph { width: 26px; height: 26px; border-radius: 7px; background: var(--plan);
+           color: #0d0d0d; display: inline-flex; align-items: center; justify-content: center;
+           font-weight: 800; font-size: 13px; flex: none; }
+  .card p { margin: 6px 0 0; color: var(--ink-2); font-size: 14px; }
+  .card p b { color: var(--ink); font-weight: 600; }
+  .badge { margin-left: auto; font-size: 11px; font-weight: 700; letter-spacing: .08em;
+           text-transform: uppercase; border-radius: 999px; padding: 3px 10px; flex: none; }
+  .badge.delivered { color: var(--good); border: 1px solid var(--good); }
+  .badge.in_progress { color: var(--ink-2); border: 1px solid var(--border); }
+
+  /* timeline */
+  .tl { border-left: 2px solid var(--baseline); margin: 8px 0 0 7px; padding: 4px 0 4px 22px; }
+  .tl .row { position: relative; padding: 7px 0; color: var(--ink-2); }
+  .tl .row b { color: var(--ink); font-weight: 600; margin-right: 10px;
+               font-variant-numeric: tabular-nums; }
+  .tl .row::before { content: ""; position: absolute; left: -29px; top: 15px;
+                     width: 10px; height: 10px; border-radius: 50%;
+                     background: var(--good); border: 2px solid var(--page); }
+  .tl .row.next::before { background: var(--surface); border: 2px solid var(--muted); }
+
+  /* charts */
+  .chart-card { background: var(--surface); border: 1px solid var(--border);
+                border-radius: 12px; padding: 18px; }
+  .chart-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .chart-sub { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
+  svg .tick { font-variant-numeric: tabular-nums; }
+  svg .dlabel { font-size: 12px; font-weight: 600; fill: var(--ink-2); }
+  .legend { display: flex; gap: 18px; margin: 10px 2px 0; font-size: 12px; color: var(--ink-2); }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+                margin-right: 6px; vertical-align: -1px; }
+
+  .tip { position: fixed; pointer-events: none; z-index: 10; display: none;
+         background: #242423; border: 1px solid var(--border); border-radius: 8px;
+         padding: 8px 11px; font-size: 12px; color: var(--ink-2);
+         box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+  .tip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* simulator */
+  .sim { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
+  @media (max-width: 860px) { .sim { grid-template-columns: 1fr; } }
+  .controls { background: var(--surface); border: 1px solid var(--border);
+              border-radius: 12px; padding: 18px; align-self: start; }
+  .ctl { margin-bottom: 16px; }
+  .ctl label { display: flex; justify-content: space-between; font-size: 13px;
+               color: var(--ink-2); margin-bottom: 6px; }
+  .ctl label output { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; accent-color: var(--plan); }
+  .headline { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+              gap: 12px; margin-bottom: 16px; }
+  .charts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 1000px) { .charts2 { grid-template-columns: 1fr; } }
+  details.table { margin-top: 14px; color: var(--ink-2); font-size: 13px; }
+  details.table summary { cursor: pointer; color: var(--muted); }
+  table { border-collapse: collapse; margin-top: 10px; width: 100%; }
+  th, td { text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--grid);
+           font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; }
+
+  /* critiques */
+  .crit .card { margin-bottom: 12px; }
+  .crit .who { color: var(--muted); font-size: 12px; }
+  .crit .claim { color: var(--ink); font-weight: 600; }
+  .crit .counter { border-left: 3px solid var(--plan); padding-left: 12px; margin-top: 10px; }
+
+  .sources li { color: var(--ink-2); font-size: 13px; margin: 6px 0; }
+  a { color: var(--plan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  footer { margin-top: 56px; color: var(--muted); font-size: 12px;
+           border-top: 1px solid var(--grid); padding-top: 16px; }
+</style>
+</head>
+<body>
+<div class="tip" id="tip"></div>
+<div class="wrap">
+
+<header>
+  <div class="kicker">mandamistan</div>
+  <h1>How Mamdani fixes the New York housing crisis</h1>
+  <p class="sub">Not a vibe — a plan with receipts. The crisis in sourced numbers,
+  the <b>Block by Block</b> agenda pillar by pillar, what has already been
+  delivered, the strongest objections taken seriously, and a simulator where
+  you set the assumptions and watch the math.</p>
+  <div class="live"><span class="dot"></span>
+    <span><b>Rent freeze in effect</b> for ~1,000,000 stabilized homes · Oct 1, 2026 → Sep 30, 2027</span>
+  </div>
+</header>
+
+<h2>The crisis</h2>
+<p class="lede">New York is not short on buildings; it is short on homes people
+can afford. The numbers below are why half-measures stopped being an option.</p>
+<div class="tiles" id="crisisTiles"></div>
+
+<div class="chart-card" style="margin-top:12px">
+  <div class="chart-title">Vacancy rate by asking rent</div>
+  <div class="chart-sub">Net rental vacancy, 2023 NYC Housing &amp; Vacancy Survey — a healthy market sits near 5%</div>
+  <div id="vacChart"></div>
+</div>
+
+<h2>The plan — Block by Block</h2>
+<p class="lede">Freeze the rent while wages catch up. Build 200,000
+permanently-affordable union-built homes and preserve 200,000 more over ten
+years. Rebuild NYCHA. Rezone so the city can build again. $22B of city
+capital in the first five years.</p>
+<div class="cards" id="pillars"></div>
+
+<h2>Promised → delivered</h2>
+<div class="tl" id="timeline"></div>
+
+<h2>The math — run it yourself</h2>
+<p class="lede">A transparent toy, not a forecast: every assumption is a
+slider. The orange line is the city on autopilot — losing affordable homes
+every year. The blue line is the plan. Move the sliders and see what has to
+be true for it to work.</p>
+<div class="sim">
+  <div class="controls">
+    <div class="ctl"><label>New homes built / yr <output id="o_new">20,000</output></label>
+      <input type="range" id="s_new" min="0" max="40000" step="1000" value="20000"></div>
+    <div class="ctl"><label>Homes preserved / yr <output id="o_pres">20,000</output></label>
+      <input type="range" id="s_pres" min="0" max="40000" step="1000" value="20000"></div>
+    <div class="ctl"><label>Attrition without action / yr <output id="o_attr">10,000</output></label>
+      <input type="range" id="s_attr" min="0" max="25000" step="1000" value="10000"></div>
+    <div class="ctl"><label>Years the freeze holds <output id="o_frz">2</output></label>
+      <input type="range" id="s_frz" min="0" max="6" step="1" value="2"></div>
+    <div class="ctl"><label>Rent growth without freeze <output id="o_hike">3.0%</output></label>
+      <input type="range" id="s_hike" min="0" max="7" step="0.5" value="3"></div>
+    <div class="ctl" style="margin-bottom:0"><label>Median stabilized rent <output id="o_rent">$1,500</output></label>
+      <input type="range" id="s_rent" min="1000" max="2500" step="50" value="1500"></div>
+  </div>
+  <div>
+    <div class="headline" id="simHeadline"></div>
+    <div class="charts2">
+      <div class="chart-card">
+        <div class="chart-title">Net affordable homes vs. day one</div>
+        <div class="chart-sub">10-year horizon · built + preserved − attrition</div>
+        <div id="stockChart"></div>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--plan)"></span>Block by Block</span>
+          <span><span class="sw" style="background:var(--quo)"></span>Status quo</span>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Median stabilized rent</div>
+        <div class="chart-sub">$ / month · freeze vs. annual increases</div>
+        <div id="rentChart"></div>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--plan)"></span>Block by Block</span>
+          <span><span class="sw" style="background:var(--quo)"></span>Status quo</span>
+        </div>
+      </div>
+    </div>
+    <details class="table"><summary>View as table</summary><div id="simTable"></div></details>
+  </div>
+</div>
+
+<h2>The fight</h2>
+<p class="lede">A plan this size draws real objections. Here are the strongest
+ones, stated fairly — and what the plan answers.</p>
+<div class="crit" id="critiques"></div>
+
+<h2>Sources</h2>
+<ul class="sources" id="sources"></ul>
+
+<footer>mandamistan · a mod-orbit module · data in <code>housing.py</code>, same
+numbers served at <code>api/crisis</code>, <code>api/plan</code>,
+<code>api/simulate</code> · the simulator is an illustration, not a forecast.</footer>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const fmt = n => new Intl.NumberFormat('en-US').format(Math.round(n));
+const usd = n => {
+  const a = Math.abs(n);
+  if (a >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
+  if (a >= 1e6) return '$' + (n / 1e6).toFixed(0) + 'M';
+  return '$' + fmt(n);
+};
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+/* ── data (mirrors housing.py; the API serves the same) ───────── */
+const CRISIS = [
+  {v: '1.41', u: '%', l: 'Rental vacancy rate', n: 'Lowest since 1968 — healthy is ~5%. (2023 HVS)', bad: 1},
+  {v: '0.39', u: '%', l: 'Vacancy under $1,100/mo', n: 'Affordable homes simply never come open. (2023 HVS)', bad: 1},
+  {v: '51.6', u: '%', l: 'Renters paying 30%+ of income', n: 'And 28.8% pay half or more. (2024)', bad: 1},
+  {v: '100,437', u: '', l: 'People in shelters nightly', n: 'Including 33,217 children. (Jan 2026)', bad: 1},
+  {v: '1,000,000', u: '', l: 'Rent-stabilized homes frozen', n: 'RGB voted 7–1; in effect since Oct 1, 2026.', good: 1},
+  {v: '32', u: '', l: 'Affordable units per 100 poorest households', n: 'NYC metro, extremely-low-income. (NLIHC)', bad: 1},
+];
+const VAC = [
+  {tier: 'under $1,100', rate: 0.39},
+  {tier: '$1,100–$1,649', rate: 0.88},
+  {tier: '$1,650–$2,399', rate: 1.41},
+  {tier: '$2,400 and up', rate: 3.39},
+];
+const PILLARS = [
+  {g: 'F', name: 'Freeze the rent', s: 'delivered',
+   t: '<b>~1,000,000 stabilized apartments.</b> The mayor appoints the Rent Guidelines Board; the new board voted 7–1 in June 2026 to freeze one-year AND two-year leases — the first two-year freeze in city history.'},
+  {g: 'B', name: 'Build 200,000', s: 'in_progress',
+   t: '<b>Triple subsidized production.</b> 200k new publicly-financed, permanently affordable, rent-stabilized, union-built homes over 10 years. $22B city capital in the first five, plus a revolving loan fund and city-backed insurance.'},
+  {g: 'P', name: 'Preserve 200,000', s: 'in_progress',
+   t: '<b>Stop the bleeding.</b> Keep 200k existing affordable homes from falling out of the stock: preservation financing, lower operating costs, code enforcement with teeth, deregulation loopholes closed with Albany.'},
+  {g: 'N', name: 'Rebuild NYCHA', s: 'in_progress',
+   t: '<b>Public housing as a public good.</b> One of the largest city capital commitments to NYCHA in recent history — repairs, upgrades, tenant decision-making power, and NYCHA itself developing new homes.'},
+  {g: 'Z', name: 'Unlock the land', s: 'in_progress',
+   t: '<b>Rezone for abundance.</b> Transit-oriented development, accessory dwelling units, faster timelines, and upzoning the wealthy neighborhoods that have built nothing — the market-shaped half of the plan.'},
+  {g: 'T', name: 'Tenant power', s: 'in_progress',
+   t: '<b>Rights that get enforced.</b> More inspectors, anti-harassment enforcement, right-to-counsel expansion, and homelessness prevention before the shelter door, not after.'},
+];
+const TIMELINE = [
+  ['2025-02', 'Campaign proposes 200,000 city-financed affordable homes.', 0],
+  ['2025-11', 'Mamdani wins the mayoralty on an affordability mandate.', 0],
+  ['2026-01', 'Takes office; begins appointing a new Rent Guidelines Board.', 0],
+  ['2026-05', '"Block by Block" released: 200k new + 200k preserved, $22B over five years.', 0],
+  ['2026-06', 'RGB votes 7–1 to freeze stabilized rents — first-ever two-year-lease freeze.', 0],
+  ['2026-10', 'The freeze takes effect for ~1M apartments (through Sep 30, 2027).', 0],
+  ['2027+', 'The build-out: rezonings, NYCHA capital, Albany fights, 200,000 homes.', 1],
+];
+const CRITIQUES = [
+  {who: 'Step Two Policy Project', claim: '“$70B of extra borrowing would blow past the statutory debt limit — debt service would jump from ~12% to ~18% of city tax revenue.”',
+   counter: 'The enacted plan is $22B over five years inside the capital budget, plus leverage: a revolving loan fund, city-backed insurance, state and federal match, and debt-limit relief sought from Albany. The $100B figure was the campaign ceiling, not the appropriation.'},
+  {who: 'Reason / landlord groups', claim: '“A rent freeze starves stabilized buildings of maintenance money — affordability on paper, dilapidation in practice.”',
+   counter: 'The freeze is paired with operating-cost relief (insurance, financing) and a distressed-building carve-out. The bet is that costs, not revenue, are the lever. The metric that settles it: repair violations per 1,000 stabilized units.'},
+  {who: 'Manhattan Institute', claim: '“Subsidized units at ~$500k apiece cannot close a shortage of hundreds of thousands of homes; only market supply at scale can.”',
+   counter: 'The plan is deliberately both: public money for the homes the market will never build, and rezoning / TOD / ADUs so private supply grows too. The YIMBY half is real — new permits are the metric to watch.'},
+];
+const SOURCES = [
+  ['NYC Mayor’s Office — “Block by Block” release transcript (May 2026)', 'https://www.nyc.gov/mayors-office/news/2026/05/transcript--mayor-mamdani-releases--block-by-block--the-housing-'],
+  ['NYC Mayor’s Office — statement on the RGB final vote (June 2026)', 'https://www.nyc.gov/mayors-office/news/2026/06/mayor-mamdani-s-statement-on-the-rent-guidelines-board-s-final-v'],
+  ['CNN — rent board approves freeze on ~1M apartments (June 2026)', 'https://www.cnn.com/2026/06/25/us/new-york-city-rent-board-approves-freeze'],
+  ['TIME — what to know about the approved rent freeze', 'https://time.com/article/2026/06/26/new-york-rent-freeze-stabilized-apartments-zohran-mamdani-housing-promise/'],
+  ['New York YIMBY — Block by Block production agenda', 'https://newyorkyimby.com/2026/05/mayor-mamdani-outlines-block-by-block-plan-for-affordable-housing-construction.html'],
+  ['PoliticsNY — the campaign 200,000-home proposal (Feb 2025)', 'https://politicsny.com/2025/02/03/exclusive-mayoral-hopeful-mamdani-proposes-building-200000-new-affordable-homes-with-city-dollars/'],
+  ['Step Two Policy Project — the financing critique', 'https://www.steptwopolicy.org/post/what-s-missing-in-the-mamdani-housing-plan'],
+  ['Reason — the rent-freeze critique', 'https://reason.com/2026/06/26/mamdani-got-his-rent-freeze-wish-dont-expect-new-york-city-housing-to-become-more-affordable/'],
+  ['Coalition for the Homeless — shelter census & rent-burden data', 'https://www.coalitionforthehomeless.org/'],
+];
+
+/* ── static sections ──────────────────────────────────────────── */
+$('crisisTiles').innerHTML = CRISIS.map(s =>
+  `<div class="tile ${s.bad ? 'bad' : ''} ${s.good ? 'good' : ''}">
+     <div class="v">${s.v}<small>${s.u}</small></div>
+     <div class="l">${s.l}</div><div class="n">${s.n}</div></div>`).join('');
+
+$('pillars').innerHTML = PILLARS.map(p =>
+  `<div class="card"><h3><span class="glyph">${p.g}</span>${p.name}
+     <span class="badge ${p.s}">${p.s === 'delivered' ? 'delivered' : 'in motion'}</span></h3>
+     <p>${p.t}</p></div>`).join('');
+
+$('timeline').innerHTML = TIMELINE.map(([d, e, next]) =>
+  `<div class="row ${next ? 'next' : ''}"><b>${d}</b>${e}</div>`).join('');
+
+$('critiques').innerHTML = CRITIQUES.map(c =>
+  `<div class="card"><div class="who">${c.who}</div>
+     <p class="claim">${c.claim}</p>
+     <p class="counter">${c.counter}</p></div>`).join('');
+
+$('sources').innerHTML = SOURCES.map(([t, u]) =>
+  `<li><a href="${u}" target="_blank" rel="noopener">${t}</a></li>`).join('');
+
+/* ── tooltip ──────────────────────────────────────────────────── */
+const tip = $('tip');
+function showTip(html, x, y) {
+  tip.innerHTML = html; tip.style.display = 'block';
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.min(x + 14, innerWidth - r.width - 10) + 'px';
+  tip.style.top = Math.max(8, y - r.height - 12) + 'px';
+}
+const hideTip = () => tip.style.display = 'none';
+
+/* ── vacancy bar chart (single series, direct-labeled) ────────── */
+function vacancyChart() {
+  const W = 1000, H = 230, m = {t: 16, r: 20, b: 28, l: 110};
+  const max = 5;                       // anchor the scale at "healthy = 5%"
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const bh = 26, gap = (ih - VAC.length * bh) / (VAC.length + 1);
+  const x = v => m.l + v / max * iw;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Vacancy rate by asking rent tier">`;
+  for (let g = 0; g <= max; g++) {
+    s += `<line x1="${x(g)}" y1="${m.t}" x2="${x(g)}" y2="${H - m.b}" stroke="${g ? css('--grid') : css('--baseline')}" stroke-width="1"/>`;
+    s += `<text class="tick" x="${x(g)}" y="${H - 8}" text-anchor="middle">${g}%</text>`;
+  }
+  s += `<line x1="${x(5)}" y1="${m.t}" x2="${x(5)}" y2="${H - m.b}" stroke="${css('--good')}" stroke-width="1" stroke-dasharray="3 4"/>`;
+  s += `<text x="${x(5) - 6}" y="${m.t + 10}" text-anchor="end" fill="${css('--good')}">healthy market</text>`;
+  VAC.forEach((d, i) => {
+    const y = m.t + gap + i * (bh + gap), w = Math.max(x(d.rate) - m.l, 4);
+    s += `<path d="M${m.l},${y} h${w - 4} a4,4 0 0 1 4,4 v${bh - 8} a4,4 0 0 1 -4,4 h${4 - w} z"
+            fill="${css('--plan')}" data-i="${i}" class="bar"/>`;
+    s += `<text class="dlabel" x="${m.l + w + 8}" y="${y + bh / 2 + 4}">${d.rate}%</text>`;
+    s += `<text x="${m.l - 10}" y="${y + bh / 2 + 4}" text-anchor="end" fill="${css('--ink-2')}">${d.tier}</text>`;
+  });
+  s += '</svg>';
+  $('vacChart').innerHTML = s;
+  $('vacChart').querySelectorAll('.bar').forEach(b => {
+    b.addEventListener('mousemove', e => {
+      const d = VAC[+b.dataset.i];
+      showTip(`${d.tier}<br><b>${d.rate}%</b> vacant`, e.clientX, e.clientY);
+    });
+    b.addEventListener('mouseleave', hideTip);
+  });
+}
+vacancyChart();
+
+/* ── the model (mirrors housing.simulate in housing.py) ───────── */
+function simulate(a) {
+  const BASE = 7000, STAB = 1e6, Y = 10;
+  const plan = [0], quo = [0], pr = [a.rent], qr = [a.rent];
+  let savings = 0;
+  for (let y = 1; y <= Y; y++) {
+    plan.push(plan[y - 1] + a.nw + Math.min(a.pres, a.attr) - a.attr);
+    quo.push(quo[y - 1] + BASE - a.attr);
+    pr.push(pr[y - 1] * (y <= a.frz ? 1 : 1 + a.hike / 100));
+    qr.push(qr[y - 1] * (1 + a.hike / 100));
+    savings += (qr[y] - pr[y]) * 12 * STAB;
+  }
+  return {plan, quo, pr, qr, savings,
+          gained: plan[Y], vs: plan[Y] - quo[Y], gap: qr[Y] - pr[Y]};
+}
+
+/* ── line chart factory (2 series, crosshair tooltip) ─────────── */
+function lineChart(el, years, a, b, opts) {
+  const W = 480, H = 240, m = {t: 14, r: 86, b: 26, l: 52};
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const all = a.concat(b);
+  let lo = Math.min(opts.zero === false ? Infinity : 0, ...all),
+      hi = Math.max(opts.zero === false ? -Infinity : 0, ...all);
+  if (hi === lo) hi = lo + 1;
+  const pad = (hi - lo) * 0.08; hi += pad; lo -= lo < 0 ? pad : 0;
+  const X = i => m.l + i / (years - 1) * iw;
+  const Yc = v => m.t + (hi - v) / (hi - lo) * ih;
+  const path = s => s.map((v, i) => (i ? 'L' : 'M') + X(i) + ',' + Yc(v)).join('');
+  const ticks = 4; let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${opts.label}">`;
+  for (let t = 0; t <= ticks; t++) {
+    const v = lo + (hi - lo) * t / ticks, y = Yc(v);
+    s += `<line x1="${m.l}" y1="${y}" x2="${W - m.r}" y2="${y}" stroke="${css('--grid')}" stroke-width="1"/>`;
+    s += `<text class="tick" x="${m.l - 8}" y="${y + 4}" text-anchor="end">${opts.fmt(v)}</text>`;
+  }
+  if (lo < 0) s += `<line x1="${m.l}" y1="${Yc(0)}" x2="${W - m.r}" y2="${Yc(0)}" stroke="${css('--baseline')}" stroke-width="1"/>`;
+  for (let i = 0; i < years; i += 2)
+    s += `<text class="tick" x="${X(i)}" y="${H - 6}" text-anchor="middle">${i ? 'yr ' + i : 'now'}</text>`;
+  s += `<path d="${path(b)}" fill="none" stroke="${css('--quo')}" stroke-width="2" stroke-linejoin="round"/>`;
+  s += `<path d="${path(a)}" fill="none" stroke="${css('--plan')}" stroke-width="2" stroke-linejoin="round"/>`;
+  let ya = Yc(a[years - 1]) + 4, yb = Yc(b[years - 1]) + 4;
+  if (Math.abs(ya - yb) < 14) {        // keep end labels from colliding
+    const mid = (ya + yb) / 2, s1 = ya <= yb ? -1 : 1;
+    ya = mid + 7 * s1; yb = mid - 7 * s1;
+  }
+  s += `<text class="dlabel" x="${X(years - 1) + 8}" y="${ya}" fill="${css('--plan')}">plan</text>`;
+  s += `<text class="dlabel" x="${X(years - 1) + 8}" y="${yb}" fill="${css('--quo')}">status quo</text>`;
+  s += `<line id="xh" x1="0" y1="${m.t}" x2="0" y2="${H - m.b}" stroke="${css('--muted')}" stroke-width="1" stroke-dasharray="2 3" opacity="0"/>`;
+  s += `<circle id="pa" r="4" fill="${css('--plan')}" stroke="${css('--surface')}" stroke-width="2" opacity="0"/>`;
+  s += `<circle id="pb" r="4" fill="${css('--quo')}" stroke="${css('--surface')}" stroke-width="2" opacity="0"/>`;
+  s += '</svg>';
+  el.innerHTML = s;
+  const svg = el.querySelector('svg'), xh = svg.querySelector('#xh'),
+        pa = svg.querySelector('#pa'), pb = svg.querySelector('#pb');
+  svg.addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width * W;
+    const i = Math.max(0, Math.min(years - 1, Math.round((px - m.l) / iw * (years - 1))));
+    const x = X(i);
+    xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.setAttribute('opacity', 1);
+    pa.setAttribute('cx', x); pa.setAttribute('cy', Yc(a[i])); pa.setAttribute('opacity', 1);
+    pb.setAttribute('cx', x); pb.setAttribute('cy', Yc(b[i])); pb.setAttribute('opacity', 1);
+    showTip(`${i ? 'year ' + i : 'now'}<br>plan <b>${opts.tipFmt(a[i])}</b><br>status quo <b>${opts.tipFmt(b[i])}</b>`,
+            e.clientX, e.clientY);
+  });
+  svg.addEventListener('mouseleave', () => {
+    hideTip(); [xh, pa, pb].forEach(n => n.setAttribute('opacity', 0));
+  });
+}
+
+/* ── wire the simulator ───────────────────────────────────────── */
+const S = {nw: 's_new', pres: 's_pres', attr: 's_attr', frz: 's_frz', hike: 's_hike', rent: 's_rent'};
+function args() {
+  return {nw: +$(S.nw).value, pres: +$(S.pres).value, attr: +$(S.attr).value,
+          frz: +$(S.frz).value, hike: +$(S.hike).value, rent: +$(S.rent).value};
+}
+function render() {
+  const a = args();
+  $('o_new').textContent = fmt(a.nw); $('o_pres').textContent = fmt(a.pres);
+  $('o_attr').textContent = fmt(a.attr); $('o_frz').textContent = a.frz;
+  $('o_hike').textContent = a.hike.toFixed(1) + '%'; $('o_rent').textContent = '$' + fmt(a.rent);
+  const r = simulate(a);
+  $('simHeadline').innerHTML =
+    `<div class="tile ${r.gained >= 0 ? 'good' : 'bad'}"><div class="v">${r.gained >= 0 ? '+' : ''}${fmt(r.gained)}</div>
+       <div class="l">net affordable homes in 10 yrs</div></div>
+     <div class="tile good"><div class="v">+${fmt(r.vs)}</div>
+       <div class="l">vs. the status quo</div></div>
+     <div class="tile good"><div class="v">${usd(r.savings)}</div>
+       <div class="l">kept in tenants’ pockets</div></div>
+     <div class="tile"><div class="v">$${fmt(r.gap)}<small>/mo</small></div>
+       <div class="l">rent gap at year 10</div></div>`;
+  const kf = v => Math.abs(v) >= 1000 ? Math.round(v / 1000) + 'k' : Math.round(v);
+  lineChart($('stockChart'), 11, r.plan, r.quo,
+            {label: 'Net affordable homes, plan vs status quo', fmt: kf, tipFmt: v => fmt(v) + ' homes'});
+  lineChart($('rentChart'), 11, r.pr, r.qr,
+            {label: 'Median stabilized rent, plan vs status quo', fmt: v => '$' + fmt(v), tipFmt: v => '$' + fmt(v) + '/mo', zero: false});
+  $('simTable').innerHTML = '<table><tr><th>year</th><th>plan homes</th><th>quo homes</th><th>plan rent</th><th>quo rent</th></tr>' +
+    r.plan.map((_, i) =>
+      `<tr><td>${i}</td><td>${fmt(r.plan[i])}</td><td>${fmt(r.quo[i])}</td>
+       <td>$${fmt(r.pr[i])}</td><td>$${fmt(r.qr[i])}</td></tr>`).join('') + '</table>';
+}
+Object.values(S).forEach(id => $(id).addEventListener('input', render));
+render();
+</script>
+</body>
+</html>

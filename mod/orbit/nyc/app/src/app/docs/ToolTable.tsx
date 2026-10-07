@@ -54,7 +54,7 @@ export default function ToolTable({ surface }: { surface: McpSurface }) {
         const meta = GROUP_LABELS[key] ?? { label: key.toUpperCase(), blurb: '' }
         return (
           <div key={key}>
-            <h3 className="pixel mb-1.5 text-[8.5px] leading-[2] text-nes-sky">
+            <h3 className="pixel mb-1.5 text-[11px] leading-relaxed text-nes-sky">
               {meta.label}
             </h3>
             {meta.blurb && (
@@ -95,14 +95,14 @@ function ToolRow({ tool }: { tool: ToolDef }) {
         </span>
         <span
           aria-hidden
-          className={`pixel shrink-0 text-[7px] text-nes-ink3 ${props.length ? '' : 'invisible'}`}
+          className={`pixel shrink-0 text-[10px] text-nes-ink3 ${props.length ? '' : 'invisible'}`}
         >
           {open ? '−' : `+${props.length}`}
         </span>
       </button>
 
       {open && props.length > 0 && (
-        <dl className="border-t-[3px] border-black bg-black/30 px-4 py-3">
+        <dl className="border-t border-white/10 bg-black/30 px-4 py-3">
           {props.map(([name, spec]) => (
             <div key={name} className="flex flex-col gap-0.5 py-1.5 sm:flex-row sm:gap-3">
               <dt className="shrink-0 sm:w-[9.5rem]">

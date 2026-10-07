@@ -6,7 +6,7 @@ sleeve composition — the pure logic the live engine trusts. The parity
 tests at the bottom pin the schema to polymarket's canonical base (and
 hyperliquid's port), so the cross-mod contract can't silently drift.
 
-Run:  cd orbit/copytensor && python3 -m pytest tests/test_strats.py -q
+Run:  cd orbit/bt/copytensor && python3 -m pytest tests/test_strats.py -q
 """
 
 import os

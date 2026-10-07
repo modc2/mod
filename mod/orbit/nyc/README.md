@@ -5,7 +5,8 @@ parks, flood zones, traffic injuries and administrative boundaries, as
 toggleable layers with a choropleth engine, legends and a feature inspector.
 
 The same data engine is also an **MCP server**, so an AI assistant can ask New
-York a question directly — 17 read-only tools over housing prices, the transit
+York a question directly — 31 read-only tools over housing prices, the listing
+market, crime, news, 311, restaurant inspections, the transit
 and bike networks, live traffic, and SoQL access to every dataset the city and
 state publish.
 
@@ -39,16 +40,19 @@ worked over stdio 404'd over HTTP — so the dispatch is deliberately shared.
 | **Protocol** | `2025-06-18`, negotiating down to `2025-03-26` / `2024-11-05` |
 | **Capabilities** | tools · prompts · resources |
 | **Auth** | none — every source is public open data |
-| **Writes** | nothing; all 17 tools are annotated `readOnlyHint` |
+| **Writes** | nothing; all 31 tools are annotated `readOnlyHint` |
 
 **Tools** — `nyc_info`, `nyc_boroughs`, `nyc_borough`, `nyc_where` ·
 `nyc_layers`, `nyc_layer` · `nyc_housing`, `nyc_prices`, `nyc_trend`,
-`nyc_sales`, `nyc_rents`, `nyc_homes`, `nyc_affordable` · `nyc_traffic` ·
-`nyc_find_datasets`, `nyc_dataset`, `nyc_query`.
+`nyc_sales`, `nyc_market`, `nyc_rents`, `nyc_homes`, `nyc_affordable` ·
+`nyc_population` · `nyc_traffic` · `nyc_crime`, `nyc_collisions` ·
+`nyc_news` · `nyc_311`, `nyc_restaurants`, `nyc_trees`, `nyc_air`,
+`nyc_evictions`, `nyc_permits` · `nyc_catalog`, `nyc_find_datasets`,
+`nyc_dataset`, `nyc_query`.
 
-The last three are the important ones: they reach *every* dataset on NYC Open
-Data and NY State Open Data via Socrata Discovery + SoQL — 311, crime, schools,
-health, budgets, permits — not just the layers the map draws.
+The last three are the catch-all: they reach *every* dataset on NYC Open
+Data and NY State Open Data via Socrata Discovery + SoQL — schools, health,
+budgets, anything — not just what the curated tools cover.
 
 **Display tools** — `nyc_map`, `nyc_infographic`. These are how the in-app
 ASK agent *shows* an answer: switch layers, set the housing filters, dim areas
@@ -93,6 +97,8 @@ documents itself everywhere at once.
 | **Live traffic speeds** | lines banded by speed | DOT Real-Time Traffic Speeds (`i4gi-tjb9`) |
 | **Traffic volume by hour** | graduated circles + 24h profile | DOT Automated Traffic Volume Counts (`7ym2-wayt`) |
 | **Traffic injuries** | heatmap + points | Motor Vehicle Collisions (`h9gi-nx95`) |
+| **Crime by precinct** | choropleth, self-carried breaks | NYPD Complaints Current + Historic (`5uac-w243`, `qgea-i56i`) |
+| **Shootings** | heatmap + points | NYPD Shooting Incident Data (`5ucz-vwe8`) |
 | **Borough / Neighborhood boundaries** | outlines | `gthc-hcne`, `9nt8-h7nd` |
 
 Basemaps are CARTO's free raster tiles (dark/light) and OpenStreetMap's own
@@ -124,6 +130,77 @@ self-contained HTML brief (inline SVG maps, no JS, no CDN) and CSVs.
   buildings.
 - Zero-population tracts are "no residents" (grey), not the lowest density class.
   Rankings skip non-residential NTAs (`ntatype != 0`: parks, airports, Rikers).
+
+## Crime, news and the listing market
+
+Three engines added 2026-10-07, same discipline as the rest (key-free public
+sources, server-side aggregation, stale-tolerant cache, cited sources):
+
+**`nycgis/crime.py`** — NYPD complaints and shootings. The current-year
+complaint file is refreshed *quarterly* and carries typo dates (`1016-04-30`),
+so `data_through()` reads the real coverage end and every last-year comparison
+uses the same Jan-1-to-that-date window on both sides — comparing a half year
+against a full one reads as a 50% crime drop. The shooting file's
+`latitude`/`longitude` columns are **swapped on all but a few hundred rows**,
+so each row is checked and un-swapped individually. Precinct counts stay raw
+(no public census population per precinct); borough rates use census
+population. Feeds the `crime` choropleth (quantile breaks travel in the
+payload), the `shootings` heatmap, `nyc_crime`, `/crime` and the report's
+Public-safety section.
+
+**`nycgis/news.py`** — Gothamist, THE CITY and NYT Metro RSS parsed with the
+stdlib (feeds that 403 bots or serve HTML at their "RSS" URL are deliberately
+absent), de-duplicated, tagged with a crude topic (housing / crime / transit /
+government), cached 15 minutes. `q=` searches wider coverage through GDELT,
+which rate-limits at one request per 5s and answers throttles as *plain text
+with HTTP 200* — a failed JSON parse is the throttle signal, and the fallback
+is filtering the newsroom feeds instead of erroring.
+
+**`nycgis/realestate.py`** — the market as *listed*, complementing the deeds:
+StreetEasy Data Dashboard CSVs (median asking price / asking rent / rental
+inventory, monthly since 2010, city + boroughs + ~176 neighborhoods; wide
+area-by-month zips on their public CDN) and Zillow Research's NY-metro ZHVI /
+ZORI. Neighborhood "movers" lists require 20+ active listings — a thin market
+whipsaws its median. Attribution travels in every payload, as their terms ask.
+
+The app's **City pulse** rail section shows the four vitals (complaints,
+shootings, asking rent, asking price, each with a year-over-year read),
+filterable headlines, and links to the full printable brief at `/report`.
+
+## The whole open-data universe: catalog + city-data tools
+
+Two more engines (2026-10-07) make every dataset the city and state publish
+reachable *and* give the everyday ones a curated front door:
+
+**`nycgis/catalog.py`** — the FULL dataset catalog of NYC Open Data (2,404
+datasets) and NY State Open Data (1,033), harvested through the Socrata
+Discovery API into one cache entry per domain (~1 MB, TTL 7 days) and
+searched **offline** with token scoring (exact-name > name-token > category >
+description, freshness breaking ties). `nyc_find_datasets` searches the
+harvest when it exists and falls back to the live API when it doesn't;
+`nyc_catalog` shows stats / browses a category / forces a re-harvest.
+Paging is by `offset`, not `scroll_id` — the scroll cursor silently skipped
+~650 of the city's 2,404 datasets.
+
+**`nycgis/citydata.py`** — curated tools over the big everyday files, every
+answer aggregated server-side with SoQL `$group` (311 alone is ~39M rows)
+and cited to its dataset id:
+
+| Tool | Source | Notes |
+| --- | --- | --- |
+| `nyc_311` | `erm2-nwe9` (2020→present) | counts by type/borough/ZIP/agency/status, or newest complaints |
+| `nyc_crime` | `5uac-w243` + `qgea-i56i` | summary parts, or custom offense/borough/severity windows stitched across both files |
+| `nyc_collisions` | `h9gi-nx95` | injuries/deaths by borough, year or worst street |
+| `nyc_restaurants` | `43nn-pn8j` | latest grade per restaurant (deduped by `camis`), grade distributions |
+| `nyc_trees` | `uvpi-gqnh` / `hn5i-inap` | 2015 census (species+health+borough) or the living inventory (current, coarser) |
+| `nyc_evictions` | `6z8x-wfk4` | marshal executions by year/borough, residential vs commercial |
+| `nyc_permits` | `rbx6-tga4` | DOB NOW (the live system; the legacy BIS file stores dates as text) |
+| `nyc_air` | `c3uy-2p5r` | latest surveillance period per measure, by neighborhood |
+
+Borough columns differ per dataset (`borough`/`boro`/`boro_nm`/`boroname`,
+mixed casing) — every filter goes through one alias table and
+`upper(col) = 'BROOKLYN'`; garbage values ('Unspecified', blank) surface as
+their own honest bucket rather than vanishing.
 
 ## Traffic: when to drive
 
@@ -316,8 +393,8 @@ for labels, never for data.
 ## Tests
 
 ```sh
-python3 -m pytest tests -m "not network"   # 27 offline: geometry, joins, breaks
-python3 -m pytest tests                    # + 17 live open-data checks
+python3 -m pytest tests -m "not network"   # 87 offline: geometry, joins, breaks, registry, catalog search
+python3 -m pytest tests                    # + 25 live open-data checks
 ```
 
 The network tests are deliberately unmocked — they are what catches an upstream

@@ -16,10 +16,10 @@ const BAR = SEQUENTIAL[3]
 export default function Infographic({ card, onClose }: { card: Card; onClose: () => void }) {
   return (
     <section className="blk sheet-in pointer-events-auto flex max-h-full flex-col overflow-hidden">
-      <header className="relative flex shrink-0 items-start gap-2 border-b-[3px] border-black bg-black/40 py-2.5 pl-4 pr-2">
-        <span className="brick brick-strip absolute inset-y-0 left-0 w-2.5" aria-hidden />
+      <header className="relative flex shrink-0 items-start gap-2 border-b border-white/10 bg-black/40 py-2.5 pl-4 pr-2">
+        <span className="accent-bar absolute inset-y-1.5 left-0 w-[3px]" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="pixel text-[6.5px] leading-none text-nes-coin">INFOGRAPHIC</p>
+          <p className="pixel text-[11.5px] leading-none text-nes-coin">INFOGRAPHIC</p>
           <h2 className="mt-1.5 text-[14px] font-semibold leading-snug text-white">{card.title}</h2>
           {card.subtitle && <p className="mt-0.5 text-[11.5px] leading-snug text-nes-ink3">{card.subtitle}</p>}
         </div>
@@ -33,7 +33,7 @@ export default function Infographic({ card, onClose }: { card: Card; onClose: ()
         {!!card.stats?.length && (
           <div className={`grid gap-2 ${card.stats.length === 1 ? 'grid-cols-1' : card.stats.length % 3 === 0 ? 'grid-cols-3' : 'grid-cols-2'}`}>
             {card.stats.map((s, i) => (
-              <div key={i} className="border-2 border-black bg-black/30 px-2.5 py-2">
+              <div key={i} className="rounded-lg border border-white/10 bg-black/30 px-2.5 py-2">
                 <div className="text-[18px] font-semibold leading-tight text-white tabular-nums">{s.value}</div>
                 <div className="mt-0.5 text-[11px] leading-snug text-nes-ink2">{s.label}</div>
                 {s.note && <div className="mt-0.5 text-[10.5px] leading-snug text-nes-ink3">{s.note}</div>}
@@ -155,7 +155,7 @@ export function AgentLegend({ overlay, caption, onClear }: {
     <div className="blk pointer-events-auto max-w-[min(92vw,420px)] px-3 py-2">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <p className="pixel text-[6.5px] leading-none text-nes-coin">AGENT VIEW</p>
+          <p className="pixel text-[11.5px] leading-none text-nes-coin">AGENT VIEW</p>
           {overlay && <p className="mt-1.5 text-[12px] font-semibold leading-snug text-white">{overlay.spec.title}</p>}
           {caption && <p className="mt-0.5 text-[11px] leading-snug text-nes-ink2">{caption}</p>}
         </div>
@@ -165,7 +165,7 @@ export function AgentLegend({ overlay, caption, onClear }: {
         </button>
       </div>
       {overlay && !overlay.data && !overlay.error && (
-        <p className="pixel mt-2 text-[7px] text-nes-ink3">LOADING...</p>
+        <p className="pixel mt-2 text-[10px] text-nes-ink3">Loading…</p>
       )}
       {overlay?.error && <p className="mt-1.5 text-[11px] text-nes-red">{overlay.error}</p>}
       {overlay?.spec.mode === 'areas' && stops.length > 0 && (
@@ -205,12 +205,9 @@ function fmt(v: number): string {
 
 function X() {
   return (
-    <svg width="12" height="12" viewBox="0 0 14 14" shapeRendering="crispEdges" fill="currentColor" aria-hidden>
-      <rect x="2" y="2" width="2" height="2" /><rect x="4" y="4" width="2" height="2" />
-      <rect x="6" y="6" width="2" height="2" /><rect x="8" y="4" width="2" height="2" />
-      <rect x="10" y="2" width="2" height="2" /><rect x="8" y="8" width="2" height="2" />
-      <rect x="10" y="10" width="2" height="2" /><rect x="4" y="8" width="2" height="2" />
-      <rect x="2" y="10" width="2" height="2" />
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6"
+            strokeLinecap="round" />
     </svg>
   )
 }

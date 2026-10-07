@@ -52,9 +52,12 @@ MODULE_DIR = Path(__file__).parent
 if str(MODULE_DIR) not in sys.path:
     sys.path.insert(0, str(MODULE_DIR))
 
+from nycgis import crime as CR
 from nycgis import demographics as DM
 from nycgis import layers as L
+from nycgis import news as NW
 from nycgis import prices as P
+from nycgis import realestate as RE
 from nycgis import report as RP
 from nycgis import rents as R
 from nycgis import sources as S
@@ -270,6 +273,48 @@ class Mod:
         return TR.summary(street=street, borough=borough,
                           hour=None if hour is None else int(hour),
                           limit=int(limit))
+
+    # ── safety, news, the listing market ─────────────────────────────────
+
+    def crime(self, part: str = 'summary', limit: int = 15) -> dict:
+        """
+        Public safety from the NYPD's open-data files: complaints and
+        shootings this year vs the same window last year, by borough and
+        precinct, the top offense types, and a 3-year monthly trend.
+
+        ``part``: summary (default), precincts (choropleth GeoJSON),
+        offenses, trend, boroughs.
+        """
+        parts = {
+            'summary': CR.summary,
+            'precincts': CR.by_precinct,
+            'offenses': lambda: {'offenses': CR.top_offenses(int(limit))},
+            'trend': lambda: {'monthly': CR.monthly_trend()},
+            'boroughs': lambda: {'boroughs': CR.by_borough()},
+        }
+        fn = parts.get(str(part))
+        if not fn:
+            return {'error': f'unknown part {part!r}', 'parts': sorted(parts)}
+        return fn()
+
+    def news(self, topic: str = '', q: str = '', limit: int = 25) -> dict:
+        """
+        NYC news right now, from key-free newsroom feeds (Gothamist, THE
+        CITY, NYT Metro). ``topic`` filters to housing / crime / transit /
+        government; ``q`` searches wider coverage through GDELT.
+        """
+        if q:
+            return NW.search(q, limit=int(limit))
+        return NW.headlines(topic=topic, limit=int(limit))
+
+    def market(self, area: str = '') -> dict:
+        """
+        The listing market: median asking rent, asking price and rental
+        inventory with year-over-year change — citywide, per borough, or
+        for one neighborhood (``m nyc/market area=astoria``) — plus the
+        Zillow NY-metro indices for context.
+        """
+        return RE.market(area=area or None)
 
     def options(self) -> dict:
         """Everything the UI needs to build its housing controls."""

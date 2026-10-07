@@ -8,7 +8,7 @@
     "bt_url": "http://localhost:50280",
     "cooldown_sec": 60,
     "daily_limit_tao": 100.0,
-    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), and a desk agent you can talk to does the work: it builds the baskets, starts and re-sizes copies and syncs the book \u2014 but every write stops for your approval first. An MCP server (POST /mcp) drives the same book under the same gate",
+    "description": "Bittensor dTAO copy trading \u2014 mirror subnet allocations of top performers; the leaderboard and every read are served by the bt module's local index (public RPCs as fallback), and a desk agent you can talk to does the work: it builds the baskets, starts and re-sizes copies and syncs the book \u2014 but every write stops for your approval first. An MCP server (POST /mcp) drives the same book under the same gate. Lives inside orbit/bt as a submod (orbit/bt/copytensor); also reachable through bt's port at /bt/ct/*",
     "endpoints": {
         "/account/{ss58}": {
             "docs": "Coldkey allocations + N-day PnL",
@@ -282,7 +282,7 @@
     ],
     "rebalance_threshold_pct": 5.0,
     "route": true,
-    "schema": "QmNf6iKhgNwgztH2fHw2Qe96K2BTYphWCam7VoyF688xnP",
+    "schema": "QmVg8RzEDF6SBc3pwnyabmjb5M8XAtjTy1UMfyMoVXfJfV",
     "seed_validators": [
         {
             "label": "Top delegate #1 owner",
@@ -311,12 +311,14 @@
     ],
     "snapshot_interval_sec": 1800,
     "snapshot_workers": 8,
+    "submod_of": "bt",
     "subnet_allowlist": null,
     "subnet_denylist": [],
     "subtensor_endpoint": null,
     "urls": {
         "api": "http://localhost:50150",
         "app": "http://localhost:3150/copytensor",
+        "bt_proxy": "http://localhost:50280/ct",
         "gateway_api": "http://localhost:3001/copytensor/api",
         "gateway_app": "http://localhost:3001/copytensor",
         "mcp": "http://localhost:50150/mcp"

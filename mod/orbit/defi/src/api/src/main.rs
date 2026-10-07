@@ -31,7 +31,9 @@ mod hub;
 mod mcp;
 mod risk;
 mod storage;
+mod strats;
 mod treasury;
+mod vetting;
 mod whitepaper;
 mod yields;
 
@@ -58,6 +60,8 @@ pub struct AppState {
     pub finance: finance::Finance,
     pub hub: hub::Hub,
     pub risk: risk::Risk,
+    pub vetting: vetting::Vetting,
+    pub strats: strats::Strats,
     pub secret: Vec<u8>,
     pub challenges: auth::Challenges,
     pub module_dir: std::path::PathBuf,
@@ -135,6 +139,8 @@ async fn main() {
                 .unwrap_or_else(|_| blocks_dir.parent().map(|p| p.join("hub.json")).unwrap_or_else(|| module_dir.join("src/api/hub.json"))),
         ),
         risk: risk::Risk::new(&data_dir),
+        vetting: vetting::Vetting::new(&data_dir),
+        strats: strats::Strats::from_env(&module_dir),
         secret: auth::load_secret(&data_dir),
         challenges: auth::Challenges::default(),
         module_dir,
@@ -206,6 +212,9 @@ async fn main() {
         .route("/hub/:id/risk/assess", post(post_hub_risk_assess))
         .route("/hub/:id/risk/recommend", post(post_hub_risk_recommend))
         .route("/hub/:id/risk/recommend/:rid", delete(delete_hub_risk_recommend))
+        .route("/registry", get(get_registry).post(post_registry))
+        .route("/registry/:id", get(get_registration).delete(delete_registration))
+        .route("/registry/:id/vet", post(post_registry_vet))
         .route("/modules", get(get_modules))
         .route("/modules/facets", get(get_module_facets))
         .route("/modules/:id", get(get_module))
@@ -219,6 +228,12 @@ async fn main() {
         .route("/positions/:id/exit", post(post_position_exit))
         .route("/positions/:id/settle", post(post_position_settle))
         .route("/positions/:id/value", get(get_position_value))
+        .route("/strats", get(get_strats))
+        .route("/strats/sources", get(get_strat_sources))
+        .route("/strats/board", get(get_strats_board))
+        .route("/strats/backtest", post(post_strat_backtest))
+        .route("/strats/plan", post(post_strat_plan))
+        .route("/strats/:name", get(get_strat))
         .route("/mcp", get(mcp::describe).post(mcp::rpc))
         .layer(
             CorsLayer::new()
@@ -1630,12 +1645,99 @@ async fn get_modules(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .or_else(|| bearer(&headers));
-    state
+    let mut out = state
         .finance
         .modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, token.as_deref())
         .await
-        .map(Json)
-        .map_err(yields_err)
+        .map_err(yields_err)?;
+    // Every module carries ITS OWN risk list (curated + derived) and any
+    // vetted registration verdict matched to its pool.
+    state.hub.annotate_modules(&mut out);
+    state.vetting.annotate(&mut out);
+    Ok(Json(out))
+}
+
+// ── the registry door: register your own module, claim an APR band, be vetted ──
+
+async fn get_registry(State(state): State<Shared>) -> Json<serde_json::Value> {
+    let regs = state.vetting.list();
+    Json(serde_json::json!({
+        "registrations": regs,
+        "count": regs.len(),
+        "note": "register a module with POST /registry {name, pool|project, apr_lower, apr_upper, website?, chain?, contracts?, notes?} — the claimed APR band is vetted against the index's own daily record, and the verdict rides on /modules next to the live rate",
+    }))
+}
+
+async fn get_registration(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .vetting
+        .get(&id)
+        .map(|r| Json(serde_json::to_value(r).unwrap_or_default()))
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("no registration '{id}'") }))))
+}
+
+async fn post_registry(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    // Registrations are owned by their submitter, so a submitter must exist.
+    let who = require_caller(&state, &headers)?;
+    let reg = state.vetting.register(&body, &who).map_err(bad)?;
+    // Vet immediately — a registration nobody judged is just an ad. The agent
+    // half honors skip_agent; an unreachable index leaves it pending honestly.
+    let skip_agent = body.get("skip_agent").and_then(|v| v.as_bool()).unwrap_or(false);
+    let token = bearer(&headers);
+    let reg = state
+        .vetting
+        .vet(reg, &state.yields, &state.hub, &state.agent, token.as_deref(), skip_agent)
+        .await
+        .map_err(bad)?;
+    Ok(Json(serde_json::to_value(reg).unwrap_or_default()))
+}
+
+async fn post_registry_vet(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Option<Json<serde_json::Value>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let reg = state
+        .vetting
+        .get(&id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("no registration '{id}'") }))))?;
+    let skip_agent = body
+        .as_ref()
+        .and_then(|b| b.get("skip_agent"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let token = bearer(&headers);
+    let reg = state
+        .vetting
+        .vet(reg, &state.yields, &state.hub, &state.agent, token.as_deref(), skip_agent)
+        .await
+        .map_err(bad)?;
+    Ok(Json(serde_json::to_value(reg).unwrap_or_default()))
+}
+
+async fn delete_registration(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let who = require_caller(&state, &headers)?;
+    let reg = state
+        .vetting
+        .get(&id)
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": format!("no registration '{id}'") }))))?;
+    if !reg.submitter.eq_ignore_ascii_case(&who) && !who.eq_ignore_ascii_case(&state.owner) {
+        return Err((StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "only its submitter or the module owner can remove a registration" }))));
+    }
+    state.vetting.delete(&id).map_err(bad)?;
+    Ok(Json(serde_json::json!({ "deleted": id })))
 }
 
 async fn get_module_facets(
@@ -1664,12 +1766,13 @@ async fn get_module(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .or_else(|| bearer(&headers));
-    state
+    let mut out = state
         .finance
         .module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history, token.as_deref())
         .await
-        .map(Json)
-        .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))
+        .map_err(|e| (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e }))))?;
+    state.hub.annotate_module(&mut out);
+    Ok(Json(out))
 }
 
 async fn post_module_quote(
@@ -1880,4 +1983,183 @@ async fn get_module_whitepaper(
         "stored": "~/.mod/defi/objects — the protocol's content-addressed store; the object holds the card and the paper together",
     }))
     .into_response()
+}
+
+// ── The unified strategy desk (strats.rs — orbit/strat over its CLI) ──────────
+//
+// Read-only and pure-data fns only. Live execution stays with the module that
+// owns each venue, behind that module's own gates.
+
+fn strat_err(message: String) -> (StatusCode, Json<serde_json::Value>) {
+    (StatusCode::BAD_GATEWAY, Json(serde_json::json!({ "error": message })))
+}
+
+const STRAT_PROTOCOL_NOTE: &str = "one Strat protocol (setup/sync/signal/execute/tick/backtest/teardown/state) \
+across polymarket, hyperliquid and bittensor (bt's copytensor submod) — each venue's shipped strats are bridged \
+unchanged as <module>.<strat>; builtins and orbit strat mods ride the same contract";
+
+async fn get_strats(
+    State(state): State<Shared>,
+    raw: axum::extract::RawQuery,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let query = query_value(&raw.0.unwrap_or_default());
+    let venue = query.get("venue").and_then(|v| v.as_str()).unwrap_or("");
+    let origin = query.get("origin").and_then(|v| v.as_str()).unwrap_or("");
+    let mut args: Vec<(&str, serde_json::Value)> = Vec::new();
+    if !venue.is_empty() {
+        args.push(("venue", serde_json::json!(venue)));
+    }
+    if !origin.is_empty() {
+        args.push(("origin", serde_json::json!(origin)));
+    }
+    let key = format!("strats:{venue}:{origin}");
+    let rows = state
+        .strats
+        .cached(&key, 120, "strats", &args, 90)
+        .await
+        .map_err(strat_err)?;
+    Ok(Json(serde_json::json!({
+        "strats": rows,
+        "count": rows.as_array().map(|a| a.len()).unwrap_or(0),
+        "protocol": STRAT_PROTOCOL_NOTE,
+    })))
+}
+
+async fn get_strat_sources(
+    State(state): State<Shared>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let sources = state
+        .strats
+        .cached("strat:sources", 300, "sources", &[], 90)
+        .await
+        .map_err(strat_err)?;
+    Ok(Json(serde_json::json!({
+        "sources": sources,
+        "note": "drift=[] means the bridge maps every native schema field — \
+the venue's strat package is fully under the strat protocol",
+    })))
+}
+
+async fn get_strats_board(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    raw: axum::extract::RawQuery,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let query = query_value(&raw.0.unwrap_or_default());
+    let days = query.get("days").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok()).unwrap_or(7).clamp(1, 90);
+    let refresh = matches!(query.get("refresh").and_then(|v| v.as_str()), Some("1") | Some("true"));
+    let token = query
+        .get("auth")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| bearer(&headers));
+    let args: Vec<(&str, serde_json::Value)> = vec![
+        ("days", serde_json::json!(days)),
+        ("refresh", serde_json::json!(refresh)),
+    ];
+    let key = format!("strats:board:{days}");
+    let board = if refresh {
+        // A refresh re-runs backtests against the venue modules (minutes, not
+        // ms) and may carry the caller's token for gated reads — run it
+        // uncached and drop the stale shared row.
+        let fresh = state
+            .strats
+            .run("board", &args, token.as_deref(), 600)
+            .await
+            .map_err(strat_err)?;
+        state.strats.evict(&key).await;
+        fresh
+    } else {
+        state
+            .strats
+            .cached(&key, 600, "board", &args, 180)
+            .await
+            .map_err(strat_err)?
+    };
+    Ok(Json(board))
+}
+
+async fn get_strat(
+    State(state): State<Shared>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    state
+        .strats
+        .run("strat", &[("name", serde_json::json!(name))], None, 90)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            if e.contains("unknown strat") {
+                (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e })))
+            } else {
+                strat_err(e)
+            }
+        })
+}
+
+async fn post_strat_backtest(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let name = body.get("name").and_then(|v| v.as_str()).ok_or((
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": "'name' is required — see GET /strats" })),
+    ))?;
+    let token = body
+        .get("auth")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| bearer(&headers));
+    let mut args: Vec<(&str, serde_json::Value)> = vec![("name", serde_json::json!(name))];
+    for k in ["days", "capital", "traders", "params", "max_leaders"] {
+        if let Some(v) = body.get(k) {
+            if !v.is_null() {
+                args.push((k, v.clone()));
+            }
+        }
+    }
+    state
+        .strats
+        .run("backtest", &args, token.as_deref(), 300)
+        .await
+        .map(Json)
+        .map_err(strat_err)
+}
+
+async fn post_strat_plan(
+    State(state): State<Shared>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let name = body.get("name").and_then(|v| v.as_str()).ok_or((
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": "'name' is required — see GET /strats" })),
+    ))?;
+    let token = body
+        .get("auth")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| bearer(&headers));
+    let mut args: Vec<(&str, serde_json::Value)> = vec![("name", serde_json::json!(name))];
+    for k in ["capital", "traders", "params", "max_leaders", "eoa", "hotkey"] {
+        if let Some(v) = body.get(k) {
+            if !v.is_null() {
+                args.push((k, v.clone()));
+            }
+        }
+    }
+    let mut plan = state
+        .strats
+        .run("plan", &args, token.as_deref(), 300)
+        .await
+        .map_err(strat_err)?;
+    if let Some(obj) = plan.as_object_mut() {
+        obj.insert(
+            "note".into(),
+            serde_json::json!("pure data — the config that venue module's own live engine consumes; \
+starting it stays with that module and its gates (defi never signs, never starts)"),
+        );
+    }
+    Ok(Json(plan))
 }

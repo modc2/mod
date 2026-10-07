@@ -111,7 +111,7 @@ export default async function DocsPage() {
        "params":{"protocolVersion":"2025-06-18","capabilities":{},
                  "clientInfo":{"name":"curl","version":"1"}}}'`}</Pre>
 
-          <dl className="mt-6 grid gap-px overflow-hidden border-[3px] border-black bg-black sm:grid-cols-2">
+          <dl className="mt-6 grid gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 sm:grid-cols-2">
             <Fact k="Protocol" v={surface?.mcp.protocol ?? '2025-06-18'} />
             <Fact
               k="Also speaks"
@@ -256,14 +256,14 @@ m nyc/warm                        # pre-fetch every layer (~19MB)
 m nyc/serve                       # API + map app under pm2`}</Pre>
         </Section>
 
-        <footer className="mt-14 border-t-[3px] border-black pt-6">
+        <footer className="mt-14 border-t border-white/10 pt-6">
           <p className="text-[12.5px] leading-relaxed text-nes-ink3">
             Data © the City of New York, New York State / MTA, and OpenStreetMap
             contributors, used under their respective open-data terms. This
             module is a viewer and is not affiliated with or endorsed by any of
             them.
           </p>
-          <a href="/nyc" className="btn pixel mt-5 inline-block px-3 py-2.5 text-[8px]">
+          <a href="/nyc" className="btn pixel mt-5 inline-block px-3 py-2.5 text-[11px]">
             ← BACK TO THE MAP
           </a>
         </footer>
@@ -279,11 +279,11 @@ function Header({ version }: { version?: string }) {
     <header className="mb-12">
       <a
         href="/nyc"
-        className="pixel inline-block text-[7.5px] leading-[2] text-nes-ink3 hover:text-nes-coin"
+        className="pixel inline-block text-[10px] leading-relaxed text-nes-ink3 hover:text-nes-coin"
       >
         ← NYC ATLAS
       </a>
-      <h1 className="pixel pixel-shadow mt-4 text-[19px] leading-[1.6] text-nes-coin md:text-[26px]">
+      <h1 className="pixel mt-4 text-[20px] leading-tight text-white md:text-[26px]">
         MCP SERVER
       </h1>
       <p className="mt-5 max-w-[62ch] text-[15px] leading-relaxed text-nes-ink2">
@@ -292,7 +292,7 @@ function Header({ version }: { version?: string }) {
         networks, parks and flood zones — plus SoQL access to every other
         dataset the city and state publish.
       </p>
-      <p className="pixel mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[7px] leading-none text-nes-ink3">
+      <p className="pixel mt-5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-[10px] leading-none text-nes-ink3">
         <span>V{version ?? '2.0.0'}</span>
         <Dot />
         <span>NO AUTH</span>
@@ -305,7 +305,7 @@ function Header({ version }: { version?: string }) {
   )
 }
 
-/** Press Start 2P has no ·, so the separator is drawn rather than typed. */
+/** A drawn separator dot. */
 function Dot() {
   return <span className="h-[3px] w-[3px] shrink-0 bg-nes-ink3" aria-hidden />
 }
@@ -319,7 +319,7 @@ function Section({
           rail's section headers make. Pixel type is already low-contrast at
           this size; laying it over mortar lines finishes the job. */}
       <h2 className="blk pixel relative mb-6 py-3 pl-6 pr-3 text-[10px] leading-none text-nes-coin">
-        <span className="brick brick-strip absolute inset-y-0 left-0 w-2.5" aria-hidden />
+        <span className="accent-bar absolute inset-y-1.5 left-0 w-[3px]" aria-hidden />
         {title}
       </h2>
       <div className="space-y-4 text-[14.5px] leading-relaxed text-nes-ink2 [&_p]:max-w-[68ch]">
@@ -331,7 +331,7 @@ function Section({
 
 function SubHead({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="pixel !mt-8 mb-3 text-[8.5px] leading-[2] text-nes-sky">
+    <h3 className="pixel !mt-8 mb-3 text-[11px] leading-relaxed text-nes-sky">
       {children}
     </h3>
   )
@@ -339,7 +339,7 @@ function SubHead({ children }: { children: React.ReactNode }) {
 
 function Pre({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto border-[3px] border-black bg-black px-3 py-2.5
+    <pre className="overflow-x-auto rounded-lg border border-white/10 bg-black/50 px-3 py-2.5
                     text-[12.5px] leading-relaxed text-nes-coin">
       {children}
     </pre>
@@ -362,7 +362,7 @@ function Callout({
 function Fact({ k, v }: { k: string; v: string }) {
   return (
     <div className="bg-nes-panel px-4 py-3">
-      <dt className="pixel text-[7px] leading-[2] text-nes-ink3">{k.toUpperCase()}</dt>
+      <dt className="pixel text-[10px] leading-relaxed text-nes-ink3">{k.toUpperCase()}</dt>
       <dd className="mt-1 text-[13px] text-nes-ink">{v}</dd>
     </div>
   )
@@ -398,7 +398,7 @@ const ROUTES: [string, string][] = [
 
 function Routes() {
   return (
-    <div className="mt-5 grid gap-px overflow-hidden border-[3px] border-black bg-black">
+    <div className="mt-5 grid gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10">
       {ROUTES.map(([route, what]) => (
         <div
           key={route}

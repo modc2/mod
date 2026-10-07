@@ -40,6 +40,9 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [session, setSession] = useState<string | undefined>()
+  // Phone only: the sheet starts at half height so the map the agent is
+  // drawing on stays in view; FULL trades the map for reading room.
+  const [full, setFull] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
 
   // Follow the stream: new text keeps arriving at the bottom.
@@ -89,35 +92,39 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
   if (!open) return null
 
   return (
-    // A conversation needs room: full-screen sheet on a phone, a wide drawer
-    // on desktop — above the inspector, which it would otherwise fight for
-    // the right edge.
-    <aside className="blk sheet-in pointer-events-auto absolute inset-0 z-50 flex flex-col overflow-hidden
-                      md:inset-auto md:bottom-3 md:right-3 md:top-[86px] md:w-[400px]">
-      <header className="safe-t relative flex shrink-0 items-center gap-2.5 border-b-[3px] border-black bg-black/40 py-2.5 pl-4 pr-2.5">
-        <span className="brick brick-strip absolute inset-y-0 left-0 w-2.5" aria-hidden />
+    // A conversation that drives the map can't cover the map: on a phone the
+    // chat is a half-height bottom sheet with the map live above it, growable
+    // to full screen for reading. On desktop it is a wide right drawer — above
+    // the inspector, which it would otherwise fight for the right edge.
+    <aside className={`blk sheet-in pointer-events-auto absolute inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden
+                      md:inset-auto md:bottom-3 md:right-3 md:top-[86px] md:h-auto md:w-[400px]
+                      ${full ? 'top-0' : 'h-[52dvh]'}`}>
+      <header className={`${full ? 'safe-t' : ''} relative flex shrink-0 items-center gap-2.5 border-b border-white/10 bg-black/40 py-2.5 pl-4 pr-2.5`}>
+        <span className="accent-bar absolute inset-y-1.5 left-0 w-[3px]" aria-hidden />
         <QuestionBlock size={18} />
         <div className="min-w-0 flex-1">
-          <h2 className="pixel text-[10px] leading-none text-white">ASK NYC</h2>
-          <p className="pixel mt-1.5 text-[6.5px] leading-none text-nes-coin">
-            AGENT x OPEN DATA
+          <h2 className="pixel text-[12px] leading-none text-white">ASK NYC</h2>
+          <p className="mt-1 text-[10.5px] leading-none text-nes-ink3">
+            An agent over the city&apos;s open data
           </p>
         </div>
         {messages.length > 0 && (
           <button onClick={reset} disabled={busy}
-                  className="btn pixel tap px-2 py-2 text-[7px] disabled:opacity-40">
+                  className="btn pixel tap px-2 py-2 text-[10px] disabled:opacity-40">
             NEW
           </button>
         )}
+        {/* MAP is the way back down: tapping it is "let me see what you did". */}
+        <button onClick={() => setFull((v) => !v)}
+                aria-label={full ? 'Shrink the chat to see the map' : 'Expand the chat'}
+                className="btn pixel tap px-2 py-2 text-[10px] md:hidden">
+          {full ? 'MAP' : 'FULL'}
+        </button>
         <button onClick={onClose} aria-label="Close chat"
                 className="tap -m-1 grid shrink-0 place-items-center p-1 text-nes-ink3 hover:text-nes-red">
-          <svg width="14" height="14" viewBox="0 0 14 14" shapeRendering="crispEdges"
-               fill="currentColor" aria-hidden>
-            <rect x="2" y="2" width="2" height="2" /><rect x="4" y="4" width="2" height="2" />
-            <rect x="6" y="6" width="2" height="2" /><rect x="8" y="4" width="2" height="2" />
-            <rect x="10" y="2" width="2" height="2" /><rect x="8" y="8" width="2" height="2" />
-            <rect x="10" y="10" width="2" height="2" /><rect x="4" y="8" width="2" height="2" />
-            <rect x="2" y="10" width="2" height="2" />
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+            <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.6"
+                  strokeLinecap="round" />
           </svg>
         </button>
       </header>
@@ -144,7 +151,7 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
         {messages.map((msg, i) =>
           msg.role === 'user' ? (
             <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] border-2 border-black bg-nes-raised px-3 py-2 text-[12.5px] leading-relaxed text-white">
+              <div className="max-w-[85%] rounded-lg border border-white/10 bg-nes-raised px-3 py-2 text-[12.5px] leading-relaxed text-white">
                 {msg.text}
               </div>
             </div>
@@ -152,7 +159,7 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
             <div key={i} className="space-y-1.5">
               {msg.tools.filter((t) => t.name !== 'nyc_map' && t.name !== 'nyc_infographic').map((t, j) => (
                 <div key={j}
-                     className="pixel inline-flex items-center gap-1.5 border-2 border-black bg-black/40 px-2 py-1.5 text-[6.5px] text-nes-coin"
+                     className="pixel inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-[11.5px] text-nes-coin"
                      title={JSON.stringify(t.input)}>
                   <span aria-hidden>&gt;</span>
                   <span>{t.name.toUpperCase()}</span>
@@ -162,7 +169,7 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
                 <button key={`d${j}`} onClick={() => onDisplay?.(d)}
                         title="Show this again"
                         className="btn tap flex w-full items-center gap-2 px-2.5 py-2 text-left">
-                  <span className="pixel shrink-0 text-[6.5px] text-nes-coin">
+                  <span className="pixel shrink-0 text-[11.5px] text-nes-coin">
                     {d.kind === 'map' ? 'MAP' : 'CARD'}
                   </span>
                   <span className="min-w-0 truncate text-[11.5px] text-nes-ink2">{describe(d)}</span>
@@ -174,12 +181,12 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
                 </div>
               )}
               {msg.error && (
-                <div className="border-2 border-black bg-black/40 px-3 py-2 text-[11px] leading-snug text-nes-red">
+                <div className="rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-[11px] leading-snug text-nes-red">
                   {msg.error}
                 </div>
               )}
               {i === messages.length - 1 && busy && !msg.text && (
-                <p className="pixel flex items-center gap-2 text-[7px] text-nes-ink3">
+                <p className="pixel flex items-center gap-2 text-[10px] text-nes-ink3">
                   <span className="coin-spin inline-block"><Coin size={12} /></span>
                   {msg.tools.length ? 'CHECKING THE DATA...' : 'THINKING...'}
                 </p>
@@ -190,7 +197,7 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
       </div>
 
       <form
-        className="safe-b flex shrink-0 items-center gap-2 border-t-[3px] border-black bg-black/40 px-3 py-2.5"
+        className="safe-b flex shrink-0 items-center gap-2 border-t border-white/10 bg-black/40 px-3 py-2.5"
         onSubmit={(e) => { e.preventDefault(); ask(input) }}
       >
         <input
@@ -198,11 +205,11 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask about NYC..."
           maxLength={4000}
-          className="min-w-0 flex-1 border-2 border-black bg-nes-panel px-3 py-2.5 text-[13px] text-white
+          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-nes-panel px-3 py-2.5 text-[13px] text-white
                      placeholder:text-nes-ink3 focus:outline-none focus:ring-2 focus:ring-nes-coin"
         />
         <button type="submit" disabled={busy || !input.trim()}
-                className="btn pixel tap shrink-0 px-3 py-3 text-[8px] disabled:opacity-40">
+                className="btn pixel tap shrink-0 px-3 py-3 text-[11px] disabled:opacity-40">
           {busy ? '...' : 'ASK'}
         </button>
       </form>

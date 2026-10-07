@@ -63,7 +63,7 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="pixel text-[6.5px] leading-[1.8] text-nes-ink3">
+        <span className="pixel text-[11.5px] leading-snug text-nes-ink3">
           {title ?? MEASURES[measure].label}
         </span>
         <div className="flex gap-1">
@@ -71,7 +71,7 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
             <button
               key={k}
               onClick={() => { setMeasure(k); setHover(null) }}
-              className={`btn px-1.5 py-1 text-[9px] ${measure === k ? 'btn-on' : ''}`}
+              className={`btn px-1.5 py-1 text-[11px] ${measure === k ? 'btn-on' : ''}`}
             >
               {MEASURES[k].short}
             </button>
@@ -96,15 +96,15 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
 
           {hp && (
             <line x1={sx(hp.year)} y1={PT - 4} x2={sx(hp.year)} y2={H - PB}
-                  stroke="#fbd000" strokeWidth="1" strokeDasharray="2 2" />
+                  stroke="#e8b64c" strokeWidth="1" strokeDasharray="2 2" />
           )}
 
           {/* endpoint marker, direct-labelled below — no dot on every year */}
           <circle cx={sx(last.year)} cy={sy(last[measure] as number)} r="3.4"
-                  fill="#3987e5" stroke="#0e1330" strokeWidth="2" />
+                  fill="#3987e5" stroke="#11151f" strokeWidth="2" />
           {hp && hover !== pts.length - 1 && (
             <circle cx={sx(hp.year)} cy={sy(hp[measure] as number)} r="3.4"
-                    fill="#9ec5f4" stroke="#0e1330" strokeWidth="2" />
+                    fill="#9ec5f4" stroke="#11151f" strokeWidth="2" />
           )}
 
           <text x={PL} y={H - 4} fill="#8f98c8" fontSize="9">{first.year}</text>
@@ -124,7 +124,7 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
 
         {hp && (
           <div className="pointer-events-none absolute -top-1 left-0 right-0 flex justify-center">
-            <div className="border-2 border-black bg-nes-void px-1.5 py-0.5 text-[10px] tabular-nums text-white">
+            <div className="rounded-md border border-white/10 bg-nes-void px-1.5 py-0.5 text-[10px] tabular-nums text-white">
               {hp.year} · {measure === 'median_price'
                 ? usdExact(hp.median_price)
                 : `$${hp.median_ppsf}/ft²`} · {hp.sales.toLocaleString()} sales
@@ -139,7 +139,7 @@ export default function TrendChart({ series, title }: { series: TrendPoint[]; ti
           <span className="ml-1 text-[10px] font-normal text-nes-ink3">in {last.year}</span>
         </span>
         <span className="text-[10.5px] tabular-nums"
-              style={{ color: change >= 0 ? '#43b047' : '#e52521' }}>
+              style={{ color: change >= 0 ? '#3fb68b' : '#f0564a' }}>
           {change >= 0 ? '↑' : '↓'} {Math.abs(change).toFixed(0)}% since {first.year}
         </span>
       </div>

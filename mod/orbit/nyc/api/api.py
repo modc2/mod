@@ -206,6 +206,35 @@ def traffic(street: str = Query(''), borough: str = Query(''),
                cache='public, max-age=180')
 
 
+@app.get('/crime')
+def crime(part: str = Query('summary'), limit: int = Query(15, ge=1, le=100)):
+    """Public safety: complaints + shootings vs last year, trends, offenses."""
+    out = nyc().crime(part=part, limit=limit)
+    if isinstance(out, dict) and out.get('error'):
+        raise HTTPException(status_code=400, detail=out)
+    return geo(out, cache='public, max-age=3600')
+
+
+@app.get('/news')
+def news(topic: str = Query(''), q: str = Query(''),
+         limit: int = Query(25, ge=1, le=200)):
+    """NYC headlines from key-free newsroom feeds; q searches via GDELT."""
+    try:
+        return geo(nyc().news(topic=topic, q=q, limit=limit),
+                   cache='public, max-age=300')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get('/market')
+def market(area: str = Query('')):
+    """The listing market: asking rent / price / inventory, YoY, movers."""
+    out = nyc().market(area=area)
+    if isinstance(out, dict) and out.get('error'):
+        raise HTTPException(status_code=404, detail=out['error'])
+    return geo(out, cache='public, max-age=3600')
+
+
 @app.get('/rents')
 def rents():
     """What affordable homes rent for: medians by bedroom, income band, borough."""
@@ -394,8 +423,10 @@ CHAT_SYSTEM = (
     'on public open data and aimed at city staff and residents alike. Answer '
     'questions about NYC with the nyc_* tools; never guess a number you '
     'could look up. Housing questions: nyc_housing / nyc_prices / nyc_trend '
-    '/ nyc_sales. Transit, parks, flood zones, crashes: nyc_layers + '
-    'nyc_layer. Anything else (311, crime, schools, health, budgets, '
+    '/ nyc_sales; the listing market (asking rents/prices, Zillow indices): '
+    'nyc_market. Crime and shootings: nyc_crime. News and current events: '
+    'nyc_news. Transit, parks, flood zones, crashes: nyc_layers + '
+    'nyc_layer. Anything else (311, schools, health, budgets, '
     'permits): nyc_find_datasets → nyc_dataset → nyc_query. Keep answers '
     'short and concrete: lead with the figure, name the neighborhood, and '
     'cite the dataset it came from. Plain text only — no markdown tables, '

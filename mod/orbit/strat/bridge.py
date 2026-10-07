@@ -140,7 +140,8 @@ class Source:
     model = ""          # one line: the native backtest model
 
     def __init__(self):
-        self.root = os.path.join(ORBIT, self.mod, "src", "strats")
+        # module_dir is submod-aware: copytensor lives at orbit/bt/copytensor.
+        self.root = os.path.join(_venues().module_dir(self.mod), "src", "strats")
         self.pkg_name = f"strat_src_{self.mod}"
         self._pkg = None
         self._error: Optional[str] = None

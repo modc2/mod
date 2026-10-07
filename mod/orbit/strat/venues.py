@@ -33,6 +33,30 @@ from protocol import ExecutionResult, Order, OrderSide, VenueTrade
 ORBIT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TIMEOUT = 15
 
+_MODULE_DIRS: dict = {}
+
+
+def module_dir(mod: str) -> str:
+    """Where a module lives under orbit. Usually orbit/<mod>, but a module
+    may be a SUBMOD of another (copytensor lives at orbit/bt/copytensor) —
+    fall back to one level of orbit/*/<mod>/config.json."""
+    cached = _MODULE_DIRS.get(mod)
+    if cached and os.path.isdir(cached):
+        return cached
+    d = os.path.join(ORBIT, mod)
+    if not os.path.isfile(os.path.join(d, "config.json")):
+        try:
+            entries = sorted(os.listdir(ORBIT))
+        except OSError:
+            entries = []
+        for parent in entries:
+            sub = os.path.join(ORBIT, parent, mod)
+            if os.path.isfile(os.path.join(sub, "config.json")):
+                d = sub
+                break
+    _MODULE_DIRS[mod] = d
+    return d
+
 
 class Peer:
     """A fleet module reachable over HTTP, REST and/or MCP."""
@@ -43,7 +67,7 @@ class Peer:
 
     def _config_urls(self) -> dict:
         try:
-            with open(os.path.join(ORBIT, self.mod, "config.json")) as f:
+            with open(os.path.join(module_dir(self.mod), "config.json")) as f:
                 c = json.load(f)
         except Exception:
             return {}

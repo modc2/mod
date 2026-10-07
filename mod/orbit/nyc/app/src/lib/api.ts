@@ -201,4 +201,45 @@ export const api = {
     get<{ series: TrendPoint[]; name?: string; area?: string }>('/trend', q),
   where: (q: string) =>
     get<{ name: string; lat: number; lng: number; type: string }[]>('/where', { q }),
+  news: (q: { topic?: string; limit?: number }) => get<NewsFeed>('/news', q),
+  crime: () => get<CrimeSummary>('/crime'),
+  market: () => get<MarketSummary>('/market'),
+}
+
+/** One headline from the newsroom feeds, tagged with a crude topic. */
+export type NewsItem = {
+  title: string; url: string; source: string
+  published: string | null; summary: string; topic: string
+}
+export type NewsFeed = {
+  fetched: string; sources: string[]; topic: string
+  count: number; total: number; items: NewsItem[]
+}
+
+/** The safety picture: this year vs the same window last year. */
+export type CrimeSummary = {
+  window: { since: string; until: string }
+  complaints: {
+    total: number; felony: number; misdemeanor: number; violation: number
+    prior_total: number; change_pct: number | null; per_1k_residents: number
+  }
+  shootings: {
+    this_year: { incidents: number }
+    last_year_same_window: { incidents: number }
+    change_pct: number | null
+  }
+  by_borough: Record<string, any>[]
+  top_offenses: { offense: string; level: string; count: number; change_pct: number | null }[]
+  monthly_trend: { month: string; total: number; felony: number }[]
+}
+
+/** The listing market: asking rent / price / inventory with YoY change. */
+export type MarketSnap = { month: string | null; value: number | null; yoy_pct: number | null }
+export type MarketSummary = {
+  as_of: string | null
+  city: { asking_rent: MarketSnap; asking_price: MarketSnap; rental_inventory: MarketSnap }
+  boroughs: Record<string, { asking_rent: MarketSnap; asking_price: MarketSnap; rental_inventory: MarketSnap }>
+  rent_rising_fastest: { area: string; borough: string; asking_rent: number; yoy_pct: number }[]
+  rent_falling_fastest: { area: string; borough: string; asking_rent: number; yoy_pct: number }[]
+  zillow_ny_metro?: Record<string, any>
 }

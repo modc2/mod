@@ -20,7 +20,7 @@ type Props = {
  */
 export default function Section({ title, open, onToggle, summary, children }: Props) {
   return (
-    <section className="border-b-[3px] border-black">
+    <section className="border-b border-white/10">
       <button
         onClick={onToggle}
         aria-expanded={open}
@@ -28,9 +28,9 @@ export default function Section({ title, open, onToggle, summary, children }: Pr
       >
         {/* A course of brick down the edge of every header — enough texture to
             read as a level, not so much that it fights the type. */}
-        <span className="brick brick-strip absolute inset-y-0 left-0 w-2.5" aria-hidden />
+        <span className="accent-bar absolute inset-y-1.5 left-0 w-[3px]" aria-hidden />
         <Arrow open={open} />
-        <h3 className="pixel flex-1 truncate text-[8px] leading-none text-nes-ink3">
+        <h3 className="pixel flex-1 truncate text-[11px] leading-none text-nes-ink3">
           {title}
         </h3>
         {summary !== undefined && summary !== null && summary !== '' && (
@@ -44,24 +44,13 @@ export default function Section({ title, open, onToggle, summary, children }: Pr
   )
 }
 
-/** Two whole-pixel triangles: ▶ closed, ▼ open. */
+/** A chevron: ▸ closed, ▾ open. */
 function Arrow({ open }: { open: boolean }) {
   return (
-    <svg width="8" height="8" viewBox="0 0 8 8" className="shrink-0 text-nes-coin"
-         shapeRendering="crispEdges" fill="currentColor" aria-hidden>
-      {open ? (
-        <>
-          <rect x="0" y="2" width="8" height="2" />
-          <rect x="1" y="4" width="6" height="2" />
-          <rect x="3" y="6" width="2" height="2" />
-        </>
-      ) : (
-        <>
-          <rect x="2" y="0" width="2" height="8" />
-          <rect x="4" y="1" width="2" height="6" />
-          <rect x="6" y="3" width="2" height="2" />
-        </>
-      )}
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden
+         className={`shrink-0 text-nes-ink3 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}>
+      <path d="M3.5 2l4 3-4 3" stroke="currentColor" strokeWidth="1.5"
+            strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

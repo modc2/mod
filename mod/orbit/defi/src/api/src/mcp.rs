@@ -433,7 +433,7 @@ fn finance_tools() -> serde_json::Value {
         },
         {
             "name": "defi_modules",
-            "description": "[public] The finance modules: every place money can go that gives a return — DefiLlama's pools on Ethereum, Base and Solana; Bittensor subnets through the bt module; Hyperliquid perps vaults through the hyperliquid module (trailing APR, quoted not promised); Polymarket one-to-one copy-trading through the polymarket module (a module is one trader mirrored at weight 1.0 — owner-gated, so the board lists only with its access token); vaults you composed and deployed; the BlocTime treasury. Each row carries returns, liquidity, conditions, and an adapter saying how THIS desk enters it (or null = read-only). Filters: chain (ethereum|base|solana|tao|hyperliquid|polymarket|evm), kind, q, addable, instant, min_tvl, stable, organic, sort (score|apy|tvl|base|mean30d), limit.",
+            "description": "[public] The finance modules: every place money can go that gives a return — DefiLlama's pools on Ethereum, Base and Solana; Bittensor subnets through the bt module; Hyperliquid perps vaults through the hyperliquid module (trailing APR, quoted not promised); Polymarket one-to-one copy-trading through the polymarket module (a module is one trader mirrored at weight 1.0 — owner-gated, so the board lists only with its access token); vaults you composed and deployed; the BlocTime treasury. Each row carries returns (including returns.band — the observed lower/upper APR bound from the index's own daily record), liquidity, conditions, its OWN risks list (the curated hub's written risks plus risks derived from the row's numbers), and an adapter saying how THIS desk enters it (or null = read-only). Filters: chain (ethereum|base|solana|tao|hyperliquid|polymarket|evm), kind, q, addable, instant, min_tvl, stable, organic, sort (score|apy|tvl|base|mean30d), limit.",
             "inputSchema": { "type": "object", "properties": {
                 "chain": { "type": "string" }, "kind": { "type": "string", "description": "Lending, Liquid Staking, Dexs, Yield, Subnet (dTAO), Perps vault, Copy trading, Composed vault… see defi_module_facets" },
                 "q": { "type": "string" }, "addable": { "type": "boolean", "description": "only modules this desk can enter" },
@@ -537,9 +537,68 @@ fn copy_desk_tools() -> serde_json::Value {
 }
 
 /// Every tool this server offers, in one list.
+fn strat_tools() -> serde_json::Value {
+    serde_json::json!([
+        {
+            "name": "defi_strats",
+            "description": "[public] The unified strategy registry — every trading strategy on the fleet under the ONE canonical Strat protocol: the strats shipped inside polymarket, hyperliquid and copytensor (bittensor, a submod of bt) bridged unchanged as <module>.<strat>, plus builtins and orbit strat mods. Each row names its venues, params, origin and whether it picks its own leaders.",
+            "inputSchema": { "type": "object", "properties": {
+                "venue": { "type": "string", "description": "only strats that trade this venue: polymarket | hyperliquid | bittensor | raydium | uniswap" },
+                "origin": { "type": "string", "description": "builtin | orbit | bridge" }
+            } }
+        },
+        {
+            "name": "defi_strat",
+            "description": "[public] One strat's full card: config, venues, params, and a live verify() against the protocol contract (method surface + bridge drift).",
+            "inputSchema": { "type": "object", "properties": {
+                "name": { "type": "string", "description": "strat name, e.g. 'copytensor.top_n' or 'mirror'" }
+            }, "required": ["name"] }
+        },
+        {
+            "name": "defi_strat_sources",
+            "description": "[public] The health of the unification: for each venue module whose shipped strats are bridged onto the strat protocol (polymarket, hyperliquid, copytensor), its package path, native backtest model, strat list and `drift` — native schema fields the bridge does not map. drift=[] means that module is fully under the protocol.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "defi_strats_board",
+            "description": "[public] The cross-venue marketplace board: every strat, verified, with cached backtest performance (roi_pct, final_pnl, currency — TAO rows and USDC rows are different currencies AND different backtest models, never compare raw). refresh=true re-runs backtests against the venue modules (slow, minutes).",
+            "inputSchema": { "type": "object", "properties": {
+                "days": { "type": "integer", "description": "backtest window in days, 1-90 (default 7)" },
+                "refresh": { "type": "boolean", "description": "re-run backtests now instead of serving the cached board" },
+                "auth": { "type": "string", "description": "bearer forwarded to gated venue reads (polymarket is owner-gated)" }
+            } }
+        },
+        {
+            "name": "defi_strat_backtest",
+            "description": "[public] Replay one strat over its leaders' recent venue history — pure read, nothing is placed. With no traders=, a bridged strat picks its own leaders from its module's board. The result names the native backtest model and currency it was scored in.",
+            "inputSchema": { "type": "object", "properties": {
+                "name": { "type": "string", "description": "strat name from defi_strats" },
+                "days": { "type": "integer", "description": "window in days (default 7)" },
+                "capital": { "type": "number", "description": "starting capital in the strat's native currency (default 1000)" },
+                "traders": { "type": "array", "items": { "type": "string" }, "description": "leaders as 'venue:address' (optional — self-selecting strats pick their own)" },
+                "params": { "type": "object", "description": "strat param overrides" },
+                "max_leaders": { "type": "integer", "description": "cap on self-selected leaders (default 5)" },
+                "auth": { "type": "string", "description": "bearer forwarded to gated venue reads" }
+            }, "required": ["name"] }
+        },
+        {
+            "name": "defi_strat_plan",
+            "description": "[public] PURE DATA: the exact config the strat's OWN venue module's live engine would consume (hyperliquid hl_live_start body, copytensor per-leader copy rows, polymarket /live/start body with autoExecute false). defi never signs and never starts — executing the plan stays with that module and its gates.",
+            "inputSchema": { "type": "object", "properties": {
+                "name": { "type": "string", "description": "a bridged strat name, e.g. 'hyperliquid.top_n'" },
+                "capital": { "type": "number", "description": "capital in the strat's native currency" },
+                "traders": { "type": "array", "items": { "type": "string" }, "description": "leaders as 'venue:address' (optional)" },
+                "max_leaders": { "type": "integer", "description": "cap on self-selected leaders (default 5)" },
+                "eoa": { "type": "string", "description": "hyperliquid plans: the master wallet address" },
+                "hotkey": { "type": "string", "description": "copytensor plans: our hotkey ss58" }
+            }, "required": ["name"] }
+        }
+    ])
+}
+
 fn tools() -> serde_json::Value {
     let mut all = composer_and_desk_tools();
-    for rest in [yield_and_treasury_tools(), finance_tools(), copy_desk_tools()] {
+    for rest in [yield_and_treasury_tools(), finance_tools(), copy_desk_tools(), strat_tools()] {
         if let (Some(a), Some(b)) = (all.as_array_mut(), rest.as_array()) {
             a.extend(b.iter().cloned());
         }
@@ -934,7 +993,10 @@ async fn call_tool(
         }
         "defi_modules" => {
             let filter = crate::finance::Filter::from_query(&args);
-            state.finance.modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, peer_auth(&args, &token)).await
+            let mut out = state.finance.modules(&filter, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, peer_auth(&args, &token)).await?;
+            state.hub.annotate_modules(&mut out);
+            state.vetting.annotate(&mut out);
+            Ok(out)
         }
         "defi_module_facets" => {
             state.finance.facets(&state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, token.as_deref()).await
@@ -942,7 +1004,9 @@ async fn call_tool(
         "defi_module" => {
             let id = arg_str(&args, "id")?;
             let history = args.get("history").and_then(|v| v.as_bool()).unwrap_or(true);
-            state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history, peer_auth(&args, &token)).await
+            let mut out = state.finance.module(&id, &state.yields, &state.dex, &state.store, &state.catalog, &state.treasury, history, peer_auth(&args, &token)).await?;
+            state.hub.annotate_module(&mut out);
+            Ok(out)
         }
         "defi_module_quote" => {
             let id = arg_str(&args, "id")?;
@@ -978,6 +1042,64 @@ async fn call_tool(
         }
         "defi_pm_sessions" => {
             state.dex.rest("polymarket", "GET", "/live/sessions", None, peer_auth(&args, &token)).await
+        }
+        // ── the unified strategy desk (orbit/strat over its CLI) ──
+        "defi_strats" => {
+            let mut cli: Vec<(&str, serde_json::Value)> = Vec::new();
+            for key in ["venue", "origin"] {
+                if let Some(v) = args.get(key).filter(|v| !v.is_null()) {
+                    cli.push((key, v.clone()));
+                }
+            }
+            let key = format!(
+                "strats:{}:{}",
+                args.get("venue").and_then(|v| v.as_str()).unwrap_or(""),
+                args.get("origin").and_then(|v| v.as_str()).unwrap_or("")
+            );
+            state.strats.cached(&key, 120, "strats", &cli, 90).await
+        }
+        "defi_strat" => {
+            let name = arg_str(&args, "name")?;
+            state.strats.run("strat", &[("name", serde_json::json!(name))], None, 90).await
+        }
+        "defi_strat_sources" => state.strats.cached("strat:sources", 300, "sources", &[], 90).await,
+        "defi_strats_board" => {
+            let days = args.get("days").and_then(|v| v.as_i64()).unwrap_or(7).clamp(1, 90);
+            let refresh = args.get("refresh").and_then(|v| v.as_bool()).unwrap_or(false);
+            let cli: Vec<(&str, serde_json::Value)> = vec![
+                ("days", serde_json::json!(days)),
+                ("refresh", serde_json::json!(refresh)),
+            ];
+            let key = format!("strats:board:{days}");
+            if refresh {
+                let fresh = state.strats.run("board", &cli, peer_auth(&args, &token), 600).await?;
+                state.strats.evict(&key).await;
+                Ok(fresh)
+            } else {
+                state.strats.cached(&key, 600, "board", &cli, 180).await
+            }
+        }
+        "defi_strat_backtest" => {
+            let name = arg_str(&args, "name")?;
+            let mut cli: Vec<(&str, serde_json::Value)> =
+                vec![("name", serde_json::json!(name))];
+            for key in ["days", "capital", "traders", "params", "max_leaders"] {
+                if let Some(v) = args.get(key).filter(|v| !v.is_null()) {
+                    cli.push((key, v.clone()));
+                }
+            }
+            state.strats.run("backtest", &cli, peer_auth(&args, &token), 300).await
+        }
+        "defi_strat_plan" => {
+            let name = arg_str(&args, "name")?;
+            let mut cli: Vec<(&str, serde_json::Value)> =
+                vec![("name", serde_json::json!(name))];
+            for key in ["capital", "traders", "params", "max_leaders", "eoa", "hotkey"] {
+                if let Some(v) = args.get(key).filter(|v| !v.is_null()) {
+                    cli.push((key, v.clone()));
+                }
+            }
+            state.strats.run("plan", &cli, peer_auth(&args, &token), 300).await
         }
         "defi_positions" => state.finance.positions(&state.yields, who.as_deref()).await,
         "defi_exit" => {

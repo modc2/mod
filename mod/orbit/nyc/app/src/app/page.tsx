@@ -17,9 +17,10 @@ import Inspector, { type Selection } from './components/Inspector'
 import LayerPanel from './components/LayerPanel'
 import Legend, { hasLegend } from './components/Legend'
 import MapFrame from './components/MapFrame'
+import PulsePanel from './components/PulsePanel'
 import SearchBar from './components/SearchBar'
 import Section from './components/Section'
-import { Coin, Mushroom, QuestionBlock } from './components/Sprites'
+import { Mushroom, QuestionBlock } from './components/Sprites'
 import { NARROW } from '@/lib/layout'
 import type { Basemap } from './components/MapView'
 
@@ -28,7 +29,7 @@ const MapView = dynamic(() => import('./components/MapView'), {
   ssr: false,
   loading: () => (
     <div className="absolute inset-0 grid place-items-center bg-nes-void">
-      <span className="pixel text-[10px] text-nes-coin">LOADING...</span>
+      <span className="pixel text-[10px] text-nes-coin">Loading…</span>
     </div>
   ),
 })
@@ -217,15 +218,15 @@ export default function Page() {
           <div className="flex justify-center">
             <Mushroom size={44} />
           </div>
-          <h1 className="pixel pixel-shadow mt-4 text-[16px] text-nes-red">GAME OVER</h1>
-          <p className="pixel mt-4 text-[8px] leading-[2.2] text-nes-ink2">
-            THE MAP CANT REACH ITS API
+          <h1 className="pixel mt-4 text-[15px] text-nes-red">API unreachable</h1>
+          <p className="mt-3 text-[13px] leading-relaxed text-nes-ink2">
+            The map can&apos;t reach its API.
           </p>
-          <p className="mt-4 text-[12.5px] leading-relaxed text-nes-ink3">{boot}</p>
-          <p className="pixel mt-5 text-[7.5px] leading-[2.2] text-nes-coin">
-            CONTINUE? RUN
+          <p className="mt-3 text-[12.5px] leading-relaxed text-nes-ink3">{boot}</p>
+          <p className="mt-5 text-[12px] leading-relaxed text-nes-ink3">
+            To bring it back, run
           </p>
-          <code className="mt-1.5 inline-block border-2 border-black bg-black px-2 py-1 text-[12px] text-nes-coin">
+          <code className="code mt-1.5 inline-block px-2 py-1 text-[12px]">
             m nyc/serve_api
           </code>
         </div>
@@ -303,16 +304,13 @@ export default function Page() {
               </span>
             </button>
             <div className="min-w-0">
-              <h1 className="pixel pixel-shadow whitespace-nowrap text-[11px] leading-none text-white md:text-[13px]">
+              <h1 className="pixel whitespace-nowrap text-[12px] leading-none text-white md:text-[13px]">
                 NYC ATLAS
               </h1>
-              {/* The separator is a drawn pixel rather than a bullet glyph —
-                  Press Start 2P has no ·, and the fallback's version sits at a
-                  different weight and height from everything around it. */}
-              <p className="pixel mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[6.5px] leading-none text-nes-coin md:mt-2 md:gap-2 md:text-[7.5px]">
-                <span>WORLD 1-1</span>
-                <span className="h-[4px] w-[4px] shrink-0 bg-nes-coin" aria-hidden />
-                <span>{catalog?.count ?? '--'} LAYERS</span>
+              <p className="mt-1 flex items-center gap-1.5 whitespace-nowrap text-[10.5px] leading-none text-nes-ink3 md:gap-2 md:text-[11px]">
+                <span>Open data</span>
+                <span className="h-[3px] w-[3px] shrink-0 rounded-full bg-nes-ink3" aria-hidden />
+                <span>{catalog?.count ?? '—'} layers</span>
               </p>
             </div>
           </div>
@@ -324,7 +322,7 @@ export default function Page() {
             <button
               onClick={() => setChatOpen((v) => !v)}
               aria-expanded={chatOpen}
-              className={`btn pixel tap px-2.5 py-3 text-[8px] md:px-3 ${chatOpen ? 'btn-on' : ''}`}
+              className={`btn pixel tap px-2.5 py-3 text-[11px] md:px-3 ${chatOpen ? 'btn-on' : ''}`}
             >
               ASK
             </button>
@@ -334,7 +332,7 @@ export default function Page() {
                 an MCP client on one. */}
             <a
               href="/nyc/docs"
-              className="btn pixel tap hidden px-3 py-3 text-[8px] md:block"
+              className="btn pixel tap hidden px-3 py-3 text-[11px] md:block"
             >
               DOCS
             </a>
@@ -344,8 +342,8 @@ export default function Page() {
               className="btn tap grid place-items-center px-3 py-3 md:hidden"
             >
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden>
-                <circle cx="7" cy="7" r="4.6" stroke="#fbd000" strokeWidth="2" />
-                <path d="M10.6 10.6L14 14" stroke="#fbd000" strokeWidth="2" strokeLinecap="square" />
+                <circle cx="7" cy="7" r="4.6" stroke="#e8b64c" strokeWidth="1.8" />
+                <path d="M10.6 10.6L14 14" stroke="#e8b64c" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
             </button>
             {/* The basemap switch is three buttons wide; on a phone it moves
@@ -355,7 +353,7 @@ export default function Page() {
                 <button
                   key={b.id}
                   onClick={() => setBasemap(b.id)}
-                  className={`btn pixel px-2.5 py-2 text-[8px] ${basemap === b.id ? 'btn-on' : ''}`}
+                  className={`btn pixel px-2.5 py-2 text-[11px] ${basemap === b.id ? 'btn-on' : ''}`}
                 >
                   {b.label}
                 </button>
@@ -389,8 +387,8 @@ export default function Page() {
       >
         {/* The drawer's own title bar: the HUD behind it is covered by the
             scrim, so the way out has to be inside. */}
-        <div className="safe-t flex shrink-0 items-center justify-between gap-2 border-b-[3px] border-black bg-black/40 px-3 pb-2.5 md:hidden">
-          <h2 className="pixel text-[9px] leading-none text-white">LAYERS</h2>
+        <div className="safe-t flex shrink-0 items-center justify-between gap-2 border-b border-white/10 bg-black/40 px-3 pb-2.5 md:hidden">
+          <h2 className="pixel text-[11px] leading-none text-white">LAYERS</h2>
           <button
             onClick={() => setPanelOpen(false)}
             aria-label="Close layers"
@@ -400,12 +398,12 @@ export default function Page() {
           </button>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5 border-b-[3px] border-black px-3 py-2.5 md:hidden">
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-white/10 px-3 py-2.5 md:hidden">
           {BASEMAPS.map((b) => (
             <button
               key={b.id}
               onClick={() => setBasemap(b.id)}
-              className={`btn pixel tap flex-1 px-1 py-2.5 text-[8px] ${basemap === b.id ? 'btn-on' : ''}`}
+              className={`btn pixel tap flex-1 px-1 py-2.5 text-[11px] ${basemap === b.id ? 'btn-on' : ''}`}
             >
               {b.label}
             </button>
@@ -415,7 +413,7 @@ export default function Page() {
         <div className="safe-b flex-1 overflow-y-auto md:pb-0">
           {active.includes('housing_prices') && (
             <Section
-              title="Housing choropleth"
+              title="Price map"
               open={collapse.isOpen('housing')}
               onToggle={() => collapse.toggle('housing')}
               summary={housingBusy ? '…' : options?.metrics?.[query.metric]?.label ?? ''}
@@ -457,6 +455,17 @@ export default function Page() {
             isOpen={collapse.isOpen}
             onToggleSection={collapse.toggle}
           />
+          {/* The city beyond the map: crime and market vitals, headlines,
+              and the full printable brief. Lives under the layers — the map
+              is still the main event — and fetches nothing until opened. */}
+          <Section
+            title="City pulse"
+            open={collapse.isOpen('pulse')}
+            onToggle={() => collapse.toggle('pulse')}
+            summary="news · crime · market"
+          >
+            <PulsePanel />
+          </Section>
         </div>
       </div>
 
@@ -470,6 +479,7 @@ export default function Page() {
           areasWithData={housing?.meta?.areas_with_data}
           totalAreas={housing?.meta?.areas}
           population={population}
+          crime={layerData['crime'] as any}
         />
       </div>
 
@@ -488,13 +498,14 @@ export default function Page() {
                 areasWithData={housing?.meta?.areas_with_data}
                 totalAreas={housing?.meta?.areas}
                 population={population}
+                crime={layerData['crime'] as any}
               />
             </div>
           )}
           <button
             onClick={() => setLegendOpen((v) => !v)}
             aria-expanded={legendOpen}
-            className={`btn pixel tap px-3 py-2.5 text-[8px] ${legendOpen ? 'btn-on' : ''}`}
+            className={`btn pixel tap px-3 py-2.5 text-[11px] ${legendOpen ? 'btn-on' : ''}`}
           >
             {legendOpen ? 'HIDE KEY' : 'KEY'}
           </button>
@@ -522,9 +533,14 @@ export default function Page() {
         <AgentLegend overlay={scene.overlay} caption={scene.caption} onClear={scene.clearAgent} />
       </div>
       {scene.card && (
-        <div className={`safe-b pointer-events-none absolute inset-x-0 bottom-0 z-30 flex max-h-[55dvh] px-2 pb-2
+        // While the phone's chat sheet (h-[52dvh]) is up, the card rides above
+        // it instead of being buried underneath — chat and card never overlap.
+        <div className={`safe-b pointer-events-none absolute inset-x-0 z-30 flex px-2 pb-2
                         md:inset-x-auto md:bottom-auto md:top-[86px] md:max-h-[calc(100%-12rem)]
-                        md:w-[380px] md:px-0 md:pb-0 ${chatOpen ? 'md:right-[424px]' : 'md:right-3'}`}>
+                        md:w-[380px] md:px-0 md:pb-0
+                        ${chatOpen
+                          ? 'bottom-[52dvh] max-h-[34dvh] md:right-[424px]'
+                          : 'bottom-0 max-h-[55dvh] md:right-3'}`}>
           <div className="w-full">
             <Infographic card={scene.card} onClose={scene.closeCard} />
           </div>
@@ -555,30 +571,26 @@ function Headline({ housing, metric }: { housing: Choropleth; metric: string }) 
     : metric === 'sales'
     ? median.toLocaleString()
     : metric === 'median_ppsf'
-    ? `$${Math.round(median)}/FT2`
+    ? `$${Math.round(median)}/ft²`
     : usd(median)
 
   return (
-    <div className="flex items-center justify-between gap-2 border-t-[3px] border-black bg-black/40 px-3 py-2.5">
-      <span className="pixel flex items-center gap-1.5 text-[8px] text-nes-coin">
-        <Coin size={13} />
-        x{sales.toLocaleString()}
+    <div className="flex items-center justify-between gap-2 border-t border-white/10 bg-black/40 px-3 py-2.5">
+      <span className="text-[11.5px] tabular-nums text-nes-ink3">
+        {sales.toLocaleString()} sales
       </span>
-      <span className="pixel text-[8px] text-white">{typical}</span>
+      <span className="text-[12px] font-semibold tabular-nums text-nes-coin">{typical}</span>
     </div>
   )
 }
 
-/** A whole-pixel X, for the two dismiss buttons the phone layout adds. */
+/** The dismiss X for the two close buttons the phone layout adds. */
 function Cross() {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" shapeRendering="crispEdges"
-         fill="currentColor" className="text-nes-ink2" aria-hidden>
-      <rect x="0" y="0" width="2" height="2" /><rect x="2" y="2" width="2" height="2" />
-      <rect x="4" y="4" width="2" height="2" /><rect x="6" y="2" width="2" height="2" />
-      <rect x="8" y="0" width="2" height="2" /><rect x="6" y="6" width="2" height="2" />
-      <rect x="8" y="8" width="2" height="2" /><rect x="2" y="6" width="2" height="2" />
-      <rect x="0" y="8" width="2" height="2" />
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none"
+         className="text-nes-ink2" aria-hidden>
+      <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6"
+            strokeLinecap="round" />
     </svg>
   )
 }

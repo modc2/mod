@@ -64,6 +64,15 @@ pub struct Pool {
     pub pool_meta: Option<String>,
     #[serde(default)]
     pub outlier: bool,
+    /// Lifetime mean and standard deviation of the pool's daily APY, and how
+    /// many daily readings stand behind them — the index's own record, which
+    /// is what the observed APR band is computed from.
+    #[serde(default)]
+    pub mu: Option<f64>,
+    #[serde(default)]
+    pub sigma: Option<f64>,
+    #[serde(default)]
+    pub count: Option<u64>,
     #[serde(rename = "rewardTokens", default)]
     pub reward_tokens: Option<Vec<String>>,
     #[serde(rename = "underlyingTokens", default)]
@@ -392,6 +401,7 @@ impl Yields {
                 let mut chains: Vec<String> =
                     group.iter().map(|p| p.chain.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
                 chains.truncate(8);
+                let bands: Vec<Value> = group.iter().map(|p| apr_band(p)).collect();
                 json!({
                     "project": project,
                     "pools": group.len(),
@@ -404,6 +414,7 @@ impl Yields {
                         "pool": p.pool, "symbol": p.symbol, "chain": p.chain,
                         "apy": p.apy.map(round2), "tvl_usd": round2(p.tvl_usd),
                     })),
+                    "apr_band": band_span(&bands, "pool"),
                     "chains": chains,
                     "stable_pools": group.iter().filter(|p| p.stablecoin).count(),
                 })
@@ -526,6 +537,69 @@ impl Yields {
     }
 }
 
+/// The observed APR band — the honest answer to "what could this actually
+/// pay": a lower and upper bound on the rate, derived only from the index's
+/// own record, never invented. The statistical core is the pool's lifetime
+/// daily-APY mean ± 2σ (floored at 0 — these products quote a rate, not a
+/// P&L), then widened so today's rate, its fee-only part and the 30-day mean
+/// all sit inside it: a band the live number is already outside of would be
+/// a lie on arrival. Pools with under two weeks of history get the honest
+/// min/max of what little is known, marked low-confidence.
+pub fn apr_band(pool: &Pool) -> Value {
+    let apy = pool.apy.unwrap_or(0.0);
+    let mut lo = apy;
+    let mut hi = apy;
+    for x in [pool.apy_base, pool.apy_mean_30d].into_iter().flatten() {
+        lo = lo.min(x);
+        hi = hi.max(x);
+    }
+    match (pool.mu, pool.sigma, pool.count) {
+        (Some(mu), Some(sigma), Some(n)) if n >= 14 && sigma.is_finite() && sigma >= 0.0 => {
+            lo = lo.min((mu - 2.0 * sigma).max(0.0));
+            hi = hi.max(mu + 2.0 * sigma);
+            json!({
+                "apr_lower": round2(lo.max(0.0)),
+                "apr_upper": round2(hi),
+                "confidence": if n >= 90 { "high" } else { "low" },
+                "basis": format!(
+                    "lifetime daily-APY mean {:.2}% ± 2σ ({:.2}%) over {n} readings, widened to cover today's rate, its fee-only part and the 30d mean",
+                    mu, sigma
+                ),
+            })
+        }
+        _ => json!({
+            "apr_lower": round2(lo.max(0.0)),
+            "apr_upper": round2(hi),
+            "confidence": "low",
+            "basis": "under two weeks of history — min/max of today's rate, its fee-only part and the 30d mean",
+        }),
+    }
+}
+
+/// The span of several pools' bands: the floor is the lowest floor, the
+/// ceiling the highest ceiling — "across this protocol's pools, the rate has
+/// credibly been anywhere in here".
+pub fn band_span(bands: &[Value], pool_word: &str) -> Value {
+    let get = |b: &Value, k: &str| b.get(k).and_then(|v| v.as_f64());
+    let lows: Vec<f64> = bands.iter().filter_map(|b| get(b, "apr_lower")).collect();
+    let highs: Vec<f64> = bands.iter().filter_map(|b| get(b, "apr_upper")).collect();
+    if lows.is_empty() || highs.is_empty() {
+        return Value::Null;
+    }
+    let lo = lows.iter().cloned().fold(f64::INFINITY, f64::min);
+    let hi = highs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    json!({
+        "apr_lower": round2(lo),
+        "apr_upper": round2(hi),
+        "confidence": if bands.iter().any(|b| b.get("confidence").and_then(|c| c.as_str()) == Some("high")) { "high" } else { "low" },
+        "basis": format!(
+            "span of the observed per-{pool_word} bands (lifetime mean ± 2σ of each one's daily APY) across {} {pool_word}{}",
+            bands.len(),
+            if bands.len() == 1 { "" } else { "s" }
+        ),
+    })
+}
+
 /// One pool as the console and the treasury see it.
 ///
 /// `tradable_on` is the honest join between this table and the rest of the
@@ -547,6 +621,7 @@ fn row(pool: &Pool) -> Value {
         "apy_change_7d": pool.apy_pct_7d.map(round2),
         "apy_change_30d": pool.apy_pct_30d.map(round2),
         "emissions_share": if apy > 0.0 { round2(((apy - base).max(0.0) / apy) * 100.0) } else { 0.0 },
+        "apr_band": apr_band(pool),
         "tvl_usd": round2(pool.tvl_usd),
         "stablecoin": pool.stablecoin,
         "il_risk": pool.il_risk,
@@ -588,6 +663,9 @@ mod tests {
             exposure: Some("single".into()),
             pool_meta: None,
             outlier: false,
+            mu: Some(apy),
+            sigma: Some(0.5),
+            count: Some(200),
             reward_tokens: None,
             underlying_tokens: None,
             predictions: None,
@@ -621,6 +699,54 @@ mod tests {
         // A high rate that IS deep enough to take is not marked down at all.
         let deep_and_hot = pool("hot", "Base", 40.0, 40.0, 50_000_000.0);
         assert_eq!(Yields::sort_key(&deep_and_hot, "score"), 40.0);
+    }
+
+    #[test]
+    fn the_band_is_mean_plus_minus_two_sigma_widened_to_the_live_rate() {
+        let mut p = pool("aave", "Base", 12.0, 12.0, 1e8);
+        p.mu = Some(6.0);
+        p.sigma = Some(2.0);
+        p.count = Some(365);
+        let b = apr_band(&p);
+        // Floor is mu - 2σ = 2.0; ceiling is the live 12% — above mu + 2σ = 10.
+        assert_eq!(b["apr_lower"], 2.0, "{b}");
+        assert_eq!(b["apr_upper"], 12.0, "{b}");
+        assert_eq!(b["confidence"], "high");
+    }
+
+    #[test]
+    fn a_rate_band_never_goes_below_zero() {
+        let mut p = pool("vol", "Base", 3.0, 3.0, 1e7);
+        p.mu = Some(5.0);
+        p.sigma = Some(10.0); // mu - 2σ = -15
+        p.count = Some(100);
+        let b = apr_band(&p);
+        assert_eq!(b["apr_lower"], 0.0, "{b}");
+        assert_eq!(b["apr_upper"], 25.0, "{b}");
+    }
+
+    #[test]
+    fn thin_history_gets_an_honest_low_confidence_band() {
+        let mut p = pool("new", "Base", 9.0, 4.0, 1e6);
+        p.apy_mean_30d = Some(7.0);
+        p.mu = None;
+        p.sigma = None;
+        p.count = Some(3);
+        let b = apr_band(&p);
+        assert_eq!(b["apr_lower"], 4.0, "{b}"); // the fee-only part
+        assert_eq!(b["apr_upper"], 9.0, "{b}"); // the live headline
+        assert_eq!(b["confidence"], "low");
+    }
+
+    #[test]
+    fn a_protocols_band_spans_its_pools() {
+        let a = json!({ "apr_lower": 2.0, "apr_upper": 8.0, "confidence": "high" });
+        let b = json!({ "apr_lower": 4.0, "apr_upper": 15.0, "confidence": "low" });
+        let s = band_span(&[a, b], "pool");
+        assert_eq!(s["apr_lower"], 2.0);
+        assert_eq!(s["apr_upper"], 15.0);
+        assert_eq!(s["confidence"], "high");
+        assert_eq!(band_span(&[], "pool"), Value::Null);
     }
 
     #[test]

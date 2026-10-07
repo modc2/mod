@@ -371,3 +371,25 @@ button.hub-chain:hover:not(:disabled) { border-color: var(--accent-dim); color: 
 .pos-head { display: flex; gap: 14px; align-items: center; padding: 11px 14px; cursor: pointer; }
 .pos-nums { font-size: 11px; line-height: 1.6; text-align: right; white-space: nowrap; }
 .pos-body { padding: 4px 14px 14px; border-top: 1px solid var(--line-soft); }
+
+/* ── the STRATS desk ─────────────────────────────────────────────────── */
+.fin-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 12px; padding: 14px 14px 10px;
+}
+.strat-sources { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 8px; }
+.strat-head, .strat-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) 130px minmax(140px, 1fr) 110px minmax(150px, 1fr);
+  gap: 10px; padding: 8px 12px; align-items: center;
+}
+.strat-head {
+  font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--dim); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--bg);
+}
+.strat-row { cursor: pointer; border-bottom: 1px solid var(--line); font-size: 12px; }
+.strat-row:hover { background: rgba(255, 255, 255, 0.022); }
+.strat-row.active { background: rgba(52, 211, 153, 0.07); box-shadow: inset 2px 0 0 var(--accent); }
+.strat-form { display: flex; gap: 6px; margin-top: 6px; }
+.strat-form input { flex: 1; min-width: 0; }

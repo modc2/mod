@@ -44,6 +44,8 @@ def fmt(v: Any, kind: str) -> str:
         return f'${v:,.0f}'
     if kind == 'pct':
         return f'{v:.1f}%'
+    if kind == 'chg':                   # a change: the sign is the point
+        return f'{v:+.1f}%'
     if kind == 'int':
         return f'{v:,.0f}'
     if kind == 'x':
@@ -78,30 +80,26 @@ def _rings(geom: dict) -> List[List[list]]:
     return []
 
 
-def map_svg(metric: str = 'density', geography: str = 'tract',
-            width: int = 640, title: str = '') -> str:
-    """One choropleth as an inline SVG, with its legend, quantile classes."""
-    fc = D.choropleth(metric, geography)
-    meta = fc['meta']
-    kind = meta['format']
-    feats = fc['features']
-
+def fc_svg(feats: List[dict], metric: str, kind: str, width: int, title: str,
+           sub: str = '', tol: float = 0.0003, stroke: float = 0.8,
+           zero_is_nodata: bool = False, nodata_label: str = 'no data',
+           tip_extra=None) -> str:
+    """Any polygon FeatureCollection as a choropleth SVG with its legend."""
     # Re-quantile into len(RAMP) classes (the API layer uses 7 for screen).
     vals = [f['properties'].get(metric) for f in feats]
     vals = [v for v in vals if v is not None]
-    if metric in ('density', 'population'):
+    if zero_is_nodata:
         vals = [v for v in vals if v]
     stops = D.quantile_breaks(vals, len(RAMP))['stops']
 
     def cls(v):
-        if v is None or (metric in ('density', 'population') and not v):
+        if v is None or (zero_is_nodata and not v):
             return None
         i = 0
         while i < len(stops) and v >= stops[i]:
             i += 1
         return i
 
-    tol = 0.00025 if geography == 'tract' else 0.0003
     xs, ys, shapes = [], [], []
     for f in feats:
         g = S.simplify_geometry(f['geometry'], tol=tol, precision=5)
@@ -124,8 +122,8 @@ def map_svg(metric: str = 'density', geography: str = 'tract',
         c = cls(p.get(metric))
         fill = NO_DATA if c is None else RAMP[min(c, len(RAMP) - 1)]
         tip = f"{p.get('name') or ''}"
-        if p.get('nta') and geography == 'tract':
-            tip += f" ({p['nta']})"
+        if tip_extra:
+            tip += tip_extra(p)
         tip += f": {fmt(p.get(metric), kind)}"
         paths.append(f'<path d="{d}" fill="{fill}"><title>{html.escape(tip)}</title></path>')
 
@@ -137,15 +135,34 @@ def map_svg(metric: str = 'density', geography: str = 'tract',
     sw = ''.join(
         f'<span class="sw"><i style="background:{RAMP[i]}"></i>{lbl}</span>'
         for i, lbl in enumerate(labels[:len(RAMP)]))
-    sw += f'<span class="sw"><i style="background:{NO_DATA}"></i>no data / no residents</span>'
-    head = html.escape(title or meta['label'])
+    sw += f'<span class="sw"><i style="background:{NO_DATA}"></i>{html.escape(nodata_label)}</span>'
+    head = html.escape(title)
     return (f'<figure class="map"><figcaption>{head}'
-            f'<span class="sub"> by {D.GEOS[geography]["label"].lower()}</span></figcaption>'
+            f'<span class="sub">{html.escape(sub)}</span></figcaption>'
             f'<svg viewBox="0 0 {width} {height}" role="img" aria-label="{head} map of NYC" '
             f'xmlns="http://www.w3.org/2000/svg">'
-            f'<g stroke="{SURFACE}" stroke-width="{0.25 if geography == "tract" else 0.8}" '
+            f'<g stroke="{SURFACE}" stroke-width="{stroke}" '
             f'stroke-linejoin="round">{"".join(paths)}</g></svg>'
             f'<div class="legend">{sw}</div></figure>')
+
+
+def map_svg(metric: str = 'density', geography: str = 'tract',
+            width: int = 640, title: str = '') -> str:
+    """One census choropleth as an inline SVG, with legend, quantile classes."""
+    fc = D.choropleth(metric, geography)
+    meta = fc['meta']
+
+    def tract_tip(p):
+        return f" ({p['nta']})" if (p.get('nta') and geography == 'tract') else ''
+
+    return fc_svg(fc['features'], metric, meta['format'], width,
+                  title or meta['label'],
+                  sub=f' by {D.GEOS[geography]["label"].lower()}',
+                  tol=0.00025 if geography == 'tract' else 0.0003,
+                  stroke=0.25 if geography == 'tract' else 0.8,
+                  zero_is_nodata=metric in ('density', 'population'),
+                  nodata_label='no data / no residents',
+                  tip_extra=tract_tip)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -253,6 +270,145 @@ def _tile(label: str, value: str, sub: str = '') -> str:
             f'<div class="tv">{value}</div><div class="ts">{html.escape(sub)}</div></div>')
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# public safety, the listing market, and the day's news
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safety_section() -> str:
+    from . import crime as C
+    s = C.summary()
+    comp, sh, w = s['complaints'], s['shootings'], s['window']
+    year = w['since'][:4]
+    window = f'Jan 1 – {w["until"]} {year}, vs the same window {int(year) - 1}'
+
+    tiles = ''.join([
+        _tile(f'Complaints, {year} so far', fmt(comp['total'], 'int'),
+              f'{fmt(comp["change_pct"], "chg")} vs last year'),
+        _tile('Felonies', fmt(comp['felony'], 'int'),
+              f'{fmt(comp["misdemeanor"], "int")} misdemeanors'),
+        _tile('Complaints per 1,000 residents', fmt(comp['per_1k_residents'], 'num'),
+              'citywide, this year'),
+        _tile('Shooting incidents', fmt(sh['this_year']['incidents'], 'int'),
+              f'{fmt(sh["change_pct"], "chg")} vs last year'),
+    ])
+
+    boro_cols = [('total', 'Complaints', 'int'), ('per_1k', 'Per 1k residents', 'num'),
+                 ('felony', 'Felonies', 'int'), ('felony_per_1k', 'Felonies / 1k', 'num'),
+                 ('change_pct', 'Change vs last yr', 'chg')]
+    boros = [{'name': b['borough'], **b} for b in s['by_borough']]
+
+    off_cols = [('count', 'This year', 'int'), ('prior', 'Last year', 'int'),
+                ('change_pct', 'Change', 'chg')]
+    offs = [{'name': f"{o['offense']} ({o['level'].lower()})" if o['level'] else o['offense'],
+             **o} for o in s['top_offenses'][:12]]
+
+    pmap = fc_svg(C.by_precinct()['features'], 'total', 'int', 1000,
+                  f'Complaints reported to the NYPD, {year} through {w["until"]}',
+                  sub=' by police precinct', tol=0.0003, stroke=0.8,
+                  tip_extra=lambda p: f" ({p.get('borough')})" if p.get('borough') else '')
+
+    notes = ''.join(f'<li>{html.escape(n)}</li>' for n in s['notes'])
+    srcs = ' · '.join(f'<a href="{x["url"]}">{html.escape(x["name"])}</a>'
+                      for x in s['sources'])
+    return f"""
+<h2>Public safety</h2>
+<p class="rule">Crimes reported to the NYPD ({window}). Complaints are reports,
+not convictions; the NYPD refreshes its current-year file quarterly.</p>
+<div class="tiles">{tiles}</div>
+<div class="maps"><div class="wide">{pmap}</div></div>
+<h3>By borough</h3>{_table(boros, cols=[], name_col='Borough', extra=boro_cols)}
+<h3>Most-reported offenses</h3>{_table(offs, cols=[], name_col='Offense', extra=off_cols)}
+<ul class="notes">{notes}</ul>
+<p class="rule">Sources: {srcs}.</p>"""
+
+
+def _market_section() -> str:
+    from . import realestate as RE
+    m = RE.market()
+    if m.get('error'):
+        return ''
+    c = m['city']
+    zil = m.get('zillow_ny_metro') or {}
+
+    def znum(key, field):
+        return (zil.get(key) or {}).get(field)
+
+    tiles = ''.join([
+        _tile('Median asking rent', fmt(c['asking_rent']['value'], 'usd'),
+              f'{fmt(c["asking_rent"]["yoy_pct"], "chg")} in a year'),
+        _tile('Median asking price', fmt(c['asking_price']['value'], 'usd'),
+              f'{fmt(c["asking_price"]["yoy_pct"], "chg")} in a year'),
+        _tile('Homes listed for rent', fmt(c['rental_inventory']['value'], 'int'),
+              f'{fmt(c["rental_inventory"]["yoy_pct"], "chg")} in a year'),
+        _tile('Zillow home value index', fmt(znum('zhvi', 'value'), 'usd'),
+              f'NY metro, {fmt(znum("zhvi", "yoy_pct"), "chg")} in a year'),
+        _tile('Zillow observed rent', fmt(znum('zori', 'value'), 'usd'),
+              f'NY metro, {fmt(znum("zori", "yoy_pct"), "chg")} in a year'),
+    ])
+
+    cols = [('asking_rent', 'Median asking rent', 'usd'),
+            ('listings', 'Active listings', 'int'), ('yoy_pct', 'Change in a year', 'chg')]
+    rising = [{'name': x['area'], 'borough': x['borough'], **x}
+              for x in m['rent_rising_fastest'][:8]]
+    falling = [{'name': x['area'], 'borough': x['borough'], **x}
+               for x in m['rent_falling_fastest'][:8]]
+
+    boro_rows = []
+    for b, v in m['boroughs'].items():
+        boro_rows.append({'name': b,
+                          'asking_rent': v['asking_rent'].get('value'),
+                          'rent_yoy': v['asking_rent'].get('yoy_pct'),
+                          'asking_price': v['asking_price'].get('value'),
+                          'price_yoy': v['asking_price'].get('yoy_pct'),
+                          'inventory': v['rental_inventory'].get('value')})
+    boro_cols = [('asking_rent', 'Asking rent', 'usd'), ('rent_yoy', 'Rent, 1y', 'chg'),
+                 ('asking_price', 'Asking price', 'usd'), ('price_yoy', 'Price, 1y', 'chg'),
+                 ('inventory', 'Rentals listed', 'int')]
+
+    notes = ''.join(f'<li>{html.escape(n)}</li>' for n in m['notes'])
+    srcs = ' · '.join(f'<a href="{x["url"]}">{html.escape(x["name"])}</a>'
+                      for x in m['attribution'])
+    return f"""
+<h2>The market as listed ({html.escape(m['as_of'] or '')})</h2>
+<p class="rule">What sellers and landlords are asking right now — the leading
+edge of the deed prices above, from StreetEasy's public data dashboard and
+Zillow's research indices.</p>
+<div class="tiles">{tiles}</div>
+<h3>By borough</h3>{_table(boro_rows, cols=[], name_col='Borough', extra=boro_cols)}
+<h3>Rents rising fastest</h3>
+<p class="rule">Neighborhoods with 20+ active rental listings, by asking-rent
+change over one year. A thin market whipsaws its median; these cleared the bar.</p>
+{_table(rising, cols=[], name_col='Neighborhood', extra=cols)}
+<h3>Rents falling fastest</h3>
+{_table(falling, cols=[], name_col='Neighborhood', extra=cols)}
+<ul class="notes">{notes}</ul>
+<p class="rule">Sources: {srcs}.</p>"""
+
+
+def _news_section() -> str:
+    from . import news as N
+    try:
+        h = N.headlines(limit=12)
+    except Exception:
+        return ''                      # the brief must not die on a dead feed
+    if not h['items']:
+        return ''
+    lis = ''
+    for it in h['items']:
+        when = (it.get('published') or '')[:10]
+        tag = f' <span class="muted">[{it["topic"]}]</span>' if it.get('topic') else ''
+        lis += (f'<li><a href="{html.escape(it["url"])}">'
+                f'{html.escape(it["title"])}</a>'
+                f' <span class="muted">— {html.escape(it["source"])}, {when}</span>'
+                f'{tag}</li>')
+    srcs = ', '.join(h['sources'])
+    return f"""
+<h2>In the news today</h2>
+<p class="rule">The latest from NYC newsrooms ({html.escape(srcs)}) at the time
+this brief was compiled — a snapshot, unlike everything above it.</p>
+<ul class="notes">{lis}</ul>"""
+
+
 CSS = """
 :root{--ink:#1d1d1b;--ink2:#55544f;--mute:#8a8983;--line:#e4e3de;--surf:#fcfcfb;--acc:#184f95}
 *{box-sizing:border-box}body{margin:0;background:var(--surf);color:var(--ink);
@@ -338,20 +494,25 @@ def html_report(since: str = '2025-01-01') -> str:
 
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>New York City: population, density and housing — {today}</title>
+<title>New York City: the state of the city — {today}</title>
 <style>{CSS}</style></head><body><main>
-<h1>New York City: who lives where, and what housing costs them</h1>
-<p class="lede">Population, density, income, rent, rent burden, home prices and new
-construction for all five boroughs and {len(areas)} neighborhoods, from public
-records only. Census figures are the American Community Survey {nta['acs_vintage']}
+<h1>New York City: who lives where, what housing costs them, and how safe it is</h1>
+<p class="lede">Population, density, income, rent, rent burden, home prices, new
+construction, the live listing market, crime and the day's news for all five
+boroughs and {len(areas)} neighborhoods, from public records and free public data
+only. Census figures are the American Community Survey {nta['acs_vintage']}
 5-year estimates; sales are recorded deeds since {since}; construction is the City
-Planning Housing Database. Compiled {today}. Hover any area on a map for its value.</p>
+Planning Housing Database; crime is the NYPD's own complaint files; the listing
+market is StreetEasy and Zillow public data. Compiled {today}. Hover any area on
+a map for its value.</p>
 <div class="tiles">{tiles}</div>
 
 <h2>Maps</h2><div class="maps">{maps}</div>
 
 <h2>By borough</h2>{_table(boroughs + [city_row], name_col='Borough')}
-
+{_safety_section()}
+{_market_section()}
+{_news_section()}
 <h2>What stands out</h2>
 <p class="rule">Lists below rank residential neighborhoods (not parks, airports,
 cemeteries or Rikers Island) with at least {MIN_POP:,} residents.

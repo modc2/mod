@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 
+from . import crime as CR
 from . import demographics as DM
 from . import prices as P
 from . import rents as R
@@ -514,6 +515,31 @@ LAYERS: List[Dict[str, Any]] = [
 
     # ── Safety ───────────────────────────────────────────────────────────
     {
+        'id': 'crime',
+        'title': 'Crime by precinct',
+        'category': 'Safety',
+        'kind': 'choropleth',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': ('Complaints reported to the NYPD this year per precinct — '
+                        'felony, misdemeanor and violation counts, shootings, and '
+                        'the change against the same window last year.'),
+        'endpoint': '/layers/crime',
+        'source': _src('NYPD Complaint Data Current + Historic', '5uac-w243'),
+    },
+    {
+        'id': 'shootings',
+        'title': 'Shootings',
+        'category': 'Safety',
+        'kind': 'heatmap',
+        'geometry': 'point',
+        'default_on': False,
+        'description': 'Shooting incidents over the last three years.',
+        'style': {'color': '#fb923c'},
+        'endpoint': '/layers/shootings',
+        'source': _src('NYPD Shooting Incident Data', '5ucz-vwe8'),
+    },
+    {
         'id': 'collisions',
         'title': 'Traffic injuries',
         'category': 'Safety',
@@ -563,6 +589,8 @@ LOADERS: Dict[str, Callable[[], dict]] = {
     'parks': parks,
     'evacuation_zones': evacuation_zones,
     'collisions': collisions,
+    'crime': CR.by_precinct,
+    'shootings': CR.shooting_points,
     'traffic_speeds': TR.speeds,
     'traffic_volume': TR.volume,
     'affordable_housing': affordable_housing,

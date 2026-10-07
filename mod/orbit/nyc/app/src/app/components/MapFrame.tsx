@@ -42,12 +42,9 @@ function Unavailable({ reason }: { reason: string }) {
         <div className="flex justify-center">
           <Mushroom size={40} />
         </div>
-        <h2 className="pixel pixel-shadow mt-4 text-[13px] text-nes-coin">
-          NO MAP HERE
+        <h2 className="pixel mt-4 text-[13px] text-nes-coin">
+          The map can&apos;t render here
         </h2>
-        <p className="pixel mt-4 text-[8px] leading-[2.2] text-nes-ink2">
-          THIS BROWSER CANT DRAW IT
-        </p>
         <p className="mt-4 text-[12.5px] leading-relaxed text-nes-ink3">{reason}</p>
         <p className="mt-3 text-[12.5px] leading-relaxed text-nes-ink3">
           Everything else still works — open the layer rail for the data, or ask

@@ -614,6 +614,7 @@ impl Finance {
                 "apy_mean_30d": pool.apy_mean_30d.map(round2),
                 "apy_change_7d": pool.apy_pct_7d.map(round2),
                 "emissions_share": round2(emissions),
+                "band": crate::yields::apr_band(pool),
                 "basis": "DefiLlama yields index — the protocol's own reported rate",
             },
             "liquidity": {
@@ -796,6 +797,7 @@ impl Finance {
                 "apr_7d": apr_7d.map(round2),
                 "apr_24h": apr_24h.map(round2),
                 "emissions_share": 0.0,
+                "band": crate::hub::hl_band(vault),
                 "basis": "hl_list_vaults — trailing realized PnL annualized; not a promised rate",
             },
             "liquidity": {
@@ -2499,6 +2501,9 @@ mod tests {
             exposure: Some("single".into()),
             pool_meta: meta.map(|m| m.into()),
             outlier: false,
+            mu: Some(4.0),
+            sigma: Some(0.5),
+            count: Some(365),
             reward_tokens: None,
             underlying_tokens: None,
             predictions: None,

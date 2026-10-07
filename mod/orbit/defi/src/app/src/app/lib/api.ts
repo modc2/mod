@@ -157,6 +157,25 @@ export const dexQuote = (body: Record<string, any>) =>
 export const dexSwap = (body: Record<string, any>) =>
   call<any>("/dex/swap", { method: "POST", body: JSON.stringify(body) });
 
+// ── the unified strategy desk ──────────────────────────────────────────────
+// Every strat on the fleet under the one Strat protocol: polymarket,
+// hyperliquid and bittensor (copytensor) strats bridged unchanged, plus the
+// builtins. Reads and pure-data plans only — starting anything stays with
+// the module that owns that venue.
+
+export const getStratBoard = (days = 7, refresh = false) =>
+  call<any>(`/strats/board?days=${days}${refresh ? "&refresh=1" : ""}`);
+
+export const getStratSources = () => call<any>("/strats/sources");
+
+export const getStrat = (name: string) => call<any>(`/strats/${encodeURIComponent(name)}`);
+
+export const stratBacktest = (body: Record<string, any>) =>
+  call<any>("/strats/backtest", { method: "POST", body: JSON.stringify(body) });
+
+export const stratPlan = (body: Record<string, any>) =>
+  call<any>("/strats/plan", { method: "POST", body: JSON.stringify(body) });
+
 // ── writes ─────────────────────────────────────────────────────────────────
 
 export const saveProtocol = (graph: Graph, name?: string, id?: string) =>

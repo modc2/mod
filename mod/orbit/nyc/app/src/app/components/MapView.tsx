@@ -29,27 +29,15 @@ function framePadding(w: number, h: number) {
 }
 
 /**
- * Basemap styles. All raster, all key-free: CARTO's free tiles for the muted
- * cartography a data map needs, and OpenStreetMap's own tiles for the "show me
- * the actual streets" case. Attribution is mandatory and is baked into each
- * source rather than left to the caller.
+ * Basemap styles: OpenFreeMap's key-free hosted vector styles. (CARTO's
+ * "free" raster tiles started shipping an API KEY REQUIRED watermark burned
+ * into the imagery in 2026 — status codes stay 200, only your eyes catch it.)
+ * The styles bring their own glyphs and attribution.
  */
-const OSM_ATTR = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-const CARTO_ATTR = `${OSM_ATTR} © <a href="https://carto.com/attributions">CARTO</a>`
-
-const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string }> = {
-  dark: {
-    tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
-    attribution: CARTO_ATTR,
-  },
-  light: {
-    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'],
-    attribution: CARTO_ATTR,
-  },
-  streets: {
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: OSM_ATTR,
-  },
+const BASEMAPS: Record<Basemap, string> = {
+  dark: 'https://tiles.openfreemap.org/styles/dark',
+  light: 'https://tiles.openfreemap.org/styles/positron',
+  streets: 'https://tiles.openfreemap.org/styles/liberty',
 }
 
 /** True on a touch screen, where hit-testing needs a bigger target. */
@@ -58,18 +46,8 @@ function coarsePointer(): boolean {
     && window.matchMedia('(pointer: coarse)').matches
 }
 
-function styleFor(basemap: Basemap): any {
-  const b = BASEMAPS[basemap]
-  return {
-    version: 8,
-    // A raster-only style ships no glyphs, and any symbol layer (the station
-    // labels) needs them. MapLibre's own free font endpoint serves Noto Sans.
-    glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-    sources: {
-      base: { type: 'raster', tiles: b.tiles, tileSize: 256, attribution: b.attribution },
-    },
-    layers: [{ id: 'base', type: 'raster', source: 'base' }],
-  }
+function styleFor(basemap: Basemap): string {
+  return BASEMAPS[basemap]
 }
 
 type Props = {
@@ -125,7 +103,7 @@ export default function MapView({
       maxZoom: 18,
       minZoom: 8,
       attributionControl: false,
-      // The basemap is raster and the overlays are flat 2-D data; disabling
+      // The overlays are flat 2-D data; disabling
       // pitch keeps polygon fills legible and avoids a tilted-map trap where
       // the choropleth reads as terrain.
       pitchWithRotate: false,
@@ -249,14 +227,15 @@ export default function MapView({
   function clearAll(m: MLMap) {
     const style = m.getStyle()
     // Layers first, then sources — MapLibre refuses to drop a source that any
-    // layer still references. Our layers are named `<layerId>--<kind>` while
-    // our sources are named `nyc-<layerId>`, so the two need different tests;
-    // matching layers against the source prefix silently removes nothing.
+    // layer still references. Only OUR layers and sources go: ours are named
+    // `<layerId>--<kind>` over sources named `nyc-<layerId>`. The basemap is a
+    // full vector style now, dozens of layers of its own — "everything except
+    // `base`" would strip the entire city off the screen.
     for (const l of style.layers || []) {
-      if (l.id !== 'base') m.removeLayer(l.id)
+      if (l.id.includes('--')) m.removeLayer(l.id)
     }
     for (const s of Object.keys(style.sources || {})) {
-      if (s !== 'base') m.removeSource(s)
+      if (s.startsWith('nyc-')) m.removeSource(s)
     }
   }
 
@@ -546,6 +525,50 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return [`${def.id}--circle`]
 
+    case 'crime': {
+      // A self-describing choropleth: the layer payload carries its own
+      // quantile breaks, so it draws like housing/population without being
+      // parameterised. "No data" stays distinct from "quietest class".
+      const stops: number[] = (data as any).breaks?.stops ?? []
+      const fill: any = ['case', ['==', ['get', 'total'], null], NO_DATA,
+        stepExpression('total', stops, SEQUENTIAL)]
+      add({
+        id: `${def.id}--fill`, type: 'fill', source: src,
+        paint: { 'fill-color': fill, 'fill-opacity': 0.72 * alpha },
+      })
+      add({
+        id: `${def.id}--line`, type: 'line', source: src,
+        paint: { 'line-color': 'rgba(255,255,255,0.22)', 'line-width': 0.6 },
+      })
+      return [`${def.id}--fill`]
+    }
+
+    case 'shootings':
+      add({
+        id: `${def.id}--heat`, type: 'heatmap', source: src,
+        maxzoom: 15,
+        paint: {
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.4],
+          'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+            ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 6, 15, 28],
+          'heatmap-opacity': 0.62 * alpha,
+        },
+      })
+      // Past the heatmap's maxzoom each incident becomes inspectable.
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        minzoom: 14,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.8, 17, 6],
+          'circle-color': color,
+          'circle-opacity': 0.85 * alpha,
+          'circle-stroke-width': 0.8,
+          'circle-stroke-color': '#000000',
+        },
+      })
+      return [`${def.id}--circle`]
+
     case 'affordable_housing':
       add({
         id: `${def.id}--circle`, type: 'circle', source: src,
@@ -615,7 +638,7 @@ export { SALE_BREAKS }
 
 // ── the agent's view ──────────────────────────────────────────────────────
 
-const HIGHLIGHT = '#fbd000'   // the HUD's coin yellow: chrome, never a data class
+const HIGHLIGHT = '#e8b64c'   // the HUD's gold accent: chrome, never a data class
 const AGENT_POINT = '#22d3ee'
 
 function extend(b: maplibregl.LngLatBounds, g: any) {

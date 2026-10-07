@@ -119,7 +119,7 @@ m copytensor/create_copy target_ss58=... our_hotkey=...
 ## Structure
 
 ```
-mod/orbit/copytensor/
+mod/orbit/bt/copytensor/          # SUBMOD of orbit/bt since 2026-10-07
 ├── config.json                  # fns list, endpoints, public RPC pool, seed validators
 ├── docker-compose.yml
 ├── Dockerfile

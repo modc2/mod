@@ -10,6 +10,7 @@ import YieldDesk from "./components/YieldDesk";
 import Hub, { type Prefill } from "./components/Hub";
 import Modules from "./components/Modules";
 import Book from "./components/Book";
+import StratDesk from "./components/StratDesk";
 import AuditView, { RiskPill } from "./components/AuditView";
 import * as api from "./lib/api";
 import { runPlan, type StepState } from "./lib/deploy";
@@ -18,13 +19,14 @@ import { emptyGraph, type Audit, type BlockSpec, type Catalog, type Graph, type 
 type Drawer = "none" | "prompts" | "library" | "source" | "deploy";
 /// The console's six rooms. HUB is home: the curated front door for USD —
 /// MODULES is the full registry behind it.
-type View = "hub" | "modules" | "book" | "treasury" | "trade" | "compose";
+type View = "hub" | "modules" | "book" | "treasury" | "trade" | "strats" | "compose";
 const VIEWS: { id: View; label: string }[] = [
   { id: "hub", label: "HUB" },
   { id: "modules", label: "MODULES" },
   { id: "book", label: "BOOK" },
   { id: "treasury", label: "TREASURY" },
   { id: "trade", label: "TRADE" },
+  { id: "strats", label: "STRATS" },
   { id: "compose", label: "COMPOSE" },
 ];
 
@@ -412,6 +414,7 @@ export default function Page() {
         <Modules say={say} address={address} prefill={prefill} onOpenTreasury={() => setView("treasury")} onOpenBook={() => setView("book")} />
       )}
       {view === "book" && <Book say={say} onOpenModules={() => setView("modules")} />}
+      {view === "strats" && <StratDesk say={say} />}
       {view === "trade" && (
         <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
           <div className="rail-empty" style={{ padding: "40px 48px", maxWidth: 520 }}>

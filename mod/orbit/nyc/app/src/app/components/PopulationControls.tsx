@@ -56,11 +56,11 @@ export default function PopulationControls({ def, query, onChange, data, busy }:
           tab lets it be saved as one file and sent on. */}
       <div className="flex gap-1.5">
         <a href={REPORT_URL} target="_blank" rel="noreferrer"
-           className="btn pixel tap flex-1 px-2 py-2.5 text-center text-[7.5px]">
+           className="btn pixel tap flex-1 px-2 py-2.5 text-center text-[10px]">
           FULL REPORT
         </a>
         <a href={reportCsv(query.geography === 'tract' ? 'tract' : 'nta')}
-           className="btn pixel tap px-2 py-2.5 text-center text-[7.5px]">
+           className="btn pixel tap px-2 py-2.5 text-center text-[10px]">
           CSV
         </a>
       </div>
@@ -76,8 +76,8 @@ export default function PopulationControls({ def, query, onChange, data, busy }:
 
 function CityStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-2 border-black bg-black/40 px-2 py-1.5">
-      <dt className="pixel text-[6px] leading-[1.8] text-nes-ink3">{label}</dt>
+    <div className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5">
+      <dt className="pixel text-[11px] leading-snug text-nes-ink3">{label}</dt>
       <dd className="text-[12.5px] font-medium tabular-nums text-white">{value}</dd>
     </div>
   )

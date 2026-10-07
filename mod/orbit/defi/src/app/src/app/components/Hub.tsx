@@ -250,6 +250,14 @@ export default function Hub({ say, onExplore }: Props) {
                           {best.symbol} on {best.chain} ·{" "}
                           {best.apy == null ? "staked — no promised rate" : `${money(best.tvl_usd)} deep`}
                         </span>
+                        {p.apr_band && (
+                          <span
+                            className="hub-best-sub"
+                            title={p.apr_band.basis}
+                          >
+                            the record supports {pct(p.apr_band.apr_lower, 1)}–{pct(p.apr_band.apr_upper, 1)}
+                          </span>
+                        )}
                       </div>
                     ) : (
                       <span className="dim">—</span>
@@ -315,6 +323,21 @@ export default function Hub({ say, onExplore }: Props) {
               </div>
 
               <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.65, marginTop: 10 }}>{detail.blurb}</div>
+
+              {detail.apr_band && (
+                <div className="card" style={{ marginTop: 10, padding: "8px 10px" }} title={detail.apr_band.basis}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                    <span className="label" style={{ margin: 0 }}>Observed APR band</span>
+                    <b style={{ fontSize: 13 }}>
+                      {pct(detail.apr_band.apr_lower, 1)} – {pct(detail.apr_band.apr_upper, 1)}
+                    </b>
+                    {detail.apr_band.confidence === "low" && <span className="tag bad">thin history</span>}
+                  </div>
+                  <div className="mono-small" style={{ marginTop: 4, lineHeight: 1.5, color: "var(--dim)" }}>
+                    {detail.apr_band.basis}
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <span className="dim">takes</span>

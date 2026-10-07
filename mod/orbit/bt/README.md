@@ -96,7 +96,7 @@ anything smaller is emission drift and is ignored (flows are marked
 It doubles as a time machine other modules borrow: `bt_trader_at` and
 `bt_prices_at` answer "what did this account hold, and what was it worth?"
 from local SQLite — the questions that otherwise need an archive node.
-`orbit/copytensor` runs its entire read path on it (see below).
+The copytensor submod runs its entire read path on it (see below).
 
 ## Architecture
 
@@ -108,6 +108,7 @@ bt/mcp_server.py  ← zero-dep MCP stdio server (JSON-RPC over stdin/stdout)
 bt/server.py      ← FastAPI :50280 — console (app/dist) + /api/* + /mcp (starts the indexers)
 bt/bt.py          ← engine anchor (Bt chain surface, BtTrader) over _bt_engine.pyc
 app/              ← the console: Next.js, exported static (see below)
+copytensor/       ← SUBMOD: the whole copytensor module (dTAO copy trading)
 ```
 
 Every surface is generated from `bt/tools.py`, so the console, the docs, and
@@ -155,9 +156,29 @@ default sort. A trader tracked for less than the window is ranked over the
 history that exists and says so in `window_days`; one with a single snapshot
 comes back `baseline: false` at PnL 0, never a fabricated number.
 
-## Who else reads this
+## The copytensor submod
 
-`orbit/copytensor` (dTAO copy trading) no longer walks public RPCs for reads —
+The entire copytensor module (Bittensor dTAO copy trading) lives inside this
+module at `copytensor/` and runs as a **submod**: declared in this module's
+`config.json` under `submods`, with its own processes started from that
+directory — `pm2 copytensor-api` (FastAPI :50150, `python3 -m uvicorn
+src.api.app:app`) and `pm2 copytensor-app` (Next.js :3150, basePath
+`/copytensor`). Its runtime book — watchlist, copies, snapshots, strats —
+stays in `copytensor/src/data/copytensor.db` (gitignored; treat it like a
+wallet, never move or duplicate it).
+
+Three doors into the same submod:
+
+- `{host}/copytensor` + `{host}/copytensor/api/*` — the public face, pinned
+  by a caddy override in `~/.mod/caddy/overrides.json` (route auto-discovery
+  only scans top-level module dirs, so a submod must be pinned).
+- `/ct/*` on this server (`:50280/ct/status`, `modc2.com/bt/ct/...`) — a
+  streaming proxy in `bt/server.py`, so the submod is reachable wherever bt is.
+- `:50150/mcp` — its own MCP endpoint (25 `ct_*` tools), unchanged.
+
+It is also this index's biggest consumer:
+
+copytensor (dTAO copy trading) no longer walks public RPCs for reads —
 `src/chain/bt_source.py` wraps this module's `POST /api/call` in a
 `SubtensorClient` whose subnet, position and history reads come from here, and
 which falls back to its own RPC pool if bt is stopped. Its `/subnets` went

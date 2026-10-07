@@ -58,6 +58,11 @@ CLI:
     m defi/treasury                # the treasury: allocations, clock, contract
     m defi/treasury_choose pool=<id> amount=1000 term_weeks=12
     m defi/treasury_preview        # next Friday: the pot and who splits it
+    m defi/strats                  # every strat on the fleet, one protocol
+    m defi/strat_sources           # unification health: bridged packages + drift
+    m defi/strat_board days=7      # cross-venue board with cached backtests
+    m defi/strat_backtest copytensor.top_n    # replay on the native model
+    m defi/strat_plan hyperliquid.top_n eoa=0x…  # that venue engine's config
     m defi/treasury_lock <id> --account=dev --confirm=1   # make it real
     m defi/venues                  # where this desk can trade, and what is up
     m defi/quote base ETH USDC 0.1 # what a trade would really get you
@@ -487,6 +492,56 @@ class Mod:
     def forget_position(self, id, token=None):
         """Drop a ledger row (needs sign-in). The chain is unaffected."""
         return self._call(f'/positions/{id}', 'DELETE', token=token)
+
+    # --- strats: the unified strategy desk ----------------------------------
+    #
+    # One board for every trading strategy across polymarket, hyperliquid and
+    # bittensor (bt's copytensor submod), all on the canonical Strat protocol
+    # owned by orbit/strat. Read-only and pure-data here — live execution
+    # stays with the module that owns each venue, behind its own gates.
+
+    def strats(self, venue=None, origin=None):
+        """Every strat on the fleet, one protocol: builtins, orbit strat mods,
+        and the venue modules' own strats bridged as <module>.<strat>."""
+        return self._call(f'/strats{_qs({"venue": venue, "origin": origin})}')
+
+    def strat(self, name):
+        """One strat's full card, verified against the protocol contract."""
+        return self._call(f'/strats/{urllib.parse.quote(str(name), safe="")}')
+
+    def strat_sources(self):
+        """Unification health: each bridged venue package and its schema
+        drift (empty drift = fully under the strat protocol)."""
+        return self._call('/strats/sources')
+
+    def strat_board(self, days=7, refresh=False, token=None):
+        """The cross-venue marketplace board with cached backtest perf.
+        refresh=True re-runs backtests against the venue modules (slow)."""
+        return self._call(f'/strats/board{_qs({"days": days, "refresh": 1 if refresh else None})}',
+                          token=token, timeout=660)
+
+    def strat_backtest(self, name, days=7, capital=1000.0, traders=None,
+                       params=None, max_leaders=5, token=None):
+        """Replay a strat over its leaders' recent history — pure read."""
+        body = {'name': name, 'days': days, 'capital': capital,
+                'max_leaders': max_leaders}
+        if traders:
+            body['traders'] = traders if isinstance(traders, list) else [traders]
+        if params:
+            body['params'] = params
+        return self._call('/strats/backtest', 'POST', body, token=token, timeout=320)
+
+    def strat_plan(self, name, capital=100.0, traders=None, max_leaders=5,
+                   eoa=None, hotkey=None, token=None):
+        """PURE DATA: the config the strat's own venue module's live engine
+        would consume. Starting it stays with that module and its gates."""
+        body = {'name': name, 'capital': capital, 'max_leaders': max_leaders}
+        if traders:
+            body['traders'] = traders if isinstance(traders, list) else [traders]
+        for key, value in (('eoa', eoa), ('hotkey', hotkey)):
+            if value:
+                body[key] = value
+        return self._call('/strats/plan', 'POST', body, token=token, timeout=320)
 
     # --- mcp ----------------------------------------------------------------
 

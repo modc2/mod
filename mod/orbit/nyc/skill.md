@@ -2,8 +2,10 @@
 
 Map of NYC with toggleable data layers: housing prices, transit, parks, flood
 zones, traffic injuries, boundaries. All public key-free open data. The same
-engine is an MCP server: 17 read-only tools, plus SoQL access to every dataset
-NYC and NY State publish.
+engine is an MCP server: 31 read-only tools — housing, the listing market
+(StreetEasy/Zillow asking data), crime and shootings (NYPD), live NYC news,
+311, restaurants, trees, air, evictions, permits — plus SoQL access to every
+dataset NYC and NY State publish.
 
 **Ports:** API `50310`, app `50311` at `/nyc`. Start with `m nyc/serve`.
 **ASK agent drives the map:** `nyc_map` / `nyc_infographic` (`nycgis/scene.py`)
@@ -45,6 +47,9 @@ m nyc/prices                      # citywide summary, top/bottom neighborhoods
 m nyc/trend area=BK0101           # a neighborhood's yearly price history
 m nyc/where "Prospect Park"       # geocode
 m nyc/traffic street="cross bronx" hour=8    # when to drive; live speeds too
+m nyc/crime                       # complaints + shootings vs last year (part=precincts|offenses|trend)
+m nyc/news topic=housing          # NYC headlines (Gothamist/THE CITY/NYT Metro); q= searches GDELT
+m nyc/market area=astoria         # asking rent/price + YoY (StreetEasy/Zillow public data)
 m nyc/warm                        # pre-fetch all layers (~19MB, <1min)
 ```
 
@@ -120,6 +125,47 @@ number:
   are redirected). Add a table by adding it to `ACS_TABLES`; bump the cache key.
 - City/borough medians are exact Census values; NTA medians are approximate.
 - Home-sale medians drop multi-unit bulk deeds; keep that if you touch it.
+
+## Crime, news, listing market (`nycgis/crime.py`, `news.py`, `realestate.py`)
+
+- Tools `nyc_crime` / `nyc_news` / `nyc_market`; HTTP `/crime`, `/news`,
+  `/market`; layers `crime` (precinct choropleth, breaks travel in the
+  payload) and `shootings` (heat). The report gained Public-safety, Market
+  and News sections; the app rail gained CITY PULSE.
+- **NYPD current-year complaints refresh quarterly** and carry typo dates
+  (`1016-…`). `crime.data_through()` reads real coverage; every YoY compare
+  uses the same Jan-1→that-date window on BOTH sides, or crime "drops 50%".
+- **The shooting file's lat/lng columns are swapped** on all but ~300 rows —
+  normalize per row, never wholesale.
+- **GDELT throttles as text with HTTP 200** (1 req/5s); a failed JSON parse
+  is the throttle. `news.search()` falls back to filtering the RSS cache.
+- **StreetEasy CSVs are wide** (area × month, zipped, public CDN; keyless).
+  Thin neighborhoods whipsaw their medians — movers lists require 20+
+  active listings. Keep the StreetEasy/Zillow attribution in payloads.
+
+## City data + the full catalog (`nycgis/citydata.py`, `catalog.py`)
+
+- Curated tools: `nyc_311` (erm2-nwe9), `nyc_collisions` (h9gi-nx95),
+  `nyc_restaurants` (43nn-pn8j), `nyc_trees` (uvpi-gqnh / hn5i-inap),
+  `nyc_evictions` (6z8x-wfk4), `nyc_permits` (rbx6-tga4), `nyc_air`
+  (c3uy-2p5r); `nyc_crime` also takes offense/borough/severity/date filters
+  (citydata.crime stitches historic + YTD). All aggregate server-side with
+  `$group` — never pull raw row sets — and cite dataset ids.
+- **Borough columns differ per dataset** (`borough`/`boro`/`boro_nm`/
+  `boroname`, mixed case). Use `citydata.borough_norm()` + `upper(col)=` —
+  it accepts "bk", "richmond", "the bronx". Garbage values ('Unspecified',
+  blank) become honest buckets, never crashes.
+- **Permits use DOB NOW (rbx6-tga4)**, not legacy BIS (ipu4-2q9a): BIS
+  stores dates as MM/DD/YYYY TEXT (needs `::floating_timestamp` casts) and
+  dwindled to ~1/10 the volume after the agency moved systems.
+- **Shootings live file is 5ucz-vwe8**; 833y-fsy8 is ARCHIVED (frozen 2025).
+- **`nyc_catalog` harvests the ENTIRE portal catalog** (2,404 NYC + 1,033
+  NYS datasets) into `catalog-full-<domain>` cache entries (TTL 7d);
+  `nyc_find_datasets` then searches it offline (exact-name > name-token >
+  category > description, freshness tiebreak) and falls back to the live
+  Discovery API when no harvest exists. **Page Discovery by `offset`, not
+  `scroll_id`** — the scroll cursor silently dropped ~650 datasets. The
+  Discovery API returns no row counts (`rows_size` absent).
 
 ## Adding a layer
 

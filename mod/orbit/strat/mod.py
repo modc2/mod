@@ -590,3 +590,40 @@ class Mod:
             with open(p) as f:
                 return f.read()
         return None
+
+
+def _cli(argv):
+    """`python3 mod.py <fn> [key=value ...]` — values are parsed as JSON
+    when they look like it, kept as strings otherwise. Prints one JSON
+    document. This is what serverless callers (the defi module's /strats
+    desk) drive; it adds no capability the fns don't already have."""
+    if not argv or argv[0].startswith("_"):
+        return {"error": "usage: mod.py <fn> [key=value ...]",
+                "fns": Mod().info()["fns"]}
+    fn_name, kwargs = argv[0], {}
+    for pair in argv[1:]:
+        key, sep, raw = pair.partition("=")
+        if not sep:
+            return {"error": f"bad argument {pair!r} — want key=value"}
+        try:
+            kwargs[key] = json.loads(raw)
+        except Exception:
+            kwargs[key] = raw
+    fn = getattr(Mod(), fn_name, None)
+    if not callable(fn):
+        return {"error": f"unknown fn {fn_name!r}",
+                "fns": Mod().info()["fns"]}
+    # A caller's bearer rides the environment, never argv (ps-visible).
+    env_token = os.environ.get("STRAT_CLI_TOKEN")
+    if env_token and "token" not in kwargs:
+        import inspect
+        if "token" in inspect.signature(fn).parameters:
+            kwargs["token"] = env_token
+    try:
+        return fn(**kwargs)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+if __name__ == "__main__":
+    print(json.dumps(_cli(sys.argv[1:]), default=str))
