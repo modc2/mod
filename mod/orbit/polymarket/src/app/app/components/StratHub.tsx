@@ -28,6 +28,7 @@ import {
   HUB_WINDOWS, templateBacktestKey,
   type ForwardCheck, type ForwardVerdict, type HubBacktest,
 } from "../lib/hubBacktest";
+import { steadyEnough, DEFAULT_STEADY_FLOOR } from "../lib/hubReplay";
 import { triggerHubRefresh, triggerHubWorker, type WorkerStatus } from "../lib/hubCache";
 // The card's own vocabulary — face, chips, block, and the small formatters
 // that go with them. Extracted so the hub and the card can't drift apart.
@@ -121,6 +122,8 @@ export default function StratHub({
   // window AND over this one. Off by default: hiding a strat you own is worse
   // than showing it with a red badge.
   const [heldOnly, setHeldOnly] = useState(false);
+  // STEADY filter: 0 = off, DEFAULT_STEADY_FLOOR = on.
+  const [steadyFloor, setSteadyFloor] = useState(0);
   // Inline IDENTITY creation — one address, one strat.
   const [identityAddr, setIdentityAddr] = useState("");
   const identityValid = /^0x[0-9a-fA-F]{40}$/.test(identityAddr.trim());
@@ -140,17 +143,18 @@ export default function StratHub({
     () =>
       [...indexes]
         .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-        .filter((idx) => matchesQuery(query, idx.name, filterChips(idx)) && held(idx.id)),
+        .filter((idx) => matchesQuery(query, idx.name, filterChips(idx)) && held(idx.id) && steadyEnough(backtests?.[idx.id], steadyFloor)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [indexes, query, heldOnly, backtests],
+    [indexes, query, heldOnly, steadyFloor, backtests],
   );
   const recommended = useMemo(
     () => DEFAULT_STRATS.filter((t) =>
       matchesQuery(query, t.name, filterChips(t.params), t.description)
-      && held(templateBacktestKey(t.slug)),
+      && held(templateBacktestKey(t.slug))
+      && steadyEnough(backtests?.[templateBacktestKey(t.slug)], steadyFloor),
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [query, heldOnly, backtests],
+    [query, heldOnly, steadyFloor, backtests],
   );
   /** How the whole shelf scored, for the header tally. */
   const forwardTally = useMemo(() => {
@@ -321,6 +325,21 @@ export default function StratHub({
             }`}
           >
             ✓ HELD ONLY
+          </button>
+          <button
+            onClick={() => setSteadyFloor((v) => v > 0 ? 0 : DEFAULT_STEADY_FLOOR)}
+            title={
+              steadyFloor > 0
+                ? `Showing only strats whose wins were spread across ≥${Math.round(DEFAULT_STEADY_FLOOR * 100)}% of active stretches. Click to show all.`
+                : `Show only strats with consistent wins — profitable in ≥${Math.round(DEFAULT_STEADY_FLOOR * 100)}% of the stretches they traded. Hides strats whose P&L came from one lucky stretch.`
+            }
+            className={`shrink-0 px-2.5 py-1 rounded-[var(--radius-sm)] border text-[11px] font-mono font-semibold tracking-[0.08em] transition-colors ${
+              steadyFloor > 0
+                ? "border-cyan-400/60 text-cyan-400 bg-cyan-400/[0.10]"
+                : "border-pixel-border text-pixel-gray hover:text-cyan-400 hover:border-cyan-400/60"
+            }`}
+          >
+            {steadyFloor > 0 ? "◈" : "◇"} STEADY
           </button>
           {/* The wall answers "which of these works"; this is the button that
               acts on the answer — tick the ones that held and split the wallet

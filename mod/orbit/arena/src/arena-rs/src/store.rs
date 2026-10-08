@@ -185,6 +185,10 @@ pub struct Rating {
     /// game whose scores go negative must not read as "best: 0".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub best: Option<f64>,
+    /// Unix timestamp (seconds) of the player's last match in this game.
+    /// `0` means no match has been recorded yet (pre-dates this field or truly new).
+    #[serde(default)]
+    pub last_match: u64,
 }
 
 impl Default for Rating {
@@ -197,6 +201,7 @@ impl Default for Rating {
             losses: 0,
             score_sum: 0.0,
             best: None,
+            last_match: 0,
         }
     }
 }

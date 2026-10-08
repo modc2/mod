@@ -560,12 +560,14 @@ class Mod:
         self._save_civic(c)
         return {'success': True, 'resigned': auth['name']}
 
-    def _civic_block(self):
-        """The standing civic pause, if one stands — checked where money moves."""
+    def _civic_block(self, check_hold: bool = False):
+        """The standing civic pause/hold, if one stands — checked where money moves."""
         c = self._load_civic()
+        who = (c.get('authority') or {}).get('name') or 'the chartered authority'
         if c.get('civic_paused'):
-            who = (c.get('authority') or {}).get('name') or 'the chartered authority'
             return {'error': f'Civic pause: {who} has frozen payments on this property'}
+        if check_hold and c.get('civic_hold'):
+            return {'error': f'Civic hold: {who} has blocked a taking on this property'}
         return None
 
     # ━━ The pool ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1395,7 +1397,7 @@ class Mod:
         """
         if not buyer:
             return {'error': 'Buyer address required'}
-        blocked = self._civic_block()
+        blocked = self._civic_block(check_hold=True)
         if blocked:
             return blocked
         share_count = int(share_count)
@@ -1437,12 +1439,24 @@ class Mod:
             'new_balance': int(shareholders[buyer]['shares']),
         }
 
-    def distribute(self, total_amount: float) -> dict:
+    def distribute(self, total_amount: float, owner: str = '') -> dict:
         """Distribute dividends to all shareholders.
 
         Args:
             total_amount: Total dividend amount to distribute
+            owner:        address calling — must match the recorded owner once
+                          one is set (same permissive policy as set_terms)
         """
+        blocked = self._civic_block(check_hold=True)
+        if blocked:
+            return blocked
+
+        current = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        recorded_owner = (current.get('owner') or '').lower()
+        caller = (owner or '').strip()
+        if recorded_owner and caller.lower() != recorded_owner:
+            return {'error': 'Only the property owner can distribute dividends'}
+
         total_amount = float(total_amount)
         if total_amount <= 0:
             return {'error': 'Amount must be greater than 0'}
@@ -1964,7 +1978,7 @@ class Mod:
                 int(kwargs.get('share_count', 0)),
                 float(kwargs.get('payment', 0)),
             ),
-            'distribute': lambda: self.distribute(float(kwargs.get('total_amount', 0))),
+            'distribute': lambda: self.distribute(float(kwargs.get('total_amount', 0)), owner=kwargs.get('owner', '')),
             'record_action': lambda: self.record_action(
                 kwargs.get('action', ''),
                 kwargs.get('details', ''),

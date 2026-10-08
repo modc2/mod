@@ -972,8 +972,9 @@ pub async fn play(key: &str, view: &str, seat: usize, answer: &str) -> Result<Va
 /// the seed and every move are recorded, the game module is pure over its
 /// state, so anyone can replay a match and get the same scores. A leaderboard
 /// here is a claim with its working attached.
-fn bump(r: &mut Rating, score: f64, result: &str, delta: f64, rated: bool) {
+fn bump(r: &mut Rating, score: f64, result: &str, delta: f64, rated: bool, created: u64) {
     r.best = Some(r.best.map_or(score, |b| b.max(score)));
+    r.last_match = r.last_match.max(created);
     r.elo += delta;
     if rated {
         r.matches += 1;
@@ -1044,6 +1045,7 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
         .unwrap_or_default();
 
     let out = store::write(|st| {
+        let created = store::now();
         let mut seats: Vec<Seat> = Vec::new();
         for (i, (p, raw)) in resolved.iter().enumerate() {
             let moves = raw.get("moves").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -1059,8 +1061,8 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
                 pl.timeouts += timeouts;
                 pl.mcp += mcp;
                 pl.move_ms_sum += ms;
-                bump(&mut pl.overall, scores[i], result, overall_deltas[i], rated);
-                bump(pl.by_game.entry(game.id.clone()).or_default(), scores[i], result, deltas[i], rated);
+                bump(&mut pl.overall, scores[i], result, overall_deltas[i], rated, created);
+                bump(pl.by_game.entry(game.id.clone()).or_default(), scores[i], result, deltas[i], rated, created);
             }
 
             seats.push(Seat {
@@ -1095,7 +1097,7 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
             runtime: rec.get("runtime").and_then(|v| v.as_str()).unwrap_or("unknown").into(),
             rated,
             ms: rec.get("ms").and_then(|v| v.as_u64()).unwrap_or(0),
-            created: store::now(),
+            created,
         };
         st.record_match(m.clone());
         m
@@ -1163,6 +1165,7 @@ pub fn leaderboard(args: &Value) -> Result<Value, String> {
             .values()
             .filter_map(|p| {
                 let r = p.by_game.get(&m.id)?;
+                if r.matches == 0 { return None; }
                 let mut v = r.card();
                 v["id"] = json!(p.id);
                 v["name"] = json!(p.name);
@@ -1215,7 +1218,7 @@ fn arcade_rows(players: &HashMap<String, Player>, matches: &[Match], game_id: &s
                     best: r.best,
                     runs: r.matches,
                     score_sum: r.score_sum,
-                    last: 0,
+                    last: r.last_match,
                 },
             );
         }

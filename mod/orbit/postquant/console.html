@@ -959,7 +959,7 @@ $('insp-btn').onclick = async () => {
       ? await api('/tx?hash=' + encodeURIComponent(q)).catch(
           () => api('/block?block=' + encodeURIComponent(q) + '&full=true'))
       : await api('/block?block=' + encodeURIComponent(q) + '&full=true');
-    out('insp-out', esc(JSON.stringify(o, null, 2)));
+    out('insp-out', json(o));
   } catch (e) { err('insp-out', e); }
 };
 

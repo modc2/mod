@@ -206,7 +206,8 @@ def shooting_points(years: int = 3) -> dict:
         since = _iso(date.today() - timedelta(days=365 * years))
         rows = S.soql_all(
             S.NYC, SHOOTINGS, max_rows=20000,
-            select='occur_date,occur_time,boro,precinct,latitude,longitude',
+            select='occur_date,occur_time,boro,precinct,latitude,longitude,'
+                   'statistical_murder_flag,vic_age_group,vic_sex,vic_race,location_desc',
             where=(f'occur_date >= "{since}T00:00:00.000" and latitude IS NOT NULL'),
             order='occur_date DESC')
         for r in rows:
@@ -215,6 +216,12 @@ def shooting_points(years: int = 3) -> dict:
             # datetime on some; keep whatever follows the date part.
             r['time'] = str(r.pop('occur_time', '')).split('T')[-1][:5]
             r['borough'] = (r.pop('boro', '') or '').title()
+            flag = str(r.get('statistical_murder_flag', '') or '').lower()
+            r['statistical_murder_flag'] = flag == 'true'
+            r['vic_age_group'] = (r.get('vic_age_group') or '').title() or None
+            r['vic_sex'] = (r.get('vic_sex') or '').title() or None
+            r['vic_race'] = (r.get('vic_race') or '').title() or None
+            r['location_desc'] = (r.get('location_desc') or '').title() or None
             try:
                 a, b = float(r.get('latitude')), float(r.get('longitude'))
             except (TypeError, ValueError):
@@ -222,11 +229,13 @@ def shooting_points(years: int = 3) -> dict:
             if a < 0 < b:                      # the swapped majority
                 r['latitude'], r['longitude'] = b, a
         fc = S.points_from_rows(rows, 'latitude', 'longitude',
-                                props=['date', 'time', 'borough', 'precinct'])
+                                props=['date', 'time', 'borough', 'precinct',
+                                       'statistical_murder_flag', 'vic_age_group',
+                                       'vic_sex', 'vic_race', 'location_desc'])
         fc['meta'] = {'since': since, 'incidents': len(fc['features']),
                       'source': 'NYPD Shooting Incident Data (5ucz-vwe8)'}
         return fc
-    return S.cached(f'crime-shootings-{years}y-v2', S.DAY, fetch)
+    return S.cached(f'crime-shootings-{years}y-v3', S.DAY, fetch)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

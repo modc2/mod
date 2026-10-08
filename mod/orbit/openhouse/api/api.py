@@ -65,6 +65,7 @@ class PurchaseRequest(BaseModel):
 
 class DistributeRequest(BaseModel):
     total_amount: float
+    owner: Optional[str] = None
 
 class RecordActionRequest(BaseModel):
     action: str
@@ -455,7 +456,7 @@ def purchase(req: PurchaseRequest):
 
 @app.post("/distribute")
 def distribute(req: DistributeRequest):
-    result = get_openhouse().distribute(req.total_amount)
+    result = get_openhouse().distribute(req.total_amount, req.owner or '')
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

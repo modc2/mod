@@ -380,12 +380,20 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
         )}
 
         {selection.layerId === 'shootings' && (
-          <Meta rows={[
-            ['Date', p.date],
-            ['Time', p.time],
-            ['Borough', p.borough],
-            ['Precinct', p.precinct],
-          ]} />
+          <>
+            <Stat label="Fatal" value={p.statistical_murder_flag ? 'Yes' : 'No'}
+                  tone={p.statistical_murder_flag ? 'bad' : undefined} />
+            <Meta rows={[
+              ['Date', p.date],
+              ['Time', p.time],
+              ['Borough', p.borough],
+              ['Precinct', p.precinct],
+              ['Victim age', p.vic_age_group],
+              ['Victim sex', p.vic_sex],
+              ['Victim race', p.vic_race],
+              ['Location', p.location_desc],
+            ]} />
+          </>
         )}
 
         {selection.layerId === 'parks' && (
@@ -510,7 +518,7 @@ function headline(sel: Selection): string {
     case 'affordable_housing': return p.name || p.address
     case 'collisions': return `${p.injured} injured${p.killed > 0 ? `, ${p.killed} killed` : ''}`
     case 'crime': return p.name || `Precinct ${p.precinct}`
-    case 'shootings': return `Shooting · ${p.date}`
+    case 'shootings': return `Shooting · ${p.date}${p.statistical_murder_flag ? ' · Fatal' : ''}`
     case 'parks': return p.signname || p.name311 || 'Park'
     case 'bike_routes': return titleCase(p.street || 'Bike route')
     case 'evacuation_zones': return `Zone ${p.zone}`

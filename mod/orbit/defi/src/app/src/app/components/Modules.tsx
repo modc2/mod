@@ -433,6 +433,16 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
           <span className="stat-l">tao subnets</span>
         </div>
         <div className="stat">
+          <span className="stat-n">{sources?.hyperliquid?.vaults ?? (sources?.hyperliquid?.error ? "off" : "…")}</span>
+          <span className="stat-l">hl vaults</span>
+        </div>
+        {sources?.polymarket?.traders != null && !sources?.polymarket?.gated && (
+          <div className="stat">
+            <span className="stat-n">{sources.polymarket.traders}</span>
+            <span className="stat-l">pm traders</span>
+          </div>
+        )}
+        <div className="stat">
           <span className="stat-n">{sources?.composer?.vaults ?? 0}</span>
           <span className="stat-l">your vaults</span>
         </div>
@@ -541,7 +551,9 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                   </div>
                 </div>
                 <span className="apy-big">
-                  {detail.returns?.apy === null || detail.returns?.apy === undefined ? "n/q" : pct(detail.returns.apy)}
+                  {detail.chain === "polymarket" && detail.returns?.window_30d?.win_rate_pct != null
+                    ? pct(detail.returns.window_30d.win_rate_pct)
+                    : detail.returns?.apy === null || detail.returns?.apy === undefined ? "n/q" : pct(detail.returns.apy)}
                 </span>
               </div>
 
@@ -553,6 +565,14 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                   <div className="kv"><span>24h</span><b><Chg v={detail.returns?.price_change_24h_pct} /></b></div>
                   <div className="kv"><span>7d</span><b><Chg v={detail.returns?.price_change_7d_pct} /></b></div>
                   <div className="kv"><span>24h volume</span><b>{detail.liquidity?.volume_24h_tao != null ? `${Math.round(detail.liquidity.volume_24h_tao).toLocaleString()} τ` : "—"}</b></div>
+                </div>
+              ) : detail.chain === "polymarket" ? (
+                /* PM traders quote no APY — show the trader's 30d track record instead */
+                <div className="kv-grid">
+                  <div className="kv"><span>30d PnL</span><b>{detail.returns?.window_30d?.pnl_usd != null ? money(detail.returns.window_30d.pnl_usd) : "—"}</b></div>
+                  <div className="kv"><span>win rate</span><b>{pct(detail.returns?.window_30d?.win_rate_pct)}</b></div>
+                  <div className="kv"><span>Sharpe</span><b>{detail.returns?.window_30d?.sharpe != null ? Number(detail.returns.window_30d.sharpe).toFixed(2) : "—"}</b></div>
+                  <div className="kv"><span>positions</span><b>{detail.returns?.window_30d?.positions ?? "—"}</b></div>
                 </div>
               ) : (
                 <div className="kv-grid">

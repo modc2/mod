@@ -373,16 +373,37 @@ async function loadAttacks() {
   $('#attack-list').innerHTML = attacks.length ? `<table>
     <tr><th>id</th><th>name</th><th>category</th><th>technique</th>
         <th>goal</th><th></th></tr>
-    ${attacks.map(a => `<tr><td>${esc(a.id)}</td><td>${esc(a.name)}</td>
+    ${attacks.map((a, i) => `<tr class="click" data-idx="${i}"><td>${esc(a.id)}</td><td>${esc(a.name)}</td>
       <td class="muted">${esc(a.category)}</td>
       <td class="muted">${esc(a.technique || '')}</td>
       <td class="muted">${esc((a.goal || '').slice(0, 70))}</td>
       <td><button data-del="${esc(a.id)}">×</button></td></tr>`).join('')}</table>`
     : '<span class="muted">empty.</span>';
   document.querySelectorAll('#attack-list button[data-del]').forEach(b =>
-    b.onclick = async () => {
+    b.onclick = async e => {
+      e.stopPropagation();
       await api('/attacks?id=' + encodeURIComponent(b.dataset.del),
                 {method: 'DELETE'}); loadAttacks(); });
+  $('#attack-list').querySelectorAll('tr[data-idx]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.idx);
+      const a = attacks[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('attack-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'attack-detail';
+      const td = document.createElement('td');
+      td.colSpan = 6;
+      td.style.padding = '8px 12px';
+      const prompt = a.prompt || (Array.isArray(a.turns) ? a.turns.map(t => t.content || t).join('\n---\n') : '');
+      const markers = (a.markers || []).join(', ');
+      td.innerHTML = `<pre style="margin-top:0">${esc(prompt)}</pre>` +
+        (markers ? `<div class="muted" style="margin-top:4px">markers: ${esc(markers)}</div>` : '');
+      tr.after(detail);
+    };
+  });
 }
 
 $('#a-save').onclick = async () => {
@@ -409,7 +430,7 @@ async function loadDefenses() {
   $('#defense-list').innerHTML = `<table>
     <tr><th>id</th><th>name</th><th class="num">in</th><th class="num">out</th>
         <th>self-check</th><th>prompt</th><th></th></tr>
-    ${defenses.map(d => `<tr><td>${esc(d.id)}</td><td>${esc(d.name)}</td>
+    ${defenses.map((d, i) => `<tr class="click" data-idx="${i}"><td>${esc(d.id)}</td><td>${esc(d.name)}</td>
       <td class="num">${(d.input_rules || []).length}</td>
       <td class="num">${(d.output_rules || []).length}</td>
       <td class="muted">${d.self_check ? 'yes' : '—'}</td>
@@ -418,9 +439,34 @@ async function loadDefenses() {
       <td>${d.builtin ? '<span class="pill">built-in</span>'
         : `<button data-del="${esc(d.id)}">×</button>`}</td></tr>`).join('')}</table>`;
   document.querySelectorAll('#defense-list button[data-del]').forEach(b =>
-    b.onclick = async () => {
+    b.onclick = async e => {
+      e.stopPropagation();
       await api('/defenses?id=' + encodeURIComponent(b.dataset.del),
                 {method: 'DELETE'}); loadDefenses(); });
+  $('#defense-list').querySelectorAll('tr[data-idx]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.idx);
+      const d = defenses[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('defense-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'defense-detail';
+      const td = document.createElement('td');
+      td.colSpan = 7;
+      td.style.padding = '8px 12px';
+      const inRules = (d.input_rules || []);
+      const outRules = (d.output_rules || []);
+      td.innerHTML =
+        (d.system_prompt ? `<pre style="margin-top:0">${esc(d.system_prompt)}</pre>` : '') +
+        (inRules.length ? `<div class="muted" style="margin-top:4px"><b>input rules:</b></div><pre>${esc(inRules.join('\n'))}</pre>` : '') +
+        (outRules.length ? `<div class="muted"><b>output rules:</b></div><pre>${esc(outRules.join('\n'))}</pre>` : '') +
+        (d.max_input_chars ? `<div class="muted">max input chars: ${esc(String(d.max_input_chars))}</div>` : '');
+      detail.appendChild(td);
+      tr.after(detail);
+    };
+  });
 }
 
 $('#d-save').onclick = async () => {
@@ -441,9 +487,9 @@ async function loadPickers() {
   const [{attacks}, {defenses}] = await Promise.all(
     [api('/attacks'), api('/defenses')]);
   $('#f-attack').innerHTML = attacks.map(
-    a => `<option value="${esc(a.id)}">${esc(a.id)}</option>`).join('');
+    a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
   $('#f-defense').innerHTML = defenses.map(
-    d => `<option value="${esc(d.id)}">${esc(d.id)}</option>`).join('');
+    d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
 }
 
 $('#f-go').onclick = async () => {
