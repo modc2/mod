@@ -2,7 +2,7 @@
 
 deprecated
 
-Bittensor subnet **39** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **39** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/deprecated/deprecated) · discord `deprecated`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/deprecated/deprecated) · discord `deprecated
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.008071 | -0.00% | -0.20% | +15.97% | 50,114 | 18,965 | 1,179 |
+| 0.008087 | +0.00% | +0.19% | +15.86% | 50,269 | 18,983 | 559.40 |
 
 ## Last 24h flow
 
-64 trades by 42 coldkeys · 30 buys (580.07 τ) / 34 sells (597.93 τ) · net -17.87 τ
+44 trades by 29 coldkeys · 25 buys (288.90 τ) / 19 sells (268.99 τ) · net 19.91 τ
 
 ## Use
 

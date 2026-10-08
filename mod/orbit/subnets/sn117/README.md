@@ -2,7 +2,7 @@
 
 Every frame gets craft
 
-Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **117** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url](https://everyframe.studio/) · [discord](https://discord.com/channels/799672011265015819/1544011415692644444)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/everyframe-studios/everyframe-miner) · [url]
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002635 | -0.34% | -3.46% | -2.30% | 7,986 | 2,935 | 176.51 |
+| 0.002618 | -0.00% | -0.65% | -1.78% | 7,945 | 2,925 | 55.70 |
 
 ## Last 24h flow
 
-33 trades by 22 coldkeys · 11 buys (62.20 τ) / 22 sells (113.46 τ) · net -51.26 τ
+16 trades by 9 coldkeys · 6 buys (23.06 τ) / 10 sells (31.66 τ) · net -8.60 τ
 
 ## News
 

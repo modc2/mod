@@ -2,7 +2,7 @@
 
 Deep research as a commodity. Faster, cheaper, traceable research — produced by a competitive swarm of miners on Bittensor SN67.
 
-Bittensor subnet **67** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **67** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/harnyx/harnyx) · [url](https://harnyx.ai/) · [discord](https://discord.com/channels/799672011265015819/1457737666316472351)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/harnyx/harnyx) · [url](https://harnyx.ai/) �
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003467 | -0.15% | -0.37% | -5.71% | 6,127 | 2,662 | 7.76 |
+| 0.003435 | -0.03% | -0.91% | -5.66% | 6,095 | 2,651 | 14.95 |
 
 ## Last 24h flow
 
-50 trades by 20 coldkeys · 4 buys (0.33 τ) / 46 sells (5.25 τ) · net -4.92 τ
+77 trades by 18 coldkeys · 2 buys (0.07 τ) / 75 sells (12.12 τ) · net -12.06 τ
 
 ## News
 
+- 2026-10-07 · commit · [Document miner decision queries and staging smoke results (#1673)](https://github.com/harnyx/harnyx/commit/3824b37d90de8fd778b335957d7b91ac2d9ce49f) — harnyx/harnyx
+- 2026-10-07 · commit · [chore(validator): bump repo-owned validator version to 20261007.post2](https://github.com/harnyx/harnyx/commit/46058b4447ed5d9781c2962f39f8e3e867e7b2b0) — harnyx/harnyx
+- 2026-10-07 · commit · [Add native decision queries for miners (#1662)](https://github.com/harnyx/harnyx/commit/2494b74a06e1436eaa9171d2aa238cb27fada1f1) — harnyx/harnyx
+- 2026-10-07 · commit · [chore(validator): bump repo-owned validator version to 20261007.post1](https://github.com/harnyx/harnyx/commit/1044dfa994222db4d7678598ef3a76ae33e447e2) — harnyx/harnyx
+- 2026-10-07 · commit · [chore(validator): bump repo-owned validator version to 20261007.post0](https://github.com/harnyx/harnyx/commit/192160b39cafaf13f8a1bba68a46bfc21a914cd9) — harnyx/harnyx
+- 2026-10-06 · commit · [chore(validator): bump repo-owned validator version to 20261006.post5](https://github.com/harnyx/harnyx/commit/bd2d9eee2040946b7649411d14f3df4179b06471) — harnyx/harnyx
 - 2026-10-06 · commit · [chore(validator): bump repo-owned validator version to 20261006.post3](https://github.com/harnyx/harnyx/commit/e41fe8e51a8e8e1584f541a09a2e8625ae61a3b6) — harnyx/harnyx
 - 2026-10-06 · commit · [Increase miner task generation Luna concurrency to twenty (#1657)](https://github.com/harnyx/harnyx/commit/d0164c9aaf3fa1926da848388fc939e6c2a2801e) — harnyx/harnyx
-- 2026-10-06 · commit · [chore(validator): bump repo-owned validator version to 20261006.post2](https://github.com/harnyx/harnyx/commit/337a03e2b282c7c74d5350124282842e0a475297) — harnyx/harnyx
-- 2026-10-06 · commit · [chore(validator): bump repo-owned validator version to 20261006.post1](https://github.com/harnyx/harnyx/commit/a2a324bc6024aaf1af49ea0310485acb7fcdf266) — harnyx/harnyx
-- 2026-10-06 · commit · [Recover incomplete generation outputs and closing source connections …](https://github.com/harnyx/harnyx/commit/16383a2d94430441d46066a7a4033e16621d7e77) — harnyx/harnyx
-- 2026-10-05 · commit · [chore(validator): bump repo-owned validator version to 20261005.post0](https://github.com/harnyx/harnyx/commit/2bfe5fef2798de53f196494ac074ec5cf3692eb7) — harnyx/harnyx
-- 2026-10-05 · commit · [Retry incomplete Flash search-worker responses (#1648)](https://github.com/harnyx/harnyx/commit/7efa628e93a1b774b5a2936b76406896537ba58a) — harnyx/harnyx
-- 2026-10-04 · commit · [chore(validator): bump repo-owned validator version to 20261004.post1](https://github.com/harnyx/harnyx/commit/3db2e50fea9c098dc16108e597583a45184861ac) — harnyx/harnyx
 
 ## Use
 

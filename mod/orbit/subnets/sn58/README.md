@@ -1,16 +1,28 @@
-# sn58 — dippy-speach خ
+# sn58 — Attune خ
 
-Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+The open frontier for adaptive robot intelligence
+
+Bittensor subnet **58** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+
+Links: [github](https://github.com/robotensor/attune-subnet) · [url](https://attune.robotensor.ai) · [discord](https://discord.com/channels/799672011265015819/1550516268002578432)
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006405 | -0.00% | -0.20% | +1.31% | 5,330 | 1,006 | 41.05 |
+| 0.011794 | -5.34% | +84.14% | +85.69% | 9,899 | 1,365 | 5,127 |
 
 ## Last 24h flow
 
-13 trades by 11 coldkeys · 3 buys (20.01 τ) / 10 sells (16.23 τ) · net 3.78 τ
+1102 trades by 169 coldkeys · 696 buys (2,743 τ) / 406 sells (2,370 τ) · net 373.85 τ
+
+## News
+
+- 2026-10-07 · commit · [refactor: no `attune doctor`](https://github.com/robotensor/attune-subnet/commit/0f16095014543bcce61d7030b4fae5d9666e9e64) — robotensor/attune-subnet
+- 2026-10-07 · commit · [feat(miner): robotensor-attune, the miner's package](https://github.com/robotensor/attune-subnet/commit/09440b29962630d436033c6b76935058bd16513e) — robotensor/attune-subnet
+- 2026-10-07 · commit · [docs: the Attune banner as the header image](https://github.com/robotensor/attune-subnet/commit/3e9d463e2ae9b59a73f6713febd1e8b4b37bac71) — robotensor/attune-subnet
+- 2026-10-07 · commit · [feat: the subnet is Attune; the command is `attune`](https://github.com/robotensor/attune-subnet/commit/7f708824e4b2ae1f518158a6b2f67e51d1fff162) — robotensor/attune-subnet
+- 2026-10-05 · commit · [docs: new header image](https://github.com/robotensor/attune-subnet/commit/8582440d390ae56a7d12ba42e84a918d5bd86a32) — robotensor/attune-subnet
 
 ## Use
 

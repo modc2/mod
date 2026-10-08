@@ -2,7 +2,7 @@
 
 The open alternative to frontier AI | Efficient autonomous research
 
-Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **100** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cortex.foundation)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/CortexLM/cortex) · [url](https://network.cor
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003625 | +0.41% | -5.56% | -0.37% | 9,802 | 2,422 | 855.78 |
+| 0.003608 | +1.66% | -0.47% | -1.27% | 9,783 | 2,417 | 528.40 |
 
 ## Last 24h flow
 
-129 trades by 54 coldkeys · 60 buys (378.84 τ) / 69 sells (407.81 τ) · net -28.97 τ
+102 trades by 50 coldkeys · 46 buys (261.39 τ) / 56 sells (265.28 τ) · net -3.90 τ
 
 ## News
 

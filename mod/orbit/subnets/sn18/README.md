@@ -2,7 +2,7 @@
 
 Pushing weather forecasts beyond state-of-the-art
 
-Bittensor subnet **18** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **18** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/Orpheus-AI/Zeus) · [url](https://www.zeussubnet.com/) · discord `wouter_orpheusai`
 
@@ -10,16 +10,11 @@ Links: [github](https://github.com/Orpheus-AI/Zeus) · [url](https://www.zeussub
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003724 | -0.00% | +0.09% | -3.50% | 21,984 | 9,802 | 33.29 |
+| 0.003778 | +0.00% | +1.45% | -8.57% | 22,330 | 9,874 | 591.23 |
 
 ## Last 24h flow
 
-29 trades by 20 coldkeys · 6 buys (18.93 τ) / 23 sells (13.78 τ) · net 5.15 τ
-
-## News
-
-- 2026-09-07 · release · [Release 2.1.4](https://github.com/Orpheus-AI/Zeus/releases/tag/v2.1.4) — Orpheus-AI/Zeus
-- 2026-09-07 · commit · [Stop emissions for non-participating miners (#88)](https://github.com/Orpheus-AI/Zeus/commit/024eb19eeca724aaad135b4492091abf658694ce) — Orpheus-AI/Zeus
+67 trades by 32 coldkeys · 30 buys (327.96 τ) / 37 sells (259.32 τ) · net 68.64 τ
 
 ## Use
 

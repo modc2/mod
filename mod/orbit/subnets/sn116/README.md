@@ -2,7 +2,7 @@
 
 Transforming engineering simulations through machine learning
 
-Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **116** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://https://carbonphysics.ai) · discord `...`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/carbonphysicsai/Carbon) · [url](https://http
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.046062 | +1.95% | +13.78% | +2117.73% | 7,540 | 2,097 | 8,207 |
+| 0.038961 | +0.96% | -15.42% | +1870.89% | 6,658 | 1,928 | 1,454 |
 
 ## Last 24h flow
 
-1384 trades by 221 coldkeys · 836 buys (4,163 τ) / 548 sells (4,008 τ) · net 155.50 τ
+310 trades by 103 coldkeys · 156 buys (642.55 τ) / 154 sells (789.73 τ) · net -147.18 τ
 
 ## News
 
-- 2026-10-07 · commit · [Merge pull request #728 from carbonphysicsai/claude/fix-finalist-test…](https://github.com/carbonphysicsai/Carbon/commit/82d7bf549caf82a2c2f7c9c31abf79d18f3b1ba9) — carbonphysicsai/Carbon
-- 2026-10-07 · commit · [Fix main: the finalist test found slot 1 by file order](https://github.com/carbonphysicsai/Carbon/commit/b0abb7d68520274de75abe02a708f5e1d5c730a4) — carbonphysicsai/Carbon
-- 2026-10-07 · commit · [Merge pull request #715 from carbonphysicsai/claude/commitment-freshn…](https://github.com/carbonphysicsai/Carbon/commit/e8dbc7c2e549673128e0734fd573df08a94cd1b8) — carbonphysicsai/Carbon
-- 2026-10-07 · commit · [Launchpad: the next step for commitment_contested (D6)](https://github.com/carbonphysicsai/Carbon/commit/133521cc9843662b5947494478821a8e8af77947) — carbonphysicsai/Carbon
-- 2026-10-07 · commit · [Merge remote-tracking branch 'origin/main' into claude/commitment-fre…](https://github.com/carbonphysicsai/Carbon/commit/bb71acf1f1e08f5c7cec742ef0b4c617d52a402d) — carbonphysicsai/Carbon
-- 2026-10-06 · commit · [Merge pull request #720 from carbonphysicsai/claude/owner-d6-tie](https://github.com/carbonphysicsai/Carbon/commit/92327087a0ca1427602d1b606cf0a3b2a5837a5d) — carbonphysicsai/Carbon
-- 2026-10-06 · commit · [OWNER-COMMITMENT-D6-TIE-01: a same-block D6 tie goes to the earlier t…](https://github.com/carbonphysicsai/Carbon/commit/56023332d8801b2a4ee54fae2139f1e42391b80d) — carbonphysicsai/Carbon
-- 2026-10-06 · release · [worker-images-v1](https://github.com/carbonphysicsai/Carbon/releases/tag/worker-images-v1) — carbonphysicsai/Carbon
+- 2026-10-08 · commit · [Merge pull request #747 from carbonphysicsai/claude/training-budget-b…](https://github.com/carbonphysicsai/Carbon/commit/ae6ee7ca2779a5e775fca886a1ac53b78105280c) — carbonphysicsai/Carbon
+- 2026-10-08 · commit · [Merge pull request #778 from carbonphysicsai/claude/launchpad-accept-…](https://github.com/carbonphysicsai/Carbon/commit/ce76942fd3f01e88ece123a5a2aec3e18e9f4c2f) — carbonphysicsai/Carbon
+- 2026-10-08 · commit · [Merge pull request #770 from carbonphysicsai/claude/launchpad-accepta…](https://github.com/carbonphysicsai/Carbon/commit/df26107c265dd9148be25ea5659ec2007785e0f2) — carbonphysicsai/Carbon
+- 2026-10-08 · commit · [Merge remote-tracking branch 'origin/main' into claude/launchpad-acce…](https://github.com/carbonphysicsai/Carbon/commit/b7c64bf911f8a7770bd849f4e76ec69660baa90e) — carbonphysicsai/Carbon
+- 2026-10-08 · commit · [Merge remote-tracking branch 'origin/main' into claude/training-budge…](https://github.com/carbonphysicsai/Carbon/commit/127199f486b0b9a3992c060c8ca236861ef341f7) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Merge pull request #759 from carbonphysicsai/codex/challenge-optimizers](https://github.com/carbonphysicsai/Carbon/commit/11d77033cda4be4fb6303cb31a910cc6ef9d4633) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Merge pull request #766 from carbonphysicsai/exec/a40-launch-diagnost…](https://github.com/carbonphysicsai/Carbon/commit/17e4af24583bce0bdc7b1b37ee26b7776e7d288b) — carbonphysicsai/Carbon
+- 2026-10-07 · commit · [Merge pull request #768 from carbonphysicsai/prhead/ungate-launchpad-…](https://github.com/carbonphysicsai/Carbon/commit/dfb76b16ba7ccee7d8d4de6684448a4fb72a54d6) — carbonphysicsai/Carbon
 
 ## Use
 

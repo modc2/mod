@@ -2,7 +2,7 @@
 
 Harnessing Bittensor's incentive layer to forge self-optimizing infrastructure.
 
-Bittensor subnet **19** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **19** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/taostat/blockmachine/) · [url](https://blockmachine.io)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/taostat/blockmachine/) · [url](https://block
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.009164 | +0.00% | +1.61% | -0.11% | 56,410 | 30,940 | 1,814 |
+| 0.009077 | +0.00% | -0.95% | +0.14% | 55,945 | 30,801 | 547.54 |
 
 ## Last 24h flow
 
-163 trades by 119 coldkeys · 116 buys (1,010 τ) / 47 sells (780.66 τ) · net 229.31 τ
+137 trades by 94 coldkeys · 8 buys (181.21 τ) / 129 sells (345.27 τ) · net -164.06 τ
 
 ## Use
 

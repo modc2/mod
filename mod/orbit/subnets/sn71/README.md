@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004111 | +0.25% | +11.07% | +6.86% | 24,150 | 5,105 | 4,266 |
+| 0.004146 | -0.57% | +0.86% | +9.72% | 24,387 | 5,127 | 2,745 |
 
 ## Last 24h flow
 
-418 trades by 108 coldkeys · 246 buys (2,264 τ) / 172 sells (2,000 τ) · net 263.65 τ
+387 trades by 111 coldkeys · 221 buys (1,384 τ) / 166 sells (1,360 τ) · net 23.78 τ
 
 ## News
 
-- 2026-10-07 · commit · [Merge PR #247: clarify paid subscription evidence](https://github.com/leadpoet/leadpoet/commit/4148ec5215c76a399e85822c0bcc7b96d9887cf8) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Clarify supported paid subscription evidence in company review](https://github.com/leadpoet/leadpoet/commit/3878031f28a65a4a38d049a81bc71b4816148f2e) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Merge PR #246: prefer fresh verification evidence](https://github.com/leadpoet/leadpoet/commit/c5e5c2e08047f657e7bc94dac0d2f1c8d86a7b14) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Prefer fresh investigator source over cached priority marker](https://github.com/leadpoet/leadpoet/commit/f412c54201706ee0e7be92307c8530cec6ee8d76) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Merge PR #244: isolate repeated provider refusals](https://github.com/leadpoet/leadpoet/commit/62d4afe5ffade155aefd5b636a2d0497b9225a09) — leadpoet/leadpoet
-- 2026-10-06 · commit · [Merge PR #238: retain validated company evidence](https://github.com/leadpoet/leadpoet/commit/ab6b32347e2a3d4bcfa48975b2ee4bb14b6b9fc6) — leadpoet/leadpoet
-- 2026-10-06 · commit · [Bind reviewed profile evidence fix in protected manifest](https://github.com/leadpoet/leadpoet/commit/63b79d3b01b8095a4324596d5caf84b9a6545ba2) — leadpoet/leadpoet
-- 2026-10-06 · commit · [Bind adjacent quote-card prices to their exact issuer](https://github.com/leadpoet/leadpoet/commit/04a30acce9e3ca45a124f0d2daa964031e88fe93) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Preserve Deepline rejections across concurrent settlement (#270)](https://github.com/leadpoet/leadpoet/commit/cded1fdae9bb4c3e97418e8c2ad312c0d6a4e485) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Preserve Deepline rejection status and billing across replay (#268)](https://github.com/leadpoet/leadpoet/commit/0323492ab9144cf456ea9aa2fda95fae4839bba6) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Merge pull request #269 from leadpoet/codex/arena-stage-creation-time…](https://github.com/leadpoet/leadpoet/commit/affdc8af6b1ea83fd73b16d68c5f59fe96671abc) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Bound bulk Arena queue creation with scoped database timeouts](https://github.com/leadpoet/leadpoet/commit/32c08b97895632749b8e3f6bb096990bf65337e8) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Merge pull request #267 from leadpoet/codex/arena-admission-ceiling-o…](https://github.com/leadpoet/leadpoet/commit/8df8ad8524b585f1077c6c35cf1f8a91556d98e7) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Merge PR #264: preserve locality verdicts and free response recovery](https://github.com/leadpoet/leadpoet/commit/fedb11681fd6c612a7208823592a9dd846340448) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Keep historical migration fixtures pinned while updating current flows](https://github.com/leadpoet/leadpoet/commit/372053bfdfab5b795921e59632176b0ccae980e5) — leadpoet/leadpoet
+- 2026-10-07 · commit · [Keep service flow fixtures on current billing schema](https://github.com/leadpoet/leadpoet/commit/8a05750542db8f8b7cd78ef2bdd3b5c196a6e6dd) — leadpoet/leadpoet
 
 ## Use
 

@@ -2,7 +2,7 @@
 
 Decentralized AUM
 
-Bittensor subnet **88** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **88** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/mobiusfund/investing) · [url](https://Investing88.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/mobiusfund/investing) · [url](https://Invest
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002820 | +0.00% | +0.24% | -3.23% | 15,238 | 5,958 | 244.98 |
+| 0.002811 | -0.10% | -0.29% | -3.94% | 15,214 | 5,950 | 153.21 |
 
 ## Last 24h flow
 
-59 trades by 46 coldkeys · 22 buys (125.94 τ) / 37 sells (118.50 τ) · net 7.44 τ
+57 trades by 47 coldkeys · 20 buys (72.37 τ) / 37 sells (80.26 τ) · net -7.90 τ
 
 ## News
 
@@ -22,7 +22,6 @@ Links: [github](https://github.com/mobiusfund/investing) · [url](https://Invest
 - 2026-09-24 · commit · [Misc updates](https://github.com/mobiusfund/investing/commit/86d63188bb20c1cd2b5671b0b4b90881273407d2) — mobiusfund/investing
 - 2026-09-15 · news · [Form 8K Grayscale Bittensor Trust (TAO) For: 15 September By Investing.com](https://news.google.com/rss/articles/CBMitgFBVV95cUxOeU51dFlBV1RNcEJZV2loYW1EMnFBUWVFSVlLcFVnc1I1bExEN0UtOVpsRHlvMDdVeEYzYTBWN1dHUkgzbmhSMVhmczNOOFZ5UTdiblgwZ1dOQlFxMUl3cl9jWHM0VWZSZWREVGJCejhxcTl4R1BnU2dSU0QwSXoySEs2bGFkN0dIbzZiRHhYXzllU2hGZW05bWNfaXFoc2lsSF9CTksxRWsyRTdHUkp5MEltU0prdw?oc=5) — Investing.com UK
 - 2026-09-15 · news · [Grayscale Bittensor Trust reports private sale of 148,800 shares to investors By Investing.com](https://news.google.com/rss/articles/CBMizAFBVV95cUxNTnBSb0tGVUhGbk43MW5UWjVUeUNaRnIwc3c0S0cxSmVnekhocGZQSm9zUm1aU2pJQkVmTHhNR3R6R28wTEtrNzJISGh4X2dhcXl6MThJTUZtTVllUzZwZ3lnNWhrd1VhaXMwWmRvc0ROTTVOYUZCV0ZLSUx4WUJ2Z0tJQndHTE1nMm43N3hBdUl1bzBUMDNhT3FSTldFc1NldEVfdmpSSnBWSHAzTkJ0bTkyMTFUaF9ZbVVTM3dzbWNmU1lQeGNIdkdaVWg?oc=5) — Investing.com
-- 2026-09-07 · commit · [Subnet bookkeeping](https://github.com/mobiusfund/investing/commit/92cebc49dce80dc6963968f126f7980b71c548a2) — mobiusfund/investing
 
 ## Use
 

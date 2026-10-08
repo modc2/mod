@@ -2,7 +2,7 @@
 
 An open competition on Bittensor for continuously improving robotics models and collecting egocentric data
 
-Bittensor subnet **80** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **80** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/openroboto-ai/openroboto-subnet) · [url](https://www.openroboto.ai/) · [discord](https://discord.gg/N4F7UhEBY)
 
@@ -10,21 +10,17 @@ Links: [github](https://github.com/openroboto-ai/openroboto-subnet) · [url](htt
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.022689 | -1.51% | +1.12% | -11.30% | 56,039 | 5,212 | 4,530 |
+| 0.024029 | +0.25% | +5.91% | -12.86% | 59,570 | 5,411 | 2,632 |
 
 ## Last 24h flow
 
-757 trades by 184 coldkeys · 435 buys (2,221 τ) / 322 sells (2,244 τ) · net -22.88 τ
+565 trades by 141 coldkeys · 336 buys (1,344 τ) / 229 sells (1,231 τ) · net 112.73 τ
 
 ## News
 
 - 2026-10-05 · commit · [docs: synchronize allocation rules and simulation fee](https://github.com/openroboto-ai/openroboto-subnet/commit/822e3b668c05ff5cfa2328ed2ff6b4a6cd5dfc70) — openroboto-ai/openroboto-subnet
 - 2026-09-22 · news · [OpenRoboto launches Shift, a platform paying us...](https://news.google.com/rss/articles/CBMirwFBVV95cUxONDgzQTE0SmdHVlYybFBTcDE2Y2ViR1lUQ2VVSEE1Z3lKa3ZaNVg0aEVDaEt6UVVDb01yU0lBMDI1QlJONlJOSloxM0dZdW1EQ3ZXU0Y4eFVQMTB1R1Q0eExDRHE0NEhuTkp6ZExPUHFWVnNrcVF2SWtMM1VTeXBidUNHUjc5MDc0VEZldUhPWnJES01Zajd0Tjk2YlRSWmhuUFJZa3h5RmQ1WkNPVWI4?oc=5) — Pluang
 - 2026-09-08 · commit · [docs: link shared real-robot task catalog and training data](https://github.com/openroboto-ai/openroboto-subnet/commit/726e42aea3a8901dc2f431ab8d17c7d5c46594a4) — openroboto-ai/openroboto-subnet
-- 2026-09-07 · commit · [docs: update active emission allocation across all three tracks](https://github.com/openroboto-ai/openroboto-subnet/commit/a2754c33f477f1402e4babeee763c6ac13eb8d35) — openroboto-ai/openroboto-subnet
-- 2026-09-07 · commit · [docs: show workstation camera-view reference](https://github.com/openroboto-ai/openroboto-subnet/commit/1d57c5640ea41a1d2d7ef2c4b2c01b27f2cc8857) — openroboto-ai/openroboto-subnet
-- 2026-09-07 · commit · [docs: remove translation link and unfinished interface notices](https://github.com/openroboto-ai/openroboto-subnet/commit/0da4a5d30e88f6c273fe10c1d2b983aecb11fbe9) — openroboto-ai/openroboto-subnet
-- 2026-09-07 · commit · [docs: reference confirmed workstation interface and unresolved hardwa…](https://github.com/openroboto-ai/openroboto-subnet/commit/cf0092f8e7e45e09d2ea5b19ea4457276bc94ebd) — openroboto-ai/openroboto-subnet
 
 ## Use
 

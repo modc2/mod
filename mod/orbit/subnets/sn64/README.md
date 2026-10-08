@@ -2,7 +2,7 @@
 
 Breakthrough Serverless Compute for AI, At Scale.
 
-Bittensor subnet **64** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **64** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/chutesai/chutes) · [url](https://chutes.ai) · [discord](https://discord.gg/chutes)
 
@@ -12,11 +12,11 @@ Fleet mods for this subnet: `chutes`
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.070217 | +0.00% | -0.59% | -0.75% | 447,724 | 203,038 | 2,409 |
+| 0.070052 | +0.01% | -0.24% | -0.51% | 447,237 | 202,865 | 1,934 |
 
 ## Last 24h flow
 
-395 trades by 177 coldkeys · 163 buys (570.85 τ) / 232 sells (1,493 τ) · net -921.95 τ
+336 trades by 139 coldkeys · 143 buys (579.09 τ) / 193 sells (1,075 τ) · net -496.17 τ
 
 ## News
 

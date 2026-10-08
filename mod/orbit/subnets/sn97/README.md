@@ -2,7 +2,7 @@
 
 Alchemical intelligence
 
-Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **97** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hippius.com/albedo/index.html) · discord `@arbos`
 
@@ -10,14 +10,15 @@ Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hi
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.015438 | +0.02% | +0.43% | -5.19% | 29,718 | 11,496 | 1,336 |
+| 0.015154 | +0.02% | -1.84% | -9.14% | 29,313 | 11,427 | 175.04 |
 
 ## Last 24h flow
 
-75 trades by 41 coldkeys · 30 buys (649.48 τ) / 45 sells (648.80 τ) · net 0.67 τ
+36 trades by 24 coldkeys · 4 buys (4.55 τ) / 32 sells (131.42 τ) · net -126.87 τ
 
 ## News
 
+- 2026-10-07 · commit · [fix: a code block in the reasoning no longer hides the git diff that …](https://github.com/unarbos/albedo/commit/0b7a1681f291a27a11f212f9068ca1a7a71c32c1) — unarbos/albedo
 - 2026-10-06 · commit · [perf: fonts no longer block the first paint, no preds probes for fini…](https://github.com/unarbos/albedo/commit/6104011fe925c96f1c33b36495cd0d85fa3fba78) — unarbos/albedo
 - 2026-10-06 · commit · [perf: index page loads its data at once and stops jumping while it loads](https://github.com/unarbos/albedo/commit/3bbcdbc974c6e9c1e8f38fdc935ef9e1dc43691f) — unarbos/albedo
 - 2026-10-05 · commit · [chore: increase scoring timeout](https://github.com/unarbos/albedo/commit/0f321d7e1fa2109b85c17ab7ac47bd30a4096771) — unarbos/albedo
@@ -25,7 +26,6 @@ Links: [github](https://github.com/unarbos/albedo) · [url](https://us-east-1.hi
 - 2026-10-05 · commit · [feat: pairs are judged as soon as both their trajectories end, while …](https://github.com/unarbos/albedo/commit/9e3ca6f52300a77042ab7739299c93bdea1d59e9) — unarbos/albedo
 - 2026-10-05 · commit · [feat: engy serves judge and reference calls first, up to a bounded qu…](https://github.com/unarbos/albedo/commit/80c75a38d864ca339020dc5ad237d829bc45d5ad) — unarbos/albedo
 - 2026-10-05 · commit · [feat: GLM-5.3-flash for judging, questions and references](https://github.com/unarbos/albedo/commit/2beef43b529c514f21ced9765acfab873b17b004) — unarbos/albedo
-- 2026-10-05 · commit · [feat: Jev for milestone alignment, question dedup and reference pruning](https://github.com/unarbos/albedo/commit/e5b4919873d0748629d8e9f3329b5c359793923f) — unarbos/albedo
 
 ## Use
 

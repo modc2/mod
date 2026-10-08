@@ -2,7 +2,7 @@
 
 The first decentralized & trustless liquidity and execution engine for prop firms and traders
 
-Bittensor subnet **8** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **8** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/taoshidev/vanta-network) · [url](https://www.vantanetwork.io/) · discord `tl_arrash`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/taoshidev/vanta-network) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.029541 | +0.03% | +0.10% | +2.40% | 183,784 | 82,276 | 530.03 |
+| 0.029865 | +0.01% | +1.10% | +4.88% | 186,042 | 82,755 | 987.64 |
 
 ## Last 24h flow
 
-109 trades by 79 coldkeys · 54 buys (176.65 τ) / 55 sells (237.55 τ) · net -60.90 τ
+165 trades by 71 coldkeys · 78 buys (609.67 τ) / 87 sells (262.76 τ) · net 346.90 τ
 
 ## News
 

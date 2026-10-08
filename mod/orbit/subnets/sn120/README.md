@@ -2,7 +2,7 @@
 
 Reason Mining
 
-Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www.affine.io) · discord `consttt`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.046520 | +0.03% | -0.07% | +0.39% | 205,233 | 77,380 | 918.86 |
+| 0.045366 | -0.00% | -2.48% | -2.61% | 200,477 | 76,474 | 4,265 |
 
 ## Last 24h flow
 
-237 trades by 113 coldkeys · 69 buys (247.89 τ) / 168 sells (464.53 τ) · net -216.64 τ
+714 trades by 453 coldkeys · 90 buys (1,439 τ) / 624 sells (2,600 τ) · net -1,160 τ
 
 ## News
 
-- 2026-10-07 · commit · [docs: record qualified evaluation staging and latest heldout result](https://github.com/AffineFoundation/affine/commit/49610268a5270a1277a256cf5d2725a7aab66401) — AffineFoundation/affine
-- 2026-10-07 · commit · [docs: align live native training and eight-worker status](https://github.com/AffineFoundation/affine/commit/3a07fb469df339ae97ae8428387f8f43e7b9cd36) — AffineFoundation/affine
-- 2026-10-07 · commit · [docs: report first live native grading result](https://github.com/AffineFoundation/affine/commit/3b2a2b770ae7c4ee287643af717edf7710dbf385) — AffineFoundation/affine
-- 2026-10-07 · commit · [docs: distinguish native admission and wider evaluation repair status](https://github.com/AffineFoundation/affine/commit/7f376bf61dca3bb35ef8a280ae2180705121732d) — AffineFoundation/affine
-- 2026-10-07 · commit · [Reserve fresh original bytecode prefixes before requests and suppress…](https://github.com/AffineFoundation/affine/commit/1c40aa36a1f3fbcf08f8df8a3d27fcba918ea3db) — AffineFoundation/affine
-- 2026-10-06 · commit · [Add signed bounded parallel learner capture without changing historic…](https://github.com/AffineFoundation/affine/commit/2062935849892691db7ecbeac407dce8e0791f3f) — AffineFoundation/affine
-- 2026-10-06 · commit · [Distinguish proof population from bounded training capture coverage](https://github.com/AffineFoundation/affine/commit/23e8314e482f81c56d021d962c2e220c2cd80491) — AffineFoundation/affine
-- 2026-10-06 · commit · [Record observed training updates and trajectory length confound](https://github.com/AffineFoundation/affine/commit/bb60703ff9dc03326c635c0005069b3a3e3fdbc8) — AffineFoundation/affine
+- 2026-10-08 · commit · [Document verifier checkpoint lifetime and measured warm audit reuse](https://github.com/AffineFoundation/affine/commit/e41d423ec37bf1299e7277e093d28d7b1252fe65) — AffineFoundation/affine
+- 2026-10-08 · commit · [Reuse verifier GPU runtime and retain checkpoints across audit jobs](https://github.com/AffineFoundation/affine/commit/594f9409d3f244723088b4d817b2ee852f98aa1b) — AffineFoundation/affine
+- 2026-10-08 · commit · [Activate eight-rollout miner contract in epoch 59](https://github.com/AffineFoundation/affine/commit/2ca8bf15f1867e5443a284b9ff499bec259d7933) — AffineFoundation/affine
+- 2026-10-08 · commit · [Admit manifest-sized miner-bound batches through the CPU training peer](https://github.com/AffineFoundation/affine/commit/978fdc1d4f019d5c66d1a6e42b006b948e3af683) — AffineFoundation/affine
+- 2026-10-08 · commit · [Drive balanced rollout quotas and grading budgets from one batch-size…](https://github.com/AffineFoundation/affine/commit/2adf1379238d772e09230987f79b6e4e5924bfd0) — AffineFoundation/affine
+- 2026-10-07 · commit · [Admit explicitly signed source-bound verifier capacity sidecars](https://github.com/AffineFoundation/affine/commit/ef6720f96454862c56d9965892defb08d077a547) — AffineFoundation/affine
+- 2026-10-07 · commit · [Reserve audit capacity for current epochs while retaining history](https://github.com/AffineFoundation/affine/commit/8c051eb9e68aa5d2dd21c0302c5932c4e94033aa) — AffineFoundation/affine
+- 2026-10-07 · commit · [Authenticate miner checkpoints without optimistic cache hints](https://github.com/AffineFoundation/affine/commit/39d2625257c1e955e747b83921f67c01e4ac8bde) — AffineFoundation/affine
 
 ## Use
 

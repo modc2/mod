@@ -2,7 +2,7 @@
 
 Pioneering Simulation-First Robotics Development
 
-Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **49** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www.nepher.ai/) · [discord](https://discord.gg/qZUc3vdjVq)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/nepher-ai/nepher-subnet) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.008802 | -0.31% | +2.67% | -7.49% | 26,532 | 4,724 | 457.98 |
+| 0.009285 | -0.21% | +5.49% | -1.80% | 28,071 | 4,869 | 3,828 |
 
 ## Last 24h flow
 
-78 trades by 48 coldkeys · 38 buys (256.50 τ) / 40 sells (196.03 τ) · net 60.47 τ
+563 trades by 178 coldkeys · 357 buys (1,969 τ) / 206 sells (1,846 τ) · net 123.54 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 Agentic RL as a Service, Optimize agent trajectories to make agents cheaper, safer, and more reliable.
 
-Bittensor subnet **11** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **11** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/trajectoryRL/trajectoryRL) · [url](https://trajrl.com)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/trajectoryRL/trajectoryRL) · [url](https://t
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007592 | -0.04% | -0.83% | -2.02% | 46,263 | 20,134 | 370.88 |
+| 0.007600 | +0.00% | +0.12% | -1.47% | 46,357 | 20,153 | 35.83 |
 
 ## Last 24h flow
 
-37 trades by 28 coldkeys · 19 buys (131.34 τ) / 18 sells (226.38 τ) · net -95.04 τ
+59 trades by 40 coldkeys · 47 buys (14.40 τ) / 12 sells (10.85 τ) · net 3.54 τ
 
 ## News
 

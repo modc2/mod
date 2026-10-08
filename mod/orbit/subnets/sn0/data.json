@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9229089,
+  "block": 9236282,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6870423.270134982,
-    "tao_in": 5467177.467826402,
-    "alpha_in": 1403245.80230858,
-    "alpha_out": 5467177.467826402,
-    "volume": 58851048.5484034,
-    "vol_24h": 44996.222944274545,
+    "market_cap": 6870700.2047140105,
+    "tao_in": 5458934.56809371,
+    "alpha_in": 1411765.636620301,
+    "alpha_out": 5458934.56809371,
+    "volume": 58885397.58256831,
+    "vol_24h": 34349.034164913,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,22 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791389295,
+      "kind": "release",
+      "source": "feeds",
+      "title": "v475: Merge pull request #3214 from RaoFoundation/basket-min-trade-sudo",
+      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v475",
+      "publisher": "subtensor releases"
+    },
+    {
+      "ts": 1791356700,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor (TAO) Drops 3.42% Amid Market-Wide Risk-Off",
+      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE5RU3U5ZFF6dUNWUlczLThwRVBhNlBlOGJZRVdpSC05VGg0Q2RDRjhyT3VSeDZPRnNmV2s2NE9Pb0pOOFR3dUNVbnVINVhpQnJWTGswc2Q1eVE0UGxtTDUyNTl5eFI0Wm5GNnZEeDhQRHU?oc=5",
+      "publisher": "CoinMarketCap"
+    },
+    {
       "ts": 1791339970,
       "kind": "news",
       "source": "gnews",
@@ -127,24 +143,8 @@
       "title": "Grayscale Bittensor Trust (Tao) - Enters Amendment To Bitgo Custodial Services Agreement On Sept 30, 2026 - SEC Filing",
       "url": "https://news.google.com/rss/articles/CBMijgJBVV95cUxOelk0REpuTUtxYWJpbGlfSjFUV3BDZzRkRS1TazdLX3Q3YlhQc216bzdmX3k4RmJlN2dVTy1hcGhnVDE5NlE0djNUMTYzakVJYU1TZHJjT3hUQ1ppOEZHX0xkQVVuczMxSGVOTkJlLTdjZnBpYlo4d1ExWE9WU0Jaa1FKal9jZHZQR0s4UUltQ3JCYzNVVG96Qm9VWDNIdjh3UVBUNlU2TGJMSTZLMzExUUh3WU9QeVhPdEwwY1V2VkotNXowSzZHTVRKSEhmbF9qMHV0SUJ4V3p0Y0hFbzZqWEtIVXA4NmFMdHM3WWwzMG9TWC1WMEJVY2xxU1FXX3NQS0I5UEpZa0xPWTdVUnc?oc=5",
       "publisher": "TradingView"
-    },
-    {
-      "ts": 1791233941,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Grayscale Bittensor Trust Revises Custody Agreements, Adds Coinbase as Secondary Custodian",
-      "url": "https://news.google.com/rss/articles/CBMi0gFBVV95cUxPVGYzblJGRHBmdkxXUzhZMzFObTZCa0ZmZWd2NXgtUldjNmZucFZzcnZjX1BXazloTkxDcV9WLUtScnFLSm1Xc3YtZEY0QjBFUXo0N2dhNm9RQXU0djkzV3BlOERZUGI0elE5a0RuQ091VmptaS13VGFfbzBOc3BLWnVqSVJad0NpUTdJUngzcnNYaUF5aFFLMTFOSzJkbmp1Zzc1V2l1dTkzOXhZeXJPNjQ3RUJaUnl3QVpmcTA5TGtnNDFnWXQ1alROVk9HSWNwUmc?oc=5",
-      "publisher": "Kalkine Media"
-    },
-    {
-      "ts": 1791232381,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Grayscale Bittensor Trust Expands TAO Custody With Coinbase, Updates BitGo Deal; Retires 2025 Pact",
-      "url": "https://news.google.com/rss/articles/CBMi7wFBVV95cUxPS0wxNU1MbjRwYXJ0eTIzT2ZzbThieFZWekk3SXhvQ2t3VDRpNjBia2I4ZzEyZENmXzlyZk5KVTl2eXpRMzZ1RWhCMTl2aXczdVNwRTNYOE9BYnlOQkNiRHRuUTRDeWdFdXAzZk1vY2FhMzBzdTFJakNTSmRmTXE0R0RtdzlWYkZ1c293SENjZjJLU3BiXzZDWm9IU2Z0bkZNWjV3RTF1YzY1Ri0zVU9veHlPZTFSWmdHdkU1NEFsMENNeHhybjM0WVZkVlpzNkFLZmRfdnlPWlZXNzc2LWNpX2lFZk9pUDdHLUdUM3lTSQ?oc=5",
-      "publisher": "TradingView"
     }
   ],
-  "updated": 1791351661,
-  "updated_day": "2026-10-07"
+  "updated": 1791438061,
+  "updated_day": "2026-10-08"
 }

@@ -2,7 +2,7 @@
 
 Hone training
 
-Bittensor subnet **5** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **5** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/hone-subnet-org/hone-subnet) · [url](https://honedashboard.com)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/hone-subnet-org/hone-subnet) · [url](https:/
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.012722 | +0.02% | +0.23% | -0.96% | 75,689 | 33,623 | 126.16 |
+| 0.012796 | +0.01% | +0.58% | -0.21% | 76,212 | 33,734 | 143.99 |
 
 ## Last 24h flow
 
-151 trades by 35 coldkeys · 8 buys (20.44 τ) / 143 sells (41.57 τ) · net -21.13 τ
+141 trades by 23 coldkeys · 9 buys (62.17 τ) / 132 sells (20.37 τ) · net 41.79 τ
 
 ## News
 

@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005870 | +0.00% | -3.32% | +18.00% | 32,837 | 17,578 | 2,455 |
+| 0.005853 | +0.13% | -0.29% | -4.67% | 32,784 | 17,552 | 1,250 |
 
 ## Last 24h flow
 
-137 trades by 57 coldkeys · 51 buys (1,078 τ) / 86 sells (1,375 τ) · net -297.05 τ
+98 trades by 52 coldkeys · 40 buys (612.30 τ) / 58 sells (636.00 τ) · net -23.70 τ
 
 ## News
 
-- 2026-10-07 · commit · [Merge pull request #331 from reliquadotai/fix/grade-oldest-first](https://github.com/reliquadotai/reliquary/commit/f6d2a402efcab2350ccea110d70c9cd75e213bee) — reliquadotai/reliquary
-- 2026-10-06 · commit · [fix(corpus): let the grade lease cap follow the executors' concurrency](https://github.com/reliquadotai/reliquary/commit/fcc74e1bfb7c0a8b4a1ca9770889346bc092c2c2) — reliquadotai/reliquary
-- 2026-10-06 · commit · [fix(corpus): grade a relisted backlog oldest arrival first](https://github.com/reliquadotai/reliquary/commit/7968f121f09491786d446bdfc9d67e6ad9ac4590) — reliquadotai/reliquary
-- 2026-10-06 · commit · [Add pinned task contracts and immutable platform delivery (#330)](https://github.com/reliquadotai/reliquary/commit/c45f729b7b8798ed7c0753ec63aa4465f8795fc2) — reliquadotai/reliquary
-- 2026-10-05 · commit · [Merge pull request #329 from reliquadotai/fix/period-pay-catchup](https://github.com/reliquadotai/reliquary/commit/41c622dbb682e3724981a64de10653934c436de7) — reliquadotai/reliquary
-- 2026-10-05 · commit · [fix(corpus): pay a period backlog back within a few periods](https://github.com/reliquadotai/reliquary/commit/bcb27910f8de8f7ca345ed80da0634715baa024c) — reliquadotai/reliquary
-- 2026-10-05 · commit · [Merge pull request #316 from reliquadotai/feat/instruction-dataset-ex…](https://github.com/reliquadotai/reliquary/commit/da00d2b9dd6945bceacaebf62b919b9b51ccddd2) — reliquadotai/reliquary
-- 2026-10-05 · commit · [feat: export bounded instruction datasets alongside corpus deliveries](https://github.com/reliquadotai/reliquary/commit/c1f43e9a1c6f5765953db7cd86b14ab0b4644d83) — reliquadotai/reliquary
+- 2026-10-08 · commit · [fix: preserve accepted records across interrupted storage writes (#339)](https://github.com/reliquadotai/reliquary/commit/c6c0a34442a1c84b20e5f437aa684e77b00430ed) — reliquadotai/reliquary
+- 2026-10-07 · commit · [Fix operator generation classification](https://github.com/reliquadotai/reliquary/commit/38351defbd179e62dbeee419ff46ef4250f9d526) — reliquadotai/reliquary
+- 2026-10-07 · commit · [Fix pinned operator generation task admission](https://github.com/reliquadotai/reliquary/commit/9c0dddd0feacdb6fedbcf072b73fe0c1c9e30e99) — reliquadotai/reliquary
+- 2026-10-07 · commit · [Merge pull request #337 from reliquadotai/fix/refresh-index-grade-only](https://github.com/reliquadotai/reliquary/commit/234b7c7ddcd7ba68b6fe5577d5dcfc32e6e77262) — reliquadotai/reliquary
+- 2026-10-07 · commit · [fix(corpus): refresh the git index in grade boxes only, never in repl…](https://github.com/reliquadotai/reliquary/commit/f6734803d0df91236a9c9b77d2a2f3bf07fcc389) — reliquadotai/reliquary
+- 2026-10-07 · commit · [Merge pull request #336 from reliquadotai/fix/grade-box-refresh-index](https://github.com/reliquadotai/reliquary/commit/3c1ecf0269ed836187fc556f8225f5c78ec84760) — reliquadotai/reliquary
+- 2026-10-07 · commit · [perf(corpus): refresh a grade box's git index before the env prepares it](https://github.com/reliquadotai/reliquary/commit/f062b8f784e2de959e657b978290b3d9fe612471) — reliquadotai/reliquary
+- 2026-10-07 · commit · [Merge pull request #335 from reliquadotai/feat/register-reliquary-har…](https://github.com/reliquadotai/reliquary/commit/f32b9c4613f3faf9adf760704b19a13f9554882e) — reliquadotai/reliquary
 
 ## Use
 

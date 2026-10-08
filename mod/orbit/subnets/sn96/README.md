@@ -2,7 +2,7 @@
 
 Verified AI inference and training subnet.
 
-Bittensor subnet **96** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-07 (block 9229089).
+Bittensor subnet **96** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
 
 Links: [github](https://github.com/verathos-ai/verathos) · [url](https://verathos.ai)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/verathos-ai/verathos) · [url](https://verath
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004277 | -0.00% | -2.01% | -7.72% | 6,395 | 2,582 | 65.02 |
+| 0.004300 | -0.00% | +0.54% | -6.17% | 6,461 | 2,590 | 76.72 |
 
 ## Last 24h flow
 
-37 trades by 24 coldkeys · 5 buys (19.34 τ) / 32 sells (43.61 τ) · net -24.27 τ
+72 trades by 33 coldkeys · 12 buys (41.83 τ) / 60 sells (32.92 τ) · net 8.92 τ
 
 ## News
 
@@ -25,7 +25,6 @@ Links: [github](https://github.com/verathos-ai/verathos) · [url](https://verath
 - 2026-09-08 · commit · [fix: preserve bounded mesh snapshot recovery](https://github.com/verathos-ai/verathos/commit/3135b74f4403aaaf1d847e45acec080329d1643e) — verathos-ai/verathos
 - 2026-09-08 · commit · [fix: align follower eligibility and add Microtensor catalogue support](https://github.com/verathos-ai/verathos/commit/1ebb10658cd3a1475d9454b4b21d036011b892dd) — verathos-ai/verathos
 - 2026-09-08 · commit · [fix: restrict setup choices to registered models](https://github.com/verathos-ai/verathos/commit/b986597248a9508544cacbbb0a2e41b0c424d9ae) — verathos-ai/verathos
-- 2026-09-07 · release · [Verathos v0.2.1 – Sleipnir Cross-Machine Serving](https://github.com/verathos-ai/verathos/releases/tag/v0.2.1) — verathos-ai/verathos
 
 ## Use
 
