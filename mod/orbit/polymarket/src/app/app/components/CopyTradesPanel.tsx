@@ -298,6 +298,20 @@ export default function CopyTradesPanel({
                   <td className="num tabular-nums">{usd(l.myNotional, 0)}</td>
                 </tr>
               ))}
+              {data.warming
+                ?.filter(addr => !data.leaders.some(l => l.address === addr))
+                .map(addr => (
+                  <tr key={addr} className="opacity-60">
+                    <td className="truncate">
+                      <Link href={`/copy/${addr}`} className="hover:text-green-400" title={addr}>
+                        {shortAddress(addr)}
+                      </Link>
+                    </td>
+                    <td colSpan={5} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
+                      &#x29D7; warming — no history cached yet
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>

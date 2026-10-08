@@ -326,6 +326,8 @@ class Mod:
         amount = float(amount)
         if amount <= 0:
             return {'error': 'Amount must be greater than 0'}
+        if kind not in ('rent', 'option'):
+            return {'error': f"kind must be 'rent' or 'option' — got {kind!r}"}
         t = self.terms()
         fee = amount * float(t['fee_pct']) / 100.0
         net = amount - fee

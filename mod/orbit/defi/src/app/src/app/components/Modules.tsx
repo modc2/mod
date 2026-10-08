@@ -32,6 +32,8 @@ const CHAINS = [
   { id: "base", label: "BASE" },
   { id: "solana", label: "SOLANA" },
   { id: "tao", label: "BITTENSOR", preview: true },
+  { id: "hyperliquid", label: "HYPERLIQUID", preview: true },
+  { id: "polymarket", label: "POLYMARKET", preview: true, gated: true },
 ];
 
 const EXIT_WORD: Record<string, string> = {
@@ -177,7 +179,7 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
       chain: chain || undefined,
       kind: kind || undefined,
       q: q.trim() || undefined,
-      min_tvl: chain === "tao" ? "0" : minTvl,
+      min_tvl: chain === "tao" || chain === "hyperliquid" || chain === "polymarket" ? "0" : minTvl,
       sort,
       addable: addable || undefined,
       instant: instant || undefined,
@@ -353,13 +355,21 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
               key={c.id}
               className={`chip ${chain === c.id ? "active" : ""}`}
               onClick={() => setChain(c.id)}
-              title={c.preview ? "Bittensor subnets — no APY quoted, more coming" : ""}
+              title={
+                c.gated
+                  ? `${c.label} — requires an access token to enter`
+                  : c.id === "tao"
+                    ? "Bittensor subnets — no APY quoted, more coming"
+                    : c.preview
+                      ? `${c.label} — preview`
+                      : ""
+              }
             >
               {c.label}
               {facets?.chains && c.id && (
                 <span className="chip-n">{facets.chains.find((f: any) => f.id === c.id)?.modules ?? ""}</span>
               )}
-              {c.preview && <span className="chip-tag">preview</span>}
+              {c.preview && <span className="chip-tag">{c.gated ? "gated" : "preview"}</span>}
             </button>
           ))}
         </div>
@@ -377,7 +387,7 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
             </option>
           ))}
         </select>
-        <select value={minTvl} onChange={(e) => setMinTvl(e.target.value)} style={{ width: 124 }} disabled={chain === "tao"}>
+        <select value={minTvl} onChange={(e) => setMinTvl(e.target.value)} style={{ width: 124 }} disabled={chain === "tao" || chain === "hyperliquid" || chain === "polymarket"}>
           <option value="100000">TVL ≥ $100k</option>
           <option value="1000000">TVL ≥ $1m</option>
           <option value="10000000">TVL ≥ $10m</option>

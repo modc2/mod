@@ -429,7 +429,8 @@ def _t_tx(a):
 def _t_history(a):
     n = node()
     return {'history': n.history(a.get('address'), a.get('key'),
-                                 int(a.get('limit') or 25))}
+                                 int(a.get('limit') or 25),
+                                 since=int(a.get('since') or 0))}
 
 
 def _t_prove(a):
@@ -1019,7 +1020,8 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {
             'address': _str('only transactions touching this address'),
             'key': _str('only transactions touching this key'),
-            'limit': _int('how many (default 25)')}},
+            'limit': _int('how many (default 25)'),
+            'since': _int('only scan from this block height (default 0 — full chain)')}},
         'handler': _t_history,
     },
     'pq_mempool': {

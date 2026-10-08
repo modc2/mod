@@ -835,7 +835,7 @@ pub async fn cancel(key: &str) -> Result<Value, String> {
         return Err(format!("vibe session {} is not running", s.id));
     }
     if let (Some(base), Some(job)) = (build_url(), s.job()) {
-        build_cancel(&base, &job).await?;
+        build_cancel(&base, &job).await.ok();
     }
     if let Some(r) = s.rounds.last_mut() {
         r.status = "cancelled".into();

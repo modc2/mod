@@ -1621,8 +1621,12 @@ $("lb-vibe").onclick = () => openStudio({});
 $("new-agent").onclick = () => openStudio({ role: "player" });
 $("lb-vibe-agent").onclick = () => openStudio({ role: "player" });
 $("mk-vibe").onclick = () => openStudio({ role: "player" });
-$("mk-upload").onclick = () => { $("add").hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); };
+const openUpload = () => { $("add").hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); };
+$("mk-upload").onclick = openUpload;
+$("lb-upload").onclick = openUpload;
 $("mk-connect").onclick = () => $("connect-card").scrollIntoView({ behavior: "smooth" });
+$("lb-models-all").onclick = () => { show("agents"); setSource("model");
+  requestAnimationFrame(() => $("connect-card").scrollIntoView({ behavior: "smooth" })); };
 $("g-search").oninput = renderGames;
 $("g-sort").onchange = renderGames;
 
@@ -1938,8 +1942,8 @@ const HINTS = {
   http: "your own endpoint: it is posted the view and expected to answer {\"move\":\"…\"}.",
 };
 let source = "agent";
-$("p-src").querySelectorAll("button").forEach((b) => (b.onclick = () => {
-  source = b.dataset.src;
+function setSource(src) {
+  source = src;
   $("p-src").querySelectorAll("button").forEach((x) =>
     x.setAttribute("aria-selected", String(x.dataset.src === source)));
   for (const s of ["module", "fleet", "agent", "model", "http"]) {
@@ -1947,7 +1951,8 @@ $("p-src").querySelectorAll("button").forEach((b) => (b.onclick = () => {
   }
   $("p-hint").textContent = HINTS[source];
   if (source === "fleet" || source === "agent") loadFleet();
-}));
+}
+$("p-src").querySelectorAll("button").forEach((b) => (b.onclick = () => setSource(b.dataset.src)));
 $("p-hint").textContent = HINTS.agent;
 
 /** The modules stored here that could take a seat, and whether one already has. */
@@ -2081,13 +2086,40 @@ const fmtMs = (ms) => !ms ? "—" : ms >= 10000 ? `${Math.round(ms / 1000)}s` : 
 function renderPlayers() {
   loadProtocol();
   drawProtocol();
-  // Everyone who is not an agent of the protocol, folded under the board.
-  const rest = players.filter((p) => p.kind !== "agent_mod");
-  $("others-n").textContent = `${rest.length} — models, stored bots, fleet modules, endpoints`;
+  renderModels();
+  // Everyone who is not an agent of the protocol or a model, folded under the board.
+  const rest = players.filter((p) => p.kind !== "agent_mod" && p.kind !== "model");
+  $("others-n").textContent = `${rest.length} — stored bots, fleet modules, endpoints`;
   $("agents").replaceChildren(...(rest.length ? rest.map(playerCard) : [
     el("p", { className: "dim", textContent: "nobody else entered yet" }),
   ]));
   renderAb();
+}
+
+/** The models card: every model seat ranked, the unplayed on a bench, and a
+ *  door to connect another. Models are players like any other — this card
+ *  exists so they are seen, not scattered among the bots. */
+function renderModels() {
+  const ms = players.filter((p) => p.kind === "model");
+  const ranked = ms.filter((p) => p.matches > 0).sort((a, b) => b.elo - a.elo);
+  const bench = ms.filter((p) => !p.matches).sort((a, b) => a.name.localeCompare(b.name));
+  $("models-ranked").replaceChildren(...(ranked.length ? ranked.map((p, i) =>
+    el("tr", { onclick: () => openPlayerPage(p.id), title: p.note || "a model served on this box" }, [
+      el("td", { style: "width:26px" }, rankEl(i)),
+      el("td", {}, [el("b", { textContent: p.name })]),
+      el("td", { className: "n" }, [el("b", { textContent: Math.round(p.elo) })]),
+      el("td", { className: "n dim", textContent: wdl(p) }),
+      el("td", { className: `n ${p.illegal_rate > 0.1 ? "bad" : "dim"}`, title: "illegal moves",
+                 textContent: pct(p.illegal_rate) }),
+    ])) : [empty("no model has played a match yet — seat one at a game, or a/b two above", 5)]));
+  const chip = (p) => el("button", { title: p.note || "not played yet — open it to seat it at a game",
+    onclick: () => openPlayerPage(p.id) }, [monogram(p.name), p.name]);
+  const more = el("button", { className: "more", title: "connect another Liquid AI model",
+    onclick: () => { setSource("model"); $("connect-card").scrollIntoView({ behavior: "smooth" }); } },
+    ["+ connect a model"]);
+  $("models-bench").replaceChildren(
+    ...(bench.length ? [el("div", { className: "sub", textContent: `not played yet · ${bench.length}` })] : []),
+    el("div", { className: "bench" }, [...bench.map(chip), more]));
 }
 
 function drawProtocol() {
@@ -3188,6 +3220,7 @@ window.addEventListener("hashchange", () => {
     openGamePage(decodeURIComponent(location.hash.slice(6))).catch((e) => toast(e.message, true));
   if (location.hash === "#vibe") openStudio({});
   if (location.hash === "#vibe-agent") openStudio({ role: "player" });
+  if (location.hash === "#upload") openUpload();
 });
 
 const slugify = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -3326,6 +3359,23 @@ function renderLobby() {
   }) : [empty("nobody has played yet", 5)]));
   $("lb-waiting").textContent = (played.length > 12 ? `${played.length - 12} more ranked · ` : "")
     + (waiting ? `${waiting} agents haven't played a match yet — open one to seat it` : "");
+
+  // models: every model seat, played or not — being able to SEE them is the point
+  const ms = players.filter((p) => p.kind === "model")
+    .sort((a, b) => (b.matches > 0) - (a.matches > 0) || b.elo - a.elo || a.name.localeCompare(b.name));
+  let mrank = 0;
+  $("lb-models").replaceChildren(...(ms.length ? ms.slice(0, 8).map((p) => {
+    const ranked = p.matches > 0;
+    return el("tr", { onclick: () => openPlayerPage(p.id), title: p.note || p.config?.model || "a model served on this box" }, [
+      el("td", { style: "width:26px" }, ranked ? rankEl(mrank++) : el("span", { className: "dim", textContent: "·" })),
+      el("td", {}, [el("b", { textContent: p.name })]),
+      el("td", { className: "n" }, [ranked ? el("b", { textContent: Math.round(p.elo) })
+        : el("span", { className: "dim small", textContent: "not played yet" })]),
+      el("td", { className: "n dim", textContent: ranked ? wdl(p) : "" }),
+      el("td", { className: `n ${p.illegal_rate > 0.1 ? "bad" : "dim"}`, title: "illegal moves",
+                 textContent: ranked ? pct(p.illegal_rate) : "" }),
+    ]);
+  }) : [empty("no model is seated yet — connect one", 5)]));
 }
 $("lb-games-all").onclick = () => show("games");
 $("lb-agents-all").onclick = () => show("agents");
@@ -3488,6 +3538,7 @@ try {
     await openGamePage(decodeURIComponent(location.hash.slice(6))).catch((e) => toast(e.message, true));
   else if (location.hash === "#vibe") openStudio({});
   else if (location.hash === "#vibe-agent") openStudio({ role: "player" });
+  else if (location.hash === "#upload") openUpload();
 } catch (e) {
   $("banner").textContent = `cannot reach the server: ${e.message}`;
   $("banner").className = "counts bad";

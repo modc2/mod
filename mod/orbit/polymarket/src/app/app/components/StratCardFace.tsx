@@ -230,6 +230,7 @@ export function BacktestBlock({
           same +$X are different strats when one won 9 of 10 and the other won
           1 of 10 — and only the first is worth sampling trades from. */}
       {bt?.wins && bt.wins.decided > 0 && <WinLine w={bt.wins} days={days} />}
+      {bt?.drawdown !== undefined && bt.drawdown < -0.5 && <MddLine mdd={bt.drawdown} />}
       {/* WALK-FORWARD: the previous window, and whether this one confirmed it.
           Rendered for every card that has one — including the ones whose own
           window is empty, because "profitable yesterday, silent today" is
@@ -351,6 +352,23 @@ function WinLine({ w, days }: { w: WinRecord; days: number }) {
           {rated ? `STEADY ${w.winningBuckets}/${w.activeBuckets}` : "UNRATED"}
         </span>
       </span>
+    </div>
+  );
+}
+
+/// MDD line: shown when the worst peak-to-trough is worse than −0.5%.
+/// Red below −15%, amber −5 to −15%, gray otherwise.
+function MddLine({ mdd }: { mdd: number }) {
+  const tone = mdd < -15 ? "text-red-400" : mdd < -5 ? "text-amber-400" : "text-pixel-gray";
+  return (
+    <div
+      className={`mt-1 text-[10px] font-mono ${tone}`}
+      title={
+        "MAX DRAWDOWN — worst peak-to-trough drop during the replay, as % of peak equity. " +
+        "A deep drawdown with modest net PnL means the gain came after a hole the wallet had to climb out of."
+      }
+    >
+      MDD {mdd.toFixed(1)}%
     </div>
   );
 }

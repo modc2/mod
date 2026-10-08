@@ -17,8 +17,8 @@ import { NextResponse } from "next/server";
 
 import { bearer, verifyOwnerToken } from "../../lib/server/ownerToken";
 import {
-  readCache, readFeedStatus, readManifest, runPass, triggerPass, triggerRefresh,
-  workerRunning, writeManifest,
+  mergeManifest, readCache, readFeedStatus, readManifest, runPass, triggerPass,
+  triggerRefresh, workerRunning,
 } from "../../lib/server/hubWorker";
 import { knownResolutions, resolutionCoverage } from "../../lib/server/resolutionStore";
 import type { SavedIndex } from "../../lib/types";
@@ -98,7 +98,11 @@ export async function POST(req: Request) {
   const windows = Array.isArray(body.windows)
     ? body.windows.map(Number).filter((d) => Number.isFinite(d) && d > 0)
     : [days];
-  writeManifest({ days, windows, strats, at: Date.now() });
+  // MERGE, never replace: this publish is whatever ONE browser profile held.
+  // Strats it names are updated; strats it omits stay on a 7-day grace, so a
+  // QA profile or second device can't evict the real roster (and with it, via
+  // pruneResults, every cached ladder the worker spent hours building).
+  mergeManifest({ days, windows, strats });
 
   // A new manifest can name traders the store has never seen; get them
   // fetching now rather than at the next cycle. The pass itself replays out

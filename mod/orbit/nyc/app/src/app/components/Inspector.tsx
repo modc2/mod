@@ -352,6 +352,42 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
           </div>
         )}
 
+        {selection.layerId === 'crime' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Stat label="Felonies" value={count(p.felony)} big />
+              <Stat label="Misdemeanors" value={count(p.misdemeanor)} big />
+              <Stat label="Violations" value={count(p.violation)} />
+              <Stat label="Total complaints" value={count(p.total)} />
+            </div>
+            {p.change_pct != null && (
+              <Stat
+                label="vs same period last year"
+                value={percent(p.change_pct)}
+                tone={p.change_pct < 0 ? 'good' : 'bad'}
+              />
+            )}
+            <Stat label="Shootings this year" value={count(p.shootings)} />
+            <Meta rows={[
+              ['Precinct', p.precinct],
+              ['Borough', p.borough],
+            ]} />
+            <p className="text-[10px] leading-snug text-nes-ink3">
+              Complaint counts, not convictions. Precincts differ widely in
+              population — compare a precinct with itself over time.
+            </p>
+          </div>
+        )}
+
+        {selection.layerId === 'shootings' && (
+          <Meta rows={[
+            ['Date', p.date],
+            ['Time', p.time],
+            ['Borough', p.borough],
+            ['Precinct', p.precinct],
+          ]} />
+        )}
+
         {selection.layerId === 'parks' && (
           <Meta rows={[
             ['Type', p.typecategory],
@@ -409,6 +445,7 @@ const KNOWN = [
   'affordable_housing', 'collisions', 'parks', 'bike_routes',
   'evacuation_zones', 'boroughs', 'neighborhoods',
   'traffic_speeds', 'traffic_volume',
+  'crime', 'shootings',
 ]
 
 /** What a speed band means for someone about to drive it. */
@@ -472,6 +509,8 @@ function headline(sel: Selection): string {
     case 'subway_ridership': return p.name
     case 'affordable_housing': return p.name || p.address
     case 'collisions': return `${p.injured} injured${p.killed > 0 ? `, ${p.killed} killed` : ''}`
+    case 'crime': return p.name || `Precinct ${p.precinct}`
+    case 'shootings': return `Shooting · ${p.date}`
     case 'parks': return p.signname || p.name311 || 'Park'
     case 'bike_routes': return titleCase(p.street || 'Bike route')
     case 'evacuation_zones': return `Zone ${p.zone}`

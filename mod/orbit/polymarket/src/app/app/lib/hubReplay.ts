@@ -25,6 +25,7 @@ import {
 import { tapeFor } from "./momentumTape";
 import type { PriceTape } from "./originationBacktest";
 import { templateIndex, templateRoster, type StratTemplate } from "./defaultStrats";
+import { maxDrawdown } from "./basketSim";
 
 /** The window every card is measured over, unless the user picks another. */
 export const HUB_BACKTEST_DAYS = 1;
@@ -340,6 +341,10 @@ export interface HubBacktest {
       number the hub's STEADY filter reads. Absent on older snapshots and on
       replays that closed nothing. */
   wins?: WinRecord;
+  /** Worst peak-to-trough drop during the replay, as % of peak equity (always
+      ≤ 0). A deep drawdown with modest net PnL means the gain came AFTER a hole
+      the wallet had to climb out of. Absent on older snapshots. */
+  drawdown?: number;
   /** WALK-FORWARD: the same strat replayed over the window immediately BEFORE
       this one, and the verdict of comparing the two. The card above is the
       "next day"; this is the "previous day" it's judged against. Absent when
@@ -681,6 +686,7 @@ export async function backtestOne(
     // Same window the replay ran over, so a card's "STEADY 4/5" counts the
     // stretches of exactly the span it is labelled with.
     wins: winRecord(sim.rows, now - windowMs, now, sim.settledLegs),
+    drawdown: maxDrawdown(sim.equityHistory),
     settlement: sim.settlement,
     forward,
     holdout,

@@ -313,12 +313,34 @@ async function showRound(id) {
     <h2 style="margin-top:14px">matches</h2>
     <table><tr><th>attack</th><th>defense</th><th>verdict</th><th>stopped at</th>
       <th>why</th></tr>
-      ${(r.matches || []).map(m => `<tr><td>${esc(m.attack)}</td>
+      ${(r.matches || []).map((m, i) => `<tr class="click" data-idx="${i}"><td>${esc(m.attack)}</td>
         <td>${esc(m.defense)}</td>
         <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
         <td class="muted">${esc(m.blocked_at || 'model')}</td>
         <td class="muted">${esc(m.reason || m.error || '')}</td></tr>`).join('')}
     </table>`;
+  const matches = r.matches || [];
+  $('#round-body').querySelectorAll('tr[data-idx]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.idx);
+      const m = matches[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('match-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'match-detail';
+      const td = document.createElement('td');
+      td.colSpan = 5;
+      td.style.padding = '8px 12px';
+      td.innerHTML = `${(m.stages || []).map(s =>
+        `<div class="stage"><b>${esc(s.stage)}</b>
+         <span>${esc(s.rule || s.action)}</span>
+         <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+        <pre style="margin-top:6px">${esc(m.response || m.error || '')}</pre>`;
+      tr.after(detail);
+    };
+  });
   $('#round-detail').scrollIntoView({behavior: 'smooth'});
 }
 

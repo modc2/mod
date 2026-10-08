@@ -231,13 +231,13 @@ class Node:
         if not os.path.exists(self.blocks_file):
             return out
         with open(self.blocks_file) as f:
-            for line in f:
+            for i, line in enumerate(f):
+                if i < start:
+                    continue
                 line = line.strip()
                 if not line:
                     continue
                 b = json.loads(line)
-                if b["header"]["height"] < start:
-                    continue
                 out.append(b)
                 if limit and len(out) >= limit:
                     break
@@ -589,16 +589,17 @@ class Node:
 
     def block(self, ref=None):
         """A block by height, by hash, or the tip."""
-        blocks = self.read_blocks()
         if ref in (None, "", "head", "latest", "tip"):
-            return blocks[-1]
+            return self.read_blocks_tail(1)[0]
         try:
             h = int(ref)
-            if 0 <= h < len(blocks) and blocks[h]["header"]["height"] == h:
-                return blocks[h]
+            if 0 <= h < len(self.blocks):
+                result = self.read_blocks(start=h, limit=1)
+                if result and result[0]["header"]["height"] == h:
+                    return result[0]
         except (TypeError, ValueError):
             pass
-        for b in blocks:
+        for b in self.read_blocks():
             if b["hash"] == ref:
                 return b
         raise StateError(f"no block {ref!r}", code="no_block", status=404)
@@ -618,9 +619,9 @@ class Node:
                 return {"status": "dropped", **r}
         raise StateError(f"no transaction {tx_hash!r}", code="no_tx", status=404)
 
-    def history(self, address=None, key=None, limit=50):
+    def history(self, address=None, key=None, limit=50, since=0):
         out = []
-        for b in reversed(self.read_blocks()):
+        for b in reversed(self.read_blocks(start=since)):
             for tx, receipt in zip(b["txs"], b["receipts"]):
                 body = tx["body"]
                 if address and address not in (body.get("from"),

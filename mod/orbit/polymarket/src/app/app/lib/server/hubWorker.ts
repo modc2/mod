@@ -381,7 +381,15 @@ function enabledWatchlist(idx: SavedIndex): string[] {
  * listing it — with whatever numbers it had on the day it was deleted. Only
  * the strat half of the key is checked: a window this pass isn't running is
  * still a legitimate cached result for a strat we DO own, and the console
- * shows it (with its own age) when you flip windows. */
+ * shows it (with its own age) when you flip windows.
+ *
+ * Orphaned results get a GRACE PERIOD, not instant deletion. While a strat is
+ * in the manifest its results refresh every pass, so their `at` stays young;
+ * once it leaves they age out naturally. Deleting them on sight turned every
+ * transient manifest gap (a publish from a partial browser profile) into a
+ * wiped cache and a /strats page full of "…" until a full ladder rebuilt. */
+const PRUNE_GRACE_MS = 7 * 24 * 3600_000;
+
 function pruneResults(cache: HubCacheFile, manifest: HubManifest, strats: SavedIndex[]): number {
   // A manifest that was never published (or was wiped) is not evidence that
   // the user owns nothing — it's evidence we don't know yet. Don't prune on it.
@@ -394,8 +402,9 @@ function pruneResults(cache: HubCacheFile, manifest: HubManifest, strats: SavedI
     ...DEFAULT_STRATS.map((t) => templateBacktestKey(t.slug)),
   ]);
   let dropped = 0;
-  for (const key of Object.keys(cache.results)) {
+  for (const [key, bt] of Object.entries(cache.results)) {
     if (own.has(key.replace(/@[\d.]+d$/, ""))) continue;
+    if (Date.now() - (bt.at || 0) < PRUNE_GRACE_MS) continue;
     delete cache.results[key];
     dropped++;
   }
