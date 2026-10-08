@@ -79,7 +79,8 @@ function HomeInner() {
             <p className="font-serif-ed text-2xl md:text-3xl text-white/80 max-w-2xl mt-8 leading-snug">
               You've paid someone else's mortgage long enough.
               <span className="text-white"> OpenHouse is rent-to-own, on-chain</span> — every payment
-              becomes principal in the home, redistributed quarterly. Pay it off, own it.
+              becomes principal in the home, ownership redistributed quarterly, the whole
+              cap table in daylight. Pay it off. Own it. <span className="text-white">Outright.</span>
             </p>
           </Reveal>
           <Reveal delay={280}>
@@ -142,7 +143,7 @@ function HomeInner() {
       <section className="max-w-6xl mx-auto px-5 md:px-8 pb-8">
         <Reveal>
           <div className="text-center mb-12">
-            <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-4">Eight pages, no scroll</div>
+            <div className="text-coral text-[11px] font-bold uppercase tracking-[0.3em] mb-4">The revolution has eight doors</div>
             <h2 className="headline text-5xl md:text-7xl text-white">Start anywhere.</h2>
           </div>
         </Reveal>
@@ -168,7 +169,10 @@ function HomeInner() {
       <section className="max-w-5xl mx-auto px-5 md:px-8 pt-24 pb-8 text-center">
         <Reveal>
           <h2 className="headline text-6xl md:text-9xl text-white leading-[0.9] glow-warm">THE DOOR<br />IS <span className="text-surf-grad">OPEN.</span></h2>
-          <p className="font-serif-ed text-xl text-white/68 max-w-lg mx-auto mt-8">Stop renting the dream. Own the building it lives in.</p>
+          <p className="font-serif-ed text-xl text-white/68 max-w-lg mx-auto mt-8">
+            Stop renting the dream. Own the building it lives in —
+            the math is public, the split is yours, and the meter finally runs your way.
+          </p>
           <Link href="/invest" className="btn-shine inline-block mt-10 px-10 py-4 rounded-full bg-gradient-to-r from-peach to-coral text-onaccent font-bold uppercase tracking-widest text-sm hover:shadow-2xl hover:shadow-coral/40 transition-shadow">
             {deployed ? 'Start owning →' : 'Open the testnet →'}
           </Link>

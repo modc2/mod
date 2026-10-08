@@ -17,14 +17,14 @@ import { VibePicker } from './vibe'
 /** The site map. `blurb` is the one-line pitch the home page directory
  *  uses, so a route is described in exactly one place. */
 export const ROUTES = [
-  { href: '/manifesto', label: 'Manifesto', blurb: 'Why a rent cheque should buy something' },
-  { href: '/split',     label: 'The Split', blurb: 'Where every payment goes — and the dial that sets it' },
-  { href: '/simulator', label: 'Simulator', blurb: 'Scrub the timeline and watch the equity fill up' },
+  { href: '/manifesto', label: 'Manifesto', blurb: 'Why your rent should have been buying you the house all along' },
+  { href: '/split',     label: 'The Split', blurb: 'Where every dollar lands — and the dial that tilts it your way' },
+  { href: '/simulator', label: 'Simulator', blurb: 'Scrub ten years in ten seconds and watch rent turn into walls' },
   { href: '/testnet',   label: 'Testnet',   blurb: 'Run the walkthroughs — rent, any bank, a city — in a sandbox' },
-  { href: '/invest',    label: 'Invest',    blurb: 'The building, the float, and how to take a position' },
-  { href: '/paper',     label: 'Whitepaper', blurb: 'Six sections, one page each' },
-  { href: '/landscape', label: 'Landscape', blurb: 'Every other on-chain housing project, honestly' },
-  { href: '/code',      label: 'Code',      blurb: 'The Solidity that holds the shares' },
+  { href: '/invest',    label: 'Invest',    blurb: 'The building, the float, and how to take your seat at the table' },
+  { href: '/paper',     label: 'Whitepaper', blurb: 'The whole revolution in six stops, one page each' },
+  { href: '/landscape', label: 'Landscape', blurb: 'Every other on-chain housing project, honestly scored' },
+  { href: '/code',      label: 'Code',      blurb: 'Read the Solidity that holds the keys — no trust required' },
 ] as const
 
 /** /paper/03-the-take is still the whitepaper as far as the rail cares. */

@@ -27,13 +27,24 @@ ADDING A KEY TYPE
     wallet, the mempool and the console pick it up. pq/algos.d/ed25519.py is
     a complete worked example.
 
-THE QUANTUM GATE
-    Registering is not the same as being accepted. An algorithm declares
-    quantum_safe, and the chain refuses witnesses from any that declared
-    False — this is a post-quantum L1 and a curve is exactly the thing Shor's
-    algorithm takes apart. The ed25519 example therefore registers, appears
-    in the catalog, and is turned away at the mempool; set
-    POSTQUANT_ALLOW_CLASSICAL=1 on a throwaway devnet to watch it get in.
+THE GATE: PRICED, NOT PROHIBITED
+    Registering is not the same as being accepted — but since v0.6.0 the
+    question the gate asks is "what does breaking this key cost?", not "is it
+    post-quantum?". Any key type may witness, classical curves included, if
+    pq/complexity.py can stand behind it: the best-known classical attack
+    must cost at least 2^128 (assuming a maximal-entropy seed — the generic
+    attack is always "enumerate seeds until keygen matches"), and a
+    plugin-origin scheme must survive the entropy probe that tests the
+    assumption (deterministic keygen, distinct keys, every seed region
+    load-bearing, sign/verify that actually binds the message). What a
+    quantum adversary does is printed on the catalog card — polynomial for
+    anything that declared quantum_safe=False, a Grover bound otherwise —
+    and priced by witness gas, but it no longer closes the gate by itself.
+
+    Two environment switches move the line:
+        POSTQUANT_REQUIRE_PQ=1       the old strict gate — quantum-safe only
+        POSTQUANT_ALLOW_CLASSICAL=1  devnet-open — everything registered
+                                     gets in, floor and probe included
 
 ADDRESSES
     An address commits to (algorithm, public key): the algorithm's
@@ -53,10 +64,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
+import complexity                                               # noqa: E402
 import mldsa                                                    # noqa: E402
 import slhdsa                                                   # noqa: E402
 
 ALLOW_CLASSICAL = os.environ.get("POSTQUANT_ALLOW_CLASSICAL", "") \
+    .lower() in ("1", "true", "yes")
+REQUIRE_PQ = os.environ.get("POSTQUANT_REQUIRE_PQ", "") \
     .lower() in ("1", "true", "yes")
 
 PLUGIN_DIRS = (
@@ -72,7 +86,7 @@ class SigAlgo:
 
     def __init__(self, name, keygen, sign, verify, sizes, *, family,
                  quantum_safe, standard="", basis="", addr_domain=None,
-                 note=""):
+                 note="", classical_bits=None, quantum_bits=None):
         self.name = str(name)
         self.keygen = keygen          # (seed: bytes32) -> (pk, sk)
         self.sign = sign              # (sk, msg, ctx=b"") -> sig
@@ -82,6 +96,12 @@ class SigAlgo:
         self.quantum_safe = bool(quantum_safe)
         self.standard = standard      # "FIPS 204", "RFC 8032", ...
         self.basis = basis            # what the security rests on
+        # Best-known attacks, in bits of work, where the scheme knows of one
+        # cheaper than brute force over the seed space. ed25519 declares
+        # classical_bits≈126 (Pollard rho); a lattice set may declare its
+        # category. None means "nothing cheaper than brute force".
+        self.classical_bits = classical_bits
+        self.quantum_bits = quantum_bits
         # Hashed into the address with the public key. Defaults to the
         # algorithm name, so key types can never collide on an address.
         self.addr_domain = (self.name.encode() + b"\x00"
@@ -100,6 +120,7 @@ class SigAlgo:
                              (self.sizes.get("sig") or 0),
             "origin": self.origin,
             "note": self.note,
+            "security": complexity.summary(self),
         }
 
 
@@ -137,30 +158,78 @@ def names(pq_only=False):
                   if a.quantum_safe or not pq_only)
 
 
+def refusal(name):
+    """Why this algorithm may NOT witness a transaction here — or None if it
+    may. The one place the gate's reasons live: keys.create, the mempool and
+    verify_tx all ask this, so a wallet and a transaction are refused with
+    the same words and the same code.
+
+        None                                   accepted
+        (code, message, http_status)           refused
+    """
+    algo = REGISTRY.get(name)
+    if algo is None:
+        return ("unknown_scheme",
+                f"unknown signature algorithm {name!r} — this node knows "
+                f"{', '.join(sorted(REGISTRY))}; new key types are one file "
+                "in pq/algos.d/", 400)
+    if ALLOW_CLASSICAL:
+        return None                 # devnet-open: everything registered
+    if REQUIRE_PQ and not algo.quantum_safe:
+        return ("not_quantum_safe",
+                f"{name} declared quantum_safe=false and this node runs "
+                "POSTQUANT_REQUIRE_PQ=1 — it is listed in pq_algos but "
+                "cannot witness a transaction here", 403)
+    v = complexity.verdict(algo)
+    if not v["ok"]:
+        return ("insufficient_complexity",
+                f"{name} is refused: {v['reason']} — pq_complexity "
+                f"scheme={name} shows the full measurement", 403)
+    return None
+
+
 def allowed(name) -> bool:
     """May this algorithm witness a transaction on this chain? Registered,
-    and quantum-safe unless the operator explicitly opened the gate."""
-    algo = REGISTRY.get(name)
-    return algo is not None and (algo.quantum_safe or ALLOW_CLASSICAL)
+    past the complexity floor and (for plugins) the entropy probe — and
+    quantum-safe too, if the operator set POSTQUANT_REQUIRE_PQ."""
+    return refusal(name) is None
 
 
 def catalog():
     """The registry as one card — what the console and pq_algos show."""
+    rows = []
+    for _, a in sorted(REGISTRY.items()):
+        r = refusal(a.name)
+        rows.append({**a.describe(), "accepted": r is None,
+                     **({"refused": r[1]} if r else {})})
+    if ALLOW_CLASSICAL:
+        gate = ("open — POSTQUANT_ALLOW_CLASSICAL is set: every registered "
+                "key type witnesses, floor and probe included (devnet only)")
+    elif REQUIRE_PQ:
+        gate = ("strict — POSTQUANT_REQUIRE_PQ is set: quantum-safe key "
+                "types only, plus the 2^%d complexity floor"
+                % complexity.MIN_BITS)
+    else:
+        gate = ("priced — any key type witnesses if its best-known "
+                "classical attack costs at least 2^%d (maximal-entropy "
+                "seed) and, for plugins, the entropy probe passes; what a "
+                "quantum adversary pays is printed per scheme, not used to "
+                "refuse" % complexity.MIN_BITS)
     return {
-        "algorithms": [{**a.describe(), "accepted": allowed(a.name)}
-                       for _, a in sorted(REGISTRY.items())],
-        "quantum_gate": ("open — POSTQUANT_ALLOW_CLASSICAL is set and "
-                         "classical witnesses are accepted" if ALLOW_CLASSICAL
-                         else "closed — algorithms that declared "
-                              "quantum_safe=false register and appear here "
-                              "but cannot witness a transaction"),
+        "algorithms": rows,
+        "quantum_gate": gate,
+        "complexity_floor": f"2^{complexity.MIN_BITS} best-known classical",
         "plugin_dirs": list(PLUGIN_DIRS),
         "plugin_errors": PLUGIN_ERRORS,
         "how_to_add": ("drop a .py into a plugin dir defining "
                        "register(algos) that calls "
                        "algos.register(algos.SigAlgo(name, keygen, sign, "
-                       "verify, sizes, family=…, quantum_safe=…)) — "
-                       "pq/algos.d/ed25519.py is a worked example"),
+                       "verify, sizes, family=…, quantum_safe=…, "
+                       "classical_bits=… if an attack cheaper than brute "
+                       "force is known)) — pq/algos.d/ed25519.py is a "
+                       "worked example; pq_complexity scheme=<name> then "
+                       "shows what breaking it costs and whether the "
+                       "entropy probe lets it witness"),
     }
 
 

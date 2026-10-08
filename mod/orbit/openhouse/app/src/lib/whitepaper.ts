@@ -5,6 +5,7 @@ export const MANIFESTO = [
   "Rent is a tax on being broke.",
   "Platforms take 15% off the top for holding the money.",
   "OpenHouse takes 0–5% — and every check buys you the house.",
+  "This is a revolution you can audit.",
 ]
 
 export const ABSTRACT =
@@ -297,4 +298,8 @@ export const TICKER = [
   "OWNERS EARN YIELD",
   "PAY IT OFF, OWN IT",
   "NO MORE RECEIPTS",
+  "THE CAP TABLE IS PUBLIC",
+  "THE LANDLORD CENTURY IS OVER",
+  "A REVOLUTION YOU CAN AUDIT",
+  "THE SKYLINE CHANGES HANDS",
 ]
