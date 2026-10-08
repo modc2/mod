@@ -48,6 +48,7 @@ const EXIT_WORD: Record<string, string> = {
   epoch: "end of epoch",
   locked: "locked",
   locked_until_maturity: "until maturity",
+  session_stop: "stop session",
 };
 
 function exitLabel(liq: any): string {
@@ -489,9 +490,13 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                   </div>
                 </div>
                 <span className="mod-kind">{m.kind}</span>
-                <span className="mod-apy">{r.apy === null || r.apy === undefined ? <span className="dim">n/q</span> : pct(r.apy)}</span>
+                <span className="mod-apy">{m.chain === "polymarket" ? (r.window_30d?.win_rate_pct != null ? <span>{pct(r.window_30d.win_rate_pct)}<span className="dim"> wr</span></span> : <span className="dim">n/q</span>) : r.apy === null || r.apy === undefined ? <span className="dim">n/q</span> : pct(r.apy)}</span>
                 <span className="mod-fees" title={`${(r.emissions_share ?? 0).toFixed(0)}% of the rate is emissions`}>
-                  {r.apy ? (
+                  {m.chain === "polymarket" ? (
+                    <span className="dim">{r.window_30d?.pnl_usd != null ? `30d: ${money(r.window_30d.pnl_usd)}` : "—"}</span>
+                  ) : m.chain === "hyperliquid" ? (
+                    <span className="dim">{r.apr_7d !== null && r.apr_7d !== undefined ? `7d: ${pct(r.apr_7d)}` : "—"}</span>
+                  ) : r.apy ? (
                     <>
                       <span className="bar">
                         <span className="bar-fill" style={{ width: `${fees}%` }} />
@@ -511,7 +516,7 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                 <span className={`mod-exit ${l.instant_exit ? "" : "slow"}`}>{exitLabel(l)}</span>
                 <span style={{ textAlign: "right" }}>
                   {m.addable ? (
-                    <span className="tag ok">{m.adapter?.kind === "swap_receipt" ? "buy receipt" : m.adapter?.kind === "tao_subnet" ? "stake" : m.adapter?.kind === "treasury_lock" ? "lock" : "deposit"}</span>
+                    <span className="tag ok">{m.adapter?.kind === "swap_receipt" ? "buy receipt" : m.adapter?.kind === "tao_subnet" ? "stake" : m.adapter?.kind === "treasury_lock" ? "lock" : m.adapter?.kind === "pm_copy" ? "copy" : "deposit"}</span>
                   ) : m.gated ? (
                     <span className="tag bad">gated</span>
                   ) : (

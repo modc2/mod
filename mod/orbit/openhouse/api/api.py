@@ -475,9 +475,15 @@ def transfer_authority(req: TransferAuthorityRequest):
         raise HTTPException(status_code=400, detail=result["error"])
     return result
 
+class ToggleActiveRequest(BaseModel):
+    owner: Optional[str] = None
+
 @app.post("/toggle_active")
-def toggle_active():
-    return get_openhouse().toggle_active()
+def toggle_active(req: ToggleActiveRequest = ToggleActiveRequest()):
+    result = get_openhouse().toggle_active(owner=req.owner or '')
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 # ── Source ──────────────────────────────────────────────────────

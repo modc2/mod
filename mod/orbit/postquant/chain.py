@@ -78,6 +78,7 @@ class Node:
         self.mempool = {}
         self.rejected = []                 # last few drops, for the console
         self._tx_index: dict = {}          # tx_hash -> block height, O(1) lookup
+        self._block_index: dict = {}       # block_hash -> height, O(1) lookup
         self.state = State(chain_id)
         self.blocks = []                   # headers only; bodies live on disk
         self._cached_tip_hash: str | None = None
@@ -169,6 +170,7 @@ class Node:
         }
         block = self._seal(header, [], [])
         self._cached_tip_hash = block["hash"]
+        self._block_index[block["hash"]] = 0
         with open(self.blocks_file, "w") as f:
             f.write(json.dumps(block, separators=(",", ":")) + "\n")
         self.blocks = [header]
@@ -206,6 +208,7 @@ class Node:
                         self.blocks.append(b["header"])
                         heights.append(b["header"]["height"])
                         self._cached_tip_hash = b["hash"]
+                        self._block_index[b["hash"]] = b["header"]["height"]
                         for tx in b["txs"]:
                             self._tx_index[tx["hash"]] = b["header"]["height"]
         if not self.blocks:
@@ -527,6 +530,7 @@ class Node:
             }
             block = self._seal(header, included, receipts)
             self._cached_tip_hash = block["hash"]
+            self._block_index[block["hash"]] = header["height"]
             with open(self.blocks_file, "a") as f:
                 f.write(json.dumps(block, separators=(",", ":")) + "\n")
 
@@ -609,9 +613,11 @@ class Node:
                     return result[0]
         except (TypeError, ValueError):
             pass
-        for b in self.read_blocks():
-            if b["hash"] == ref:
-                return b
+        if ref in self._block_index:
+            h = self._block_index[ref]
+            result = self.read_blocks(start=h, limit=1)
+            if result:
+                return result[0]
         raise StateError(f"no block {ref!r}", code="no_block", status=404)
 
     def transaction(self, tx_hash):

@@ -1530,8 +1530,13 @@ class Mod:
             'timestamp': int(time.time()),
         }
 
-    def toggle_active(self) -> dict:
+    def toggle_active(self, owner: str = '') -> dict:
         """Toggle contract active status."""
+        current = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        recorded_owner = (current.get('owner') or '').lower()
+        caller = (owner or '').strip()
+        if recorded_owner and caller.lower() != recorded_owner:
+            return {'error': 'Only the property owner can change the active status'}
         props = self._load_properties()
         prop = props.get('default', {})
         prop['is_active'] = not prop.get('is_active', True)
@@ -1581,6 +1586,14 @@ class Mod:
         """
         # Save property info locally
         props = self._load_properties()
+        # Guard re-deployment: if a property already exists and has a recorded
+        # owner, only that owner may overwrite total_shares / share_price / is_active.
+        if props.get('default'):
+            current_terms = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+            recorded_owner = (current_terms.get('owner') or '').lower()
+            caller = (owner or '').strip()
+            if recorded_owner and caller.lower() != recorded_owner:
+                return {'error': 'Only the property owner can redeploy'}
         props['default'] = {
             'description': property_details,
             'total_shares': int(total_shares),
@@ -1993,7 +2006,7 @@ class Mod:
                 kwargs.get('details', ''),
             ),
             'transfer_authority': lambda: self.transfer_authority(kwargs.get('new_authority', '')),
-            'toggle_active': lambda: self.toggle_active(),
+            'toggle_active': lambda: self.toggle_active(owner=kwargs.get('owner', '')),
             'balance': lambda: self.balance(),
             'source': lambda: self.source(),
             'compile': lambda: self.compile(),

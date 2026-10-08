@@ -48,7 +48,7 @@ export function countdown(ts?: number): string {
 /// dimension. Mirrors the semantics documented on TradeFilters in types.ts.
 /// Takes just the two filter fields so default-strat templates (which are
 /// Partial<SavedIndex> recipes) can render the same chips as saved strats.
-export function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters" | "filter">): string[] {
+export function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters" | "filter" | "copySells">): string[] {
   const chips: string[] = [];
   if (idx.marketQuery?.trim()) chips.push(`"${idx.marketQuery.trim()}"`);
   const f = idx.tradeFilters;
@@ -67,6 +67,8 @@ export function filterChips(idx: Pick<SavedIndex, "marketQuery" | "tradeFilters"
     }
     if (f.categories && f.categories.length > 0) chips.push(f.categories.join("/").toUpperCase());
   }
+  // Leader sells are not mirrored — positions ride to resolution.
+  if (idx.copySells === false) chips.push("BUYS · RIDE");
   // The trader gate reads as a chip too — "top 5 by score" is as much a part
   // of what this strat trades as "BUYS ONLY".
   if (idx.filter) chips.push(describeTraderFilter(idx.filter).toUpperCase());

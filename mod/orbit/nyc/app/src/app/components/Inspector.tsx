@@ -253,6 +253,17 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
           </div>
         )}
 
+        {selection.layerId === 'subway_lines' && (
+          <div className="space-y-3">
+            <RouteBullets routes={String(p.route || '')} />
+            <Meta rows={[
+              ['Name', p.name],
+              ['Description', p.desc],
+              ['Direction', p.direction === 0 || p.direction === '0' ? 'Uptown / Bronx-bound' : 'Downtown / Brooklyn-bound'],
+            ]} />
+          </div>
+        )}
+
         {selection.layerId === 'affordable_housing' && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -501,7 +512,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
 
 const KNOWN = [
   'housing_prices', 'population', 'sales', 'forsale', 'news',
-  'subway_stations', 'subway_ridership',
+  'subway_stations', 'subway_ridership', 'subway_lines',
   'affordable_housing', 'affordable_rents', 'collisions', 'parks', 'bike_routes',
   'evacuation_zones', 'boroughs', 'neighborhoods',
   'traffic_speeds', 'traffic_volume',
@@ -567,6 +578,7 @@ function headline(sel: Selection): string {
     case 'news': return p.title || 'Headline'
     case 'subway_stations': return p.name
     case 'subway_ridership': return p.name
+    case 'subway_lines': return `${p.route} train${p.name ? ` · ${p.name}` : ''}`
     case 'affordable_housing': return p.name || p.address
     case 'affordable_rents': return p.name || p.address || 'Affordable rental'
     case 'collisions': return `${p.injured} injured${p.killed > 0 ? `, ${p.killed} killed` : ''}`

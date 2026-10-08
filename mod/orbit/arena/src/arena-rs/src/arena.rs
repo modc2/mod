@@ -848,7 +848,7 @@ pub fn get_player(key: &str) -> Result<Value, String> {
     }
     let mut per_game: HashMap<String, Sheet> = HashMap::new();
     let mut form: Vec<&'static str> = Vec::new();
-    let mut last_played = 0u64;
+    let mut last_played = p.overall.last_match;
     let mut opponents: HashMap<String, (String, u64, u64, u64, u64)> = HashMap::new();
     store::read(|s| {
         for m in s.matches.iter().filter(|m| m.rated) {
@@ -915,7 +915,7 @@ pub fn get_player(key: &str) -> Result<Value, String> {
             v["avg_move_ms"] = json!(if sheet.moves == 0 { 0 } else { sheet.ms / sheet.moves });
             v["form"] = json!(sheet.form.iter().rev().take(10).rev().map(|r| letter(r)).collect::<String>());
             v["streak"] = json!(streak(&sheet.form));
-            v["last_played"] = json!(sheet.last);
+            v["last_played"] = json!(sheet.last.max(r.last_match));
             (r.elo, v)
         })
         .collect::<Vec<_>>();

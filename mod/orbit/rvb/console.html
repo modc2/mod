@@ -208,6 +208,7 @@
         <button class="go" id="f-go">FIGHT</button>
         <span id="f-status" class="flash"></span>
       </div>
+      <textarea id="f-custom" placeholder="ad-hoc prompt — skips the corpus" style="min-height:56px"></textarea>
       <div id="f-out"></div>
     </div>
   </section>
@@ -513,15 +514,19 @@ async function loadPickers() {
 $('#f-go').onclick = async () => {
   $('#f-status').textContent = 'firing…'; $('#f-out').innerHTML = '';
   try {
+    const customText = $('#f-custom').value.trim();
     const attackId = $('#f-attack').value;
+    const attackArg = customText
+      ? {prompt: customText, name: 'ad-hoc', goal: '', markers: []}
+      : attackId;
     const m = await post('/fight', {
-      attack: attackId, defense: $('#f-defense').value,
+      attack: attackArg, defense: $('#f-defense').value,
       model: $('#f-model').value.trim(), judge: $('#f-judge').value});
-    const atk = fightAttacks.find(a => a.id === attackId);
+    const atk = customText ? null : fightAttacks.find(a => a.id === attackId);
     const attackPrompt = atk
       ? (atk.prompt || (Array.isArray(atk.turns)
           ? atk.turns.map(t => t.content || t).join('\n---\n') : ''))
-      : '';
+      : customText;
     $('#f-status').textContent = '';
     $('#f-out').innerHTML = `
       ${attackPrompt ? `<div class="muted" style="margin-top:10px">attack prompt</div>
