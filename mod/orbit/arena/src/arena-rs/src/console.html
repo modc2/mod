@@ -1739,7 +1739,7 @@ function matchRow(m) {
   const tr = el("tr", { className: "pick" });
   const line = m.seats.map((s) => `${s.player_name} ${s.score}`).join("  ·  ");
   tr.append(
-    td("when", { className: "dim", textContent: new Date(m.created * 1000).toLocaleTimeString() }),
+    td("when", { className: "dim", textContent: new Date(m.created * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) }),
     td("seats", { className: "first", textContent: line }),
     td("turns", { className: "dim", textContent: m.turns }),
     td("where", { className: "dim", textContent: m.runtime }),

@@ -147,6 +147,13 @@
       <h2>write an attack</h2>
       <div class="row"><input type="text" id="a-name" placeholder="name" style="flex:1"></div>
       <textarea id="a-prompt" placeholder="the prompt"></textarea>
+      <div class="row">
+        <label style="flex:1">goal<input type="text" id="a-goal" placeholder="what the attack tries to get" style="display:block;width:100%;margin-top:4px"></label>
+        <label style="flex:1">technique<input type="text" id="a-technique" placeholder="e.g. roleplay, encoding, many-shot" style="display:block;width:100%;margin-top:4px"></label>
+      </div>
+      <div class="row">
+        <label style="flex:1">markers (comma-separated)<input type="text" id="a-markers" placeholder="strings whose presence signals the attack landed" style="display:block;width:100%;margin-top:4px"></label>
+      </div>
       <div class="row" style="margin-top:8px">
         <button class="go" id="a-save">ADD ATTACK</button>
         <span id="a-status"></span>
@@ -408,12 +415,21 @@ async function loadAttacks() {
 
 $('#a-save').onclick = async () => {
   try {
-    await post('/attacks', {
+    const body = {
       name: $('#a-name').value.trim(),
       category: 'custom',
-      prompt: $('#a-prompt').value});
+      prompt: $('#a-prompt').value,
+    };
+    const goal = $('#a-goal').value.trim();
+    const technique = $('#a-technique').value.trim();
+    const markers = $('#a-markers').value.trim();
+    if (goal) body.goal = goal;
+    if (technique) body.technique = technique;
+    if (markers) body.markers = markers.split(',').map(s => s.trim()).filter(Boolean);
+    await post('/attacks', body);
     $('#a-status').textContent = 'added.';
     $('#a-name').value = ''; $('#a-prompt').value = '';
+    $('#a-goal').value = ''; $('#a-technique').value = ''; $('#a-markers').value = '';
     loadAttacks();
   } catch (e) { $('#a-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
 };
@@ -483,9 +499,11 @@ $('#d-save').onclick = async () => {
 };
 
 // ── fight ──────────────────────────────────────────────────────
+let fightAttacks = [];
 async function loadPickers() {
   const [{attacks}, {defenses}] = await Promise.all(
     [api('/attacks'), api('/defenses')]);
+  fightAttacks = attacks;
   $('#f-attack').innerHTML = attacks.map(
     a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
   $('#f-defense').innerHTML = defenses.map(
@@ -495,11 +513,19 @@ async function loadPickers() {
 $('#f-go').onclick = async () => {
   $('#f-status').textContent = 'firing…'; $('#f-out').innerHTML = '';
   try {
+    const attackId = $('#f-attack').value;
     const m = await post('/fight', {
-      attack: $('#f-attack').value, defense: $('#f-defense').value,
+      attack: attackId, defense: $('#f-defense').value,
       model: $('#f-model').value.trim(), judge: $('#f-judge').value});
+    const atk = fightAttacks.find(a => a.id === attackId);
+    const attackPrompt = atk
+      ? (atk.prompt || (Array.isArray(atk.turns)
+          ? atk.turns.map(t => t.content || t).join('\n---\n') : ''))
+      : '';
     $('#f-status').textContent = '';
     $('#f-out').innerHTML = `
+      ${attackPrompt ? `<div class="muted" style="margin-top:10px">attack prompt</div>
+      <pre>${esc(attackPrompt)}</pre>` : ''}
       <div class="row" style="margin-top:10px">
         <span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span>
         <span class="pill">stopped at ${esc(m.blocked_at || 'model')}</span>

@@ -599,7 +599,10 @@ export default function StratsTab() {
                 {/* ── Card header: name + badges ── */}
                 <div className="flex items-center gap-2 px-3 pt-2.5 pb-1">
                   {isRunning && (
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" title="Engine is running for this strat" />
+                    <span
+                      className={`w-2 h-2 rounded-full animate-pulse shrink-0 ${liveSessions[idx.id]?.executing === false ? "bg-amber-400" : "bg-green-400"}`}
+                      title={liveSessions[idx.id]?.executing === false ? "Dry run — engine is computing orders but placing none" : "Engine is running for this strat"}
+                    />
                   )}
                   {renamingId === idx.id ? (
                     <input
@@ -682,10 +685,19 @@ export default function StratsTab() {
                   {/* LIVE column */}
                   <div className="px-2 py-1.5" style={{ borderRight: "1px solid var(--border)" }}>
                     <div className="flex items-center gap-1 mb-1">
-                      <span className={`text-[8.5px] font-semibold tracking-[0.18em] ${isRunning ? "text-green-400" : "text-pixel-gray"}`}>
-                        LIVE
-                      </span>
-                      {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
+                      {isRunning && liveSessions[idx.id]?.executing === false ? (
+                        <>
+                          <span className="text-[8.5px] font-semibold tracking-[0.18em] text-amber-300">PAPER</span>
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        </>
+                      ) : (
+                        <>
+                          <span className={`text-[8.5px] font-semibold tracking-[0.18em] ${isRunning ? "text-green-400" : "text-pixel-gray"}`}>
+                            LIVE
+                          </span>
+                          {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
+                        </>
+                      )}
                     </div>
                     {/* Headline = the money on this strat (committed capital
                         while running, open positions once stopped). */}

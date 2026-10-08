@@ -373,6 +373,9 @@ class Mod:
         blocked = self._civic_block()
         if blocked:
             return blocked
+        _prop_data = self._load_properties().get('default', {})
+        if _prop_data and not _prop_data.get('is_active', True):
+            return {'error': 'Property is not active'}
         split = self.quote(amount, kind=kind)
         if 'error' in split:
             return split
@@ -1400,6 +1403,9 @@ class Mod:
         blocked = self._civic_block(check_hold=True)
         if blocked:
             return blocked
+        _prop_data = self._load_properties().get('default', {})
+        if _prop_data and not _prop_data.get('is_active', True):
+            return {'error': 'Property is not active'}
         share_count = int(share_count)
         if share_count <= 0:
             return {'error': 'Must purchase at least 1 share'}
@@ -1450,6 +1456,9 @@ class Mod:
         blocked = self._civic_block(check_hold=True)
         if blocked:
             return blocked
+        _prop_data = self._load_properties().get('default', {})
+        if _prop_data and not _prop_data.get('is_active', True):
+            return {'error': 'Property is not active'}
 
         current = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
         recorded_owner = (current.get('owner') or '').lower()

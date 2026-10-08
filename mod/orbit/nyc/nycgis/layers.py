@@ -192,6 +192,7 @@ def collisions() -> dict:
             select=('crash_date,crash_time,borough,on_street_name,'
                     'number_of_persons_injured,number_of_persons_killed,'
                     'number_of_pedestrians_injured,number_of_cyclist_injured,'
+                    'number_of_motorist_injured,'
                     'contributing_factor_vehicle_1,latitude,longitude'),
             where=('latitude IS NOT NULL and latitude > 40 and '
                    'crash_date > "2025-01-01T00:00:00.000" and '
@@ -204,13 +205,14 @@ def collisions() -> dict:
             r['killed'] = int(float(r.pop('number_of_persons_killed', 0) or 0))
             r['peds'] = int(float(r.pop('number_of_pedestrians_injured', 0) or 0))
             r['cyclists'] = int(float(r.pop('number_of_cyclist_injured', 0) or 0))
+            r['motorists'] = int(float(r.pop('number_of_motorist_injured', 0) or 0))
             r['street'] = r.pop('on_street_name', '') or ''
             r['cause'] = r.pop('contributing_factor_vehicle_1', '') or ''
             r['borough'] = (r.get('borough') or '').title()
         return S.points_from_rows(
             rows, 'latitude', 'longitude',
             props=['date', 'borough', 'street', 'injured', 'killed',
-                   'peds', 'cyclists', 'cause'])
+                   'peds', 'cyclists', 'motorists', 'cause'])
     return S.cached('safety-collisions', 2 * S.DAY, fetch)
 
 

@@ -77,8 +77,10 @@ class Node:
         self.lock = threading.RLock()
         self.mempool = {}
         self.rejected = []                 # last few drops, for the console
+        self._tx_index: dict = {}          # tx_hash -> block height, O(1) lookup
         self.state = State(chain_id)
         self.blocks = []                   # headers only; bodies live on disk
+        self._cached_tip_hash: str | None = None
         self.last_block_time = 0
         self._validator_name = validator or os.environ.get(
             "POSTQUANT_VALIDATOR", "validator")
@@ -166,6 +168,7 @@ class Node:
             "state_root": self.state.root(),
         }
         block = self._seal(header, [], [])
+        self._cached_tip_hash = block["hash"]
         with open(self.blocks_file, "w") as f:
             f.write(json.dumps(block, separators=(",", ":")) + "\n")
         self.blocks = [header]
@@ -202,6 +205,9 @@ class Node:
                         b = json.loads(line)
                         self.blocks.append(b["header"])
                         heights.append(b["header"]["height"])
+                        self._cached_tip_hash = b["hash"]
+                        for tx in b["txs"]:
+                            self._tx_index[tx["hash"]] = b["header"]["height"]
         if not self.blocks:
             return self._init_genesis()
         snap = None
@@ -520,6 +526,7 @@ class Node:
                 "state_root": st.root(),
             }
             block = self._seal(header, included, receipts)
+            self._cached_tip_hash = block["hash"]
             with open(self.blocks_file, "a") as f:
                 f.write(json.dumps(block, separators=(",", ":")) + "\n")
 
@@ -528,6 +535,7 @@ class Node:
             self.blocks.append(header)
             self.last_block_time = now
             for tx in included:
+                self._tx_index[tx["hash"]] = header["height"]
                 self.mempool.pop(tx["hash"], None)
             for d in dropped:
                 self.mempool.pop(d["hash"], None)
@@ -549,6 +557,8 @@ class Node:
         return st
 
     def _tip_hash(self):
+        if self._cached_tip_hash is not None:
+            return self._cached_tip_hash
         blocks = self.read_blocks(start=self.blocks[-1]["height"], limit=1)
         return blocks[0]["hash"] if blocks else "0" * 64
 
@@ -605,13 +615,17 @@ class Node:
         raise StateError(f"no block {ref!r}", code="no_block", status=404)
 
     def transaction(self, tx_hash):
-        for b in reversed(self.read_blocks()):
-            for tx, receipt in zip(b["txs"], b["receipts"]):
-                if tx["hash"] == tx_hash:
-                    return {"tx": tx, "receipt": receipt,
-                            "height": b["header"]["height"],
-                            "block": b["hash"], "status": "included",
-                            "timestamp": b["header"]["timestamp"]}
+        if tx_hash in self._tx_index:
+            height = self._tx_index[tx_hash]
+            blocks = self.read_blocks(start=height, limit=1)
+            if blocks:
+                b = blocks[0]
+                for tx, receipt in zip(b["txs"], b["receipts"]):
+                    if tx["hash"] == tx_hash:
+                        return {"tx": tx, "receipt": receipt,
+                                "height": b["header"]["height"],
+                                "block": b["hash"], "status": "included",
+                                "timestamp": b["header"]["timestamp"]}
         if tx_hash in self.mempool:
             return {"tx": self.mempool[tx_hash], "status": "pending"}
         for r in self.rejected:

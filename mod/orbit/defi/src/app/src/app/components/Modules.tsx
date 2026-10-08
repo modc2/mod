@@ -566,6 +566,14 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                   <div className="kv"><span>7d</span><b><Chg v={detail.returns?.price_change_7d_pct} /></b></div>
                   <div className="kv"><span>24h volume</span><b>{detail.liquidity?.volume_24h_tao != null ? `${Math.round(detail.liquidity.volume_24h_tao).toLocaleString()} τ` : "—"}</b></div>
                 </div>
+              ) : detail.chain === "hyperliquid" ? (
+                /* HL vaults quote trailing APR, not DefiLlama APY fields */
+                <div className="kv-grid">
+                  <div className="kv"><span>all-time APR</span><b>{pct(detail.returns?.apy)}</b></div>
+                  <div className="kv"><span>7d APR</span><b>{pct(detail.returns?.apr_7d)}</b></div>
+                  <div className="kv"><span>24h APR</span><b>{pct(detail.returns?.apr_24h)}</b></div>
+                  <div className="kv"><span>leader</span><b>{detail.leader ? `${detail.leader.slice(0, 8)}…${detail.leader.slice(-6)}` : "—"}</b></div>
+                </div>
               ) : detail.chain === "polymarket" ? (
                 /* PM traders quote no APY — show the trader's 30d track record instead */
                 <div className="kv-grid">

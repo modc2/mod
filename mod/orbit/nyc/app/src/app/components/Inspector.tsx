@@ -271,6 +271,57 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
           </div>
         )}
 
+        {selection.layerId === 'affordable_rents' && (() => {
+          const rentRows: { bedrooms: string; rent?: number | null; max_ami?: number | null; ami_range?: string; units?: number }[] =
+            safeParse(typeof p.rents === 'string' ? p.rents : '[]') || []
+          return (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <Stat label="Rent range" value={`$${p.rent_min}–$${p.rent_max}/mo`} big />
+                <Stat label="Median rent" value={`$${p.rent_median}`} big />
+              </div>
+              <Meta rows={[
+                ['Address', p.address],
+                ['Borough', p.borough],
+                ['Program', p.program],
+                ['Bedrooms available', p.bedrooms],
+                ['Affordable units', p.affordable_units],
+                ['Total units', p.total_units],
+                ['Income limit', p.min_ami != null ? `Up to ${p.min_ami}% AMI` : undefined],
+              ]} />
+              {rentRows.length > 0 && (
+                <div>
+                  <div className="pixel mb-1 text-[10.5px] text-nes-ink3">Per-bedroom breakdown</div>
+                  <div className="rounded-lg border border-white/10 bg-black/40 overflow-hidden">
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr className="border-b border-white/10">
+                          <th className="px-2 py-1 text-left text-nes-ink3 font-normal">Bedrooms</th>
+                          <th className="px-2 py-1 text-right text-nes-ink3 font-normal">Rent/mo</th>
+                          <th className="px-2 py-1 text-right text-nes-ink3 font-normal">AMI band</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rentRows.map((r, i) => (
+                          <tr key={i} className="border-b border-white/5 last:border-0">
+                            <td className="px-2 py-1 text-white">{r.bedrooms}</td>
+                            <td className="px-2 py-1 text-right text-white tabular-nums">
+                              {r.rent != null ? `$${r.rent}` : '—'}
+                            </td>
+                            <td className="px-2 py-1 text-right text-nes-ink3">
+                              {r.ami_range || (r.max_ami != null ? `${r.max_ami}% AMI` : '—')}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
         {selection.layerId === 'collisions' && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -284,6 +335,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
               ['Borough', titleCase(p.borough || '—')],
               ['Pedestrians hurt', count(p.peds)],
               ['Cyclists hurt', count(p.cyclists)],
+              ['Motorists hurt', count(p.motorists)],
               ['Contributing factor', p.cause || 'Unspecified'],
             ]} />
           </div>
@@ -450,7 +502,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
 const KNOWN = [
   'housing_prices', 'population', 'sales', 'forsale', 'news',
   'subway_stations', 'subway_ridership',
-  'affordable_housing', 'collisions', 'parks', 'bike_routes',
+  'affordable_housing', 'affordable_rents', 'collisions', 'parks', 'bike_routes',
   'evacuation_zones', 'boroughs', 'neighborhoods',
   'traffic_speeds', 'traffic_volume',
   'crime', 'shootings',
@@ -516,6 +568,7 @@ function headline(sel: Selection): string {
     case 'subway_stations': return p.name
     case 'subway_ridership': return p.name
     case 'affordable_housing': return p.name || p.address
+    case 'affordable_rents': return p.name || p.address || 'Affordable rental'
     case 'collisions': return `${p.injured} injured${p.killed > 0 ? `, ${p.killed} killed` : ''}`
     case 'crime': return p.name || `Precinct ${p.precinct}`
     case 'shootings': return `Shooting · ${p.date}${p.statistical_murder_flag ? ' · Fatal' : ''}`

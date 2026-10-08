@@ -40,6 +40,15 @@ function friendlyNote(note: string, traderCount?: number): string {
   return note;
 }
 
+const VERDICT_CHIP: Record<string, { sym: string; cls: string }> = {
+  held:      { sym: "✓", cls: "text-green-400" },
+  faded:     { sym: "✗", cls: "text-red-400" },
+  "no-edge": { sym: "✗", cls: "text-red-400" },
+  stalled:   { sym: "⏸", cls: "text-amber-300" },
+  recovered: { sym: "↗", cls: "text-amber-300" },
+  untested:  { sym: "?", cls: "text-pixel-gray" },
+};
+
 export default function WindowStrip({ row, loading, running, traderCount }: {
   row: WindowRow | undefined;
   /** The worker cache hasn't been read yet. */
@@ -80,6 +89,7 @@ export default function WindowStrip({ row, loading, running, traderCount }: {
       {HUB_WINDOWS.map((d, i) => {
         const bt = row?.[d];
         const empty = !bt || (bt.trades === 0 && !!bt.note);
+        const verdictChip = bt && !empty && bt.forward?.verdict ? VERDICT_CHIP[bt.forward.verdict] : null;
         const tone = !bt || empty ? "text-pixel-gray"
           : bt.pnl > 0 ? "text-green-400" : bt.pnl < 0 ? "text-red-400" : "text-pixel-gray";
         const tip = !bt
@@ -107,6 +117,9 @@ export default function WindowStrip({ row, loading, running, traderCount }: {
               <div className={`text-[9px] font-mono tabular-nums ${tone}`}>
                 {bt.roi >= 0 ? "+" : ""}{bt.roi.toFixed(bt.roi !== 0 && Math.abs(bt.roi) < 10 ? 1 : 0)}%
               </div>
+            )}
+            {verdictChip && (
+              <div className={`text-[9px] leading-none ${verdictChip.cls}`}>{verdictChip.sym}</div>
             )}
           </div>
         );
