@@ -9,11 +9,12 @@ import {
 import { useCollapse } from '@/lib/collapse'
 import { usd } from '@/lib/format'
 import ChatPanel from './components/ChatPanel'
-import Infographic, { AgentLegend } from './components/Infographic'
+import { AgentLegend } from './components/Infographic'
 import { describeMap, useAgentScene } from '@/lib/scene'
 import HousingControls from './components/HousingControls'
 import PopulationControls from './components/PopulationControls'
 import Inspector, { type Selection } from './components/Inspector'
+import DataPanel from './components/DataPanel'
 import LayerPanel from './components/LayerPanel'
 import Legend, { hasLegend } from './components/Legend'
 import MapFrame from './components/MapFrame'
@@ -40,6 +41,7 @@ const BASEMAPS: { id: Basemap; label: string }[] = [
   { id: 'dark', label: 'NIGHT' },
   { id: 'light', label: 'DAY' },
   { id: 'streets', label: 'MAP' },
+  { id: 'earth', label: 'EARTH' },
 ]
 
 export default function Page() {
@@ -241,6 +243,14 @@ export default function Page() {
     <main className="relative h-[100dvh] w-full overflow-hidden bg-nes-void">
       {/* The map is the only part of this page that needs a GPU, so it is the
           only part allowed to fail on a browser without one. */}
+      {/* On a wide screen an open chat takes a column of its own and the map
+          gives up the width instead of being covered — a conversation that
+          drives the map is pointless if the answer hides it. MapLibre watches
+          its container, so the shrink is a resize, not a remount.
+          412 = the chat column (ChatPanel md:w-[400px]) + its 12px right
+          inset; the inspector's 424 and the legend's 206 below derive from
+          the same 400 — change the chat width and all four move together. */}
+      <div className={`absolute inset-y-0 left-0 right-0 ${chatOpen ? 'md:right-[412px]' : ''}`}>
       <MapFrame>
         <MapView
           catalog={catalog}
@@ -265,6 +275,7 @@ export default function Page() {
           onMapReady={() => {}}
         />
       </MapFrame>
+      </div>
 
       {/* ── HUD ─────────────────────────────────────────────────────── */}
       <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-3 pb-3">
@@ -455,6 +466,20 @@ export default function Page() {
             isOpen={collapse.isOpen}
             onToggleSection={collapse.toggle}
           />
+          {/* Owner-added datasets. The layers themselves ride in the panel
+              above (category "Your data"); this section is where they are
+              added and removed. A changed catalogue is refetched so the new
+              layer appears in the rail without a reload. */}
+          <Section
+            title="Your data"
+            open={collapse.isOpen('yourdata')}
+            onToggle={() => collapse.toggle('yourdata')}
+            summary={catalog?.layers.some((l) => (l as any).custom) ? 'add · manage' : 'add your own'}
+          >
+            <DataPanel onChanged={() => {
+              api.catalog().then(setCatalog).catch(() => {})
+            }} />
+          </Section>
           {/* The city beyond the map: crime and market vitals, headlines,
               and the full printable brief. Lives under the layers — the map
               is still the main event — and fetches nothing until opened. */}
@@ -480,6 +505,7 @@ export default function Page() {
           totalAreas={housing?.meta?.areas}
           population={population}
           crime={layerData['crime'] as any}
+          forsale={layerData['forsale'] as any}
         />
       </div>
 
@@ -499,6 +525,7 @@ export default function Page() {
                 totalAreas={housing?.meta?.areas}
                 population={population}
                 crime={layerData['crime'] as any}
+                forsale={layerData['forsale'] as any}
               />
             </div>
           )}
@@ -513,8 +540,12 @@ export default function Page() {
       )}
 
       {/* ── inspector ───────────────────────────────────────────────── */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-40
-                      md:inset-x-auto md:bottom-auto md:right-3 md:top-[86px]">
+      {/* While the chat column is up, the inspector keeps to the map's own
+          right edge rather than disappearing behind the chat.
+          424 = chat 400 + 12px inset + 12px gap (derived with 412 above). */}
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 z-40
+                      md:inset-x-auto md:bottom-auto md:top-[86px]
+                      ${chatOpen ? 'md:right-[424px]' : 'md:right-3'}`}>
         <Inspector
           selection={selection}
           catalog={catalog}
@@ -524,28 +555,18 @@ export default function Page() {
       </div>
 
       {/* ── ask-the-agent chat ──────────────────────────────────────── */}
-      {/* What the agent drew, and the card it pinned. On a wide screen the key
-          sits bottom-centre and the card on the right edge, beside the chat
-          when it is open, so the middle of the map stays the map; on a phone
-          the card is a sheet over the bottom of the map. */}
-      <div className="safe-x pointer-events-none absolute inset-x-0 top-[64px] z-20 flex justify-center px-3
-                      md:inset-x-auto md:left-1/2 md:top-auto md:bottom-3 md:-translate-x-1/2 md:px-0">
+      {/* The key for what the agent drew. On a wide screen it sits bottom-
+          centre of the map — of the *remaining* map while the chat column is
+          up, so it never slides underneath the chat. The infographic card
+          lives in the chat transcript, not here: nothing the agent says is
+          allowed to cover the map it is talking about.
+          206 = (chat 400 + 12px inset) / 2: recentres on the remaining map
+          (derived with 412/424 above). */}
+      <div className={`safe-x pointer-events-none absolute inset-x-0 top-[64px] z-20 flex justify-center px-3
+                      md:inset-x-auto md:top-auto md:bottom-3 md:-translate-x-1/2 md:px-0
+                      ${chatOpen ? 'md:left-[calc(50%-206px)]' : 'md:left-1/2'}`}>
         <AgentLegend overlay={scene.overlay} caption={scene.caption} onClear={scene.clearAgent} />
       </div>
-      {scene.card && (
-        // While the phone's chat sheet (h-[52dvh]) is up, the card rides above
-        // it instead of being buried underneath — chat and card never overlap.
-        <div className={`safe-b pointer-events-none absolute inset-x-0 z-30 flex px-2 pb-2
-                        md:inset-x-auto md:bottom-auto md:top-[86px] md:max-h-[calc(100%-12rem)]
-                        md:w-[380px] md:px-0 md:pb-0
-                        ${chatOpen
-                          ? 'bottom-[52dvh] max-h-[34dvh] md:right-[424px]'
-                          : 'bottom-0 max-h-[55dvh] md:right-3'}`}>
-          <div className="w-full">
-            <Infographic card={scene.card} onClose={scene.closeCard} />
-          </div>
-        </div>
-      )}
 
       <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)}
                  onDisplay={scene.apply} mapState={mapState} />

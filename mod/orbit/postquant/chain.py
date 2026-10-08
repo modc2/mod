@@ -35,6 +35,7 @@ if HERE not in sys.path:
 import keys as K                                                # noqa: E402
 import state as S                                               # noqa: E402
 from pq import algos                                            # noqa: E402
+from pq import complexity as CPLX                               # noqa: E402
 from state import State, StateError, canonical, merkle_root, sha3  # noqa: E402
 
 DATA_DIR = os.path.expanduser(os.environ.get("POSTQUANT_DATA_DIR",
@@ -118,10 +119,16 @@ class Node:
             "rules": {
                 "signatures": {
                     "proposer": w["scheme"],
-                    "accepted": algos.names(pq_only=True),
-                    "gate": "quantum-safe key types only — algorithms are "
-                            "pluggable (pq/algos.d/) but a witness from one "
-                            "that declared quantum_safe=false is refused",
+                    "accepted": [n for n in algos.names()
+                                 if algos.allowed(n)],
+                    "gate": "complexity-priced — algorithms are pluggable "
+                            "(pq/algos.d/) and any key type may witness, "
+                            "classical included, if its best-known "
+                            f"classical attack clears the 2^{CPLX.MIN_BITS} "
+                            "floor and the entropy probe passes; quantum "
+                            "cost is printed per scheme (pq_complexity), "
+                            "not used to refuse unless POSTQUANT_REQUIRE_PQ "
+                            "is set",
                 },
                 "kem": "ML-KEM-768 (FIPS 203)",
                 "hash": "SHA3-256",
@@ -369,22 +376,14 @@ class Node:
                                  code="bad_address")
             acct = self.state.accounts.get(body["from"], {})
             known = acct.get("pk")
-            # The quantum gate, with its reasons out loud — verify_tx would
+            # The complexity gate, with its reasons out loud — verify_tx would
             # refuse these anyway, but "signature does not verify" is the
             # wrong error for "your key type is not allowed here".
             scheme = tx.get("scheme") or acct.get("scheme") or K.SCHEME
-            if algos.maybe(scheme) is None:
-                raise StateError(
-                    f"unknown signature algorithm {scheme!r} — this node "
-                    f"accepts {', '.join(algos.names(pq_only=True))}; new "
-                    "key types are one file in pq/algos.d/",
-                    code="unknown_scheme")
-            if not algos.allowed(scheme):
-                raise StateError(
-                    f"{scheme} declared quantum_safe=false and this chain "
-                    "is post-quantum — its witnesses are refused "
-                    "(POSTQUANT_ALLOW_CLASSICAL=1 opens the gate on a "
-                    "throwaway devnet)", code="not_quantum_safe", status=403)
+            gate = algos.refusal(scheme)
+            if gate is not None:
+                code, message, status = gate
+                raise StateError(message, code=code, status=status)
             if known is None and not tx.get("pk"):
                 raise StateError(
                     "this address has never transacted, so the chain does not "

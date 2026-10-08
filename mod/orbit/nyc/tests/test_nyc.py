@@ -19,6 +19,12 @@ MODULE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(MODULE_DIR))
 sys.path.insert(0, str(MODULE_DIR.parent.parent.parent))
 
+# Import the protocol package NOW, while the repo root is at the front of
+# sys.path: any test file collected after this one re-inserts MODULE_DIR at
+# position 0, and a test-time `import mod` would then find the module's own
+# anchor mod.py instead. sys.modules caching is what keeps this resolution.
+import mod                              # noqa: E402, F401
+
 from nycgis import layers as L          # noqa: E402
 from nycgis import prices as P          # noqa: E402
 from nycgis import sources as S         # noqa: E402
@@ -415,8 +421,10 @@ def test_every_tool_is_listed_with_a_schema_and_annotations():
     for t in listed:
         assert t['name'] and t['title'] and t['description']
         assert t['inputSchema']['type'] == 'object'
-        # Nothing here writes; a client that trusts the hint must not be lied to.
-        assert t['annotations']['readOnlyHint'] is True
+        # A client that trusts the hints must not be lied to: the owner's
+        # data tools write (and say so); everything else is read-only.
+        write = t['name'] in ('nyc_add_data', 'nyc_remove_data')
+        assert t['annotations']['readOnlyHint'] is (not write)
 
 
 def test_tool_failure_is_a_result_not_a_transport_error():

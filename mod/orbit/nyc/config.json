@@ -38,12 +38,20 @@
         "traffic",
         "homes",
         "affordable",
+        "lotteries",
+        "building",
+        "violations",
+        "nycha",
         "where",
         "tools",
         "tool",
         "mcp",
         "ask",
         "warm",
+        "data",
+        "add_data",
+        "remove_data",
+        "refresh_data",
         "cache",
         "clear_cache",
         "boroughs",
@@ -56,5 +64,5 @@
         "deregister"
     ],
     "key": "nyc",
-    "schema": "QmTn36iNR6XEHS1tAde4NYPrfAbeEBdKqCEmUGjaQjzwPJ"
+    "schema": "QmVbSGkpGNijUvx3bjnqkhQCWStwuiWfdtumJ8pPVkTmxG"
 }

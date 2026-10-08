@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import zipfile
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+from . import demographics as D
 from . import sources as S
 
 SE_CDN = 'https://cdn-charts.streeteasy.com'
@@ -35,6 +37,11 @@ SE_FILES = {
     'asking_price': f'{SE_CDN}/sales/All/medianAskingPrice_All.zip',
     'asking_rent': f'{SE_CDN}/rentals/All/medianAskingRent_All.zip',
     'inventory': f'{SE_CDN}/rentals/All/rentalInventory_All.zip',
+    # The for-sale side of the dashboard. medianSalePrice 403s (recorded
+    # sales are the deed file's job anyway); these four are open.
+    'sale_inventory': f'{SE_CDN}/sales/All/totalInventory_All.zip',
+    'days_on_market': f'{SE_CDN}/sales/All/daysOnMarket_All.zip',
+    'price_cut_share': f'{SE_CDN}/sales/All/priceCutShare_All.zip',
 }
 ZILLOW = {
     'zhvi': ('https://files.zillowstatic.com/research/public_csvs/zhvi/'
@@ -111,6 +118,115 @@ def _series(key: str, area: str, months_back: int = 120) -> List[dict]:
         return []
     pairs = list(zip(t['months'], a['values']))[-months_back:]
     return [{'month': m, 'value': v} for m, v in pairs if v is not None]
+
+
+def norm_name(name: str) -> str:
+    """Area name → comparable form: lowercased, parens and punctuation out."""
+    s = re.sub(r'\(.*?\)', ' ', str(name or '').lower())
+    s = s.replace('&', ' and ')
+    s = re.sub(r'[^a-z0-9]+', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def match_nta(nta_name: str, nta_borough: str,
+              se_areas: List[Tuple[str, str, str]]) -> Optional[str]:
+    """
+    The StreetEasy neighborhood an NTA belongs to, or None.
+
+    NTA 2020 names are compounds ("Astoria (North)-Ditmars-Steinway");
+    StreetEasy names are the colloquial neighborhood ("Astoria"). So the match
+    runs the other way round: the StreetEasy name must appear whole-word inside
+    the NTA name, in the same borough — and the longest such name wins, so
+    "East Harlem" beats "Harlem" for East Harlem (North).
+    """
+    nname = norm_name(nta_name)
+    best = None
+    for name, norm, boro in se_areas:
+        if boro != nta_borough or not norm:
+            continue
+        if re.search(rf'(?:^| ){re.escape(norm)}(?: |$)', nname):
+            if best is None or len(norm) > len(best[1]):
+                best = (name, norm)
+    return best[0] if best else None
+
+
+def forsale_choropleth() -> Dict[str, Any]:
+    """
+    The for-sale market as a neighborhood choropleth: median asking price
+    (the fill), active listings, days on market and the share of listings cut,
+    joined from StreetEasy's ~176 areas onto the 262 NTA polygons by name.
+    ``breaks`` carries quantile classes for the asking price, so the frontend
+    draws it with no extra parameterisation (same contract as the crime layer).
+    """
+    def fetch():
+        from . import layers as L           # deferred: layers imports us
+        # One read per table: S.cached re-parses its JSON from disk on every
+        # call, so the ~1,000 lookups below must not each go through _snap.
+        tables = {k: _streeteasy(k) for k in
+                  ('asking_price', 'sale_inventory', 'days_on_market',
+                   'price_cut_share')}
+        se_areas = [(name, norm_name(name), a['borough'])
+                    for name, a in tables['asking_price']['areas'].items()
+                    if a['type'] == 'neighborhood']
+
+        def snap(key: str, area: str):
+            t = tables[key]
+            a = t['areas'].get(area)
+            if not a:
+                return None, None, None
+            return _latest(t['months'], a['values'])
+
+        feats, values, matched = [], [], set()
+        as_of = None
+        for f in L.neighborhoods()['features']:
+            p = f['properties']
+            props: Dict[str, Any] = {
+                'name': p.get('ntaname'), 'area': p.get('nta2020'),
+                'borough': p.get('boroname'), 'se_area': None,
+                'asking_price': None, 'asking_price_yoy': None,
+                'inventory': None, 'days_on_market': None,
+                'price_cut_pct': None, 'month': None,
+            }
+            se = match_nta(p.get('ntaname', ''), p.get('boroname', ''), se_areas)
+            if se:
+                m, price, ago = snap('asking_price', se)
+                _, inv, _ = snap('sale_inventory', se)
+                _, dom, _ = snap('days_on_market', se)
+                _, cut, _ = snap('price_cut_share', se)
+                props.update({
+                    'se_area': se, 'month': m,
+                    'asking_price': round(price) if price is not None else None,
+                    'asking_price_yoy': _yoy(price, ago),
+                    'inventory': int(inv) if inv is not None else None,
+                    'days_on_market': int(dom) if dom is not None else None,
+                    # The share file is a 0–1 fraction; shown as a percent.
+                    'price_cut_pct': (round(cut * 100, 1) if cut is not None
+                                      and cut <= 1 else cut),
+                })
+                if price is not None:
+                    matched.add(se)
+                    values.append(round(price))
+                    as_of = as_of or m
+            feats.append({'type': 'Feature', 'properties': props,
+                          'geometry': f['geometry']})
+
+        fc = {'type': 'FeatureCollection', 'features': feats}
+        fc['breaks'] = D.quantile_breaks(values)
+        fc['meta'] = {
+            'metric': 'asking_price', 'label': 'Median asking price',
+            'format': 'usd', 'as_of': as_of,
+            'areas': len(feats), 'areas_with_data': len(values),
+            'se_areas_matched': len(matched),
+            'note': ('What sellers are ASKING, by active listing — not what '
+                     'closes (that is the housing_prices / sales layers, from '
+                     'recorded deeds). Grey areas are parks, industrial land '
+                     'or neighborhoods StreetEasy does not track.'),
+            'source': 'StreetEasy Data Dashboard (sales: asking price, '
+                      'inventory, days on market, price cuts)',
+        }
+        fc['attribution'] = ATTRIBUTION
+        return fc
+    return S.cached('market-forsale-nta-v1', S.DAY, fetch)
 
 
 def find_area(name: str) -> Optional[str]:

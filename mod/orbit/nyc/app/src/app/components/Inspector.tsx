@@ -138,6 +138,69 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
           </div>
         )}
 
+        {selection.layerId === 'forsale' && (
+          <div className="space-y-3">
+            {p.asking_price != null ? (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <Stat label="Median asking" value={usd(p.asking_price)} big />
+                  <Stat
+                    label="vs a year ago"
+                    value={percent(p.asking_price_yoy)}
+                    tone={p.asking_price_yoy == null ? undefined
+                      : p.asking_price_yoy >= 0 ? 'good' : 'bad'}
+                    big
+                  />
+                  <Stat label="For sale now" value={count(p.inventory)} />
+                  <Stat label="Days on market" value={count(p.days_on_market)} />
+                </div>
+                <Meta rows={[
+                  ['Listings with a price cut',
+                   p.price_cut_pct != null ? `${p.price_cut_pct}%` : null],
+                  ['StreetEasy area', p.se_area],
+                  ['Borough', p.borough],
+                  ['As of', p.month],
+                ]} />
+                <p className="text-[10.5px] leading-snug text-nes-ink3">
+                  Asking prices are what sellers want, not what closes — compare
+                  the housing-prices layer, which is recorded deeds.
+                </p>
+              </>
+            ) : (
+              <p className="text-[12px] leading-relaxed text-nes-ink2">
+                StreetEasy doesn’t track a listing market here — usually
+                parkland, industrial land, or an area folded into a larger
+                neighborhood.
+              </p>
+            )}
+          </div>
+        )}
+
+        {selection.layerId === 'news' && (
+          <div className="space-y-3">
+            {p.summary && (
+              <p className="text-[12px] leading-relaxed text-nes-ink2">{p.summary}</p>
+            )}
+            <Meta rows={[
+              ['Source', p.source],
+              ['Published', String(p.published || '').replace('T', ' ')],
+              ['Topic', titleCase(String(p.topic || ''))],
+              ['Pinned to', p.place],
+            ]} />
+            {p.precision === 'borough' && (
+              <p className="text-[10.5px] leading-snug text-nes-ink3">
+                The story names only the borough, so this pin is approximate.
+              </p>
+            )}
+            {p.url && (
+              <a href={p.url} target="_blank" rel="noreferrer"
+                 className="inline-block text-[12px] text-nes-sky hover:underline">
+                Read the story ↗
+              </a>
+            )}
+          </div>
+        )}
+
         {selection.layerId === 'population' && (
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
@@ -341,7 +404,8 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
 }
 
 const KNOWN = [
-  'housing_prices', 'population', 'sales', 'subway_stations', 'subway_ridership',
+  'housing_prices', 'population', 'sales', 'forsale', 'news',
+  'subway_stations', 'subway_ridership',
   'affordable_housing', 'collisions', 'parks', 'bike_routes',
   'evacuation_zones', 'boroughs', 'neighborhoods',
   'traffic_speeds', 'traffic_volume',
@@ -402,6 +466,8 @@ function headline(sel: Selection): string {
     case 'housing_prices': return p.name || p.area
     case 'population': return p.name || p.key
     case 'sales': return titleCase(p.address || 'Sale')
+    case 'forsale': return p.name || p.se_area || 'Neighborhood'
+    case 'news': return p.title || 'Headline'
     case 'subway_stations': return p.name
     case 'subway_ridership': return p.name
     case 'affordable_housing': return p.name || p.address

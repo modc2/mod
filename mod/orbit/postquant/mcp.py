@@ -40,10 +40,14 @@ DEFAULT_PROTOCOL_VERSION = '2025-03-26'
 INSTRUCTIONS = (
     'A post-quantum L1 whose entire state machine is a market in key/value '
     'space. Every account picks its key type at creation — ML-DSA (FIPS 204, '
-    'lattice) or SLH-DSA (FIPS 205, hash-based), two families chosen to share '
-    'no assumption — and every commitment is SHA3-256; there is no elliptic '
-    'curve anywhere, which is the point. pq_algos lists the key types this '
-    'node accepts. '
+    'lattice) or SLH-DSA (FIPS 205, hash-based), two post-quantum families '
+    'chosen to share no assumption, or any key type a plugin registered, '
+    'classical curves included — every commitment is SHA3-256 regardless. '
+    'The gate is priced, not prohibited: pq_algos lists the key types and '
+    'what breaking each costs (brute force assuming a maximal-entropy seed; '
+    'polynomial for anything Shor-class), and pq_complexity shows the full '
+    'measurement, including the entropy probe that admits or refuses a '
+    'plugin scheme. '
     'A key maps to a value, the value is bytes and is usually a 32-byte hash of '
     'something stored elsewhere, and holding that pair costs money continuously: '
     'write gas per byte of KEY and per byte of VALUE (a key byte costs 4x a '
@@ -627,6 +631,33 @@ def _t_algos(a):
     return out
 
 
+def _t_complexity(a):
+    """What breaking a key type costs — the analytic bound under maximal
+    entropy, the empirical probe of that assumption, and the gate verdict."""
+    from pq import complexity as CPLX
+    scheme = a.get('scheme')
+    if scheme:
+        algo = ALGOS.maybe(scheme)
+        if algo is None:
+            raise StateError(f'unknown scheme {scheme!r} — pq_algos lists '
+                             'what this node knows', code='unknown_scheme')
+        probe = a.get('probe')
+        return CPLX.profile(algo, run_probe=True if probe is None else probe)
+    # The all-schemes scan probes only when asked: probing means running
+    # each scheme's own keygen/sign, and a full SLH-DSA sign is seconds of
+    # pure python. Analytic bounds and cached probes are always included.
+    probe_all = bool(a.get('probe'))
+    return {
+        'assumes': 'maximal entropy — every bound below is against a '
+                   'uniformly random seed; the probe is what tests that '
+                   'assumption per scheme',
+        'floor': f'2^{CPLX.MIN_BITS} best-known classical work, or the '
+                 'witness is refused (insufficient_complexity)',
+        'algorithms': [CPLX.profile(ALGOS.get(n), run_probe=probe_all)
+                       for n in ALGOS.names()],
+    }
+
+
 def _t_wallet(a):
     action = (a.get('action') or 'list').lower()
     if action in ('list', 'ls'):
@@ -637,7 +668,7 @@ def _t_wallet(a):
             w['nonce'] = n.state.accounts.get(w['address'], {}).get('nonce', 0)
         return out
     if action == 'create':
-        # keys.create runs the quantum gate itself and its refusal names the
+        # keys.create runs the complexity gate itself and its refusal names the
         # escape hatch; nothing to pre-check here.
         w = K.create(a.get('name') or 'default', seed=a.get('seed'),
                      scheme=a.get('scheme'), overwrite=bool(a.get('overwrite')))
@@ -722,6 +753,29 @@ TOOLS = {
                        'into a plugin directory, no rebuild.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_algos,
+    },
+    'pq_complexity': {
+        'description': 'What breaking a key type costs. The brute-force '
+                       'bound assuming a maximal-entropy seed (2^k keygen '
+                       'trials classical, Grover 2^(k/2) — or POLYNOMIAL '
+                       'for anything that declared quantum_safe=false, '
+                       'because Shor is not a search), the best declared '
+                       'structural attack, and the empirical entropy probe '
+                       'that tests the assumption: deterministic keygen, '
+                       'distinct keys, every seed region load-bearing, '
+                       'avalanche, sign/verify that binds the message. The '
+                       'gate verdict (accepted / insufficient_complexity) '
+                       'is decided from exactly this card. One scheme= for '
+                       'the full probed profile; no args for every scheme '
+                       'at once (analytic only unless probe=true — probing '
+                       'runs each scheme\'s own keygen and sign).',
+        'inputSchema': {'type': 'object', 'properties': {
+            'scheme': _str('one key type by name (pq_algos lists them); '
+                           'omit for all'),
+            'probe': _bool('run the empirical entropy probe (default: yes '
+                           'for a single scheme, no for the all-scheme '
+                           'scan)')}},
+        'handler': _t_complexity,
     },
     'pq_quote': {
         'description': 'What a write will cost, before you sign it. Returns the '

@@ -103,11 +103,15 @@ export async function* chatStream(
   message: string,
   sessionId?: string,
   mapState?: Record<string, any>,
+  token?: string | null,
 ): AsyncGenerator<ChatEvent> {
   const res = await fetch(`${BASE}/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ message, session_id: sessionId ?? null, map_state: mapState ?? null }),
+    // The token is how the agent knows it may save datasets for the owner;
+    // without one it gets the read-only toolset.
+    body: JSON.stringify({ message, session_id: sessionId ?? null,
+                           map_state: mapState ?? null, token: token ?? null }),
   })
   if (!res.ok || !res.body) {
     let detail = res.statusText
@@ -204,6 +208,62 @@ export const api = {
   news: (q: { topic?: string; limit?: number }) => get<NewsFeed>('/news', q),
   crime: () => get<CrimeSummary>('/crime'),
   market: () => get<MarketSummary>('/market'),
+}
+
+// ── the owner's saved datasets ────────────────────────────────────────────
+
+export type SavedDataset = {
+  slug: string
+  title: string
+  description: string
+  kind: 'geojson' | 'overlay' | 'url'
+  geometry: 'point' | 'line' | 'polygon'
+  features?: number
+  added_at: string
+  added_by?: string
+  source?: { name: string; dataset: string; url: string; portal: string }
+}
+
+export type SavedList = {
+  count: number; max: number; owner: string | null
+  writable: boolean; datasets: SavedDataset[]
+}
+
+/** What POST /data accepts: a title plus exactly one source. */
+export type AddDataBody = {
+  title: string
+  description?: string
+  geojson?: GeoJSON.FeatureCollection
+  dataset?: string
+  url?: string
+  mode?: 'points' | 'heat' | 'areas'
+  where?: string
+  by?: 'zip' | 'borough'
+  value?: string
+  per_capita?: boolean
+}
+
+async function dataFetch<T>(path: string, token: string | null,
+                            init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (token) headers.authorization = `Bearer ${token}`
+  const res = await fetch(`${BASE}${path}`, { ...init, headers })
+  if (!res.ok) {
+    let detail = res.statusText
+    try { detail = String((await res.json()).detail ?? detail) } catch {}
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+export const userData = {
+  list: (token: string | null) => dataFetch<SavedList>('/data', token),
+  add: (body: AddDataBody, token: string) =>
+    dataFetch<SavedDataset>('/data', token, { method: 'POST', body: JSON.stringify(body) }),
+  remove: (slug: string, token: string) =>
+    dataFetch<{ removed: string }>(`/data/${slug}`, token, { method: 'DELETE' }),
+  refresh: (slug: string, token: string) =>
+    dataFetch<{ slug: string; features: number }>(`/data/${slug}/refresh`, token, { method: 'POST' }),
 }
 
 /** One headline from the newsroom feeds, tagged with a crude topic. */

@@ -28,8 +28,8 @@ EMPIRICAL — the probe, testing that "maximal entropy" is earned
 
 THE FLOOR
     allowed() in pq/algos.py asks verdict() here: best-known CLASSICAL cost
-    must be at least MIN_BITS (128 by default — below that, brute force is a
-    budget, not a bound), and plugin-origin schemes must pass the probe.
+    must be at least MIN_BITS (2^100 by default — below that, brute force is
+    a budget, not a bound), and plugin-origin schemes must pass the probe.
     The built-in FIPS families are exempt from the probe at the gate (the
     test suite holds them to conformance vectors, which is stronger) but can
     be probed on demand through pq_complexity. Quantum weakness does not
@@ -39,11 +39,17 @@ THE FLOOR
 
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 
 # Below this many bits of best-known classical attack, a key is not a lock.
-MIN_BITS = int(os.environ.get("POSTQUANT_MIN_BITS", "128"))
+# 100 is the line, not 128, deliberately: the floor compares BEST-KNOWN
+# attacks, and ed25519's Pollard rho sits at ~2^126 — a scheme that honest
+# about its own cryptanalysis must not score worse than one that declared
+# nothing. 2^100 is ~10^30 keygens; every computer on earth together does
+# not finish that this century.
+MIN_BITS = int(os.environ.get("POSTQUANT_MIN_BITS", "100"))
 
 # Probe budget: keygens are pure python (9-45ms per scheme here), so the
 # whole probe is well under a second and the verdict is cached per algorithm.
@@ -105,7 +111,10 @@ def probe(algo, *, fresh=False) -> dict:
     means "no entropy loss detected", never "secure"."""
     if not fresh and algo.name in _PROBES:
         return _PROBES[algo.name]
-    rng = random.Random(0xC0FFEE ^ hash(algo.name))
+    # Stable per scheme and per process: hash() is salted, sha3 is not.
+    rng = random.Random(int.from_bytes(
+        hashlib.sha3_256(b"pq-probe\x00" + algo.name.encode()).digest()[:8],
+        "big"))
     seed_len = int(algo.sizes.get("seed", 32))
     failures = []
     avalanche = None

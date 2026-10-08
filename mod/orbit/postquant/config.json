@@ -1,7 +1,7 @@
 {
     "name": "postquant",
-    "version": "0.5.0",
-    "description": "A post-quantum L1 whose entire state machine is a market in key/value space, with pluggable post-quantum key types where the algorithm IS a wasm module. Signatures come from two families that share nothing \u2014 ML-DSA 44/65/87 (FIPS 204, module lattices) and SLH-DSA-SHAKE-128f (FIPS 205, nothing but SHAKE256) \u2014 chosen per wallet, with the address committing to the choice; every commitment is SHA3-256 and there is no elliptic curve anywhere in the trust path. Every transaction witness is verified INSIDE the compiled wasm verifier registered for its key type (blob SHA3-256 committed in pq/wasm/manifest.json, checked on both sides of the process boundary, fail closed), so what a valid signature means is pinned to exact bytes any node can hash, ship and re-run \u2014 and a future key type is one plugin file plus one blob, not a fork. There is one thing to own on this chain, a key in the store, and the whole protocol is the market for it: write gas per byte (a key byte costs 4x a value byte, hash values below blobs), witness gas per byte of signature billed per scheme as-is (2420 for ML-DSA-44, 17088 for SLH-DSA \u2014 the honest price of resting on nothing but hashes), and rent per byte-hour against a prepaid escrow. Expiry makes entries sweepable for their bond; the fee market is EIP-1559 over state growth. Consensus is a single proposer \u2014 authority, not agreement \u2014 but verify replays every block from genesis and re-runs every witness through its key type's wasm. REST, the browser console, 24 MCP tools and a plain-English agent (the fleet agent contract: GET /agents + POST /run/stream) on one port, off the same functions.",
+    "version": "0.6.0",
+    "description": "A post-quantum L1 whose entire state machine is a market in key/value space, with pluggable post-quantum key types where the algorithm IS a wasm module. Signatures come from two families that share nothing \u2014 ML-DSA 44/65/87 (FIPS 204, module lattices) and SLH-DSA-SHAKE-128f (FIPS 205, nothing but SHAKE256) \u2014 chosen per wallet, with the address committing to the choice; every commitment is SHA3-256 and there is no elliptic curve anywhere in the trust path. Every transaction witness is verified INSIDE the compiled wasm verifier registered for its key type (blob SHA3-256 committed in pq/wasm/manifest.json, checked on both sides of the process boundary, fail closed), so what a valid signature means is pinned to exact bytes any node can hash, ship and re-run \u2014 and a future key type is one plugin file plus one blob, not a fork. There is one thing to own on this chain, a key in the store, and the whole protocol is the market for it: write gas per byte (a key byte costs 4x a value byte, hash values below blobs), witness gas per byte of signature billed per scheme as-is (2420 for ML-DSA-44, 17088 for SLH-DSA \u2014 the honest price of resting on nothing but hashes), and rent per byte-hour against a prepaid escrow. Expiry makes entries sweepable for their bond; the fee market is EIP-1559 over state growth. Consensus is a single proposer \u2014 authority, not agreement \u2014 but verify replays every block from genesis and re-runs every witness through its key type's wasm. REST, the browser console, 25 MCP tools and a plain-English agent (the fleet agent contract: GET /agents + POST /run/stream) on one port, off the same functions.",
     "icon": "\u25a7",
     "color": "#9d7bff",
     "anchor": "mod.py",
@@ -28,7 +28,7 @@
         "kem": "ML-KEM-768 (FIPS 203) \u2014 pq/mlkem.py",
         "hash": "SHA3-256 everywhere: addresses, tx ids, Merkle roots, commitments",
         "addresses": "pq + first 20 bytes of SHA3-256 over (algorithm domain, public key) \u2014 the address commits to the key type",
-        "quantum_gate": "algorithms declaring quantum_safe=false register and appear in pq_algos but cannot witness a transaction (POSTQUANT_ALLOW_CLASSICAL=1 opens the gate on a throwaway devnet)"
+        "quantum_gate": "complexity-priced: any key type witnesses, classical included, if its best-known classical attack clears the 2^100 brute-force floor (maximal-entropy seed) and plugin schemes pass the entropy probe (pq/complexity.py); quantum cost is printed per scheme (pq_complexity / GET /complexity) - polynomial for quantum_safe=false - and POSTQUANT_REQUIRE_PQ=1 restores the strict quantum-only gate"
     },
     "economics": {
         "unit": "PQ = 1e9 nq",
@@ -77,13 +77,14 @@
         "pq_mempool",
         "pq_mine",
         "pq_verify",
-        "pq_algos"
+        "pq_algos",
+        "pq_complexity"
     ],
     "endpoints": {
         "info": "GET /",
         "health": "GET /health",
         "genesis": "GET /genesis",
-        "reads": "GET /head /algos /market /keys /get?key= /quote?key= /account /block?block= /tx?hash= /history /prove?key= /check /mempool /verify",
+        "reads": "GET /head /algos /complexity?scheme= /market /keys /get?key= /quote?key= /account /block?block= /tx?hash= /history /prove?key= /check /mempool /verify",
         "writes": "POST /set /del /fund /sweep /list /buy /transfer /wallet /faucet /mine \u2014 JSON bodies, same args as the tools",
         "tools": "GET /tools",
         "mcp": "POST /mcp (JSON-RPC 2.0, Streamable HTTP) | python3 mcp.py (stdio)",
@@ -131,11 +132,13 @@
         "POSTQUANT_WASM": "on (default) requires every witness to verify in its key type's wasm; off is the explicit dev-only opt-out",
         "POSTQUANT_WASM_NODE": "path to the node runtime for the wasm host (default: node on PATH)",
         "POSTQUANT_WASM_TIMEOUT": "seconds to wait for one wasm verification (default 30)",
-        "POSTQUANT_ALLOW_CLASSICAL": "accept witnesses from algorithms that declared quantum_safe=false (devnet only)",
+        "POSTQUANT_ALLOW_CLASSICAL": "devnet only: accept every registered key type, complexity floor and entropy probe included",
         "POSTQUANT_AGENT_LLM": "optional OpenAI-compatible base url for the agent's llm brain, e.g. http://127.0.0.1:11434/v1 (unset = rules brain only)",
         "POSTQUANT_AGENT_MODEL": "model name for the llm brain (default qwen2.5:7b)",
         "POSTQUANT_AGENT_LLM_KEY": "bearer for the llm endpoint if it needs one (or ~/.mod/postquant/agent.key)",
-        "POSTQUANT_AGENT_TIMEOUT": "seconds per llm call (default 120)"
+        "POSTQUANT_AGENT_TIMEOUT": "seconds per llm call (default 120)",
+        "POSTQUANT_REQUIRE_PQ": "restore the strict gate: quantum-safe key types only",
+        "POSTQUANT_MIN_BITS": "complexity floor in bits of best-known classical attack (default 100)"
     },
     "services": [
         "postquant-api"

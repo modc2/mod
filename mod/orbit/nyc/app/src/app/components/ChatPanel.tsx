@@ -1,9 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { chatStream } from '@/lib/api'
-import type { Directive } from '@/lib/scene'
+import { storedToken } from '@/lib/auth'
+import type { Directive, MapDirective } from '@/lib/scene'
+import Infographic from './Infographic'
 import { Coin, QuestionBlock } from './Sprites'
+
+// ChatPanel owns the composer state, so without this every keystroke would
+// re-render every card in the transcript. Card props are stable per message.
+const Card = memo(Infographic)
 
 type ToolCall = { name: string; input: Record<string, any> }
 type Message =
@@ -13,8 +19,9 @@ type Message =
 type Props = {
   open: boolean
   onClose: () => void
-  /** Apply a map / infographic directive the agent issued. */
-  onDisplay?: (d: Directive) => void
+  /** Apply a map directive the agent issued. Infographics never leave the
+      transcript, so they are filtered out here at the dispatch. */
+  onDisplay?: (d: MapDirective) => void
   /** What the map shows right now, sent along with each question. */
   mapState?: () => Record<string, any>
 }
@@ -65,7 +72,9 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
       })
 
     try {
-      for await (const ev of chatStream(q, session, mapState?.())) {
+      // An owner token (from "Your data" sign-in) lets the agent save
+      // datasets as layers; without one it answers read-only, same as ever.
+      for await (const ev of chatStream(q, session, mapState?.(), storedToken())) {
         if (ev.type === 'session') setSession(ev.id)
         else if (ev.type === 'tool') patch((l) => ({ ...l, tools: [...l.tools, ev] }))
         else if (ev.type === 'text')
@@ -73,7 +82,7 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
         else if (ev.type === 'done' && ev.session_id) setSession(ev.session_id)
         else if (ev.type === 'error') patch((l) => ({ ...l, error: ev.error }))
         else if (ev.type === 'display') {
-          onDisplay?.(ev.directive)
+          if (ev.directive.kind === 'map') onDisplay?.(ev.directive)
           patch((l) => ({ ...l, shown: [...(l.shown ?? []), ev.directive] }))
         }
       }
@@ -94,8 +103,10 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
   return (
     // A conversation that drives the map can't cover the map: on a phone the
     // chat is a half-height bottom sheet with the map live above it, growable
-    // to full screen for reading. On desktop it is a wide right drawer — above
-    // the inspector, which it would otherwise fight for the right edge.
+    // to full screen for reading. On desktop the page shrinks the map beside
+    // this column, so the two sit side by side instead of one over the other.
+    // The 400px width is load-bearing in page.tsx too: its 412/424/206
+    // offsets are all derived from it.
     <aside className={`blk sheet-in pointer-events-auto absolute inset-x-0 bottom-0 z-50 flex flex-col overflow-hidden
                       md:inset-auto md:bottom-3 md:right-3 md:top-[86px] md:h-auto md:w-[400px]
                       ${full ? 'top-0' : 'h-[52dvh]'}`}>
@@ -165,16 +176,20 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
                   <span>{t.name.toUpperCase()}</span>
                 </div>
               ))}
-              {msg.shown?.map((d, j) => (
-                <button key={`d${j}`} onClick={() => onDisplay?.(d)}
-                        title="Show this again"
-                        className="btn tap flex w-full items-center gap-2 px-2.5 py-2 text-left">
-                  <span className="pixel shrink-0 text-[11.5px] text-nes-coin">
-                    {d.kind === 'map' ? 'MAP' : 'CARD'}
-                  </span>
-                  <span className="min-w-0 truncate text-[11.5px] text-nes-ink2">{describe(d)}</span>
-                </button>
-              ))}
+              {/* A card the agent made is part of the answer, so it sits in
+                  the transcript rather than floating over the map. */}
+              {msg.shown?.map((d, j) =>
+                d.kind === 'infographic' ? (
+                  <Card key={`d${j}`} card={d} />
+                ) : (
+                  <button key={`d${j}`} onClick={() => onDisplay?.(d)}
+                          title="Show this again"
+                          className="btn tap flex w-full items-center gap-2 px-2.5 py-2 text-left">
+                    <span className="pixel shrink-0 text-[11.5px] text-nes-coin">MAP</span>
+                    <span className="min-w-0 truncate text-[11.5px] text-nes-ink2">{describe(d)}</span>
+                  </button>
+                ),
+              )}
               {msg.text && (
                 <div className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-nes-ink2">
                   {msg.text}
@@ -217,9 +232,8 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
   )
 }
 
-/** One line saying what a directive did, for its chip in the transcript. */
-function describe(d: Directive): string {
-  if (d.kind === 'infographic') return d.title
+/** One line saying what a map directive did, for its chip in the transcript. */
+function describe(d: MapDirective): string {
   const parts: string[] = []
   if (d.reset) parts.push('reset')
   if (d.overlay) parts.push(d.overlay.title)

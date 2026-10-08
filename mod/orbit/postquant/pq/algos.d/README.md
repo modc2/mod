@@ -33,8 +33,17 @@ Rules the chain holds you to:
 - **Names are permanent.** The algorithm name is hashed into every address
   created under it. Rename it and those addresses are unreachable.
 - **quantum_safe is a claim you make in public.** It shows in the catalog
-  next to your name. Witnesses from `quantum_safe=False` algorithms are
-  refused unless the operator sets `POSTQUANT_ALLOW_CLASSICAL=1`.
+  next to your name, and on this chain `False` means "polynomial for a
+  quantum adversary" — that is printed, not hidden. Classical schemes may
+  still witness: the gate prices complexity instead. Your best-known
+  classical attack (declare it with `classical_bits=` if cheaper than brute
+  force over the seed) must clear the 2^100 floor, and your scheme must
+  survive the entropy probe in `pq/complexity.py` — deterministic keygen,
+  distinct keys, every seed region load-bearing, a verify that actually
+  binds the message. Fail either and your witnesses come back
+  `insufficient_complexity`; `pq_complexity scheme=<name>` shows the full
+  measurement. `POSTQUANT_REQUIRE_PQ=1` restores the strict quantum-only
+  gate; `POSTQUANT_ALLOW_CLASSICAL=1` opens everything (devnet only).
 - **Bytes are billed.** Witness gas is charged on your actual signature and
   public key bytes. A 17KB signature is allowed; it just pays.
 

@@ -4,7 +4,7 @@
  * The chat agent calls `nyc_map` / `nyc_infographic`; the API validates the
  * call and forwards the result on the chat stream as a `display` directive.
  * This hook owns the state only the agent sets (an overlay of any open
- * dataset, highlighted areas, a value filter, a caption, the pinned card) and
+ * dataset, highlighted areas, a value filter, a caption) and
  * applies the rest of a directive through the page's own setters — so the map
  * the agent builds is the same map the controls build, and the user can keep
  * editing it by hand.
@@ -83,7 +83,6 @@ export function useAgentScene(setters: Setters) {
   // Areas the camera should frame: what was just outlined or kept.
   const [frame, setFrame] = useState<{ names: string[]; nonce: number }>({ names: [], nonce: 0 })
   const [caption, setCaption] = useState<string | null>(null)
-  const [card, setCard] = useState<Infographic | null>(null)
 
   // The overlay is fetched from the same cache the tool just filled, so this
   // is normally instant; a stale URL never overwrites a newer one.
@@ -110,10 +109,9 @@ export function useAgentScene(setters: Setters) {
   }, [])
 
   const apply = useCallback((d: Directive) => {
-    if (d.kind === 'infographic') {
-      setCard(d)
-      return
-    }
+    // An infographic is chat furniture: ChatPanel renders it in the
+    // transcript, so there is nothing for the map scene to hold.
+    if (d.kind === 'infographic') return
     const s = ref.current
     const { defaults } = s
     if (d.reset) {
@@ -157,11 +155,7 @@ export function useAgentScene(setters: Setters) {
     if (d.caption !== undefined) setCaption(d.caption || null)
   }, [clearAgent])
 
-  return {
-    overlay, highlight, filter, only, frame, caption, card, apply,
-    closeCard: () => setCard(null),
-    clearAgent,
-  }
+  return { overlay, highlight, filter, only, frame, caption, apply, clearAgent }
 }
 
 /** A compact read of what the map shows, sent with each chat turn. */

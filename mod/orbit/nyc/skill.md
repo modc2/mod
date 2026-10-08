@@ -143,6 +143,29 @@ number:
   Thin neighborhoods whipsaw their medians — movers lists require 20+
   active listings. Keep the StreetEasy/Zillow attribution in payloads.
 
+## Tenant housing data (`nycgis/housing.py`)
+
+- Tools `nyc_lotteries` / `nyc_building_check` / `nyc_violations` /
+  `nyc_nycha`; HTTP `/lotteries`, `/building`, `/violations`, `/nycha`;
+  CLI `m nyc/lotteries` etc. Sources: Housing Connect lotteries by lottery
+  (vy5i-a666) and by building (nibs-na6y), HPD violations (wvxf-dwi5),
+  HPD complaints/problems (ygpa-z7cr), HPD litigation (59kj-x8nc), the
+  NYCHA Development Data Book (evjd-dqpz).
+- **The lottery file keeps stale `Active` rows with deadlines years past**
+  — "open" additionally requires `lottery_end_date >= today OR NULL`, and
+  the cache key carries the day. Boroughs there are two-letter codes
+  (`BK`/`QN`/…), mapped both ways.
+- **The old HPD complaints file (uwyv-629c) now requires a login** — use
+  ygpa-z7cr, which is problem-level: count "problems", not complaints,
+  and skip `problem_duplicate_flag = 'Y'` (null-safe, SoQL drops nulls
+  on `!=`).
+- The violations file is ~11M rows: `$group` server-side only. Address
+  lookups match house number exactly and the street as a prefix with the
+  suffix word dropped (`ELDERT ST` ≡ `ELDERT STREET`).
+- NYCHA Data Book is a spreadsheet upload: rents arrive as `$513`,
+  numbers with commas (`_n` strips both), and TOTAL roll-up rows are
+  skipped by name.
+
 ## City data + the full catalog (`nycgis/citydata.py`, `catalog.py`)
 
 - Curated tools: `nyc_311` (erm2-nwe9), `nyc_collisions` (h9gi-nx95),
@@ -173,6 +196,31 @@ Add a loader + a `LAYERS` entry in `nycgis/layers.py`. The frontend builds its
 panel, legend and inspector from the catalogue, so a layer using an existing
 mark form needs no frontend change. Give it a distinct hue only if it shares a
 mark form with another layer (see the colour notes in `app/src/lib/palette.ts`).
+
+## The owner's data (`nycgis/userdata.py`)
+
+The owner can save datasets as permanent layers (rail category "Your data"),
+three ways: inline GeoJSON, any Socrata dataset shaped like an agent overlay
+(points/heat/areas + SoQL where — re-fetched on the 6h overlay cadence), or a
+remote GeoJSON URL. Records live in `~/.mod/nyc/data` (NOT the cache —
+`clear_cache` must never touch them); `layers.catalog()/get()` fall through to
+it, so the layer appears everywhere a built-in does.
+
+Writes are owner-gated on the fleet's mod-protocol token:
+
+- HTTP: `POST /data`, `DELETE /data/{slug}`, `POST /data/{slug}/refresh` need
+  `Authorization: Bearer <token>` verifying to the owner (box key, or
+  `NYC_OWNER`); the same header unlocks `nyc_add_data`/`nyc_remove_data` over
+  `/tools` and `/mcp`.
+- Chat: the app sends the owner's wallet token with `/chat`; the agent's MCP
+  subprocess is then launched with `NYC_DATA_WRITE=1`, which is the whole
+  write bit. An unauthenticated chat gets a read-only agent.
+- CLI: `m nyc add_data title="..." dataset=...` (the box holds the key, so no
+  token).
+
+`userdata._auth()` only uses an ALREADY-imported `mod` package — a fresh
+import from inside nycgis is fragile in test/stdio contexts; where the
+protocol isn't loaded, identity reports unknown and the env grant gates.
 
 ## Tests
 

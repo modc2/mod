@@ -39,9 +39,18 @@ plugin file — `pq/algos.d/<name>.py` in-tree, or `~/.mod/postquant/algos/`
 per node — that registers keygen/sign/verify and stamps its `SigAlgo` with
 `wasm={file, sha3_256}`; the binding pass (`pq/algos.d/zz_wasm.py` →
 `pq/wasmvm.py`) then enforces that blob on every witness of that type. The
-quantum gate still applies: an algorithm that declares itself classical
-registers, shows up in `pq_algos`, and is turned away at the mempool
-(`pq/algos.d/ed25519.py` is the worked example).
+gate prices complexity instead of prohibiting classical: any key type may
+witness — `pq/algos.d/ed25519.py` is the worked classical example, admitted
+at ~2^126 best-known classical work — provided the best-known classical
+attack clears a 2^100 floor (brute force assuming a maximal-entropy seed)
+and, for plugin schemes, an empirical entropy probe holds up: deterministic
+keygen, distinct keys, every seed region load-bearing, sign/verify that
+binds the message. What a quantum adversary pays is printed per scheme
+(`pq_complexity` / `GET /complexity`) — polynomial for anything that
+declared `quantum_safe=false` — and is reflected in witness gas, but only
+`POSTQUANT_REQUIRE_PQ=1` turns it back into a refusal. A scheme below the
+floor or failing the probe is refused with `insufficient_complexity` and
+the measurement attached.
 
 The builtin verifiers are dependency-free Rust in `pq/wasm-src/`, compiled
 with bare rustc (no cargo, no network) by `build.sh`, executed by a
@@ -95,7 +104,7 @@ python3 -m pytest tests -q     # the suite, against a throwaway chain
 - Console: `http://localhost:51030/postquant`
 - REST: `GET /head /market /keys /get?key= /quote?key= /prove?key= …`,
   `POST /set /del /fund /sweep /list /buy /transfer /wallet /faucet /mine`
-- MCP: `POST /mcp` (Streamable HTTP), 24 tools, `pq_head` through `pq_algos`
+- MCP: `POST /mcp` (Streamable HTTP), 25 tools, `pq_head` through `pq_complexity`
 
 ## Ask it
 
@@ -175,7 +184,7 @@ pq/wasm-src/    their Rust sources, build.sh (bare rustc), parity_test.py
 state.py        the state machine — pure functions of (state, tx, timestamp)
 keys.py         keystore, addresses, transaction signing
 chain.py        blocks, mempool, the proposer, replay + verify
-mcp.py          24 tools; call_tool() is the one door
+mcp.py          25 tools; call_tool() is the one door
 agent.py        plain English → call_tool(); rules brain + optional llm brain
 api.py          REST + console + MCP on one port
 console.html    the app

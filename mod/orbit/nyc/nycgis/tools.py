@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import catalog as CAT
 from . import citydata as CD
+from . import housing as HG
 from . import layers as L
 from . import prices as P
 from . import scene as SC
@@ -245,6 +246,42 @@ def query_dataset(id: str, select: Optional[str] = None,
             'limit': limit, 'url': f'https://{dom}/d/{id}', 'rows': rows}
 
 
+# ── the owner's saved datasets ───────────────────────────────────────────────
+
+def _data_tool(slug: str = '') -> dict:
+    from . import userdata as U
+    if not slug:
+        out = U.list_()
+        out['note'] = ('Each dataset is a map layer; toggle one with nyc_map '
+                       'add=["<slug>"]. The owner saves new ones with '
+                       'nyc_add_data.')
+        return out
+    record = U.info(slug)
+    fc = U.data(slug)
+    return {**record, 'features': len(fc.get('features', [])),
+            'meta': fc.get('meta')}
+
+
+def _add_data_tool(**kw) -> dict:
+    from . import userdata as U
+    record = U.add(kw)
+    out = {'saved': record,
+           'note': (f'"{record["title"]}" is now a layer in the rail '
+                    f'(category "Your data"). Show it with nyc_map '
+                    f'add=["{record["slug"]}"].')}
+    if record['kind'] == 'overlay':
+        meta = U.data(record['slug']).get('meta', {})
+        for k in ('rows', 'plotted', 'top', 'bottom', 'unit', 'capped'):
+            if meta.get(k) is not None:
+                out[k] = meta[k]
+    return out
+
+
+def _remove_data_tool(slug: str) -> dict:
+    from . import userdata as U
+    return U.remove(slug)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # registry
 # ─────────────────────────────────────────────────────────────────────────────
@@ -262,6 +299,10 @@ TITLES = {
     'nyc_sales': 'Individual recorded sales',
     'nyc_rents': 'Affordable rents',
     'nyc_homes': 'Find affordable homes',
+    'nyc_lotteries': 'Open housing lotteries',
+    'nyc_building_check': 'Check a building first',
+    'nyc_violations': 'Housing violations',
+    'nyc_nycha': 'Public housing (NYCHA)',
     'nyc_affordable': 'Affordable housing built',
     'nyc_traffic': 'Traffic speeds and when to drive',
     'nyc_crime': 'Crime and shootings',
@@ -279,17 +320,23 @@ TITLES = {
     'nyc_query': 'Query any dataset (SoQL)',
     'nyc_map': 'Change the map on screen',
     'nyc_infographic': 'Pin an infographic card',
+    'nyc_data': 'Your saved datasets',
+    'nyc_add_data': 'Save a dataset as a layer (owner)',
+    'nyc_remove_data': 'Remove a saved dataset (owner)',
 }
 
 
 class Tool:
     def __init__(self, name: str, description: str, group: str,
-                 params: Dict[str, Dict], handler: Callable[..., Any]):
+                 params: Dict[str, Dict], handler: Callable[..., Any],
+                 write: bool = False, destructive: bool = False):
         self.name = name
         self.description = description
         self.group = group
         self.params = params            # name -> {type, description, default?, required?}
         self.handler = handler
+        self.write = write              # persists state; owner-gated at the call site
+        self.destructive = destructive
 
     @property
     def title(self) -> str:
@@ -301,13 +348,15 @@ class Tool:
     @property
     def annotations(self) -> Dict[str, Any]:
         """
-        MCP tool annotations. Every tool here reads public open data over HTTP
-        and writes nothing, anywhere — so the whole registry is read-only,
-        idempotent and open-world (the answer depends on what the city
-        published today, not on anything this process holds).
+        MCP tool annotations. Almost every tool here reads public open data
+        over HTTP and writes nothing, anywhere — idempotent and open-world
+        (the answer depends on what the city published today, not on anything
+        this process holds). The exceptions are the owner's data tools
+        (nyc_add_data / nyc_remove_data), which persist state and say so.
         """
-        return {'title': self.title, 'readOnlyHint': True,
-                'destructiveHint': False, 'idempotentHint': True,
+        return {'title': self.title, 'readOnlyHint': not self.write,
+                'destructiveHint': self.destructive,
+                'idempotentHint': not self.write,
                 'openWorldHint': True}
 
     @property
@@ -423,6 +472,57 @@ TOOLS: List[Tool] = [
           'max_price': _p('integer', 'Maximum sale price'),
           'search': _p('string', 'Filter by address/neighborhood substring')},
          _sales_table),
+
+    # ── tenants: lotteries, building checks, violations, NYCHA ──────────
+    Tool('nyc_lotteries',
+         'Affordable-housing lotteries on Housing Connect that are open '
+         'for applications right now: deadlines (soonest first), unit mix '
+         'by bedroom count, which income bands (% of AMI) qualify, '
+         'senior/NYCHA/mobility set-asides, and where. Pass lottery_id to '
+         'get the addresses behind one lottery. Applying is free at '
+         'housingconnect.nyc.gov and timing within the window does not '
+         'matter.',
+         'housing',
+         {'borough': _p('string', 'Borough name, e.g. "brooklyn"'),
+          'status': _p('string', 'active (default), closed, tenant '
+                       'selection, filled or all', 'active'),
+          'lottery_id': _p('string', 'One lottery id → its buildings'),
+          'limit': _p('integer', 'Max lotteries returned', 50)},
+         lambda borough='', status='active', lottery_id='', limit=50:
+             (HG.lottery_buildings(lottery_id) if lottery_id else
+              HG.lotteries(borough=borough, status=status,
+                           limit=int(limit)))),
+    Tool('nyc_building_check',
+         'Tenant due diligence on ONE address: open HPD housing-'
+         'maintenance violations by class (C = immediately hazardous — no '
+         'heat, lead, vermin), the problems tenants reported in the last '
+         'two years, and HPD litigation against the landlord. Use it '
+         'before signing a lease.',
+         'housing',
+         {'address': _p('string',
+                        'House number then street, e.g. "760 Eldert Lane"',
+                        required=True),
+          'borough': _p('string', 'Borough (narrows same-named streets)')},
+         lambda address='', borough='': HG.building(address,
+                                                    borough=borough)),
+    Tool('nyc_violations',
+         'Housing conditions citywide or per borough: open HPD violations '
+         'by severity class, the borough breakdown, and the buildings '
+         'with the most open immediately-hazardous (class C) violations.',
+         'housing',
+         {'borough': _p('string', 'Borough name'),
+          'limit': _p('integer', 'Worst buildings returned', 15)},
+         lambda borough='', limit=15:
+             HG.violations(borough=borough, limit=int(limit))),
+    Tool('nyc_nycha',
+         'Public housing: NYCHA developments, apartments, resident '
+         'population and average rent by borough, plus the largest '
+         'developments.',
+         'housing',
+         {'borough': _p('string', 'Borough name'),
+          'limit': _p('integer', 'Largest developments returned', 15)},
+         lambda borough='', limit=15:
+             HG.nycha(borough=borough, limit=int(limit))),
 
     # ── people ───────────────────────────────────────────────────────────
     Tool('nyc_population',
@@ -700,7 +800,10 @@ TOOLS: List[Tool] = [
          {'layers': _p('array', 'Replace the visible layer set with these ids'),
           'add': _p('array', 'Layer ids to switch on'),
           'remove': _p('array', 'Layer ids to switch off'),
-          'basemap': _p('string', f'One of: {", ".join(SC.BASEMAPS)}'),
+          'basemap': _p('string', f'One of: {", ".join(SC.BASEMAPS)}. earth is the '
+                                  '3-D view: satellite globe, tilted camera, extruded '
+                                  'buildings — use it when the user asks for 3D, '
+                                  'satellite or a Google-Earth-style look'),
           'metric': _p('string', f'Housing metric: {", ".join(P.METRICS)}'),
           'geography': _p('string', f'Housing geography: {", ".join(P.GEOGRAPHIES)}'),
           'since': _p('string', 'Housing window start, YYYY-MM-DD'),
@@ -739,6 +842,47 @@ TOOLS: List[Tool] = [
           'bullets': _p('array', 'Up to 6 short takeaways'),
           'sources': _p('array', 'Datasets the numbers came from')},
          SC.infographic),
+
+    # ── the owner's data: saved datasets as first-class layers ───────────
+    Tool('nyc_data',
+         'The datasets the deployment owner has saved as map layers '
+         '(category "Your data" in the rail). No slug lists them all; a slug '
+         'returns that record. Toggle one on the map with nyc_map '
+         'add=["<slug>"].',
+         'your_data',
+         {'slug': _p('string', 'One saved dataset to inspect')},
+         _data_tool),
+    Tool('nyc_add_data',
+         'OWNER ONLY: save a dataset as a permanent map layer in the rail. '
+         'Pass a title plus exactly one source: `dataset` (any Socrata id — '
+         'find one with nyc_find_datasets, read columns with nyc_dataset '
+         'first, then shape it with mode/where/by/value like a nyc_map '
+         'overlay) or `url` (a public GeoJSON file). Fetch-backed layers '
+         're-fetch themselves every few hours, so the layer stays current. '
+         'Fails for non-owners; do not retry on an authorization error.',
+         'your_data',
+         {'title': _p('string', 'Layer title (also makes the slug)', required=True),
+          'description': _p('string', 'One line shown in the layer rail'),
+          'dataset': _p('string', 'Socrata dataset id, e.g. "erm2-nwe9"'),
+          'url': _p('string', 'https URL of a GeoJSON FeatureCollection'),
+          'geojson': _p('object', 'Inline GeoJSON FeatureCollection (small sets only)'),
+          'mode': _p('string', 'points | heat | areas (Socrata datasets)', 'points'),
+          'where': _p('string', 'SoQL $where to filter the dataset'),
+          'by': _p('string', 'areas mode: "zip" or "borough"'),
+          'column': _p('string', 'areas mode: the zip/borough column, if unusual'),
+          'value': _p('string', 'areas mode: count(*) or sum/avg/min/max(<col>)'),
+          'per_capita': _p('boolean', 'areas mode: per 10k residents'),
+          'label': _p('string', 'points mode: column shown as the point label'),
+          'lat': _p('string', 'points mode: latitude column, if unusual'),
+          'lng': _p('string', 'points mode: longitude column, if unusual'),
+          'limit': _p('integer', 'points mode: max points'),
+          'domain': _p('string', '"nyc" or "nys"', 'nyc')},
+         _add_data_tool, write=True),
+    Tool('nyc_remove_data',
+         'OWNER ONLY: delete one saved dataset from the layer rail.',
+         'your_data',
+         {'slug': _p('string', 'The saved dataset to remove', required=True)},
+         _remove_data_tool, write=True, destructive=True),
 ]
 
 _BY_NAME = {t.name: t for t in TOOLS}

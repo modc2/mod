@@ -3,10 +3,13 @@
 import type { Breaks, Choropleth, Options } from '@/lib/api'
 import { byFormat } from '@/lib/format'
 import {
-  DIVERGING, LAYER_COLOR, NO_DATA, SEQUENTIAL, SPEED_BAND, SPEED_BAND_LABEL,
-  ZONE_COLOR, rampOf,
+  DIVERGING, LAYER_COLOR, NEWS_TOPIC, NEWS_TOPIC_LABEL, NO_DATA, SEQUENTIAL,
+  SPEED_BAND, SPEED_BAND_LABEL, ZONE_COLOR, rampOf,
 } from '@/lib/palette'
 import { SALE_BREAKS } from './MapView'
+
+/** A layer payload that carries its own quantile breaks (crime, forsale, …). */
+type SelfDescribing = GeoJSON.FeatureCollection & { breaks?: Breaks; meta?: any }
 
 type Props = {
   breaks: Breaks | null
@@ -16,8 +19,8 @@ type Props = {
   areasWithData?: number
   totalAreas?: number
   population?: Choropleth | null
-  /** The crime-by-precinct layer, whose payload carries its own breaks. */
-  crime?: (GeoJSON.FeatureCollection & { breaks?: Breaks; meta?: any }) | null
+  crime?: SelfDescribing | null
+  forsale?: SelfDescribing | null
 }
 
 /**
@@ -27,6 +30,7 @@ type Props = {
  */
 export default function Legend({
   breaks, metric, options, active, areasWithData, totalAreas, population, crime,
+  forsale,
 }: Props) {
   const rows: React.ReactNode[] = []
 
@@ -34,46 +38,45 @@ export default function Legend({
   if (active.includes('population') && pb && pb.stops.length > 1) {
     const pm = population!.meta as any
     rows.push(
-      <div key="population">
-        <div className="mb-1.5 pixel text-[10px] leading-snug text-nes-coin">
-          {pm?.label ?? 'Population'}
-        </div>
-        <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
-          {rampOf(pb.stops.length, SEQUENTIAL).map((c, i) => (
-            <div key={i} className="flex-1" style={{ background: c }} />
-          ))}
-        </div>
-        <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
-          <span>under {byFormat(pb.stops[1], pm?.format)}</span>
-          <span>{byFormat(pb.stops[pb.stops.length - 1], pm?.format)}+</span>
-        </div>
-        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-nes-ink3">
-          <span className="h-3 w-3 border border-white/10" style={{ background: NO_DATA }} />
-          No data / no residents
-        </div>
-      </div>,
+      <RampRow key="population" breaks={pb} label={pm?.label ?? 'Population'}
+               format={pm?.format} noData="No data / no residents" />,
     )
   }
   const cb = crime?.breaks
   if (active.includes('crime') && cb && cb.stops.length > 1) {
+    const cm = crime!.meta as any
     rows.push(
-      <div key="crime">
-        <div className="mb-1.5 pixel text-[10px] leading-snug text-nes-coin">
-          {(crime?.meta as any)?.label ?? 'Crime complaints'}
-        </div>
-        <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
-          {rampOf(cb.stops.length, SEQUENTIAL).map((c, i) => (
-            <div key={i} className="flex-1" style={{ background: c }} />
+      <RampRow key="crime" breaks={cb} label={cm?.label ?? 'Crime complaints'}
+               format={cm?.format ?? 'int'}
+               note="Reported to the NYPD this year, by precinct" />,
+    )
+  }
+  const fb = forsale?.breaks
+  if (active.includes('forsale') && fb && fb.stops.length > 1) {
+    const fm = forsale!.meta as any
+    rows.push(
+      <RampRow key="forsale" breaks={fb} label={fm?.label ?? 'Median asking price'}
+               format={fm?.format ?? 'usd'} noData="Not tracked by StreetEasy"
+               note="Active listings — asking, not closing, prices" />,
+    )
+  }
+
+  if (active.includes('news')) {
+    rows.push(
+      <Row key="news" title="News topics">
+        <ul className="space-y-1">
+          {NEWS_TOPIC_LABEL.map(([key, label]) => (
+            <li key={key} className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+              <span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-white/70"
+                    style={{ background: NEWS_TOPIC[key] }} />
+              <span>{label}</span>
+            </li>
           ))}
-        </div>
-        <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
-          <span>under {byFormat(cb.stops[0], 'int')}</span>
-          <span>{byFormat(cb.stops[cb.stops.length - 1], 'int')}+</span>
-        </div>
+        </ul>
         <p className="mt-1 text-[11.5px] leading-snug text-nes-ink3">
-          Reported to the NYPD this year, by precinct
+          Faint dots are pinned to a whole borough.
         </p>
-      </div>,
+      </Row>,
     )
   }
 
@@ -257,7 +260,7 @@ export default function Legend({
 
 /** Layers that put a row in the key, besides the choropleth. */
 const ENCODED = [
-  'sales', 'evacuation_zones', 'collisions', 'shootings', 'crime',
+  'sales', 'forsale', 'news', 'evacuation_zones', 'collisions', 'shootings', 'crime',
   'subway_ridership', 'affordable_housing', 'subway_stations', 'bike_routes',
   'parks', 'subway_lines', 'traffic_speeds', 'traffic_volume',
 ]
@@ -270,6 +273,42 @@ const ENCODED = [
 export function hasLegend(active: string[], breaks: Breaks | null): boolean {
   if (active.includes('housing_prices') && breaks && breaks.stops.length > 0) return true
   return ENCODED.some((id) => active.includes(id))
+}
+
+/**
+ * One quantile-ramp key: label, swatch strip, the range the paint actually
+ * draws (the first class covers values under stops[1] — stepExpression skips
+ * stops[0]), and optional no-data / footnote lines. The format comes from the
+ * payload's meta, the same contract the paint reads its field name from.
+ */
+function RampRow({ breaks, label, format, noData, note }: {
+  breaks: Breaks
+  label: string
+  format?: string
+  noData?: string
+  note?: string
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 pixel text-[10px] leading-snug text-nes-coin">{label}</div>
+      <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
+        {rampOf(breaks.stops.length, SEQUENTIAL).map((c, i) => (
+          <div key={i} className="flex-1" style={{ background: c }} />
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
+        <span>under {byFormat(breaks.stops[1], format ?? '')}</span>
+        <span>{byFormat(breaks.stops[breaks.stops.length - 1], format ?? '')}+</span>
+      </div>
+      {noData && (
+        <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-nes-ink3">
+          <span className="h-3 w-3 border border-white/10" style={{ background: NO_DATA }} />
+          {noData}
+        </div>
+      )}
+      {note && <p className="mt-1 text-[11.5px] leading-snug text-nes-ink3">{note}</p>}
+    </div>
+  )
 }
 
 function Row({ title, children }: { title: string; children: React.ReactNode }) {

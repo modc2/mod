@@ -4,10 +4,11 @@ An address is 20 bytes of SHA3-256 over (key type, public key), printed as
 `pq` + 40 hex. Which key type is no longer one answer: every algorithm in
 pq/algos.py — ML-DSA out of the lattice family, SLH-DSA out of the hash
 family, whatever a plugin in pq/algos.d/ adds — signs transactions here
-through the same four functions, and the chain's quantum gate decides which
-of them may witness. Nothing accepted by default rides an elliptic curve,
-because a curve is exactly the thing Shor's algorithm takes apart; SHA3
-carries every commitment either way.
+through the same four functions, and the chain's complexity gate decides
+which of them may witness: best-known classical attack above the floor,
+entropy probe passed for plugin schemes, quantum cost printed on the
+catalog card (polynomial for curves — Shor — unless the operator requires
+post-quantum outright). SHA3 carries every commitment either way.
 
 The keystore lives at ~/.mod/postquant/keys.json, mode 0600, off the source
 tree and never committed. What is stored per wallet is the 32-byte seed and
@@ -116,20 +117,13 @@ def _public(w):
 
 def _algo_for_wallet(scheme):
     """The algorithm a wallet may be created under: registered, and past the
-    quantum gate — a wallet whose witnesses the chain refuses is a trap."""
-    a = algos.maybe(scheme)
-    if a is None:
-        raise StateError(
-            f"unknown key type {scheme!r} — this node knows "
-            f"{', '.join(algos.names())}. New types are one file in "
-            "pq/algos.d/ (see its README)", code="unknown_scheme")
-    if not algos.allowed(scheme):
-        raise StateError(
-            f"{scheme} declared quantum_safe=false and this chain is "
-            "post-quantum — it is listed in pq_algos but cannot witness a "
-            "transaction (POSTQUANT_ALLOW_CLASSICAL=1 opens the gate on a "
-            "throwaway devnet)", code="not_quantum_safe", status=403)
-    return a
+    complexity gate — a wallet whose witnesses the chain refuses is a trap.
+    algos.refusal() is the single source of the gate's reasons."""
+    r = algos.refusal(scheme)
+    if r is not None:
+        code, message, status = r
+        raise StateError(message, code=code, status=status)
+    return algos.get(scheme)
 
 
 def create(name="default", seed=None, scheme=None, overwrite=False):
@@ -160,7 +154,8 @@ def wallets():
     data = _load()
     return {"wallets": [_public(w) for w in data["wallets"].values()],
             "default": data["default"], "keystore": KEY_FILE,
-            "scheme": SCHEME, "schemes": algos.names(pq_only=True)}
+            "scheme": SCHEME,
+            "schemes": [n for n in algos.names() if algos.allowed(n)]}
 
 
 def get(name=None, required=True):
@@ -244,7 +239,7 @@ def verify_tx(tx, known_pk=None) -> bool:
     """Check a transaction's witness.
 
     Four things have to hold and all four matter: the scheme is one this
-    chain accepts (the quantum gate lives here as well as at the mempool, so
+    chain accepts (the gate lives here as well as at the mempool, so
     a full replay audit re-judges every witness against current policy), the
     signature verifies under that scheme, the public key hashes with that
     scheme's domain to the `from` address, and the key matches whatever the

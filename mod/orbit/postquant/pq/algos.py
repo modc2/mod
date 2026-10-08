@@ -32,7 +32,7 @@ THE GATE: PRICED, NOT PROHIBITED
     question the gate asks is "what does breaking this key cost?", not "is it
     post-quantum?". Any key type may witness, classical curves included, if
     pq/complexity.py can stand behind it: the best-known classical attack
-    must cost at least 2^128 (assuming a maximal-entropy seed — the generic
+    must cost at least 2^100 (assuming a maximal-entropy seed — the generic
     attack is always "enumerate seeds until keygen matches"), and a
     plugin-origin scheme must survive the entropy probe that tests the
     assumption (deterministic keygen, distinct keys, every seed region
@@ -64,7 +64,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.append(HERE)
 
-import complexity                                               # noqa: E402
+try:
+    # One module instance no matter the door: this file loads as pq.algos,
+    # so complexity must load as pq.complexity — a bare import here would
+    # mint a second copy with its own verdict cache.
+    from . import complexity                                    # noqa: E402
+except ImportError:                                             # run as a script
+    import complexity                                           # noqa: E402
+
 import mldsa                                                    # noqa: E402
 import slhdsa                                                   # noqa: E402
 
@@ -138,6 +145,7 @@ def register(algo: SigAlgo, replace=False):
                          "names are load-bearing (they are hashed into "
                          "addresses) and cannot be quietly rebound")
     REGISTRY[algo.name] = algo
+    complexity.clear_cache(algo.name)   # a rebind must be re-measured
     return algo
 
 

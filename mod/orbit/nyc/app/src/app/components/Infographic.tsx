@@ -9,11 +9,12 @@ import { count } from '@/lib/format'
 const BAR = SEQUENTIAL[3]
 
 /**
- * The card the agent pins on the map. Agent-written text stays in the body
- * sans (it is free text — lower case, punctuation, units); only the fixed
- * chrome is in the pixel face.
+ * The agent's card, rendered in the chat transcript as part of the answer.
+ * Agent-written text stays in the body sans (it is free text — lower case,
+ * punctuation, units); only the fixed chrome is in the pixel face. A card in
+ * a scrolling transcript needs no close button, so `onClose` is optional.
  */
-export default function Infographic({ card, onClose }: { card: Card; onClose: () => void }) {
+export default function Infographic({ card, onClose }: { card: Card; onClose?: () => void }) {
   return (
     <section className="blk sheet-in pointer-events-auto flex max-h-full flex-col overflow-hidden">
       <header className="relative flex shrink-0 items-start gap-2 border-b border-white/10 bg-black/40 py-2.5 pl-4 pr-2">
@@ -23,10 +24,12 @@ export default function Infographic({ card, onClose }: { card: Card; onClose: ()
           <h2 className="mt-1.5 text-[14px] font-semibold leading-snug text-white">{card.title}</h2>
           {card.subtitle && <p className="mt-0.5 text-[11.5px] leading-snug text-nes-ink3">{card.subtitle}</p>}
         </div>
-        <button onClick={onClose} aria-label="Close infographic"
-                className="tap -m-1 grid shrink-0 place-items-center p-1.5 text-nes-ink3 hover:text-nes-red">
-          <X />
-        </button>
+        {onClose && (
+          <button onClick={onClose} aria-label="Close infographic"
+                  className="tap -m-1 grid shrink-0 place-items-center p-1.5 text-nes-ink3 hover:text-nes-red">
+            <X />
+          </button>
+        )}
       </header>
 
       <div className="space-y-3.5 overflow-y-auto px-3.5 py-3">

@@ -19,6 +19,7 @@ to its data layers, and cached for 15 minutes.
 
 from __future__ import annotations
 
+import hashlib
 import html as _html
 import json
 import re
@@ -31,6 +32,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from . import sources as S
+from .realestate import norm_name
 
 FEEDS = [
     {'name': 'Gothamist', 'url': 'https://gothamist.com/feed'},
@@ -166,6 +168,170 @@ def headlines(topic: str = '', limit: int = 40) -> Dict[str, Any]:
     limit = max(1, min(int(limit), 200))
     return {**data, 'topic': want or 'all', 'count': len(items[:limit]),
             'total': len(data['items']), 'items': items[:limit]}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# news on the map
+#
+# Headlines carry no coordinates, so they are pinned by the place they *name*:
+# a gazetteer of neighborhood names (from the NTA polygons already in the
+# cache), boroughs, and the handful of landmarks newsrooms actually write.
+# Stories that name no place are counted in meta rather than drawn — a dot
+# invented for an un-placed story would be a lie on a map.
+# ─────────────────────────────────────────────────────────────────────────────
+
+BOROUGH_CENTER = {
+    'Manhattan': (-73.9712, 40.7764), 'Brooklyn': (-73.9496, 40.6501),
+    'Queens': (-73.8014, 40.7282), 'Bronx': (-73.8648, 40.8448),
+    'Staten Island': (-74.1502, 40.5795),
+}
+
+# Places that headline constantly but are not NTA names (or whose NTA name
+# nobody writes). lng/lat.
+LANDMARKS = {
+    'times square': (-73.9855, 40.7580), 'central park': (-73.9665, 40.7812),
+    'city hall': (-74.0064, 40.7127), 'wall street': (-74.0088, 40.7069),
+    'world trade center': (-74.0134, 40.7118), 'penn station': (-73.9935, 40.7506),
+    'grand central': (-73.9772, 40.7527), 'rikers island': (-73.8860, 40.7932),
+    'jfk': (-73.7781, 40.6413), 'laguardia': (-73.8740, 40.7769),
+    'yankee stadium': (-73.9262, 40.8296), 'citi field': (-73.8458, 40.7571),
+    'madison square garden': (-73.9934, 40.7505),
+    'barclays center': (-73.9754, 40.6826),
+    'columbia university': (-73.9626, 40.8075), 'nyu': (-73.9965, 40.7295),
+    'prospect park': (-73.9690, 40.6602), 'coney island': (-73.9772, 40.5755),
+    'brooklyn bridge': (-73.9969, 40.7061), 'union square': (-73.9904, 40.7359),
+    'bryant park': (-73.9832, 40.7536), 'lincoln center': (-73.9830, 40.7725),
+    'port authority': (-73.9899, 40.7570), 'ellis island': (-74.0397, 40.6995),
+    'statue of liberty': (-74.0445, 40.6892), 'high line': (-74.0048, 40.7480),
+    'hudson yards': (-74.0014, 40.7540), 'roosevelt island': (-73.9510, 40.7614),
+    'governors island': (-74.0169, 40.6895),
+}
+
+# Single words too generic to pin a story on their own, even though they occur
+# inside NTA names ("Midtown-Times Square" is fine; a bare "park" is not).
+_GAZETTEER_STOP = {
+    'the', 'new', 'york', 'city', 'north', 'south', 'east', 'west', 'central',
+    'park', 'parks', 'hill', 'hills', 'heights', 'island', 'islands', 'beach',
+    'bay', 'point', 'square', 'garden', 'gardens', 'village', 'town', 'green',
+    'ferry', 'port', 'college', 'cemetery', 'etc', 'north shore', 'south shore',
+}
+
+
+def _ring_center(geom: dict):
+    """Bbox midpoint of the largest ring — cheap, and right for a label pin."""
+    t, c = geom.get('type'), geom.get('coordinates')
+    rings = [c[0]] if t == 'Polygon' else [p[0] for p in c] if t == 'MultiPolygon' else []
+    best, size = None, -1.0
+    for ring in rings:
+        xs, ys = [p[0] for p in ring], [p[1] for p in ring]
+        area = (max(xs) - min(xs)) * (max(ys) - min(ys))
+        if area > size:
+            size = area
+            best = (round((min(xs) + max(xs)) / 2, 5),
+                    round((min(ys) + max(ys)) / 2, 5))
+    return best
+
+
+def _gazetteer() -> List[dict]:
+    """
+    Name → pin, longest names first (so "East Harlem" wins over "Harlem").
+    Each entry: {name, lng, lat, place, precision}.
+    """
+    def build():
+        from . import layers as L       # deferred: layers imports us
+        out: Dict[str, dict] = {}
+
+        def put(name: str, lng: float, lat: float, place: str, precision: str):
+            key = norm_name(name)
+            if len(key) < 4 or key in _GAZETTEER_STOP or key in out:
+                return
+            out[key] = {'name': key, 'lng': lng, 'lat': lat,
+                        'place': place, 'precision': precision}
+
+        for f in L.neighborhoods()['features']:
+            p = f['properties']
+            center = _ring_center(f['geometry'])
+            if not center:
+                continue
+            full = str(p.get('ntaname') or '')
+            # "Astoria (North)-Ditmars-Steinway" → the whole name, then each
+            # hyphen part, so both "Ditmars" and the full compound pin here.
+            parts = [full] + re.split(r'-', re.sub(r'\(.*?\)', ' ', full))
+            for part in parts:
+                put(part, center[0], center[1], full, 'neighborhood')
+        for name, (lng, lat) in LANDMARKS.items():
+            put(name, lng, lat, name.title(), 'landmark')
+        for boro, (lng, lat) in BOROUGH_CENTER.items():
+            put(boro, lng, lat, boro, 'borough')
+            put('the ' + boro.lower(), lng, lat, boro, 'borough')
+        return sorted(out.values(), key=lambda e: -len(e['name']))
+    # v2: keys normalized with realestate.norm_name (shared with match_nta)
+    return S.cached('news-gazetteer-v2', 7 * S.DAY, build)
+
+
+def _place(text: str, gazetteer: List[dict]) -> Optional[dict]:
+    """The most specific place a story names: longest match, borough last."""
+    t = f' {norm_name(text)} '
+    hit = None
+    for e in gazetteer:
+        if f' {e["name"]} ' not in t:
+            continue
+        # Entries are longest-first, so the first non-borough hit is the best
+        # one; a borough only sticks if nothing finer ever matches.
+        if e['precision'] != 'borough':
+            return e
+        hit = hit or e
+    return hit
+
+
+def _jitter(title: str, scale: float) -> tuple:
+    """Deterministic offset so co-located stories fan out instead of stacking."""
+    h = hashlib.sha1(title.encode()).digest()
+    return ((h[0] / 255 - 0.5) * scale, (h[1] / 255 - 0.5) * scale)
+
+
+def points(limit: int = 150) -> Dict[str, Any]:
+    """
+    The current headlines as a GeoJSON layer, each pinned to the neighborhood,
+    landmark or borough it names. Borough pins are approximate by nature and
+    say so in their ``precision`` property.
+    """
+    limit = max(1, min(int(limit), 200))
+
+    def build():
+        data = headlines(limit=200)
+        gaz = _gazetteer()
+        feats, unplaced = [], 0
+        for it in data['items']:
+            if len(feats) >= limit:
+                break
+            hit = _place(f"{it['title']} {it.get('summary', '')}", gaz)
+            if not hit:
+                unplaced += 1
+                continue
+            dx, dy = _jitter(it['title'], 0.025 if hit['precision'] == 'borough' else 0.004)
+            feats.append({
+                'type': 'Feature',
+                'geometry': {'type': 'Point',
+                             'coordinates': [round(hit['lng'] + dx, 5),
+                                             round(hit['lat'] + dy, 5)]},
+                'properties': {
+                    'title': it['title'], 'url': it['url'], 'source': it['source'],
+                    'published': it.get('published'),
+                    'summary': it.get('summary', '')[:200],
+                    'topic': it.get('topic') or 'other',
+                    'place': hit['place'], 'precision': hit['precision'],
+                },
+            })
+        return {'type': 'FeatureCollection', 'features': feats,
+                'meta': {'fetched': data['fetched'], 'placed': len(feats),
+                         'unplaced': unplaced,
+                         'sources': data.get('sources', []),
+                         'note': ('Stories are pinned to the place they name; a '
+                                  'story that names no NYC place is not drawn. '
+                                  'Borough-level pins are approximate.')}}
+
+    return S.cached(f'news-points-v1-{limit}', TTL, build)
 
 
 _last_gdelt = [0.0]

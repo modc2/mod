@@ -413,8 +413,12 @@
         a wasm module: a transaction is accepted only if the verifier blob
         registered for its key type — hash-committed in the manifest — says
         the signature holds. New types are pluggable (a .py + .wasm in
-        pq/algos.d/ or ~/.mod/postquant/algos/); classical curves register
-        but are refused at the gate.</p>
+        pq/algos.d/ or ~/.mod/postquant/algos/) and the gate is priced, not
+        prohibited: any key type witnesses — classical curves included — if
+        the best-known classical attack clears the complexity floor and the
+        entropy probe holds up. The break column is what an attacker pays,
+        assuming a maximal-entropy seed; "polynomial" means a quantum
+        computer ends it.</p>
       <div id="algos" class="muted">loading…</div>
       <p class="note" id="algos-gate" style="margin-top:8px"></p>
     </div>
@@ -482,9 +486,11 @@
         algorithm arrives as one plugin file that registers keygen/sign plus
         a verifier blob and its declared hash — in <code>pq/algos.d/</code>
         in-tree or <code>~/.mod/postquant/algos/</code> per node — with no
-        change to the chain. The gate still applies: an algorithm that
-        declares itself classical registers, appears in the catalog, and is
-        turned away at the mempool. The builtin verifiers are ~600 lines of
+        change to the chain. The gate prices instead of prohibiting: a
+        classical algorithm registers, appears in the catalog with its
+        measured break cost, and witnesses if that cost clears the floor —
+        refused only below it, or when the entropy probe catches the
+        keyspace lying. The builtin verifiers are ~600 lines of
         dependency-free Rust each, compiled with bare rustc, with parity
         tests against the python references (<code>pq/wasm-src/</code>).</p>
 
@@ -550,8 +556,8 @@
 
       <h3><span class="n">8</span>One surface, three doors</h3>
       <p>The same functions serve REST under
-        <span class="mono" id="about-api"></span>, MCP (24 tools,
-        <code>pq_head</code> through <code>pq_algos</code>) at
+        <span class="mono" id="about-api"></span>, MCP (25 tools,
+        <code>pq_head</code> through <code>pq_complexity</code>) at
         <code>POST /mcp</code>, and this console. State lives in
         <code>~/.mod/postquant</code>: wallet seeds mode 0600 and never
         committed, <code>blocks.jsonl</code> as the truth, and a state
@@ -860,15 +866,23 @@ async function loadAlgos() {
     const wasm = (r.wasm && r.wasm.algorithms) || {};
     out('algos', '<table><tr><th>key type</th><th>family</th>' +
       '<th class="num">sig bytes</th><th class="num">pk bytes</th>' +
+      '<th>break (classical / quantum)</th>' +
       '<th class="num">accounts</th><th>gate</th><th>verified by</th></tr>' +
       r.algorithms.map(a => {
         const wv = wasm[a.name];
+        const sec = a.security || {};
+        const q = sec.quantum_polynomial
+          ? '<span class="bad">polynomial</span>' : esc(sec.quantum || '?');
         return `<tr><td class="mono">${esc(a.name)}` +
           `${a.name === r.default ? ' <span class="pill">default</span>' : ''}</td>` +
           `<td class="muted">${esc(a.family)} · ${esc(a.standard)}</td>` +
           `<td class="num">${a.sig_bytes}</td><td class="num">${a.pk_bytes}</td>` +
+          `<td class="mono" title="brute force ${esc(sec.brute_force || '?')} ` +
+          `assuming maximal entropy · floor ${esc(sec.floor || '')} · ` +
+          `probe ${esc(sec.probe || '')}">${esc(sec.best_classical || '?')} / ${q}</td>` +
           `<td class="num">${a.accounts_on_chain}</td>` +
-          `<td class="${a.accepted ? 'good' : 'bad'}">${a.accepted ? 'accepted' : 'refused'}</td>` +
+          `<td class="${a.accepted ? 'good' : 'bad'}" ` +
+          `title="${esc(a.refused || '')}">${a.accepted ? 'accepted' : 'refused'}</td>` +
           `<td>${wv ? `<span class="good">wasm</span> <span class="pill mono" ` +
             `title="sha3-256 of ${esc(wv.file)} — the blob every witness of this ` +
             `key type is checked by">${esc(wv.file)} · ${esc(wv.sha3_256.slice(0, 12))}…</span>`

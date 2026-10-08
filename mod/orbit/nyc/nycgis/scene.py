@@ -34,7 +34,7 @@ from . import layers as L
 from . import prices as P
 from . import sources as S
 
-BASEMAPS = ('dark', 'light', 'streets')
+BASEMAPS = ('dark', 'light', 'streets', 'earth')
 OVERLAY_MODES = ('points', 'heat', 'areas')
 AREA_BY = ('zip', 'borough')
 MAX_POINTS = 5000
@@ -80,7 +80,12 @@ def _domain(name: Optional[str]) -> str:
 
 
 def _layer_ids() -> List[str]:
-    return [l['id'] for l in L.LAYERS]
+    # Built-ins plus the owner's saved datasets — the agent toggles both.
+    from . import userdata
+    try:
+        return [l['id'] for l in L.LAYERS] + userdata.slugs()
+    except Exception:
+        return [l['id'] for l in L.LAYERS]
 
 
 def _ids(value: Any, known: List[str], what: str) -> List[str]:

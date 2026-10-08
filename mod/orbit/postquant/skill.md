@@ -12,7 +12,7 @@ ML-DSA-44, 17088 for SLH-DSA — billed as-is), and rent per byte-hour against
 a prepaid escrow. Expired entries pay their sweeper.
 
 API `:51030` (`/postquant/api`) · console `/postquant` · MCP `POST /mcp`
-(24 tools) · state `~/.mod/postquant`
+(25 tools) · state `~/.mod/postquant`
 
 ## When to reach for it
 
@@ -46,8 +46,12 @@ same bearer gate as `POST /set`; without it they come back as dry runs.
 ## The order that matters
 
 1. `pq_head` — the tip, the base fee, what the store weighs. `pq_algos` —
-   every key type, its witness bytes, the quantum gate, and which wasm blob
-   (by SHA3-256) enforces it.
+   every key type, its witness bytes, what breaking it costs (the gate is
+   complexity-priced: classical schemes witness too if the best-known
+   classical attack clears the 2^100 floor and the entropy probe passes),
+   and which wasm blob (by SHA3-256) enforces it. `pq_complexity scheme=…`
+   is the full measurement — brute-force bound under maximal entropy,
+   Grover or polynomial quantum cost, probe results, gate verdict.
 2. `pq_wallet action=create scheme=…` then `pq_faucet` — writes need a funded
    wallet; scheme defaults to ML-DSA-44, `pq_algos` lists the choices.
    Amounts: a **string** ("25", "1.5") is PQ; a bare int is nq (1e-9).

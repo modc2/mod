@@ -16,7 +16,9 @@ from typing import Any, Callable, Dict, List, Optional
 
 from . import crime as CR
 from . import demographics as DM
+from . import news as NW
 from . import prices as P
+from . import realestate as RE
 from . import rents as R
 from . import sources as S
 from . import traffic as TR
@@ -356,6 +358,22 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('NYC DOF Citywide Rolling Sales', 'w2pb-icbu'),
     },
     {
+        'id': 'forsale',
+        'title': 'Homes for sale',
+        'category': 'Housing',
+        'kind': 'choropleth',
+        'geometry': 'polygon',
+        'default_on': False,
+        'description': ('The for-sale market by neighborhood: median ASKING '
+                        'price (what sellers want, vs the deed layers\' '
+                        'recorded prices), active listings, days on market '
+                        'and the share of listings with a price cut.'),
+        'endpoint': '/layers/forsale',
+        'source': {'name': 'StreetEasy Data Dashboard', 'dataset': 'sales',
+                   'url': 'https://streeteasy.com/blog/data-dashboard/',
+                   'portal': 'streeteasy.com'},
+    },
+    {
         'id': 'affordable_rents',
         'title': 'Affordable homes for rent',
         'category': 'Housing',
@@ -552,6 +570,26 @@ LAYERS: List[Dict[str, Any]] = [
         'source': _src('Motor Vehicle Collisions – Crashes', 'h9gi-nx95'),
     },
 
+    # ── News ─────────────────────────────────────────────────────────────
+    {
+        'id': 'news',
+        'title': 'News on the map',
+        'category': 'News',
+        'kind': 'point',
+        'geometry': 'point',
+        'default_on': False,
+        # The feeds refresh every 15 minutes; so should the dots.
+        'refresh_seconds': 900,
+        'description': ('Today\'s headlines pinned to the neighborhood, '
+                        'landmark or borough they name, coloured by topic. '
+                        'Click a dot to read the story.'),
+        'style': {'color_by': 'topic'},
+        'endpoint': '/layers/news',
+        'source': {'name': 'Gothamist · THE CITY · NYT Metro (RSS feeds)',
+                   'dataset': 'rss',
+                   'url': 'https://gothamist.com', 'portal': 'newsroom feeds'},
+    },
+
     # ── Boundaries ───────────────────────────────────────────────────────
     {
         'id': 'boroughs',
@@ -595,6 +633,8 @@ LOADERS: Dict[str, Callable[[], dict]] = {
     'traffic_volume': TR.volume,
     'affordable_housing': affordable_housing,
     'affordable_rents': affordable_rents,
+    'forsale': RE.forsale_choropleth,
+    'news': NW.points,
     'boroughs': boroughs,
     'neighborhoods': neighborhoods,
     'zips': zips,
@@ -603,18 +643,29 @@ LOADERS: Dict[str, Callable[[], dict]] = {
 
 def catalog() -> Dict[str, Any]:
     """The full layer catalogue, grouped by category — this drives the UI."""
+    # Owner-added datasets ride along as a trailing "Your data" category; the
+    # rail and the map both read this catalogue, so they need nothing else.
+    from . import userdata
+    try:
+        extra = userdata.catalog_entries()
+    except Exception:
+        extra = []
+    all_layers = LAYERS + extra
     cats: Dict[str, List[dict]] = {}
-    for layer in LAYERS:
+    for layer in all_layers:
         cats.setdefault(layer['category'], []).append(layer)
     return {
-        'layers': LAYERS,
+        'layers': all_layers,
         'categories': [{'name': c, 'layers': [l['id'] for l in ls]}
                        for c, ls in cats.items()],
-        'count': len(LAYERS),
+        'count': len(all_layers),
         'attribution': [
             {'name': 'NYC Open Data', 'url': 'https://opendata.cityofnewyork.us'},
             {'name': 'NY State Open Data / MTA', 'url': 'https://data.ny.gov'},
             {'name': 'OpenStreetMap contributors', 'url': 'https://www.openstreetmap.org/copyright'},
+            # StreetEasy's dashboard terms require attribution wherever shown.
+            {'name': 'StreetEasy Data Dashboard', 'url': 'https://streeteasy.com/blog/data-dashboard/'},
+            {'name': 'Gothamist / THE CITY / NYT Metro', 'url': 'https://gothamist.com'},
         ],
     }
 
@@ -632,11 +683,20 @@ def cache_control(layer_id: str, default: str) -> str:
         if layer['id'] == layer_id and layer.get('refresh_seconds'):
             n = int(layer['refresh_seconds'])
             return f'public, max-age={n}, stale-while-revalidate={n * 4}'
+    from . import userdata
+    if layer_id in userdata.slugs():
+        # Owner data can be edited or refreshed at any moment — don't let the
+        # browser hold it for an hour like the civic layers.
+        return 'public, max-age=120'
     return default
 
 
 def get(layer_id: str) -> dict:
     loader = LOADERS.get(layer_id)
-    if not loader:
-        raise KeyError(f'unknown layer {layer_id!r}; known: {sorted(LOADERS)}')
-    return loader()
+    if loader:
+        return loader()
+    from . import userdata
+    if layer_id in userdata.slugs():
+        return userdata.data(layer_id)
+    raise KeyError(f'unknown layer {layer_id!r}; known: '
+                   f'{sorted(LOADERS) + userdata.slugs()}')

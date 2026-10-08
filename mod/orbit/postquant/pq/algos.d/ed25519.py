@@ -6,12 +6,17 @@ verify, sizes. It exists to show that ANY public/private/data/signature
 scheme — ecdsa, sr25519, whatever comes next — drops into this chain as one
 file in a plugin directory.
 
-It also exists to be refused. It declares quantum_safe=False, because a
-64-byte curve signature is exactly what Shor's algorithm takes apart, so the
-chain lists it in pq_algos and turns its witnesses away at the mempool. Set
-POSTQUANT_ALLOW_CLASSICAL=1 on a throwaway devnet to watch it get in — and
-notice, while it is in, that its witness costs 96 bytes of gas against
-ML-DSA's 3732. Cheap is what vulnerable looks like.
+It also exists to carry an honest price tag. It declares quantum_safe=False,
+because a 64-byte curve signature is exactly what Shor's algorithm takes
+apart in polynomial time, and classical_bits=126, because Pollard rho on the
+~2^252 group order beats brute-forcing the 256-bit seed. Under the
+complexity gate (pq/complexity.py) that reads: classical ~2^126 — above the
+2^100 floor, so its witnesses are ACCEPTED — and quantum POLYNOMIAL, printed
+on the catalog card in pq_algos so nobody holding an ed25519 key here can
+say they weren't told. Notice, while it is in, that its witness costs 96
+bytes of gas against ML-DSA's 3732: cheap is what pre-quantum looks like.
+POSTQUANT_REQUIRE_PQ=1 restores the strict gate and turns it away again;
+pq_complexity scheme=ed25519 shows the full measurement either way.
 
 The ctx wrapper mirrors the FIPS one (a length-prefixed context ahead of the
 message) so domain separation works the same across every key type here; that
@@ -151,5 +156,7 @@ def register(algos):
         family="EdDSA", standard="RFC 8032",
         basis="curve25519 discrete log — Shor breaks this",
         quantum_safe=False,
-        note="the worked example: registers fine, witnesses refused unless "
-             "POSTQUANT_ALLOW_CLASSICAL=1"))
+        classical_bits=126,      # Pollard rho over the ~2^252 group order
+        note="the worked example: classical, accepted on measured "
+             "complexity (~2^126 classical, polynomial quantum — the "
+             "catalog says so), refused under POSTQUANT_REQUIRE_PQ=1"))

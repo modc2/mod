@@ -3,9 +3,10 @@
 What is under test is the contract pq/algos.py makes: every registered
 algorithm — two built-in post-quantum families plus whatever a plugin adds —
 signs and verifies through the same four functions; addresses commit to the
-key type; the quantum gate refuses classical witnesses without refusing to
-list them; and a whole transaction lifecycle works under a scheme that is
-not the default one.
+key type; the gate prices complexity instead of refusing classical outright
+(POSTQUANT_REQUIRE_PQ restores the strict gate, and that is tested here);
+and a whole transaction lifecycle works under a scheme that is not the
+default one. The complexity gate itself is tested in test_complexity.py.
 """
 
 import hashlib
@@ -78,15 +79,18 @@ def test_mldsa_addresses_unchanged_by_the_registry():
         "pq" + S.sha3(b"pq-addr\x00", pk[:32])[:20].hex()
 
 
-def test_ed25519_example_plugin_loaded_and_gated():
+def test_ed25519_example_plugin_loaded_and_priced():
+    """The worked example is classical and ACCEPTED — the gate prices it
+    instead of refusing it, and the catalog card says what it costs."""
     a = algos.maybe("ed25519")
     assert a is not None and a.family == "EdDSA"
     assert a.origin.endswith("algos.d/ed25519.py")
     assert not a.quantum_safe
-    assert not algos.allowed("ed25519")
-    with pytest.raises(StateError) as e:
-        K.create("curveball", scheme="ed25519")
-    assert e.value.code == "not_quantum_safe"
+    assert algos.allowed("ed25519")
+    sec = a.describe()["security"]
+    assert sec["best_classical"] == "2^126"       # Pollard rho, declared
+    assert sec["quantum"] == "polynomial"         # Shor — printed, not hidden
+    assert sec["meets_floor"] and sec["ok"]
     with pytest.raises(StateError) as e:
         K.create("mystery", scheme="no-such-algo")
     assert e.value.code == "unknown_scheme"
@@ -167,12 +171,14 @@ def test_quote_can_price_a_witness_per_scheme():
     assert q_slh["gas"]["witness"] > q_default["gas"]["witness"]
 
 
-# ── the quantum gate, end to end ──────────────────────────────────
+# ── the strict gate (POSTQUANT_REQUIRE_PQ), end to end ────────────
 
 
-def test_classical_witness_refused_at_the_mempool():
-    """A hand-built, correctly signed ed25519 transaction is turned away
-    with the real reason, not a generic bad-signature error."""
+def test_strict_gate_refuses_classical_at_the_mempool(monkeypatch):
+    """Under POSTQUANT_REQUIRE_PQ a hand-built, correctly signed ed25519
+    transaction is turned away with the real reason, not a generic
+    bad-signature error."""
+    monkeypatch.setattr(algos, "REQUIRE_PQ", True)
     n = mcpsrv.node()
     ed = algos.get("ed25519")
     pk, sk = ed.keygen(b"\x01" * 32)
@@ -186,13 +192,15 @@ def test_classical_witness_refused_at_the_mempool():
     with pytest.raises(StateError) as e:
         n.submit(tx)
     assert e.value.code == "not_quantum_safe"
+    with pytest.raises(StateError) as e:
+        K.create("curveball-strict", scheme="ed25519")
+    assert e.value.code == "not_quantum_safe"
 
 
-def test_open_gate_devnet_then_audit_flags_it(monkeypatch, tmp_path):
-    """On a throwaway node with POSTQUANT_ALLOW_CLASSICAL: the ed25519
-    transaction gets in. Close the gate and the full audit names that
-    witness — the log does not forget what signed it."""
-    monkeypatch.setattr(algos, "ALLOW_CLASSICAL", True)
+def test_classical_gets_in_then_strict_audit_flags_it(monkeypatch, tmp_path):
+    """Under the default priced gate the ed25519 transaction gets in. Turn
+    on the strict gate and the full audit names that witness — the log does
+    not forget what signed it."""
     n = C.Node(chain_id="gate-test", data_dir=str(tmp_path))
     K.create("curveball", scheme="ed25519", overwrite=True)
     w = K.get("curveball")
@@ -204,7 +212,7 @@ def test_open_gate_devnet_then_audit_flags_it(monkeypatch, tmp_path):
     n.produce()
     assert n.verify(signatures=True)["ok"]
 
-    monkeypatch.setattr(algos, "ALLOW_CLASSICAL", False)
+    monkeypatch.setattr(algos, "REQUIRE_PQ", True)
     v = n.verify(signatures=True)
     assert not v["ok"]
     assert any("witness" in p for p in v["problems"])

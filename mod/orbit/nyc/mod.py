@@ -54,6 +54,7 @@ if str(MODULE_DIR) not in sys.path:
 
 from nycgis import crime as CR
 from nycgis import demographics as DM
+from nycgis import housing as HG
 from nycgis import layers as L
 from nycgis import news as NW
 from nycgis import prices as P
@@ -372,6 +373,38 @@ class Mod:
             **meta,
         }
 
+    # ── the tenant's side: lotteries, violations, buildings, NYCHA ───────
+
+    def lotteries(self, borough: str = '', status: str = 'active',
+                  lottery_id: str = '', limit: int = 50) -> dict:
+        """
+        Housing Connect lotteries open for applications right now —
+        deadlines, unit mixes, income bands. Pass ``lottery_id`` for the
+        addresses behind one lottery.
+
+        ``m nyc/lotteries borough=Brooklyn``
+        """
+        if lottery_id:
+            return HG.lottery_buildings(lottery_id)
+        return HG.lotteries(borough=borough, status=status, limit=int(limit))
+
+    def building(self, address: str = '', borough: str = '') -> dict:
+        """
+        Check one address before signing: open HPD violations by class,
+        problems tenants reported in the last two years, HPD litigation.
+
+        ``m nyc/building address="760 Eldert Lane" borough=Brooklyn``
+        """
+        return HG.building(address, borough=borough)
+
+    def violations(self, borough: str = '', limit: int = 15) -> dict:
+        """Open housing-maintenance violations, and the worst buildings."""
+        return HG.violations(borough=borough, limit=int(limit))
+
+    def nycha(self, borough: str = '', limit: int = 15) -> dict:
+        """Public housing: NYCHA developments, apartments, population."""
+        return HG.nycha(borough=borough, limit=int(limit))
+
     def _nta_names(self) -> Dict[str, str]:
         try:
             return {f['properties']['nta2020']: f['properties']['ntaname']
@@ -502,6 +535,38 @@ class Mod:
     def clear_cache(self, prefix: str = '') -> dict:
         """Drop cached responses. ``prefix`` scopes it (e.g. ``geo-``)."""
         return S.cache_clear(prefix)
+
+    # ── the owner's saved datasets ───────────────────────────────────────
+    # On the box itself the caller holds the key, so the CLI writes without a
+    # token; over HTTP the same operations sit behind the owner's token.
+
+    def data(self, slug: str = ''):
+        """Saved datasets (layer rail category "Your data"), or one record."""
+        from nycgis import userdata as U
+        return U.info(slug) if slug else U.list_()
+
+    def add_data(self, title: str, **kwargs) -> dict:
+        """Save a dataset as a layer: geojson=<FC>, dataset=<socrata id> or url=."""
+        from nycgis import userdata as U
+        grant = U.grant_writer(True)
+        try:
+            return U.add({'title': title, **kwargs})
+        finally:
+            U.reset_writer(grant)
+
+    def remove_data(self, slug: str) -> dict:
+        """Delete one saved dataset."""
+        from nycgis import userdata as U
+        grant = U.grant_writer(True)
+        try:
+            return U.remove(slug)
+        finally:
+            U.reset_writer(grant)
+
+    def refresh_data(self, slug: str) -> dict:
+        """Refetch a fetch-backed saved dataset now."""
+        from nycgis import userdata as U
+        return U.refresh(slug)
 
     # ── boroughs (from the original scaffold) ────────────────────────────
 

@@ -94,6 +94,28 @@ export const SPEED_BAND_LABEL: [string, string][] = [
   ['free', '40+'],
 ]
 
+/**
+ * News headline topics. Categorical, not ordinal — each topic borrows the hue
+ * its subject already owns elsewhere on this map (crime red, transit cyan,
+ * housing blue, money amber), so a dot's colour agrees with the layer it sits
+ * over — borrowed by reference, so a retune there carries here. The white
+ * stroke in the mark spec is what keeps them legible over a same-hue
+ * choropleth.
+ */
+export const NEWS_TOPICS: { key: string; label: string; color: string }[] = [
+  { key: 'housing', label: 'Housing', color: SEQUENTIAL[3] },
+  { key: 'crime', label: 'Crime & courts', color: LAYER_COLOR.collisions },
+  { key: 'transit', label: 'Transit & streets', color: LAYER_COLOR.traffic_volume },
+  { key: 'government', label: 'Government', color: SPEED_BAND.moving },
+  { key: 'other', label: 'Everything else', color: LAYER_COLOR.boroughs },
+]
+
+export const NEWS_TOPIC: Record<string, string> =
+  Object.fromEntries(NEWS_TOPICS.map(t => [t.key, t.color]))
+
+export const NEWS_TOPIC_LABEL: [string, string][] =
+  NEWS_TOPICS.map(t => [t.key, t.label])
+
 /** Hurricane evacuation zones are ordinal: zone 1 is the most urgent. */
 export const ZONE_COLOR: Record<number, string> = {
   1: '#f2a0a0', 2: '#e66767', 3: '#d95926',

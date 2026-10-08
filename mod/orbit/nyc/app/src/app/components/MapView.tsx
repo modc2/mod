@@ -6,11 +6,11 @@ import type { Catalog, Choropleth, LayerDef } from '@/lib/api'
 import { NARROW } from '@/lib/layout'
 import { matchExpression, matchesHighlight, type AgentOverlay, type ValueFilter } from '@/lib/scene'
 import {
-  DIVERGING, HEAT, LAYER_COLOR, NO_DATA, SEQUENTIAL, SPEED_BAND, ZONE_COLOR,
-  divergingExpression, stepExpression,
+  DIVERGING, HEAT, LAYER_COLOR, NEWS_TOPIC, NO_DATA, SEQUENTIAL, SPEED_BAND,
+  ZONE_COLOR, divergingExpression, stepExpression,
 } from '@/lib/palette'
 
-export type Basemap = 'dark' | 'light' | 'streets'
+export type Basemap = 'dark' | 'light' | 'streets' | 'earth'
 
 /** Bounding box of the five boroughs, used to frame the opening view. */
 const NYC_BOUNDS: [[number, number], [number, number]] = [[-74.30, 40.47], [-73.68, 40.93]]
@@ -34,10 +34,63 @@ function framePadding(w: number, h: number) {
  * into the imagery in 2026 — status codes stay 200, only your eyes catch it.)
  * The styles bring their own glyphs and attribution.
  */
-const BASEMAPS: Record<Basemap, string> = {
+const BASEMAPS: Record<Exclude<Basemap, 'earth'>, string> = {
   dark: 'https://tiles.openfreemap.org/styles/dark',
   light: 'https://tiles.openfreemap.org/styles/positron',
   streets: 'https://tiles.openfreemap.org/styles/liberty',
+}
+
+/**
+ * EARTH is the one three-dimensional view, and it is built here rather than
+ * fetched: Esri World Imagery (keyless, but the attribution string is a
+ * licence condition) under extruded OpenMapTiles buildings, on a globe
+ * projection so zooming out shows the planet with an atmosphere instead of a
+ * grey void. The glyphs endpoint matches the OpenFreeMap styles so the
+ * overlay label layers keep finding Noto Sans. The buildings layer id has no
+ * `--` and its source no `nyc-` prefix, which is what keeps `clearAll` off it.
+ */
+const EARTH_STYLE: maplibregl.StyleSpecification = {
+  version: 8,
+  projection: { type: 'globe' },
+  sky: {
+    'sky-color': '#0b1526',
+    'horizon-color': '#7d9cc0',
+    'fog-color': '#0a0e14',
+    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 8, 0.5, 11, 0] as any,
+  },
+  light: { anchor: 'viewport', color: '#ffffff', intensity: 0.4 },
+  glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources: {
+    satellite: {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    },
+    openmaptiles: { type: 'vector', url: 'https://tiles.openfreemap.org/planet' },
+  },
+  layers: [
+    { id: 'satellite', type: 'raster', source: 'satellite' },
+    {
+      id: 'earth-buildings',
+      type: 'fill-extrusion',
+      source: 'openmaptiles',
+      'source-layer': 'building',
+      minzoom: 13.5,
+      filter: ['!=', ['get', 'hide_3d'], true],
+      paint: {
+        'fill-extrusion-color': '#b9bec6',
+        'fill-extrusion-opacity': 0.75,
+        // Heights grow in over a zoom level rather than popping; the tiles
+        // only carry render_height from ~z14, so earlier zooms get a stub.
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'],
+          13.5, 0,
+          15, ['coalesce', ['get', 'render_height'], 10]],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+      },
+    },
+  ],
 }
 
 /** True on a touch screen, where hit-testing needs a bigger target. */
@@ -46,8 +99,8 @@ function coarsePointer(): boolean {
     && window.matchMedia('(pointer: coarse)').matches
 }
 
-function styleFor(basemap: Basemap): string {
-  return BASEMAPS[basemap]
+function styleFor(basemap: Basemap): string | maplibregl.StyleSpecification {
+  return basemap === 'earth' ? EARTH_STYLE : BASEMAPS[basemap]
 }
 
 type Props = {
@@ -103,11 +156,14 @@ export default function MapView({
       maxZoom: 18,
       minZoom: 8,
       attributionControl: false,
-      // The overlays are flat 2-D data; disabling
-      // pitch keeps polygon fills legible and avoids a tilted-map trap where
-      // the choropleth reads as terrain.
-      pitchWithRotate: false,
+      // The overlays are flat 2-D data, so on the flat basemaps rotation and
+      // pitch stay off — a tilted choropleth reads as terrain. The handlers
+      // are only switched on while the EARTH view is up (see the basemap
+      // effect); pitchWithRotate is a constructor-only option, so it is set
+      // here and stays inert until dragRotate is enabled.
+      pitchWithRotate: true,
       dragRotate: false,
+      maxPitch: 75,
     })
     // On a phone, pinch is the zoom control and the bottom-left corner is
     // wanted for the legend chip, so the map keeps only its attribution.
@@ -119,8 +175,9 @@ export default function MapView({
     m.addControl(new maplibregl.AttributionControl({ compact: true }),
                  narrow ? 'bottom-right' : 'bottom-left')
     // Two-finger rotation is easy to trigger by accident while pinching, and a
-    // rotated choropleth reads as terrain.
+    // rotated choropleth reads as terrain. Both come back in the EARTH view.
     m.touchZoomRotate.disableRotation()
+    m.touchPitch.disable()
 
     m.on('load', () => {
       ready.current = true
@@ -189,6 +246,23 @@ export default function MapView({
       ready.current = true
       redrawRef.current()
     })
+    // EARTH is the three-dimensional view: tilt the camera in and hand over
+    // the rotate/pitch gestures (right-drag, or two fingers). Leaving it lays
+    // the camera flat and faces north again, so the flat basemaps stay the
+    // legible 2-D surfaces the rest of the UI assumes.
+    if (basemap === 'earth') {
+      m.dragRotate.enable()
+      m.touchZoomRotate.enableRotation()
+      m.touchPitch.enable()
+      m.easeTo({ pitch: 55, duration: 1200 })
+    } else {
+      m.dragRotate.disable()
+      m.touchZoomRotate.disableRotation()
+      m.touchPitch.disable()
+      if (m.getPitch() !== 0 || m.getBearing() !== 0) {
+        m.easeTo({ pitch: 0, bearing: 0, duration: 600 })
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [basemap])
 
@@ -525,13 +599,17 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return [`${def.id}--circle`]
 
-    case 'crime': {
+    case 'crime':
+    case 'forsale': {
       // A self-describing choropleth: the layer payload carries its own
-      // quantile breaks, so it draws like housing/population without being
-      // parameterised. "No data" stays distinct from "quietest class".
+      // quantile breaks and names its own fill property (meta.metric), so it
+      // draws like housing/population without being parameterised — and the
+      // next breaks-carrying layer is a case label here, not a new block.
+      // "No data" stays distinct from "quietest class".
+      const metric: string = (data as any).meta?.metric ?? 'total'
       const stops: number[] = (data as any).breaks?.stops ?? []
-      const fill: any = ['case', ['==', ['get', 'total'], null], NO_DATA,
-        stepExpression('total', stops, SEQUENTIAL)]
+      const fill: any = ['case', ['==', ['get', metric], null], NO_DATA,
+        stepExpression(metric, stops, SEQUENTIAL)]
       add({
         id: `${def.id}--fill`, type: 'fill', source: src,
         paint: { 'fill-color': fill, 'fill-opacity': 0.72 * alpha },
@@ -584,6 +662,27 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
+    case 'news': {
+      const topic: any[] = ['match', ['get', 'topic']]
+      Object.entries(NEWS_TOPIC).forEach(([k, c]) => { if (k !== 'other') topic.push(k, c) })
+      topic.push(NEWS_TOPIC.other)
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        paint: {
+          // A borough-level pin is an approximation, drawn fainter so it never
+          // reads as "this happened on this block".
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 4, 13, 7, 16, 10],
+          'circle-color': topic as any,
+          'circle-opacity': ['case', ['==', ['get', 'precision'], 'borough'],
+            0.45 * alpha, 0.9 * alpha],
+          // White ring: these dots sit over choropleths that share their hues.
+          'circle-stroke-width': 1.4,
+          'circle-stroke-color': 'rgba(255,255,255,0.85)',
+        },
+      })
+      return ids
+    }
+
     case 'sales':
       add({
         id: `${def.id}--circle`, type: 'circle', source: src,
@@ -609,9 +708,52 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
-    default:
+    default: {
       // A layer added to the catalogue but not styled here still renders,
-      // picked by geometry, rather than silently disappearing.
+      // picked by geometry, rather than silently disappearing. This is also
+      // how every owner-added dataset draws, so two self-describing cases
+      // get real treatment: a heatmap kind, and a polygon payload that
+      // carries its own quantile breaks (like crime/forsale) ramps on
+      // `value` instead of flattening to one colour.
+      if (def.kind === 'heatmap' && def.geometry === 'point') {
+        add({
+          id: `${def.id}--heat`, type: 'heatmap', source: src,
+          maxzoom: 15,
+          paint: {
+            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 9, 0.5, 15, 2.4],
+            'heatmap-color': ['interpolate', ['linear'], ['heatmap-density'],
+              ...HEAT.flatMap(([stop, c]) => [stop, c])] as any,
+            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 9, 6, 15, 28],
+            'heatmap-opacity': 0.62 * alpha,
+          },
+        })
+        add({
+          id: `${def.id}--circle`, type: 'circle', source: src,
+          minzoom: 14,
+          paint: {
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.8, 17, 6],
+            'circle-color': color,
+            'circle-opacity': 0.85 * alpha,
+            'circle-stroke-width': 0.8,
+            'circle-stroke-color': '#000000',
+          },
+        })
+        return [`${def.id}--circle`]
+      }
+      const stops: number[] = (data as any).breaks?.stops ?? []
+      if (def.geometry === 'polygon' && stops.length) {
+        const fill: any = ['case', ['==', ['get', 'value'], null], NO_DATA,
+          stepExpression('value', stops, SEQUENTIAL)]
+        add({
+          id: `${def.id}--fill`, type: 'fill', source: src,
+          paint: { 'fill-color': fill, 'fill-opacity': 0.72 * alpha },
+        })
+        add({
+          id: `${def.id}--line`, type: 'line', source: src,
+          paint: { 'line-color': 'rgba(255,255,255,0.22)', 'line-width': 0.6 },
+        })
+        return [`${def.id}--fill`]
+      }
       if (def.geometry === 'polygon') {
         add({
           id: `${def.id}--fill`, type: 'fill', source: src,
@@ -629,6 +771,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
         })
       }
       return ids
+    }
   }
 }
 

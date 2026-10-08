@@ -45,6 +45,7 @@ worked over stdio 404'd over HTTP — so the dispatch is deliberately shared.
 **Tools** — `nyc_info`, `nyc_boroughs`, `nyc_borough`, `nyc_where` ·
 `nyc_layers`, `nyc_layer` · `nyc_housing`, `nyc_prices`, `nyc_trend`,
 `nyc_sales`, `nyc_market`, `nyc_rents`, `nyc_homes`, `nyc_affordable` ·
+`nyc_lotteries`, `nyc_building_check`, `nyc_violations`, `nyc_nycha` ·
 `nyc_population` · `nyc_traffic` · `nyc_crime`, `nyc_collisions` ·
 `nyc_news` · `nyc_311`, `nyc_restaurants`, `nyc_trees`, `nyc_air`,
 `nyc_evictions`, `nyc_permits` · `nyc_catalog`, `nyc_find_datasets`,
@@ -100,10 +101,34 @@ documents itself everywhere at once.
 | **Crime by precinct** | choropleth, self-carried breaks | NYPD Complaints Current + Historic (`5uac-w243`, `qgea-i56i`) |
 | **Shootings** | heatmap + points | NYPD Shooting Incident Data (`5ucz-vwe8`) |
 | **Borough / Neighborhood boundaries** | outlines | `gthc-hcne`, `9nt8-h7nd` |
+| **Your data** | by geometry (points / heat / lines / polygons / ZIP choropleth) | whatever the owner saved |
 
 Basemaps are CARTO's free raster tiles (dark/light) and OpenStreetMap's own
 tiles; geocoding is OpenStreetMap Nominatim; the renderer is MapLibre GL
 (BSD-3).
+
+### Your data: the owner adds layers
+
+The curated catalogue above is not a ceiling. The deployment owner can save
+any dataset as a permanent layer (rail category "Your data"), three ways:
+paste/upload a GeoJSON FeatureCollection; name any Socrata dataset on NYC/NYS
+Open Data and shape it like an agent overlay (points, heat, or a per-ZIP
+choropleth, with a SoQL filter) — fetch-backed layers re-fetch themselves
+every few hours, so they stay current; or point at a remote GeoJSON URL.
+
+Three doors, one store (`~/.mod/nyc/data`, never touched by `clear_cache`):
+
+- **The app** — the "Your data" panel in the rail; saving asks the owner's
+  browser wallet for one signature (the fleet's standard mod-protocol token).
+- **The agent** — once signed in, "find rat sightings and save them as a
+  layer" works in ASK NYC: the chat passes the owner token through, which is
+  what arms the agent's `nyc_add_data` / `nyc_remove_data` tools. Anyone
+  else's chat gets the same agent without the write bit.
+- **The API / CLI** — `POST /data` with `Authorization: Bearer <token>`, or
+  `m nyc add_data title="Rat sightings" dataset=erm2-nwe9 mode=heat` on the
+  box itself.
+
+Reading is public, like every other layer — open data in, open layers out.
 
 ## Population, density and the shareable brief
 
@@ -337,6 +362,8 @@ m nyc/kill                             # stop both
 | `GET /options`, `/view`, `/health`, `/cache` | UI metadata |
 | `GET /tools` | the whole MCP surface (tools, prompts, resources) as JSON |
 | `POST /tools/{name}` | call one tool with a JSON object of arguments |
+| `GET /data`, `GET /data/{slug}` | the owner's saved datasets (public read) |
+| `POST /data`, `DELETE /data/{slug}`, `POST /data/{slug}/refresh` | add / remove / refetch a saved dataset (owner token) |
 | `POST /mcp` | MCP streamable HTTP (`DELETE` ends a session; `GET` is 405 — no server-initiated stream) |
 
 Responses are gzipped — the 29,679-segment bike network goes out at 568 KB
