@@ -92,7 +92,20 @@ export interface HubManifest {
   /** The strats to replay — published by the console. */
   strats: SavedIndex[];
   at: number;
+  /** strat id → when a publish last included it. Lets `mergeManifest` tell a
+      strat the user deleted (absent for days) from one a partial browser
+      profile merely failed to mention (absent for one publish). */
+  seen?: Record<string, number>;
 }
+
+/** How long a strat survives in the manifest after a publish stops naming it.
+    The manifest is replaced by whatever browser last opened /strats — a QA
+    profile, a second device, a cleared localStorage — and before this grace
+    existed one such visit silently dropped the real strats from the worker's
+    roster (and `pruneResults` then deleted their cached ladders, so the next
+    real visit was a wall of "…"). A deletion still sticks: the owner's browser
+    keeps publishing rosters without the deleted id until the grace runs out. */
+const MANIFEST_GRACE_MS = 7 * 24 * 3600_000;
 
 /** The COPY DESK's leaders, as strats to replay.
  *
@@ -238,6 +251,47 @@ export function readManifest(): HubManifest {
 // a truncated backtests.json mid-write and fall back to an empty cache.
 export function writeManifest(m: HubManifest): void {
   writeAtomic(manifestPath(), JSON.stringify(m));
+}
+
+/** Fold a console publish into the stored manifest instead of replacing it.
+ *
+ * The publish is authoritative for the strats it names — the browser just
+ * saved or edited those, so its params win. For everything else it is only
+ * evidence of what ONE localStorage held: strats the stored manifest has and
+ * the publish doesn't are kept until no publish has named them for
+ * MANIFEST_GRACE_MS, so a partial profile (QA run, second device, cleared
+ * storage) can't evict the real roster — or, via `pruneResults`, its cached
+ * backtests. */
+export function mergeManifest(
+  incoming: { days: number; windows?: number[]; strats: SavedIndex[] },
+): HubManifest {
+  const prev = readManifest();
+  const now = Date.now();
+  const seen: Record<string, number> = { ...prev.seen };
+  const byId = new Map<string, SavedIndex>();
+  for (const s of prev.strats) byId.set(s.id, s);
+  for (const s of incoming.strats) {
+    byId.set(s.id, s);
+    seen[s.id] = now;
+  }
+  const strats = [...byId.values()].filter((s) => {
+    // Pre-grace manifests have no `seen`; treat their strats as just seen
+    // rather than instantly expiring the whole roster on upgrade.
+    const last = seen[s.id] ?? (seen[s.id] = prev.at || now);
+    return now - last < MANIFEST_GRACE_MS;
+  });
+  for (const id of Object.keys(seen)) {
+    if (!byId.has(id) || now - seen[id] >= MANIFEST_GRACE_MS) delete seen[id];
+  }
+  const merged: HubManifest = {
+    days: incoming.days,
+    windows: incoming.windows,
+    strats,
+    at: now,
+    seen,
+  };
+  writeManifest(merged);
+  return merged;
 }
 
 export function readCache(): HubCacheFile {

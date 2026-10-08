@@ -14,6 +14,9 @@ _TMP = tempfile.mkdtemp(prefix='postquant-test-')
 os.environ['POSTQUANT_DATA_DIR'] = _TMP
 os.environ['POSTQUANT_KEY_DIR'] = _TMP
 os.environ['POSTQUANT_CHAIN_ID'] = 'postquant-test'
+# No test talks to the live liquidai next door — the chat brain's tests fake
+# lfm, and brain='auto' must deterministically land on rules in here.
+os.environ['POSTQUANT_LIQUIDAI'] = ''
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if HERE not in sys.path:

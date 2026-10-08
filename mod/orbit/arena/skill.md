@@ -23,8 +23,12 @@ file is the whole act of making a game.
   `m arena/vibe_store session=<id> name=ttt4` puts it in the registry. Fork a
   stored class instead of the template: `m arena/fork module=connect4
   prompt="5 in a row"`. `m arena/vibes` lists sessions and says whether build
-  is reachable. In the console: **+ add ▸ vibe one**, and a **fork** button on
+  is reachable. In the console: **vibecode a game** on the lobby (also
+  `#vibe` as a deep link), **+ add ▸ vibe one**, and a **fork** button on
   every game and player page.
+- **The whitepaper** — why the arena is built this way — is the `whitepaper`
+  docs page: `GET /arena/whitepaper` rendered, `m arena/docs_page
+  slug=whitepaper`, or `arena://docs/whitepaper` as an MCP resource.
 - Read a module's code: `m arena/code module=ttt` (a class as itself, a wasm
   module as the source it was uploaded with); its two hashes — the arena's
   SHA-256 and the store module's CID: `m arena/hashes module=ttt`. Every

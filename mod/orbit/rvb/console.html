@@ -115,7 +115,7 @@
       <p class="note">Every attack × every defense, plus the control set. This
         spends real model calls — <span id="cost-hint">pick a target</span>.</p>
       <div class="row">
-        <label>target</label><input type="text" id="r-model" value="mock:naive" size="22">
+        <label>target</label><input type="text" id="r-model" value="claude:haiku" size="22">
         <label>judge</label>
         <select id="r-judge"><option>heuristic</option><option>model</option></select>
         <label>parallel</label><input type="text" class="sm" id="r-par" value="6">
@@ -145,15 +145,9 @@
     </div>
     <div class="panel">
       <h2>write an attack</h2>
-      <div class="row">
-        <input type="text" id="a-name" placeholder="name" size="26">
-        <input type="text" id="a-cat" placeholder="category" size="14">
-        <input type="text" id="a-tech" placeholder="technique" size="14">
-      </div>
-      <div class="row"><input type="text" id="a-goal" placeholder="goal — what a breach would obtain" style="flex:1"></div>
+      <div class="row"><input type="text" id="a-name" placeholder="name" style="flex:1"></div>
       <textarea id="a-prompt" placeholder="the prompt"></textarea>
       <div class="row" style="margin-top:8px">
-        <input type="text" id="a-markers" placeholder="markers, comma separated" style="flex:1">
         <button class="go" id="a-save">ADD ATTACK</button>
         <span id="a-status"></span>
       </div>
@@ -201,7 +195,7 @@
       <div class="row">
         <label>attack</label><select id="f-attack"></select>
         <label>defense</label><select id="f-defense"></select>
-        <label>target</label><input type="text" id="f-model" value="mock:naive" size="20">
+        <label>target</label><input type="text" id="f-model" value="claude:haiku" size="20">
         <label>judge</label>
         <select id="f-judge"><option>heuristic</option><option>model</option></select>
         <button class="go" id="f-go">FIGHT</button>
@@ -372,12 +366,11 @@ async function loadAttacks() {
 $('#a-save').onclick = async () => {
   try {
     await post('/attacks', {
-      name: $('#a-name').value.trim(), goal: $('#a-goal').value.trim(),
-      category: $('#a-cat').value.trim() || 'custom',
-      technique: $('#a-tech').value.trim(),
-      prompt: $('#a-prompt').value,
-      markers: $('#a-markers').value.split(',').map(s => s.trim()).filter(Boolean)});
-    $('#a-status').textContent = 'added.'; $('#a-prompt').value = '';
+      name: $('#a-name').value.trim(),
+      category: 'custom',
+      prompt: $('#a-prompt').value});
+    $('#a-status').textContent = 'added.';
+    $('#a-name').value = ''; $('#a-prompt').value = '';
     loadAttacks();
   } catch (e) { $('#a-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
 };
@@ -481,6 +474,9 @@ api('/targets').then(t => {
     .map(([n]) => n).join(' · ');
   $('#sub').textContent = `target ${t.default} · ready: ${ready}`;
   $('#cost-hint').textContent = `${t.default} is the default; mock:* is free`;
+  // Default the runners to the server's real target, not the offline mock.
+  // mock:* stays one keystroke away for anyone testing the harness.
+  if (t.default) { $('#r-model').value = t.default; $('#f-model').value = t.default; }
 }).catch(() => {});
 loadBoard();
 </script>

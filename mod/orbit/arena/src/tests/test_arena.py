@@ -1358,3 +1358,16 @@ def test_an_agent_card_follows_the_agent_protocol(arena):
 
     code, out = get(arena, '/agents/no-such-agent-ever')
     assert code == 404 and 'error' in out
+
+
+def test_the_whitepaper_reads_through_the_docs_and_its_own_page(arena):
+    # One text, four doors: the docs tab, the docs_page tool, the MCP
+    # resource (all covered by the three-doors test above) — and its own
+    # shareable page, a static shell that fetches the same markdown.
+    code, page = get(arena, '/docs/whitepaper')
+    assert code == 200 and page['slug'] == 'whitepaper'
+    assert 'vibecod' in page['markdown'].lower()
+
+    r = requests.get(f'{arena}/arena/whitepaper', timeout=30)
+    assert r.ok and 'text/html' in r.headers['content-type']
+    assert 'WHITEPAPER' in r.text and '/docs/whitepaper' in r.text

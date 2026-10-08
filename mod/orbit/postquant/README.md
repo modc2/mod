@@ -117,11 +117,23 @@ curl -N localhost:51030/run/stream -d '{"query":"set greeting to hi for 2 days f
 GET  /agents                     # the roster orbit/build probes: pq, pq-reader
 ```
 
-- **Two brains.** `rules` (default, always on) is a plain-English command
-  parser: no model, no network, no key, free. `llm` is optional — point
+- **Three brains.** `rules` (default, always on) is a plain-English command
+  parser: no model, no network, no key, free. `chat` turns on by itself
+  whenever the **liquidai module** answers on this box: commands in the
+  message are still parsed and executed by rules — deterministic, gated,
+  free — and then the LFM resident in liquidai's server runtime answers in
+  plain language, grounded in those results, the whitepaper glossary and
+  live chain state, streaming real tokens (`lfm.py`; it mints liquidai's
+  own local session token, no key to configure). The model never picks
+  tools or amounts, so a fallback can never re-sign anything — liquidai
+  down degrades to the rules summary, out loud. `llm` is optional — point
   `POSTQUANT_AGENT_LLM` at any OpenAI-compatible endpoint with tool calling
   (a local ollama: `http://127.0.0.1:11434/v1`) and it drives the same tools;
   if it fails the run falls back to rules and says so.
+- **Conversation is a parameter.** `POST /run|/run/stream` take
+  `history: [{"role":"user|assistant","content":"..."}]` and
+  `brain: "chat"|"rules"|"llm"` (default auto: llm if configured, else chat
+  if liquidai is up, else rules).
 - **One door.** Every step is `mcp.call_tool()`, the function REST and MCP
   use, so the agent cannot see a different chain or skip a check.
 - **Same write gate.** With `server.secret` present, a run without the bearer
@@ -185,7 +197,8 @@ state.py        the state machine — pure functions of (state, tx, timestamp)
 keys.py         keystore, addresses, transaction signing
 chain.py        blocks, mempool, the proposer, replay + verify
 mcp.py          25 tools; call_tool() is the one door
-agent.py        plain English → call_tool(); rules brain + optional llm brain
+agent.py        plain English → call_tool(); rules + chat (liquidai) + llm brains
+lfm.py          the chat brain's model: liquidai /chat SSE + its local token mint
 api.py          REST + console + MCP on one port
 console.html    the app
 mod.py          the module surface

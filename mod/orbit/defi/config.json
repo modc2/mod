@@ -515,7 +515,7 @@
         "state": "~/.mod/defi/ (server.secret 0600, protocols/, objects/, positions/)",
         "contracts": "The catalog contracts are unaudited reference implementations. Every block ships an AGENT audit (src/api/blocks/audits/<id>.json, GET /catalog/{id}/audit, the AUDIT tab on the block page, the defi_audit MCP tool): a risk verdict and findings with exploit paths and fixes. An agent audit reduces the unknowns; it certifies nothing. Deploy to a testnet, read the source and the audit on the block page, and treat mainnet use as your own risk."
     },
-    "schema": "QmY88GUQjaRxjawzypgCqSLCt9UEt6mMH4XbCDo2bFeWjT",
+    "schema": "QmXm2Hvmt3eZ4x8hUSH4VUgJ97SWDJeyMrg5mthzEs5y3X",
     "wallets": {
         "rule": "the OPERATION picks the signer, the user picks between the two that fit. EVM enters/exits offer the user's own browser wallet (every quote carries a machine-readable `wallet` plan: approve/call/swap steps with '$you' for the connected address and '$shares' for its receipt balance) beside the eth module's keystore. Solana offers an injected wallet (Phantom, via Jupiter's transaction built for the connected key) beside the solana module. Bittensor is the bt module's coldkey only \u2014 no browser wallet speaks it, and the UI says so instead of pretending.",
         "browser_positions": "entered by POST /positions/record (txs required, sign-in required), marked signer:'browser' in the book, and exited by the same wallet: /positions/{id}/exit returns a plan, /positions/{id}/settle records what it sent.",

@@ -8,11 +8,13 @@ import { Stat } from './ui';
 /* free / staked / total (/ positions) — the account headline */
 export function BalanceStats({ free, staked, total, n }:
   { free?: number | null; staked?: number | null; total?: number | null; n?: number }) {
+  const { rate } = useData();
   return (
     <div className="stats left">
       <Stat left label="Free" value={`τ ${fmt(free, 4)}`} />
       <Stat left label="Staked" value={`τ ${fmt(staked, 4)}`} />
-      <Stat left label="Total" value={`τ ${fmt(total, 4)}`} />
+      <Stat left label={rate != null && total != null ? `Total · ≈ $${fmt(total * rate, 2)}` : 'Total'}
+            value={`τ ${fmt(total, 4)}`} />
       {n != null && <Stat left label="Positions" value={n} />}
     </div>
   );

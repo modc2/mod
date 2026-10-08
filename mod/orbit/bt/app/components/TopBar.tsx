@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ExtAccount, kindGlyph, useWallet } from '@/lib/wallet';
+import { useData } from '@/lib/data';
 import { fmt, short } from '@/lib/format';
 import { Ident } from './ui';
 import { BASE } from '@/lib/api';
@@ -40,6 +41,22 @@ function SkinButton() {
     setSkin(k);
   };
   return <button id="skinBtn" onClick={next} title={`Skin: ${skin || 'sleek'} — click to switch`}>{skin || 'sleek'}</button>;
+}
+
+/* flips every TAO amount in the console between τ and $, off the free-ticker
+   rate — tao.app charges for the dashboard that does this */
+function CcyButton() {
+  const { ccy, setCcy, rate, usd } = useData();
+  const next = ccy === 'usd' ? 'tao' : 'usd';
+  return (
+    <button id="ccyBtn" onClick={() => setCcy(next)}
+            title={rate != null
+              ? `τ = $${rate.toFixed(2)}${usd?.stale ? ' (stale)' : ''} — show amounts in ${next === 'usd' ? 'USD' : 'TAO'}`
+              : 'USD rate loading…'}
+            aria-label="Toggle currency">
+      {ccy === 'usd' ? '$' : 'τ'}
+    </button>
+  );
 }
 
 function WalletPopover() {
@@ -153,6 +170,7 @@ export default function TopBar() {
             </div>
           </div>
         )}
+        <CcyButton />
         <ThemeButton />
         <SkinButton />
       </div>

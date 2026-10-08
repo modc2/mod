@@ -113,3 +113,25 @@ def test_trades_query_filters_summary_and_paging(store):
     assert trades.trades(hours=24, min_tao=10)['summary']['trades'] == 51   # only the 15.45 τ sell
     cov = one['coverage']
     assert cov['complete'] and cov['to_block'] == 1000 and cov['gaps'] == 0
+
+
+def test_flows_board_nets_per_subnet(store):
+    trades.run_once(FakeChain(1000, BLOCK), budget=60)
+    f = trades.flows(hours=24)
+    rows = {r['netuid']: r for r in f['rows']}
+    assert set(rows) == {21, 44, 53, 60}
+    # sorted by net inflow: the swap-in subnet leads, the big sell trails
+    assert [r['netuid'] for r in f['rows']] == [53, 21, 44, 60]
+    sn21 = rows[21]
+    assert sn21['buys'] == 51 and sn21['sells'] == 0
+    assert sn21['buy_tao'] == pytest.approx(255.0)
+    assert sn21['net_tao'] == pytest.approx(255.0)
+    assert sn21['traders'] == 1 and sn21['buyers'] == 1 and sn21['sellers'] == 0
+    assert sn21['biggest_tao'] == pytest.approx(5.0)
+    sn60 = rows[60]
+    assert sn60['net_tao'] == pytest.approx(-51 * 15.451177823)
+    # swap legs flow on both sides they touch
+    assert rows[44]['sell_tao'] == pytest.approx(rows[53]['buy_tao'])
+    assert f['total_net_tao'] == pytest.approx(
+        sum(r['net_tao'] for r in f['rows']))
+    assert f['coverage']['complete']

@@ -486,7 +486,7 @@
   .stage .verdict { font-size: 13px; padding: 8px 10px; border-radius: 9px; background: var(--panel2);
                     border: 1px solid var(--line); margin-top: 10px; }
   .scrub { width: 100%; accent-color: var(--accent); margin: 10px 0 4px; }
-  .lobby2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .lobby2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; }
   .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
   .tile { display: flex; gap: 9px; align-items: center; padding: 9px; border: 1px solid var(--line);
           border-radius: 10px; background: var(--panel2); cursor: pointer; text-align: left;
@@ -572,7 +572,7 @@
   .ideas button { border: 1px dashed var(--line); background: none; color: var(--dim); border-radius: 999px;
                   padding: 4px 10px; font: inherit; font-size: 11.5px; cursor: pointer; }
   .ideas button:hover { color: var(--ink); border-color: var(--accent); }
-  @media (max-width: 900px) { #new-game { display: none; } .studio { grid-template-columns: 1fr; } .studio textarea.code { min-height: 340px; } }
+  @media (max-width: 900px) { #new-game, #new-agent { display: none; } .studio { grid-template-columns: 1fr; } .studio textarea.code { min-height: 340px; } }
 
   /* ask(): the in-page dialog — never the browser's own confirm() */
   .askback { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px;
@@ -599,6 +599,7 @@
   <a href="/arena/arcade" style="color:var(--dim);font-size:12px;text-decoration:none;padding:7px 4px">arcade</a>
   <span class="counts" id="banner">loading…</span>
   <button class="act sm" id="new-game" title="write a new game with the agent, a sentence at a time">+ new game</button>
+  <button class="act sm" id="new-agent" title="write a new agent the same way — say how it plays, publish it, it is seated">+ new agent</button>
   <button class="ghost sm" id="add-open" title="upload a .wasm / .py / .rs, or harvest a repo">upload</button>
   <button class="me" id="me" title="sign in with your wallet">sign in</button>
   <span class="themewrap">
@@ -883,6 +884,7 @@
       <div class="card" style="margin:0">
         <div class="row" style="margin-bottom:10px">
           <h2 class="grow" style="margin:0">games</h2>
+          <button class="act sm" id="lb-vibe" title="say what it is — the agent writes it, you publish it">vibecode a game</button>
           <button class="link small" id="lb-games-all">all games →</button>
         </div>
         <div class="tiles" id="lb-games"></div>
@@ -890,10 +892,20 @@
       <div class="card" style="margin:0">
         <div class="row" style="margin-bottom:6px">
           <h2 class="grow" style="margin:0">agents</h2>
+          <button class="act sm" id="lb-vibe-agent" title="say how it plays — the agent writes it, you publish it, it is seated">vibecode an agent</button>
+          <button class="ghost sm" id="lb-upload" title="bring your own — a .py, .rs or .wasm that defines play is entered the moment it lands">upload</button>
           <button class="link small" id="lb-agents-all">all agents · a/b test →</button>
         </div>
         <table class="lb"><tbody id="lb-agents"></tbody></table>
         <p class="dim small" id="lb-waiting" style="margin:8px 0 0"></p>
+      </div>
+      <div class="card" style="margin:0">
+        <div class="row" style="margin-bottom:6px">
+          <h2 class="grow" style="margin:0">models</h2>
+          <button class="link small" id="lb-models-all">connect one →</button>
+        </div>
+        <table class="lb"><tbody id="lb-models"></tbody></table>
+        <p class="dim small" style="margin:8px 0 0">Liquid AI models served on this box — a match costs nothing. Rank one against the agents.</p>
       </div>
     </div>
 
@@ -904,10 +916,29 @@
       </div>
       <div class="feed" id="lb-feed"></div>
     </div>
+
+    <p class="dim small" style="margin:14px 0 0;text-align:center">
+      new here? <a href="#docs/whitepaper">read the whitepaper</a> —
+      vibecode a <a href="#vibe">game</a> or an <a href="#vibe-agent">agent</a>: say what it is, the agent writes it, you publish it.
+      Or <a href="#upload">upload your own</a> — a .py, .rs or .wasm is read for what it is and seated.
+    </p>
   </section>
 
   <!-- ── agents ──────────────────────────────────────────────────────── -->
   <section id="view-agents" hidden>
+    <!-- ── three doors in: write one with the agent, bring one as a file, or
+         point at something that already answers. Making an agent is the same
+         move as making a game — the registry reads what arrives. -->
+    <div class="card row" style="flex-wrap:wrap">
+      <div class="grow">
+        <h2 style="margin:0">make an agent</h2>
+        <span class="dim small">say how it plays and the agent writes it — or bring your own</span>
+      </div>
+      <button class="act sm" id="mk-vibe">vibecode an agent</button>
+      <button class="ghost sm" id="mk-upload" title="a .py, .rs or .wasm that defines play">upload one</button>
+      <button class="ghost sm" id="mk-connect" title="a model, a fleet module, or any endpoint">connect one</button>
+    </div>
+
     <!-- ── the agent protocol, live: where the roster comes from, how many of
          it can sit here. Every agent below is a row of the agent module's
          GET /agents, and every move one of them makes is a POST /run. -->
@@ -966,9 +997,21 @@
       <div id="ap-gated"></div>
     </div>
 
-    <!-- Everything entered that is not an agent of the protocol — models,
-         stored bots, fleet modules, endpoints. Folded: they are opponents and
-         baselines here, not the subject. -->
+    <!-- ── the models, ranked. Every model seat is a Liquid AI model served
+         by this box, so a match costs nothing and needs nobody's key — and
+         the catalog below seats one in a click. -->
+    <div class="card" id="models-card">
+      <div class="row" style="margin-bottom:10px">
+        <h2 class="grow" style="margin:0">models</h2>
+        <span class="dim small">served on this box · a match costs nothing</span>
+      </div>
+      <table class="lb"><tbody id="models-ranked"></tbody></table>
+      <div id="models-bench"></div>
+    </div>
+
+    <!-- Everything entered that is neither an agent of the protocol nor a
+         model — stored bots, fleet modules, endpoints. Folded: they are
+         opponents and baselines here, not the subject. -->
     <details class="card fold" id="others">
       <summary><h2 class="grow" style="margin:0">other players</h2>
         <span class="dim small" id="others-n"></span></summary>
@@ -980,7 +1023,7 @@
          gateway — and every source is a list to choose from rather than JSON
          to type, because every one of those lists is something this box
          already knows. -->
-    <div class="card">
+    <div class="card" id="connect-card">
       <h2>connect an agent</h2>
       <div class="seg" id="p-src">
         <button data-src="agent" aria-selected="true">an agent (mod protocol)</button>
@@ -1574,6 +1617,12 @@ document.querySelectorAll("#g-scope button").forEach((b) =>
   (b.onclick = () => { gameScope = b.dataset.scope; renderGames(); }));
 $("g-new").onclick = () => openStudio({});
 $("new-game").onclick = () => openStudio({});
+$("lb-vibe").onclick = () => openStudio({});
+$("new-agent").onclick = () => openStudio({ role: "player" });
+$("lb-vibe-agent").onclick = () => openStudio({ role: "player" });
+$("mk-vibe").onclick = () => openStudio({ role: "player" });
+$("mk-upload").onclick = () => { $("add").hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); };
+$("mk-connect").onclick = () => $("connect-card").scrollIntoView({ behavior: "smooth" });
 $("g-search").oninput = renderGames;
 $("g-sort").onchange = renderGames;
 
@@ -3137,6 +3186,8 @@ window.addEventListener("hashchange", () => {
   if (location.hash.startsWith("#docs/")) show("docs");
   if (location.hash.startsWith("#game/"))
     openGamePage(decodeURIComponent(location.hash.slice(6))).catch((e) => toast(e.message, true));
+  if (location.hash === "#vibe") openStudio({});
+  if (location.hash === "#vibe-agent") openStudio({ role: "player" });
 });
 
 const slugify = (t) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -3435,6 +3486,8 @@ try {
   if (location.hash.startsWith("#docs/")) show("docs");
   else if (location.hash.startsWith("#game/"))
     await openGamePage(decodeURIComponent(location.hash.slice(6))).catch((e) => toast(e.message, true));
+  else if (location.hash === "#vibe") openStudio({});
+  else if (location.hash === "#vibe-agent") openStudio({ role: "player" });
 } catch (e) {
   $("banner").textContent = `cannot reach the server: ${e.message}`;
   $("banner").className = "counts bad";

@@ -343,6 +343,24 @@ def _trades_status():
     from . import trades
     return trades.status()
 
+def _flows(hours=24):
+    from . import trades, history
+    out = trades.flows(hours=hours)
+    names = {r['netuid']: {'name': r.get('name'), 'symbol': r.get('symbol'),
+                           'logo': r.get('logo')}
+             for r in history.screener(sparks=False).get('rows', [])}
+    for row in out['rows']:
+        row.update(names.get(row['netuid'], {}))
+    return out
+
+def _usd():
+    from . import usd
+    return usd.spot()
+
+def _network():
+    from . import network
+    return network.network()
+
 
 # --- tracked traders (bt.traders index)
 
@@ -550,6 +568,13 @@ TOOLS: List[Tool] = [
          _trades, local=True),
     Tool('bt_trades_status', 'The chain-event trade indexer: blocks indexed, block range, trade count, head, backlog still to backfill, last error.', 'Network',
          {}, _trades_status, local=True),
+    Tool('bt_flows', 'INSTANT per-subnet TAO flow board from the local chain-event trade index: for every subnet over one window, TAO staked in (buys), TAO unstaked out (sells), the NET flow, trade counts and unique buyers/sellers — where the market is rotating, sorted by net inflow. No chain round-trip, no API key.', 'Markets',
+         dict(hours={'type': 'number', 'description': 'Lookback window in hours (1, 24, 168, ...)', 'default': 24}),
+         _flows, local=True),
+    Tool('bt_usd', 'The TAO/USD price right now: median of free public exchange tickers (Kraken, Coinbase, Binance, CoinGecko), with 24h change and the per-source quotes. Cached ~60s; served from the last good value (stale=true) if every exchange is unreachable. No API key.', 'Markets',
+         {}, _usd, local=True),
+    Tool('bt_network', 'The network itself: current block, total TAO issuance vs the 21M cap, halving count and an estimated countdown to the next halving, block/daily emission, total staked TAO and staked %, plus the TAO/USD spot. Two storage reads on an own socket, cached 5 minutes.', 'Network',
+         {}, _network, local=True),
     # --- trading
     Tool('bt_portfolio', 'Get all staked alpha positions for a local wallet across subnets, with TAO value.', 'Trading',
          _wallet_params({}), _portfolio),

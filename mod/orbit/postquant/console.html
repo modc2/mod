@@ -190,6 +190,40 @@
   .paper .rule{border:0;border-top:1px solid var(--line);margin:36px 0}
   .paper table{font-size:15px;margin:8px 0 16px}
   .paper th,.paper td{padding:8px 12px}
+  /* two reads of the same paper: HUMAN (plain language) and SCIENTIST */
+  .paper .wp-mode{display:flex;align-items:center;gap:7px;margin:0 0 26px}
+  .paper .wp-mode .lbl{color:var(--dim);font-size:11px;letter-spacing:.16em}
+  .paper .wp-mode button.on{box-shadow:0 0 12px rgba(157,123,255,.18)}
+  .paper.human .sci{display:none}
+  .paper:not(.human) .hum{display:none}
+  /* ── the corner helper: the agent, within reach of the paper ── */
+  #wp-help{position:fixed;right:20px;bottom:20px;z-index:8;display:none;
+           flex-direction:column;align-items:flex-end;gap:10px}
+  #wp-help.show{display:flex}
+  #wp-fab{width:52px;height:52px;border-radius:50%;font-size:21px;
+          border-color:var(--pq-dim);color:#d6c9fa;
+          background:linear-gradient(180deg,#2a2148,#161126);
+          box-shadow:0 6px 22px rgba(0,0,0,.5), 0 0 18px rgba(157,123,255,.28)}
+  #wp-fab:hover{border-color:var(--pq);color:#fff;
+          box-shadow:0 6px 22px rgba(0,0,0,.5), 0 0 26px rgba(157,123,255,.45)}
+  #wp-chat{display:none;width:min(360px,calc(100vw - 40px));
+           background:linear-gradient(180deg,#0d131c,#0b1017);
+           border:1px solid var(--line2);border-radius:12px;overflow:hidden;
+           box-shadow:0 14px 44px rgba(0,0,0,.55), 0 0 0 1px rgba(157,123,255,.08)}
+  #wp-chat.open{display:block;animation:fadeup .2s ease}
+  #wp-chat .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;
+           border-bottom:1px solid var(--line);color:var(--dim);font-size:11px;
+           letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+  #wp-chat .hd .dot{width:7px;height:7px;border-radius:50%;background:var(--pq);
+           box-shadow:0 0 8px rgba(157,123,255,.6);flex:none}
+  #wp-log{max-height:300px;overflow:auto;padding:10px 12px;font-size:12.5px}
+  #wp-log .q{color:var(--gold);margin:10px 0 2px}
+  #wp-log .q::before{content:'» '}
+  #wp-log .a{white-space:pre-wrap;word-break:break-word}
+  #wp-chips{display:flex;flex-wrap:wrap;gap:0;padding:8px 12px 4px;
+           border-top:1px solid var(--line)}
+  #wp-row{display:flex;gap:6px;padding:4px 12px 12px}
+  #wp-q{flex:1;min-width:0}
 </style>
 </head>
 <body>
@@ -434,12 +468,18 @@
 
   <!-- WHITEPAPER --------------------------------------------------------- -->
   <section id="about">
-    <div class="panel paper">
+    <div class="panel paper human">
       <div class="wp-title"><span class="p">POST</span><span class="q">QUANT</span></div>
       <p class="wp-sub">a key/value market where every byte pays rent</p>
-      <div class="wp-meta">ML-DSA (FIPS 204) · SLH-DSA (FIPS 205) · SHA3-256 · wasm-verified witnesses · no elliptic curves · v0.3</div>
+      <div class="wp-meta">ML-DSA (FIPS 204) · SLH-DSA (FIPS 205) · SHA3-256 · wasm-verified witnesses · no elliptic curves · v0.7</div>
 
-      <p class="abstract">
+      <div class="wp-mode"><span class="lbl">READ AS</span>
+        <button class="sm" id="wp-hum">HUMAN</button>
+        <button class="sm" id="wp-sci">SCIENTIST</button>
+        <span class="lbl" style="margin-left:auto">same paper, two voices</span>
+      </div>
+
+      <p class="abstract sci">
         A post-quantum L1 whose entire state machine is a market in key/value
         space. There is one thing to own on this chain — a key in the store —
         and the whole protocol is the market for it: write gas per byte,
@@ -448,11 +488,28 @@
         commitment is a hash, nothing in the trust path is an elliptic curve —
         and every witness is checked by the wasm module that <em>is</em> its
         key type.</p>
+      <p class="abstract hum">
+        This is a small blockchain with one idea. The only thing you can own
+        on it is an entry on a public board — a name and what it says — and
+        keeping it there costs a little, like renting a mailbox. Every
+        signature is built to survive quantum computers: <em>no elliptic
+        curves anywhere</em>. If any of this page loses you, the ▧ helper in
+        the corner will explain.</p>
 
       <hr class="rule">
 
       <h3><span class="n">1</span>No curves</h3>
-      <p>Signatures on this chain come from two families that share nothing:
+      <p class="hum">Most blockchains guard your money with a kind of math —
+        elliptic curves — that a big enough quantum computer is expected to
+        break outright. This chain simply never uses it. Your wallet locks
+        with one of two completely different mechanisms instead: one built
+        on <strong>lattice problems</strong>, one built on <strong>nothing
+        but hashing</strong>. They share no weakness, so if one ever falls,
+        the other still holds.</p>
+      <p class="hum">You choose your lock when you create a wallet, and your
+        address is permanently stamped with the choice — a signature made
+        for one kind of lock can never be replayed against another.</p>
+      <p class="sci">Signatures on this chain come from two families that share nothing:
         <strong>ML-DSA</strong> (FIPS 204, module lattices) and
         <strong>SLH-DSA</strong> (FIPS 205, nothing but SHAKE256). If
         lattices fall, a hash-based witness still stands. Key exchange is
@@ -460,12 +517,12 @@
         transaction ids, Merkle roots, state roots — is
         <strong>SHA3-256</strong>. Nothing here is ed25519 or secp256k1,
         because a curve is exactly the thing Shor's algorithm takes apart.</p>
-      <p>What survives a quantum adversary is lattices and hashes. Grover's
+      <p class="sci">What survives a quantum adversary is lattices and hashes. Grover's
         algorithm halves the exponent of a hash search, so 256 bits stays an
         effective 128 — a square-root loss the parameter sizes already
         absorb. Every scheme is implemented from the FIPS specifications in
         pure python under <code>pq/</code>, with no dependencies.</p>
-      <p>An account picks its key type at creation and its address commits to
+      <p class="sci">An account picks its key type at creation and its address commits to
         the choice: <code>pq</code> + the first 20 bytes of domain-separated
         SHA3-256 over the algorithm's domain and the public key, so the same
         bytes arriving under two schemes are two different addresses and a
@@ -474,7 +531,17 @@
         later one does not.</p>
 
       <h3><span class="n">1b</span>The wasm is the algorithm</h3>
-      <p>A key type here is not a branch in the node's code — it is a
+      <p class="hum">Each kind of lock ships as a small sealed program with a
+        fingerprint of its exact bytes on file. When a transaction arrives,
+        the chain checks the signature <em>inside</em> that very program —
+        and refuses to run one whose fingerprint doesn't match. Adding a new
+        kind of lock later means dropping in one file, not rewriting the
+        chain.</p>
+      <p class="hum">New lock designs aren't banned for being old-fashioned,
+        either — they're <strong>priced</strong>: anything that would take
+        longer than a published floor to break may play, and the catalog
+        says plainly what a quantum computer would do to each one.</p>
+      <p class="sci">A key type here is not a branch in the node's code — it is a
         <strong>compiled wasm verifier</strong> plus the SHA3-256 of its
         bytes, registered in a manifest. Every transaction the chain accepts
         has its witness checked <em>inside</em> the wasm module registered
@@ -482,7 +549,7 @@
         does not match the registry, and refuses the witness outright if the
         module cannot run. What it means for a signature to be valid is
         thereby pinned to exact bytes any node can hash, ship and re-run.</p>
-      <p>That is also what makes the key-type set amendable: a future
+      <p class="sci">That is also what makes the key-type set amendable: a future
         algorithm arrives as one plugin file that registers keygen/sign plus
         a verifier blob and its declared hash — in <code>pq/algos.d/</code>
         in-tree or <code>~/.mod/postquant/algos/</code> per node — with no
@@ -495,14 +562,34 @@
         tests against the python references (<code>pq/wasm-src/</code>).</p>
 
       <h3><span class="n">2</span>One thing to own</h3>
-      <p>A key maps to a value. The value is bytes, and is usually a 32-byte
+      <p class="hum">Think of the chain as a public notice board. You own a
+        spot on the board — a name — and what it says. Usually you don't
+        post the document itself, just its fingerprint, so anyone can later
+        check <em>"yes, this is exactly that file"</em> without the chain
+        ever storing it. Keeping your spot costs money for as long as you
+        keep it — and that bill, in three parts, is the whole protocol.</p>
+      <p class="sci">A key maps to a value. The value is bytes, and is usually a 32-byte
         SHA3-256 digest of something kept off-chain — the chain stores the
         <em>commitment</em>, never the data. Holding that pair costs money
         for as long as you hold it, and that cost structure is the entire
         protocol.</p>
 
       <h3><span class="n">3</span>Three prices, separate on purpose</h3>
-      <ul>
+      <ul class="hum">
+        <li><strong>A posting fee</strong> — paid once, per byte you write.
+          Names cost more than contents, because every computer in the
+          network has to index a name forever.</li>
+        <li><strong>A signature fee</strong> — quantum-safe signatures are
+          big (thousands of bytes, not dozens), and each wallet pays for
+          exactly the bytes its kind of lock produces. Nobody gets quietly
+          subsidised.</li>
+        <li><strong>Rent</strong> — a small hourly charge per byte, drawn
+          from a deposit you top up. When the deposit runs dry your entry
+          expires, and anyone may clear it away and keep your cleanup bond —
+          which is why expiry actually happens. Remove it yourself and the
+          bond comes back.</li>
+      </ul>
+      <ul class="sci">
         <li><strong>Write gas</strong> — one-time, per byte entering the
           state. A key byte costs <em>4x</em> a value byte, because a key is
           an index entry the whole network sorts forever. A value declared
@@ -523,7 +610,12 @@
       </ul>
 
       <h3><span class="n">4</span>The fee market</h3>
-      <p>Write gas settles at a base fee that floats with state growth —
+      <p class="hum">When people write a lot, writing gets more expensive;
+        when it's quiet, it gets cheaper — automatically, a little every
+        block, aimed at a steady few kilobytes of growth. The fee is
+        <em>destroyed</em> rather than pocketed, so nobody profits from
+        congestion.</p>
+      <p class="sci">Write gas settles at a base fee that floats with state growth —
         <strong>EIP-1559 over bytes, not execution</strong>. The scarce
         resource metered is every node's disk forever: the target is 4096
         bytes of state growth per block, and the base fee moves ±12.5% per
@@ -532,13 +624,24 @@
         goes to the proposer.</p>
 
       <h3><span class="n">5</span>The market for keys</h3>
-      <p>Keys can be <strong>listed and bought</strong>. The buyer takes the
+      <p class="hum">Names can be put up for sale and bought. The buyer gets
+        the entry with its remaining rent deposit and bond included — like
+        buying a domain name that comes pre-paid. Readable names are the
+        point: you can't bid on something you can't say.</p>
+      <p class="sci">Keys can be <strong>listed and bought</strong>. The buyer takes the
         entry with its remaining lease and bond — a well-funded key is worth
         more than an empty one. Human-readable keys are the point of a
         namespace market: you cannot bid on something you cannot say.</p>
 
       <h3><span class="n">6</span>Consensus, honestly</h3>
-      <p>Single proposer — <em>authority, not agreement</em>. What is real is
+      <p class="hum">One operator decides the order of transactions — this
+        chain doesn't pretend to be a thousand-node democracy, and says so.
+        What keeps it honest is that everything is checkable: anyone can
+        press VERIFY THE CHAIN and replay the whole history from the first
+        block, and if a single byte had been altered the replay would catch
+        it. A short proof can convince even a phone that an entry is real,
+        no full copy of the chain needed.</p>
+      <p class="sci">Single proposer — <em>authority, not agreement</em>. What is real is
         the ordered log (<code>blocks.jsonl</code>), deterministic execution,
         and a state root anyone can recompute. VERIFY THE CHAIN replays every
         block from genesis and re-checks every parent link, header hash,
@@ -549,13 +652,22 @@
         store.</p>
 
       <h3><span class="n">7</span>Units</h3>
-      <p>1 <em>PQ</em> = 1e9 <em>nq</em>. In every API, an amount given as a
+      <p class="hum">The money is <em>PQ</em>, and one PQ splits into a
+        billion <em>nq</em> — think dollars and very, very small cents.
+        Write <code>"1.5"</code> in quotes and you mean PQ; write a bare
+        whole number and you mean nq. The system never guesses.</p>
+      <p class="sci">1 <em>PQ</em> = 1e9 <em>nq</em>. In every API, an amount given as a
         <strong>string</strong> (<code>"1.5"</code>) is PQ, the display
         unit; a <strong>bare integer</strong> is nq, the base unit. Nothing
         is ever guessed from magnitude.</p>
 
       <h3><span class="n">8</span>One surface, three doors</h3>
-      <p>The same functions serve REST under
+      <p class="hum">The page you're reading, the API programmers call, and
+        the AI tools all talk to the same functions on one port. Wallets
+        live on the server in a file only its owner can read; the block log
+        is the single source of truth, and any summary derived from it is
+        thrown away the moment the two disagree.</p>
+      <p class="sci">The same functions serve REST under
         <span class="mono" id="about-api"></span>, MCP (25 tools,
         <code>pq_head</code> through <code>pq_complexity</code>) at
         <code>POST /mcp</code>, and this console. State lives in
@@ -565,6 +677,26 @@
     </div>
   </section>
 </main>
+
+<!-- the corner helper: the same agent as ASK, within reach of the paper -->
+<div id="wp-help">
+  <div id="wp-chat">
+    <div class="hd"><span class="dot"></span>ASK THE PAPER
+      <span class="muted" style="margin-left:auto;letter-spacing:0;text-transform:none">the chain's own agent</span></div>
+    <div id="wp-log"><div class="a muted">Anything the paper left you
+      wondering — ask here, or tap a question.</div></div>
+    <div id="wp-chips">
+      <span class="chip">why no curves?</span>
+      <span class="chip">what is rent?</span>
+      <span class="chip">what is witness gas?</span>
+      <span class="chip">how does consensus work?</span>
+      <span class="chip">what is 1 PQ?</span>
+    </div>
+    <div id="wp-row"><input id="wp-q" type="text" placeholder="ask the paper…">
+      <button class="go" id="wp-go">ASK</button></div>
+  </div>
+  <button id="wp-fab" title="ask the whitepaper">▧</button>
+</div>
 
 <script>
 'use strict';
@@ -605,6 +737,7 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
   document.querySelectorAll('main > section').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); $(b.dataset.tab).classList.add('on');
+  $('wp-help').classList.toggle('show', b.dataset.tab === 'about');
   ({chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
     wallet: () => { loadWallets(); loadAlgos(); },
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
@@ -628,6 +761,7 @@ async function loadAsk() {
     askLoaded = true;
   } catch (e) { $('ask-brain').textContent = 'agent unavailable: ' + e.message; }
 }
+const askHist = [];   // the chat brain is multi-turn; last 10 are sent
 async function ask() {
   const q = $('ask-q').value.trim();
   if (!q) return;
@@ -637,9 +771,12 @@ async function ask() {
     '<div class="turn-a"><div class="tools"></div><div class="ans muted">working…</div></div>';
   $('ask-log').prepend(turn);
   const tools = turn.querySelector('.tools'), ans = turn.querySelector('.ans');
-  let chip = null;
+  let chip = null, streamed = '';
   const handle = ev => {
-    if (ev.type === 'tool_start') {
+    if (ev.type === 'token') {        // chat brain streams word-ish chunks
+      streamed += ev.text;
+      ans.className = 'ans'; ans.textContent = streamed;
+    } else if (ev.type === 'tool_start') {
       chip = document.createElement('span'); chip.className = 'chip run';
       chip.textContent = ev.tool; chip.title = JSON.stringify(ev.params);
       tools.appendChild(chip);
@@ -651,34 +788,108 @@ async function ask() {
         turn.querySelector('.turn-a').appendChild(document.createElement('pre'));
         pre.textContent = JSON.stringify(detail, null, 2); };
     } else if (ev.type === 'status') {
-      ans.textContent = ev.text;
+      ans.className = 'ans muted'; ans.textContent = ev.text;
     } else if (ev.type === 'done') {
-      ans.className = 'ans'; ans.textContent = ev.result;
+      ans.className = 'ans'; ans.textContent = ev.result;   // authoritative
+      if (ev.brain) {
+        const pill = document.createElement('span');
+        pill.className = 'chip';
+        pill.textContent = ev.brain + (ev.fallback ? ' · fell back' : '') +
+          (ev.ms ? ' · ' + (ev.ms / 1000).toFixed(1) + 's' : '');
+        tools.appendChild(pill);
+      }
+      askHist.push({role: 'user', content: q},
+                   {role: 'assistant', content: ev.result});
     } else if (ev.type === 'error') {
       ans.className = 'ans err'; ans.textContent = ev.error;
     }
   };
   try {
-    const r = await fetch(API + '/run/stream', {method: 'POST',
-      headers: {'content-type': 'application/json'}, body: JSON.stringify({query: q})});
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
-    const reader = r.body.getReader(), dec = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const {value, done} = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, {stream: true});
-      let i;
-      while ((i = buf.indexOf('\n\n')) >= 0) {
-        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
-        if (frame.startsWith('data: ')) handle(JSON.parse(frame.slice(6)));
-      }
-    }
+    await streamRun({query: q, history: askHist.slice(-10)}, handle);
   } catch (e) { ans.className = 'ans err'; ans.textContent = e.message; }
   $('ask-go').disabled = false; $('ask-q').focus();
 }
 $('ask-go').onclick = ask;
 $('ask-q').onkeydown = e => { if (e.key === 'Enter') ask(); };
+
+// One SSE reader for both askers — the ASK tab and the paper's corner helper.
+// body: {query, history?} — brain is left to the server's auto pick
+// (llm → chat → rules), so a liquidai outage degrades by itself.
+async function streamRun(body, handle) {
+  const r = await fetch(API + '/run/stream', {method: 'POST',
+    headers: {'content-type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream: true});
+    let i;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+      if (frame.startsWith('data: ')) handle(JSON.parse(frame.slice(6)));
+    }
+  }
+}
+
+// ── the whitepaper: HUMAN / SCIENTIST, remembered ──
+const paper = document.querySelector('#about .paper');
+function wpMode(m) {
+  paper.classList.toggle('human', m === 'human');
+  $('wp-hum').classList.toggle('on', m === 'human');
+  $('wp-sci').classList.toggle('on', m !== 'human');
+  try { localStorage.setItem('pq-wp-mode', m); } catch (e) {}
+}
+$('wp-hum').onclick = () => wpMode('human');
+$('wp-sci').onclick = () => wpMode('sci');
+wpMode((() => { try { return localStorage.getItem('pq-wp-mode'); }
+                catch (e) { return null; } })() || 'human');
+
+// ── the corner helper: the same agent, one question at a time ──
+$('wp-fab').onclick = () => {
+  const c = $('wp-chat'); c.classList.toggle('open');
+  if (c.classList.contains('open')) $('wp-q').focus();
+};
+document.querySelectorAll('#wp-chips .chip').forEach(c =>
+  c.onclick = () => wpAsk(c.textContent));
+const wpHist = [];    // its own thread — the paper chat is not the ASK tab's
+async function wpAsk(preset) {
+  const q = (preset || $('wp-q').value).trim();
+  if (!q) return;
+  $('wp-q').value = ''; $('wp-go').disabled = true;
+  const log = $('wp-log');
+  const qd = document.createElement('div'); qd.className = 'q'; qd.textContent = q;
+  const ad = document.createElement('div'); ad.className = 'a muted';
+  ad.textContent = 'thinking…';
+  log.append(qd, ad); log.scrollTop = log.scrollHeight;
+  let streamed = '';
+  try {
+    // brain pinned to rules: the paper helper serves definitions, and the
+    // glossary verbatim beats a 1.2B paraphrase of it ("what is rent?" came
+    // back as a set command through chat). Flip to auto when chat answers
+    // pure-explain plans from the glossary.
+    await streamRun({query: q, history: wpHist.slice(-10), brain: 'rules'}, ev => {
+      if (ev.type === 'token') {
+        streamed += ev.text;
+        ad.className = 'a'; ad.textContent = streamed;
+      } else if (ev.type === 'status') {
+        ad.className = 'a muted'; ad.textContent = ev.text;
+      } else if (ev.type === 'done') {
+        ad.className = 'a'; ad.textContent = ev.result;
+        wpHist.push({role: 'user', content: q},
+                    {role: 'assistant', content: ev.result});
+      } else if (ev.type === 'error') {
+        ad.className = 'a err'; ad.textContent = ev.error;
+      }
+      log.scrollTop = log.scrollHeight;
+    });
+  } catch (e) { ad.className = 'a err'; ad.textContent = e.message; }
+  if (ad.classList.contains('muted')) { ad.className = 'a err'; ad.textContent = 'no answer'; }
+  $('wp-go').disabled = false; log.scrollTop = log.scrollHeight;
+}
+$('wp-go').onclick = () => wpAsk();
+$('wp-q').onkeydown = e => { if (e.key === 'Enter') wpAsk(); };
 
 // ── CHAIN ──
 const stat = (v, k, cls) => `<div class="stat"><b class="${cls||''}">${v}</b><span>${k}</span></div>`;

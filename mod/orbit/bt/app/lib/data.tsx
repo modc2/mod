@@ -3,8 +3,9 @@
  * tracked-trader list. Lives in the root layout so every page — and the chat
  * agent driving the screen — reads the same rows without refetching. */
 import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from 'react';
-import { call, getJSON, Stats, SubnetRow, TraderRow } from './api';
-import { usePoll } from './hooks';
+import { call, getJSON, NetworkInfo, Stats, SubnetRow, TraderRow, Usd } from './api';
+import { Ccy } from './format';
+import { usePoll, useStored } from './hooks';
 
 interface Info { network?: string; block?: number; version?: string; tools?: number;
                  traders?: { tracked?: number; snapshots?: number; flows?: number } }
@@ -24,6 +25,9 @@ interface Data {
   syncAt: number | null; syncBlock: number | null;
   search: string; setSearch: (s: string) => void;
   sort: Sort; setSort: (s: Sort) => void;
+  usd: Usd | null; network: NetworkInfo | null;
+  ccy: Ccy; setCcy: (c: Ccy) => void;
+  rate: number | null;              /* USD per τ, from the free tickers */
 }
 
 const Ctx = createContext<Data | null>(null);
@@ -38,6 +42,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const stats = usePoll<Stats>(async () => (await call<Stats>('bt_stats')).result, 60_000, [], 'stats');
   const traders = usePoll<TraderRow[]>(async () =>
     (await call<{ rows: TraderRow[] }>('bt_traders', { sort_by: 'total_tao' })).result.rows || [], 60_000, [], 'traders');
+  const usd = usePoll<Usd>(async () => (await call<Usd>('bt_usd')).result, 120_000, [], 'usd');
+  const network = usePoll<NetworkInfo>(async () =>
+    (await call<NetworkInfo>('bt_network')).result, 300_000, [], 'network');
+  const [ccy, setCcy] = useStored<Ccy>('bt.ccy', 'tao');
 
   const rows = screener.data?.rows;
   const names = useMemo(() => Object.fromEntries((rows || []).map(r => [r.netuid, r.name || ''])), [rows]);
@@ -56,6 +64,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     stats: stats.data,
     traders: traders.data, tradersError: traders.error, reloadTraders,
     names, bySubnet, syncAt, syncBlock, search, setSearch, sort, setSort,
+    usd: usd.data, network: network.data, ccy, setCcy,
+    rate: usd.data?.usd ?? network.data?.usd?.usd ?? null,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

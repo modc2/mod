@@ -25,6 +25,7 @@ const ARCADE_HTML: &str = include_str!("arcade.html");
 const AGENTS_HTML: &str = include_str!("agents.html");
 const GAME_HTML: &str = include_str!("game.html");
 const AGENT_HTML: &str = include_str!("agent.html");
+const WHITEPAPER_HTML: &str = include_str!("whitepaper.html");
 
 /// The execution layer, served to the browser from the same binary that
 /// stores the modules — so a tab needs nothing but this port. `pyhost.mjs` and
@@ -74,7 +75,7 @@ fn info() -> Value {
         "tools": "GET /tools",
         "store": "GET /store — the bridge to the store module | POST /store/sync {force?, verify?}",
         "fleet": "GET /fleet — every module of this fleet an agent can be seated from | GET /fleet/:name/tools",
-        "console": "GET /arena (browser, the games/agents console; /arena/classic is a permanent alias) | GET /arena/arcade (hi-score boards) | GET /arena/agents (the agent-module board, framed here)"
+        "console": "GET /arena (browser, the games/agents console; /arena/classic is a permanent alias) | GET /arena/arcade (hi-score boards) | GET /arena/agents (the agent-module board, framed here) | GET /arena/whitepaper (the whitepaper, rendered)"
     });
     v["stdio"] = json!("arena-api --stdio");
     v
@@ -102,6 +103,12 @@ async fn console() -> Html<&'static str> {
 
 async fn arcade_page() -> Html<&'static str> {
     Html(ARCADE_HTML)
+}
+
+/// The whitepaper's shareable page. The shell fetches /docs/whitepaper — the
+/// same markdown behind the console's docs tab and the MCP resource.
+async fn whitepaper_page() -> Html<&'static str> {
+    Html(WHITEPAPER_HTML)
 }
 
 /// The agent-module arena board, at home here: the page is the arena's, the
@@ -686,6 +693,7 @@ pub async fn serve(port: u16) {
         .route("/arena/", get(console))
         .route("/arena/classic", get(console))
         .route("/arena/arcade", get(arcade_page))
+        .route("/arena/whitepaper", get(whitepaper_page))
         .route("/arena/agents", get(agents_page))
         .route("/arena/game/:id", get(game_page))
         .route("/arena/agent/:id", get(agent_profile_page))

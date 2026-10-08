@@ -1,12 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { BoardRow, call, Flow, SubnetRow } from '@/lib/api';
+import { BoardRow, call, Flow, FlowRow, SubnetRow } from '@/lib/api';
 import { useData } from '@/lib/data';
 import { useOverlay } from '@/lib/overlay';
 import { useChat } from '@/lib/chat';
 import { usePoll, useNow } from '@/lib/hooks';
-import { agoText, compact, fmt, fmtPrice, short } from '@/lib/format';
+import { agoText, compact, fmt, fmtPrice, money, short } from '@/lib/format';
 import { Pct, SideTag, Spinner, Stat, SubnetLogo } from '@/components/ui';
 import { NewsItem, NewsList } from '@/components/News';
 
@@ -36,10 +36,29 @@ function MoverList({ rows, value }: { rows: SubnetRow[]; value: (r: SubnetRow) =
   ))}</>;
 }
 
+/* the network line taostats leads with: supply, halving clock, staked — free */
+function NetLine() {
+  const { network: n } = useData();
+  if (!n?.total_issuance_tao) return null;
+  const nextIn = n.est_days_to_halving;
+  const when = nextIn ? new Date(Date.now() + nextIn * 86400e3)
+    .toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : null;
+  return (
+    <div className="netline" title={`block #${n.block?.toLocaleString()} · emission ${n.block_emission_tao} τ/block`}>
+      <span><em>issued</em> {compact(n.total_issuance_tao)} / 21M τ</span>
+      <span className="netbar"><i style={{ width: `${n.pct_issued?.toFixed(1)}%` }} /></span>
+      <span>{n.pct_issued?.toFixed(1)}%</span>
+      <span><em>halvings</em> {n.halvings}</span>
+      {when && <span><em>next</em> ~{when}</span>}
+      {n.staked_pct != null && <span><em>staked</em> {n.staked_pct.toFixed(0)}%</span>}
+    </div>
+  );
+}
+
 export default function Home() {
   const router = useRouter();
   const chat = useChat();
-  const { stats, screener, bySubnet } = useData();
+  const { stats, screener, bySubnet, usd, ccy, rate } = useData();
   const { openTrader, openSubnet } = useOverlay();
   const t = useNow(30_000);
   const rows = (screener?.rows || []).filter(r => r.netuid !== 0);
@@ -53,6 +72,8 @@ export default function Home() {
       .filter((r: BoardRow) => r.baseline), 300_000);
   const headlines = usePoll<NewsItem[]>(async () =>
     (await call('bt_news', { days: 7, limit: 8, kind: 'news,blog', focused: true })).result.items || [], 300_000);
+  const flows = usePoll<FlowRow[]>(async () =>
+    (await call('bt_flows', { hours: 24 })).result.rows || [], 120_000, [], 'homeflows');
 
   return (
     <>
@@ -66,11 +87,15 @@ export default function Home() {
           <button className="pill ghost" onClick={chat.newChat} disabled={chat.running}>Chat with the network</button>
         </div>
         <div className="stats">
+          <Stat label={usd?.change_24h != null
+              ? `TAO · ${usd.change_24h >= 0 ? '+' : ''}${usd.change_24h.toFixed(1)}% 24h` : 'TAO price'}
+            value={usd ? '$' + fmt(usd.usd, 2) : '—'} />
           <Stat label="Markets" value={stats?.subnets || '—'} />
-          <Stat label="Alpha mcap τ" value={compact(stats?.total_market_cap_tao)} />
-          <Stat label="24h volume τ" value={stats?.volume_24h_tao != null ? compact(stats.volume_24h_tao) : 'soon'} />
+          <Stat label="Alpha mcap" value={money(stats?.total_market_cap_tao, ccy, rate)} />
+          <Stat label="24h volume" value={stats?.volume_24h_tao != null ? money(stats.volume_24h_tao, ccy, rate) : 'soon'} />
           <Stat label="TAO in pools" value={compact(stats?.total_tao_in_pools)} />
         </div>
+        <NetLine />
         <Synced />
       </div>
 
@@ -85,7 +110,22 @@ export default function Home() {
         </div>
         <div className="card">
           <h3>◆ Most traded 24h <Link href="/markets">all →</Link></h3>
-          <MoverList rows={by('vol_24h').slice(0, 6)} value={r => <>τ {compact(r.vol_24h)}</>} />
+          <MoverList rows={by('vol_24h').slice(0, 6)} value={r => <>{money(r.vol_24h, ccy, rate)}</>} />
+        </div>
+        <div className="card">
+          <h3>⇄ TAO flows 24h <Link href="/markets">board →</Link></h3>
+          {flows.data == null ? <Spinner /> : flows.data.length ? (() => {
+            const sorted = [...flows.data].sort((a, b) => b.net_tao - a.net_tao);
+            const pick = [...sorted.slice(0, 3), ...sorted.slice(-3)];
+            return pick.map(f => (
+              <div key={f.netuid} className="mrow" onClick={() => openSubnet(f.netuid)}>
+                <SubnetLogo logo={f.logo} symbol={f.symbol} />
+                <span className="nm">{f.name || 'subnet ' + f.netuid} <span className="sn-sym">#{f.netuid}</span></span>
+                <span className="v" style={{ color: f.net_tao >= 0 ? 'var(--good)' : 'var(--bad)' }}>
+                  {f.net_tao >= 0 ? '+' : '−'}{money(Math.abs(f.net_tao), ccy, rate)}</span>
+              </div>
+            ));
+          })() : <span className="muted">The trade indexer is on its first pass.</span>}
         </div>
         <div className="card">
           <h3>★ Best traders 7d <Link href="/traders">board →</Link></h3>
@@ -115,7 +155,7 @@ export default function Home() {
                 <td><SideTag side={f.side} /></td>
                 <td className="click" style={{ cursor: 'pointer' }} onClick={() => openSubnet(f.netuid)}>
                   {f.name || 'subnet ' + f.netuid} <span className="sn-sym">#{f.netuid}</span></td>
-                <td className="num">τ {fmt(f.tao_value, 3)}</td>
+                <td className="num">{money(f.tao_value, ccy, rate, 'fixed')}</td>
                 <td className="num muted">@ {fmtPrice(f.alpha ? f.tao_value / f.alpha : undefined)}</td>
               </tr>
             ))}</tbody></table></div>

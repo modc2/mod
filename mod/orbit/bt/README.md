@@ -101,7 +101,7 @@ The copytensor submod runs its entire read path on it (see below).
 ## Architecture
 
 ```
-bt/tools.py       ← THE tool registry (37 tools, JSON schemas, handlers)
+bt/tools.py       ← THE tool registry (52 tools, JSON schemas, handlers)
 bt/history.py     ← the open indexer: SQLite snapshots + instant screener
 bt/traders.py     ← the trader index: tracked coldkeys, equity, inferred trades
 bt/mcp_server.py  ← zero-dep MCP stdio server (JSON-RPC over stdin/stdout)

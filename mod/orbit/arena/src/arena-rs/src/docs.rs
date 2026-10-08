@@ -1,8 +1,9 @@
 //! The documentation, as data.
 //!
-//! Eight markdown files, compiled in, read by three doors: the console's docs
+//! Ten markdown files, compiled in, read by three doors: the console's docs
 //! tab (`GET /docs`), the `docs_*` tools, and `arena://docs/<slug>` as MCP
-//! resources. One text, so what a person reads and what an agent is handed
+//! resources. The whitepaper is one of them — same text behind the console's
+//! docs tab, the `/arena/whitepaper` page, and the MCP resource. One text, so what a person reads and what an agent is handed
 //! cannot drift apart — which is the same rule the rest of this server keeps
 //! about capabilities.
 //!
@@ -21,12 +22,18 @@ pub struct Page {
     pub body: &'static str,
 }
 
-pub const PAGES: [Page; 9] = [
+pub const PAGES: [Page; 10] = [
     Page {
         slug: "start",
         title: "Start here",
         summary: "What the arena is, the shortest game that works, and where to go next.",
         body: include_str!("../docs/start.md"),
+    },
+    Page {
+        slug: "whitepaper",
+        title: "Whitepaper",
+        summary: "Why the arena is built the way it is: open game supply, honest scoring, vibecoding.",
+        body: include_str!("../docs/whitepaper.md"),
     },
     Page {
         slug: "upload",

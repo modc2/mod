@@ -153,15 +153,16 @@ nav {
 .iconbtn:hover { color: var(--ink); background: var(--raise); }
 .iconbtn.spin { animation: wspin .7s linear infinite; }
 @keyframes wspin { to { transform: rotate(-360deg); } }
-#themeBtn, #skinBtn {
+#themeBtn, #skinBtn, #ccyBtn {
   border: 1px solid transparent; cursor: pointer; font-family: var(--mono);
   font-size: 13px; line-height: 1; height: 32px; min-width: 32px; padding: 0 9px;
   border-radius: 8px; background: transparent; color: var(--ink2); flex: none;
   transition: color .15s, background .15s, border-color .15s;
 }
-#themeBtn { margin-left: auto; }
+#ccyBtn { margin-left: auto; }
+#themeBtn { margin-left: 0; }
 #skinBtn { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; }
-#themeBtn:hover, #skinBtn:hover { color: var(--ink); background: var(--raise); border-color: var(--line); }
+#themeBtn:hover, #skinBtn:hover, #ccyBtn:hover { color: var(--ink); background: var(--raise); border-color: var(--line); }
 
 .wpop {
   position: absolute; top: calc(var(--bar) + 6px); left: 28px; z-index: 60;
@@ -386,6 +387,16 @@ svg.ident { display: inline-block; vertical-align: middle; flex: none; border-ra
   margin: 18px 0 6px; max-width: none; box-shadow: none; background: var(--raise);
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
+
+/* the network line under the hero stats: issuance, halving clock, staked % */
+.netline {
+  margin: 14px auto 0; display: flex; align-items: center; justify-content: center;
+  gap: 16px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px;
+  font-variant-numeric: tabular-nums; color: var(--ink2);
+}
+.netline em { font-style: normal; color: var(--ink3); text-transform: uppercase; font-size: 10.5px; letter-spacing: .07em; margin-right: 5px; }
+.netline .netbar { width: 130px; height: 6px; border-radius: 3px; background: var(--raise); border: 1px solid var(--line); overflow: hidden; }
+.netline .netbar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
 .stats.left .stat:first-child { padding-left: 22px; }
 .stat.left { text-align: left; }
 @media (max-width: 560px) {

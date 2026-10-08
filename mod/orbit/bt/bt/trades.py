@@ -332,6 +332,47 @@ def trades(netuid: Optional[int] = None, coldkey: Optional[str] = None,
     }
 
 
+def flows(hours: float = 24) -> Dict:
+    """Per-subnet TAO flow board over one window — who the market is rotating
+    into and out of, straight from the chain-event index. One SQL pass.
+
+    net_tao > 0 means more TAO was staked into the subnet's pool than left it.
+    Swap legs count on each side they touch (a swap IS a sell on one pool and
+    a buy on the other); hotkey moves and coldkey transfers were never indexed
+    as trades, so they can't fake a flow.
+    """
+    since = int(time.time() - hours * 3600) if hours else 0
+    conn = _db()
+    try:
+        rows = conn.execute(
+            'SELECT netuid, COUNT(*), '
+            "COALESCE(SUM(side='buy'),0), COALESCE(SUM(side='sell'),0), "
+            "COALESCE(SUM(CASE WHEN side='buy' THEN tao END),0), "
+            "COALESCE(SUM(CASE WHEN side='sell' THEN tao END),0), "
+            'COUNT(DISTINCT coldkey), '
+            "COUNT(DISTINCT CASE WHEN side='buy' THEN coldkey END), "
+            "COUNT(DISTINCT CASE WHEN side='sell' THEN coldkey END), "
+            'MAX(tao) '
+            'FROM trades WHERE ts >= ? GROUP BY netuid', (since,)).fetchall()
+        cov = _coverage(conn, since)
+    finally:
+        conn.close()
+    out = [{'netuid': n, 'trades': t, 'buys': b, 'sells': s,
+            'buy_tao': bt, 'sell_tao': st, 'net_tao': bt - st,
+            'traders': c, 'buyers': cb, 'sellers': cs, 'biggest_tao': mx}
+           for n, t, b, s, bt, st, c, cb, cs, mx in rows]
+    out.sort(key=lambda r: r['net_tao'], reverse=True)
+    return {
+        'hours': hours, 'subnets': len(out),
+        'total_buy_tao': sum(r['buy_tao'] for r in out),
+        'total_sell_tao': sum(r['sell_tao'] for r in out),
+        'total_net_tao': sum(r['net_tao'] for r in out),
+        'coverage': cov,
+        'source': 'chain events (SubtensorModule StakeAdded/StakeRemoved), indexed locally',
+        'rows': out,
+    }
+
+
 def status() -> Dict:
     conn = _db()
     try:

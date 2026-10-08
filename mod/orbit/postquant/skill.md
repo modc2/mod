@@ -38,10 +38,13 @@ VM), or real value (single-proposer devnet; the faucet pays from genesis).
 
 `POST /run/stream {"query": "..."}` (or `/run` for JSON, or the console's ASK
 tab) — "create wallet alice then faucet 100 to alice then set notes/1 to hello
-for 7 days from alice". The default brain is a local rules parser (free, no
-model); `POSTQUANT_AGENT_LLM` adds an OpenAI-compatible one. Writes obey the
-same bearer gate as `POST /set`; without it they come back as dry runs.
-`GET /agents` is the roster (the fleet agent contract).
+for 7 days from alice". Brains: `rules` (always on — a free local command
+parser), `chat` (auto-on when the liquidai module is up on this box: rules
+executes, the resident LFM answers conversationally and streams tokens; pass
+`history` for multi-turn), `llm` (`POSTQUANT_AGENT_LLM`, OpenAI-compatible
+with tool calling). Pick with `brain:`; default is llm→chat→rules. Writes
+obey the same bearer gate as `POST /set`; without it they come back as dry
+runs. `GET /agents` is the roster (the fleet agent contract).
 
 ## The order that matters
 

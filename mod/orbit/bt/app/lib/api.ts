@@ -93,6 +93,26 @@ export interface Stats {
   volume_24h_tao?: number | null; updated_at?: number; block?: number; warming?: boolean;
 }
 
+export interface Usd {
+  usd: number; change_24h?: number | null; sources?: Record<string, number>;
+  ts: number; age_sec?: number; stale?: boolean;
+}
+
+export interface NetworkInfo {
+  block?: number; total_issuance_tao?: number; total_staked_tao?: number;
+  staked_pct?: number | null; max_supply_tao?: number; pct_issued?: number;
+  halvings?: number; block_emission_tao?: number; daily_emission_tao?: number;
+  next_halving_at_tao?: number; tao_to_halving?: number;
+  est_days_to_halving?: number | null; ts?: number; usd?: Usd & { error?: string };
+}
+
+export interface FlowRow {
+  netuid: number; name?: string; symbol?: string; logo?: string | null;
+  trades: number; buys: number; sells: number;
+  buy_tao: number; sell_tao: number; net_tao: number;
+  traders: number; buyers: number; sellers: number; biggest_tao?: number;
+}
+
 export interface ToolSchema {
   name: string; description: string;
   inputSchema: { properties?: Record<string, { type: string; description?: string; default?: unknown }>;

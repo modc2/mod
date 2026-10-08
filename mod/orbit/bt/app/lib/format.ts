@@ -18,6 +18,25 @@ export const fmtPrice = (p: unknown): string => {
 
 export const short = (a?: string | null): string => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : '—');
 
+/* ---- τ / $ display. Every TAO amount goes through money(): when the person
+ * flips the console to USD and the free-ticker rate is known, it converts;
+ * otherwise it stays honest in τ. */
+export type Ccy = 'tao' | 'usd';
+
+export const ccySign = (ccy: Ccy, rate?: number | null) =>
+  ccy === 'usd' && rate != null ? '$' : 'τ';
+
+export function money(tao: unknown, ccy: Ccy, rate?: number | null,
+                      style: 'compact' | 'price' | 'fixed' = 'compact', d = 3): string {
+  if (typeof tao !== 'number' || !isFinite(tao)) return '—';
+  const usd = ccy === 'usd' && rate != null;
+  const v = usd ? tao * rate : tao;
+  const s = usd ? '$' : 'τ ';
+  if (style === 'price') return s + fmtPrice(v);
+  if (style === 'fixed') return s + fmt(v, d);
+  return s + compact(v);
+}
+
 export const now = () => Math.floor(Date.now() / 1000);
 
 export function agoText(sec: number): string {

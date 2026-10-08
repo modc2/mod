@@ -6,7 +6,7 @@ import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { call, Flow, Position, SubnetRow } from '@/lib/api';
 import { useData } from '@/lib/data';
 import { SUBNET_TABS, SubnetTab, useOverlay } from '@/lib/overlay';
-import { compact, fmt, fmtPrice, RANGES, short, when } from '@/lib/format';
+import { compact, fmt, fmtPrice, money, RANGES, short, when } from '@/lib/format';
 import LineChart, { Pt } from './LineChart';
 import { Cells, Pct, Ranges, SideTag, Spinner, SubnetLogo } from './ui';
 import { NewsItem, NewsList } from './News';
@@ -121,7 +121,7 @@ const TAB_LABEL: Record<SubnetTab, string> = {
 };
 
 function SubnetOverlay({ netuid }: { netuid: number }) {
-  const { bySubnet, reloadScreener, screener } = useData();
+  const { bySubnet, reloadScreener, screener, ccy, rate } = useData();
   const { close, openTrader, openSubnet, tab, setTab } = useOverlay();
   const r: SubnetRow | undefined = bySubnet[netuid];
   /* a tab mounts the first time it is shown and then stays mounted (hidden),
@@ -176,14 +176,16 @@ function SubnetOverlay({ netuid }: { netuid: number }) {
         <button className="ovl-close" onClick={close} aria-label="Close">✕</button>
       </div>
       <div className="bigprice">
-        <b>τ {fmtPrice(r.price)}</b>
+        <b>{money(r.price, ccy, rate, 'price')}</b>
+        {ccy === 'tao' && rate != null && r.price != null &&
+          <span className="muted" title="free public tickers">≈ ${fmtPrice(r.price * rate)}</span>}
         <span className="delta"><Pct v={r.change_1h} /> <span className="muted">1h</span></span>
         <span className="delta"><Pct v={r.change_24h} /> <span className="muted">24h</span></span>
         <span className="delta"><Pct v={r.change_7d} /> <span className="muted">7d</span></span>
         <span className="mkt-stats">
-          <span><em>Vol 24h</em>τ {r.vol_24h != null ? compact(r.vol_24h) : '—'}</span>
-          <span><em>Liquidity</em>τ {compact(r.tao_in)}</span>
-          <span><em>Mcap</em>τ {compact(r.market_cap)}</span>
+          <span><em>Vol 24h</em>{money(r.vol_24h, ccy, rate)}</span>
+          <span><em>Liquidity</em>{money(r.tao_in, ccy, rate)}</span>
+          <span><em>Mcap</em>{money(r.market_cap, ccy, rate)}</span>
         </span>
       </div>
       <div className="mkt">
@@ -198,8 +200,8 @@ function SubnetOverlay({ netuid }: { netuid: number }) {
       {pane('overview', <>
         <SubnetChart netuid={netuid} />
         <Cells items={[
-          ['Market cap τ', compact(r.market_cap)],
-          ['Vol 24h τ', r.vol_24h != null ? compact(r.vol_24h) : '—'],
+          ['Market cap', money(r.market_cap, ccy, rate)],
+          ['Vol 24h', money(r.vol_24h, ccy, rate)],
           ['TAO liquidity', compact(r.tao_in)],
           ['Alpha in pool', compact(r.alpha_in)],
           ['Alpha staked', compact(r.alpha_out)],
@@ -241,7 +243,7 @@ interface TraderDetail {
 
 function TraderOverlay({ ss58 }: { ss58: string }) {
   const { close, openSubnet } = useOverlay();
-  const { reloadTraders } = useData();
+  const { reloadTraders, rate } = useData();
   const [range, setRange] = useState(1);
   const [t, setT] = useState<TraderDetail | null>(null);
   const [err, setErr] = useState('');
@@ -278,6 +280,8 @@ function TraderOverlay({ ss58 }: { ss58: string }) {
       {t && <>
         <div className="bigprice">
           <b>τ {fmt(t.total_tao, 3)}</b>
+          {rate != null && t.total_tao != null &&
+            <span className="muted" title="free public tickers">≈ ${compact(t.total_tao * rate)}</span>}
           <span className="delta"><Pct v={t.change_24h} /> <span className="muted">24h</span></span>
           <span className="delta"><Pct v={t.change_7d} /> <span className="muted">7d</span></span>
           <button className="pill ghost small" style={{ marginLeft: 'auto' }} onClick={snapshot} disabled={busy}>
