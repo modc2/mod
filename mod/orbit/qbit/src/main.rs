@@ -199,6 +199,9 @@ async fn handle_register_circuit(
         gates: req.gates,
         private_inputs: req.private_inputs,
     };
+    if let Err(e) = circuit.validate() {
+        return Json(serde_json::json!({"ok": false, "error": e}));
+    }
     let hash = circuit.hash();
     let mut store = state.lock().await;
     store.register_circuit(circuit);

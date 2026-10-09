@@ -1,6 +1,8 @@
 import os
 import re
+import shlex
 import subprocess
+import sys
 import mod as m
 
 class Mod:
@@ -16,19 +18,18 @@ class Mod:
     def run(self, path=None, args=None, timeout=120):
         """Execute pytest and return structured results."""
         target = path or self.path
-        cmd = ['python', '-m', 'pytest', target, '--tb=short', '-q']
+        cmd = [sys.executable, '-m', 'pytest', target, '--tb=short', '-q']
         if args:
             if isinstance(args, str):
-                import shlex
                 cmd += shlex.split(args)
             else:
                 cmd += list(args)
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
-            return {'exit_code': -1, 'error': 'timeout', 'output': '', 'passed': 0, 'failed': 0, 'errors': 0}
+            return {'exit_code': -1, 'error': 'timeout', 'output': '', 'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0}
         output = result.stdout + result.stderr
-        passed = failed = errors = 0
+        passed = failed = errors = skipped = 0
         for line in output.splitlines():
             m_line = re.search(r'(\d+) passed', line)
             if m_line:
@@ -39,10 +40,14 @@ class Mod:
             m_line = re.search(r'(\d+) error', line)
             if m_line:
                 errors = int(m_line.group(1))
+            m_line = re.search(r'(\d+) skipped', line)
+            if m_line:
+                skipped = int(m_line.group(1))
         return {
             'passed': passed,
             'failed': failed,
             'errors': errors,
+            'skipped': skipped,
             'exit_code': result.returncode,
             'output': output,
         }

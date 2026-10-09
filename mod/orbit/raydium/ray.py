@@ -953,7 +953,7 @@ def swap_transaction(wallet, input, output, amount, slippage_bps=50, mode='in',
         'compute_unit_price_micro_lamports': body['computeUnitPriceMicroLamports'],
         'wrap_sol': wrap, 'unwrap_sol': unwrap,
         'quote': {k: q[k] for k in ('mode', 'input', 'output', 'price',
-                                    'price_impact_pct', 'worst_case', 'route')},
+                                    'price_impact_pct', 'vs_spot_pct', 'worst_case', 'route')},
         'how_to_sign': 'base64 serialised transactions, unsigned. Nothing here '
                        'holds a key: sign and send them with a wallet that does '
                        '— e.g. the solana module\'s keystore, or a browser wallet.',

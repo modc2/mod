@@ -120,7 +120,7 @@ impl Proof {
             "{}:{}:{}",
             circuit_hash,
             trace_root,
-            serde_json::to_string(&public_inputs).unwrap()
+            serde_json::to_string(&public_inputs.iter().collect::<std::collections::BTreeMap<_, _>>()).unwrap()
         );
         let challenge_seed = sha256(challenge_input.as_bytes());
         let num_random = trace.len().min(64).saturating_sub(required.len());
@@ -193,7 +193,7 @@ impl Proof {
             "{}:{}:{}",
             self.circuit_hash,
             self.trace_root,
-            serde_json::to_string(&self.public_inputs).unwrap()
+            serde_json::to_string(&self.public_inputs.iter().collect::<std::collections::BTreeMap<_, _>>()).unwrap()
         );
         let challenge_seed = sha256(challenge_input.as_bytes());
         let num_random = self.trace_len.min(64).saturating_sub(required.len());
@@ -449,5 +449,20 @@ mod tests {
         // 3² + 4² ≠ 6² — execution fails at Eq gate
         inputs.insert("c".into(), "6".into());
         assert!(Witness::execute(&circuit, &inputs).is_err());
+    }
+
+    #[test]
+    fn proof_verify_after_json_roundtrip() {
+        let circuit = make_double_circuit();
+        let mut inputs = HashMap::new();
+        inputs.insert("x".into(), "7".into());
+        let witness = Witness::execute(&circuit, &inputs).unwrap();
+        let proof = Proof::generate(&circuit, &witness).unwrap();
+
+        // Simulate network: serialize → deserialize (may reorder HashMap keys)
+        let val = serde_json::to_value(&proof).unwrap();
+        let proof2: Proof = serde_json::from_value(val).unwrap();
+
+        assert!(proof2.verify(&circuit).unwrap());
     }
 }

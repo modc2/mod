@@ -4,6 +4,8 @@ Query module - Unified interface for querying free AI models.
 Automatically uses free models from OpenRouter or Venice AI.
 """
 
+import sys
+
 import mod as m
 
 
@@ -62,6 +64,7 @@ class Mod:
         stream: bool = False,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        system: str = None,
         **kwargs
     ):
         """
@@ -73,6 +76,7 @@ class Mod:
             stream: Whether to stream the response
             max_tokens: Maximum response tokens
             temperature: Sampling temperature
+            system: Optional system prompt
             **kwargs: Additional arguments passed to forward()
 
         Returns:
@@ -88,6 +92,7 @@ class Mod:
                 stream=stream,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                system=system,
                 free=True,
                 **kwargs
             )
@@ -101,7 +106,7 @@ class Mod:
 
         last_exc = None
         for candidate in free_models:
-            print(f"Using free model: {candidate}")
+            print(f"Using free model: {candidate}", file=sys.stderr)
             try:
                 return router.forward(
                     query,
@@ -109,11 +114,12 @@ class Mod:
                     stream=stream,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    system=system,
                     free=True,
                     **kwargs
                 )
             except Exception as e:
-                print(f"Model {candidate} failed: {e}, trying next...")
+                print(f"Model {candidate} failed: {e}, trying next...", file=sys.stderr)
                 last_exc = e
 
         raise last_exc
@@ -125,6 +131,7 @@ class Mod:
         stream: bool = False,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        system: str = None,
         **kwargs
     ):
         """
@@ -136,6 +143,7 @@ class Mod:
             stream: Whether to stream the response
             max_tokens: Maximum response tokens
             temperature: Sampling temperature
+            system: Optional system prompt
             **kwargs: Additional arguments passed to forward()
 
         Returns:
@@ -144,9 +152,9 @@ class Mod:
         venice = self._get_venice()
 
         if model:
-            print(f"Using Venice model: {model}")
+            print(f"Using Venice model: {model}", file=sys.stderr)
         else:
-            print(f"Using Venice default model: {venice.model}")
+            print(f"Using Venice default model: {venice.model}", file=sys.stderr)
 
         return venice.forward(
             query,
@@ -154,6 +162,7 @@ class Mod:
             stream=stream,
             max_tokens=max_tokens,
             temperature=temperature,
+            system=system,
             **kwargs
         )
 
@@ -165,6 +174,7 @@ class Mod:
         stream: bool = False,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        system: str = None,
         **kwargs
     ):
         """
@@ -177,6 +187,7 @@ class Mod:
             stream: Whether to stream the response
             max_tokens: Maximum response tokens
             temperature: Sampling temperature
+            system: Optional system prompt (sets persona, format, constraints)
             **kwargs: Additional arguments
 
         Returns:
@@ -193,6 +204,9 @@ class Mod:
 
             >>> # Use Venice
             >>> q.query("Explain quantum computing", use_venice=True)
+
+            >>> # Set a system prompt
+            >>> q.query("What is AI?", system="You are a concise technical writer.")
         """
         if use_venice:
             return self.venice_query(
@@ -201,6 +215,7 @@ class Mod:
                 stream=stream,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                system=system,
                 **kwargs
             )
         else:
@@ -211,16 +226,18 @@ class Mod:
                     stream=stream,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    system=system,
                     **kwargs
                 )
             except Exception:
-                print("OpenRouter exhausted, falling back to Venice...")
+                print("OpenRouter exhausted, falling back to Venice...", file=sys.stderr)
                 return self.venice_query(
                     query,
                     model=model,
                     stream=stream,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    system=system,
                     **kwargs
                 )
 

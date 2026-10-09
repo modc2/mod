@@ -81,7 +81,8 @@ def _t_pool(a):
 
 def _t_pair(a):
     return ray.pair(a['token_a'], a.get('token_b'), sort=a.get('sort', 'liquidity'),
-                    limit=a.get('limit', 10), type=a.get('type', 'all'))
+                    limit=a.get('limit', 10), type=a.get('type', 'all'),
+                    full=bool(a.get('full')))
 
 
 def _t_token(a):
@@ -229,6 +230,7 @@ TOOLS = {
             'type': _str('all (default), concentrated, standard',
                          enum=sorted(set(ray.POOL_TYPES))),
             'limit': _num('pools to return (default 10)'),
+            'full': _bool('include the 7d and 30d stat windows and reward config for each pool'),
         }, 'required': ['token_a']},
         'handler': _t_pair,
     },

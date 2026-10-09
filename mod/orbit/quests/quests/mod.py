@@ -256,6 +256,7 @@ class Quests:
 
         existing = [r for r in quest.get('responses', []) if r.get('responder') == responder_key]
         assert len(existing) == 0, 'You have already responded to this quest'
+        assert responder_key != quest['creator'], 'Quest creator cannot respond to their own quest'
 
         response_id = m.hash(f'{responder_key}:{quest_id}:{time.time()}')[:16]
 
@@ -553,6 +554,9 @@ class Quests:
         quest = self.get_quest(quest_id)
         assert quest['creator'] == creator_key, 'Only the quest creator can cancel'
         assert quest['status'] == 'open', 'Can only cancel open quests'
+
+        pending = [r for r in quest.get('responses', []) if r.get('status') == 'pending']
+        assert not pending, f'Cannot cancel quest while {len(pending)} response(s) are pending — reject them first'
 
         quest['status'] = 'cancelled'
         quest['cancelled_at'] = time.time()

@@ -91,10 +91,10 @@ class Mod:
         """One pool in full, by address or by LP mint."""
         return self._tool('ray_pool', pool=pool, keys=keys)
 
-    def pair(self, token_a, token_b=None, sort='liquidity', limit=10, type='all'):
+    def pair(self, token_a, token_b=None, sort='liquidity', limit=10, type='all', full=False):
         """Every pool that trades a pair, the deepest, the busiest, the spread."""
         return self._tool('ray_pair', token_a=token_a, token_b=token_b, sort=sort,
-                          limit=limit, type=type)
+                          limit=limit, type=type, full=full)
 
     def token(self, token, limit=5):
         """A token: price, whether Raydium vouches for it, where it trades."""

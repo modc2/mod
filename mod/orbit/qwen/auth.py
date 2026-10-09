@@ -79,7 +79,7 @@ class Auth:
         Generate the headers with the JWT token
         """
         key = self.get_key(key)
-        result = self.token_data(data)
+        result = self.token_data(data, key=key)
         result['signature'] = key.sign(self.sig_data(result), mode='str')
 
         if mod == 'dict':
@@ -110,6 +110,9 @@ class Auth:
             token = headers['token']
             headers = json.loads(self._base64url_decode(token))
 
+        missing = [f for f in self.features if f not in headers]
+        if missing:
+            raise ValueError(f"Token missing required fields: {missing}")
 
         crypto_type = self.infer_crypto_type(headers['key'])
         # ────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import os
 import smtplib
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import mod as m
 
@@ -18,6 +19,7 @@ class Mod:
                 from_addr=kwargs.get('from_addr'),
                 cc=kwargs.get('cc'),
                 bcc=kwargs.get('bcc'),
+                html_body=kwargs.get('html_body'),
             )
         return self.info()
 
@@ -30,7 +32,7 @@ class Mod:
             'files': os.listdir(self.path),
         }
 
-    def send(self, to, subject, body, from_addr=None, cc=None, bcc=None):
+    def send(self, to, subject, body, from_addr=None, cc=None, bcc=None, html_body=None):
         """Send email via ProtonMail Bridge SMTP.
 
         Reads connection details from env vars:
@@ -39,7 +41,8 @@ class Mod:
           PROTONMAIL_SMTP_USER
           PROTONMAIL_SMTP_PASS
         """
-        if to is None:
+        to_list = [to] if isinstance(to, str) else (list(to) if to else [])
+        if not to_list:
             raise ValueError("'to' is required")
         host = os.environ.get('PROTONMAIL_SMTP_HOST', '127.0.0.1')
         port = int(os.environ.get('PROTONMAIL_SMTP_PORT', '1025'))
@@ -50,18 +53,26 @@ class Mod:
         sender = from_addr or user
         cc_list = [cc] if isinstance(cc, str) else (list(cc) if cc else [])
         bcc_list = [bcc] if isinstance(bcc, str) else (list(bcc) if bcc else [])
-        msg = MIMEText(body)
+        if html_body:
+            msg = MIMEMultipart('alternative')
+            msg.attach(MIMEText(body, 'plain'))
+            msg.attach(MIMEText(html_body, 'html'))
+        else:
+            msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = sender
-        msg['To'] = to
+        msg['To'] = ', '.join(to_list)
         if cc_list:
             msg['Cc'] = ', '.join(cc_list)
-        recipients = [to] + cc_list + bcc_list
+        recipients = to_list + cc_list + bcc_list
         with smtplib.SMTP(host, port) as conn:
             conn.starttls()
             conn.login(user, password)
             conn.sendmail(sender, recipients, msg.as_string())
-        return {'sent': True, 'to': to, 'cc': cc_list or None, 'bcc': bcc_list or None}
+        result = {'sent': True, 'to': to_list, 'cc': cc_list or None, 'bcc': bcc_list or None}
+        if html_body:
+            result['html'] = True
+        return result
 
     def readme(self):
         """Return the project README."""

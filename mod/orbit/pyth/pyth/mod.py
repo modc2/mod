@@ -42,10 +42,11 @@ class BaseMod:
                 f'Unsupported chain: {chain}. Supported: {list(self.PYTH_CONTRACTS.keys())}'
             )
 
-    def get_all_price_feeds(self) -> List[PriceFeed]:
+    def get_all_price_feeds(self, query: Optional[str] = None) -> List[PriceFeed]:
         try:
             url = f'{self.PYTH_API_BASE}/v2/price_feeds'
-            response = requests.get(url, timeout=10)
+            params = {'query': query} if query else {}
+            response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
             feeds = []
@@ -80,7 +81,7 @@ class BaseMod:
             return {'error': str(e)}
 
     def get_price_by_symbol(self, symbol: str) -> Optional[Dict]:
-        feeds = self.get_all_price_feeds()
+        feeds = self.get_all_price_feeds(query=symbol)
         for feed in feeds:
             if isinstance(feed, PriceFeed) and feed.symbol.upper() == symbol.upper():
                 return self.get_latest_price(feed.id)

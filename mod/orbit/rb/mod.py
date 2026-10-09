@@ -5,8 +5,11 @@ class Mod:
     description = """rb"""
     path = os.path.dirname(os.path.abspath(__file__))
 
-    def forward(self, **kwargs):
-        """Default entry point."""
+    def forward(self, method='info', **kwargs):
+        """Default entry point. Dispatches to the named public method."""
+        handler = getattr(self, method, None)
+        if callable(handler) and not method.startswith('_'):
+            return handler(**kwargs)
         return self.info()
 
     def info(self):
@@ -22,7 +25,6 @@ class Mod:
             'name': 'rb',
             'description': self.description,
             'version': version,
-            'path': self.path,
             'files': files,
         }
 

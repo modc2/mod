@@ -27,7 +27,7 @@
         "overview": "GET /overview",
         "pools": "GET /pools?type=&sort=&limit=&page=&min_tvl=&min_volume=&search=",
         "pool": "GET /pool?pool=&keys=",
-        "pair": "GET /pair?token_a=&token_b=&sort=&limit=",
+        "pair": "GET /pair?token_a=&token_b=&sort=&limit=&full=",
         "token": "GET /token?token=",
         "price": "GET /price?tokens=",
         "search": "GET /search?query=",
@@ -109,5 +109,5 @@
         "solana": "signs and sends what ray_swap_tx builds; also the general-purpose chain reader",
         "defi": "composes swaps across chains and calls this module's MCP server"
     },
-    "schema": "QmPGM1923gK54ruXqa7vosN8FVehfCxEWY6ExupSP9mZcM"
+    "schema": "QmcUPSiqdxhoJvX3kLQd23EQ47829bAcnbQ44pQ79A4hsK"
 }
