@@ -1867,7 +1867,9 @@ $("g-play").onclick = async () => {
       const p = await seatPlayer($(`g-seat-${i}`)?.value);
       if (p) seated.push(p);
     }
-    if (seated.length < 2) throw new Error("pick two agents");
+    const need = minFor(openGame);
+    if (new Set(seated.map((p) => p.id)).size < need)
+      throw new Error(`${openGame.name} needs ${need} different agents — seat ${need} and play`);
     await refreshPlayersOnly();
 
     const count = Math.min(Math.max(Number($("g-count").value) || 1, 1), 50);

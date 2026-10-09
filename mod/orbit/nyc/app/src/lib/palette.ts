@@ -124,6 +124,18 @@ export const ZONE_COLOR: Record<number, string> = {
   4: '#c98500', 5: '#9c8f3a', 6: '#5f7a52', 7: '#3d6b6b',
 }
 
+/** MTA subway route colours, keyed by route letter/number. */
+export const ROUTE_COLOR: Record<string, string> = {
+  '1': '#EE352E', '2': '#EE352E', '3': '#EE352E',
+  '4': '#00933C', '5': '#00933C', '6': '#00933C',
+  '7': '#B933AD',
+  A: '#0039A6', C: '#0039A6', E: '#0039A6',
+  B: '#FF6319', D: '#FF6319', F: '#FF6319', M: '#FF6319',
+  G: '#6CBE45', J: '#996633', Z: '#996633', L: '#A7A9AC',
+  N: '#FCCC0A', Q: '#FCCC0A', R: '#FCCC0A', W: '#FCCC0A',
+  S: '#808183',
+}
+
 /** Chart chrome & ink. */
 export const INK = {
   surface: '#121722',

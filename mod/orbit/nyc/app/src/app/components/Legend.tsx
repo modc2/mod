@@ -3,8 +3,8 @@
 import type { Breaks, Choropleth, Options } from '@/lib/api'
 import { byFormat } from '@/lib/format'
 import {
-  DIVERGING, LAYER_COLOR, NEWS_TOPIC, NEWS_TOPIC_LABEL, NO_DATA, SEQUENTIAL,
-  SPEED_BAND, SPEED_BAND_LABEL, ZONE_COLOR, rampOf,
+  DIVERGING, LAYER_COLOR, NEWS_TOPIC, NEWS_TOPIC_LABEL, NO_DATA, ROUTE_COLOR,
+  SEQUENTIAL, SPEED_BAND, SPEED_BAND_LABEL, ZONE_COLOR, rampOf,
 } from '@/lib/palette'
 import { AFFORDABLE_RENT_BREAKS, SALE_BREAKS } from './MapView'
 
@@ -252,6 +252,25 @@ export default function Legend({
     )
   }
 
+  if (active.includes('bike_routes')) {
+    rows.push(
+      <Row key="bike_routes" title="Bike network">
+        <ul className="space-y-1">
+          <li className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+            <span className="shrink-0 inline-block w-4"
+                  style={{ height: 0, borderTop: `3.5px solid ${LAYER_COLOR.bike_routes}` }} />
+            <span>protected path</span>
+          </li>
+          <li className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+            <span className="shrink-0 inline-block w-4"
+                  style={{ height: 0, borderTop: `1.5px solid ${LAYER_COLOR.bike_routes}` }} />
+            <span>unprotected</span>
+          </li>
+        </ul>
+      </Row>,
+    )
+  }
+
   const dots: [string, string, string][] = []
   if (active.includes('traffic_volume'))
     dots.push(['traffic_volume', 'Traffic volume', 'circle size = vehicles/day, floored'])
@@ -261,8 +280,6 @@ export default function Legend({
     dots.push(['affordable_housing', 'Affordable housing', 'circle size = units'])
   if (active.includes('subway_stations'))
     dots.push(['subway_stations', 'Subway station', ''])
-  if (active.includes('bike_routes'))
-    dots.push(['bike_routes', 'Bike network', 'thick = protected'])
   if (active.includes('parks')) dots.push(['parks', 'Parks & open space', ''])
 
   if (dots.length) {
@@ -285,10 +302,22 @@ export default function Legend({
   }
 
   if (active.includes('subway_lines')) {
+    const lightBg = new Set(['#FCCC0A', '#A7A9AC', '#6CBE45'])
     rows.push(
       <Row key="subway" title="Subway routes">
-        <p className="text-[10px] leading-snug text-nes-ink3">
-          Drawn in each route’s official MTA colour.
+        <div className="flex flex-wrap gap-1">
+          {Object.entries(ROUTE_COLOR).map(([r, c]) => (
+            <span
+              key={r}
+              className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ring-1 ring-black"
+              style={{ background: c, color: lightBg.has(c) ? '#000' : '#fff' }}
+            >
+              {r}
+            </span>
+          ))}
+        </div>
+        <p className="mt-1 text-[9.5px] leading-snug text-nes-ink3">
+          Tap a line to see its route and direction.
         </p>
       </Row>,
     )

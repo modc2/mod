@@ -188,7 +188,7 @@ export default function Book({ say, onOpenModules }: Props) {
                   </div>
                   {(p.adapter === "pm_copy" || p.adapter === "tao_subnet" || p.adapter === "hl_vault") ? (
                     <div className="pos-nums">
-                      <div><span className="dim">{p.adapter === "tao_subnet" ? "alpha staking" : p.adapter === "hl_vault" ? "vault equity" : "copy session"}</span> active</div>
+                      <div><span className="dim">{p.adapter === "tao_subnet" ? "alpha staking" : p.adapter === "hl_vault" ? "vault equity" : "copy session"}</span> {p.status === "open" ? "active" : p.status}</div>
                       <div><span className="dim">days in</span> {p.days_in}</div>
                     </div>
                   ) : (

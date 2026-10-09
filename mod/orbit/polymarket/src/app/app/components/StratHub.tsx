@@ -124,6 +124,8 @@ export default function StratHub({
   const [heldOnly, setHeldOnly] = useState(false);
   // STEADY filter: 0 = off, DEFAULT_STEADY_FLOOR = on.
   const [steadyFloor, setSteadyFloor] = useState(0);
+  // Sort order for the hub wall.
+  const [sortBy, setSortBy] = useState<"recent" | "pnl" | "holdout">("recent");
   // Inline IDENTITY creation — one address, one strat.
   const [identityAddr, setIdentityAddr] = useState("");
   const identityValid = /^0x[0-9a-fA-F]{40}$/.test(identityAddr.trim());
@@ -138,23 +140,39 @@ export default function StratHub({
   // "we haven't checked" must never read as "confirmed".
   const held = (key: string) => !heldOnly || backtests?.[key]?.forward?.ok === true;
 
-  // Newest-touched first — the strat you were just editing leads the grid.
+  // Sort cards by the selected criterion; strats still loading sort to the end.
   const sorted = useMemo(
     () =>
       [...indexes]
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+        .sort((a, b) => {
+          if (sortBy === "pnl")
+            return (backtests?.[b.id]?.pnl ?? -Infinity) - (backtests?.[a.id]?.pnl ?? -Infinity);
+          if (sortBy === "holdout")
+            return (backtests?.[b.id]?.holdout?.pnl ?? -Infinity) - (backtests?.[a.id]?.holdout?.pnl ?? -Infinity);
+          return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+        })
         .filter((idx) => matchesQuery(query, idx.name, filterChips(idx)) && held(idx.id) && steadyEnough(backtests?.[idx.id], steadyFloor)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [indexes, query, heldOnly, steadyFloor, backtests],
+    [indexes, query, heldOnly, steadyFloor, backtests, sortBy],
   );
   const recommended = useMemo(
-    () => DEFAULT_STRATS.filter((t) =>
-      matchesQuery(query, t.name, filterChips(t.params), t.description)
-      && held(templateBacktestKey(t.slug))
-      && steadyEnough(backtests?.[templateBacktestKey(t.slug)], steadyFloor),
-    ),
+    () => DEFAULT_STRATS
+      .filter((t) =>
+        matchesQuery(query, t.name, filterChips(t.params), t.description)
+        && held(templateBacktestKey(t.slug))
+        && steadyEnough(backtests?.[templateBacktestKey(t.slug)], steadyFloor),
+      )
+      .sort((a, b) => {
+        const ka = templateBacktestKey(a.slug);
+        const kb = templateBacktestKey(b.slug);
+        if (sortBy === "pnl")
+          return (backtests?.[kb]?.pnl ?? -Infinity) - (backtests?.[ka]?.pnl ?? -Infinity);
+        if (sortBy === "holdout")
+          return (backtests?.[kb]?.holdout?.pnl ?? -Infinity) - (backtests?.[ka]?.holdout?.pnl ?? -Infinity);
+        return 0;
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [query, heldOnly, steadyFloor, backtests],
+    [query, heldOnly, steadyFloor, backtests, sortBy],
   );
   /** How the whole shelf scored, for the header tally. */
   const forwardTally = useMemo(() => {
@@ -341,6 +359,28 @@ export default function StratHub({
           >
             {steadyFloor > 0 ? "◈" : "◇"} STEADY
           </button>
+          {/* Sort order — rank surviving cards by recency, in-sample P&L, or
+              out-of-sample holdout P&L so the best performer surfaces first. */}
+          <div className="flex items-center rounded-[var(--radius-sm)] border border-pixel-border overflow-hidden shrink-0">
+            {([
+              ["recent", "RECENT", "Newest-edited first — the strat you were just working on leads"],
+              ["pnl",    "P&L",    "Best in-sample P&L first — highest backtest profit for this window leads"],
+              ["holdout","HOLDOUT","Best out-of-sample P&L first — honest holdout number leads (the deployable signal)"],
+            ] as const).map(([key, label, title]) => (
+              <button
+                key={key}
+                onClick={() => setSortBy(key)}
+                title={title}
+                className={`px-2 py-1 text-[11px] font-mono font-semibold tracking-[0.08em] transition-colors ${
+                  sortBy === key
+                    ? "bg-violet-400/[0.12] text-violet-400"
+                    : "text-pixel-gray hover:text-pixel-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {/* The wall answers "which of these works"; this is the button that
               acts on the answer — tick the ones that held and split the wallet
               across them in one pass, instead of a trip through each strat's

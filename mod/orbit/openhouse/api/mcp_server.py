@@ -59,7 +59,11 @@ INSTRUCTIONS = (
     'openhouse_pool_history lists closed quarters; '
     'openhouse_close_quarter freezes a quarter once the 90 days are up; '
     'openhouse_pool_claim pulls an address\'s share; '
-    'openhouse_bloctime shows one address\'s locked liquidity and earned weight.'
+    'openhouse_bloctime shows one address\'s locked liquidity and earned weight. '
+    'Civic seat: openhouse_civic_charter seats a government authority on the '
+    'property, openhouse_civic_override issues pause/unpause/hold/release, '
+    'and openhouse_civic_resign vacates the authority seat (lifts any pause '
+    'or hold it placed).'
 )
 
 
@@ -174,6 +178,11 @@ def _t_pay_rent(args, oh):
                            kind=str(args.get('kind') or 'rent')))
 
 
+def _t_distribute(args, oh):
+    return _ok(oh.distribute(_num(args, 'total_amount'),
+                             owner=str(args.get('owner') or '')))
+
+
 def _t_purchase(args, oh):
     return _ok(oh.purchase(_req(args, 'buyer'), int(_num(args, 'share_count')),
                            _num(args, 'payment', 0)))
@@ -201,6 +210,10 @@ def _t_civic_charter(args, oh):
 def _t_civic_override(args, oh):
     return _ok(oh.civic_override(_req(args, 'action'), _req(args, 'key'),
                                  reason=str(args.get('reason') or '')))
+
+
+def _t_civic_resign(args, oh):
+    return _ok(oh.civic_resign(_req(args, 'key')))
 
 
 # ── testnet examples ──
@@ -429,6 +442,17 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_dividends,
     },
+    'openhouse_distribute': {
+        'description': 'WRITES. Redistribute income to all shareholders in '
+                       'proportion to their shares. `owner` must match the '
+                       'recorded owner address once one is set — the call is '
+                       'rejected otherwise. Testnet bookkeeping — no funds move.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'total_amount': {'type': 'number', 'description': 'total amount to distribute (must be > 0)'},
+            'owner': {'type': 'string', 'description': '0x owner address — required once an owner is recorded'},
+        }, 'required': ['total_amount']},
+        'handler': _t_distribute,
+    },
     'openhouse_civic': {
         'description': 'The civic seat on this property: whether a government '
                        '(a city housing authority, a state) is chartered, '
@@ -538,6 +562,16 @@ TOOLS = {
             'reason': {'type': 'string', 'description': 'on the record, next to the action'},
         }, 'required': ['action', 'key']},
         'handler': _t_civic_override,
+    },
+    'openhouse_civic_resign': {
+        'description': 'WRITES. The chartered authority vacates its seat — '
+                       'the only way to empty it. Any civic pause or hold it '
+                       'placed lifts immediately. Only the authority itself '
+                       'can call this (verified by key).',
+        'inputSchema': {'type': 'object', 'properties': {
+            'key': {'type': 'string', 'description': "the chartered authority's key"},
+        }, 'required': ['key']},
+        'handler': _t_civic_resign,
     },
     'openhouse_examples': {
         'description': 'Guided testnet walkthroughs: a first rent payment, a '

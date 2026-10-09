@@ -501,7 +501,9 @@ class Node:
                     receipt = st.apply(tx, now, proposer=proposer)
                 except StateError as e:
                     dropped.append({"hash": tx["hash"], "reason": e.message,
-                                    "code": e.code})
+                                    "code": e.code,
+                                    "kind": tx["body"]["kind"],
+                                    "from": tx["body"]["from"]})
                     st = self._replay_into(st, included, now, proposer)
                     continue
                 if gas_used + receipt["gas"] > S.BLOCK_GAS_LIMIT:

@@ -22,6 +22,7 @@ import type {
   ForwardCheck, ForwardVerdict, HoldoutCheck, HubBacktest, WinRecord,
 } from "../lib/hubBacktest";
 import type { SavedIndex } from "../lib/types";
+import { settlementConfidence } from "../lib/backtest";
 
 export function timeAgo(ts?: number): string {
   if (!ts) return "never";
@@ -220,6 +221,20 @@ export function BacktestBlock({
               }
             >
               −${bt.fees.toFixed(2)} fees
+            </span>
+          )}
+          {bt.settlement && bt.settlement.marked > 0 && bt.settlement.markedUsd > 0.01 &&
+            settlementConfidence(bt.settlement) < 0.95 && (
+            <span
+              className="text-[11px] font-mono text-amber-400/80"
+              title={
+                `~$${bt.settlement.markedUsd.toFixed(2)} of this P&L is unverified: ${bt.settlement.marked} leg(s) ` +
+                "were valued at the last price a leader printed, not at a $1/$0 resolution. " +
+                "Marked legs flatter the result: leaders sell winners and let losers expire, " +
+                "so a loser's last print is its entry price."
+              }
+            >
+              ~${bt.settlement.markedUsd.toFixed(0)} UNVERIFIED
             </span>
           )}
           {running && <span className="text-[10px] font-mono text-amber-400 animate-pulse">↻</span>}

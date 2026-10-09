@@ -202,6 +202,7 @@
       <div class="row">
         <label>attack</label><select id="f-attack"></select>
         <label>defense</label><select id="f-defense"></select>
+        <span id="f-cost-hint"></span>
         <label>target</label><input type="text" id="f-model" value="claude:haiku" size="20">
         <label>judge</label>
         <select id="f-judge"><option>heuristic</option><option>model</option></select>
@@ -309,17 +310,22 @@ async function loadRounds() {
 }
 
 async function showRound(id) {
-  const [r, defs, atks] = await Promise.all([
+  const [r, defs, atks, ctlsData] = await Promise.all([
     api('/rounds?id=' + encodeURIComponent(id)),
     api('/defenses'),
     api('/attacks'),
+    api('/controls'),
   ]);
   const defName = {};
   (Array.isArray(defs) ? defs : []).forEach(d => { defName[d.id] = d.name || d.id; });
   const atkName = {};
   (Array.isArray(atks) ? atks : []).forEach(a => { atkName[a.id] = a.name || a.id; });
+  const ctlPrompt = {};
+  const ctlList = Array.isArray(ctlsData) ? ctlsData : (ctlsData.controls || []);
+  ctlList.forEach(c => { ctlPrompt[c.id] = c.prompt || ''; });
   $('#round-detail').style.display = 'block';
   const scores = r.scores || [];
+  const controlMatches = r.control_matches || [];
   $('#round-body').innerHTML = `
     <div class="row"><span class="pill">${esc(r.id)}</span>
       <span class="pill">${esc(r.model)}</span>
@@ -349,7 +355,17 @@ async function showRound(id) {
         <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
         <td class="muted">${esc(m.blocked_at || 'model')}</td>
         <td class="muted">${esc(m.reason || m.error || '')}</td></tr>`).join('')}
-    </table>`;
+    </table>
+    ${controlMatches.length ? `<h2 style="margin-top:14px">controls</h2>
+    <table><tr><th>defense</th><th>control</th><th>near attack</th>
+        <th>over-refused</th><th>stopped at</th></tr>
+      ${controlMatches.map((m, i) => `<tr class="click" data-ctl="${i}"${m.over_refused ? ' style="color:var(--warn)"' : ''}>
+        <td>${esc(defName[m.defense] || m.defense)}</td>
+        <td class="muted">${esc(m.control)}</td>
+        <td class="muted">${esc(atkName[m.near] || m.near || '—')}</td>
+        <td>${m.over_refused ? '<span style="color:var(--warn)">yes</span>' : '—'}</td>
+        <td class="muted">${esc(m.blocked_at || 'model')}</td></tr>`).join('')}
+    </table>` : ''}`;
   const matches = r.matches || [];
   $('#round-body').querySelectorAll('tr[data-idx]').forEach(tr => {
     tr.onclick = () => {
@@ -369,6 +385,24 @@ async function showRound(id) {
          <span>${esc(s.rule || s.action)}</span>
          <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
         <pre style="margin-top:6px">${esc(m.response || m.error || '')}</pre>`;
+      tr.after(detail);
+    };
+  });
+  $('#round-body').querySelectorAll('tr[data-ctl]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.ctl);
+      const m = controlMatches[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('ctl-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'ctl-detail';
+      const td = document.createElement('td');
+      td.colSpan = 5;
+      td.style.padding = '8px 12px';
+      td.innerHTML = `<pre style="margin-top:0">${esc(ctlPrompt[m.control] || m.control || '')}</pre>
+        <pre>${esc(m.response || m.error || '')}</pre>`;
       tr.after(detail);
     };
   });
@@ -534,6 +568,18 @@ async function loadPickers() {
     a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
   $('#f-defense').innerHTML = defenses.map(
     d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
+  async function updateCostHint() {
+    const val = $('#f-defense').value;
+    if (!val) { $('#f-cost-hint').textContent = ''; return; }
+    try {
+      const c = await api('/cost?defense=' + encodeURIComponent(val));
+      const n = c.model_calls_per_turn;
+      $('#f-cost-hint').innerHTML =
+        `<span class="pill">${n} model call${n !== 1 ? 's' : ''}${n > 1 ? ' (self-check)' : ''}</span>`;
+    } catch { $('#f-cost-hint').textContent = ''; }
+  }
+  $('#f-defense').addEventListener('change', updateCostHint);
+  updateCostHint();
 }
 
 $('#f-go').onclick = async () => {
