@@ -59,6 +59,7 @@ export const LAYER_COLOR: Record<string, string> = {
   subway_ridership: '#d95926',   // graduated circle
   subway_stations: '#ffffff',    // reference infrastructure, not a data series
   collisions: '#e66767',
+  shootings: '#7d2b6b',
   // Cyan, not the amber it started as. The two traffic layers are meant to be
   // read together, and amber circles sat between the speed ramp's amber band
   // and the orange ridership circles — competing with a line layer it shares a

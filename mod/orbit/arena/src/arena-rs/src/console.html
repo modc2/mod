@@ -1141,6 +1141,7 @@
       <div class="tw"><table class="stack"><thead><tr>
         <th>when</th><th>game</th><th>result</th><th>seats</th><th>elo</th><th>faults</th><th>where</th>
       </tr></thead><tbody id="pl-matches"></tbody></table></div>
+      <div id="pl-live" hidden style="margin-top:12px"></div>
     </div>
 
     <div class="card">
@@ -2639,7 +2640,17 @@ function playerMatchRow(m, p) {
     td("faults", { className: faults ? "bad" : "dim", textContent: faults || "clean" }),
     td("where", { className: "dim", textContent: m.runtime }),
   );
-  tr.onclick = () => openGamePage(m.game);
+  tr.onclick = async () => {
+    const live = $("pl-live");
+    if (!live.hidden && live.dataset.matchId === m.id) { live.hidden = true; return; }
+    const full = await call(`/matches/${m.id}`);
+    live.replaceChildren(
+      el("div", { className: "dim small", textContent: `${m.id} — ${m.summary || ""}` }),
+      ...(full.turns ?? []).map((t) => turnRow(t, full.seats.map((s) => ({ name: s.player_name })))));
+    live.dataset.matchId = m.id;
+    live.hidden = false;
+    live.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
   return tr;
 }
 

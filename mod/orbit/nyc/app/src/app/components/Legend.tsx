@@ -206,6 +206,21 @@ export default function Legend({
         <div className="mt-1 flex justify-between text-[11.5px] text-nes-ink3">
           <span>fewer</span><span>more incidents, 3 years</span>
         </div>
+        <ul className="mt-1.5 space-y-1">
+          <li className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+            <span className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black"
+                  style={{ background: LAYER_COLOR.shootings }} />
+            <span>non-fatal</span>
+          </li>
+          <li className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+            <span className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black"
+                  style={{ background: '#f0564a' }} />
+            <span>fatal</span>
+          </li>
+        </ul>
+        <p className="mt-1 text-[11.5px] leading-snug text-nes-ink3">
+          Shown as dots when zoomed in past street level.
+        </p>
       </Row>,
     )
   }
@@ -218,6 +233,21 @@ export default function Legend({
         <div className="mt-1 flex justify-between text-[11.5px] text-nes-ink3">
           <span>fewer</span><span>more crashes</span>
         </div>
+        <ul className="mt-1.5 space-y-1">
+          <li className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+            <span className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black"
+                  style={{ background: LAYER_COLOR.collisions }} />
+            <span>non-fatal</span>
+          </li>
+          <li className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
+            <span className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black"
+                  style={{ background: '#f2a0a0' }} />
+            <span>fatal</span>
+          </li>
+        </ul>
+        <p className="mt-1 text-[11.5px] leading-snug text-nes-ink3">
+          Shown as dots when zoomed in past street level.
+        </p>
       </Row>,
     )
   }

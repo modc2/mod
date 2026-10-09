@@ -518,6 +518,8 @@ $('#d-save').onclick = async () => {
       max_input_chars: Number($('#d-cap').value) || 0});
     $('#d-status').textContent =
       `added — ${out.cost.model_calls_per_turn} model call(s) per turn.`;
+    $('#d-name').value = ''; $('#d-sys').value = ''; $('#d-in').value = '';
+    $('#d-out').value = ''; $('#d-self').checked = false; $('#d-cap').value = '0';
     loadDefenses(); recomputeCostHint();
   } catch (e) { $('#d-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
 };

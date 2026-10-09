@@ -278,6 +278,10 @@ def _t_bank_link(args, oh):
                             kind=str(args.get('kind') or 'rent'), key=_key(args)))
 
 
+def _t_bank_unlink(args, oh):
+    return _ok(oh.bank_unlink(_req(args, 'address'), key=_key(args)))
+
+
 def _t_bank_links(args, oh):
     links = oh.bank_links(key=_key(args))
     return {'count': len(links), 'links': links}
@@ -658,6 +662,15 @@ TOOLS = {
             'key': _KEY,
         }, 'required': ['address']},
         'handler': _t_bank_link,
+    },
+    'openhouse_bank_unlink': {
+        'description': 'WRITES. Remove a renter\'s bank link — their reference '
+                       'code and any IBAN/name match. Real banks need key.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x renter address to unlink'},
+            'key': _KEY,
+        }, 'required': ['address']},
+        'handler': _t_bank_unlink,
     },
     'openhouse_bank_links': {
         'description': 'Linked renters with their reference codes. Payer IBAN '

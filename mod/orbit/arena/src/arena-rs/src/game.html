@@ -151,7 +151,7 @@ async function load() {
     : el("span", { className: "chip" }, [`${label} `, el("b", { textContent: String(value) })]);
   $("chips").replaceChildren(...[
     chip("language", g.lang), chip("version", g.version > 1 ? `v${g.version}` : null),
-    chip("matches", g.runs), chip("players", g.players),
+    chip("matches", g.runs), chip("players", g.min_players),
     chip("owner", g.owner), chip("made with", g.made_with),
     chip("id", (g.id || "").slice(0, 12)),
   ].filter(Boolean));

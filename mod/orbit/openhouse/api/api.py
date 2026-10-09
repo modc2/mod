@@ -324,6 +324,10 @@ class BankDisconnectRequest(BaseModel):
     connection: str
     key: str = ""
 
+class BankUnlinkRequest(BaseModel):
+    address: str
+    key: str = ""
+
 
 def _bk(request: Request, key: str = "") -> str:
     return key or request.headers.get("x-bank-key", "")
@@ -383,6 +387,10 @@ def bank_link(req: BankLinkRequest, request: Request):
     return _bank_out(get_openhouse().bank_link(
         req.address, payer_iban=req.payer_iban, payer_name=req.payer_name,
         kind=req.kind, key=_bk(request, req.key)))
+
+@app.post("/bank/unlink")
+def bank_unlink(req: BankUnlinkRequest, request: Request):
+    return _bank_out(get_openhouse().bank_unlink(req.address, key=_bk(request, req.key)))
 
 @app.get("/bank/links")
 def bank_links(request: Request, key: str = ""):

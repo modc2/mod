@@ -776,7 +776,7 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                         {(quote.plan ?? []).map((s: any) => (
                           <div key={s.step}>{s.step}. {s.what}</div>
                         ))}
-                        {quote.entry?.impact_pct != null && <div>entry impact {pct(quote.entry.impact_pct, 3)} · {quote.entry.quoted_by ?? ""}</div>}
+                        {quote.entry?.impact_pct != null && <div>entry impact {pct(quote.entry.impact_pct, 3)}{quote.entry?.min_after_slippage != null ? ` · min ${quote.entry.min_after_slippage} ${quote.entry.receipt ?? ""}`.trimEnd() : ""} · {quote.entry.quoted_by ?? ""}</div>}
                         {quote.exit_today?.get_back && <div>out today: {quote.exit_today.get_back} {detail.adapter?.asset?.symbol} back{quote.exit_today.impact_pct != null ? ` · impact ${pct(quote.exit_today.impact_pct, 3)}` : ""}</div>}
                         {quote.exit_today?.how && <div>out: {quote.exit_today.how}{quote.exit_today.vault_total_assets ? ` · vault holds ${quote.exit_today.vault_total_assets}` : ""}</div>}
                         {quote.exit_today?.error && <div style={{ color: "var(--warn)" }}>exit quote: {quote.exit_today.error}</div>}

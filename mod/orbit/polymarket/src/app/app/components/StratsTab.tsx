@@ -498,6 +498,14 @@ export default function StratsTab() {
                       <span className={`shrink-0 w-14 text-right text-[11px] font-mono font-semibold tabular-nums ${totalPnl > 0 ? "text-green-400" : totalPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
                         {totalPnl >= 0 ? "+" : ""}{fmtUsd(totalPnl)}
                       </span>
+                      {!!m?.pnl24h && (
+                        <span
+                          className={`shrink-0 text-[9.5px] font-mono tabular-nums ${m.pnl24h > 0 ? "text-green-400" : "text-red-400"}`}
+                          title="24-hour P&L"
+                        >
+                          24h {m.pnl24h >= 0 ? "+" : ""}{fmtUsd(m.pnl24h)}
+                        </span>
+                      )}
                       {r.running && (
                         <button
                           onClick={(e) => { e.stopPropagation(); void stopStrat(r.id); }}

@@ -1250,6 +1250,7 @@ $('w-set').onclick = async () => {
       `<b>witness</b><span>${r.witness_bytes} bytes of post-quantum signature` +
       (r.receipt ? ` · fee <span class="amt">${esc(pq(r.receipt.fee))}</span> PQ` : '') + `</span>` +
       (r.committed ? `<b>committed</b><span class="mono">${esc(r.committed.value)}</span>` : '') +
+      (r.receipt?.expires_at ? `<b>expires in</b><span>${ago(r.receipt.expires_at - Math.floor(Date.now()/1000))}</span>` : '') +
       `</div>`);
     loadKeys();
   } catch (e) { err('w-out', e); }
@@ -1266,6 +1267,7 @@ async function manage(path, extra) {
       (r.receipt?.bounty ? `<b>bounty</b><span class="amt">${esc(pq(r.receipt.bounty))} PQ</span>` : '') +
       (r.receipt?.price  ? `<b>price</b><span class="amt">${esc(pq(r.receipt.price))} PQ</span>` : '') +
       (r.receipt?.escrow ? `<b>escrow</b><span class="amt">${esc(pq(r.receipt.escrow))} PQ</span>` : '') +
+      (r.receipt?.expires_at ? `<b>expires in</b><span>${ago(r.receipt.expires_at - Math.floor(Date.now()/1000))}</span>` : '') +
       `</div>`);
     loadKeys();
   } catch (e) { err('m-out', e); }
