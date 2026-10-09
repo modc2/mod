@@ -362,6 +362,7 @@ m nyc/kill                             # stop both
 | `GET /options`, `/view`, `/health`, `/cache` | UI metadata |
 | `GET /tools` | the whole MCP surface (tools, prompts, resources) as JSON |
 | `POST /tools/{name}` | call one tool with a JSON object of arguments |
+| `GET /whoami` | who the `Authorization` token verifies to, whether that is the owner, and what it unlocks (public; no token = anonymous) |
 | `GET /data`, `GET /data/{slug}` | the owner's saved datasets (public read) |
 | `POST /data`, `DELETE /data/{slug}`, `POST /data/{slug}/refresh` | add / remove / refetch a saved dataset (owner token) |
 | `POST /mcp` | MCP streamable HTTP (`DELETE` ends a session; `GET` is 405 — no server-initiated stream) |

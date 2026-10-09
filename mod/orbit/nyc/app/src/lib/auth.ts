@@ -16,6 +16,25 @@
 
 const STORE = 'nyc:token'
 const MAX_AGE_S = 6 * 86_400 // refresh a day before the server's 7-day cutoff
+const EVENT = 'nyc:auth'
+
+function announce(): void {
+  try { window.dispatchEvent(new Event(EVENT)) } catch {}
+}
+
+/**
+ * Sign-in state is shared: the header button, YOUR DATA, and the chat all
+ * read the same stored token, so each subscribes here and re-reads when any
+ * of them signs in or out. The `storage` event covers another tab doing it.
+ */
+export function onAuthChange(cb: () => void): () => void {
+  window.addEventListener(EVENT, cb)
+  window.addEventListener('storage', cb)
+  return () => {
+    window.removeEventListener(EVENT, cb)
+    window.removeEventListener('storage', cb)
+  }
+}
 
 function b64url(obj: unknown): string {
   const json = JSON.stringify(obj)
@@ -44,6 +63,7 @@ export function storedToken(): string | null {
 
 export function signOut(): void {
   try { localStorage.removeItem(STORE) } catch {}
+  announce()
 }
 
 /** The address inside the stored token (who we signed as), or null. */
@@ -71,5 +91,6 @@ export async function signIn(): Promise<string> {
   })
   const token = b64url({ data, time, key: String(address).toLowerCase(), signature })
   try { localStorage.setItem(STORE, token) } catch {}
+  announce()
   return token
 }

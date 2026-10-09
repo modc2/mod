@@ -8,6 +8,7 @@ import {
 } from '@/lib/api'
 import { useCollapse } from '@/lib/collapse'
 import { usd } from '@/lib/format'
+import AccountButton from './components/AccountButton'
 import ChatPanel from './components/ChatPanel'
 import { AgentLegend } from './components/Infographic'
 import { describeMap, useAgentScene } from '@/lib/scene'
@@ -283,7 +284,9 @@ export default function Page() {
       </div>
 
       {/* ── HUD ─────────────────────────────────────────────────────── */}
-      <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-30 flex items-start gap-3 pb-3">
+      {/* z-[60]: above the chat column (z-50), or the account popover —
+          which hangs off this strip — gets covered while the chat is open. */}
+      <header className="safe-t safe-x pointer-events-none absolute inset-x-0 top-0 z-[60] flex items-start gap-3 pb-3">
         {/* A phone gives the search field the whole bar. At 360px there is no
             room for a usable field beside the title, and a search box you can
             only half see is worse than one that is a tap away. */}
@@ -352,6 +355,12 @@ export default function Page() {
             >
               DOCS
             </a>
+            {/* The owner's sign-in: one wallet signature, the mod-protocol
+                token every module verifies. Wide screens only — the phone
+                HUD is full, so the drawer carries this row instead. */}
+            <div className="hidden md:block">
+              <AccountButton />
+            </div>
             <button
               onClick={() => setSearchOpen(true)}
               aria-label="Search an address or place"
@@ -424,6 +433,11 @@ export default function Page() {
               {b.label}
             </button>
           ))}
+        </div>
+
+        {/* The phone's seat for the owner sign-in the desktop HUD carries. */}
+        <div className="shrink-0 md:hidden">
+          <AccountButton rail />
         </div>
 
         <div className="safe-b flex-1 overflow-y-auto md:pb-0">

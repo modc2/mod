@@ -256,6 +256,19 @@ async function dataFetch<T>(path: string, token: string | null,
   return res.json()
 }
 
+/** GET /whoami — who the stored token verifies to and what that unlocks. */
+export type WhoAmI = {
+  mod: string
+  address: string | null
+  owner: string | null
+  is_owner: boolean
+  writable: boolean
+  token_max_age: number
+  unlocks: string[]
+}
+
+export const whoami = (token: string | null) => dataFetch<WhoAmI>('/whoami', token)
+
 export const userData = {
   list: (token: string | null) => dataFetch<SavedList>('/data', token),
   add: (body: AddDataBody, token: string) =>

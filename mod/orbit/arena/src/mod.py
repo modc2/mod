@@ -646,6 +646,33 @@ class Mod:
             out['error'] = (stored or {}).get('error', 'upload failed')
         return out
 
+    def clone(self, url: str = '', role: str = '', name: str = '',
+              path: str = '', refresh: bool = False, enter: bool = True):
+        """Clone a git repo onto this box and register the game or agent in it.
+
+            m arena/clone url=https://github.com/you/snake-game role=game
+            m arena/clone url=you/mybot role=agent          # owner/name works
+            m arena/clone url=/root/somewhere/repo path=src/player.py
+
+        The server clones the URL shallowly under ~/.mod/arena/clones/<slug>,
+        reads its .py / .rs / .wasm files through the same readers an upload
+        goes through, and registers the best one that answers as the role
+        asked for — so the clone is only a working copy, and the module the
+        arena keeps is the blob under the hash of its bytes. A player is
+        entered at the arena too (enter=0 to skip); refresh=1 re-pulls a
+        repo already cloned here.
+        """
+        if not url:
+            return {'error': 'clone needs `url` — a git URL, owner/name, or a path on this box'}
+        body = {'url': url, 'enter': bool(enter), 'refresh': bool(refresh)}
+        if role:
+            body['role'] = role
+        if name:
+            body['name'] = name
+        if path:
+            body['path'] = path
+        return self._post('/clone', body)
+
     def codeplay(self, game: str, agents: str = '', matches: int = 1,
                  seed: int = None, steps: int = 3, base: str = '',
                  timeout: int = 1800, model: str = '', move_timeout: int = 300):

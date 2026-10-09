@@ -57,6 +57,7 @@ fn info() -> Value {
         "modules": "GET /modules | POST /modules | GET /modules/:id | DELETE /modules/:id",
         "games": "GET /modules?role=game&tag= — every game, filterable by tag; the console's GAMES tab shows this shelf",
         "codegame": "POST /codegame {repo, name?, tasks?, rounds?} — a repo of choice, harvested into a coding game",
+        "clone": "POST /clone {url, role?, name?, path?} — clone a git repo onto this box and register the game or agent it holds",
         "classes": "GET /classes — the Python classes | POST /classes {source} — upload one as text",
         "blob": "GET /blob/:id — the module bytes, immutable (the id is their hash)",
         "inspect": "POST /inspect {bytes|text}",
@@ -189,6 +190,13 @@ async fn put_class(Json(body): Json<Value>) -> Response {
 /// the command line with `m arena/codegame`.
 async fn codegame(Json(body): Json<Value>) -> Response {
     via_tool("harvest_repo", body).await
+}
+
+/// A repo of choice, cloned under the state directory and registered as the
+/// game or the agent it holds. Seconds for a small repo; `path=` names the
+/// file outright when the survey would read too much.
+async fn clone_repo(Json(body): Json<Value>) -> Response {
+    via_tool("clone_repo", body).await
 }
 
 async fn get_module(Path(id): Path<String>, Query(q): Query<HashMap<String, String>>) -> Response {
@@ -616,6 +624,7 @@ fn api_routes() -> Router {
         .route("/modules", get(list_modules).post(put_module))
         .route("/classes", get(list_classes).post(put_class))
         .route("/codegame", post(codegame))
+        .route("/clone", post(clone_repo))
         .route("/modules/:id", get(get_module).delete(delete_module))
         .route("/blob/:id", get(blob))
         .route("/wasm/:id", get(wasm))

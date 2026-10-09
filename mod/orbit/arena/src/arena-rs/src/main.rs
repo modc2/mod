@@ -33,6 +33,7 @@ mod agentproto;
 mod arena;
 mod blobs;
 mod docs;
+mod gitmod;
 mod http;
 mod ident;
 mod klass;

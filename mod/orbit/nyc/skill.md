@@ -206,7 +206,10 @@ remote GeoJSON URL. Records live in `~/.mod/nyc/data` (NOT the cache —
 `clear_cache` must never touch them); `layers.catalog()/get()` fall through to
 it, so the layer appears everywhere a built-in does.
 
-Writes are owner-gated on the fleet's mod-protocol token:
+Writes are owner-gated on the fleet's mod-protocol token. `GET /whoami` is
+the sign-in handshake: it reports the token's address, the deployment owner,
+and whether the caller is that owner — the app's header SIGN IN button (one
+wallet `personal_sign`, the fleet-standard token) is built on it.
 
 - HTTP: `POST /data`, `DELETE /data/{slug}`, `POST /data/{slug}/refresh` need
   `Authorization: Bearer <token>` verifying to the owner (box key, or

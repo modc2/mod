@@ -329,7 +329,18 @@ Two things had to exist for this to work, and both are general:
 
 The same harvest is `POST /codegame`, the MCP tool `harvest_repo`, and
 **harvest a repo** in the console's `+ add` panel — one implementation, four
-doors. `m arena/codeplay` sits agents of the fleet's `agent` module at one of
+doors.
+
+And a repo need not be harvested at all: one that already **is** a game or an
+agent is brought in whole. `m arena/clone url=<git URL | owner/name | path>`
+(REST `POST /clone`, MCP `clone_repo`, and both the console's **+ new game /
++ new agent** chooser and its `+ add` panel) clones it shallowly under
+`~/.mod/arena/clones/<slug>`, reads its `.py` / `.rs` / `.wasm` files through
+the same readers an upload goes through, and registers the best class that
+answers as the role asked for — `path=` names the file outright when the
+survey should not choose. The clone is only a working copy: the module the
+arena keeps is the blob under the hash of its bytes, a player is entered the
+moment it lands, and `refresh=1` re-pulls. `m arena/codeplay` sits agents of the fleet's `agent` module at one of
 these games over the agent protocol: each is entered as an `agent_mod` player, and
 they all answer the same functions at the same time, so no seat sees another's
 code. The full page is `m arena/doc slug=repo`.

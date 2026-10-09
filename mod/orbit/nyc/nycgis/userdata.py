@@ -120,6 +120,30 @@ def is_owner_token(token: Optional[str]) -> bool:
     return bool(address and owner and address == owner)
 
 
+def identity(token: Optional[str]) -> dict:
+    """Who a token verifies to, and what that standing unlocks here.
+
+    The owner sign-in handshake: the app sends its stored mod-protocol token
+    and learns whether the signer IS the deployment owner. Anonymous and
+    garbage tokens are not errors — they are simply nobody.
+    """
+    address = verify(token)
+    owner = owner_address()
+    is_owner = bool(address and owner and address == owner)
+    return {
+        'mod': 'nyc',
+        'address': address,
+        'owner': owner,
+        'is_owner': is_owner,
+        'writable': is_owner,
+        'token_max_age': TOKEN_MAX_AGE,
+        'unlocks': (
+            ['save datasets as map layers (YOUR DATA, POST /data)',
+             'the ASK NYC agent may save data when asked']
+            if is_owner else []),
+    }
+
+
 def grant_writer(granted: bool) -> contextvars.Token:
     """Mark this context as owner-verified; returns the reset token."""
     return _WRITER.set(bool(granted))

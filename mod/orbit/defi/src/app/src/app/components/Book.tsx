@@ -229,7 +229,11 @@ export default function Book({ say, onOpenModules }: Props) {
                       </button>
                       {v && (
                         <span className="mono-small" style={{ flex: 1 }}>
-                          {v.error ?? v.note ?? `${v.assets ?? v.shares ?? ""} ${v.symbol ?? ""} · ${v.basis ?? ""}`}
+                          {v.error ?? v.note ?? (
+                            v.session != null
+                              ? `session ${v.session.running ? "running" : "stopped"}${v.session.state?.accountValue != null ? ` · ${Number(v.session.state.accountValue).toFixed(2)} USDC` : ""}${v.session.state?.totalOrdersPlaced != null ? ` · ${v.session.state.totalOrdersPlaced} orders` : ""} · ${v.basis ?? ""}`
+                              : `${v.assets ?? v.shares ?? ""} ${v.symbol ?? ""} · ${v.basis ?? ""}`.trimStart()
+                          )}
                         </span>
                       )}
                     </div>

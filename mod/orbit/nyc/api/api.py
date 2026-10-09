@@ -614,6 +614,17 @@ def _require_owner(request: Request) -> str:
     return address
 
 
+@app.get('/whoami')
+def whoami(request: Request):
+    """Who the calling token verifies to — the owner sign-in handshake.
+
+    Public and never an error: no token (or a bad one) is simply anonymous.
+    The app calls this after a wallet signature to learn whether the signer
+    is the deployment owner and what that unlocks.
+    """
+    return U.identity(request.headers.get('authorization'))
+
+
 @app.get('/data')
 def data_list(request: Request):
     """Saved datasets, plus whether the calling token could write them."""

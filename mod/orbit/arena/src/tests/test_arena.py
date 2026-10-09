@@ -1371,3 +1371,104 @@ def test_the_whitepaper_reads_through_the_docs_and_its_own_page(arena):
     r = requests.get(f'{arena}/arena/whitepaper', timeout=30)
     assert r.ok and 'text/html' in r.headers['content-type']
     assert 'WHITEPAPER' in r.text and '/docs/whitepaper' in r.text
+
+
+# ── clone: a git repo of choice, registered as what it holds ──────────────
+
+GAME_SRC = '''\
+class Countdown:
+    """Count down from 5; whoever says 0 ends it."""
+
+    players = (1, 2)
+
+    def __init__(self, seed):
+        self.n = 5
+
+    def view(self, seat):
+        return f"n={self.n} — answer with n-1"
+
+    def step(self, moves):
+        self.n = min(int(m) for m in moves.values())
+
+    def done(self):
+        return self.n <= 0
+
+    def result(self):
+        return {0: 1.0}
+'''
+
+PLAYER_SRC = '''\
+class Decrement:
+    """Plays the countdown: reads n, answers n-1."""
+
+    def play(self, view, seat):
+        n = int(view.split("=")[1].split()[0])
+        return str(n - 1)
+'''
+
+
+def _repo(tmp_path, files):
+    """A real git repository under the test's tmp dir, one commit."""
+    repo = tmp_path / 'repo'
+    repo.mkdir(parents=True)
+    for rel, text in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+    env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0',
+           'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+           'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+    for argv in (['git', 'init', '-q'], ['git', 'add', '-A'],
+                 ['git', 'commit', '-q', '-m', 'x']):
+        subprocess.run(argv, cwd=repo, env=env, check=True, capture_output=True)
+    return repo
+
+
+def test_a_cloned_repo_registers_the_game_it_holds(arena, tmp_path):
+    # The real pipeline: a file:// URL is git-cloned under the server's own
+    # state directory, the files are read like an upload, and the best class
+    # that answers as a game is registered — nothing taken on trust.
+    repo = _repo(tmp_path, {
+        'README.md': '# a game\n',
+        'util/helpers.py': 'def add(a, b):\n    return a + b\n',
+        'game.py': GAME_SRC,
+    })
+    code, m = post(arena, '/clone', {'url': f'file://{repo}', 'role': 'game',
+                                     'name': '_clonegame'}, timeout=300)
+    assert code == 200, m
+    assert m['role'] == 'game' and m['name'] == '_clonegame'
+    assert m['git']['file'] == 'game.py'
+    assert len(m['git']['commit']) == 40
+    _, got = get(arena, f"/modules/{m['id']}")
+    assert got['role'] == 'game'
+    # The clone is a working copy; the registry holds the bytes themselves.
+    _, src = get(arena, f"/modules/{m['id']}", source='true')
+    assert 'class Countdown' in src['source']
+    requests.delete(f"{arena}/modules/{m['id']}", headers=as_(OWNER), timeout=30)
+
+
+def test_a_cloned_agent_is_registered_and_seated(arena, tmp_path):
+    repo = _repo(tmp_path, {'bots/player.py': PLAYER_SRC})
+    code, m = post(arena, '/clone', {'url': f'file://{repo}', 'role': 'agent',
+                                     'name': '_clonebot'}, timeout=300)
+    assert code == 200, m
+    assert m['role'] == 'player'
+    assert m['entered']['name'] == '_clonebot', m
+    _, players = get(arena, '/players')
+    assert any(p['name'] == '_clonebot' for p in players['players'])
+    requests.delete(f"{arena}/players/{m['entered']['id']}", timeout=30)
+    requests.delete(f"{arena}/modules/{m['id']}", headers=as_(OWNER), timeout=30)
+
+
+def test_a_clone_that_holds_no_such_role_says_what_it_did_find(arena, tmp_path):
+    # A directory on the box works uncloned, and asking it for a game when
+    # it only holds a player is an error that names the player it found.
+    repo = _repo(tmp_path, {'player.py': PLAYER_SRC})
+    code, out = post(arena, '/clone', {'url': str(repo), 'role': 'game'}, timeout=300)
+    assert code == 400, out
+    assert 'holds no game' in out['error'] and 'player.py' in out['error']
+
+    # And a repo with nothing readable says it read and found nothing.
+    empty = _repo(tmp_path / 'e', {'README.md': 'words\n'})
+    code, out = post(arena, '/clone', {'url': str(empty)}, timeout=300)
+    assert code == 400 and 'none defines' in out['error']

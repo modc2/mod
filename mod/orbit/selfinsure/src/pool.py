@@ -514,9 +514,13 @@ def file_claim(pool, member=None, member_key=None, amount=None, title='', detail
                 status=409, covered_from=m['covered_from'])
         if not (title or '').strip():
             raise SelfInsureError('a claim needs a title — the adjudicators read it first')
+        _cap_note = None
         if p['coverage'] and amt > p['coverage']:
-            # Not an error: file it, and say plainly that the top will be cut off.
-            pass
+            _cap_note = (
+                f"your claim of {major(amt, p['decimals'])} {p['unit']} exceeds this pool's "
+                f"{major(p['coverage'], p['decimals'])} {p['unit']} per-claim cap; "
+                f"the pool can pay at most {major(p['coverage'], p['decimals'])} {p['unit']} if accepted"
+            )
         p['claim_seq'] += 1
         cid = f"{p['id']}#{p['claim_seq']}"
         ev = evidence if isinstance(evidence, list) else \
@@ -534,13 +538,16 @@ def file_claim(pool, member=None, member_key=None, amount=None, title='', detail
         t.log('claim_filed', p['id'], claim=cid, member=m['id'], amount=amt,
               title=title.strip()[:200])
         c = p['claims'][cid]
-        return {'claim': cid, 'pool': p['id'], 'state': 'open',
-                'amount': major(amt, p['decimals']), 'unit': p['unit'],
-                'payable_if_accepted': major(_payable(p, c), p['decimals']),
-                'needs': f"{p['quorum']} agent vote(s), "
-                         f"{p['threshold'] * 100:.0f}% must accept",
-                'funded_now': _payable(p, c) <= p['balance'],
-                'pool_balance': major(p['balance'], p['decimals'])}
+        result = {'claim': cid, 'pool': p['id'], 'state': 'open',
+                  'amount': major(amt, p['decimals']), 'unit': p['unit'],
+                  'payable_if_accepted': major(_payable(p, c), p['decimals']),
+                  'needs': f"{p['quorum']} agent vote(s), "
+                           f"{p['threshold'] * 100:.0f}% must accept",
+                  'funded_now': _payable(p, c) <= p['balance'],
+                  'pool_balance': major(p['balance'], p['decimals'])}
+        if _cap_note:
+            result['note'] = _cap_note
+        return result
 
 
 def _year_paid(p, member_id, before=None):

@@ -246,6 +246,22 @@ pub fn tool_list() -> Value {
             }
         },
         {
+            "name": "clone_repo",
+            "description": "Bring a game or an agent from a git repository. Name a URL (or a GitHub owner/name, or a path on this box) and the server clones it shallowly under its own state directory, reads its .py / .rs / .wasm files through the same readers an upload goes through, and registers the best one that answers as the role asked for — put_class on the text, so nothing cloned gets a private door into the registry. A player is entered at the arena too, unless enter=false. The clone is kept at ~/.mod/arena/clones/<slug> and refresh=true re-pulls it.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "A git URL, a GitHub owner/name, or a directory on this box" },
+                    "role": { "type": "string", "enum": ["game", "player", "agent"], "description": "What to look for. `agent` means `player`; blank takes the best readable module" },
+                    "name": { "type": "string", "description": "What to register it as. Defaults to the repo's name" },
+                    "path": { "type": "string", "description": "The file inside the repo, when the survey should not choose" },
+                    "refresh": { "type": "boolean", "default": false, "description": "Re-pull a repo already cloned here" },
+                    "enter": { "type": "boolean", "default": true, "description": "Enter a player at the arena once registered" }
+                },
+                "required": ["url"]
+            }
+        },
+        {
             "name": "run_match",
             "description": "Play a match: seat the given players at the given game and run it to the end. The wasm executes in the node runner (the same execution layer the browser console uses), every move is recorded, and the result is rated. Two or more seats makes it rated; one seat is practice.",
             "inputSchema": {
@@ -1059,6 +1075,7 @@ pub async fn call_tool(name: &str, args: &Value) -> Result<Value, String> {
                         args.get("answer").and_then(|v| v.as_str()).unwrap_or("")).await
         }
         "harvest_repo" => harvest_repo(args).await,
+        "clone_repo" => crate::gitmod::clone_repo(args).await,
         "record_match" => arena::record_match(args),
         "list_matches" => Ok(arena::list_matches(args)),
         "get_match" => {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { userData, type SavedDataset, type AddDataBody } from '@/lib/api'
-import { signIn, signOut, storedToken, storedAddress } from '@/lib/auth'
+import { onAuthChange, signIn, signOut, storedToken, storedAddress } from '@/lib/auth'
 import { Coin } from './Sprites'
 
 type Props = {
@@ -43,6 +43,9 @@ export default function DataPanel({ onChanged }: Props) {
       .catch(() => {})
   }, [])
   useEffect(load, [load])
+  // Sign-in is global (the header button mints the same token), so a change
+  // there re-reads `writable` and the signed-as line here without a reload.
+  useEffect(() => onAuthChange(load), [load])
 
   const sourceKind = fileFc ? 'file'
     : DATASET_ID.test(source.trim()) || PORTAL_PAGE.test(source) ? 'dataset'

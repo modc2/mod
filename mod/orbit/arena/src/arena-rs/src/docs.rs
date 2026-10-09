@@ -412,7 +412,7 @@ mod tests {
         }
         // The count the prose quotes is the count the table has.
         let n = crate::mcp::tool_list().as_array().unwrap().len();
-        assert_eq!(n, 42, "the mcp page says forty-two tools; there are {n}");
+        assert_eq!(n, 43, "the mcp page says forty-three tools; there are {n}");
         assert!(text.contains("**source: string**"), "required arguments are bold");
     }
 

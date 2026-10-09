@@ -598,9 +598,9 @@
   </nav>
   <a href="/arena/arcade" style="color:var(--dim);font-size:12px;text-decoration:none;padding:7px 4px">arcade</a>
   <span class="counts" id="banner">loading…</span>
-  <button class="act sm" id="new-game" title="write a new game with the agent, a sentence at a time">+ new game</button>
-  <button class="act sm" id="new-agent" title="write a new agent the same way — say how it plays, publish it, it is seated">+ new agent</button>
-  <button class="ghost sm" id="add-open" title="upload a .wasm / .py / .rs, or harvest a repo">upload</button>
+  <button class="act sm" id="new-game" title="a new game — vibecode it with the agent, or clone it from a git url">+ new game</button>
+  <button class="act sm" id="new-agent" title="a new agent — vibecode it, or clone it from a git url">+ new agent</button>
+  <button class="ghost sm" id="add-open" title="upload a .wasm / .py / .rs, harvest a repo, or clone a git url">upload</button>
   <button class="me" id="me" title="sign in with your wallet">sign in</button>
   <span class="themewrap">
     <button class="ghost sm" id="theme" aria-haspopup="menu" aria-expanded="false">theme</button>
@@ -649,6 +649,30 @@
         <button class="act" id="r-go">harvest</button>
       </div>
       <p class="dim small" id="r-out" style="margin:8px 0 0">nobody writes the tests — they are what the repo already does</p>
+    </div>
+
+    <!-- ── a repo as it is ──
+         A game or an agent already written somewhere else needs no writing
+         here: name a git URL and the server clones it under its own state
+         directory, reads the files the way an upload is read, and registers
+         the best class that answers as what you asked for. -->
+    <div id="gitclone" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px">
+      <div class="row" style="margin-bottom:8px">
+        <h2 class="grow" style="margin:0;font-size:14px">clone a git repo</h2>
+        <span class="dim small">a game or an agent written elsewhere, registered here</span>
+      </div>
+      <div class="row">
+        <input id="c-url" style="flex:1;min-width:220px" spellcheck="false"
+          placeholder="https://github.com/owner/repo — or owner/repo, or a path on this box">
+        <select id="c-role" title="what to look for in the repo">
+          <option value="">best match</option>
+          <option value="game">a game</option>
+          <option value="player">an agent</option>
+        </select>
+        <input id="c-name" placeholder="name (blank = the repo's)" style="width:180px">
+        <button class="act" id="c-go">clone &amp; register</button>
+      </div>
+      <p class="dim small" id="c-out" style="margin:8px 0 0">the clone lands under this box's state directory; registration reads the files like any upload</p>
     </div>
 
     <div class="row" style="margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:10px">
@@ -1618,10 +1642,60 @@ function renderGames() {
 }
 document.querySelectorAll("#g-scope button").forEach((b) =>
   (b.onclick = () => { gameScope = b.dataset.scope; renderGames(); }));
-$("g-new").onclick = () => openStudio({});
-$("new-game").onclick = () => openStudio({});
+/** After a clone registered something: the server already entered a player,
+ *  so this only says what it became and goes there. */
+async function cloneLanded(m) {
+  await refresh();
+  $("add").hidden = true;
+  if (m.role === "player") {
+    toast(`${m.name} is an agent — connected`);
+    return show("agents");
+  }
+  if (m.role === "game") {
+    toast(`${m.name} is a game — here is its leaderboard`);
+    return openGamePage(m.id);
+  }
+  toast(`stored ${m.name} — it defines neither a game nor a player`);
+}
+
+/** The git half of creating: ask for a URL, let the server clone and read it. */
+async function cloneFromGit(role) {
+  const noun = role === "player" ? "agent" : "game";
+  const url = await ask({
+    title: `clone a ${noun} from git`,
+    body: `The server clones the repository under its own state directory and registers the first class that reads as a ${noun} — the same readers as an upload, nothing taken on trust.`,
+    ok: "clone & register",
+    input: { placeholder: "https://github.com/owner/repo — or owner/repo, or a path on this box" },
+  });
+  if (!url || !url.trim()) return;
+  toast(`cloning ${url.trim()} — a moment…`);
+  try {
+    const m = await post("/clone", { url: url.trim(), role });
+    if (m.compile_error) toast(`${m.name} stored, but it does not compile: ${m.compile_error}`, true);
+    await cloneLanded(m);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+/** Creating a game or an agent is a choice of door: say it (the studio) or
+ *  bring it (a git clone the server registers). */
+async function openCreate(role) {
+  const noun = role === "player" ? "agent" : "game";
+  const how = await ask({
+    title: `new ${noun}`,
+    body: "Vibecode it — say what it is and the agent writes it here — or clone a git repository onto this box and register what it holds.",
+    cancel: "never mind",
+    choices: [["vibe", "vibecode it"], ["git", "clone a git url"]],
+  });
+  if (how === "vibe") return openStudio({ role });
+  if (how === "git") return cloneFromGit(role);
+}
+
+$("g-new").onclick = () => openCreate("game");
+$("new-game").onclick = () => openCreate("game");
 $("lb-vibe").onclick = () => openStudio({});
-$("new-agent").onclick = () => openStudio({ role: "player" });
+$("new-agent").onclick = () => openCreate("player");
 $("lb-vibe-agent").onclick = () => openStudio({ role: "player" });
 $("mk-vibe").onclick = () => openStudio({ role: "player" });
 const openUpload = () => { $("add").hidden = false; window.scrollTo({ top: 0, behavior: "smooth" }); };
@@ -1827,7 +1901,16 @@ function renderSeats() {
     }
     sel.replaceChildren(...groups);
     const saved = current[`g-seat-${i}`];
-    sel.value = saved || (players[i] ? players[i].id : "");
+    if (!saved && !players[i]) {
+      // Extra seat beyond entered players: add a placeholder so sel.value="" actually sticks.
+      // Without this the browser silently falls back to the first option, duplicating a player.
+      sel.prepend(el("option", { value: "", disabled: true, textContent: "— pick a player —" }));
+      sel.value = "";
+    } else {
+      sel.value = saved || players[i].id;
+    }
+    const unfilled = !sel.value;
+    if (unfilled) sel.style.opacity = "0.55";
     return el("div", { className: "row", style: "margin-bottom:7px" }, [
       el("span", { className: "dim", style: "width:52px", textContent: `seat ${i}` }), sel,
     ]);
@@ -3166,6 +3249,34 @@ $("r-go").onclick = async () => {
   } finally {
     $("r-go").disabled = false;
     $("r-go").textContent = "harvest";
+  }
+};
+
+// A clone brings a repo as it is: the server pulls it under its own state
+// directory and registers the best class in it. Seconds for a small repo.
+$("c-go").onclick = async () => {
+  const url = $("c-url").value.trim();
+  if (!url) return toast("name a repo — a git URL, owner/repo, or a path on this box", true);
+  const out = $("c-out");
+  $("c-go").disabled = true;
+  $("c-go").textContent = "cloning…";
+  out.className = "dim small";
+  out.textContent = `cloning ${url} and reading its files…`;
+  try {
+    const body = { url };
+    if ($("c-role").value) body.role = $("c-role").value;
+    if ($("c-name").value.trim()) body.name = $("c-name").value.trim();
+    const m = await post("/clone", body);
+    out.textContent = `${m.name} — a ${m.role}, read from ${(m.git || {}).file || "the repo"}`;
+    if (m.compile_error) toast(`${m.name} stored, but it does not compile: ${m.compile_error}`, true);
+    await cloneLanded(m);
+  } catch (e) {
+    out.className = "bad small";
+    out.textContent = e.message;
+    toast(e.message, true);
+  } finally {
+    $("c-go").disabled = false;
+    $("c-go").textContent = "clone & register";
   }
 };
 

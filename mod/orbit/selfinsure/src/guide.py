@@ -206,6 +206,19 @@ def topic(tid):
     return _TOPIC.get(tid)
 
 
+# "What is this?" is the first thing every newcomer asks, and every word in
+# it is a stopword — keyword scoring alone can never reach the overview. Route
+# purely deictic questions (this/that/it/you with nothing concrete) straight
+# to the 'what' topic.
+_DEICTIC = re.compile(
+    r"^\s*(?:what(?:'?s| is| are)?\s+(?:all\s+)?(?:this|that|it)"
+    r"(?:\s+(?:thing|site|page|app|place|module|website|about|for))*"
+    r"|what\s+(?:do\s+you|does\s+(?:this|it))\s+do"
+    r"|what\s+am\s+i\s+looking\s+at|where\s+am\s+i"
+    r"|wh(?:o|at)\s+are\s+you|explain(?:\s+(?:this|it))?|eli5)"
+    r"\s*[?!.\s]*$", re.I)
+
+
 def _score(t, toks):
     keys = set(t['keys'])
     title = set(_tokens(t['title']))
@@ -227,6 +240,10 @@ def explain(query, n=3):
     toks = _tokens(query)
     if not toks:
         return {'topic': None, 'related': [], 'score': 0}
+    if _DEICTIC.match(query or ''):
+        t = _TOPIC['what']
+        return {'topic': {k: t[k] for k in ('id', 'title', 'text', 'link') if k in t},
+                'related': ['mutual', 'pool', 'create'], 'score': 3.0}
     ranked = sorted(((_score(t, toks), t) for t in TOPICS), key=lambda x: -x[0])
     best_s, best = ranked[0]
     if best_s < 3:

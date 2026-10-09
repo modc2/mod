@@ -27,6 +27,9 @@ def A(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('q,topic', [
     ('What does selfinsure mean?', 'what'),
+    ('what is this?', 'what'),
+    ("what's this site about", 'what'),
+    ('who are you', 'what'),
     ('How do I create my own pool?', 'create'),
     ('what is the operator fee', 'fee'),
     ('what happens if the pool runs out of money', 'unfunded'),
@@ -86,6 +89,11 @@ def test_reader_never_creates(A):
 def test_howto_is_not_a_draft(A):
     r = A.run('how do I start a bike theft pool?')
     assert 'draft' not in r and 'create' in r['topics']
+
+
+def test_what_is_this_gets_the_overview(A):
+    r = A.run('what is this?')
+    assert 'not sure' not in r['result'] and 'what' in r['topics']
 
 
 def test_unknown_is_honest(A):

@@ -7,7 +7,7 @@ no SSE stream and nothing to keep open: a client that can send one HTTP request
 can drive all of it.
 
 The server is `arena`, protocol `2025-06-18`. It offers **tools** (the
-forty-two below), **resources** (these pages) and no prompts of its own —
+forty-three below), **resources** (these pages) and no prompts of its own —
 the per-module servers have those. The full tool reference at the foot of this
 page is generated from the server's own tool table every time the page is
 read, so it cannot fall behind the code.
@@ -72,6 +72,7 @@ function; the console's upload box and `put_class` are one function.
 | the docs | `docs_pages`, `docs_page`, `docs_search` |
 | modules | `list_modules`, `get_module`, `inspect_module`, `put_module`, `put_class`, `delete_module` |
 | a repo as a game | `harvest_repo` |
+| a repo as a module | `clone_repo` |
 | players | `list_players`, `get_player`, `enter_player`, `remove_player` |
 | playing | `run_match`, `play_move`, `record_match` |
 | the agent protocol | `agent_board`, `agent_sync` |
@@ -87,6 +88,9 @@ The loop this was built for needs nobody in it: read `game_abi`, write a class,
 `put_class` it, `enter_player` yourself, `run_match`, read `leaderboard`. Or
 skip the writing: `harvest_repo` turns a repository of choice into a coding
 game whose rounds are its own functions — see [a repo as a game](#docs/repo).
+Or skip even that: a game or an agent already written somewhere else is one
+`clone_repo` away — the server clones the git URL under its own state
+directory and registers what it holds, through the same readers as an upload.
 
 ## A session, end to end
 

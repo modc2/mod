@@ -60,6 +60,30 @@ def test_verify_rejects_garbage():
     assert U.is_owner_token('Bearer not-a-token') is False
 
 
+def test_identity_anonymous_is_nobody_not_an_error():
+    ident = U.identity(None)
+    assert ident['address'] is None
+    assert ident['is_owner'] is False
+    assert ident['writable'] is False
+    assert ident['unlocks'] == []
+    assert ident['mod'] == 'nyc'
+    assert ident['token_max_age'] == U.TOKEN_MAX_AGE
+
+
+def test_identity_garbage_token_is_nobody():
+    ident = U.identity('Bearer not-a-token')
+    assert ident['address'] is None
+    assert ident['is_owner'] is False
+
+
+def test_identity_owner_env_names_the_owner(monkeypatch):
+    # Identity only REPORTS; writes still go through the token/grant gates.
+    monkeypatch.setenv('NYC_OWNER', '0xABCDEF0123456789abcdef0123456789ABCDEF01')
+    ident = U.identity(None)
+    assert ident['owner'] == '0xabcdef0123456789abcdef0123456789abcdef01'
+    assert ident['is_owner'] is False
+
+
 # ── adding ───────────────────────────────────────────────────────────────
 
 def test_add_inline_geojson_roundtrips(as_owner):

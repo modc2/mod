@@ -1,8 +1,8 @@
 'use client'
 
 import { memo, useEffect, useRef, useState } from 'react'
-import { chatStream } from '@/lib/api'
-import { storedToken } from '@/lib/auth'
+import { chatStream, whoami } from '@/lib/api'
+import { onAuthChange, storedToken } from '@/lib/auth'
 import type { Directive, MapDirective } from '@/lib/scene'
 import Infographic from './Infographic'
 import { Coin, QuestionBlock } from './Sprites'
@@ -50,7 +50,21 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
   // Phone only: the sheet starts at half height so the map the agent is
   // drawing on stays in view; FULL trades the map for reading room.
   const [full, setFull] = useState(false)
+  // Whether the stored token verifies to the deployment owner — the agent is
+  // then allowed to save data, and the header should say so. The server is
+  // the one deciding (per message, from the token); this is just the label.
+  const [asOwner, setAsOwner] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const sync = () => {
+      const t = storedToken()
+      if (!t) { setAsOwner(false); return }
+      whoami(t).then((w) => setAsOwner(w.is_owner)).catch(() => setAsOwner(false))
+    }
+    sync()
+    return onAuthChange(sync)
+  }, [])
 
   // Follow the stream: new text keeps arriving at the bottom.
   useEffect(() => {
@@ -116,7 +130,9 @@ export default function ChatPanel({ open, onClose, onDisplay, mapState }: Props)
         <div className="min-w-0 flex-1">
           <h2 className="pixel text-[12px] leading-none text-white">ASK NYC</h2>
           <p className="mt-1 text-[10.5px] leading-none text-nes-ink3">
-            An agent over the city&apos;s open data
+            {asOwner
+              ? <span className="text-nes-coin">Signed in as owner — it can save layers</span>
+              : <>An agent over the city&apos;s open data</>}
           </p>
         </div>
         {messages.length > 0 && (

@@ -1369,6 +1369,8 @@ class Mod:
             }
         prop = dict(prop)
         prop['deployed'] = True
+        if 'is_active' in prop:
+            prop['status'] = 'active' if prop.get('is_active') else 'inactive'
         shareholders = self._load_shareholders()
         total_sold = sum(int(s.get('shares', 0)) for s in shareholders.values())
         prop['available_shares'] = max(int(prop.get('total_shares', 0)) - total_sold, 0)
@@ -1603,9 +1605,10 @@ class Mod:
         props = self._load_properties()
         prop = props.get('default', {})
         prop['is_active'] = not prop.get('is_active', True)
+        prop['status'] = 'active' if prop['is_active'] else 'inactive'
         props['default'] = prop
         self._save_properties(props)
-        return {'is_active': prop['is_active']}
+        return {'is_active': prop['is_active'], 'status': prop['status']}
 
     def balance(self) -> dict:
         """Get total contract balance (sum of contributions)."""
