@@ -42,10 +42,14 @@ class BaseMod:
                 f'Unsupported chain: {chain}. Supported: {list(self.PYTH_CONTRACTS.keys())}'
             )
 
-    def get_all_price_feeds(self, query: Optional[str] = None) -> List[PriceFeed]:
+    def get_all_price_feeds(self, query: Optional[str] = None, asset_type: Optional[str] = None) -> List[PriceFeed]:
         try:
             url = f'{self.PYTH_API_BASE}/v2/price_feeds'
-            params = {'query': query} if query else {}
+            params = {}
+            if query:
+                params['query'] = query
+            if asset_type:
+                params['asset_type'] = asset_type
             response = requests.get(url, params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
@@ -64,11 +68,7 @@ class BaseMod:
             return [{'error': str(e)}]
 
     def get_price_feeds_by_type(self, asset_type: str = 'crypto') -> List[PriceFeed]:
-        all_feeds = self.get_all_price_feeds()
-        return [
-            feed for feed in all_feeds
-            if isinstance(feed, PriceFeed) and feed.asset_type == asset_type
-        ]
+        return self.get_all_price_feeds(asset_type=asset_type)
 
     def get_latest_price(self, price_feed_id: str) -> Dict:
         try:
@@ -80,11 +80,29 @@ class BaseMod:
         except Exception as e:
             return {'error': str(e)}
 
+    @staticmethod
+    def decode_price(raw: dict) -> dict:
+        try:
+            entry = raw['parsed'][0]
+            p = entry['price']
+            factor = 10 ** p['expo']
+            return {
+                'price': int(p['price']) * factor,
+                'conf': int(p['conf']) * factor,
+                'publish_time': p['publish_time'],
+                'id': entry['id'],
+            }
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            return {'error': f'decode_price failed: {e}', 'raw': raw}
+
     def get_price_by_symbol(self, symbol: str) -> Optional[Dict]:
         feeds = self.get_all_price_feeds(query=symbol)
         for feed in feeds:
             if isinstance(feed, PriceFeed) and feed.symbol.upper() == symbol.upper():
-                return self.get_latest_price(feed.id)
+                raw = self.get_latest_price(feed.id)
+                if 'error' in raw:
+                    return raw
+                return self.decode_price(raw)
         return {'error': f'Symbol {symbol} not found'}
 
     def list_crypto_feeds(self) -> List[Dict[str, str]]:
@@ -141,6 +159,13 @@ class BaseMod:
         }
 
     def forward(self, **kwargs):
+        if 'symbol' in kwargs:
+            return self.get_price_by_symbol(kwargs['symbol'])
+        if 'feed_id' in kwargs:
+            raw = self.get_latest_price(kwargs['feed_id'])
+            return self.decode_price(raw)
+        if 'chain' in kwargs:
+            return self.switch_chain(kwargs['chain'])
         return self.get_feed_info()
 
 

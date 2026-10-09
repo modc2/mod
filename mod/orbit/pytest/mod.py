@@ -30,26 +30,43 @@ class Mod:
             return {'exit_code': -1, 'error': 'timeout', 'output': '', 'passed': 0, 'failed': 0, 'errors': 0, 'skipped': 0}
         output = result.stdout + result.stderr
         passed = failed = errors = skipped = 0
+        duration = None
+        # Find the single pytest summary line by its timing marker (only appears there)
+        summary_line = None
         for line in output.splitlines():
-            m_line = re.search(r'(\d+) passed', line)
-            if m_line:
-                passed = int(m_line.group(1))
-            m_line = re.search(r'(\d+) failed', line)
-            if m_line:
-                failed = int(m_line.group(1))
-            m_line = re.search(r'(\d+) error', line)
-            if m_line:
-                errors = int(m_line.group(1))
-            m_line = re.search(r'(\d+) skipped', line)
-            if m_line:
-                skipped = int(m_line.group(1))
+            if re.search(r'\d+ (passed|failed|error|skipped)', line) and re.search(r'in \d+\.?\d*s', line):
+                summary_line = line
+                break
+        if summary_line:
+            m_p = re.search(r'(\d+) passed', summary_line)
+            if m_p:
+                passed = int(m_p.group(1))
+            m_f = re.search(r'(\d+) failed', summary_line)
+            if m_f:
+                failed = int(m_f.group(1))
+            m_e = re.search(r'(\d+) error', summary_line)
+            if m_e:
+                errors = int(m_e.group(1))
+            m_s = re.search(r'(\d+) skipped', summary_line)
+            if m_s:
+                skipped = int(m_s.group(1))
+            m_d = re.search(r'in (\d+\.?\d*)s', summary_line)
+            if m_d:
+                duration = float(m_d.group(1))
+        failures = [
+            line.split(' - ')[0][len('FAILED '):].strip()
+            for line in output.splitlines()
+            if line.startswith('FAILED ')
+        ]
         return {
             'passed': passed,
             'failed': failed,
             'errors': errors,
             'skipped': skipped,
+            'failures': failures,
             'exit_code': result.returncode,
             'output': output,
+            'duration': duration,
         }
 
     def info(self):

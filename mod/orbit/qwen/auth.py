@@ -9,7 +9,7 @@ import hashlib
 class Auth:
 
     features = ['data', 'time', 'key', 'signature']
-    sig_features = ['data', 'time']
+    sig_features = ['data', 'key', 'time']
 
     def __init__(self, 
                 key=None, 
@@ -101,7 +101,7 @@ class Auth:
         self.key = m.key(key=self.key, crypto_type=crypto_type)
 
     def verify(self, headers: str, crypto_type=None) -> dict:
-        self.crypto_type = crypto_type or self.crypto_type
+        crypto_type = crypto_type or self.crypto_type
         if isinstance(headers, str):
             headers = json.loads(self._base64url_decode(headers))
         if 'Token' in headers:
@@ -114,7 +114,7 @@ class Auth:
         if missing:
             raise ValueError(f"Token missing required fields: {missing}")
 
-        crypto_type = self.infer_crypto_type(headers['key'])
+        crypto_type = crypto_type or self.infer_crypto_type(headers['key'])
         # ────────────────────────────────────────────────
         # FIX: Normalize MetaMask legacy v=27/28 → v=0/1
         # ────────────────────────────────────────────────

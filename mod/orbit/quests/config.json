@@ -13,6 +13,7 @@
         "reject",
         "cancel_quest",
         "my_quests",
+        "my_referee_quests",
         "my_responses",
         "stats",
         "leaderboard",

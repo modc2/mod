@@ -17,15 +17,22 @@ class Mod:
         import json
         config_path = os.path.join(self.path, 'config.json')
         version = None
+        name = 'rb'
+        description = self.description
         if os.path.exists(config_path):
             with open(config_path) as f:
-                version = json.load(f).get('version')
+                cfg = json.load(f)
+                version = cfg.get('version')
+                name = cfg.get('name', name)
+                description = cfg.get('description', description)
         files = [e for e in os.listdir(self.path) if not e.startswith('__') and not e.startswith('.')]
+        methods = sorted(n for n in dir(self) if not n.startswith('_') and n != 'forward' and callable(getattr(self, n)))
         return {
-            'name': 'rb',
-            'description': self.description,
+            'name': name,
+            'description': description,
             'version': version,
             'files': files,
+            'methods': methods,
         }
 
     def readme(self):

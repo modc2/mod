@@ -136,11 +136,17 @@ def _fetch(url, body=None, headers=None, tries=2):
                 time.sleep(1.0 + attempt)
                 continue
             if e.code == 429:
-                raise RayError(
-                    f'{host} is rate-limiting this box — set RAYDIUM_RPC to an '
-                    f'endpoint of your own (the public Solana RPC allows very '
-                    f'few calls a second, and a wallet scan makes several)',
-                    status=429, detail=detail)
+                rpc_urls = {RPC} | set(RPC_FALLBACKS)
+                is_rpc = any(url.startswith(u) for u in rpc_urls)
+                if is_rpc:
+                    msg = (f'{host} is rate-limiting this box — set RAYDIUM_RPC to an '
+                           f'endpoint of your own (the public Solana RPC allows very '
+                           f'few calls a second, and a wallet scan makes several)')
+                else:
+                    msg = (f'{host} is rate-limiting requests — the Raydium API may be '
+                           f'throttling; retry in a moment or check '
+                           f'https://status.raydium.io')
+                raise RayError(msg, status=429, detail=detail)
             raise RayError(f'{host} returned HTTP {e.code}', status=502,
                            detail=detail)
         except Exception as e:                    # timeouts and DNS, worth a retry
@@ -1205,6 +1211,8 @@ def position(nft_mint, pool_info=None):
         'value_usd': value, 'fees_owed_usd': fees_usd,
         'range_width_pct': round((amounts['price_upper'] / amounts['price_lower'] - 1)
                                  * 100, 2) if amounts.get('price_lower') else None,
+        'apr_24h': p.get('apr_24h'), 'volume_24h': p.get('volume_24h'),
+        'fees_24h': p.get('fees_24h'), 'fee_rate': p.get('fee_rate'),
         'note': 'amounts are computed from the tick range and the pool price, so '
                 'they move with it. fees_owed is only what the pool has already '
                 'checkpointed to this position — fees earned since the last '
@@ -1316,14 +1324,18 @@ def _wallet_positions(nft_mints, limit):
         rows.append({
             'nft_mint': pos['nft_mint'], 'position_account': pos['position_account'],
             'pool': p['id'], 'pair': p['pair'], 'type': p['type'],
+            'tick_lower': pos['tick_lower'], 'tick_upper': pos['tick_upper'],
             'liquidity': str(pos['liquidity']), 'closed': pos['liquidity'] == 0,
             **amounts,
+            'symbol_a': p['mint_a'].get('symbol'), 'symbol_b': p['mint_b'].get('symbol'),
             'value_usd': round(amounts.get('amount_a', 0) * usd_a
                                + amounts.get('amount_b', 0) * usd_b, 2)
             if amounts else None,
             'fees_owed_usd': round(amounts.get('fees_owed_a', 0) * usd_a
                                    + amounts.get('fees_owed_b', 0) * usd_b, 4)
             if amounts else None,
+            'range_width_pct': round((amounts['price_upper'] / amounts['price_lower'] - 1)
+                                     * 100, 2) if amounts and amounts.get('price_lower') else None,
             'apr_24h': p.get('apr_24h'),
         })
     return rows

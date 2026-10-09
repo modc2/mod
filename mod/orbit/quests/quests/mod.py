@@ -257,6 +257,7 @@ class Quests:
         existing = [r for r in quest.get('responses', []) if r.get('responder') == responder_key]
         assert len(existing) == 0, 'You have already responded to this quest'
         assert responder_key != quest['creator'], 'Quest creator cannot respond to their own quest'
+        assert responder_key != quest['referee'], 'Quest referee cannot respond to a quest they are judging'
 
         response_id = m.hash(f'{responder_key}:{quest_id}:{time.time()}')[:16]
 
@@ -577,6 +578,21 @@ class Quests:
 
         return self.quests(creator=user_key, status=status)
 
+    def my_referee_quests(self, token: str = None, status: str = None) -> List[Dict[str, Any]]:
+        """
+        Get quests where the authenticated user is the designated referee.
+        """
+        assert token, 'Auth token required'
+        verified = self.auth.verify(token)
+        caller_key = verified['key']
+
+        result = [q for q in self.quests(n=10000) if q.get('referee') == caller_key]
+
+        if status:
+            result = [q for q in result if q.get('status') == status]
+
+        return result
+
     def my_responses(self, token: str = None) -> List[Dict[str, Any]]:
         """
         Get all responses submitted by the authenticated user.
@@ -661,7 +677,8 @@ class Quests:
                                 'total_earned': 0,
                                 'quests_completed': 0,
                             }
-                        earner_map[responder]['total_earned'] += q.get('reward', 0)
+                        actual = q.get('reward', 0) * (1 - 0.05 - (q.get('referee_fee_pct') or 0) / 100.0)
+                        earner_map[responder]['total_earned'] += actual
                         earner_map[responder]['quests_completed'] += 1
 
         responders = sorted(earner_map.values(), key=lambda x: x['total_earned'], reverse=True)[:n]

@@ -21,6 +21,7 @@ class Mod:
     fns = [
         'query',
         'list_free_models',
+        'list_venice_models',
         'openrouter_query',
         'venice_query',
     ]
@@ -56,6 +57,22 @@ class Mod:
         """
         router = self._get_openrouter()
         return router.free_models(update=update, info=info)
+
+    def list_venice_models(self, update=False, info=False):
+        """
+        List all available models from Venice.
+
+        Args:
+            update: Force refresh from API
+            info: Return full model info instead of just IDs
+
+        Returns:
+            list: Model IDs or model info dicts
+        """
+        venice = self._get_venice()
+        if info:
+            return venice.model_infos(update=update)
+        return venice.models(update=update)
 
     def openrouter_query(
         self,
@@ -93,7 +110,6 @@ class Mod:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 system=system,
-                free=True,
                 **kwargs
             )
 
@@ -233,7 +249,7 @@ class Mod:
                 print("OpenRouter exhausted, falling back to Venice...", file=sys.stderr)
                 return self.venice_query(
                     query,
-                    model=model,
+                    model=None,
                     stream=stream,
                     max_tokens=max_tokens,
                     temperature=temperature,
