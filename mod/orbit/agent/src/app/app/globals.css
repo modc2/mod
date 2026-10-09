@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Space+Grotesk:wght@400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -18,7 +18,8 @@
 :root {
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --pixel: "Press Start 2P", var(--mono);
-  --chrome: var(--mono); /* interface labels — pixel skin swaps this out */
+  --sans: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --chrome: var(--mono); /* interface labels — each skin swaps this out */
   --radius: 8px;
   --edge: 1px;
 }
@@ -175,25 +176,26 @@
 }
 /* <<< generated theme tokens */
 
-/* Attribute-less fallback: mirror ARCADE so a bare :root never paints raw. */
+/* Attribute-less fallback: mirror MIDNIGHT (the default) so a bare :root
+   never paints raw. */
 :root:not([data-theme]) {
   --ink: 255 255 255;
-  --s-0: 10 10 10; --s-1: 12 12 13; --s-2: 20 20 22;
-  --body: 6 9 9;
-  --g-100: 244 246 245; --g-200: 224 227 226; --g-300: 197 202 200;
-  --g-400: 158 165 162; --g-500: 129 137 134; --g-600: 100 110 106;
-  --g-700: 71 78 75; --g-800: 58 63 61;
-  --a-200: 152 233 208; --a-300: 106 220 187; --a-400: 60 199 161;
-  --a-500: 16 185 129; --a-600: 13 148 103;
-  --w-200: 250 216 155; --w-300: 248 197 111; --w-400: 246 173 60;
+  --s-0: 11 11 19; --s-1: 18 18 29; --s-2: 27 27 43;
+  --body: 8 8 15;
+  --g-100: 238 240 248; --g-200: 217 219 230; --g-300: 193 195 209;
+  --g-400: 158 161 179; --g-500: 127 130 153; --g-600: 100 102 129;
+  --g-700: 79 82 111; --g-800: 65 68 99;
+  --a-200: 189 191 249; --a-300: 158 160 246; --a-400: 126 128 243;
+  --a-500: 99 102 241; --a-600: 79 82 193;
+  --w-200: 251 214 153; --w-300: 249 195 104; --w-400: 247 174 52;
   --w-500: 245 158 11;
-  --i-200: 149 214 244; --i-300: 106 197 240; --i-400: 51 176 235;
+  --i-200: 154 217 246; --i-300: 106 199 241; --i-400: 55 180 237;
   --i-500: 14 165 233; --i-600: 11 132 186;
-  --v-200: 199 183 249; --v-300: 176 154 245; --v-400: 148 118 241;
-  --v-500: 139 92 246;
-  --d-200: 247 174 174; --d-300: 244 141 141; --d-400: 241 100 100;
-  --d-500: 239 68 68;
-  --glow: 52 211 153;
+  --v-200: 218 184 252; --v-300: 201 150 250; --v-400: 183 114 248;
+  --v-500: 168 85 247;
+  --d-200: 250 174 187; --d-300: 248 136 155; --d-400: 246 96 121;
+  --d-500: 244 63 94;
+  --glow: 129 140 248;
 }
 
 html, body {
@@ -470,12 +472,12 @@ select:focus {
 
 /* ── console polish ─────────────────────────────────────────────── */
 
-/* message entrance */
+/* message entrance — a touch of spring so arrivals feel alive, not abrupt */
 @keyframes msg-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px) scale(0.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.msg-in { animation: msg-in 0.18s ease-out; }
+.msg-in { animation: msg-in 0.26s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* working indicator: bouncing dots */
 @keyframes dot-bounce {
@@ -891,12 +893,12 @@ select:focus {
 
 /* dropdown menus (components/Select.tsx) — drop in from the trigger edge */
 @keyframes select-pop {
-  from { opacity: 0; transform: translateY(-4px) scale(0.985); }
+  from { opacity: 0; transform: translateY(-5px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .select-pop {
-  animation: select-pop 0.12s ease-out;
+  animation: select-pop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* ── agent builder canvas ───────────────────────────────────────── */
@@ -1174,28 +1176,150 @@ g:hover > .builder-wire {
    ============================================================================ */
 
 /* ── soft: the modern console ───────────────────────────────────────
-   Rounded, hairlined, lit from above. Chrome type is the mono face with
-   wide tracking rather than the pixel face. */
+   Rounded, hairlined, lit from within. Chrome type is Space Grotesk —
+   a proper display face for everything that names the interface —
+   while prose, code and data keep the mono. Surfaces are gradient
+   washes with an inner top-light, the floors breathe with a slow
+   aurora, and a film of grain keeps the big flats from reading as
+   dead pixels. */
 
 :root[data-skin="soft"] {
-  --radius: 9px;
+  --radius: 11px;
+  --chrome: var(--sans);
 }
+
+/* the markup's fixed Tailwind radii follow the skin's rounder hand */
+:root[data-skin="soft"] .rounded-md { border-radius: 8px; }
+:root[data-skin="soft"] .rounded-lg { border-radius: 11px; }
+:root[data-skin="soft"] .rounded-xl { border-radius: 15px; }
+:root[data-skin="soft"] .rounded-2xl { border-radius: 19px; }
 
 :root[data-skin="soft"] .uppercase {
   font-family: var(--chrome);
-  letter-spacing: 0.13em;
+  letter-spacing: 0.12em;
   font-weight: 600;
 }
 
+/* ── the living floors ──────────────────────────────────────────────
+   The console and the library sit on a slow aurora: three soft colour
+   fields, heavily blurred, drifting over half a minute. It reads as
+   depth, never as content — the blur keeps any text contrast intact. */
+@keyframes aurora-drift {
+  from { transform: translate3d(-2.5%, -2%, 0) scale(1); }
+  to   { transform: translate3d(2.5%, 2%, 0) scale(1.08); }
+}
+:root[data-skin="soft"] .console-bg,
+:root[data-skin="soft"] .library-bg {
+  position: relative;
+  isolation: isolate;
+}
+:root[data-skin="soft"] .console-bg::before,
+:root[data-skin="soft"] .library-bg::before {
+  content: '';
+  position: absolute;
+  inset: -22% -8%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 42% 34% at 20% 8%, rgb(var(--glow) / 0.11), transparent 70%),
+    radial-gradient(ellipse 36% 30% at 84% 4%, rgb(var(--i-400) / 0.09), transparent 70%),
+    radial-gradient(ellipse 46% 34% at 55% 98%, rgb(var(--v-400) / 0.08), transparent 70%);
+  filter: blur(48px);
+  animation: aurora-drift 34s ease-in-out infinite alternate;
+}
+:root[data-skin="soft"][data-base="light"] .console-bg::before,
+:root[data-skin="soft"][data-base="light"] .library-bg::before { opacity: 0.55; }
+
+/* film grain over the whole tube — imperceptibly small, but the big
+   flat surfaces stop reading as dead space */
+:root[data-skin="soft"] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:root[data-skin="soft"][data-base="light"] body::after { opacity: 0.035; }
+
+/* ── surfaces get an inner top-light ────────────────────────────────
+   A gradient wash and a one-pixel highlight along the top edge: the
+   card looks lit from above instead of painted on. Hover lifts it a
+   pixel and lets a soft shadow slide underneath. */
+:root[data-skin="soft"] .card {
+  background: linear-gradient(180deg, rgb(var(--ink) / 0.05), rgb(var(--ink) / 0.018));
+  box-shadow: inset 0 1px 0 rgb(var(--ink) / 0.06);
+}
+:root[data-skin="soft"] .card-hover {
+  transition: border-color 0.16s ease, background 0.16s ease,
+              transform 0.16s ease, box-shadow 0.16s ease;
+}
+:root[data-skin="soft"] .card-hover:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(180deg, rgb(var(--ink) / 0.07), rgb(var(--ink) / 0.025));
+  box-shadow:
+    inset 0 1px 0 rgb(var(--ink) / 0.08),
+    0 8px 24px rgb(0 0 0 / 0.3),
+    0 0 0 1px rgb(var(--a-500) / 0.06);
+}
+:root[data-skin="soft"][data-base="light"] .card-hover:hover {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.6), 0 8px 24px rgb(0 0 0 / 0.08);
+}
+
+/* run bar — the "what the next run runs as" box gets the same light */
+:root[data-skin="soft"] .runbar {
+  background: linear-gradient(180deg, rgb(var(--ink) / 0.045), rgb(var(--ink) / 0.02));
+  box-shadow: inset 0 1px 0 rgb(var(--ink) / 0.05);
+}
+
+/* ── the header is the lit edge of the machine ──────────────────────
+   A faint top-light wash, and the hairline under it flows slowly left
+   to right — the one piece of ambient motion in the chrome. */
+:root[data-skin="soft"] .site-header {
+  background: linear-gradient(180deg, rgb(var(--ink) / 0.03), rgb(var(--ink) / 0) 80%), rgb(var(--s-0));
+}
+@keyframes hairline-flow {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+:root[data-skin="soft"] .site-header::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%, rgb(var(--glow) / 0.45) 35%, rgb(var(--i-400) / 0.4) 65%, transparent 100%);
+  background-size: 200% 100%;
+  animation: hairline-flow 9s linear infinite;
+  pointer-events: none;
+}
+
+/* nav underline carries a glow, so "where you are" is lit, not drawn */
+:root[data-skin="soft"] .nav-tab::after {
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgb(var(--a-400) / 0.8);
+}
+
+/* ── primary action — a gradient block that glows ───────────────────*/
 :root[data-skin="soft"] .lit-btn:not(:disabled) {
-  border: 1px solid rgb(var(--a-400) / 0.6);
+  background: linear-gradient(180deg, rgb(var(--a-400)), rgb(var(--a-600)));
+  border: 1px solid rgb(var(--a-300) / 0.55);
   border-radius: var(--radius);
-  box-shadow: 0 1px 0 rgb(var(--ink) / 0.18) inset, 0 6px 18px rgb(var(--glow) / 0.22);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 6px 20px rgb(var(--glow) / 0.28);
   font-size: 11px;
-  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  transition: filter 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
 :root[data-skin="soft"] .lit-btn:not(:disabled):hover {
-  box-shadow: 0 1px 0 rgb(var(--ink) / 0.22) inset, 0 8px 26px rgb(var(--glow) / 0.35);
+  background: linear-gradient(180deg, rgb(var(--a-400)), rgb(var(--a-600)));
+  filter: brightness(1.1);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.32),
+    0 8px 28px rgb(var(--glow) / 0.42);
 }
 :root[data-skin="soft"] .lit-btn:not(:disabled):active { transform: translateY(1px); }
 
@@ -1203,12 +1327,61 @@ g:hover > .builder-wire {
   box-shadow: 0 6px 20px rgb(var(--glow) / 0.28);
 }
 
+/* anything you type into answers focus with a soft accent ring */
+:root[data-skin="soft"] input:focus,
+:root[data-skin="soft"] textarea:focus,
+:root[data-skin="soft"] select:focus {
+  border-color: rgb(var(--a-400) / 0.45) !important;
+  box-shadow: 0 0 0 3px rgb(var(--a-500) / 0.13);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* floating menus are glass — they hover over live content, so the
+   blur is real, and the shadow sits them well clear of the page */
+:root[data-skin="soft"] .pop,
+:root[data-skin="soft"] .theme-menu {
+  background: rgb(var(--s-2) / 0.88);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.5), 0 0 0 1px rgb(var(--ink) / 0.03);
+}
+:root[data-skin="soft"][data-base="light"] .pop,
+:root[data-skin="soft"][data-base="light"] .theme-menu {
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.16);
+}
+
+/* board rows strike an accent bar when the pointer finds them */
+:root[data-skin="soft"] .board tbody tr.row-pick:hover td:first-child {
+  box-shadow: inset 2px 0 0 rgb(var(--a-400) / 0.6);
+}
+
+/* scrollbars: a hair wider, rounded, dressed in the accent */
+:root[data-skin="soft"] ::-webkit-scrollbar { width: 6px; height: 6px; }
+:root[data-skin="soft"] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgb(var(--a-500) / 0.35), rgb(var(--i-500) / 0.28));
+  border-radius: 6px;
+}
+:root[data-skin="soft"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--a-400) / 0.5);
+}
+
+/* suggestion cards lift further and catch the glow */
+:root[data-skin="soft"] .suggest-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.3), 0 0 18px rgb(var(--glow) / 0.1);
+}
+:root[data-skin="soft"][data-base="light"] .suggest-card:hover {
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.08);
+}
+
 :root[data-skin="soft"] .brand-mark,
 :root[data-skin="soft"] .hero-logo {
   border-radius: var(--radius);
   background: linear-gradient(160deg, rgb(var(--a-400)), rgb(var(--a-600)));
   border: 1px solid rgb(var(--a-300) / 0.5);
-  box-shadow: 0 4px 16px rgb(var(--glow) / 0.3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.3),
+    0 4px 18px rgb(var(--glow) / 0.35);
 }
 :root[data-skin="soft"] .brand-mark span,
 :root[data-skin="soft"] .hero-logo span {
@@ -1217,10 +1390,14 @@ g:hover > .builder-wire {
 }
 :root[data-skin="soft"] .brand-mark span { font-size: 11px; }
 
+/* the wordmark runs the accent into the info hue, left to right */
 :root[data-skin="soft"] .title-gradient {
   font-size: 13px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   font-weight: 700;
+  background: linear-gradient(90deg, rgb(var(--a-200)), rgb(var(--a-400)) 55%, rgb(var(--i-400)));
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 /* ── pixel: the 8-bit console ───────────────────────────────────────
@@ -1396,7 +1573,8 @@ g:hover > .builder-wire {
 :root[data-base="light"] .theme-menu__dot { border-color: rgb(0 0 0 / 0.25); }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-logo, .dot, .pill-locked, .shimmer-text, .vault-ring::before { animation: none; }
+  .hero-logo, .dot, .pill-locked, .shimmer-text, .vault-ring::before,
+  .console-bg::before, .library-bg::before, .site-header::after { animation: none; }
 }
 
 /* ── site header ────────────────────────────────────────────────────

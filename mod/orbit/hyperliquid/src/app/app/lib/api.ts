@@ -855,10 +855,12 @@ export type AskEvent =
   | { type: "error"; error: string };
 
 /** POST /ask and dispatch its SSE events as they arrive. `mode: "chat"` is
- *  the general chatbot (read-only toolbox, any topic); `session` resumes a
- *  prior conversation with the id a `start`/`done` event carried. */
+ *  the general chatbot (read-only toolbox, any topic); `mode: "strats"` is
+ *  the strat copilot (multi-turn, and `act` is honored so it can create and
+ *  manage positions); `session` resumes a prior conversation with the id a
+ *  `start`/`done` event carried. */
 export async function askStream(
-  body: { question: string; act?: boolean; mode?: "chat"; session?: string },
+  body: { question: string; act?: boolean; mode?: "chat" | "strats"; session?: string },
   onEvent: (ev: AskEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

@@ -11,11 +11,11 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover', // the console dock hugs the home-bar notch
-  themeColor: '#0a0a0a',
+  themeColor: '#0b0b13',
 }
 
 /* The saved theme has to land on <html> before the first paint or the page
- * flashes ARCADE and then swaps. The default is server-rendered and this
+ * flashes MIDNIGHT and then swaps. The default is server-rendered and this
  * blocking script corrects it from localStorage — so keep the table below in
  * step with THEMES in components/Theme.tsx. */
 const THEME_BOOT = `try{
@@ -29,7 +29,7 @@ d.setAttribute("data-skin",T[t][0]);d.setAttribute("data-base",T[t][1])}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" data-theme="arcade" data-skin="pixel" data-base="dark" suppressHydrationWarning>
+    <html lang="en" data-theme="midnight" data-skin="soft" data-base="dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
       </head>

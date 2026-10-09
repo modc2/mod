@@ -204,7 +204,9 @@ class Mod:
         """The updates feed. With `repo`, shows that repo's history (mod dev by
         default). Otherwise aggregates the latest commits across every tracked
         repo, newest first, flagging commits that are NEW since you last looked
-        and advancing each repo's last-seen marker."""
+        and advancing each repo's last-seen marker. Markers only move for
+        tracked repos viewed on their tracked branch — an ad-hoc repo= or
+        branch= view is read-only (use `track` to watch a repo)."""
         st = self._load()
         n = int(n)
         if repo is not None:
@@ -235,9 +237,19 @@ class Mod:
                 r = c.get('repo')
                 if r and r not in shown:
                     shown[r] = c['full_sha']
+            # a view never edits the watchlist: `track` is the opt-in, so an
+            # ad-hoc repo= peek stays read-only, and a tracked repo advances
+            # only when viewed on its tracked branch (another branch's sha
+            # would make the whole tracked feed look NEW next time)
+            changed = False
             for r, sha in shown.items():
-                st['repos'].setdefault(r, {'branch': br[r]})['last_seen'] = sha
-            self._save(st)
+                meta = st['repos'].get(r)
+                if not meta or br.get(r) != (meta.get('branch') or self._branch_of(r)):
+                    continue
+                meta['last_seen'] = sha
+                changed = True
+            if changed:
+                self._save(st)
 
         return {
             'tracking': targets,
@@ -1373,7 +1385,7 @@ function renderActions(){
       </select>
       <select id="drsel" class="btn" onchange="DAILY_REPO=this.value||null;DAILY=null;loadDaily()">
         <option value="" ${!DAILY_REPO?'selected':''}>primary</option>
-        ${TRACKING.map(r=>`<option value="${esc(r)}" ${DAILY_REPO===r?'selected':''}>${esc(r)}</option>`).join('')}
+        ${(INFO.tracking||TRACKING).map(r=>`<option value="${esc(r)}" ${DAILY_REPO===r?'selected':''}>${esc(r)}</option>`).join('')}
       </select>
       <button class="btn primary" onclick="loadDaily()" title="refresh">${I.ref}</button>`;
   } else {

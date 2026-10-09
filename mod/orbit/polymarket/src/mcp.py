@@ -965,12 +965,118 @@ def _t_strat_console(args):
     }
 
 
+# ── console navigation — the agent's "take me there" ──
+#
+# pm_console_open is the one tool that touches the BROWSER, not the API: it
+# rides the same approvals file channel the gate uses, but as a PRE-DECIDED
+# `nav` entry the chat route forwards instantly and the console applies as a
+# router.push. It is deliberately NOT gated — it can only move the owner
+# between screens of their own console, never money — and outside a chat run
+# (no POLYMARKET_AGENT_RUN) it degrades to a deep-link answer.
+
+_NAV_SECTIONS = ('invested', 'mine', 'scores', 'build', 'community', 'code')
+_NAV_TABS = ('copy', 'money', 'backtest', 'live', 'trades')
+_NAV_PAGES = ('board', 'trader', 'strats', 'markets', 'docs') + _NAV_TABS
+
+
+def _nav_path(args: dict):
+    """(path, label) for one console destination, or raise ValueError."""
+    page = str(args.get('page') or 'board').strip().lower()
+    if page in ('board', 'traders'):
+        q = str(args.get('q') or '').strip()
+        if q:
+            return (f'/traders?q={urllib.parse.quote(q)}',
+                    f'the trader board, filtered to "{q[:40]}"')
+        return ('/traders', 'the trader board')
+    if page == 'trader':
+        a = str(args.get('address') or '').strip().lower()
+        if not (a.startswith('0x') and len(a) == 42
+                and all(c in '0123456789abcdef' for c in a[2:])):
+            raise ValueError('page=trader needs a full 0x… wallet address')
+        return (f'/traders/{a}', f'trader {a[:6]}…{a[-4:]}')
+    if page == 'markets':
+        return ('/markets', 'the markets grid')
+    if page == 'docs':
+        return ('/docs', 'the docs')
+    if page == 'strats':
+        sec = str(args.get('section') or 'mine').strip().lower()
+        if sec not in _NAV_SECTIONS:
+            raise ValueError('section must be one of: ' + ', '.join(_NAV_SECTIONS))
+        if sec == 'mine':
+            return ('/strats', 'MY STRATS')
+        return (f'/strats?sec={sec}', f'STRATS · {sec.upper()}')
+    if page in _NAV_TABS:
+        return (f'/strats?tab={page}', f'the {page.upper()} tab')
+    raise ValueError('page must be one of: ' + ', '.join(_NAV_PAGES))
+
+
+def _t_console_open(args: dict) -> dict:
+    try:
+        path, label = _nav_path(args)
+    except ValueError as e:
+        return {'ok': False, 'error': str(e)}
+    run = _agent_run()
+    if not run:
+        # Direct MCP callers have no browser on the line — hand back the link.
+        return {'ok': True, 'url': f'/polymarket{path}',
+                'note': 'no console is attached to this run — give the owner this link'}
+    now = time.time()
+    entry = {
+        # nav_ prefix on purpose: the approvals decide endpoint only accepts
+        # ap_ ids, so a nav entry can never be "approved" into anything.
+        'id': f'nav_{int(now * 1000):x}_{os.urandom(3).hex()}',
+        'run': run,
+        'tool': 'pm_console_open',
+        'args': {'path': path, 'label': label},
+        'kind': 'nav',
+        'summary': f'open {label}',
+        'at': now,
+        'expires_at': now + 60,
+        # Pre-decided: navigation needs no OK and must never park or be
+        # declined by declineRunLeftovers on stream close.
+        'decision': 'approve',
+        'note': '',
+        'result': None,
+    }
+    try:
+        _write_json_atomic(os.path.join(_approvals_dir(), entry['id'] + '.json'), entry)
+    except Exception as e:
+        return {'ok': False,
+                'error': f'could not reach the console ({e}) — describe the way there in words'}
+    return {'ok': True, 'opened': path,
+            'note': f'the console is opening {label} — continue, no need to describe the route'}
+
+
 TOOLS = {
     'pm_health': {
         'description': 'Is the module up? API health, the trader-sync schedule, and the '
                        'background backtest worker (last pass, next pass, strats covered).',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': _t_health,
+    },
+    'pm_console_open': {
+        'description': "NAVIGATE THE OWNER'S CONSOLE — opens a page in the browser they are "
+                       'chatting from. Use it whenever you are pointing them somewhere '
+                       '("take me to…", "where do I…", or right after you create/change '
+                       'something worth looking at): open the screen instead of describing '
+                       'the route. Navigation only — it moves no money and needs no '
+                       'approval. Pages: board (the trader leaderboard; optional q pre-fills '
+                       'its search) | trader (one profile, needs address) | strats (the strat '
+                       'manager; section picks the sub-tab) | copy | money | backtest | live '
+                       '| trades (management tabs of /strats) | markets | docs.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'page': {'type': 'string', 'description': 'board | trader | strats | copy | '
+                                                      'money | backtest | live | trades | '
+                                                      'markets | docs'},
+            'section': {'type': 'string', 'description': 'page=strats only: invested | mine '
+                                                         '| scores | build | community | '
+                                                         'code (default mine)'},
+            'address': {'type': 'string', 'description': 'page=trader only: the 0x… profile '
+                                                         'to open'},
+            'q': {'type': 'string', 'description': 'page=board only: pre-fill the board '
+                                                   'search with this text'},
+        }, 'required': ['page']},
+        'handler': _t_console_open,
     },
     'pm_markets': {
         'description': 'Polymarket markets — the busiest open ones by 24h volume, or a text '
@@ -1388,7 +1494,9 @@ TOOLS = {
 #
 # What is gated is NAMED, never derived. pm_copy_stop stays free — stopping
 # only ever reduces exposure, the same rule as the live engine's ungated
-# exits — and reads are never parked. The pm_strat_* tools are CONSOLE ops:
+# exits — and reads are never parked. pm_console_open is free too: it writes
+# a pre-decided `nav` entry on this same file channel (never pending, so the
+# fail-closed machinery ignores it) and can only turn the owner's own pages. The pm_strat_* tools are CONSOLE ops:
 # private strats are encrypted with a browser-held key, so an approved
 # create/update/delete is executed by the console at the APPROVE click and
 # the decision file carries the applied result back as the tool's answer.

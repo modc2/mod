@@ -149,7 +149,7 @@ def test_chat_prompt_swaps_in_and_the_desk_prompt_stays_out():
     cmd = agent.build_cmd("q", READS, agent.LOCAL_TOOLS + WRITES, False,
                           API_URL, "", mode="chat")
     prompt = cmd[cmd.index("--append-system-prompt") + 1]
-    assert prompt == agent.CHAT_PROMPT
+    assert prompt == agent.CHAT_PROMPT + agent.NAV_PROMPT
     assert agent.ACT_PROMPT not in prompt
     # No source map in chat — the conversation doesn't need 200 file names.
     assert "api/src/traders.rs" not in prompt
@@ -169,6 +169,61 @@ def test_chat_never_errors_on_act_without_a_token():
     first = next(agent.ask("hi", api_url="http://127.0.0.1:1",
                            token="", act=True, mode="chat"))
     assert "action mode" not in str(first.get("error", ""))
+
+
+# ── strats mode: the strat copilot on the same pipeline ─────────────────
+
+def test_strats_prompt_swaps_in_and_act_briefing_rides_along():
+    quiet = agent.build_cmd("q", READS, agent.LOCAL_TOOLS + WRITES, False,
+                            API_URL, "", mode="strats")
+    prompt = quiet[quiet.index("--append-system-prompt") + 1]
+    assert prompt == agent.STRATS_PROMPT + agent.NAV_PROMPT
+    armed = agent.build_cmd("q", READS + WRITES, agent.LOCAL_TOOLS, True,
+                            API_URL, "tok", mode="strats")
+    armed_prompt = armed[armed.index("--append-system-prompt") + 1]
+    assert agent.ACT_PROMPT in armed_prompt
+    assert armed_prompt.startswith(agent.STRATS_PROMPT)
+
+
+def test_strats_mode_honors_act_unlike_chat():
+    # The copilot's second half is writes, so act must NOT be downgraded:
+    # asking for act without a token has to hit the same refusal as ask mode.
+    first = next(agent.ask("hi", api_url="http://127.0.0.1:1",
+                           token="", act=True, mode="strats"))
+    assert "action mode" in str(first.get("error", ""))
+
+
+def test_strats_sessions_resume_like_chat():
+    sid = "3f2a1b4c-0d9e-4f00-8a11-22b3c4d5e6f7"
+    cmd = agent.build_cmd("q", READS, [], False, API_URL, "",
+                          mode="strats", session=sid)
+    assert cmd[cmd.index("--resume") + 1] == sid
+
+
+def test_every_mode_carries_the_nav_protocol():
+    for mode in ("ask", "chat", "strats"):
+        cmd = agent.build_cmd("q", READS, [], False, API_URL, "", mode=mode)
+        prompt = cmd[cmd.index("--append-system-prompt") + 1]
+        assert agent.NAV_PROMPT in prompt, f"{mode} lost the NAV protocol"
+
+
+def test_strats_prompt_teaches_the_real_tool_and_route_names():
+    # The copilot's product knowledge must track the live surface: every tool
+    # it names has to exist in the MCP schema's own vocabulary, and the invest
+    # body fields it teaches must match invest_routes.rs's CreateBody.
+    for tool in ("hl_strats_board", "hl_backtest_trader", "hl_invest_preview",
+                 "hl_invest", "hl_invest_portfolio", "hl_invest_pause",
+                 "hl_invest_close", "hl_agent_status"):
+        assert tool in agent.STRATS_PROMPT, f"copilot prompt lost {tool}"
+    create_body = (ROOT / "src" / "api" / "src" / "invest_routes.rs").read_text()
+    create_body = create_body.split("struct CreateBody")[1].split("}")[0]
+    for field in ("investor", "kind", "target", "amount_usd", "mode"):
+        assert field in create_body
+        assert field in agent.STRATS_PROMPT, f"copilot prompt lost field {field}"
+
+
+def test_the_rust_route_passes_strats_through():
+    assert '"strats"' in AGENT_RS, "agent.rs must whitelist mode=strats"
 
 
 def test_stream_events_carry_the_session_id():

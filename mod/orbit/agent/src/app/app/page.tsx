@@ -4070,7 +4070,7 @@ export default function Home() {
     const now = new Date()
     if (d.toDateString() === now.toDateString()) return 'today'
     if (d.toDateString() === new Date(now.getTime() - 86400000).toDateString()) return 'yesterday'
-    return 'earlier'
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   }
   const visibleChats = tasks.filter(t => {
     const s = chatSearch.trim().toLowerCase()
@@ -4293,7 +4293,7 @@ export default function Home() {
               </button>
             )}
           </div>
-        ) : (['today', 'yesterday', 'earlier'] as const).map(bucket => {
+        ) : (['today', 'yesterday', ...new Set(visibleChats.map(t => chatBucket(t)).filter(b => b !== 'today' && b !== 'yesterday'))]).map(bucket => {
           const rows = visibleChats.filter(t => chatBucket(t) === bucket)
           if (rows.length === 0) return null
           return (

@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  stratsBoard, StratRow, ago, shortAddr, fmtUsd, fmtApr,
+  stratsBoard, StratRow, ago, shortAddr, fmtUsd, fmtApr, fmtPnl,
 } from "../lib/api";
 import { Field, Freshness, Identicon, Kpi, PageHead } from "../components/BoardBits";
+import AskConsole from "../components/AskConsole";
 import StratSpark, { type SparkLeg } from "../components/StratSpark";
 import StratsBacktest from "../components/StratsBacktest";
 import { useCurves } from "../lib/curves";
+import { portfolio, type Portfolio } from "../lib/invest";
+import { useSession } from "../lib/auth";
 
 // Two strat types for now — copy a trader, or an HL vault. More come later.
 type Kind = "all" | "trader" | "vault";
@@ -94,6 +97,111 @@ const sparkLegs = (r: StratRow): SparkLeg[] => [{ address: r.id, weight: 1 }];
 /** Where a row opens: every strat is a real page somewhere in the app. */
 const hrefFor = (r: StratRow) =>
   r.kind === "vault" ? `/vaults/${r.id}` : `/trader/${r.id}`;
+
+// ── The strat copilot ────────────────────────────────────────────────────
+// The agent, folded into the board it talks about. Open by default — it IS
+// the way in for someone who doesn't yet know what rec_score means — and the
+// fold is remembered so regulars who prefer the raw board keep it shut.
+const COPILOT_KEY = "hl.strats.copilotOpen";
+
+function Copilot() {
+  const [open, setOpen] = useState(false);
+  // Mount only once opened, then keep mounted and hide on fold: folding
+  // mid-answer must not throw the conversation away.
+  const [ever, setEver] = useState(false);
+  useEffect(() => {
+    if (localStorage.getItem(COPILOT_KEY) !== "0") { setOpen(true); setEver(true); }
+  }, []);
+  const toggle = () => {
+    setOpen((v) => {
+      try { localStorage.setItem(COPILOT_KEY, v ? "0" : "1"); } catch {}
+      if (!v) setEver(true);
+      return !v;
+    });
+  };
+  return (
+    <div className="panel">
+      <button className="w-full flex items-center justify-between gap-3 p-3 text-left"
+        onClick={toggle} aria-expanded={open}>
+        <span className="flex items-baseline gap-3 min-w-0">
+          <span className="eyebrow">strat copilot</span>
+          <span className="text-[11px] text-muted truncate">
+            ask it to find, compare, backtest — and with actions on, create and manage your strats
+          </span>
+        </span>
+        <span className="text-dim text-xs shrink-0">{open ? "fold ▴" : "open ▾"}</span>
+      </button>
+      {ever && (
+        <div className={open ? "px-3 pb-3" : "hidden"}>
+          <AskConsole mode="strats" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── My strats ────────────────────────────────────────────────────────────
+// The signed-in user's invest book, right on the board they picked from:
+// what each position is worth, whether it is running, and the door to it.
+const statusTone: Record<string, string> = {
+  active: "text-accent border-accent/30",
+  paused: "text-warn border-warn/30",
+  closing: "text-warn border-warn/30",
+  closed: "text-dim",
+};
+
+function MyStrats() {
+  const { me, canWrite } = useSession();
+  const [book, setBook] = useState<Portfolio | null>(null);
+  useEffect(() => {
+    if (!me) { setBook(null); return; }
+    portfolio(me).then(setBook).catch(() => setBook(null));
+  }, [me]);
+  if (!canWrite || !book) return null;
+
+  const open = book.positions.filter((p) => p.status !== "closed");
+  return (
+    <div className="panel p-3">
+      <div className="flex items-baseline justify-between gap-2 px-1 pb-2">
+        <span className="eyebrow">my strats</span>
+        <span className="text-[11px] num text-muted">
+          {fmtUsd(book.totals.equity)} invested ·{" "}
+          <span className={book.totals.pnl >= 0 ? "text-win" : "text-loss"}>{fmtPnl(book.totals.pnl)}</span>
+        </span>
+      </div>
+      {open.length === 0 ? (
+        <div className="px-1 pb-1 text-[11px] text-muted leading-snug">
+          Nothing running yet. Open any card below, or ask the copilot —
+          &quot;put $500 paper on the best vault&quot; is a complete instruction.
+        </div>
+      ) : (
+        <div className="divide-y divide-white/[0.05]">
+          {open.map((p) => (
+            <Link key={p.id} href={`/invest/${p.id}`}
+              className="group flex flex-wrap items-center gap-x-3 gap-y-1 px-1 py-2 transition-colors hover:bg-white/[0.03] rounded">
+              <Identicon address={p.target} size={16} />
+              <span className="text-ink text-sm font-medium truncate max-w-[18ch]">{p.name}</span>
+              <span className="pill shrink-0 text-muted">
+                {p.kind === "vault" ? "vault" : "copy trader"}{p.mode === "paper" ? " · paper" : ""}
+              </span>
+              <span className={`pill shrink-0 ${statusTone[p.status] ?? "text-muted"}`}>{p.status}</span>
+              <span className="ml-auto num text-sm text-ink">{fmtUsd(p.value.equity)}</span>
+              <span className={`num text-sm w-24 text-right ${p.value.pnl >= 0 ? "text-win" : "text-loss"}`}>
+                {fmtPnl(p.value.pnl)}
+              </span>
+              <span className="btn-ghost !py-0.5 text-[10px] shrink-0">manage →</span>
+            </Link>
+          ))}
+        </div>
+      )}
+      <div className="pt-2 px-1">
+        <Link href="/invest" className="text-[11px] text-muted hover:text-accent transition-colors">
+          full invest book →
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 /** The three window returns whose product is the score, always in the same
  *  order the formula multiplies them. */
@@ -191,9 +299,16 @@ export default function StratsPage() {
           APR is trailing — what a deposit made 24h or 7d ago would have annualized to — and every
           card draws its own PnL over the last {days} days
           {!DAY_OPTIONS.includes(days) && <> (sampled from Hyperliquid&apos;s {nearestPeriod(days)} history, the
-            nearest period that contains a {days}d window)</>}. Open any card to invest.</>}
+            nearest period that contains a {days}d window)</>}. Open any card to invest —
+          or just tell the copilot what you want.</>}
         right={<Freshness loading={loading} label={updatedMs ? `updated ${ago(updatedMs)}` : `${rows.length} strats`} />}
       />
+
+      {/* The agent, where the strats live */}
+      <Copilot />
+
+      {/* What the signed-in user already runs */}
+      <MyStrats />
 
       {/* Board stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

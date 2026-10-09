@@ -7,19 +7,28 @@ surface any MCP client gets, the stdio transport forwards the caller's mod
 protocol token to the REST API, and `auth.rs` decides what that token may do.
 Signed out, the agent can only read what the public routes already serve.
 
-Three modes:
-    ask   — read-only. Only GET-backed tools are on the allowlist; anything
-            that signs, spends or mutates stored state is explicitly denied,
-            so a question can never place an order. The Read tool is allowed,
-            scoped to this module's own directory, so the agent can also
-            answer questions about the module's code and design.
-    act   — the full tool surface. Requires a token, and the caller has to opt
-            in per run (`act=True` / `HL_AGENT_ACT=1`).
-    chat  — the general chatbot: any question, answered from the model's own
-            knowledge, with the read toolbox still on hand for live market
-            facts. Writes are ALWAYS denied in chat (act is ignored), and a
-            `session` id from a prior turn resumes the conversation, so the
-            thread keeps context across messages.
+Four modes:
+    ask    — read-only. Only GET-backed tools are on the allowlist; anything
+             that signs, spends or mutates stored state is explicitly denied,
+             so a question can never place an order. The Read tool is allowed,
+             scoped to this module's own directory, so the agent can also
+             answer questions about the module's code and design.
+    act    — the full tool surface. Requires a token, and the caller has to
+             opt in per run (`act=True` / `HL_AGENT_ACT=1`).
+    chat   — the general chatbot: any question, answered from the model's own
+             knowledge, with the read toolbox still on hand for live market
+             facts. Writes are ALWAYS denied in chat (act is ignored), and a
+             `session` id from a prior turn resumes the conversation, so the
+             thread keeps context across messages.
+    strats — the strat copilot: finds, explains, backtests, creates and
+             manages strats (copy-trader / vault positions in the invest
+             book). Multi-turn like chat, but act is HONORED — with actions
+             on and a signed-in wallet it can really invest, pause, resume,
+             add, withdraw and close. Read-only without act, like ask.
+
+Every mode also carries the NAV protocol: the console renders markdown links
+whose target starts with "/" as in-app navigation, so the agent can walk the
+user to the right page instead of describing where it is.
 
 The allow/deny split is derived from the live `GET /mcp/schema` — the same
 table `mcp.rs` publishes — so there is no second tool list to drift.
@@ -100,6 +109,55 @@ ACT_PROMPT = (
     "real funds. Confirm size, coin and side against the user's words before "
     "calling one, never place an order the user did not ask for, and after any "
     "write report exactly what came back. Prefer one order over several."
+)
+
+# Every mode gets this: the console turns markdown links whose href starts
+# with "/" into real in-app navigation, so the agent can hand the user a door
+# instead of describing the hallway.
+NAV_PROMPT = (
+    "\n\nNAVIGATION: when you mention a trader, vault, strat or page, add a "
+    "markdown link the console will render as an in-app button. Routes: "
+    "[the strats board](/strats), [a trader](/trader/0x…), [a vault](/vaults/0x…), "
+    "[the invest book](/invest), [one position](/invest/<id>), [wallet & deposits](/wallet), "
+    "[top traders](/), [the market screen](/market). Use the trader/vault's name or "
+    "short address as the link text. Only link routes from this list, always "
+    "starting with /."
+)
+
+# The strat copilot: a strat here is money following an account — copy a
+# trader's book, or an HL vault — managed as a Position in the invest book.
+# This prompt is the product knowledge; auth.rs still decides what the
+# caller's token may actually do.
+STRATS_PROMPT = (
+    "You are the strat copilot for the Hyperliquid console. A STRAT is money "
+    "that follows an account: copy a trader (mirror their whole book, scaled "
+    "to the user's dollars) or back an HL vault. Your job: help the user "
+    "FIND strats, UNDERSTAND them, TEST them, CREATE them, and MANAGE the "
+    "ones they run. Every number you state must come from a tool call.\n"
+    "FIND: hl_strats_board ranks both kinds — rec_score multiplies the "
+    "trailing 1d, 7d and 30d returns as ratios, so a strat must be green on "
+    "every horizon to score; hl_top_traders and hl_list_vaults go deeper; "
+    "hl_analyze_trader and hl_vault_details open one up.\n"
+    "TEST: before recommending ANY strat, back it: hl_backtest_trader "
+    "(address, capital, days) answers 'what would $N have done' and returns "
+    "named data checks — surface failed checks honestly; hl_backtest_strats "
+    "backs the whole board at once.\n"
+    "CREATE: always hl_invest_preview first (trader, amount) — it says what "
+    "$N can actually copy and what is too small — then hl_invest with "
+    "{investor, kind: 'trader'|'vault', target, amount_usd, mode}. Suggest "
+    "mode 'paper' for a first try: it simulates with no real orders. Live "
+    "needs USDC on Hyperliquid and an approved agent key — check "
+    "hl_agent_status, and send the user to [wallet](/wallet) if not.\n"
+    "MANAGE: hl_invest_portfolio (investor = the signed-in address) is the "
+    "user's book — equity, pnl, status per position; hl_invest_position "
+    "opens one; hl_invest_pause / hl_invest_resume / hl_invest_add / "
+    "hl_invest_withdraw / hl_invest_close change it. State what changed "
+    "after every write, exactly as the tool reported it.\n"
+    "If write tools are not available, say the ACTIONS toggle (and a "
+    "signed-in wallet) is what enables create/manage, and keep helping with "
+    "reads. Never invent an address, never size a position the user didn't "
+    "state, confirm amount and target in your words before any write. Keep "
+    "answers short, USD compact ($1.2M), addresses as 0x1234…abcd."
 )
 
 # Chat mode is the opposite contract from the desk analyst: general questions
@@ -278,9 +336,11 @@ def build_cmd(question: str, allowed: List[str], denied: List[str], act: bool,
               api_url: str, token: str, mode: str = "ask",
               session: str = "") -> List[str]:
     if mode == "chat":
-        prompt = CHAT_PROMPT
+        prompt = CHAT_PROMPT + NAV_PROMPT
+    elif mode == "strats":
+        prompt = STRATS_PROMPT + (ACT_PROMPT if act else "") + NAV_PROMPT
     else:
-        prompt = SYSTEM_PROMPT + code_prompt() + (ACT_PROMPT if act else "")
+        prompt = SYSTEM_PROMPT + code_prompt() + (ACT_PROMPT if act else "") + NAV_PROMPT
     cmd = [
         CLAUDE_BIN, "-p", question,
         "--output-format", "stream-json", "--verbose",
@@ -392,8 +452,10 @@ def ask(question: str, api_url: str = "", token: str = "",
     """Stream one agent run as console events."""
     api_url = api_url or os.environ.get("HL_API_URL", "http://127.0.0.1:8919")
     token = token or os.environ.get("HYPERLIQUID_TOKEN", "")
-    mode = mode if mode in ("ask", "chat") else "ask"
-    # Chat can never write — a conversation must not be one typo from an order.
+    mode = mode if mode in ("ask", "chat", "strats") else "ask"
+    # Chat can never write — a conversation must not be one typo from an
+    # order. The strat copilot DOES honor act: creating and managing strats
+    # is its whole second half, and the same token + per-run opt-in gate it.
     if mode == "chat":
         act = False
     question = (question or "").strip()
@@ -485,8 +547,13 @@ def main() -> int:
     # The question arrives on stdin so it never lands in a process listing.
     question = sys.stdin.read()
     act = "--act" in args or os.environ.get("HL_AGENT_ACT") == "1"
-    mode = "chat" if ("--chat" in args or
-                      os.environ.get("HL_AGENT_MODE") == "chat") else "ask"
+    env_mode = os.environ.get("HL_AGENT_MODE", "")
+    if "--chat" in args or env_mode == "chat":
+        mode = "chat"
+    elif "--strats" in args or env_mode == "strats":
+        mode = "strats"
+    else:
+        mode = "ask"
     session = os.environ.get("HL_AGENT_SESSION", "")
     if "--stream" in args:
         for ev in ask(question, api_url, act=act, mode=mode, session=session):

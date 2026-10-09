@@ -1,6 +1,6 @@
 {
     "name": "hyperliquid",
-    "version": "0.9.0",
+    "version": "0.10.0",
     "description": "Hyperliquid full-stack \u2014 one-transaction cross-chain deposits from twelve EVM chains, backend agent signing, all L1+user actions, copy-trade live engine, indexes, vaults, MCP tool server, ask-the-desk agent",
     "anchor": "src/mod.py",
     "fns": [

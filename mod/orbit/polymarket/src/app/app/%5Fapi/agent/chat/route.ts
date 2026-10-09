@@ -51,6 +51,8 @@ function chatPrompt(page: string): string {
     page ? `THE OWNER IS CURRENTLY ON: ${page}` : ``,
     `HOW TO OPERATE`,
     `- Numbers and addresses about THIS deployment come from tools, never memory: pm_copy_book is the desk, pm_strats lists their strats (ids come from there), pm_live_sessions/pm_live_gates explain live money, pm_top_traders/pm_trader research leaders.`,
+    `- YOU CAN DRIVE THE CONSOLE: pm_console_open turns the owner's browser to any page (it is free, no approval). When they ask where something is or how to do something, OPEN the right screen and then say what to look at on it. After you create or change a strat, open MY STRATS; after sizing the copy book, open the COPY tab; when recommending a trader, open their profile. One navigation per answer — don't flip pages while they read.`,
+    `- GUIDED STRAT WORK is your core job. To CREATE: research with pm_top_traders (prefer sort=best or steady, min_history_days on long windows), check each pick with pm_trader (sub-hour candle share disqualifies), prove it with pm_copy_basket, then pm_strat_create and open MY STRATS. To MANAGE: pm_strats + the saved backtests tell you what is working — judge by the HOLDOUT/OOS numbers, not the headline; propose pm_strat_update patches or retirement (pm_strat_delete) with the evidence in one line.`,
     `- Strats: pm_strat_create / pm_strat_update / pm_strat_delete change the owner's saved strats; creations land PAUSED. The copy desk (dollars against one trader) is pm_copy_allocate / pm_copy_remove / pm_copy_start / pm_copy_stop.`,
     `- APPROVALS: money-moving and strat-changing calls pause and show the owner an APPROVE/DECLINE card in this chat — that is by design, so just make the call and say you've asked. A result starting "NOT EXECUTED" means they declined or let it lapse: read their note, adapt, and never retry the same call unprompted. Tool results for strat changes can carry rejected fields — report them honestly.`,
     `- Money honesty: DRY RUN and backtests spend nothing; autoExecute/REAL spends real money — never suggest it casually, and never claim something ran when the result says otherwise.`,
@@ -181,6 +183,15 @@ export async function POST(req: Request) {
         try {
           for (const a of listApprovals(runId)) {
             const prev = seen.get(a.id);
+            // Navigation entries are pre-decided, never pending: forward each
+            // once as a `nav` event and the browser does the router.push.
+            if (a.kind === "nav") {
+              if (prev === undefined) {
+                seen.set(a.id, a.decision);
+                send({ type: "nav", id: a.id, path: String(a.args?.path || ""), label: a.summary });
+              }
+              continue;
+            }
             if (prev === undefined) {
               seen.set(a.id, a.decision);
               if (!a.decision) {

@@ -78,6 +78,19 @@ export interface BoardRow {
   window_days: number; total_stake_tao: number; free_tao: number; spark?: number[];
 }
 
+export interface IndexMember { ss58: string; weight: number }
+
+export interface IndexRow extends BoardRow { weight: number; tracked?: boolean }
+
+export interface TraderIndex {
+  id: number; name: string; note?: string | null; members: IndexMember[];
+  days: number; priced: number; member_count: number; book_tao: number;
+  market_pnl_tao: number; flow_tao: number;
+  market_pct: number | null; pnl_pct: number | null;
+  created_ts: number; updated_ts?: number;
+  spark?: number[]; curve?: { t: number; v: number }[]; rows?: IndexRow[];
+}
+
 export interface Flow {
   ts: number; ss58?: string; label?: string | null; side: 'buy' | 'sell';
   netuid: number; name?: string; alpha: number; tao_value: number;

@@ -215,3 +215,49 @@ def test_console_tool_outside_chat_refuses_honestly(mcp, monkeypatch):
     text = result_text(resp)
     assert 'console chat' in text
     assert pending_files(mcp) == []
+
+
+# ── console navigation (pm_console_open) ──
+#
+# Navigation is the one tool that touches the browser: it must stay FREE
+# (never park), ride the file channel PRE-DECIDED (so declineRunLeftovers and
+# the TTL machinery ignore it), and degrade to a deep link with no console on
+# the line.
+
+def test_console_open_never_gated(mcp):
+    assert 'pm_console_open' not in mcp.GATED_TOOLS
+    assert mcp._gate_kind('pm_console_open', {'page': 'money'}) is None
+
+
+def test_console_open_writes_predecided_nav(mcp):
+    resp = mcp._call_tool(1, {'name': 'pm_console_open',
+                              'arguments': {'page': 'strats', 'section': 'build'}})
+    assert resp['result']['isError'] is False
+    body = resp['result']['structuredContent']
+    assert body['ok'] is True and body['opened'] == '/strats?sec=build'
+    files = pending_files(mcp)
+    assert len(files) == 1 and os.path.basename(files[0]).startswith('nav_')
+    with open(files[0]) as f:
+        entry = json.load(f)
+    assert entry['kind'] == 'nav'
+    assert entry['decision'] == 'approve'  # pre-decided: never pending
+    assert entry['args']['path'] == '/strats?sec=build'
+
+
+def test_console_open_without_run_returns_link(mcp, monkeypatch):
+    monkeypatch.delenv('POLYMARKET_AGENT_RUN')
+    resp = mcp._call_tool(1, {'name': 'pm_console_open', 'arguments': {'page': 'money'}})
+    body = resp['result']['structuredContent']
+    assert body['ok'] is True and body['url'] == '/polymarket/strats?tab=money'
+    assert pending_files(mcp) == []
+
+
+def test_console_open_rejects_bad_targets(mcp):
+    for args in ({'page': 'evil'},
+                 {'page': 'trader'},
+                 {'page': 'trader', 'address': '0x123'},
+                 {'page': 'strats', 'section': 'nope'}):
+        resp = mcp._call_tool(1, {'name': 'pm_console_open', 'arguments': args})
+        body = resp['result']['structuredContent']
+        assert body['ok'] is False, args
+    assert pending_files(mcp) == []

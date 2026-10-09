@@ -1103,15 +1103,21 @@ class Hyperliquid(m.Mod):
         """Agent readiness: model auth method, tool counts, hints."""
         return _agent().status(self.api_url)
 
-    def chat(self, question: str, session: str = "") -> Dict[str, Any]:
-        """The general chatbot: ask anything, trading-related or not.
+    def chat(self, question: str, session: str = "",
+             mode: str = "chat", act: bool = False) -> Dict[str, Any]:
+        """The conversational agent: `mode='chat'` (default) answers anything,
+        trading-related or not, with a read-only toolbox no matter what;
+        `mode='strats'` is the strat copilot — it finds, backtests, creates
+        and manages strats, and `act=True` (plus a token) lets it really
+        invest, pause, resume and close positions.
 
         Same Claude agent as `ask` (model auth can ride the claude mod's
-        credential keeper), but general knowledge is allowed, the toolbox is
-        read-only no matter what, and the returned `session_id` resumes the
+        credential keeper); the returned `session_id` resumes the
         conversation: `hl.chat('and in EUR?', session=prev['session_id'])`."""
+        mode = mode if mode in ("chat", "strats") else "chat"
         return _agent().answer(question, api_url=self.api_url,
-                               token=self.token, mode="chat",
+                               token=self.token, mode=mode,
+                               act=act and mode == "strats",
                                session=session or "")
 
     # ── Modular strategies (see strat.py) ──

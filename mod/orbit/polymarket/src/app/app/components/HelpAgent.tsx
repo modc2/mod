@@ -20,17 +20,32 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { getAccessToken } from "../lib/access";
 import { applyStratOp, isConsoleOp } from "../lib/agentStratOps";
 
 const CHAT_API = "/polymarket/_api/agent/chat";
 const APPROVALS_API = "/polymarket/_api/agent/approvals";
 
-/** Anything can ask for the agent column by name. */
+/** Anything can ask for the agent column by name. detail.ask (optional)
+    hands it a question to send immediately — see lib/agentAsk.ts. */
 export const OPEN_AGENT_EVENT = "poly-open-agent";
 
 const DOCK_MQ = "(min-width: 1280px)";
+
+// The conversation survives reloads — the agent is the console's pilot, and
+// a pilot with amnesia on every page turn (its own pm_console_open navs
+// included!) is useless. Approval cards are stored as-is: a restored
+// "pending" card renders expired on its own countdown, never alive.
+const CHAT_STORE = "poly_desk_chat_v1";
+const STORE_MAX_ITEMS = 80;
+
+// The agent may only turn the console's own pages. Anything else that rides
+// a nav event (or a link parsed out of model text) is dropped on the floor.
+const NAV_OK = /^\/(traders|strats|copy|markets|trades|docs)(\/|\?|$)|^\/$/;
+export function isConsolePath(p: string): boolean {
+  return NAV_OK.test(p) && !p.includes("//") && !p.includes(":");
+}
 
 interface Approval {
   id: string;
@@ -45,20 +60,69 @@ type Item =
   | { kind: "user"; text: string }
   | { kind: "text"; text: string }
   | { kind: "tool"; name: string; done: boolean; failed: boolean }
+  | { kind: "nav"; path: string; label: string }
   | { kind: "approval"; a: Approval; state: "pending" | "approve" | "decline" | "expired"; outcome?: string }
   | { kind: "error"; text: string };
 
 const GREETING: Item = {
   kind: "text",
   text:
-    "ask me anything — this console, your strats, markets, whatever. I can also work the desk: research traders, create or change strats, size the copy book. Anything that moves money or adds/removes a strat stops here first for your APPROVE.",
+    "ask me anything — this console, your strats, markets, whatever. I can take you to the right screen, research traders, create or change strats, and size the copy book. Anything that moves money or adds/removes a strat stops here first for your APPROVE.",
 };
 
-const SUGGESTIONS = [
-  "what is my copy book doing right now?",
-  "create a strat from the 3 steadiest traders this month",
-  "why isn't my live session trading?",
-];
+/** Suggestions follow the page — the agent should always offer the next
+    sensible move from where the owner is standing. */
+function suggestionsFor(pathname: string): string[] {
+  if (/^\/traders\/0x/i.test(pathname)) {
+    return [
+      "should I copy this trader? backtest copying them first",
+      "how much of their flow could I actually copy?",
+      "add them to a strat for me",
+    ];
+  }
+  if (pathname.startsWith("/strats")) {
+    return [
+      "which of my strats deserve the money right now?",
+      "build me a strat from this month's steadiest traders",
+      "clean up: which strats should I retire, and why?",
+    ];
+  }
+  return [
+    "what is my copy book doing right now?",
+    "create a strat from the 3 steadiest traders this month",
+    "show me where everything is — give me a tour",
+  ];
+}
+
+function loadStoredChat(): { session: string | null; items: Item[] } | null {
+  try {
+    const raw = localStorage.getItem(CHAT_STORE);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { session?: unknown; items?: unknown };
+    if (!Array.isArray(v.items) || v.items.length === 0) return null;
+    return {
+      session: typeof v.session === "string" ? v.session : null,
+      items: v.items as Item[],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function storeChat(session: string | null, items: Item[]) {
+  try {
+    if (items.length === 0) {
+      localStorage.removeItem(CHAT_STORE);
+      return;
+    }
+    localStorage.setItem(
+      CHAT_STORE,
+      JSON.stringify({ session, items: items.slice(-STORE_MAX_ITEMS) }),
+    );
+  } catch {
+    // quota or private mode — the chat just won't survive the reload
+  }
+}
 
 const KIND_STYLE: Record<Approval["kind"], { label: string; color: string }> = {
   money: { label: "MONEY", color: "#f87171" },
@@ -74,6 +138,7 @@ interface HelpAgentProps {
 
 export default function HelpAgent({ open, onClose }: HelpAgentProps) {
   const pathname = usePathname() || "";
+  const router = useRouter();
   const [docked, setDocked] = useState(false);
   const [items, setItems] = useState<Item[]>([GREETING]);
   const [draft, setDraft] = useState("");
@@ -82,6 +147,25 @@ export default function HelpAgent({ open, onClose }: HelpAgentProps) {
   const sessionRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const restoredRef = useRef(false);
+
+  // Restore the conversation (and the CLI session, so the model still
+  // remembers) before the first paint with items.
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const stored = loadStoredChat();
+    if (stored) {
+      sessionRef.current = stored.session;
+      setItems([GREETING, ...stored.items.filter((it) => it && typeof it === "object")]);
+    }
+  }, []);
+
+  // Persist everything after the greeting (which is re-added on restore).
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    storeChat(sessionRef.current, items.slice(1));
+  }, [items]);
 
   useEffect(() => {
     const mq = window.matchMedia(DOCK_MQ);
@@ -216,6 +300,14 @@ export default function HelpAgent({ open, onClose }: HelpAgentProps) {
       patchApproval(id, (prevItem) =>
         prevItem.state === "pending" ? { ...prevItem, state: decision } : prevItem,
       );
+    } else if (type === "nav") {
+      // The agent turned the page (pm_console_open). Validated here too —
+      // the browser is the last line, whatever rode the file channel.
+      const path = String(ev.path || "");
+      if (isConsolePath(path)) {
+        push({ kind: "nav", path, label: String(ev.label || path) });
+        router.push(path);
+      }
     } else if (type === "error") {
       push({ kind: "error", text: String(ev.error || "something went wrong") });
     }
@@ -267,6 +359,25 @@ export default function HelpAgent({ open, onClose }: HelpAgentProps) {
   const newChat = useCallback(() => {
     sessionRef.current = null;
     setItems([GREETING]);
+    try { localStorage.removeItem(CHAT_STORE); } catch { /* fine */ }
+  }, []);
+
+  // Anywhere in the console can hand the agent a question (lib/agentAsk.ts):
+  // the OPEN_AGENT_EVENT that opens the column may carry detail.ask. Ref'd so
+  // the one listener always calls the current ask.
+  const askRef = useRef(ask);
+  askRef.current = ask;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const q = (e as CustomEvent).detail?.ask;
+      if (typeof q !== "string" || !q.trim()) return;
+      if (busyRef.current) setDraft(q); // mid-run: park it in the input instead of dropping it
+      else void askRef.current(q);
+    };
+    window.addEventListener(OPEN_AGENT_EVENT, onAsk);
+    return () => window.removeEventListener(OPEN_AGENT_EVENT, onAsk);
   }, []);
 
   if (!open) return null;
@@ -320,7 +431,22 @@ export default function HelpAgent({ open, onClose }: HelpAgentProps) {
                 style={{ borderColor: "var(--border)" }}
               >
                 {it.kind === "user" && <span className="text-green-400/80 mr-1.5">›</span>}
-                {it.text}
+                {it.kind === "text" ? <AgentText text={it.text} onOpen={(p) => router.push(p)} /> : it.text}
+              </div>
+            );
+          }
+          if (it.kind === "nav") {
+            return (
+              <div key={i} className="px-3 py-1 text-[11px] font-mono border-b flex items-center gap-1.5"
+                style={{ borderColor: "var(--border)" }}>
+                <span className="text-green-400/70">→</span>
+                <button
+                  onClick={() => isConsolePath(it.path) && router.push(it.path)}
+                  title={it.path}
+                  className="text-pixel-gray hover:text-green-400 underline decoration-dotted underline-offset-2"
+                >
+                  opened {it.label}
+                </button>
               </div>
             );
           }
@@ -354,7 +480,7 @@ export default function HelpAgent({ open, onClose }: HelpAgentProps) {
         )}
         {items.length === 1 && !busy && (
           <div className="p-2 flex flex-col gap-1">
-            {SUGGESTIONS.map((s) => (
+            {suggestionsFor(pathname).map((s) => (
               <button
                 key={s}
                 onClick={() => void ask(s)}
@@ -502,5 +628,49 @@ function ApprovalCard({
         )}
       </div>
     </div>
+  );
+}
+
+// ── linkified agent text ──
+//
+// The agent talks in addresses and console paths; both should be one click,
+// not a copy-paste. Only two token shapes are linked — a full 0x address
+// (→ that trader's profile) and a console-internal path that passes the same
+// whitelist nav events do. Everything else renders verbatim.
+
+const LINK_RE = /(0x[a-fA-F0-9]{40})|(\/(?:traders|strats|copy|markets|trades|docs)(?:[\w\-./]|\?[\w\-.=&%]*|#[\w-]*)*)/g;
+
+function AgentText({ text, onOpen }: { text: string; onOpen: (path: string) => void }) {
+  const parts: Array<string | { label: string; path: string }> = [];
+  let last = 0;
+  for (const m of text.matchAll(LINK_RE)) {
+    const idx = m.index ?? 0;
+    if (idx > last) parts.push(text.slice(last, idx));
+    const tok = m[0];
+    const path = m[1] ? `/traders/${tok.toLowerCase()}` : tok;
+    if (isConsolePath(path)) parts.push({ label: tok, path });
+    else parts.push(tok);
+    last = idx + tok.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return (
+    <>
+      {parts.map((p, i) =>
+        typeof p === "string" ? (
+          <span key={i}>{p}</span>
+        ) : (
+          <button
+            key={i}
+            onClick={() => onOpen(p.path)}
+            title={p.path}
+            className="text-green-400/90 hover:text-green-300 underline decoration-dotted underline-offset-2 break-all"
+          >
+            {p.label.startsWith("0x") && p.label.length === 42
+              ? `${p.label.slice(0, 6)}…${p.label.slice(-4)}`
+              : p.label}
+          </button>
+        ),
+      )}
+    </>
   );
 }

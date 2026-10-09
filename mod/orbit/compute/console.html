@@ -2161,7 +2161,13 @@ async function oracle() {
         const te = document.getElementById('o-tick-next');
         if (!te) return;
         const s = Math.round(O.ticker.next - Date.now() / 1000);
-        te.textContent = s > 0 ? 'next update in ' + (s >= 120 ? Math.round(s/60) + 'm' : s + 's') : 'updating…';
+        if (s <= 0) {
+          clearInterval(_oTickIv); _oTickIv = null;
+          te.textContent = 'updating…';
+          setTimeout(() => oracle(), 8000);
+          return;
+        }
+        te.textContent = 'next update in ' + (s >= 120 ? Math.round(s/60) + 'm' : s + 's');
       }, 10000);
     }
   } catch (e) { f.textContent = e.message; return }

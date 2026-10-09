@@ -20,7 +20,9 @@ export interface ApprovalEntry {
   run: string;
   tool: string;
   args: Record<string, unknown>;
-  kind: "money" | "spend" | "strat";
+  /** nav = a pre-decided pm_console_open entry: never pending, the chat
+      route forwards it as a `nav` event and the browser navigates. */
+  kind: "money" | "spend" | "strat" | "nav";
   summary: string;
   at: number; // epoch seconds
   expires_at: number; // epoch seconds

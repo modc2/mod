@@ -408,6 +408,30 @@ def _prices_at(ts=None):
     return traders.prices_at(ts=ts)
 
 
+# --- trader indexes (bt.indexes — saved baskets built off the board)
+
+def _index_create(name, members, note=None, track=True):
+    from . import indexes
+    return indexes.create(name, members, note=note, track=track)
+
+def _indexes(days=7, sparks=True):
+    from . import indexes
+    return indexes.indexes(days=days, sparks=sparks)
+
+def _index(index, days=7, curve=True):
+    from . import indexes
+    return indexes.get(index, days=days, curve=curve)
+
+def _index_update(index, name=None, members=None, note=None, track=True):
+    from . import indexes
+    return indexes.update(index, name=name, members=members, note=note,
+                          track=track)
+
+def _index_delete(index):
+    from . import indexes
+    return indexes.delete(index)
+
+
 # ------------------------------------------------------------------ console
 #
 # The one tool that is not a chain read: it hands the console a view to open.
@@ -647,6 +671,31 @@ TOOLS: List[Tool] = [
     Tool('bt_prices_at', 'Every subnet alpha price at a past moment, from the local indexer — historical marks without an archive node.', 'Traders',
          dict(ts={'type': 'integer', 'description': 'Unix timestamp (default: now)'}),
          _prices_at, local=True),
+    Tool('bt_index_create', "Create a named trader index: a weighted basket of coldkeys, usually picked off bt_trader_board. Members not yet tracked are auto-tracked (one chain snapshot each), so the index prices from the local store from then on. Returns the index with its blended window performance.", 'Traders',
+         dict(name={'type': 'string', 'description': 'Index name (unique, case-insensitive)', 'required': True},
+              members={'type': 'string', 'description': "Comma/space-separated ss58 coldkeys, each optionally ':weight' (relative, normalized; default equal) — e.g. '5Grw…, 5FHn…:2'", 'required': True},
+              note={'type': 'string', 'description': 'Free-text thesis for the basket'},
+              track={'type': 'boolean', 'description': 'Auto-track members not yet in the trader index', 'default': True}),
+         _index_create),
+    Tool('bt_indexes', 'Every saved trader index with its blended performance over the window: weight-averaged market % and PnL % (flow-normalized, same math as the board), combined book τ, and a rebased-to-100 blended equity sparkline. From the local store only.', 'Traders',
+         dict(days={'type': 'integer', 'description': 'Performance window in days', 'default': 7},
+              sparks={'type': 'boolean', 'description': 'Include the blended equity sparkline', 'default': True}),
+         _indexes, local=True),
+    Tool('bt_index', 'One trader index in full: every member ranked exactly like the leaderboard ranks it (weight, market/PnL split, book), the blended totals, and the blended equity curve rebased to 100 at the start of the window.', 'Traders',
+         dict(index={'type': 'string', 'description': 'Index id or name', 'required': True},
+              days={'type': 'integer', 'description': 'Performance window in days', 'default': 7},
+              curve={'type': 'boolean', 'description': 'Include the blended equity curve', 'default': True}),
+         _index, local=True),
+    Tool('bt_index_update', 'Rename an index, change its note, or replace its member basket (same ss58[:weight] string as bt_index_create).', 'Traders',
+         dict(index={'type': 'string', 'description': 'Index id or name', 'required': True},
+              name={'type': 'string', 'description': 'New name'},
+              members={'type': 'string', 'description': 'Replacement member list (ss58[:weight], comma-separated)'},
+              note={'type': 'string', 'description': 'New note'},
+              track={'type': 'boolean', 'description': 'Auto-track any new members', 'default': True}),
+         _index_update),
+    Tool('bt_index_delete', 'Delete a saved trader index. Its members stay tracked — recorded history is never dropped.', 'Traders',
+         dict(index={'type': 'string', 'description': 'Index id or name', 'required': True}),
+         _index_delete, local=True),
     # --- network
     Tool('bt_sync', 'Indexer sync state: the chain block the local index is synced to, how far behind head it is, snapshot cadence and gaps, and whether every subnet and tracked trader is covered.', 'Network',
          dict(head={'type': 'boolean', 'description': 'Also read the chain tip to report exact lag (costs one RPC)', 'default': True}),

@@ -113,6 +113,41 @@ def test_single_repo_view_does_not_touch_others(up, monkeypatch):
     assert res['tracking'] == ['modc2/mod']         # scoped to one repo
 
 
+def test_adhoc_repo_view_is_read_only(up, monkeypatch):
+    """updates(repo=...) on an untracked repo must NOT add it to the watchlist."""
+    monkeypatch.setattr(up, 'commits',
+                        lambda repo=None, branch=None, n=20, **k: [
+                            _commit(up._parse_repo(repo), 't1', '2026-06-01')])
+    up._load()                                          # seed state.json first
+    before = open(up.state_path).read()
+    res = up.updates(repo='torvalds/linux', branch='master', n=5)
+    assert res['tracking'] == ['torvalds/linux']        # the view itself works
+    assert 'torvalds/linux' not in up._load()['repos']  # but nothing was tracked
+    assert open(up.state_path).read() == before         # state.json untouched
+
+
+def test_branch_override_view_leaves_last_seen(up, monkeypatch):
+    """Peeking at a tracked repo on another branch must not move its marker."""
+    pages = {'dev': [_commit('modc2/mod', 'd1', '2026-06-02')],
+             'main': [_commit('modc2/mod', 'x9', '2026-06-03')]}
+    monkeypatch.setattr(up, 'commits',
+                        lambda repo=None, branch=None, n=20, **k: pages[branch])
+    up.updates(n=5)                                      # normal feed advances dev
+    assert up._load()['repos']['modc2/mod']['last_seen'] == 'd1'
+    up.updates(repo='modc2/mod', branch='main', n=5)     # other-branch peek
+    assert up._load()['repos']['modc2/mod']['last_seen'] == 'd1'   # untouched
+    assert up.poll()['new'] == 0                         # NEW detection undisturbed
+
+
+def test_tracked_repo_view_still_advances_marker(up, monkeypatch):
+    """An explicit view of a tracked repo on its tracked branch still marks seen."""
+    monkeypatch.setattr(up, 'commits',
+                        lambda repo=None, branch=None, n=20, **k: [
+                            _commit('modc2/mod', 'd1', '2026-06-02')])
+    up.updates(repo='modc2/mod', n=5)
+    assert up._load()['repos']['modc2/mod']['last_seen'] == 'd1'
+
+
 def test_displaced_repo_marker_not_advanced(up, monkeypatch):
     """Repo B's commits pushed out by repo A must keep last_seen=None after poll."""
     up.track('foo/bar')

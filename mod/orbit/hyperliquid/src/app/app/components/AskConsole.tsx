@@ -1,13 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { askStatus, askStream, AskEvent, AskStatus } from "../lib/api";
 import { useWallet } from "../lib/wallet";
 
-// The desk agent, transcript + composer. One implementation, three homes: the
-// /ask page (full width), the right-hand dock (compact column), and the /chat
+// The desk agent, transcript + composer. One implementation, several homes:
+// the /ask page (full width), the right-hand dock (compact column), the /chat
 // page (mode="chat": the general chatbot — any topic, read-only toolbox,
-// multi-turn via the Claude session id the stream hands back).
+// multi-turn via the Claude session id the stream hands back), and the strats
+// board (mode="strats": the strat copilot — multi-turn AND action-capable, so
+// it can create and manage invest positions when actions are on).
 
 // One transcript entry. Tool calls render inline between the model's text so
 // you can see what the answer was actually built from.
@@ -31,21 +34,41 @@ const CHAT_EXAMPLES = [
   "how should I think about position sizing?",
 ];
 
-// The model writes light markdown whatever you tell it, so render the two
-// marks it actually uses (**bold**, `code`) instead of leaking the asterisks.
+const STRAT_EXAMPLES = [
+  "what's the best strat on the board right now, and why?",
+  "backtest $1,000 on the top recommended trader over 30 days",
+  "how are my strats doing?",
+  "put $500 paper on the best vault so I can watch it first",
+];
+
+// The model writes light markdown whatever you tell it, so render the marks
+// it actually uses — **bold**, `code`, and [label](/route) — instead of
+// leaking the syntax. A link whose target starts with "/" is one of our own
+// pages (the NAV protocol the agent is taught), so it becomes real in-app
+// navigation; any other link target is untrusted and renders as plain text.
 function RichText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]\n]+\]\([^()\s]+\))/g);
   return (
     <>
-      {parts.map((p, i) =>
-        p.startsWith("**") && p.endsWith("**") ? (
-          <strong key={i} className="text-ink font-semibold">{p.slice(2, -2)}</strong>
-        ) : p.startsWith("`") && p.endsWith("`") ? (
-          <code key={i} className="font-mono text-accent">{p.slice(1, -1)}</code>
-        ) : (
-          <span key={i}>{p}</span>
-        ),
-      )}
+      {parts.map((p, i) => {
+        if (p.startsWith("**") && p.endsWith("**"))
+          return <strong key={i} className="text-ink font-semibold">{p.slice(2, -2)}</strong>;
+        if (p.startsWith("`") && p.endsWith("`"))
+          return <code key={i} className="font-mono text-accent">{p.slice(1, -1)}</code>;
+        const link = /^\[([^\]]+)\]\(([^()\s]+)\)$/.exec(p);
+        if (link) {
+          const [, label, href] = link;
+          return href.startsWith("/") ? (
+            <Link key={i} href={href}
+              className="text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent transition-colors">
+              {label}
+            </Link>
+          ) : (
+            <span key={i}>{label}</span>
+          );
+        }
+        return <span key={i}>{p}</span>;
+      })}
     </>
   );
 }
@@ -70,9 +93,12 @@ export default function AskConsole({
   mode = "desk",
 }: {
   compact?: boolean;
-  mode?: "desk" | "chat";
+  mode?: "desk" | "chat" | "strats";
 }) {
   const chat = mode === "chat";
+  const strats = mode === "strats";
+  // Chat and the strat copilot are conversations; the desk is one-shot.
+  const multiTurn = chat || strats;
   const { token } = useWallet();
   const [status, setStatus] = useState<AskStatus | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -121,6 +147,8 @@ export default function AskConsole({
       await askStream(
         chat
           ? { question, mode: "chat", session: session.current ?? undefined }
+          : strats
+          ? { question, mode: "strats", act, session: session.current ?? undefined }
           : { question, act },
         onEvent,
         abort.current.signal,
@@ -151,9 +179,9 @@ export default function AskConsole({
             <button
               className="btn !px-2"
               onClick={() => { setTurns([]); session.current = null; }}
-              title={chat ? "Start a fresh conversation" : "Clear transcript"}
+              title={multiTurn ? "Start a fresh conversation" : "Clear transcript"}
             >
-              {chat ? "new chat" : "clear"}
+              {multiTurn ? "new chat" : "clear"}
             </button>
           )}
           {!chat && (
@@ -164,7 +192,11 @@ export default function AskConsole({
                 blocked
                   ? "sign in to enable actions"
                   : act
-                  ? "write tools ON — the agent can place orders and move funds"
+                  ? strats
+                    ? "actions ON — the copilot can create, resize, pause and close your strats"
+                    : "write tools ON — the agent can place orders and move funds"
+                  : strats
+                  ? "read-only: the copilot can look and recommend, not invest — turn on to create and manage"
                   : "read-only: only GET-backed tools"
               }
               onClick={() => setAct((v) => !v)}
@@ -180,8 +212,12 @@ export default function AskConsole({
       )}
       {act && !chat && (
         <div className="panel p-3 text-[11px] text-loss leading-snug">
-          Action mode: the agent can place orders, move funds and edit follows
-          with your wallet&apos;s agent key. It confirms nothing with you first.
+          {strats
+            ? <>Actions on: the copilot can invest real money, resize, pause and
+              close positions with your wallet&apos;s agent key. Say &quot;paper&quot; to
+              simulate instead of trade.</>
+            : <>Action mode: the agent can place orders, move funds and edit follows
+              with your wallet&apos;s agent key. It confirms nothing with you first.</>}
         </div>
       )}
 
@@ -189,7 +225,7 @@ export default function AskConsole({
         {turns.length === 0 && (
           <div className="space-y-2">
             <div className="text-xs text-dim uppercase tracking-wider">try</div>
-            {(chat ? CHAT_EXAMPLES : EXAMPLES).map((e) => (
+            {(chat ? CHAT_EXAMPLES : strats ? STRAT_EXAMPLES : EXAMPLES).map((e) => (
               <button key={e} className={`block text-left text-muted hover:text-accent transition-colors ${compact ? "text-xs leading-snug" : "text-sm"}`}
                 onClick={() => setQ(e)}>
                 → {e}
@@ -221,6 +257,10 @@ export default function AskConsole({
               ? "sign in with your wallet to ask"
               : chat
               ? "ask anything — the conversation keeps context…"
+              : strats
+              ? act
+                ? "tell the copilot what to invest, pause, resize or close…"
+                : "ask the copilot — find, compare, backtest strats…"
               : act
               ? "tell the agent what to do…"
               : compact
@@ -235,7 +275,7 @@ export default function AskConsole({
         {running ? (
           <button className="btn-danger shrink-0" onClick={() => abort.current?.abort()}>stop</button>
         ) : (
-          <button className="btn-primary shrink-0" disabled={blocked || !q.trim()} onClick={send}>{chat ? "send" : "ask"}</button>
+          <button className="btn-primary shrink-0" disabled={blocked || !q.trim()} onClick={send}>{multiTurn ? "send" : "ask"}</button>
         )}
       </div>
     </div>

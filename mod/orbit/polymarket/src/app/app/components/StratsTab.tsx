@@ -65,6 +65,7 @@ import { FORMULA_EVENT, broadcastFormula, loadSavedFormula } from "../lib/scoreF
 import { isTraderIndex } from "../lib/traderIndex";
 import { describeTraderFilter } from "../lib/strats/strat";
 import { shortAddress } from "../lib/auth";
+import { askDeskAgent } from "../lib/agentAsk";
 import { isStratsSection, isStratsView, stratsHref, type StratsSection, type StratsView } from "../lib/stratsNav";
 import AccountsPanel from "./AccountsPanel";
 import AutoStratPanel from "./AutoStratPanel";
@@ -727,13 +728,22 @@ export default function StratsTab() {
                       bleeding: ["✗ BLEEDING", "border-red-400/60 text-red-400"],
                     };
                     const [label, cls] = look[v.tier];
+                    // The chip is also the question: click it and the desk
+                    // agent explains the verdict and proposes the move.
                     return (
-                      <span
-                        title={v.reason}
-                        className={`shrink-0 px-1.5 py-0.5 rounded border text-[8.5px] font-mono font-semibold tracking-[0.1em] ${cls}`}
+                      <button
+                        title={`${v.reason} — click to ask the agent about it`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          askDeskAgent(
+                            `my strat "${idx.name}" (id ${idx.id}) is rated ${v.tier.toUpperCase()}: ${v.reason}. ` +
+                            `Look at its numbers and tell me in plain words why, and what to do — fix it, fund it, or retire it.`,
+                          );
+                        }}
+                        className={`shrink-0 px-1.5 py-0.5 rounded border text-[8.5px] font-mono font-semibold tracking-[0.1em] cursor-pointer ${cls}`}
                       >
                         {label}
-                      </span>
+                      </button>
                     );
                   })()}
                   <button
@@ -949,6 +959,19 @@ export default function StratsTab() {
             );
           })}
 
+          <button
+            onClick={() => askDeskAgent(
+              "help me create a new strat: interview me briefly about what I want (theme, risk, how much capital), " +
+              "then research real traders on the board, prove the pick with a basket backtest, and create it for my approval.",
+            )}
+            title="Build it in conversation — the desk agent researches traders, backtests the pick, and creates the strat only when you APPROVE the card it shows you."
+            className="flex flex-col justify-center gap-1 rounded-[var(--radius-sm)] border border-dashed border-green-400/40 px-3 py-3 text-left text-pixel-gray hover:text-green-400 hover:border-green-400/70 transition-colors min-h-[72px]"
+          >
+            <span className="text-[11px] font-mono font-semibold tracking-[0.08em] text-green-400/90">✦ BUILD WITH THE AGENT</span>
+            <span className="text-[9.5px] font-mono leading-snug text-pixel-gray/80">
+              a conversation — it researches, backtests, and creates only on your APPROVE
+            </span>
+          </button>
           <button
             onClick={() => { setSec("build"); focusVibe(); }}
             title="Vibecode a strat — describe it in plain words and an agent writes the params, picks real traders off the board, and backtests it over 1/3/7 days. SAVE if the numbers are good. Opens the BUILD tab."

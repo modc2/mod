@@ -308,7 +308,9 @@ class Mod:
     def run(self, query: str, path: str = None, goal: str = None,
             model: str = None, timeout: int = DEFAULT_TIMEOUT,
             on_step: Callable[[dict], None] = None,
-            env: Dict[str, str] = None, **kwargs) -> List[dict]:
+            env: Dict[str, str] = None,
+            resume: str = None, agent_type: str = None,
+            stream_input: bool = False, **kwargs) -> List[dict]:
         """Run the CLI to completion, returning its steps.
 
         Args:
@@ -319,6 +321,9 @@ class Mod:
             timeout: wall-clock cap; the CLI is killed when it expires
             on_step: called with each step as it happens (live progress)
             env: extra environment for the child
+            resume: resume a persisted CLI session by its ID
+            agent_type: agent type flag forwarded to the CLI
+            stream_input: send the prompt over stdin instead of argv
         """
         if not self.available():
             raise RuntimeError(
@@ -340,15 +345,23 @@ class Mod:
                     pass
 
         proc = subprocess.Popen(
-            self.command(query, goal=goal, model=model, path=cwd),
+            self.command(query, goal=goal, model=model, path=cwd,
+                         resume=resume, agent_type=agent_type,
+                         stream_input=stream_input),
             cwd=cwd,
-            stdin=subprocess.DEVNULL,      # the prompt is an argument; never wait on stdin
+            stdin=subprocess.PIPE if stream_input else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
             env={**os.environ, **(env or {})},
         )
+        if stream_input:
+            # prompt travels over stdin as a stream-json message
+            proc.stdin.write(
+                json.dumps({"type": "user", "message": {"role": "user", "content": query}}) + "\n"
+            )
+            proc.stdin.close()
         errors: "deque[str]" = deque(maxlen=40)
         threading.Thread(target=self._drain, args=(proc.stderr, errors), daemon=True).start()
         killer = threading.Timer(timeout, proc.kill)
