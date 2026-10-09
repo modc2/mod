@@ -246,7 +246,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
 
         {selection.layerId === 'subway_ridership' && (
           <div className="space-y-3">
-            <Stat label="Riders since Jan 2025" value={count(p.riders)} big />
+            <Stat label="Riders this year" value={count(p.riders)} big />
             <Meta rows={[
               ['Transfers', count(p.transfers)],
               ['Borough', p.borough],

@@ -17,15 +17,17 @@
 // no way to change your mind without stopping); the workspace used to split
 // them but call the start button GO LIVE, which is the name of the other axis.
 
+import { useState } from "react";
 import {
-  MODE, MODES, MODE_LEGEND, confirmGoLive, describeSession, liveBlockedReason,
+  MODE, MODES, MODE_LEGEND, describeSession, liveBlockedReason,
   type RunState, type TradingMode,
 } from "../lib/tradingMode";
+import ConfirmGoLive from "./ConfirmGoLive";
 
 // ── The switch ──
 
 export function ModeSwitch({
-  mode, onPick, running, canGoLive, subject, amountUsd, disabled, size = "md",
+  mode, onPick, running, canGoLive, subject = "", amountUsd, disabled, size = "md",
 }: {
   mode: TradingMode;
   onPick: (mode: TradingMode) => void;
@@ -38,57 +40,71 @@ export function ModeSwitch({
       answerable, "where did the button go" isn't. */
   canGoLive: boolean;
   /** What is about to trade, for the confirm — a name, an address, "the desk". */
-  subject: string;
+  subject?: string;
   amountUsd?: number | null;
   disabled?: boolean;
   size?: "sm" | "md";
 }) {
+  const [pendingPick, setPendingPick] = useState<TradingMode | null>(null);
   const pad = size === "sm" ? "px-2 py-[2px] text-[10px]" : "px-2.5 py-1 text-[11px]";
   const blocked = liveBlockedReason(canGoLive);
 
   return (
-    <div
-      className="inline-flex items-center rounded-[4px] border border-pixel-border/70 p-[2px] gap-[2px]"
-      role="group"
-      aria-label="Trading mode"
-    >
-      {MODES.map((m) => {
-        const active = m === mode;
-        const locked = m === "LIVE" && !canGoLive;
-        return (
-          <button
-            key={m}
-            type="button"
-            disabled={disabled || locked}
-            aria-pressed={active}
-            title={
-              locked
-                ? blocked!
-                : active
-                  ? MODE[m].active
-                  : running
-                    ? MODE[m].pick
-                    : `Arm ${MODE[m].label} — this is the mode START will use. ${MODE[m].meaning}.`
-            }
-            onClick={() => {
-              if (active || disabled || locked) return;
-              // A live session flips the moment this is clicked, so the
-              // confirm belongs here. A stopped one is only being armed —
-              // START asks, once, right before anything can fill.
-              if (m === "LIVE" && running && !confirmGoLive(subject, amountUsd)) return;
-              onPick(m);
-            }}
-            className={`font-mono tracking-[0.12em] rounded-[3px] border transition-colors ${pad} ${
-              active
-                ? MODE[m].seg
-                : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.05]"
-            } disabled:opacity-30 disabled:cursor-not-allowed`}
-          >
-            {MODE[m].label}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <div
+        className="inline-flex items-center rounded-[4px] border border-pixel-border/70 p-[2px] gap-[2px]"
+        role="group"
+        aria-label="Trading mode"
+      >
+        {MODES.map((m) => {
+          const active = m === mode;
+          const locked = m === "LIVE" && !canGoLive;
+          return (
+            <button
+              key={m}
+              type="button"
+              disabled={disabled || locked}
+              aria-pressed={active}
+              title={
+                locked
+                  ? blocked!
+                  : active
+                    ? MODE[m].active
+                    : running
+                      ? MODE[m].pick
+                      : `Arm ${MODE[m].label} — this is the mode START will use. ${MODE[m].meaning}.`
+              }
+              onClick={() => {
+                if (active || disabled || locked) return;
+                // A live session flips the moment this is clicked, so the
+                // confirm belongs here. A stopped one is only being armed —
+                // START asks, once, right before anything can fill.
+                if (m === "LIVE" && running) {
+                  setPendingPick(m);
+                  return;
+                }
+                onPick(m);
+              }}
+              className={`font-mono tracking-[0.12em] rounded-[3px] border transition-colors ${pad} ${
+                active
+                  ? MODE[m].seg
+                  : "border-transparent text-pixel-gray hover:text-pixel-white hover:bg-pixel-white/[0.05]"
+              } disabled:opacity-30 disabled:cursor-not-allowed`}
+            >
+              {MODE[m].label}
+            </button>
+          );
+        })}
+      </div>
+      {pendingPick !== null && (
+        <ConfirmGoLive
+          subject={subject}
+          amountUsd={amountUsd ?? null}
+          onConfirm={() => { setPendingPick(null); onPick(pendingPick); }}
+          onCancel={() => setPendingPick(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -144,32 +160,43 @@ export function NotTradingBanner({
   amountUsd?: number | null;
   onGoLive: () => void;
 }) {
+  const [showConfirm, setShowConfirm] = useState(false);
   return (
-    <div className="pixel-panel border-2 border-red-400/70 bg-red-400/10 p-3 flex items-start gap-3 flex-wrap">
-      <span className="text-red-400 text-xl leading-none mt-0.5">⚠</span>
-      <div className="flex-1 min-w-[240px]">
-        <div className="text-sm font-bold text-red-400">
-          {MODE.TEST.label} MODE — {count} mirror{count === 1 ? "" : "s"} passed every filter and{" "}
-          {count === 1 ? "was" : "were"} NOT placed. You are not trading.
-        </div>
-        <div className="text-xs text-pixel-muted mt-1">
-          Your filters are fine — the session is on {MODE.TEST.label}, so the engine logs what it would
-          have done instead of sending it to the CLOB. Nothing is queued: these mirrors are
-          gone, not deferred.
-        </div>
-        <div className="mt-2 flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => { if (confirmGoLive(subject, amountUsd)) onGoLive(); }}
-            title={MODE.LIVE.pick}
-            className="px-2.5 py-1 rounded border border-red-400/70 bg-red-400/15 text-red-300 hover:bg-red-400/25 text-[11px] font-mono tracking-[0.14em]"
-          >
-            SWITCH TO {MODE.LIVE.label} →
-          </button>
-          <span className="text-[10.5px] font-mono text-pixel-muted/70">
-            (the {MODE.TEST.label}|{MODE.LIVE.label} switch in the header flips it back any time)
-          </span>
+    <>
+      <div className="pixel-panel border-2 border-red-400/70 bg-red-400/10 p-3 flex items-start gap-3 flex-wrap">
+        <span className="text-red-400 text-xl leading-none mt-0.5">⚠</span>
+        <div className="flex-1 min-w-[240px]">
+          <div className="text-sm font-bold text-red-400">
+            {MODE.TEST.label} MODE — {count} mirror{count === 1 ? "" : "s"} passed every filter and{" "}
+            {count === 1 ? "was" : "were"} NOT placed. You are not trading.
+          </div>
+          <div className="text-xs text-pixel-muted mt-1">
+            Your filters are fine — the session is on {MODE.TEST.label}, so the engine logs what it would
+            have done instead of sending it to the CLOB. Nothing is queued: these mirrors are
+            gone, not deferred.
+          </div>
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setShowConfirm(true)}
+              title={MODE.LIVE.pick}
+              className="px-2.5 py-1 rounded border border-red-400/70 bg-red-400/15 text-red-300 hover:bg-red-400/25 text-[11px] font-mono tracking-[0.14em]"
+            >
+              SWITCH TO {MODE.LIVE.label} →
+            </button>
+            <span className="text-[10.5px] font-mono text-pixel-muted/70">
+              (the {MODE.TEST.label}|{MODE.LIVE.label} switch in the header flips it back any time)
+            </span>
+          </div>
         </div>
       </div>
-    </div>
+      {showConfirm && (
+        <ConfirmGoLive
+          subject={subject}
+          amountUsd={amountUsd ?? null}
+          onConfirm={() => { setShowConfirm(false); onGoLive(); }}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
+    </>
   );
 }

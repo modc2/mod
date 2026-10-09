@@ -99,8 +99,10 @@ def subway_stations() -> dict:
     return S.cached('transit-subway-stations', WEEK, fetch)
 
 
-def subway_ridership(since: str = '2025-01-01') -> dict:
+def subway_ridership(since: str = None) -> dict:
     """Station complexes sized by ridership. The source table is monthly."""
+    if since is None:
+        since = f'{datetime.date.today().year}-01-01'
     def fetch():
         rows = S.soql(
             S.NYS, 'ak4z-sape',

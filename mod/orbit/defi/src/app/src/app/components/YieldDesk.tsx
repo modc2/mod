@@ -452,10 +452,10 @@ export default function YieldDesk({ onClose, say, address }: Props) {
                   <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.6 }}>
                     {escrow
                       ? `≈ ${((Number(amount) || 0) * (picked.apy / 100) / 52).toFixed(2)} ${
-                          picked.symbol ?? ""
+                          picked.symbol ?? picked.best_pool?.symbol ?? ""
                         } a week, projected off ${pct(picked.apy)}. Principal locked ${weeks} weeks.`
                       : `${((Number(amount) || 0) / (Number(weeks) || 1)).toFixed(2)} ${
-                          picked.symbol ?? ""
+                          picked.symbol ?? picked.best_pool?.symbol ?? ""
                         } a week for ${weeks} weeks. Nothing comes back — the principal IS the payout.`}
                   </div>
                 </div>

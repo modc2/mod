@@ -3502,7 +3502,7 @@ function drawStage() {
   if (finished || !n) {
     const w = winnerOf(m);
     v.hidden = false;
-    v.replaceChildren(el("b", { textContent: w ? `${w.player_name} wins` : "draw" }),
+    v.replaceChildren(el("b", { textContent: w ? `${w.player_name} wins` : (m.seats?.length > 1 ? "draw" : "solo") }),
       el("span", { className: "dim", textContent: m.summary ? ` — ${m.summary}` : "" }));
   } else v.hidden = true;
 }

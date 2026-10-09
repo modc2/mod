@@ -11,7 +11,7 @@
 // — "across every trader I copy, how much of their flow am I actually
 // getting". See components/CopyTradesPanel.tsx.
 
-import { Suspense } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 
 import TopBar from "../../components/TopBar";
@@ -20,8 +20,9 @@ import { useAuth } from "../../context/AuthContext";
 import { getOwnerAddress } from "../../lib/access";
 import { useCopyBook } from "../../lib/useCopyBook";
 import { shortAddress } from "../../lib/identityStrat";
-import { confirmGate, gatePatch } from "../../lib/armGate";
+import { gatePatch } from "../../lib/armGate";
 import type { CompiledGate } from "../../lib/semanticFilter";
+import ConfirmGate from "../../components/ConfirmGate";
 
 function TradesPageInner() {
   // The book is here for one reason: a sentence you just filtered your history
@@ -33,9 +34,18 @@ function TradesPageInner() {
   const eoa = getOwnerAddress() ?? auth.address ?? null;
   const { rows, allocate } = useCopyBook(eoa);
 
-  const arm = async (gate: CompiledGate) => {
+  const [pendingGate, setPendingGate] = useState<{
+    gate: CompiledGate;
+    names: string[];
+  } | null>(null);
+
+  const arm = (gate: CompiledGate) => {
     const names = rows.map((r) => r.label?.trim() || shortAddress(r.address));
-    if (!confirmGate(gate, names)) return;
+    if (names.length === 0) return;
+    setPendingGate({ gate, names });
+  };
+
+  const commitArm = async (gate: CompiledGate) => {
     for (const row of rows) {
       await allocate(row.address, row.allocationUsd, undefined, gatePatch(gate));
     }
@@ -63,10 +73,18 @@ function TradesPageInner() {
         </div>
         <CopyTradesPanel
           defaultDays={7}
-          onArm={rows.length ? (g) => void arm(g) : undefined}
+          onArm={rows.length ? (g) => arm(g) : undefined}
           armLabel={`ARM ON ${rows.length} TRADER${rows.length === 1 ? "" : "S"}`}
         />
       </div>
+      {pendingGate !== null && (
+        <ConfirmGate
+          gate={pendingGate.gate}
+          names={pendingGate.names}
+          onConfirm={() => { const g = pendingGate.gate; setPendingGate(null); void commitArm(g); }}
+          onCancel={() => setPendingGate(null)}
+        />
+      )}
     </div>
   );
 }

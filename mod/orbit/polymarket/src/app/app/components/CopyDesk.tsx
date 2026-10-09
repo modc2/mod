@@ -42,9 +42,10 @@ import {
   fetchTradersPage, formatPnl, timeAgo, WARMED_CANDIDATE_POOL, type TopTrader,
 } from "../lib/polymarket";
 import {
-  MODE, armedDefault, autoExecuteFor, confirmGoLive, modeOf,
+  MODE, armedDefault, autoExecuteFor, modeOf,
   type TradingMode,
 } from "../lib/tradingMode";
+import ConfirmGoLive from "./ConfirmGoLive";
 import { ModeSwitch, SessionChip } from "./ModeControl";
 import { identityStrat, shortAddress } from "../lib/identityStrat";
 import { useHubBacktests, HUB_WINDOWS, type HubBacktest } from "../lib/hubBacktest";
@@ -119,6 +120,13 @@ export default function CopyDesk() {
   // bar once it isn't — the rows are what the desk is for. null = "whatever
   // the book size implies"; a click pins it either way.
   const [addOpen, setAddOpen] = useState<boolean | null>(null);
+  // Pending live-trading confirmation — set when a START in LIVE mode is
+  // clicked, cleared on confirm or cancel. The action fires on confirm.
+  const [pendingGoLive, setPendingGoLive] = useState<{
+    subject: string;
+    amountUsd: number | null;
+    action: () => void;
+  } | null>(null);
   // The bar opened in WHERE THE MONEY IS. Defaults to the first row and
   // follows the book: a removed leader can't stay selected.
   const [selected, setSelected] = useState<string | null>(null);
@@ -336,7 +344,14 @@ export default function CopyDesk() {
           if (deskMode === "LIVE") {
             const total = enabled.reduce((s, r) => s + r.allocationUsd, 0);
             const subject = `All ${enabled.length} enabled trader${enabled.length === 1 ? "" : "s"}`;
-            if (!confirmGoLive(subject, total)) return;
+            setPendingGoLive({
+              subject,
+              amountUsd: total,
+              action: () => mutate("start-all", () =>
+                startCopying(eoa!, { autoExecute: autoExecuteFor(deskMode) }),
+              ),
+            });
+            return;
           }
           mutate("start-all", () =>
             startCopying(eoa!, { autoExecute: autoExecuteFor(deskMode) }),
@@ -491,7 +506,19 @@ export default function CopyDesk() {
               }}
               onStart={() => {
                 const m = modeFor(row);
-                if (m === "LIVE" && !confirmGoLive(row.name, row.allocationUsd)) return;
+                if (m === "LIVE") {
+                  setPendingGoLive({
+                    subject: row.name,
+                    amountUsd: row.allocationUsd,
+                    action: () => mutate(`start:${row.address}`, () =>
+                      startCopying(eoa!, {
+                        address: row.address,
+                        autoExecute: autoExecuteFor(m),
+                      }),
+                    ),
+                  });
+                  return;
+                }
                 mutate(`start:${row.address}`, () =>
                   startCopying(eoa!, {
                     address: row.address,
@@ -511,6 +538,14 @@ export default function CopyDesk() {
             />
           ))}
         </div>
+      )}
+      {pendingGoLive !== null && (
+        <ConfirmGoLive
+          subject={pendingGoLive.subject}
+          amountUsd={pendingGoLive.amountUsd}
+          onConfirm={() => { const a = pendingGoLive.action; setPendingGoLive(null); a(); }}
+          onCancel={() => setPendingGoLive(null)}
+        />
       )}
     </div>
   );

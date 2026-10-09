@@ -26,6 +26,7 @@
   button{cursor:pointer}
   button:hover{border-color:#33465c}
   button.on{border-color:var(--blue);color:#fff}
+  button.pending{color:var(--warn);border-color:var(--warn)}
   button.go{border-color:#2e4a63;background:#12202c}
   main{padding:16px;max-width:1500px;margin:0 auto}
   section{display:none} section.on{display:block}
@@ -491,6 +492,20 @@ async function poll(id, total) {
 }
 
 // ── corpora ────────────────────────────────────────────────────
+let _pendingAttackDel = null;
+let _pendingDefenseDel = null;
+document.addEventListener('click', e => {
+  if (!e.target.matches('#attack-list button[data-del]') && _pendingAttackDel !== null) {
+    const btn = document.querySelector(`#attack-list button[data-del="${CSS.escape(_pendingAttackDel)}"]`);
+    if (btn) { btn.textContent = '×'; btn.classList.remove('pending'); }
+    _pendingAttackDel = null;
+  }
+  if (!e.target.matches('#defense-list button[data-del]') && _pendingDefenseDel !== null) {
+    const btn = document.querySelector(`#defense-list button[data-del="${CSS.escape(_pendingDefenseDel)}"]`);
+    if (btn) { btn.textContent = '×'; btn.classList.remove('pending'); }
+    _pendingDefenseDel = null;
+  }
+});
 async function loadAttacks() {
   const {attacks} = await api('/attacks');
   $('#attack-list').innerHTML = attacks.length ? `<table>
@@ -502,11 +517,22 @@ async function loadAttacks() {
       <td class="muted">${esc((a.goal || '').slice(0, 70))}</td>
       <td><button data-del="${esc(a.id)}">×</button></td></tr>`).join('')}</table>`
     : '<span class="muted">empty.</span>';
-  document.querySelectorAll('#attack-list button[data-del]').forEach(b =>
+  document.querySelectorAll('#attack-list button[data-del]').forEach(b => {
+    b.onmouseleave = () => {
+      if (_pendingAttackDel === b.dataset.del) {
+        _pendingAttackDel = null; b.textContent = '×'; b.classList.remove('pending');
+      }
+    };
     b.onclick = async e => {
       e.stopPropagation();
-      await api('/attacks?id=' + encodeURIComponent(b.dataset.del),
-                {method: 'DELETE'}); loadAttacks(); });
+      if (_pendingAttackDel === b.dataset.del) {
+        await api('/attacks?id=' + encodeURIComponent(b.dataset.del), {method: 'DELETE'});
+        loadAttacks();
+      } else {
+        _pendingAttackDel = b.dataset.del; b.textContent = 'CONFIRM?'; b.classList.add('pending');
+      }
+    };
+  });
   $('#attack-list').querySelectorAll('tr[data-idx]').forEach(tr => {
     tr.onclick = () => {
       const idx = Number(tr.dataset.idx);
@@ -570,11 +596,22 @@ async function loadDefenses() {
         (d.system_prompt || '').length > 60 ? '…' : ''}</td>
       <td>${d.builtin ? '<span class="pill">built-in</span>'
         : `<button data-del="${esc(d.id)}">×</button>`}</td></tr>`).join('')}</table>`;
-  document.querySelectorAll('#defense-list button[data-del]').forEach(b =>
+  document.querySelectorAll('#defense-list button[data-del]').forEach(b => {
+    b.onmouseleave = () => {
+      if (_pendingDefenseDel === b.dataset.del) {
+        _pendingDefenseDel = null; b.textContent = '×'; b.classList.remove('pending');
+      }
+    };
     b.onclick = async e => {
       e.stopPropagation();
-      await api('/defenses?id=' + encodeURIComponent(b.dataset.del),
-                {method: 'DELETE'}); loadDefenses(); });
+      if (_pendingDefenseDel === b.dataset.del) {
+        await api('/defenses?id=' + encodeURIComponent(b.dataset.del), {method: 'DELETE'});
+        loadDefenses();
+      } else {
+        _pendingDefenseDel = b.dataset.del; b.textContent = 'CONFIRM?'; b.classList.add('pending');
+      }
+    };
+  });
   $('#defense-list').querySelectorAll('tr[data-idx]').forEach(tr => {
     tr.onclick = () => {
       const idx = Number(tr.dataset.idx);

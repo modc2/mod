@@ -10,9 +10,10 @@ import { fetchWalletTradesUntil } from "../lib/polymarket";
 import { getOwnerAddress } from "../lib/access";
 import { startLiveSession } from "../lib/liveSessions";
 import {
-  MODE, armedDefault, autoExecuteFor, confirmGoLive, modeOf, type TradingMode,
+  MODE, armedDefault, autoExecuteFor, modeOf, type TradingMode,
 } from "../lib/tradingMode";
 import { ModeSwitch, ModeLegend, NotTradingBanner } from "./ModeControl";
+import ConfirmGoLive from "./ConfirmGoLive";
 import TraderFundsPanel from "./TraderFundsPanel";
 import { useStratStats } from "../lib/stratStats";
 import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE } from "../lib/strats/strat";
@@ -250,6 +251,11 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
 } = {}) {
   const { auth, authenticate, loading: authLoading } = useAuth();
   const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, backendDryRuns, autoExecute, setAutoExecute, attachStrategy, catchUp } = useCopyEngine();
+  const [pendingGoLive, setPendingGoLive] = useState<{
+    subject: string;
+    amountUsd: number | null;
+    action: () => void;
+  } | null>(null);
   // confirm-start flow removed — user wants direct start/stop.
   const [liveCapital, setLiveCapital] = useState(100);
   // Trading-wallet USDC balance — the on-chain "BALANCE" the engine sizes
@@ -739,82 +745,90 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
 
     if (!auth.clobCreds || !auth.address || !activeStrat) return;
 
-    if (mode === "LIVE" && !confirmGoLive(activeStrat.name || "This strat", effectiveCapital)) {
+    const doStart = () => {
+      startLive({
+        strategyId: activeStrat.id,
+        traders: activeStrat.traders.filter((t) => t.enabled !== false),
+        capital: effectiveCapital,
+        intervalMs: livePollMin * 60_000,
+        creds: auth.clobCreds!,
+        address: auth.address!,
+        // Honor the strat's TRADE SIZE floor — was hardcoded to $1 before,
+        // causing every dust mirror to skip with BELOW_MIN_SIZE even when the
+        // user had set MIN TRADE to 0.1 in BACKTEST. Falls back to $5.
+        minOrderSize: activeStrat.minTrade ?? 5,
+        // SIZING → UPSCALE. Only sent when the strat sets it, so the Strat's own
+        // 2× default stays the source of truth otherwise.
+        ...(activeStrat.maxUpscale !== undefined && { maxUpscale: activeStrat.maxUpscale }),
+        // Concurrent open-positions cap — the engine skips a BUY that would
+        // open a NEW token while this many are already held.
+        maxOpenPositions: activeStrat.maxOpenPositions ?? 10,
+        // Per-cycle BUY budget — the same top-N knob the backtest's rank gate
+        // applies (`maxPerCycle`), so a live cycle places at most what the sim
+        // keeps. Exits (leader-sell mirrors, stop-losses) don't count against it.
+        maxPerCycle: activeStrat.maxPerCycle ?? 3,
+        // Per-position stop-loss — the engine sells a hold once its book bid
+        // decays to ≤ this fraction of entry. Defaults to 0.75 (defend three
+        // quarters of entry) so no strat rides a market to 0 unless the user
+        // explicitly set STOP to 0 (sent as 0 → engine treats as off).
+        stopLoss: activeStrat.stopLoss ?? DEFAULT_STOP_LOSS,
+        // Per-position take-profit — the engine liquidates a hold once its bid
+        // runs to this level. Defaults to 0.99 (the top tick): a market at
+        // 100% is decided, sell it instead of parking capital until
+        // resolution + auto-redeem.
+        takeProfit: activeStrat.takeProfit ?? DEFAULT_TAKE_PROFIT,
+        // Ceiling for the proportional sizing. Without this, a single whale
+        // trade from a high-volume trader could blow the proportional mirror
+        // past the user's TRADE SIZE max and chew through capital in one shot.
+        maxOrderSize: activeStrat.maxTrade,
+        // Same lookback the BACKTEST tab uses to compute the per-trader
+        // volume denominator — keeps live copyRatio == backtest scale, so
+        // the preview predicts execution.
+        backtestDays: activeStrat.backtestDays ?? 3,
+        maxSlippageBps: 300,
+        // Strat market-topic filter — only mirror trades in matching markets.
+        marketQuery: activeStrat.marketQuery,
+        // Semantic per-trade filters (side / price band / size band / category).
+        tradeFilters: activeStrat.tradeFilters,
+        // "Just copy the buys" — false stops leader SELLs from mirroring and
+        // turns off the leader-flat sweep; stop-loss / take-profit / redeem
+        // own every exit. Only sent when the strat sets it, so the engine's
+        // own default (true) stays the source of truth otherwise.
+        ...(activeStrat.copySells !== undefined && { copySells: activeStrat.copySells }),
+        // Trader FILTER — copy only the top-ranked traders on the watchlist.
+        filter: activeStrat.filter,
+        // Price-momentum origination — buys rising outcomes, no watchlist needed.
+        momentum: activeStrat.momentum,
+        // Whatever the TEST|LIVE switch above the button says — never inferred
+        // here. The server's own default (false) is deliberately not relied on:
+        // an omitted flag is how a funded session ends up silently in TEST.
+        autoExecute: autoExecuteFor(mode),
+      });
+      updateIndex(activeStrat.id, {
+        liveEnabled: true,
+        // Never persist a $0 balance into the strat — strat.capital doubles as
+        // the BACKTEST tab's simulated capital, and 0 would zero out every
+        // simulated trade there.
+        capital: effectiveCapital,
+        // Persist both for backwards compat — `rebalanceMinutes` is the
+        // canonical field the STRAT panel writes; we mirror it into
+        // `livePollMinutes` so older code paths keep working.
+        rebalanceMinutes: livePollMin,
+        livePollMinutes: livePollMin,
+        updatedAt: Date.now(),
+      });
+    };
+
+    if (mode === "LIVE") {
+      setPendingGoLive({
+        subject: activeStrat.name || "This strat",
+        amountUsd: effectiveCapital,
+        action: doStart,
+      });
       return;
     }
 
-    startLive({
-      strategyId: activeStrat.id,
-      traders: activeStrat.traders.filter((t) => t.enabled !== false),
-      capital: effectiveCapital,
-      intervalMs: livePollMin * 60_000,
-      creds: auth.clobCreds,
-      address: auth.address,
-      // Honor the strat's TRADE SIZE floor — was hardcoded to $1 before,
-      // causing every dust mirror to skip with BELOW_MIN_SIZE even when the
-      // user had set MIN TRADE to 0.1 in BACKTEST. Falls back to $5.
-      minOrderSize: activeStrat.minTrade ?? 5,
-      // SIZING → UPSCALE. Only sent when the strat sets it, so the Strat's own
-      // 2× default stays the source of truth otherwise.
-      ...(activeStrat.maxUpscale !== undefined && { maxUpscale: activeStrat.maxUpscale }),
-      // Concurrent open-positions cap — the engine skips a BUY that would
-      // open a NEW token while this many are already held.
-      maxOpenPositions: activeStrat.maxOpenPositions ?? 10,
-      // Per-cycle BUY budget — the same top-N knob the backtest's rank gate
-      // applies (`maxPerCycle`), so a live cycle places at most what the sim
-      // keeps. Exits (leader-sell mirrors, stop-losses) don't count against it.
-      maxPerCycle: activeStrat.maxPerCycle ?? 3,
-      // Per-position stop-loss — the engine sells a hold once its book bid
-      // decays to ≤ this fraction of entry. Defaults to 0.75 (defend three
-      // quarters of entry) so no strat rides a market to 0 unless the user
-      // explicitly set STOP to 0 (sent as 0 → engine treats as off).
-      stopLoss: activeStrat.stopLoss ?? DEFAULT_STOP_LOSS,
-      // Per-position take-profit — the engine liquidates a hold once its bid
-      // runs to this level. Defaults to 0.99 (the top tick): a market at
-      // 100% is decided, sell it instead of parking capital until
-      // resolution + auto-redeem.
-      takeProfit: activeStrat.takeProfit ?? DEFAULT_TAKE_PROFIT,
-      // Ceiling for the proportional sizing. Without this, a single whale
-      // trade from a high-volume trader could blow the proportional mirror
-      // past the user's TRADE SIZE max and chew through capital in one shot.
-      maxOrderSize: activeStrat.maxTrade,
-      // Same lookback the BACKTEST tab uses to compute the per-trader
-      // volume denominator — keeps live copyRatio == backtest scale, so
-      // the preview predicts execution.
-      backtestDays: activeStrat.backtestDays ?? 3,
-      maxSlippageBps: 300,
-      // Strat market-topic filter — only mirror trades in matching markets.
-      marketQuery: activeStrat.marketQuery,
-      // Semantic per-trade filters (side / price band / size band / category).
-      tradeFilters: activeStrat.tradeFilters,
-      // "Just copy the buys" — false stops leader SELLs from mirroring and
-      // turns off the leader-flat sweep; stop-loss / take-profit / redeem
-      // own every exit. Only sent when the strat sets it, so the engine's
-      // own default (true) stays the source of truth otherwise.
-      ...(activeStrat.copySells !== undefined && { copySells: activeStrat.copySells }),
-      // Trader FILTER — copy only the top-ranked traders on the watchlist.
-      filter: activeStrat.filter,
-      // Price-momentum origination — buys rising outcomes, no watchlist needed.
-      momentum: activeStrat.momentum,
-      // Whatever the TEST|LIVE switch above the button says — never inferred
-      // here. The server's own default (false) is deliberately not relied on:
-      // an omitted flag is how a funded session ends up silently in TEST.
-      autoExecute: autoExecuteFor(mode),
-    });
-
-    updateIndex(activeStrat.id, {
-      liveEnabled: true,
-      // Never persist a $0 balance into the strat — strat.capital doubles as
-      // the BACKTEST tab's simulated capital, and 0 would zero out every
-      // simulated trade there.
-      capital: effectiveCapital,
-      // Persist both for backwards compat — `rebalanceMinutes` is the
-      // canonical field the STRAT panel writes; we mirror it into
-      // `livePollMinutes` so older code paths keep working.
-      rebalanceMinutes: livePollMin,
-      livePollMinutes: livePollMin,
-      updatedAt: Date.now(),
-    });
+    doStart();
   }, [isLive, auth, activeStrat, effectiveCapital, hasCapital, livePollMin, mode, startLive, stopLive]);
 
   const status = engineState?.status || "stopped";
@@ -2339,6 +2353,14 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
           (auto-hides itself when balance is 0). */}
 
       </div>{/* /content column */}
+      {pendingGoLive !== null && (
+        <ConfirmGoLive
+          subject={pendingGoLive.subject}
+          amountUsd={pendingGoLive.amountUsd}
+          onConfirm={() => { const a = pendingGoLive.action; setPendingGoLive(null); a(); }}
+          onCancel={() => setPendingGoLive(null)}
+        />
+      )}
     </div>
   );
 }

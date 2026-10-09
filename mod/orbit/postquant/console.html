@@ -966,6 +966,10 @@ function goBlock(h) {
   document.querySelector('nav button[data-tab="chain"]').click();
   $('insp-q').value = h; $('insp-btn').click();
 }
+function goInspect(hash) {
+  document.querySelector('nav button[data-tab="chain"]').click();
+  $('insp-q').value = hash; $('insp-btn').click();
+}
 $('insp-btn').onclick = async () => {
   const q = $('insp-q').value.trim();
   if (!q) return;
@@ -1078,7 +1082,7 @@ async function loadHistory() {
       }).join('') + '</table>');
     document.querySelectorAll('#hist-out .hist-tx').forEach(a => a.onclick = ev => {
       ev.preventDefault();
-      $('insp-q').value = a.dataset.h; $('insp-btn').click();
+      goInspect(a.dataset.h);
     });
   } catch (e) { err('hist-out', e); }
 }
@@ -1214,7 +1218,7 @@ $('acct-btn').onclick = async () => {
       (a.keys.length ? entryRows(a.keys) : ''));
     document.querySelectorAll('#acct-out .acct-pending-tx').forEach(lnk => lnk.onclick = ev => {
       ev.preventDefault();
-      $('insp-q').value = lnk.dataset.h; $('insp-btn').click();
+      goInspect(lnk.dataset.h);
     });
     document.querySelectorAll('#acct-out tr.click').forEach(tr => tr.onclick = () => {
       $('get-key').value = tr.dataset.k; $('check-key').value = tr.dataset.k;

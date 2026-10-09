@@ -68,9 +68,11 @@ import { useCopyBook } from "../lib/useCopyBook";
 import type { CopyBookRow } from "../lib/copyBook";
 import { identityStrat, shortAddress } from "../lib/identityStrat";
 import { useHubBacktests, HUB_WINDOWS, type HubBacktest } from "../lib/hubBacktest";
-import { MODE, MODES, confirmGoLive, type TradingMode } from "../lib/tradingMode";
+import { MODE, MODES, type TradingMode } from "../lib/tradingMode";
+import ConfirmGoLive from "./ConfirmGoLive";
 import { type CompiledGate } from "../lib/semanticFilter";
-import { confirmGate, gatePatch } from "../lib/armGate";
+import { gatePatch } from "../lib/armGate";
+import ConfirmGate from "./ConfirmGate";
 import CopyTradesPanel from "./CopyTradesPanel";
 import { OPEN_MONEY_EVENT } from "./MoneyBlock";
 
@@ -163,11 +165,26 @@ function CopyBookBody() {
   /** SPLIT only exists with something to split across. */
   const many = rows.length > 1;
 
-  /** Arm a typed sentence as a real gate, on the whole book. The confirm is
-      shared with /copy/trades (lib/armGate.ts) so both say the same thing. */
-  const armGate = async (gate: CompiledGate) => {
+  const [pendingGoLive, setPendingGoLive] = useState<{
+    subject: string;
+    amountUsd: number | null;
+    action: () => void;
+  } | null>(null);
+
+  const [pendingGate, setPendingGate] = useState<{
+    gate: CompiledGate;
+    names: string[];
+  } | null>(null);
+
+  /** Arm a typed sentence as a real gate, on the whole book. Shows a themed
+      modal instead of window.confirm(); confirm handler runs the allocations. */
+  const armGate = (gate: CompiledGate) => {
     const names = rows.map((r) => r.label?.trim() || shortAddress(r.address));
-    if (!confirmGate(gate, names)) return;
+    if (names.length === 0 || !gate.any) return;
+    setPendingGate({ gate, names });
+  };
+
+  const commitGate = async (gate: CompiledGate) => {
     for (const row of rows) {
       await allocate(row.address, row.allocationUsd, undefined, gatePatch(gate));
     }
@@ -225,7 +242,14 @@ function CopyBookBody() {
             className="pixel-btn btn-xs flex-1"
             disabled={busy !== null || !eoa || rows.length === 0}
             onClick={() => {
-              if (deskMode === "LIVE" && !confirmGoLive(`all ${rows.length} traders`, allocated)) return;
+              if (deskMode === "LIVE") {
+                setPendingGoLive({
+                  subject: `all ${rows.length} traders`,
+                  amountUsd: allocated,
+                  action: () => void start(undefined, deskMode),
+                });
+                return;
+              }
               void start(undefined, deskMode);
             }}
             title={eoa ? `Start every enabled trader in ${MODE[deskMode].label}` : "Sign in a wallet first"}
@@ -277,7 +301,14 @@ function CopyBookBody() {
               onAllocate={(usd) => void allocate(row.address, usd)}
               onResume={() => void setEnabled(row, true)}
               onStart={() => {
-                if (deskMode === "LIVE" && !confirmGoLive(row.name, row.allocationUsd)) return;
+                if (deskMode === "LIVE") {
+                  setPendingGoLive({
+                    subject: row.name,
+                    amountUsd: row.allocationUsd,
+                    action: () => void start(row.address, deskMode),
+                  });
+                  return;
+                }
                 void start(row.address, deskMode);
               }}
               onStop={() => void stop(row.address)}
@@ -421,6 +452,22 @@ function CopyBookBody() {
           </div>
         </div>
       </Section>
+      {pendingGoLive !== null && (
+        <ConfirmGoLive
+          subject={pendingGoLive.subject}
+          amountUsd={pendingGoLive.amountUsd}
+          onConfirm={() => { const a = pendingGoLive.action; setPendingGoLive(null); a(); }}
+          onCancel={() => setPendingGoLive(null)}
+        />
+      )}
+      {pendingGate !== null && (
+        <ConfirmGate
+          gate={pendingGate.gate}
+          names={pendingGate.names}
+          onConfirm={() => { const g = pendingGate.gate; setPendingGate(null); void commitGate(g); }}
+          onCancel={() => setPendingGate(null)}
+        />
+      )}
     </div>
   );
 }

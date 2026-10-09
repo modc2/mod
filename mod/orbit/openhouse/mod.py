@@ -427,8 +427,8 @@ class Mod:
             'principal': round(credit, 8),
             'fees_paid': round(fees, 8),
             'equity_pct': round(credit / price * 100, 4) if price > 0 else 0.0,
-            'remaining': round(max(price - credit, 0.0), 8) if price > 0 else 0.0,
-            'fully_owned': bool(price > 0 and credit >= price),
+            'remaining': round(max(price - self._principal_paid_total(), 0.0), 8) if price > 0 else 0.0,
+            'fully_owned': bool(price > 0 and self._principal_paid_total() >= price),
         }
 
     def rent_stats(self) -> dict:

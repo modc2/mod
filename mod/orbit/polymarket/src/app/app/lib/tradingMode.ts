@@ -131,36 +131,6 @@ export function liveBlockedReason(canGoLive: boolean): string | null {
     : "No capital behind this yet — fund the trading wallet (or give this trader an allocation) and REAL unlocks.";
 }
 
-function fmtUsd(v: number | null | undefined): string {
-  if (v === null || v === undefined || !Number.isFinite(v)) return "";
-  return `$${Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-}
-
-/** The ONE confirm shown on the way to real money.
- *
- *  Every path to LIVE goes through here — the desk's per-row switch, the
- *  desk's START ALL, the strat workspace's START, the "you are not trading"
- *  banner. Before this, three of those four confirmed and the fourth (a funded
- *  wallet pressing GO LIVE) armed real orders silently. Same words, same
- *  friction, every time.
- *
- *  @param subject what is about to trade — "0xab…cd", "BTC MOMENTUM", "all 4
- *                 enabled traders".
- *  @param amountUsd the money at stake, when the caller knows it.
- */
-export function confirmGoLive(subject: string, amountUsd?: number | null): boolean {
-  const money = fmtUsd(amountUsd);
-  if (typeof window === "undefined") return false;
-  return window.confirm(
-    `REAL MONEY.\n\n` +
-      `${subject} will start placing REAL orders on Polymarket` +
-      (money ? `, sized against ${money}` : "") +
-      `.\n\nFills are real, losses are real, and an order that fills cannot be ` +
-      `taken back. Switching back to PAPER stops new orders — it does not close ` +
-      `positions already open.\n\nTrade for real?`,
-  );
-}
-
 /** Status text for the two axes together, as one chip.
  *
  *  Run state is the noun, mode is the adjective: a stopped session has no
