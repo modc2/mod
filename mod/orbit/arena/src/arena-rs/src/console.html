@@ -2629,7 +2629,7 @@ function playerMatchRow(m, p) {
   const result = solo ? "—" : me.score < top ? "L" : tied ? "D" : "W";
   const faults = [me.illegal ? `${me.illegal} illegal` : "", me.timeouts ? `${me.timeouts} timeouts` : "",
                   me.error ? "error" : ""].filter(Boolean).join(", ");
-  const delta = (me.elo_after ?? 0) - (me.elo_before ?? 0);
+  const delta = me.delta ?? 0;
   const tr = el("tr", { className: "pick" });
   tr.append(
     td("when", { className: "dim", style: "white-space:nowrap",
@@ -3484,7 +3484,7 @@ function drawStage() {
       monogram(x.player_name),
       el("span", { className: "who", textContent: x.player_name }),
       el("span", { className: "dim small", textContent: finished
-        ? `${x.score} pts${x.delta || x.elo_after ? ` · ${Math.round(x.elo_after)} elo` : ""}`
+        ? `${x.score} pts${m.rated ? (() => { const d = Math.round(x.elo_after - x.elo_before); return ` · ${d >= 0 ? "+" : ""}${d} elo`; })() : ""}`
         : `seat ${x.seat}` }),
     ]);
     line.onclick = () => openPlayerPage(x.player_id);

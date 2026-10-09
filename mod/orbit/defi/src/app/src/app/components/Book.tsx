@@ -278,7 +278,7 @@ export default function Book({ say, onOpenModules }: Props) {
                             ? "stops the mirror immediately — exits are never gated; open copied positions are liquidated from the polymarket console"
                             : p.signer === "browser"
                             ? "your own wallet signs the way out — the wallet's confirmation screen is the confirm"
-                            : p.adapter === "swap_receipt" ? "amount is in the receipt token" : p.adapter === "tao_subnet" ? "amount is TAO-equivalent of alpha" : "amount is in the asset; 'all' redeems every share"}
+                            : p.adapter === "swap_receipt" ? "amount is in the receipt token" : p.adapter === "tao_subnet" ? "amount is TAO-equivalent of alpha" : p.adapter === "hl_vault" ? "amount is in USDC; 'all' exits your full vault equity — exits wait out the vault lock-up" : "amount is in the asset; 'all' redeems every share"}
                         </div>
                       </div>
                     )}

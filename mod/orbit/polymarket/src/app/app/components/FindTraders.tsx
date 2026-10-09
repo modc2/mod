@@ -765,7 +765,7 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                         </div>
                       )}
 
-                      <div className={`grid ${score !== null ? "grid-cols-6" : "grid-cols-5"} gap-1`}>
+                      <div className={`grid ${score !== null ? "grid-cols-7" : "grid-cols-6"} gap-1`}>
                         <Stat
                           label="ROI"
                           active={ran.sort === "roi"}
@@ -800,6 +800,26 @@ export default function FindTraders({ onAdd, onBasket, inBasket, busy, existing 
                             t.winRate < 0
                               ? "No positions settled in this window yet — unknown, not zero."
                               : `Share of the ${t.decidedPositions} position(s) that SETTLED in this window and returned more than they cost. Counts positions that expired worthless, which leave no sell and no redeem.${
+                                  t.decidedPositions < THIN_SAMPLE
+                                    ? " Thin sample — treat as noise."
+                                    : ""
+                                }`
+                          }
+                        />
+                        <Stat
+                          label="RESOLVE"
+                          active={ran.sort === "resolveRate"}
+                          value={t.resolveRate < 0 ? "—" : `${Math.round(t.resolveRate * 100)}%`}
+                          sub={
+                            t.resolveRate < 0
+                              ? "not settled yet"
+                              : `of ${t.decidedPositions}`
+                          }
+                          dim={t.resolveRate >= 0 && t.decidedPositions < THIN_SAMPLE}
+                          title={
+                            t.resolveRate < 0
+                              ? "No positions settled in this window yet — unknown, not zero."
+                              : `Buy-and-hold hit rate — share of the ${t.decidedPositions} settled position(s) that rode to YES ($1 resolution) rather than exiting early.${
                                   t.decidedPositions < THIN_SAMPLE
                                     ? " Thin sample — treat as noise."
                                     : ""

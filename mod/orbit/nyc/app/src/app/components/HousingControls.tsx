@@ -15,11 +15,12 @@ type Props = {
  * window against the equally-long window immediately before it, so a preset is
  * a statement about both halves of the comparison.
  */
+const _y = new Date().getFullYear()
 const WINDOWS: { label: string; hud: string; since: string; hint: string }[] = [
   // `hud` is the button face and is ASCII-only: it renders in Press Start 2P,
   // which has no en dash. `label` is the prose form used in the note below.
-  { label: '2025–now', hud: '2025-NOW', since: '2025-01-01', hint: 'vs the year before' },
-  { label: '2024–now', hud: '2024-NOW', since: '2024-01-01', hint: 'vs 2022–23' },
+  { label: `${_y}–now`, hud: `${_y}-NOW`, since: `${_y}-01-01`, hint: 'vs the year before' },
+  { label: `${_y - 1}–now`, hud: `${_y - 1}-NOW`, since: `${_y - 1}-01-01`, hint: `vs ${_y - 3}–${String(_y - 2).slice(-2)}` },
   { label: '2022–now', hud: '2022-NOW', since: '2022-01-01', hint: 'vs 2019–21' },
   { label: 'All (2016–)', hud: 'ALL 2016+', since: '2016-01-01', hint: 'whole record' },
 ]

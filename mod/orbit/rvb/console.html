@@ -345,7 +345,7 @@ async function loadRounds() {
 
 async function showRound(id) {
   const [r, defs, atks, ctlsData] = await Promise.all([
-    api('/rounds?id=' + encodeURIComponent(id)),
+    api('/rounds?id=' + encodeURIComponent(id) + '&verbose=1'),
     api('/defenses'),
     api('/attacks'),
     api('/controls'),

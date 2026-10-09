@@ -232,7 +232,11 @@ class Mod:
         t['quarter_seconds'] = self.QUARTER_SECONDS
         m_ = self._model(t.get('model'))
         t['model_name'] = m_['name'] if m_ else 'Custom'
-        t['custom'] = bool(m_ and abs(credit_pct - m_['credit_pct']) > 1e-9)
+        option_fee_pct = float(t.get('option_fee_pct', 0))
+        t['custom'] = bool(m_ and (
+            abs(credit_pct - m_['credit_pct']) > 1e-9 or
+            abs(option_fee_pct - m_['option_fee_pct']) > 1e-9
+        ))
         return t
 
     def set_terms(self, model=None, fee_pct=None, credit_pct=None,

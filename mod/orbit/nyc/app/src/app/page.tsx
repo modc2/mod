@@ -78,7 +78,7 @@ export default function Page() {
   const [query, setQuery] = useState<HousingQuery>({
     metric: 'median_price',
     geography: 'nta',
-    since: '2024-01-01',
+    since: `${new Date().getFullYear()}-01-01`,
     property_type: 'residential',
   })
 
@@ -90,7 +90,7 @@ export default function Page() {
   const scene = useAgentScene({
     defaults: {
       layers: (catalog?.layers ?? []).filter((l) => l.default_on).map((l) => l.id),
-      query: { metric: 'median_price', geography: 'nta', since: '2024-01-01', property_type: 'residential' },
+      query: { metric: 'median_price', geography: 'nta', since: `${new Date().getFullYear()}-01-01`, property_type: 'residential' },
       basemap: 'dark',
     },
     setActive, setQuery, setBasemap, setFlyTo,

@@ -1070,7 +1070,7 @@ async function loadHistory() {
     if (!items.length) { out('hist-out', '<span class="muted">no transactions found.</span>'); return; }
     out('hist-out',
       '<table><tr><th class="num">height</th><th>tx hash</th><th>kind</th>' +
-      '<th>from</th><th>key / to</th><th class="num">fee</th></tr>' +
+      '<th>from</th><th>key / to</th><th class="num">fee</th><th class="num">age</th></tr>' +
       items.map(item => {
         const h = esc(item.hash || '');
         const kt = esc(item.key || item.to || '');
@@ -1081,6 +1081,7 @@ async function loadHistory() {
           `<td class="mono addr">${short(item.from, 12)}</td>` +
           `<td class="mono muted">${short(kt, 14)}</td>` +
           `<td class="num amt">${esc(pq(item.receipt?.fee) ?? '')}</td>` +
+          `<td class="num muted">${item.timestamp ? ago(Math.floor(Date.now()/1000) - item.timestamp) : ''}</td>` +
           `</tr>`;
       }).join('') + '</table>');
     document.querySelectorAll('#hist-out .hist-tx').forEach(a => a.onclick = ev => {
