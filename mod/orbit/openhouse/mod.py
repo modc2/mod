@@ -1236,9 +1236,30 @@ class Mod:
         blocked = self._bank_gate(key, connection=connection)
         if blocked:
             return blocked
+        if dry_run:
+            def _record_dry(renter, units, kind, source):
+                if not renter:
+                    return {'error': 'Renter address required'}
+                blk = self._civic_block()
+                if blk:
+                    return blk
+                _prop = self._load_properties().get('default', {})
+                if _prop and not _prop.get('is_active', True):
+                    return {'error': 'Property is not active'}
+                split = self.quote(units, kind=kind)
+                if 'error' in split:
+                    return split
+                t = self.terms()
+                price = float(t['home_price'])
+                if price > 0 and self._principal_paid_total() >= price:
+                    return {'error': 'Home already paid off'}
+                return {'success': True, 'dry_run': True, 'renter': renter}
+            record_fn = _record_dry
+        else:
+            record_fn = lambda renter, units, kind, source: self.pay_rent(renter, units, kind=kind, source=source)
         return self._bank_run(
             self._bank().reconcile,
-            record=lambda renter, units, kind, source: self.pay_rent(renter, units, kind=kind, source=source),
+            record=record_fn,
             to_units=lambda amount, ccy: self._to_eth(amount, ccy, rate),
             conn_id=connection, account=account, since=int(since or 0), dry_run=bool(dry_run))
 

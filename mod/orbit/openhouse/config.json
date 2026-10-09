@@ -87,6 +87,6 @@
         "auth": "none",
         "docs": "Model Context Protocol (JSON-RPC 2.0 over Streamable HTTP) tool server for LLM agents \u2014 POST /mcp on the API, 46 tools. Start: openhouse_examples / openhouse_run_example (testnet walkthroughs, each a transcript of real tool calls, run in a throwaway store). Reads: openhouse_terms, quote, models, status, property, rent_stats, rent_ledger, equity, shareholders, portfolio, dividends, civic, landscape, source, fx. Writes (testnet bookkeeping, no signed transactions): openhouse_pay_rent, purchase, set_terms, claim_owner, distribute, toggle_active, transfer_authority, civic_charter, civic_override, civic_resign. Banks (any bank): openhouse_bank_kinds, bank_status, bank_connect, bank_disconnect, bank_accounts, bank_transactions, bank_import, bank_receive, bank_reference, bank_link, bank_unlink, bank_links, bank_reconcile, bank_pay \u2014 adapters: sandbox (testnet, open), statement (camt.053/MT940/OFX/CSV in, ISO 20022 pain.001 out), openbanking (Berlin Group PSD2 / UK OBIE), mcp (a bank's own MCP server). Non-sandbox banks need the operator key (~/.mod/openhouse/bank_key, never served). Pool: openhouse_pool (quarter accruing now), pool_history (closed quarters), close_quarter (freeze + lock split), pool_claim (pull an address's share), bloctime (locked liquidity and earned weight for one address)."
     },
-    "schema": "QmQWQ2agT7HyxHamGssJ7ZXD85aAEgzScnEH9ixwApNfEw",
+    "schema": "QmUENRMn7aq9evjqgpTSTFG99GhWDYSLqJEjxDSQVLCyH2",
     "gateway_port": 50131
 }

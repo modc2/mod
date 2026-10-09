@@ -415,16 +415,27 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
                 now={new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()}
               />
             </div>
-            <Meta rows={[
-              ['Vehicles per day', count(p.daily)],
-              ['At the peak', `${count(p.peak_vph)}/hr`],
-              ['At the lull', `${count(p.calm_vph)}/hr`],
-              ['Morning peak', `${count(p.am_peak_vph)}/hr`],
-              ['Evening peak', `${count(p.pm_peak_vph)}/hr`],
-              ['Direction', p.direction_label || p.direction],
-              ['Between', [p.from, p.to].filter(Boolean).join(' and ')],
-              ['Borough', p.borough],
-            ]} />
+            {(() => {
+              const quietHours: number[] = (() => {
+                const raw = p.quiet_hours
+                const arr = typeof raw === 'string' ? safeParse(raw) : raw
+                return Array.isArray(arr) ? arr.map(Number) : []
+              })()
+              const showQuiet = quietHours.length > 1
+              return (
+                <Meta rows={[
+                  ['Vehicles per day', count(p.daily)],
+                  ['At the peak', `${count(p.peak_vph)}/hr`],
+                  ['At the lull', `${count(p.calm_vph)}/hr`],
+                  ['Morning peak', `${count(p.am_peak_vph)}/hr`],
+                  ['Evening peak', `${count(p.pm_peak_vph)}/hr`],
+                  ['Direction', p.direction_label || p.direction],
+                  ['Between', [p.from, p.to].filter(Boolean).join(' and ')],
+                  ['Borough', p.borough],
+                  ...(showQuiet ? [['Low-traffic windows', quietHours.map(h => hourLabel(h)).join(', ')]] : []),
+                ]} />
+              )
+            })()}
             <p className="text-[10.5px] leading-snug text-nes-ink3">
               A typical day, averaged over every DOT count here since 2022 —
               not a forecast, and it can’t know about today’s crash or game.

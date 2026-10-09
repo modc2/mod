@@ -1993,7 +1993,11 @@ function renderFleetPickers() {
   })) : [el("option", { value: "", textContent: "no fleet modules found" })]));
   const agents = fleetCard?.agents || [];
   $("p-agent").replaceChildren(...(agents.length
-    ? agents.map((a) => el("option", { value: a, textContent: a }))
+    ? agents.map((a) => {
+        const id = typeof a === "string" ? a : (a.id || String(a));
+        const label = typeof a === "string" ? a : (a.name || a.id || String(a));
+        return el("option", { value: id, textContent: label });
+      })
     : [el("option", { value: "", textContent: "the agent module is not answering" })]));
   fleetTools();
 }

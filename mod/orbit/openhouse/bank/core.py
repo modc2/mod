@@ -461,12 +461,12 @@ class Bank:
                       'matched_by': hit['by'], 'booked_at_bank': t['date']}
             row = {**t, 'renter': hit['address'], 'kind': hit['kind'],
                    'units': conv['units'], 'rate': conv['rate'], 'matched_by': hit['by']}
-            if dry_run:
-                booked.append(row)
-                continue
             res = record(hit['address'], conv['units'], hit['kind'], source)
             if isinstance(res, dict) and 'error' in res:
                 held.append({**row, 'reason': res['error']})
+                continue
+            if dry_run:
+                booked.append(row)
                 continue
             done[key] = {'renter': hit['address'], 'units': conv['units'],
                          'fiat': t['amount'], 'currency': t['currency'],

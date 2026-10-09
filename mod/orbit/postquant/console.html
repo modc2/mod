@@ -736,6 +736,7 @@ function ago(secs) {
   if (secs < 129600) return Math.round(secs/3600) + 'h';
   return Math.round(secs/86400) + 'd';
 }
+let _chainTimer = null;
 // The two stat strips keep their flex class; everything else is replaced.
 const out = (id, html, cls) => { const e = $(id);
   e.className = e.classList.contains('stats') ? 'stats' : (cls || '');
@@ -749,6 +750,8 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('main > section').forEach(x => x.classList.remove('on'));
   b.classList.add('on'); $(b.dataset.tab).classList.add('on');
   $('wp-help').classList.toggle('show', b.dataset.tab === 'about');
+  clearInterval(_chainTimer); _chainTimer = null;
+  if (b.dataset.tab === 'chain') _chainTimer = setInterval(loadChain, 5000);
   ({chain: loadChain, ask: loadAsk, store: loadKeys, market: loadMarket,
     wallet: () => { loadWallets(); loadAlgos(); },
     write: fillWallets}[b.dataset.tab] || (()=>{}))();
@@ -1033,7 +1036,7 @@ $('get-btn').onclick = async () => {
       (e.listed ? `<b>for sale</b><span class="amt">${esc(pq(e.price))} PQ</span>` : '') +
       `</div>` + (e.commitment ? `<p class="note" style="margin-top:8px">${esc(e.commitment)}</p>` : ''));
     const k = $('get-key').value.trim();
-    if (k) $('hist-key').value = k;
+    if (k) { $('hist-key').value = k; loadHistory(); }
   } catch (e) { err('get-out', e); }
 };
 $('prove-btn').onclick = async () => {
@@ -1363,6 +1366,7 @@ $('x-send').onclick = async () => {
 })();
 
 loadChain(); fillWallets();
+_chainTimer = setInterval(loadChain, 5000);
 </script>
 </body>
 </html>

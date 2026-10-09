@@ -133,7 +133,7 @@ export default function StratDesk({ say }: Props) {
     setPlan(null);
     const body: Record<string, any> = {
       name: picked.name,
-      capital: Number(capital) || 100,
+      capital: Number(capital) || 1000,
     };
     if (eoa.trim()) body.eoa = eoa.trim();
     if (hotkey.trim()) body.hotkey = hotkey.trim();
@@ -293,6 +293,7 @@ export default function StratDesk({ say }: Props) {
                   PLAN — the config {picked.source}&apos;s own live engine takes
                 </div>
                 <div className="strat-form">
+                  <input value={capital} onChange={(e) => setCapital(e.target.value)} placeholder="capital" />
                   {needsEoa && (
                     <input value={eoa} onChange={(e) => setEoa(e.target.value)} placeholder="your master wallet (eoa)" />
                   )}

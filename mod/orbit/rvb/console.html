@@ -425,6 +425,7 @@ async function showRound(id) {
         `<div class="stage"><b>${esc(s.stage)}</b>
          <span>${esc(s.rule || s.action)}</span>
          <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
+        ${m.judge_fallback ? `<div class="err" style="margin-top:4px">⚠ judge fell back: ${esc(m.judge_fallback)}</div>` : ''}
         <pre style="margin-top:6px">${esc(m.response || m.error || '')}</pre>`;
       tr.after(detail);
     };
@@ -714,6 +715,7 @@ $('#f-go').onclick = async () => {
         <span class="pill">${m.ms || 0} ms</span>
       </div>
       <div class="muted">${esc(m.reason || m.error || '')}</div>
+      ${m.judge_fallback ? `<div class="err" style="margin-top:4px">⚠ judge fell back to heuristic: ${esc(m.judge_fallback)}</div>` : ''}
       ${(m.stages || []).map(s => `<div class="stage"><b>${esc(s.stage)}</b>
         <span>${esc(s.rule || s.action)}</span>
         <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}

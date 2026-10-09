@@ -15,7 +15,7 @@ import {
 import { ModeSwitch, ModeLegend, NotTradingBanner } from "./ModeControl";
 import ConfirmGoLive from "./ConfirmGoLive";
 import TraderFundsPanel from "./TraderFundsPanel";
-import { useStratStats } from "../lib/stratStats";
+import { useStratStats, fmtUsd } from "../lib/stratStats";
 import { DEFAULT_STOP_LOSS, DEFAULT_TAKE_PROFIT, MIN_POLL_MINUTES, DEFAULT_MIN_MINUTES_TO_CLOSE } from "../lib/strats/strat";
 import PortfolioPanel from "./PortfolioPanel";
 import PositionsHistoryPanel from "./PositionsHistoryPanel";
@@ -1539,6 +1539,21 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               value={String(engineState.cycleCount)}
               tone="white"
             />
+            {(() => {
+              const money = stratMoney[activeStrat?.id ?? ""];
+              const pnl = money?.totalPnl ?? 0;
+              const tone: "green" | "red" | "white" = pnl > 0 ? "green" : pnl < 0 ? "red" : "white";
+              const gross = money?.realized ?? 0;
+              const fees = money?.fees ?? 0;
+              return (
+                <StatCard
+                  label="SESSION P&L"
+                  value={`${pnl > 0 ? "+" : ""}${fmtUsd(pnl)}`}
+                  tone={tone}
+                  title={`Net realized P&L for this session: ${fmtUsd(gross)} gross − ${fmtUsd(fees)} fees`}
+                />
+              );
+            })()}
             <StatCard
               label="NEXT IN"
               value={formatCountdown(nextIn)}
@@ -2258,6 +2273,18 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
                                     <span className="text-pixel-gray"> ({((t.price * t.size * 100) / lead.notional).toFixed(1)}% of theirs)</span>
                                   )}
                                   {" · lag "}{formatAgoShort(t.timestamp - lead.timestamp)}
+                                  {t.side === "BUY" && (() => {
+                                    const slipCents = Math.round((t.price - lead.price) * 100);
+                                    const color = slipCents > 2 ? "text-amber-400" : slipCents <= 0 ? "text-green-400" : "text-pixel-gray-light";
+                                    return (
+                                      <span
+                                        className={color}
+                                        title={`Price I paid (${Math.round(t.price * 100)}¢) vs leader's fill (${Math.round(lead.price * 100)}¢) — positive = I paid more, negative = I paid less (limit order landed inside the spread)`}
+                                      >
+                                        {" · slip "}{slipCents >= 0 ? "+" : ""}{slipCents}¢
+                                      </span>
+                                    );
+                                  })()}
                                 </span>
                               ) : (
                                 <span className="text-pixel-gray/70" title="No leader trade in the live buffer matches this fill (same market + side within 30 min). Either it aged out, or this was a manual / redeem / rotation trade rather than a copy.">
