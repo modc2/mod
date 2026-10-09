@@ -2138,7 +2138,10 @@ impl Finance {
             "hl_vault" => {
                 let vault = receipt.get("address").and_then(|v| v.as_str()).unwrap_or("");
                 match dex.peer("hyperliquid", "hl_vault_details", json!({ "address": vault, "user": position.account }), token).await {
-                    Ok(d) => json!({ "vault": vault, "follower": d.get("follower").cloned().unwrap_or(d), "basis": "hl_vault_details with user= — your equity and max withdrawable, marked at account value" }),
+                    Ok(d) => {
+                        let max_w = d.get("maxWithdrawable").and_then(|v| v.as_str()).unwrap_or("—");
+                        json!({ "vault": vault, "assets": max_w, "symbol": "USDC", "basis": "hl_vault_details with user= — max withdrawable USDC, marked at account value" })
+                    }
                     Err(e) => json!({ "error": e, "note": "the hyperliquid module is not answering — your equity is still in the vault" }),
                 }
             }

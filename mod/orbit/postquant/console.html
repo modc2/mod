@@ -1272,6 +1272,8 @@ $('w-quote').onclick = async () => {
       (q.occupied ? `<b class="warn">occupied</b><span class="warn">held by ` +
         `${short(q.occupied.owner, 14)} for another ${ago(q.occupied.expires_in)}</span>` : '') +
       (q.affordable ? `<b>you hold</b><span class="amt">${esc(q.affordable.pq ?? q.affordable)} PQ</span>` : '') +
+      (q.affordable && q.total && q.affordable.nq < q.total.nq ?
+        `<b class="warn">insufficient</b><span class="warn">need ${esc(pq(q.total))} PQ, hold ${esc(pq(q.affordable))} PQ</span>` : '') +
       `</div><p class="note" style="margin-top:8px">bond: ${esc(q.rent.bounty_is)}</p>`);
   } catch (e) { err('w-out', e); }
 };

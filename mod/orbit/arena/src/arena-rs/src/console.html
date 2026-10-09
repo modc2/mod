@@ -2513,7 +2513,7 @@ async function openPlayerPage(id) {
   $("pl-kind").textContent = p.model || p.kind;
   // An agent of the protocol has a page of its own, schema and all.
   $("pl-page").hidden = p.kind !== "agent_mod";
-  $("pl-page").href = `/arena/agent/${encodeURIComponent(p.id)}`;
+  $("pl-page").href = `/arena/agent/${encodeURIComponent(p.name)}`;
   $("pl-note").textContent = p.note || "";
   const meta = [`id ${p.id}`, `entered ${when(p.created)}`, `last played ${when(p.last_played)}`];
   if (p.owner) meta.push(`owner ${p.owner}`);

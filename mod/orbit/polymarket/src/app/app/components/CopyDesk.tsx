@@ -46,6 +46,7 @@ import {
   type TradingMode,
 } from "../lib/tradingMode";
 import ConfirmGoLive from "./ConfirmGoLive";
+import ConfirmAction from "./ConfirmAction";
 import { ModeSwitch, SessionChip } from "./ModeControl";
 import { identityStrat, shortAddress } from "../lib/identityStrat";
 import { useHubBacktests, HUB_WINDOWS, type HubBacktest } from "../lib/hubBacktest";
@@ -797,7 +798,18 @@ function OtherSessions({
   busy: string | null;
   onStop: (strategyId: string) => void;
 }) {
+  const [confirmStop, setConfirmStop] = useState<string | null>(null);
   return (
+    <>
+    {confirmStop !== null && (
+      <ConfirmAction
+        title="STOP SESSION"
+        body={`Stop session ${confirmStop}? Open positions are left alone.`}
+        confirmLabel="STOP"
+        onConfirm={() => { onStop(confirmStop); setConfirmStop(null); }}
+        onCancel={() => setConfirmStop(null)}
+      />
+    )}
     <div className="pixel-panel-amber p-3 space-y-2">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <div className="font-mono text-[11px] tracking-[0.14em] text-amber-400">
@@ -843,9 +855,7 @@ function OtherSessions({
             <button
               className="pixel-btn btn-xs border-red-500 text-red-400"
               disabled={busy !== null}
-              onClick={() => {
-                if (window.confirm(`Stop session ${s.strategyId}? Open positions are left alone.`)) onStop(s.strategyId);
-              }}
+              onClick={() => setConfirmStop(s.strategyId)}
               title="Stop this session. Open positions are left alone."
             >
               STOP
@@ -855,6 +865,7 @@ function OtherSessions({
         );
       })}
     </div>
+    </>
   );
 }
 

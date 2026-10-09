@@ -736,6 +736,17 @@ $('#f-go').onclick = async () => {
       };
       $('#f-out').appendChild(btn);
     }
+    if (customDefText && (m.verdict === 'BLOCKED' || m.verdict === 'DEFLECTED')) {
+      const btn = document.createElement('button');
+      btn.textContent = '→ SAVE DEFENSE';
+      btn.style.cssText = 'margin-top:10px;border-color:#1e3a5f;background:#0c1a2c';
+      btn.onclick = () => {
+        document.querySelector('nav button[data-tab="defenses"]').click();
+        $('#d-sys').value = customDefText;
+        $('#d-name').focus();
+      };
+      $('#f-out').appendChild(btn);
+    }
   } catch (e) {
     $('#f-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
   }

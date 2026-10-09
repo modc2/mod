@@ -141,9 +141,20 @@ export default function Page() {
 
   // ── overlay fetching, one request per layer, cached in state ────────────
   const inflight = useRef<Set<string>>(new Set())
+  const prevSalesKey = useRef<string>('')
   useEffect(() => {
+    const salesKey = `${query.since}|${query.property_type}`
+    const salesParamsChanged = salesKey !== prevSalesKey.current
+    if (salesParamsChanged) {
+      prevSalesKey.current = salesKey
+      setLayerData((d) => omit(d, 'sales'))
+      inflight.current.delete('sales')
+    }
     for (const id of active) {
-      if (id === 'housing_prices' || id === 'population' || layerData[id] || inflight.current.has(id)) continue
+      if (id === 'housing_prices' || id === 'population') continue
+      if (id !== 'sales' && layerData[id]) continue
+      if (id === 'sales' && !salesParamsChanged && layerData[id]) continue
+      if (inflight.current.has(id)) continue
       inflight.current.add(id)
       setLoading((l) => [...l, id])
       const fetcher = id === 'sales'
@@ -161,7 +172,7 @@ export default function Page() {
         })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active])
+  }, [active, query.since, query.property_type])
 
   // ── live layers re-poll themselves ──────────────────────────────────────
   // The fetch effect above deliberately fetches each layer once and keeps it.
@@ -183,12 +194,6 @@ export default function Page() {
       }, l.refresh_seconds! * 1000))
     return () => timers.forEach(clearInterval)
   }, [catalog, active])
-
-  // The sales layer depends on the housing window, so drop it when that moves.
-  useEffect(() => {
-    setLayerData((d) => omit(d, 'sales'))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query.since, query.property_type])
 
   const toggle = useCallback((id: string) => {
     setActive((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]))

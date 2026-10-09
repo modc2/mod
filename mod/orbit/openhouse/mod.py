@@ -1556,6 +1556,7 @@ class Mod:
             'total_amount': total_amount,
             'per_share': round(per_share, 6),
             'recipients': len(distributions),
+            'distributions': distributions,
         }
         divs = self._load_dividends()
         divs.append(record)

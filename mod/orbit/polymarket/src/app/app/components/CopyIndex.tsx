@@ -50,6 +50,7 @@ import { OPEN_MONEY_EVENT } from "./MoneyBlock";
 import { templateIndex, templateRoster, traderIndexTemplate } from "../lib/defaultStrats";
 import { isTraderIndex } from "../lib/traderIndex";
 import IndexScaleCard from "./IndexScaleCard";
+import ConfirmAction from "./ConfirmAction";
 
 // ══════════════════════════════════════════
 // ── Subtab rail — second-level nav under the main TEST / TRADE tabs.
@@ -532,6 +533,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [resetPending, setResetPending] = useState(false);
 
   const chartPanelRef = useRef<HTMLDivElement>(null);
 
@@ -1456,12 +1458,12 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
   // sit there doing nothing — still worth a prompt).
   const resetStrat = () => {
     if (!activeIndex) return;
-    if (typeof window !== "undefined") {
-      const ok = window.confirm(
-        `Reset "${activeIndex.name}"? This removes all ${activeIndex.traders.length} traders, weights, and saved tuning. The strat itself stays — only its contents are cleared.`,
-      );
-      if (!ok) return;
-    }
+    setResetPending(true);
+  };
+
+  const doResetStrat = () => {
+    if (!activeIndex) return;
+    setResetPending(false);
     setTraderWeights({});
     setTraderData(new Map());
     setTraderTrades(new Map());
@@ -2031,6 +2033,16 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
 
   return (
     <div className="min-w-0 space-y-2">
+      {resetPending && activeIndex && (
+        <ConfirmAction
+          title="RESET STRAT"
+          body={`Reset "${activeIndex.name}"? This removes all ${activeIndex.traders.length} traders, weights, and saved tuning. The strat itself stays — only its contents are cleared.`}
+          confirmLabel="RESET"
+          onConfirm={doResetStrat}
+          onCancel={() => setResetPending(false)}
+          armedDelayMs={300}
+        />
+      )}
       {/* ── STRAT — the whole editor, above TEST and LIVE ──
           Not a tab: who you copy (add bar, leaderboard browser, watchlist
           rows) and every tuning knob (window / capital / trade band /
