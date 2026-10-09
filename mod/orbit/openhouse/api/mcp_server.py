@@ -54,6 +54,9 @@ INSTRUCTIONS = (
     'pain.001 out), Open Banking APIs (Berlin Group PSD2, UK OBIE) or a '
     'bank\'s own MCP server — and openhouse_bank_reconcile books every '
     'transfer carrying a renter\'s reference code onto the rent ledger once. '
+    'Before passing a manual rate= to openhouse_bank_reconcile, call '
+    'openhouse_fx to inspect the live ETH/fiat rate (CoinGecko, 15-min cache; '
+    'source field shows whether the answer is live, stale or a fallback). '
     'Anything but the sandbox is a real bank and needs the operator\'s key. '
     'Fee pool: openhouse_pool shows the quarter accruing now; '
     'openhouse_pool_history lists closed quarters; '
@@ -153,6 +156,10 @@ def _t_civic(args, oh):
 
 def _t_landscape(args, oh):
     return oh.compare(refresh=bool(args.get('refresh')))
+
+
+def _t_fx(args, oh):
+    return oh.fx(refresh=bool(args.get('refresh')))
 
 
 def _t_source(args, oh):
@@ -475,6 +482,21 @@ TOOLS = {
             'refresh': {'type': 'boolean', 'description': 'bypass the cache and re-fetch live numbers (default false)'},
         }},
         'handler': _t_landscape,
+    },
+    'openhouse_fx': {
+        'description': 'ETH/fiat exchange rates: ETH priced in a dozen fiat '
+                       'currencies (USD, EUR, GBP, JPY, …) from CoinGecko with '
+                       'a 15-minute cache. The `source` field marks where the '
+                       'answer came from: "coingecko" (live), "cache" (stale '
+                       'but fresh enough), or "fallback" (baked-in last-resort '
+                       'when the network is unreachable). Call this before '
+                       'passing a manual rate= override to '
+                       'openhouse_bank_reconcile so you know what the live '
+                       'rate is. Pass refresh=true to bypass the cache.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'refresh': {'type': 'boolean', 'description': 'bypass the cache and re-fetch from CoinGecko (default false)'},
+        }},
+        'handler': _t_fx,
     },
     'openhouse_source': {
         'description': 'Read the actual implementation. With no arguments '

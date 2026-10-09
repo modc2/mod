@@ -1194,14 +1194,24 @@ $('acct-btn').onclick = async () => {
     const q = $('acct-q').value.trim();
     const a = await api('/account?' + (q.startsWith('pq') ?
       'address=' + encodeURIComponent(q) : 'wallet=' + encodeURIComponent(q)));
+    const pendingRow = a.pending && a.pending.length
+      ? `<b>pending</b><span>${a.pending.length} tx — ` +
+        a.pending.map(h => `<a href="#" class="acct-pending-tx" data-h="${esc(h)}">${short(h, 12)}</a>`).join(' ') +
+        `</span>`
+      : '';
     out('acct-out', `<div class="kv">` +
       `<b>address</b><span class="mono addr">${esc(a.address)}</span>` +
       `<b>balance</b><span class="amt">${esc(pq(a.balance))} PQ</span>` +
       `<b>nonce</b><span>${a.nonce} · key ${a.known_to_chain ?
         'known to the chain (' + esc(a.scheme) + ')' : 'not yet seen on-chain'}</span>` +
       `<b>occupies</b><span>${a.keys_owned} keys, ${a.bytes_occupied} bytes, ` +
-      `<span class="amt">${esc(pq(a.rent_per_day))}</span> PQ/day rent</span></div>` +
+      `<span class="amt">${esc(pq(a.rent_per_day))}</span> PQ/day rent</span>` +
+      pendingRow + `</div>` +
       (a.keys.length ? entryRows(a.keys) : ''));
+    document.querySelectorAll('#acct-out .acct-pending-tx').forEach(lnk => lnk.onclick = ev => {
+      ev.preventDefault();
+      $('insp-q').value = lnk.dataset.h; $('insp-btn').click();
+    });
   } catch (e) { err('acct-out', e); }
 };
 

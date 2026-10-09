@@ -346,6 +346,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
             </div>
             <Meta rows={[
               ['Date', p.date],
+              ['Time', p.time || '—'],
               ['Street', titleCase(p.street || '—')],
               ['Borough', titleCase(p.borough || '—')],
               ['Pedestrians hurt', count(p.peds)],

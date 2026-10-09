@@ -3395,7 +3395,7 @@ function renderLobby() {
   let mrank = 0;
   $("lb-models").replaceChildren(...(ms.length ? ms.slice(0, 8).map((p) => {
     const ranked = p.matches > 0;
-    return el("tr", { onclick: () => openPlayerPage(p.id), title: p.note || p.config?.model || "a model served on this box" }, [
+    return el("tr", { onclick: () => openPlayerPage(p.id), title: p.note || p.model || "a model served on this box" }, [
       el("td", { style: "width:26px" }, ranked ? rankEl(mrank++) : el("span", { className: "dim", textContent: "·" })),
       el("td", {}, [el("b", { textContent: p.name })]),
       el("td", { className: "n" }, [ranked ? el("b", { textContent: Math.round(p.elo) })

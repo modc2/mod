@@ -19,6 +19,7 @@ import TopBar from "../components/TopBar";
 import { useAuth } from "../context/AuthContext";
 import { useFilters, useUrlSync } from "../context/FiltersContext";
 import { API_BASE, fetchGlobalTrades, fetchUserTrades, timeAgo, formatVolume, matchMarketCategory, type GlobalTrade } from "../lib/polymarket";
+import { fetchCopyBook } from "../lib/copyBook";
 import TradeFilterBar, { TradeFilterToggle, useTradeFilterBar } from "../components/TradeFilterBar";
 import { shortAddress } from "../lib/auth";
 import { describeSession, modeOf } from "../lib/tradingMode";
@@ -46,11 +47,18 @@ function TradesInner() {
   const [paused, setPaused] = useState(false);
   const [page, setPage] = useState(1);
   const [exhausted, setExhausted] = useState(false);
-  // ALL = global tape · MINE = fills by my trading wallet(s). ?feed=mine
-  // deep-links straight to the personal tape (init-only, not URL-synced).
-  const [feed, setFeed] = useState<"all" | "mine">(
-    searchParams.get("feed") === "mine" ? "mine" : "all",
-  );
+  // ALL = global tape · MINE = fills by my trading wallet(s) · BOOK = fills
+  // by copy-book leaders only. ?feed=mine / ?feed=book deep-links to that
+  // tape (init-only, not URL-synced).
+  const [feed, setFeed] = useState<"all" | "mine" | "book">(() => {
+    const f = searchParams.get("feed");
+    if (f === "mine") return "mine";
+    if (f === "book") return "book";
+    return "all";
+  });
+  // Addresses of copy-book leaders — populated when feed === "book".
+  const [bookAddrs, setBookAddrs] = useState<Set<string>>(new Set());
+  const [bookLoading, setBookLoading] = useState(false);
   // The wallets whose fills count as "mine": the derived deposit wallet
   // (what the engine actually trades through) + the signed-in EOA.
   const [myWallets, setMyWallets] = useState<string[]>([]);
@@ -108,6 +116,22 @@ function TradesInner() {
     return () => { stop = true; clearInterval(id); };
   }, [feed, address]);
 
+  // Fetch copy-book leader addresses whenever the BOOK feed is active.
+  useEffect(() => {
+    if (feed !== "book") { setBookAddrs(new Set()); return; }
+    let cancelled = false;
+    setBookLoading(true);
+    fetchCopyBook(address ?? undefined)
+      .then((book) => {
+        if (!cancelled) {
+          setBookAddrs(new Set(book.allocations.map((r) => r.address.toLowerCase())));
+        }
+      })
+      .catch(() => { if (!cancelled) setBookAddrs(new Set()); })
+      .finally(() => { if (!cancelled) setBookLoading(false); });
+    return () => { cancelled = true; };
+  }, [feed, address]);
+
   const merge = useCallback((fresh: GlobalTrade[]) => {
     setTrades((prev) => {
       const merged = [...fresh, ...prev];
@@ -125,14 +149,20 @@ function TradesInner() {
 
   // One fetch of the current feed at a given depth. MINE queries every
   // owned wallet and flattens — usually only the deposit wallet has fills.
+  // BOOK fetches the global tape and filters to copy-book leaders only.
   const fetchFeed = useCallback(async (limit: number, offset: number): Promise<GlobalTrade[]> => {
     if (feed === "mine") {
       if (myWallets.length === 0) return [];
       const results = await Promise.all(myWallets.map((w) => fetchUserTrades(w, limit, offset)));
       return results.flat();
     }
+    if (feed === "book") {
+      if (bookAddrs.size === 0) return [];
+      const all = await fetchGlobalTrades(limit, offset);
+      return all.filter((t) => bookAddrs.has(t.trader.toLowerCase()));
+    }
     return fetchGlobalTrades(limit, offset);
-  }, [feed, myWallets]);
+  }, [feed, myWallets, bookAddrs]);
 
   const load = useCallback(async () => {
     try {
@@ -165,7 +195,7 @@ function TradesInner() {
     }
   }, [loadingMore, exhausted, merge, fetchFeed]);
 
-  // Feed switch (or wallet resolution) invalidates the whole pool — reset
+  // Feed switch (or wallet/book resolution) invalidates the whole pool — reset
   // and refetch from depth 0. The `load` effect below fires on the new feed.
   useEffect(() => {
     setTrades([]);
@@ -174,7 +204,7 @@ function TradesInner() {
     setLoading(true);
     seen.current = new Set();
     deepestOffset.current = 0;
-  }, [feed, myWallets]);
+  }, [feed, myWallets, bookAddrs]);
 
   useEffect(() => {
     load();
@@ -232,7 +262,7 @@ function TradesInner() {
               className="text-[15px] font-bold text-pixel-white uppercase tracking-[0.18em]"
               style={{ fontFamily: '"Space Grotesk", system-ui, sans-serif' }}
             >
-              {feed === "mine" ? "My Trades" : "Recent Trades"}
+              {feed === "mine" ? "My Trades" : feed === "book" ? "Book Trades" : "Recent Trades"}
             </span>
             {/* Feed toggle — the whole point of this page: whose fills am I looking
                 at. A joined segmented pill (not two pixel-btns) so it reads as one
@@ -252,6 +282,14 @@ function TradesInner() {
               >
                 MINE
               </button>
+              <span className="w-px bg-pixel-border" />
+              <button
+                onClick={() => setFeed("book")}
+                title="Fills by your copy-book leaders — see who is trading right now"
+                className={`px-3 py-1 transition-colors ${feed === "book" ? "bg-green-400/10 text-green-400" : "text-pixel-gray hover:text-pixel-white"}`}
+              >
+                BOOK
+              </button>
             </div>
             {feed === "mine" && engine && (
               <span
@@ -267,10 +305,17 @@ function TradesInner() {
                 ENGINE {engine.running ? describeSession("RUNNING", modeOf(engine.auto)).text : "STOPPED"}
               </span>
             )}
+            {feed === "book" && !bookLoading && bookAddrs.size > 0 && (
+              <span className="pixel-badge border-green-400/50 text-green-400/80">
+                {new Set(filtered.map((t) => t.trader.toLowerCase())).size}/{bookAddrs.size} LEADERS
+              </span>
+            )}
             <span className="text-[11px] text-pixel-gray tracking-wide hidden sm:inline">
               {feed === "mine"
                 ? "fills executed by your trading wallet · refreshes ~1 min"
-                : "recent fills across Polymarket · cached feed"}
+                : feed === "book"
+                  ? "fills by your copy-book leaders · cached feed"
+                  : "recent fills across Polymarket · cached feed"}
             </span>
           </div>
           <div className="flex items-center gap-2 text-[12px] font-mono">
@@ -302,12 +347,18 @@ function TradesInner() {
           </div>
         )}
 
-        {feed === "mine" && !address ? (
+        {(feed === "mine" || feed === "book") && !address ? (
           <div className="pixel-panel p-8 text-center">
             <div className="text-[14px] text-pixel-gray-light tracking-wider mb-1">NOT SIGNED IN</div>
             <div className="text-[12px] text-pixel-gray">
-              Sign in (top right) to see the fills executed by your trading wallet.
+              {feed === "mine"
+                ? "Sign in (top right) to see the fills executed by your trading wallet."
+                : "Sign in (top right) to load your copy-book leaders."}
             </div>
+          </div>
+        ) : feed === "book" && bookLoading ? (
+          <div className="pixel-panel p-8 text-center text-[14px] text-pixel-white animate-pulse">
+            LOADING BOOK LEADERS…
           </div>
         ) : loading && trades.length === 0 ? (
           <div className="pixel-panel p-8 text-center text-[14px] text-pixel-white animate-pulse">
@@ -316,18 +367,25 @@ function TradesInner() {
         ) : rows.length === 0 ? (
           <div className="pixel-panel p-8 text-center">
             <div className="text-[14px] text-pixel-gray-light tracking-wider mb-1">
-              {feed === "mine" && !narrowing ? "NO FILLS YET" : "NO TRADES MATCH"}
+              {feed === "book" && !narrowing
+                ? bookAddrs.size === 0 ? "NO LEADERS IN BOOK" : "NO LEADER ACTIVITY"
+                : feed === "mine" && !narrowing ? "NO FILLS YET"
+                : "NO TRADES MATCH"}
             </div>
             <div className="text-[12px] text-pixel-gray mb-3">
               {narrowing
                 ? "No hits in the loaded tape — scan deeper into history, or clear the filters."
-                : feed === "mine"
-                  ? engine?.running && !engine.auto
-                    ? "The engine is on PAPER — it computes mirrors but places NO real orders, so no fills exist. Flip the PAPER|REAL switch to REAL in the LIVE tab's COPY ENGINE header to trade for real."
-                    : engine?.running
-                      ? "Engine is LIVE but nothing has filled yet — fills appear here within ~1 min of executing."
-                      : "No engine session and no past fills for this wallet. Start the engine under STRAT → TRADE, with the switch on LIVE, to see trades land here."
-                  : "Waiting for fills…"}
+                : feed === "book"
+                  ? bookAddrs.size === 0
+                    ? "Your copy book is empty. Add leaders in the COPY tab, then come back here."
+                    : "None of your leaders have traded recently in this tape. Try scanning deeper."
+                  : feed === "mine"
+                    ? engine?.running && !engine.auto
+                      ? "The engine is on PAPER — it computes mirrors but places NO real orders, so no fills exist. Flip the PAPER|REAL switch to REAL in the LIVE tab's COPY ENGINE header to trade for real."
+                      : engine?.running
+                        ? "Engine is LIVE but nothing has filled yet — fills appear here within ~1 min of executing."
+                        : "No engine session and no past fills for this wallet. Start the engine under STRAT → TRADE, with the switch on LIVE, to see trades land here."
+                    : "Waiting for fills…"}
             </div>
             {narrowing && !exhausted && (
               <button

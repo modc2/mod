@@ -120,6 +120,7 @@
         <select id="r-judge"><option>heuristic</option><option>model</option></select>
         <label>parallel</label><input type="text" class="sm" id="r-par" value="6">
         <label><input type="checkbox" id="r-ctl" checked> controls</label>
+        <button id="r-ping">PING</button>
         <button class="go" id="r-go">RUN ROUND</button>
         <span id="r-status" class="flash"></span>
       </div>
@@ -408,6 +409,18 @@ async function showRound(id) {
   });
   $('#round-detail').scrollIntoView({behavior: 'smooth'});
 }
+
+$('#r-ping').onclick = async () => {
+  const btn = $('#r-ping'); btn.disabled = true;
+  const st = $('#r-status');
+  st.textContent = 'pinging…'; st.style.color = '';
+  try {
+    const r = await post('/ping', {model: $('#r-model').value.trim()});
+    st.innerHTML = `<span style="color:var(--good)">ok — ${esc(r.model)}</span>`;
+  } catch (e) {
+    st.innerHTML = '<span class="err">' + esc(e.message) + '</span>';
+  } finally { btn.disabled = false; }
+};
 
 $('#r-go').onclick = async () => {
   const btn = $('#r-go'); btn.disabled = true;

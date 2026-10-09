@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { dexQuote, dexSwap, getVenues } from "../lib/api";
+import { dexQuote, dexSwap, getDexTokens, getVenues } from "../lib/api";
 
 type Props = { onClose: () => void; say: (text: string, bad?: boolean) => void };
 
@@ -27,6 +27,7 @@ export default function DexDesk({ onClose, say }: Props) {
   const [trade, setTrade] = useState<any>(null);
   const [busy, setBusy] = useState<"" | "quote" | "trade">("");
   const [error, setError] = useState<string | null>(null);
+  const [tokens, setTokens] = useState<string[]>([]);
 
   useEffect(() => {
     getVenues()
@@ -36,6 +37,19 @@ export default function DexDesk({ onClose, say }: Props) {
       })
       .catch((e) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    setTokens([]);
+    getDexTokens(chain)
+      .then((r) => {
+        const entry = (r.tokens ?? []).find((t: any) => t.chain === chain);
+        if (entry) {
+          const syms = [entry.native, ...(entry.known ?? []).map((k: any) => k.symbol)].filter(Boolean);
+          setTokens(syms);
+        }
+      })
+      .catch(() => {});
+  }, [chain]);
 
   const venue = useMemo(() => venues.find((v) => v.chain === chain), [venues, chain]);
   const backing = venue ? modules[venue.module] : null;
@@ -118,9 +132,14 @@ export default function DexDesk({ onClose, say }: Props) {
         <div className="label" style={{ marginTop: 16 }}>
           Sell → buy
         </div>
+        <datalist id="dex-tokens">
+          {tokens.map((sym) => (
+            <option key={sym} value={sym} />
+          ))}
+        </datalist>
         <div style={{ display: "flex", gap: 6 }}>
-          <input value={sell} onChange={(e) => setSell(e.target.value)} placeholder="ETH" />
-          <input value={buy} onChange={(e) => setBuy(e.target.value)} placeholder="USDC" />
+          <input value={sell} onChange={(e) => setSell(e.target.value)} placeholder="ETH" list="dex-tokens" />
+          <input value={buy} onChange={(e) => setBuy(e.target.value)} placeholder="USDC" list="dex-tokens" />
         </div>
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
           <input

@@ -211,7 +211,7 @@ def collisions() -> dict:
             r['borough'] = (r.get('borough') or '').title()
         return S.points_from_rows(
             rows, 'latitude', 'longitude',
-            props=['date', 'borough', 'street', 'injured', 'killed',
+            props=['date', 'time', 'borough', 'street', 'injured', 'killed',
                    'peds', 'cyclists', 'motorists', 'cause'])
     return S.cached('safety-collisions', 2 * S.DAY, fetch)
 

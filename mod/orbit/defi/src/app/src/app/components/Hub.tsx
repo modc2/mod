@@ -96,9 +96,17 @@ export default function Hub({ say, onExplore }: Props) {
   const chainLabel = CHAIN_FILTERS.find((c) => c.id === chain)?.label ?? chain.toUpperCase();
 
   const explore = (p: any, pool?: any) => {
-    // Bittensor's rows aren't stablecoins — a stable filter would hide them.
+    // Bittensor / HL vaults / PM traders aren't stablecoins — a stable filter would hide them.
     if (p.source === "bittensor") {
       onExplore({ chain: "tao", pick: pool?.module_id ?? p.best?.module_id });
+      return;
+    }
+    if (p.source === "hyperliquid") {
+      onExplore({ chain: "hyperliquid", pick: pool?.module_id ?? p.best?.module_id });
+      return;
+    }
+    if (p.source === "polymarket") {
+      onExplore({ chain: "polymarket", pick: pool?.module_id ?? p.best?.module_id });
       return;
     }
     onExplore({
