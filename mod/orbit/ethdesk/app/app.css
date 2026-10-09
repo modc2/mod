@@ -691,3 +691,19 @@ button.chip:hover { border-color: var(--live); color: var(--live); }
 .steps { display: grid; gap: 6px; margin: 0; padding-left: 18px;
          color: var(--dim); font-size: 12.5px; }
 .steps b { color: var(--ink); font-weight: 600; }
+
+/* ── ask dialog ──────────────────────────────────────────────────────── */
+.ask-dlg {
+  border: 1px solid var(--edge); background: var(--slab); color: var(--ink);
+  border-radius: var(--radius); padding: 22px 22px 18px; min-width: 340px;
+  max-width: min(480px, 92vw);
+}
+.ask-dlg::backdrop {
+  background: color-mix(in srgb, var(--void) 72%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.ask-dlg form { display: flex; flex-direction: column; gap: 12px; }
+.ask-label { font-size: 13.5px; white-space: pre-line; line-height: 1.45; }
+.ask-input { flex: none; width: 100%; }
+.ask-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }

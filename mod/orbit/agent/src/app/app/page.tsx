@@ -2290,19 +2290,19 @@ export default function Home() {
 
       lines.forEach((line, li) => {
         if (line.startsWith('### ')) {
-          flushList(); flushOList(); flushTable()
+          flushList(); flushOList(); flushQuote(); flushTable()
           nodes.push(<h3 key={`${si}-h3${k++}`} style={{ fontSize: '0.65rem', fontWeight: 600, color: 'rgb(107 114 128)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.375rem 0 0.125rem' }}>{renderInline(line.slice(4), `${si}-h3${li}`)}</h3>)
         } else if (line.startsWith('## ')) {
-          flushList(); flushOList(); flushTable()
+          flushList(); flushOList(); flushQuote(); flushTable()
           nodes.push(<h2 key={`${si}-h2${k++}`} style={{ fontSize: '0.7rem', fontWeight: 600, color: 'rgb(156 163 175)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(3), `${si}-h2${li}`)}</h2>)
         } else if (line.startsWith('# ')) {
-          flushList(); flushOList(); flushTable()
+          flushList(); flushOList(); flushQuote(); flushTable()
           nodes.push(<h1 key={`${si}-h1${k++}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgb(209 213 219)', margin: '0.5rem 0 0.125rem' }}>{renderInline(line.slice(2), `${si}-h1${li}`)}</h1>)
         } else if (/^[*\-] /.test(line)) {
-          flushOList(); flushTable()
+          flushOList(); flushQuote(); flushTable()
           listBuf.push(renderInline(line.slice(2), `${si}-li${li}`))
         } else if (/^\d+\. /.test(line)) {
-          flushList(); flushTable()
+          flushList(); flushQuote(); flushTable()
           olistBuf.push(renderInline(line.replace(/^\d+\. /, ''), `${si}-oli${li}`))
         } else if (line.startsWith('> ')) {
           flushList(); flushOList(); flushTable()

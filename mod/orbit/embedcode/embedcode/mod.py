@@ -235,6 +235,7 @@ class Mod:
             return {'error': 'No code files found', 'path': path}
 
         store = self._get_store(name)
+        store.clear()
         total_chunks = 0
         batch_texts = []
         batch_meta = []

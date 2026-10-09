@@ -40,7 +40,7 @@ export interface ExecutionLogEntry {
   // shares moved, no PnL is realized, and for an exit the position and its
   // stop are still open. The server engine emits it; the browser engine
   // shares this type so both feeds render the same way.
-  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END" | "REDEEM" | "WATCHLIST" | "RESTING";
+  type: "COPY_BUY" | "COPY_SELL" | "SKIP" | "ERROR" | "BALANCE" | "CYCLE_START" | "CYCLE_END" | "REDEEM" | "WATCHLIST" | "RESTING" | "INFO";
   traderAddress?: string;
   market?: string;
   conditionId?: string;

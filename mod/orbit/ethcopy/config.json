@@ -1,6 +1,20 @@
 {
     "name": "ethcopy",
-    "description": "ethcopy",
-    "version": "0.1.0",
-    "schema": "QmXZyWxjEc5yZQ6vRFWzSn1LesTGWQ85T6scRqzVZqFdWc"
+    "description": "Copy EVM on-chain token swaps from Uniswap and Sushiswap, scaled to a configurable fraction.",
+    "version": "1.0.0",
+    "port": 50139,
+    "app_port": 50139,
+    "strat": {
+        "protocol": 1,
+        "class": "strat.py:EthCopy",
+        "venues": [
+            "uniswap",
+            "sushiswap"
+        ],
+        "params": {
+            "min_notional": 500.0,
+            "scale": 0.05
+        }
+    },
+    "schema": "QmXW7QTAFhxxxCaqd3dkExp7eXZnGxTBeW1ToSDfPTBuQq"
 }

@@ -1,8 +1,8 @@
 {
     "name": "claudecode",
     "version": "1.1.0",
-    "description": "Claude Code as a module — the CLI's spawn spec, a step-trace runner, and an agent-contract API (GET /agents + POST /run/stream) any console can mount",
-    "icon": "⬡",
+    "description": "Claude Code as a module \u2014 the CLI's spawn spec, a step-trace runner, and an agent-contract API (GET /agents + POST /run/stream) any console can mount",
+    "icon": "\u2b21",
     "color": "#cc785c",
     "port": 51260,
     "agent_contract": {
@@ -14,8 +14,17 @@
         "label": "Claude Code",
         "bin": "claude",
         "install": "npm install -g @anthropic-ai/claude-code",
-        "args": ["--print", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"],
-        "stream_input_args": ["--input-format", "stream-json"],
+        "args": [
+            "--print",
+            "--verbose",
+            "--output-format",
+            "stream-json",
+            "--dangerously-skip-permissions"
+        ],
+        "stream_input_args": [
+            "--input-format",
+            "stream-json"
+        ],
         "model_flag": "--model",
         "resume_flag": "--resume",
         "agent_flag": "--agent",
@@ -38,5 +47,5 @@
         "command",
         "session"
     ],
-    "schema": "Qmd5X5a4jrHgyZe6Df5uqSC3RrFKwrEoBa8hGnHrfcAvGZ"
+    "schema": "QmVVP1S3w5Qpn3JxkBQBhpWHMwZYNtfpGvVuDy78oxooEk"
 }

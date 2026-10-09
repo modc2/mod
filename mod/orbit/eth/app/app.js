@@ -266,11 +266,15 @@ async function renderHistory() {
   try {
     const { txs } = await call(`/history?${q({ limit: 12 })}`);
     if (!txs.length) { el.innerHTML = '<p class="hint">Nothing sent yet.</p>'; return; }
-    el.innerHTML = txs.map((t) =>
-      `<div class="item ${t.status === 'success' ? 'ok' : t.status === 'reverted' ? 'bad' : ''}">` +
-      `<b>${esc(t.kind)}</b><span class="muted">${esc(t.network)}</span>` +
-      `<span class="grow">${esc(t.fn || '')} ${esc(short(t.hash))}</span>` +
-      `<span class="muted">${esc(t.status || '')}</span></div>`).join('');
+    el.innerHTML = txs.map((t) => {
+      const hashEl = t.explorer
+        ? `<a href="${esc(t.explorer)}" target="_blank" rel="noreferrer">${esc(short(t.hash))}</a>`
+        : esc(short(t.hash));
+      return `<div class="item ${t.status === 'success' ? 'ok' : t.status === 'reverted' ? 'bad' : ''}">` +
+        `<b>${esc(t.kind)}</b><span class="muted">${esc(t.network)}</span>` +
+        `<span class="grow">${esc(t.fn || '')} ${hashEl}</span>` +
+        `<span class="muted">${esc(t.status || '')}</span></div>`;
+    }).join('');
   } catch (e) {
     el.innerHTML = `<p class="hint err">${esc(e.message)}</p>`;
   }

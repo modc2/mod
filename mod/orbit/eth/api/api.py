@@ -923,7 +923,14 @@ def test_report(run_id: int, authorization: Optional[str] = Header(default=None)
 def history(network: Optional[str] = None, limit: int = Query(default=50, le=500),
             authorization: Optional[str] = Header(default=None)):
     who = caller(authorization)
-    return {'txs': ledger.txs(who, network, limit)}
+    rows = ledger.txs(who, network, limit)
+    for row in rows:
+        try:
+            spec = chains.resolve(row['network'])
+            row['explorer'] = chains.explorer_link(spec, 'tx', row['hash'])
+        except Exception:
+            row['explorer'] = None
+    return {'txs': rows}
 
 
 # ── MCP ──────────────────────────────────────────────────────────────

@@ -917,6 +917,13 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
     void startLiveSession(auth.address, activeStrat, effectiveCapital, { inheritExecution: true });
   }, [configSig, isLive, backendRunning, auth.address, activeStrat, effectiveCapital]);
 
+  const capHitCount = useMemo(() => {
+    if (!engineState?.log) return 0;
+    return engineState.log.filter(
+      (e) => e.type === "INFO" && e.reason?.includes("order cap"),
+    ).length;
+  }, [engineState?.log]);
+
   return (
     <div className="space-y-1">
       {/* Trading wallet (deposit/withdraw) lives in the STRAT page's WALLET
@@ -1546,6 +1553,16 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               label="CYCLES"
               value={String(engineState.cycleCount)}
               tone="white"
+            />
+            <StatCard
+              label="CAP HITS"
+              value={capHitCount}
+              tone={capHitCount > 0 ? "amber" : "white"}
+              title={
+                capHitCount > 0
+                  ? `The per-cycle order cap was reached ${capHitCount} time(s) this session — good trades may have been deferred. Raise maxPerCycle in the STRAT panel (currently ${activeStrat?.maxPerCycle ?? 3}).`
+                  : "Times the per-cycle order cap was reached (0 = cap never hit)"
+              }
             />
             {(() => {
               const openCount = Object.keys(backendPositions).length;

@@ -97,8 +97,8 @@ async function signIn() {
       return;
     }
   }
-  const pasted = prompt('No wallet extension found.\n\nPaste a mod-protocol token '
-    + '(m.mod("auth")().token({}) on a box that holds your key):');
+  const pasted = await ask('No wallet extension found.\n\nPaste a mod-protocol token'
+    + ' (m.mod("auth")().token({}) on a box that holds your key):');
   if (!pasted) return;
   token = pasted.trim();
   write(TOKEN_KEY, token);
@@ -124,6 +124,25 @@ function toast(message, bad = false) {
   el.className = `toast on${bad ? ' bad' : ''}`;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.className = 'toast'; }, bad ? 6000 : 3200);
+}
+
+function ask(label, { password = false } = {}) {
+  const dlg = $('ask-dialog');
+  const lbl = $('ask-label');
+  const inp = $('ask-input');
+  lbl.textContent = label;
+  inp.type = password ? 'password' : 'text';
+  inp.autocomplete = 'off';
+  inp.value = '';
+  dlg.showModal();
+  inp.focus();
+  return new Promise((resolve) => {
+    dlg.addEventListener('close', () => {
+      const val = dlg.returnValue === 'confirm' ? inp.value : null;
+      inp.value = '';
+      resolve(val);
+    }, { once: true });
+  });
 }
 
 function setTheme(mode) {
@@ -377,7 +396,7 @@ function renderAccounts() {
           await call(`/accounts/${name}/lock`, { method: 'POST' });
           toast(`${name} locked`);
         } else {
-          const pw = prompt(`password for ${name} (held in memory for 5 minutes):`);
+          const pw = await ask(`password for ${name} (held in memory for 5 minutes):`, { password: true });
           if (!pw) return;
           await call(`/accounts/${name}/unlock`, { method: 'POST', json: { password: pw, ttl: 300 } });
           toast(`${name} unlocked for 5 minutes`);
