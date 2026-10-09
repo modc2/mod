@@ -1056,11 +1056,13 @@ pub fn record_match(rec: &Value) -> Result<Value, String> {
             let result = rating::outcome(scores[i], &scores);
 
             if let Some(pl) = st.players.get_mut(&p.id) {
-                pl.moves += moves;
-                pl.illegal += illegal;
-                pl.timeouts += timeouts;
-                pl.mcp += mcp;
-                pl.move_ms_sum += ms;
+                if rated {
+                    pl.moves += moves;
+                    pl.illegal += illegal;
+                    pl.timeouts += timeouts;
+                    pl.mcp += mcp;
+                    pl.move_ms_sum += ms;
+                }
                 bump(&mut pl.overall, scores[i], result, overall_deltas[i], rated, created);
                 bump(pl.by_game.entry(game.id.clone()).or_default(), scores[i], result, deltas[i], rated, created);
             }

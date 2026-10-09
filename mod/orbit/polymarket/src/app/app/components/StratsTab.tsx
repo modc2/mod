@@ -690,6 +690,14 @@ export default function StratsTab() {
                           <span className="text-[8.5px] font-semibold tracking-[0.18em] text-amber-300">PAPER</span>
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                         </>
+                      ) : idx.liveEnabled && !isRunning ? (
+                        <button
+                          onClick={() => setView("live")}
+                          className="flex items-center gap-1 hover:opacity-80 transition-opacity"
+                          title="Engine stopped — click to go to LIVE tab to restart"
+                        >
+                          <span className="text-[8.5px] font-semibold tracking-[0.18em] text-amber-400">STOPPED</span>
+                        </button>
                       ) : (
                         <>
                           <span className={`text-[8.5px] font-semibold tracking-[0.18em] ${isRunning ? "text-green-400" : "text-pixel-gray"}`}>
@@ -812,11 +820,11 @@ export default function StratsTab() {
                     RENAME
                   </button>
                   <span className="ml-auto flex items-center gap-1">
-                    {isRunning && (
+                    {(isRunning || idx.liveEnabled) && (
                       <button
                         onClick={() => void stopStrat(idx.id)}
                         className="px-2 py-0.5 text-[9px] font-mono font-semibold text-pixel-gray hover:text-red-400 transition-colors"
-                        title="Stop this strat's engine"
+                        title={isRunning ? "Stop this strat's engine" : "Clear stale live flag"}
                       >
                         STOP
                       </button>

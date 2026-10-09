@@ -1520,15 +1520,18 @@ class Mod:
             'timestamp': int(time.time()),
         }
 
-    def transfer_authority(self, new_authority: str) -> dict:
-        """Transfer authority to new legal entity."""
+    def transfer_authority(self, new_authority: str, caller: str = '') -> dict:
+        """Transfer authority to new legal entity (owner only)."""
         if not new_authority:
             return {'error': 'New authority address required'}
-        return {
-            'status': 'transferred',
-            'new_authority': new_authority,
-            'timestamp': int(time.time()),
-        }
+        current = {**self.DEFAULT_TERMS, **self._load_json(self.terms_path, {})}
+        recorded_owner = (current.get('owner') or '').lower()
+        if recorded_owner and (caller or '').strip().lower() != recorded_owner:
+            return {'error': 'Only the property owner can transfer authority'}
+        current['owner'] = new_authority
+        current['updated'] = int(time.time())
+        self._save_json(self.terms_path, current)
+        return {'success': True, 'terms': self.terms()}
 
     def toggle_active(self, owner: str = '') -> dict:
         """Toggle contract active status."""
@@ -2005,7 +2008,7 @@ class Mod:
                 kwargs.get('action', ''),
                 kwargs.get('details', ''),
             ),
-            'transfer_authority': lambda: self.transfer_authority(kwargs.get('new_authority', '')),
+            'transfer_authority': lambda: self.transfer_authority(kwargs.get('new_authority', ''), caller=kwargs.get('caller', '')),
             'toggle_active': lambda: self.toggle_active(owner=kwargs.get('owner', '')),
             'balance': lambda: self.balance(),
             'source': lambda: self.source(),

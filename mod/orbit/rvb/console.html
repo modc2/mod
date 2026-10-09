@@ -277,7 +277,19 @@ async function loadBoard() {
 $('#board-refresh').onclick = loadBoard;
 
 // ── rounds ─────────────────────────────────────────────────────
+async function recomputeCostHint() {
+  try {
+    const [{attacks}, {defenses}, {controls}] = await Promise.all(
+      [api('/attacks'), api('/defenses'), api('/controls')]);
+    const atk = attacks.length, def = defenses.length, ctl = controls.length;
+    const total = atk * def + ctl * def;
+    $('#cost-hint').textContent =
+      `${atk} attacks × ${def} defenses + ${ctl} controls × ${def} defenses = ${total} matches`;
+  } catch (_) {}
+}
+
 async function loadRounds() {
+  recomputeCostHint();
   const {rounds} = await api('/rounds?limit=20');
   $('#round-list').innerHTML = rounds.length ? `<table>
     <tr><th>round</th><th>status</th><th>target</th><th class="num">matches</th>
@@ -431,7 +443,7 @@ $('#a-save').onclick = async () => {
     $('#a-status').textContent = 'added.';
     $('#a-name').value = ''; $('#a-prompt').value = '';
     $('#a-goal').value = ''; $('#a-technique').value = ''; $('#a-markers').value = '';
-    loadAttacks();
+    loadAttacks(); recomputeCostHint();
   } catch (e) { $('#a-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
 };
 
@@ -495,7 +507,7 @@ $('#d-save').onclick = async () => {
       max_input_chars: Number($('#d-cap').value) || 0});
     $('#d-status').textContent =
       `added — ${out.cost.model_calls_per_turn} model call(s) per turn.`;
-    loadDefenses();
+    loadDefenses(); recomputeCostHint();
   } catch (e) { $('#d-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; }
 };
 

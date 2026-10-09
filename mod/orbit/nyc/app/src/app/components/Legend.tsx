@@ -214,6 +214,8 @@ export default function Legend({
     dots.push(['subway_ridership', 'Station ridership', 'circle size = riders'])
   if (active.includes('affordable_housing'))
     dots.push(['affordable_housing', 'Affordable housing', 'circle size = units'])
+  if (active.includes('affordable_rents'))
+    dots.push(['affordable_rents', 'Affordable rents', 'click to see rent range'])
   if (active.includes('subway_stations'))
     dots.push(['subway_stations', 'Subway station', ''])
   if (active.includes('bike_routes'))
@@ -261,7 +263,7 @@ export default function Legend({
 /** Layers that put a row in the key, besides the choropleth. */
 const ENCODED = [
   'sales', 'forsale', 'news', 'evacuation_zones', 'collisions', 'shootings', 'crime',
-  'subway_ridership', 'affordable_housing', 'subway_stations', 'bike_routes',
+  'subway_ridership', 'affordable_housing', 'affordable_rents', 'subway_stations', 'bike_routes',
   'parks', 'subway_lines', 'traffic_speeds', 'traffic_volume',
 ]
 

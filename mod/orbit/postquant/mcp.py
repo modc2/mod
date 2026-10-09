@@ -428,9 +428,13 @@ def _t_tx(a):
 
 def _t_history(a):
     n = node()
-    return {'history': n.history(a.get('address'), a.get('key'),
-                                 int(a.get('limit') or 25),
-                                 since=int(a.get('since') or 0))}
+    items = n.history(a.get('address'), a.get('key'),
+                      int(a.get('limit') or 25),
+                      since=int(a.get('since') or 0))
+    for item in items:
+        if item.get('receipt'):
+            item['receipt'] = _receipt_view(item['receipt'])
+    return {'history': items}
 
 
 def _t_prove(a):

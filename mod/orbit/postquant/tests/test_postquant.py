@@ -178,6 +178,15 @@ def test_rest_routes_share_the_tools():
         api.route('GET', '/set', 'key=x', {})
 
 
+def test_history_receipt_format(alice):
+    h = call('pq_history', address=alice['address'], limit=5)
+    assert h['history'], 'expected at least one tx for alice'
+    for item in h['history']:
+        r = item['receipt']
+        assert isinstance(r['fee'], dict), 'fee should be a _money dict'
+        assert 'pq' in r['fee']
+
+
 def test_mcp_surface():
     init = mcpsrv.handle({'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
                           'params': {'protocolVersion': '2025-06-18'}})
