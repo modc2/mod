@@ -12,6 +12,8 @@ it should say so on the map.
 
 from __future__ import annotations
 
+import datetime
+
 from typing import Any, Callable, Dict, List, Optional
 
 from . import crime as CR
@@ -197,7 +199,7 @@ def collisions() -> dict:
                     'number_of_motorist_injured,'
                     'contributing_factor_vehicle_1,latitude,longitude'),
             where=('latitude IS NOT NULL and latitude > 40 and '
-                   'crash_date > "2025-01-01T00:00:00.000" and '
+                   f'crash_date > "{datetime.date.today().year}-01-01T00:00:00.000" and '
                    '(number_of_persons_injured > 0 or number_of_persons_killed > 0)'),
             order='crash_date DESC')
         for r in rows:
@@ -215,7 +217,7 @@ def collisions() -> dict:
             rows, 'latitude', 'longitude',
             props=['date', 'time', 'borough', 'street', 'injured', 'killed',
                    'peds', 'cyclists', 'motorists', 'cause'])
-    return S.cached('safety-collisions', 2 * S.DAY, fetch)
+    return S.cached(f'safety-collisions-{datetime.date.today().year}', 2 * S.DAY, fetch)
 
 
 # Every income band the affordable-housing file reports, in the order HPD
@@ -568,7 +570,7 @@ LAYERS: List[Dict[str, Any]] = [
         'kind': 'heatmap',
         'geometry': 'point',
         'default_on': False,
-        'description': 'Crashes since Jan 2025 that injured or killed someone.',
+        'description': 'Crashes this year that injured or killed someone.',
         'style': {'color': '#f87171', 'weight_by': 'injured'},
         'endpoint': '/layers/collisions',
         'source': _src('Motor Vehicle Collisions – Crashes', 'h9gi-nx95'),

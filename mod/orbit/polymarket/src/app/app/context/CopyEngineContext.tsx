@@ -74,6 +74,7 @@ interface PersistedLive {
   minOrderSize: number;
   maxSlippageBps: number;
   startedAt: number;
+  autoExecute?: boolean;
 }
 
 const LIVE_KEY = "poly_live_session";
@@ -329,6 +330,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
       minOrderSize: config.minOrderSize,
       maxSlippageBps: config.maxSlippageBps,
       startedAt: Date.now(),
+      ...(config.autoExecute !== undefined && { autoExecute: config.autoExecute }),
     });
 
     // Also start the backend long-running engine so it survives tab close.

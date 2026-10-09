@@ -796,7 +796,9 @@ class Mod:
                                  f'({(ends_at - now) // self.DAY_SECONDS}d) still to run',
                         'ready_in': ends_at - now, 'ends_at': ends_at}
             owner = (self.terms().get('owner') or '').lower()
-            if owner and (caller or '').strip().lower() != owner:
+            if not owner:
+                return {'error': 'An owner must be recorded before a quarter can be force-closed — use claim_owner first'}
+            if (caller or '').strip().lower() != owner:
                 return {'error': 'Only the property owner can cut a quarter short'}
 
         ledger_from = int(closed[-1]['ledger_to']) if closed else 0

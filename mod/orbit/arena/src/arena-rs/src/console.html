@@ -760,7 +760,7 @@
       <h2>play</h2>
       <div id="g-seats"></div>
       <div class="row" style="margin-top:10px">
-        <input id="g-count" type="number" value="1" min="1" max="50" style="width:78px" title="how many matches">
+        <input id="g-runs" type="number" value="1" min="1" max="50" style="width:78px" title="how many matches">
         <input id="g-seed" type="number" placeholder="seed" style="width:120px">
         <button class="act grow" id="g-play" style="max-width:180px">play</button>
         <span class="dim small" id="g-note"></span>
@@ -1872,7 +1872,7 @@ $("g-play").onclick = async () => {
       throw new Error(`${openGame.name} needs ${need} different agents — seat ${need} and play`);
     await refreshPlayersOnly();
 
-    const count = Math.min(Math.max(Number($("g-count").value) || 1, 1), 50);
+    const count = Math.min(Math.max(Number($("g-runs").value) || 1, 1), 50);
     const base = Number($("g-seed").value) || 0;
     for (let n = 0; n < count; n++) {
       const seed = base ? base + n : Math.floor(Math.random() * 1e9);

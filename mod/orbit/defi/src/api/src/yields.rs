@@ -413,6 +413,7 @@ impl Yields {
                     "best_pool": best.map(|p| json!({
                         "pool": p.pool, "symbol": p.symbol, "chain": p.chain,
                         "apy": p.apy.map(round2), "tvl_usd": round2(p.tvl_usd),
+                        "underlying_tokens": p.underlying_tokens,
                     })),
                     "apr_band": band_span(&bands, "pool"),
                     "chains": chains,

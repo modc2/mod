@@ -244,7 +244,7 @@ export default function Hub({ say, onExplore }: Props) {
                         {c.chain}
                         {/* No APY is promised on a TAO subnet or a vault — say
                             what is there instead of printing a dash. */}
-                        <b>{c.best?.apy == null ? `${c.pools} ${poolWord(c, c.pools)}` : pct(c.best?.apy, 1)}</b>
+                        <b>{c.best?.apy == null ? (c.gated ? "gated" : `${c.pools} ${poolWord(c, c.pools)}`) : pct(c.best?.apy, 1)}</b>
                       </span>
                     ))}
                     {chains.length > 5 && <span className="hub-chain dim-chain">+{chains.length - 5} more</span>}
@@ -393,7 +393,7 @@ export default function Hub({ say, onExplore }: Props) {
                       <span className={`chain-dot ${c.desk ?? ""}`} />
                       <b style={{ fontSize: 12 }}>{c.chain}</b>
                       <span className="dim">
-                        {c.pools} {poolWord(c, c.pools)} · {money(c.tvl_usd)}
+                        {c.gated ? "gated" : `${c.pools} ${poolWord(c, c.pools)}`} · {money(c.tvl_usd)}
                       </span>
                       <span style={{ marginLeft: "auto" }}>
                         {c.enterable ? (

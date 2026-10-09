@@ -1270,7 +1270,7 @@ $('w-set').onclick = async () => {
   try {
     const r = await api('/set', writeArgs());
     out('w-out', `<div class="good">${r.status.toUpperCase()} in <a href="#" onclick="goBlock(${JSON.stringify(r.block||r.height||'')})" style="color:inherit">block ${r.height ?? '—'}</a></div>` +
-      `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash)}</span>` +
+      `<div class="kv"><b>tx</b><a href="#" class="mono" onclick="goInspect(${JSON.stringify(r.hash||'')})" style="color:var(--blue)">${esc(r.hash??'—')}</a>` +
       `<b>witness</b><span>${r.witness_bytes} bytes of post-quantum signature` +
       (r.receipt ? ` · fee <span class="amt">${esc(pq(r.receipt.fee))}</span> PQ` : '') + `</span>` +
       (r.committed ? `<b>committed</b><span class="mono">${esc(r.committed.value)}</span>` : '') +
@@ -1285,7 +1285,7 @@ async function manage(path, extra) {
     const r = await api(path, {key: $('m-key').value.trim(),
                                wallet: $('m-wallet').value || undefined, ...extra});
     out('m-out', `<div class="good">${r.status.toUpperCase()} in <a href="#" onclick="goBlock(${JSON.stringify(r.block||r.height||'')})" style="color:inherit">block ${r.height ?? '—'}</a></div>` +
-      `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash ?? '—')}</span>` +
+      `<div class="kv"><b>tx</b><a href="#" class="mono" onclick="goInspect(${JSON.stringify(r.hash||'')})" style="color:var(--blue)">${esc(r.hash??'—')}</a>` +
       (r.receipt?.fee    ? `<b>fee</b><span class="amt">${esc(pq(r.receipt.fee))} PQ</span>` : '') +
       (r.receipt?.refund ? `<b>refund</b><span class="amt">${esc(pq(r.receipt.refund))} PQ</span>` : '') +
       (r.receipt?.bounty ? `<b>bounty</b><span class="amt">${esc(pq(r.receipt.bounty))} PQ</span>` : '') +
@@ -1307,7 +1307,7 @@ $('x-send').onclick = async () => {
     const r = await api('/transfer', {wallet: $('x-wallet').value || undefined,
       to: $('x-to').value.trim(), amount: $('x-amount').value.trim()});
     out('x-out', `<div class="good">${r.status.toUpperCase()} in <a href="#" onclick="goBlock(${JSON.stringify(r.block||r.height||'')})" style="color:inherit">block ${r.height ?? '—'}</a></div>` +
-      `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash ?? '—')}</span>` +
+      `<div class="kv"><b>tx</b><a href="#" class="mono" onclick="goInspect(${JSON.stringify(r.hash||'')})" style="color:var(--blue)">${esc(r.hash??'—')}</a>` +
       (r.receipt?.fee    ? `<b>fee</b><span class="amt">${esc(pq(r.receipt.fee))} PQ</span>` : '') +
       (r.receipt?.amount ? `<b>amount</b><span class="amt">${esc(pq(r.receipt.amount))} PQ</span>` : '') +
       (r.receipt?.to     ? `<b>to</b><span class="mono">${esc(r.receipt.to)}</span>` : '') +

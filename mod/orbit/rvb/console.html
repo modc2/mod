@@ -394,11 +394,11 @@ async function showRound(id) {
     ${controlMatches.length ? `<h2 style="margin-top:14px">controls</h2>
     <table><tr><th>defense</th><th>control</th><th>near attack</th>
         <th>over-refused</th><th>stopped at</th></tr>
-      ${controlMatches.map((m, i) => `<tr class="click" data-ctl="${i}"${m.over_refused ? ' style="color:var(--warn)"' : ''}>
+      ${controlMatches.map((m, i) => `<tr class="click" data-ctl="${i}"${m.over_refusal ? ' style="color:var(--warn)"' : ''}>
         <td>${esc(defName[m.defense] || m.defense)}</td>
         <td class="muted">${esc(m.control)}</td>
         <td class="muted">${esc(atkName[m.near] || m.near || '—')}</td>
-        <td>${m.over_refused ? '<span style="color:var(--warn)">yes</span>' : '—'}</td>
+        <td>${m.over_refusal ? '<span style="color:var(--warn)">yes</span>' : '—'}</td>
         <td class="muted">${esc(m.blocked_at || 'model')}</td></tr>`).join('')}
     </table>` : ''}`;
   const matches = r.matches || [];

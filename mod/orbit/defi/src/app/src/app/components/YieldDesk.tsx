@@ -312,7 +312,7 @@ export default function YieldDesk({ onClose, say, address }: Props) {
                       key={key ?? i}
                       onClick={() => {
                         setPicked(r);
-                        setAssetAddress(r.underlying_tokens?.[0] ?? "");
+                        setAssetAddress(r.underlying_tokens?.[0] ?? r.best_pool?.underlying_tokens?.[0] ?? "");
                       }}
                       style={{
                         borderBottom: "1px solid var(--line-soft)",
@@ -468,9 +468,9 @@ export default function YieldDesk({ onClose, say, address }: Props) {
                     placeholder="0x… the ERC20 you are locking"
                     style={{ marginTop: 4 }}
                   />
-                  {(picked?.underlying_tokens?.length ?? 0) > 1 && (
+                  {((picked?.underlying_tokens ?? picked?.best_pool?.underlying_tokens)?.length ?? 0) > 1 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
-                      {(picked.underlying_tokens as string[]).map((addr: string) => (
+                      {((picked.underlying_tokens ?? picked.best_pool?.underlying_tokens) as string[]).map((addr: string) => (
                         <button
                           key={addr}
                           onClick={() => setAssetAddress(addr)}
