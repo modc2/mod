@@ -283,6 +283,18 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
               ['Middle income (121–165% AMI)', count(p.middle)],
               ['Other / not banded', count(p.other)],
             ]} />
+            {(p.studio || p.br1 || p.br2 || p.br3 || p.br4 || p.br5 || p.br6) ? (
+              <>
+                <div className="pixel mb-1 text-[10.5px] text-nes-ink3">By bedroom</div>
+                <Meta rows={[
+                  ['Studios', p.studio ? count(p.studio) : null],
+                  ['1 bedroom', p.br1 ? count(p.br1) : null],
+                  ['2 bedrooms', p.br2 ? count(p.br2) : null],
+                  ['3 bedrooms', p.br3 ? count(p.br3) : null],
+                  ['4+ bedrooms', (p.br4 || p.br5 || p.br6) ? count((p.br4 ?? 0) + (p.br5 ?? 0) + (p.br6 ?? 0)) : null],
+                ]} />
+              </>
+            ) : null}
           </div>
         )}
 

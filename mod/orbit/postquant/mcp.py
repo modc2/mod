@@ -222,6 +222,7 @@ def _submit(wallet, kind, args, **fields):
             result['receipt'] = _receipt_view(found.get('receipt'))
             result['status'] = found['status']
             result['height'] = found.get('height')
+            result['block'] = found.get('block')
         except StateError:
             result['status'] = 'dropped'
     else:

@@ -1377,6 +1377,7 @@ class Mod:
         sh = self.shareholder(address)
         prop = self.property()
         share_price = float(prop.get('share_price', 0))
+        eq = self.equity(address)
         return {
             'address': address,
             'shares': sh['shares'],
@@ -1385,6 +1386,7 @@ class Mod:
             'dividends_claimed': sh.get('dividends_claimed', 0),
             'current_value': sh['shares'] * share_price,
             'property_status': prop.get('status', 'pending'),
+            'rent_equity': eq,
         }
 
     def available_shares(self):

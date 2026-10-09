@@ -962,6 +962,10 @@ $('chain-verify').onclick = async () => {
       (v.problems.length ? '\n' + v.problems.map(esc).join('\n') : '') + '</pre>');
   } catch (e) { err('verify-out', e); }
 };
+function goBlock(h) {
+  document.querySelector('nav button[data-tab="chain"]').click();
+  $('insp-q').value = h; $('insp-btn').click();
+}
 $('insp-btn').onclick = async () => {
   const q = $('insp-q').value.trim();
   if (!q) return;
@@ -1212,6 +1216,12 @@ $('acct-btn').onclick = async () => {
       ev.preventDefault();
       $('insp-q').value = lnk.dataset.h; $('insp-btn').click();
     });
+    document.querySelectorAll('#acct-out tr.click').forEach(tr => tr.onclick = () => {
+      $('get-key').value = tr.dataset.k; $('check-key').value = tr.dataset.k;
+      $('m-key').value = tr.dataset.k;
+      document.querySelector('nav button[data-tab="store"]').click();
+      $('get-btn').click();
+    });
   } catch (e) { err('acct-out', e); }
 };
 
@@ -1255,7 +1265,7 @@ $('w-set').onclick = async () => {
   out('w-out', 'signing (post-quantum, pure python — SLH-DSA takes a second)…', 'muted');
   try {
     const r = await api('/set', writeArgs());
-    out('w-out', `<div class="good">${r.status.toUpperCase()} in block ${r.height ?? '—'}</div>` +
+    out('w-out', `<div class="good">${r.status.toUpperCase()} in <a href="#" onclick="goBlock(${JSON.stringify(r.block||r.height||'')})" style="color:inherit">block ${r.height ?? '—'}</a></div>` +
       `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash)}</span>` +
       `<b>witness</b><span>${r.witness_bytes} bytes of post-quantum signature` +
       (r.receipt ? ` · fee <span class="amt">${esc(pq(r.receipt.fee))}</span> PQ` : '') + `</span>` +
@@ -1270,7 +1280,7 @@ async function manage(path, extra) {
   try {
     const r = await api(path, {key: $('m-key').value.trim(),
                                wallet: $('m-wallet').value || undefined, ...extra});
-    out('m-out', `<div class="good">${r.status.toUpperCase()} in block ${r.height ?? '—'}</div>` +
+    out('m-out', `<div class="good">${r.status.toUpperCase()} in <a href="#" onclick="goBlock(${JSON.stringify(r.block||r.height||'')})" style="color:inherit">block ${r.height ?? '—'}</a></div>` +
       `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash ?? '—')}</span>` +
       (r.receipt?.fee    ? `<b>fee</b><span class="amt">${esc(pq(r.receipt.fee))} PQ</span>` : '') +
       (r.receipt?.refund ? `<b>refund</b><span class="amt">${esc(pq(r.receipt.refund))} PQ</span>` : '') +
@@ -1292,7 +1302,7 @@ $('x-send').onclick = async () => {
   try {
     const r = await api('/transfer', {wallet: $('x-wallet').value || undefined,
       to: $('x-to').value.trim(), amount: $('x-amount').value.trim()});
-    out('x-out', `<div class="good">${r.status.toUpperCase()} in block ${r.height ?? '—'}</div>` +
+    out('x-out', `<div class="good">${r.status.toUpperCase()} in <a href="#" onclick="goBlock(${JSON.stringify(r.block||r.height||'')})" style="color:inherit">block ${r.height ?? '—'}</a></div>` +
       `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash ?? '—')}</span>` +
       (r.receipt?.fee    ? `<b>fee</b><span class="amt">${esc(pq(r.receipt.fee))} PQ</span>` : '') +
       (r.receipt?.amount ? `<b>amount</b><span class="amt">${esc(pq(r.receipt.amount))} PQ</span>` : '') +

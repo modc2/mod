@@ -241,7 +241,7 @@ export default function Legend({
           </li>
           <li className="flex items-center gap-2 text-[10.5px] text-nes-ink2">
             <span className="h-3 w-3 shrink-0 rounded-full ring-2 ring-black"
-                  style={{ background: '#f2a0a0' }} />
+                  style={{ background: '#f0564a' }} />
             <span>fatal</span>
           </li>
         </ul>

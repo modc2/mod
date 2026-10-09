@@ -2625,7 +2625,8 @@ function playerMatchRow(m, p) {
   const me = m.seats.find((s) => s.player_id === p.id) || {};
   const top = Math.max(...m.seats.map((s) => s.score));
   const tied = m.seats.filter((s) => s.score === top).length > 1;
-  const result = me.score < top ? "L" : tied ? "D" : "W";
+  const solo = m.seats.length <= 1;
+  const result = solo ? "—" : me.score < top ? "L" : tied ? "D" : "W";
   const faults = [me.illegal ? `${me.illegal} illegal` : "", me.timeouts ? `${me.timeouts} timeouts` : "",
                   me.error ? "error" : ""].filter(Boolean).join(", ");
   const tr = el("tr", { className: "pick" });
@@ -2634,8 +2635,9 @@ function playerMatchRow(m, p) {
                  textContent: new Date(m.created * 1000)
                    .toLocaleString([], { dateStyle: "short", timeStyle: "short" }) }),
     td("game", { className: "first", textContent: m.game_name }),
-    td("result", {}, el("span", { className: "form" },
-      el("span", { className: result, textContent: result }))),
+    td("result", {}, solo
+      ? el("span", { className: "dim", textContent: "—" })
+      : el("span", { className: "form" }, el("span", { className: result, textContent: result }))),
     td("seats", { textContent: m.seats.map((s) => `${s.player_name} ${s.score}`).join("  ·  ") }),
     td("elo", { className: m.rated ? (me.delta >= 0 ? "ok" : "bad") : "dim",
                 textContent: m.rated ? `${me.delta >= 0 ? "+" : ""}${me.delta}` : "practice" }),

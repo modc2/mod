@@ -124,6 +124,16 @@
         <button class="go" id="r-go">RUN ROUND</button>
         <span id="r-status" class="flash"></span>
       </div>
+      <div class="row" style="align-items:flex-start;margin-top:6px">
+        <div style="flex:1">
+          <label>attacks — select subset (all = all)</label>
+          <select id="r-attacks" multiple size="4" style="width:100%;margin-top:4px"></select>
+        </div>
+        <div style="flex:1">
+          <label>defenses — select subset (all = all)</label>
+          <select id="r-defenses" multiple size="4" style="width:100%;margin-top:4px"></select>
+        </div>
+      </div>
     </div>
     <div class="panel">
       <h2>history</h2>
@@ -286,14 +296,33 @@ async function recomputeCostHint() {
   try {
     const [{attacks}, {defenses}, {controls}] = await Promise.all(
       [api('/attacks'), api('/defenses'), api('/controls')]);
-    const atk = attacks.length, def = defenses.length, ctl = controls.length;
+    const atkSel = $('#r-attacks'), defSel = $('#r-defenses');
+    const atk = (atkSel && atkSel.options.length) ? atkSel.selectedOptions.length : attacks.length;
+    const def = (defSel && defSel.options.length) ? defSel.selectedOptions.length : defenses.length;
+    const ctl = controls.length;
     const total = atk * def + ctl * def;
     $('#cost-hint').textContent =
       `${atk} attacks × ${def} defenses + ${ctl} controls × ${def} defenses = ${total} matches`;
   } catch (_) {}
 }
 
+async function populateRoundSelects() {
+  try {
+    const [{attacks}, {defenses}] = await Promise.all([api('/attacks'), api('/defenses')]);
+    const fill = (sel, items) => {
+      const prev = new Set([...sel.selectedOptions].map(o => o.value));
+      const wasEmpty = sel.options.length === 0;
+      sel.innerHTML = items.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+      [...sel.options].forEach(o => o.selected = wasEmpty || prev.has(o.value));
+    };
+    fill($('#r-attacks'), attacks);
+    fill($('#r-defenses'), defenses);
+    recomputeCostHint();
+  } catch (_) {}
+}
+
 async function loadRounds() {
+  populateRoundSelects();
   recomputeCostHint();
   const {rounds} = await api('/rounds?limit=20');
   $('#round-list').innerHTML = rounds.length ? `<table>
@@ -323,7 +352,8 @@ async function showRound(id) {
   const defName = {};
   (Array.isArray(defs) ? defs : []).forEach(d => { defName[d.id] = d.name || d.id; });
   const atkName = {};
-  (Array.isArray(atks) ? atks : []).forEach(a => { atkName[a.id] = a.name || a.id; });
+  const atkById = {};
+  (Array.isArray(atks) ? atks : []).forEach(a => { atkName[a.id] = a.name || a.id; atkById[a.id] = a; });
   const ctlPrompt = {};
   const ctlList = Array.isArray(ctlsData) ? ctlsData : (ctlsData.controls || []);
   ctlList.forEach(c => { ctlPrompt[c.id] = c.prompt || ''; });
@@ -384,7 +414,13 @@ async function showRound(id) {
       const td = document.createElement('td');
       td.colSpan = 5;
       td.style.padding = '8px 12px';
-      td.innerHTML = `${(m.stages || []).map(s =>
+      const atk = atkById[m.attack];
+      const attackPrompt = atk
+        ? (atk.prompt || (Array.isArray(atk.turns)
+            ? atk.turns.map(t => t.content || t).join('\n---\n') : ''))
+        : '';
+      td.innerHTML = `${attackPrompt ? `<div class="muted">attack prompt</div><pre>${esc(attackPrompt)}</pre>` : ''}
+        ${(m.stages || []).map(s =>
         `<div class="stage"><b>${esc(s.stage)}</b>
          <span>${esc(s.rule || s.action)}</span>
          <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
@@ -429,10 +465,16 @@ $('#r-go').onclick = async () => {
   const btn = $('#r-go'); btn.disabled = true;
   $('#r-status').textContent = 'starting…';
   try {
-    const started = await post('/round', {
+    const body = {
       model: $('#r-model').value.trim(), judge: $('#r-judge').value,
       parallel: Number($('#r-par').value) || 6, controls: $('#r-ctl').checked,
-      background: true});
+      background: true};
+    const atkSel = $('#r-attacks'), defSel = $('#r-defenses');
+    if (atkSel && atkSel.options.length && atkSel.selectedOptions.length < atkSel.options.length)
+      body.attacks = [...atkSel.selectedOptions].map(o => o.value);
+    if (defSel && defSel.options.length && defSel.selectedOptions.length < defSel.options.length)
+      body.defenses = [...defSel.selectedOptions].map(o => o.value);
+    const started = await post('/round', body);
     poll(started.id, started.total_matches);
   } catch (e) {
     $('#r-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
@@ -662,6 +704,9 @@ async function loadAbout() {
     <p class="note">state: ${esc(i.state)} · mcp: ${i.mcp.tools} tools at
       POST /mcp · version ${esc(i.version)}</p>`;
 }
+
+$('#r-attacks').addEventListener('change', recomputeCostHint);
+$('#r-defenses').addEventListener('change', recomputeCostHint);
 
 // ── boot ───────────────────────────────────────────────────────
 api('/targets').then(t => {

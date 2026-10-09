@@ -237,17 +237,19 @@ export default function Book({ say, onOpenModules }: Props) {
                     {p.status === "open" && (
                       <div className="card" style={{ marginTop: 10 }}>
                         <div className="label">Take money out</div>
-                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                          <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="all, or an amount" />
-                          {p.signer !== "browser" && (
-                            <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder={p.account ? `account (${p.account})` : "account"} />
-                          )}
-                        </div>
-                        {p.signer !== "browser" && (
+                        {p.adapter !== "pm_copy" && (
+                          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="all, or an amount" />
+                            {p.signer !== "browser" && (
+                              <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder={p.account ? `account (${p.account})` : "account"} />
+                            )}
+                          </div>
+                        )}
+                        {p.adapter !== "pm_copy" && p.signer !== "browser" && (
                           <input value={auth} onChange={(e) => setAuth(e.target.value)} type="password" placeholder="bearer for the chain module (optional)" style={{ marginTop: 6 }} />
                         )}
                         <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "center" }}>
-                          {p.signer !== "browser" && (
+                          {p.adapter !== "pm_copy" && p.signer !== "browser" && (
                             <label className="tick">
                               <input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} /> real money
                             </label>
@@ -257,7 +259,7 @@ export default function Book({ say, onOpenModules }: Props) {
                           <button className="primary" onClick={() => exit(p)} disabled={busy !== ""}>
                             {busy === `exit:${p.id}`
                               ? p.signer === "browser" ? "signing…" : "sending…"
-                              : p.signer === "browser" ? "SIGN EXIT" : confirm ? "EXIT" : "exit (dry until confirmed)"}
+                              : p.adapter === "pm_copy" ? "STOP SESSION" : p.signer === "browser" ? "SIGN EXIT" : confirm ? "EXIT" : "exit (dry until confirmed)"}
                           </button>
                         </div>
                         {busy === `exit:${p.id}` && steps.length > 0 && (
@@ -272,7 +274,9 @@ export default function Book({ say, onOpenModules }: Props) {
                           </div>
                         )}
                         <div className="mono-small" style={{ marginTop: 6, lineHeight: 1.5 }}>
-                          {p.signer === "browser"
+                          {p.adapter === "pm_copy"
+                            ? "stops the mirror immediately — exits are never gated; open copied positions are liquidated from the polymarket console"
+                            : p.signer === "browser"
                             ? "your own wallet signs the way out — the wallet's confirmation screen is the confirm"
                             : p.adapter === "swap_receipt" ? "amount is in the receipt token" : p.adapter === "tao_subnet" ? "amount is TAO-equivalent of alpha" : "amount is in the asset; 'all' redeems every share"}
                         </div>

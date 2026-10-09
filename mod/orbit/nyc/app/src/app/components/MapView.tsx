@@ -591,7 +591,7 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
         paint: {
           'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 2.5, 17, 6],
           'circle-color': ['case', ['>', ['coalesce', ['get', 'killed'], 0], 0],
-            '#f2a0a0', color],
+            '#f0564a', color],
           'circle-opacity': 0.85 * alpha,
           'circle-stroke-width': 0.8,
           'circle-stroke-color': '#000000',

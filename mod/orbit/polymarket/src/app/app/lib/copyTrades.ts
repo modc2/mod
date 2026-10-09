@@ -314,15 +314,16 @@ export interface LeaderScore {
   myNotional: number;
   myPnl: number;
   medianLagSec: number | null;
+  avgSlipCents: number | null;
 }
 
 export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
-  const by = new Map<string, LeaderScore & { lags: number[] }>();
+  const by = new Map<string, LeaderScore & { lags: number[]; slips: number[] }>();
   const get = (address: string, name: string) => {
     let e = by.get(address);
     if (!e) {
       e = { address, label: name, trades: 0, copied: 0, coverage: 0, notional: 0,
-        myNotional: 0, myPnl: 0, medianLagSec: null, lags: [] };
+        myNotional: 0, myPnl: 0, medianLagSec: null, avgSlipCents: null, lags: [], slips: [] };
       by.set(address, e);
     }
     return e;
@@ -338,13 +339,17 @@ export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
       e.myNotional += r.notional;
       e.myPnl += r.pnl ?? 0;
       if (r.lagSec != null) e.lags.push(r.lagSec);
+      if (r.slipCents != null) e.slips.push(r.slipCents);
     }
   }
   return Array.from(by.values())
-    .map(({ lags, ...e }) => ({
+    .map(({ lags, slips, ...e }) => ({
       ...e,
       coverage: e.trades ? e.copied / e.trades : 0,
       medianLagSec: median(lags),
+      avgSlipCents: slips.length
+        ? Math.round((slips.reduce((s, x) => s + x, 0) / slips.length) * 10) / 10
+        : null,
     }))
     .sort((a, b) => b.trades - a.trades);
 }

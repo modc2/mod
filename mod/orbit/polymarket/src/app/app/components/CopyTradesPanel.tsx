@@ -34,7 +34,7 @@ import SemanticFilterBar from "./SemanticFilterBar";
 const WINDOWS = [1, 3, 7, 14, 30] as const;
 export type CopyTradesView = "all" | "mine" | "missed";
 
-type SortCol = "trades" | "notional" | "copied" | "coverage" | "medianLagSec" | "myNotional" | "myPnl";
+type SortCol = "trades" | "notional" | "copied" | "coverage" | "medianLagSec" | "avgSlipCents" | "myNotional" | "myPnl";
 type SortDir = "asc" | "desc";
 
 function usd(n: number, digits = 2): string {
@@ -304,6 +304,7 @@ export default function CopyTradesPanel({
                     { col: "copied" as SortCol, label: "I GOT", cls: "num w-[14%]" },
                     { col: "coverage" as SortCol, label: "COVERAGE", cls: "num w-[12%]" },
                     { col: "medianLagSec" as SortCol, label: "LAG", cls: "num w-[12%]" },
+                    { col: "avgSlipCents" as SortCol, label: "SLIP", cls: "num w-[10%]" },
                     { col: "myNotional" as SortCol, label: "MY $", cls: "num w-[10%]" },
                     { col: "myPnl" as SortCol, label: "MY PNL", cls: "num w-[10%]" },
                   ] as const
@@ -339,6 +340,14 @@ export default function CopyTradesPanel({
                     {l.trades ? `${Math.round(l.coverage * 100)}%` : "—"}
                   </td>
                   <td className="num tabular-nums">{lagText(l.medianLagSec)}</td>
+                  <td
+                    className={`num tabular-nums ${
+                      l.avgSlipCents == null ? "" : l.avgSlipCents > 0 ? "text-amber-400" : "text-green-400"
+                    }`}
+                    title={l.avgSlipCents == null ? "No attributed fills for this leader" : `Average slippage vs leader price: ${l.avgSlipCents > 0 ? "paid up" : "got better price"} by ${Math.abs(l.avgSlipCents)}¢`}
+                  >
+                    {l.avgSlipCents == null ? "—" : `${l.avgSlipCents > 0 ? "+" : ""}${l.avgSlipCents}¢`}
+                  </td>
                   <td className="num tabular-nums">{usd(l.myNotional, 0)}</td>
                   <td className={`num tabular-nums ${l.myPnl > 0 ? "text-green-400" : l.myPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
                     {l.myPnl >= 0 ? "+" : ""}{l.myPnl.toFixed(2)}
@@ -354,7 +363,7 @@ export default function CopyTradesPanel({
                         {shortAddress(addr)}
                       </Link>
                     </td>
-                    <td colSpan={6} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
+                    <td colSpan={8} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
                       &#x29D7; warming — no history cached yet
                     </td>
                   </tr>

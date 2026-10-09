@@ -444,9 +444,12 @@ TOOLS = {
         'handler': _t_shareholders,
     },
     'openhouse_portfolio': {
-        'description': "One address's position: shares, ownership percent, "
+        'description': "One address's full position: shares, ownership percent, "
                        'contribution, dividends claimed and current value at '
-                       'the live share price.',
+                       'the live share price; plus rent-equity data (principal '
+                       'credited, equity percent, amount remaining, fully_owned) '
+                       'under the rent_equity key — one call covers both share '
+                       'holders and rent-to-own renters.',
         'inputSchema': {'type': 'object', 'properties': {
             'address': {'type': 'string', 'description': '0x holder address'},
         }, 'required': ['address']},
