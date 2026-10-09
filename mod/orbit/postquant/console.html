@@ -941,9 +941,12 @@ async function loadChain() {
     out('mempool', mp.count === 0 && !mp.recently_dropped.length
       ? '<span class="muted">empty.</span>'
       : (mp.pending.map(t => `<div class="mono muted">${t.kind} ` +
-          `${t.key ? esc(t.key) : t.to ? '→ ' + short(t.to, 14) : short(t.hash, 18)} from ${short(t.from, 16)}</div>`).join('') +
+          `<a href="#" class="mp-tx-link" data-h="${esc(t.hash)}">${t.key ? esc(t.key) : t.to ? '→ ' + short(t.to, 14) : short(t.hash, 18)}</a>` +
+          ` from ${short(t.from, 16)}</div>`).join('') +
         mp.recently_dropped.map(d => `<div class="mono bad">dropped ` +
-          `${d.kind || ''} ${short(d.hash, 14)} from ${d.from ? short(d.from, 14) : '?'} — ${esc(d.reason)}</div>`).join('')));
+          `${d.kind || ''} <a href="#" class="mp-tx-link" data-h="${esc(d.hash)}">${short(d.hash, 14)}</a>` +
+          ` from ${d.from ? short(d.from, 14) : '?'} — ${esc(d.reason)}</div>`).join('')));
+    document.querySelectorAll('#mempool .mp-tx-link').forEach(el => el.onclick = ev => { ev.preventDefault(); goInspect(el.dataset.h); });
   } catch (e) { out('head-stats', esc(e.message), 'err'); }
 }
 $('chain-refresh').onclick = loadChain;

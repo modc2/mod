@@ -341,7 +341,11 @@ class Mod:
             credit = min(credit, room)
         owner_income = net - credit
 
-        return {
+        option_fee_required = 0.0
+        if float(t.get('option_fee_pct', 0)) > 0 and price > 0:
+            option_fee_required = round(price * float(t['option_fee_pct']) / 100.0, 8)
+
+        result = {
             'amount': round(amount, 8),
             'fee': round(fee, 8),
             'credit': round(credit, 8),
@@ -351,7 +355,11 @@ class Mod:
             'to_property': round(net, 8),
             'to_property_pct': t['to_property_pct'],
             'kind': kind,
+            'option_fee_required': option_fee_required,
         }
+        if kind == 'option' and option_fee_required > 0 and amount < option_fee_required:
+            result['underpays_option_fee'] = True
+        return result
 
     def _principal_paid_total(self):
         return sum(float(r.get('credit', 0)) for r in self._load_rent())
@@ -396,6 +404,7 @@ class Mod:
             'credit_pct': split['credit_pct'],
             'model': t['model'],
             'kind': kind,
+            'option_fee_required': split['option_fee_required'],
         }
         if source:
             entry['source'] = source

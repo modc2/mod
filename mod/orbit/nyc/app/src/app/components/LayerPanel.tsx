@@ -176,5 +176,8 @@ function swatch(def: LayerDef): string {
   if (def.id === 'evacuation_zones') {
     return 'linear-gradient(90deg,#f2a0a0,#d95926,#5f7a52)'
   }
+  if (def.id === 'affordable_rents') {
+    return 'linear-gradient(90deg,#0d366b,#3987e5,#cde2fb)'
+  }
   return LAYER_COLOR[def.id] || '#3987e5'
 }

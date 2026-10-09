@@ -55,7 +55,7 @@ export const LAYER_COLOR: Record<string, string> = {
   parks: '#199e70',              // translucent fill
   bike_routes: '#d95926',        // hairline
   affordable_housing: '#199e70', // graduated circle
-  affordable_rents: '#c084fc',   // graduated circle
+  affordable_rents: '#3987e5',   // graduated circle
   subway_ridership: '#d95926',   // graduated circle
   subway_stations: '#ffffff',    // reference infrastructure, not a data series
   collisions: '#e66767',

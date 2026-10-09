@@ -2629,6 +2629,7 @@ function playerMatchRow(m, p) {
   const result = solo ? "—" : me.score < top ? "L" : tied ? "D" : "W";
   const faults = [me.illegal ? `${me.illegal} illegal` : "", me.timeouts ? `${me.timeouts} timeouts` : "",
                   me.error ? "error" : ""].filter(Boolean).join(", ");
+  const delta = (me.elo_after ?? 0) - (me.elo_before ?? 0);
   const tr = el("tr", { className: "pick" });
   tr.append(
     td("when", { className: "dim", style: "white-space:nowrap",
@@ -2639,8 +2640,8 @@ function playerMatchRow(m, p) {
       ? el("span", { className: "dim", textContent: "—" })
       : el("span", { className: "form" }, el("span", { className: result, textContent: result }))),
     td("seats", { textContent: m.seats.map((s) => `${s.player_name} ${s.score}`).join("  ·  ") }),
-    td("elo", { className: m.rated ? (me.delta >= 0 ? "ok" : "bad") : "dim",
-                textContent: m.rated ? `${me.delta >= 0 ? "+" : ""}${me.delta}` : "practice" }),
+    td("elo", { className: m.rated ? (delta >= 0 ? "ok" : "bad") : "dim",
+                textContent: m.rated ? `${delta >= 0 ? "+" : ""}${Math.round(delta)}` : "practice" }),
     td("faults", { className: faults ? "bad" : "dim", textContent: faults || "clean" }),
     td("where", { className: "dim", textContent: m.runtime }),
   );

@@ -780,6 +780,7 @@ export default function Modules({ say, address, prefill, onOpenTreasury, onOpenB
                         {quote.exit_today?.get_back && <div>out today: {quote.exit_today.get_back} {detail.adapter?.asset?.symbol} back{quote.exit_today.impact_pct != null ? ` · impact ${pct(quote.exit_today.impact_pct, 3)}` : ""}</div>}
                         {quote.exit_today?.how && <div>out: {quote.exit_today.how}{quote.exit_today.vault_total_assets ? ` · vault holds ${quote.exit_today.vault_total_assets}` : ""}</div>}
                         {quote.exit_today?.error && <div style={{ color: "var(--warn)" }}>exit quote: {quote.exit_today.error}</div>}
+                        {quote.round_trip_note && <div style={{ color: "var(--muted)" }}>{quote.round_trip_note}</div>}
                       </div>
                     </div>
                   )}

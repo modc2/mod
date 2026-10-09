@@ -725,7 +725,12 @@ $('#f-go').onclick = async () => {
 
 // ── about ──────────────────────────────────────────────────────
 async function loadAbout() {
-  const i = await api('/');
+  const [i, ctlsData, atks] = await Promise.all([
+    api('/'), api('/controls'), api('/attacks'),
+  ]);
+  const atkName = {};
+  (Array.isArray(atks) ? atks : []).forEach(a => { atkName[a.id] = a.name || a.id; });
+  const ctls = Array.isArray(ctlsData) ? ctlsData : (ctlsData.controls || []);
   $('#about-body').innerHTML = `
     <p>${esc(i.what)}</p>
     <table><tr><th>verdict</th><th>meaning</th></tr>
@@ -739,7 +744,32 @@ async function loadAbout() {
     <p class="note">pipeline: ${esc(i.pipeline)}</p>
     <p class="note">targets: ${esc(i.targets)}</p>
     <p class="note">state: ${esc(i.state)} · mcp: ${i.mcp.tools} tools at
-      POST /mcp · version ${esc(i.version)}</p>`;
+      POST /mcp · version ${esc(i.version)}</p>
+    ${ctls.length ? `<h2 style="margin-top:14px">control set</h2>
+    <table><tr><th>id</th><th>benign prompt</th><th>near attack</th></tr>
+      ${ctls.map((c, idx) => `<tr class="click" data-ctl-about="${idx}">
+        <td class="muted">${esc(c.id)}</td>
+        <td>${esc((c.prompt || '').slice(0, 80))}${(c.prompt || '').length > 80 ? '…' : ''}</td>
+        <td class="muted">${esc(atkName[c.near] || c.near || '—')}</td></tr>`).join('')}
+    </table>` : ''}`;
+  $('#about-body').querySelectorAll('tr[data-ctl-about]').forEach(tr => {
+    tr.onclick = () => {
+      const idx = Number(tr.dataset.ctlAbout);
+      const c = ctls[idx];
+      const existing = tr.nextElementSibling;
+      if (existing && existing.classList.contains('ctl-about-detail')) {
+        existing.remove(); return;
+      }
+      const detail = document.createElement('tr');
+      detail.className = 'ctl-about-detail';
+      const td = document.createElement('td');
+      td.colSpan = 3;
+      td.style.padding = '8px 12px';
+      td.innerHTML = `<pre style="margin-top:0">${esc(c.prompt || '')}</pre>`;
+      detail.appendChild(td);
+      tr.after(detail);
+    };
+  });
 }
 
 $('#r-attacks').addEventListener('change', recomputeCostHint);

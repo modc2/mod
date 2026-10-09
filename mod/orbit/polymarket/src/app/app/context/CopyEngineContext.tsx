@@ -36,6 +36,10 @@ interface CopyEngineContextValue {
       cannot report this (the dry-run path clears it), which is exactly how a
       session sat "running" for a week placing nothing. */
   backendDryRuns: GateTally | null;
+  /** Open mirror positions the backend engine is currently holding, keyed by
+      tokenId. Empty when no backend session is running. Used to show entry
+      age and leader attribution in the positions panel. */
+  backendPositions: Record<string, { tokenId: string; openedAt?: number; leader?: string }>;
   /** Whether the backend engine places REAL orders (false = dry-run: mirrors
       are logged but nothing is sent to the CLOB). */
   autoExecute: boolean;
@@ -206,6 +210,9 @@ interface BackendStatus {
     /** Cadence the backend loop is ACTUALLY running at — the strat's request
         after the engine's rate-limit floor and fan-out widening. */
     effectiveIntervalMs?: number;
+    /** Open mirror positions the engine is holding, keyed by tokenId.
+        Only populated while the backend session is running. */
+    positions?: Record<string, { tokenId: string; openedAt?: number; leader?: string }>;
   };
 }
 
@@ -235,6 +242,7 @@ const CopyEngineContext = createContext<CopyEngineContextValue>({
   backendIntervalMs: null,
   backendGates: {},
   backendDryRuns: null,
+  backendPositions: {},
   autoExecute: false,
   setAutoExecute: async () => false,
   attachStrategy: () => {},
@@ -260,6 +268,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
   const [backendIntervalMs, setBackendIntervalMs] = useState<number | null>(null);
   const [backendGates, setBackendGates] = useState<Record<string, GateTally>>({});
   const [backendDryRuns, setBackendDryRuns] = useState<GateTally | null>(null);
+  const [backendPositions, setBackendPositions] = useState<Record<string, { tokenId: string; openedAt?: number; leader?: string }>>({});
   const [autoExecute, setAutoExecuteState] = useState(false);
   // EOA + strat used for backend polling — set on start, cleared on stop.
   // The strat id scopes every backend call to THIS session, so stopping or
@@ -435,6 +444,9 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
         // …and the case the gate tally deliberately can't report: mirrors the
         // filters PASSED that dry run then threw away.
         setBackendDryRuns(status.state?.dryRunRecently ?? null);
+        // Open mirror positions — gives the UI entry timestamps and leader
+        // attribution without the browser engine needing to track them.
+        setBackendPositions(status.state?.positions ?? {});
         // Account value is measured by the BACKEND only (it reads the
         // deposit wallet's cash and marks its own positions each cycle), and
         // it's what every proportional mirror is sized against — so surface
@@ -483,6 +495,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
         setBackendIntervalMs(null);
         setBackendGates({});
         setBackendDryRuns(null);
+        setBackendPositions({});
       }
     };
 
@@ -529,6 +542,7 @@ export function CopyEngineProvider({ children }: { children: ReactNode }) {
     <CopyEngineContext.Provider value={{
       engineState, isLive, activeStrategyId, backendRunning,
       backendTraderSync, backendIntervalMs, backendGates, backendDryRuns,
+      backendPositions,
       autoExecute, setAutoExecute, attachStrategy,
       startLive, stopLive, pauseLive, resumeLive, clearLog, catchUp,
     }}>
