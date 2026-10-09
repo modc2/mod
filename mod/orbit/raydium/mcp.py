@@ -124,10 +124,16 @@ def _t_swap_tx(a):
 
 def _t_depth(a):
     bands = a.get('bands')
-    if isinstance(bands, str):
-        bands = [float(b) / 100 for b in bands.split(',') if b.strip()]
-    elif isinstance(bands, list):
-        bands = [float(b) / 100 for b in bands]
+    try:
+        if isinstance(bands, str):
+            bands = [float(b) / 100 for b in bands.split(',') if b.strip()]
+        elif isinstance(bands, list):
+            bands = [float(b) / 100 for b in bands]
+    except ValueError:
+        raise RayError(
+            f'bands must be comma-separated percentages like 0.5,1,2,5,10 — got {a.get("bands")!r}',
+            status=400,
+        )
     return ray.depth(a['pool'], bands=bands, points=a.get('points', 48))
 
 

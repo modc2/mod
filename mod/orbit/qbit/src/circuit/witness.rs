@@ -71,6 +71,7 @@ mod tests {
                     output: "result".into(),
                 },
             ],
+            private_inputs: vec![],
         };
 
         let mut inputs = HashMap::new();

@@ -42,6 +42,7 @@ const EXAMPLES: Record<string, object> = {
     inputs: ["secret"],
     outputs: ["digest"],
     gates: [{ op: "Hash", input: "secret", output: "digest" }],
+    private_inputs: ["secret"],
   },
   pythagorean: {
     name: "pythagorean",

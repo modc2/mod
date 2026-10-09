@@ -129,23 +129,21 @@ class Auth:
             if v in (27, 28):
                 normalized_v = v - 27   # 27→0, 28→1
                 headers['signature'] = '0x' + r + s + f'{normalized_v:02x}'
-                print(f"Normalized legacy v={v} → {normalized_v}")
 
-        print('Verifying signature with headers:', headers)
-
-        sig_data = self.sig_data(headers)   
-        print('Hashing sig_data for verification:', m.hash(sig_data))
+        sig_data = self.sig_data(headers)
         # Now verify with (possibly normalized) signature
 
         age = abs(time.time() - float(headers['time']))
-        assert age < self.max_age, f'Token is stale {age} > {self.max_age}'
+        if age >= self.max_age:
+            raise ValueError(f'Token is stale: age {age:.1f}s exceeds max {self.max_age}s')
 
-        assert self.key.verify(
+        if not self.key.verify(
             sig_data,
             signature=headers['signature'],
             address=headers['key'],
             crypto_type=crypto_type
-        ), f'Invalid signature {sig_data} {headers}'
+        ):
+            raise ValueError('Invalid signature')
 
         return headers
     def get_key(self, key=None):

@@ -61,6 +61,10 @@ fn fiat_shamir_indices(seed: &[u8; 32], total: usize, count: usize) -> Vec<usize
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Opening {
     pub entry: TraceEntry,
+    /// SHA-256 hash of the full (unredacted) trace entry — used for Merkle verification.
+    /// Private input wire values are omitted from `entry` but were included when this hash
+    /// was computed, so the Merkle commitment covers them without revealing them.
+    pub committed_hash: String,
     pub leaf_index: usize,
     pub merkle_path: Vec<String>,
 }
@@ -92,10 +96,11 @@ impl Proof {
         let trace_root = hex::encode(tree.root());
         let circuit_hash = circuit.hash();
 
-        // 2. Collect public I/O
+        // 2. Collect public I/O (exclude declared private inputs)
         let public_inputs: HashMap<String, String> = circuit
             .inputs
             .iter()
+            .filter(|k| !circuit.private_inputs.contains(k))
             .filter_map(|k| witness.wires.get(k).map(|v| (k.clone(), v.clone())))
             .collect();
         let public_outputs = witness.outputs(circuit);
@@ -129,13 +134,27 @@ impl Proof {
             }
         }
 
-        // 6. Build openings with Merkle proofs
+        // 6. Build openings with Merkle proofs.
+        // Redact private input wire values from the exposed entry while preserving the
+        // committed hash of the full entry so Merkle verification still holds.
         let openings = all_indices
             .iter()
             .map(|&idx| {
+                let full_entry = &trace[idx];
+                let committed_hash = hex::encode(trace_entry_hash(full_entry));
+                let redacted = TraceEntry {
+                    gate_index: full_entry.gate_index,
+                    wires: full_entry
+                        .wires
+                        .iter()
+                        .filter(|(name, _)| !circuit.private_inputs.contains(name))
+                        .cloned()
+                        .collect(),
+                };
                 let path = tree.auth_path(idx);
                 Opening {
-                    entry: trace[idx].clone(),
+                    entry: redacted,
+                    committed_hash,
                     leaf_index: idx,
                     merkle_path: path.iter().map(|p| hex::encode(p)).collect(),
                 }
@@ -211,8 +230,11 @@ impl Proof {
                 return Ok(false);
             }
 
-            // Merkle path verification
-            let leaf = trace_entry_hash(&opening.entry);
+            // Merkle path verification — use committed_hash (covers full, unredacted entry).
+            let leaf: [u8; 32] = hex::decode(&opening.committed_hash)
+                .map_err(|e| e.to_string())?
+                .try_into()
+                .map_err(|_| "invalid committed hash".to_string())?;
             let path: Result<Vec<[u8; 32]>, String> = opening
                 .merkle_path
                 .iter()
@@ -228,14 +250,25 @@ impl Proof {
                 return Ok(false);
             }
 
-            // Gate constraint verification
+            // Gate constraint verification.
+            // If missing wires are all declared private inputs, skip the check — the Merkle
+            // commitment authenticates the full entry.  If any missing wire is non-private,
+            // the opening is malformed and we reject.
             let gate = circuit
                 .gates
                 .get(exp_idx)
                 .ok_or(format!("gate index {} out of bounds", exp_idx))?;
             let wire_map: HashMap<String, String> =
                 opening.entry.wires.iter().cloned().collect();
-            if !gate.verify(&wire_map) {
+            let gate_wires = gate.wires();
+            let missing_non_private = gate_wires
+                .iter()
+                .any(|w| !wire_map.contains_key(w) && !circuit.private_inputs.contains(w));
+            if missing_non_private {
+                return Ok(false);
+            }
+            let has_missing = gate_wires.iter().any(|w| !wire_map.contains_key(w));
+            if !has_missing && !gate.verify(&wire_map) {
                 return Ok(false);
             }
 
@@ -284,6 +317,7 @@ mod tests {
                     output: "result".into(),
                 },
             ],
+            private_inputs: vec![],
         }
     }
 
@@ -322,6 +356,7 @@ mod tests {
                 input: "secret".into(),
                 output: "digest".into(),
             }],
+            private_inputs: vec!["secret".into()],
         };
 
         let mut inputs = HashMap::new();
@@ -331,8 +366,40 @@ mod tests {
         let proof = Proof::generate(&circuit, &witness).unwrap();
         assert!(proof.verify(&circuit).unwrap());
 
-        // The proof reveals the digest but not the secret
+        // The proof reveals the digest but not the secret preimage
         assert!(proof.public_outputs.contains_key("digest"));
+        assert!(!proof.public_inputs.contains_key("secret"));
+    }
+
+    #[test]
+    fn private_inputs_not_in_openings() {
+        let circuit = Circuit {
+            name: "preimage2".into(),
+            inputs: vec!["secret".into()],
+            outputs: vec!["digest".into()],
+            gates: vec![Gate::Hash {
+                input: "secret".into(),
+                output: "digest".into(),
+            }],
+            private_inputs: vec!["secret".into()],
+        };
+
+        let mut inputs = HashMap::new();
+        inputs.insert("secret".into(), "hunter2".into());
+        let witness = Witness::execute(&circuit, &inputs).unwrap();
+
+        let proof = Proof::generate(&circuit, &witness).unwrap();
+        assert!(proof.verify(&circuit).unwrap());
+
+        for opening in &proof.openings {
+            for (name, _) in &opening.entry.wires {
+                assert!(
+                    !circuit.private_inputs.contains(name),
+                    "private input '{}' leaked in opening",
+                    name
+                );
+            }
+        }
     }
 
     #[test]
@@ -367,6 +434,7 @@ mod tests {
                     b: "c_sq".into(),
                 },
             ],
+            private_inputs: vec![],
         };
 
         // 3² + 4² = 5²

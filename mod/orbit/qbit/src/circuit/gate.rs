@@ -155,6 +155,9 @@ pub struct Circuit {
     pub inputs: Vec<String>,
     pub outputs: Vec<String>,
     pub gates: Vec<Gate>,
+    /// Wires whose values must not appear in the proof's public_inputs field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub private_inputs: Vec<String>,
 }
 
 impl Circuit {

@@ -80,25 +80,43 @@ class Mod:
         """
         router = self._get_openrouter()
 
-        # Get free models if no model specified
-        if model is None:
-            free_models = router.free_models()
-            if not free_models:
-                free_models = router.free_models(update=True)
-            if not free_models:
-                raise ValueError("No free models available on OpenRouter")
-            model = free_models[0]
-            print(f"Using free model: {model}")
+        # If model explicitly provided, call once without fallback
+        if model is not None:
+            return router.forward(
+                query,
+                model=model,
+                stream=stream,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                free=True,
+                **kwargs
+            )
 
-        return router.forward(
-            query,
-            model=model,
-            stream=stream,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            free=True,
-            **kwargs
-        )
+        # Get free models and try each in order until one succeeds
+        free_models = router.free_models()
+        if not free_models:
+            free_models = router.free_models(update=True)
+        if not free_models:
+            raise ValueError("No free models available on OpenRouter")
+
+        last_exc = None
+        for candidate in free_models:
+            print(f"Using free model: {candidate}")
+            try:
+                return router.forward(
+                    query,
+                    model=candidate,
+                    stream=stream,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    free=True,
+                    **kwargs
+                )
+            except Exception as e:
+                print(f"Model {candidate} failed: {e}, trying next...")
+                last_exc = e
+
+        raise last_exc
 
     def venice_query(
         self,
@@ -186,14 +204,25 @@ class Mod:
                 **kwargs
             )
         else:
-            return self.openrouter_query(
-                query,
-                model=model,
-                stream=stream,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                **kwargs
-            )
+            try:
+                return self.openrouter_query(
+                    query,
+                    model=model,
+                    stream=stream,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    **kwargs
+                )
+            except Exception:
+                print("OpenRouter exhausted, falling back to Venice...")
+                return self.venice_query(
+                    query,
+                    model=model,
+                    stream=stream,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    **kwargs
+                )
 
     def test(self):
         """Test the query module."""

@@ -1002,6 +1002,12 @@ def depth(id, bands=None, points=48, span=0.25):
     """
     p = pool(id)
     bands = tuple(bands or DEFAULT_BANDS)
+    for b in bands:
+        if not (0 < b < 1):
+            raise RayError(
+                f'band {b * 100:.4g}% is out of range — pass percentages between 0 and '
+                f'100 exclusive, e.g. bands=0.5,1,2,5,10',
+                status=400)
     decA = p['mint_a'].get('decimals')
     decB = p['mint_b'].get('decimals')
     price = p.get('price')

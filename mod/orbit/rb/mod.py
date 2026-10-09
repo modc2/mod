@@ -3,7 +3,7 @@ import mod as m
 
 class Mod:
     description = """rb"""
-    path = r'/Users/broski/mod/mod/orbit/rb'
+    path = os.path.dirname(os.path.abspath(__file__))
 
     def forward(self, **kwargs):
         """Default entry point."""
@@ -11,11 +11,19 @@ class Mod:
 
     def info(self):
         """Return module info."""
+        import json
+        config_path = os.path.join(self.path, 'config.json')
+        version = None
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                version = json.load(f).get('version')
+        files = [e for e in os.listdir(self.path) if not e.startswith('__') and not e.startswith('.')]
         return {
             'name': 'rb',
             'description': self.description,
+            'version': version,
             'path': self.path,
-            'files': os.listdir(self.path),
+            'files': files,
         }
 
     def readme(self):
