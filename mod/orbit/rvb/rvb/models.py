@@ -8,7 +8,12 @@ round are all portable: they name a model, not a provider.
     openrouter:<slug>       BYOK, ~/.mod/openrouter/key or OPENROUTER_API_KEY
     anthropic:<model>       ANTHROPIC_API_KEY
     openai:<model>          OPENAI_API_KEY
+    venice:<slug>           BYOK, VENICE_API_KEY or ~/.mod/rvb/venice.key
     mock:<behaviour>        deterministic, offline, no network
+
+Venice is OpenAI-compatible and its catalogue is public (`venice_models()`
+needs no key), so the console can offer a live model picker and let the target
+be any Venice model rather than a single hard-coded one.
 
 WHY MOCK EXISTS
     A scoring harness that cannot be tested without spending money on a
@@ -69,7 +74,9 @@ def providers():
     for name, env, files in (
             ('openrouter', 'OPENROUTER_API_KEY', ['~/.mod/openrouter/key']),
             ('anthropic', 'ANTHROPIC_API_KEY', ['~/.mod/rvb/anthropic.key']),
-            ('openai', 'OPENAI_API_KEY', ['~/.mod/rvb/openai.key'])):
+            ('openai', 'OPENAI_API_KEY', ['~/.mod/rvb/openai.key']),
+            ('venice', 'VENICE_API_KEY',
+             ['~/.mod/venice/key', '~/.mod/rvb/venice.key'])):
         key = _key(env, files)
         out[name] = {'ready': bool(key), 'keyless': False,
                      'how': f'{env} is set' if key else
@@ -110,7 +117,7 @@ def complete(messages, system=None, model=None, max_tokens=None, timeout=None):
     max_tokens = int(max_tokens or MAX_TOKENS)
     timeout = int(timeout or TIMEOUT)
     fn = {'claude': _claude, 'openrouter': _openrouter, 'anthropic': _anthropic,
-          'openai': _openai, 'mock': _mock}.get(provider)
+          'openai': _openai, 'venice': _venice, 'mock': _mock}.get(provider)
     if fn is None:
         raise ModelError(f'no backend {provider!r} — one of '
                          f'{", ".join(providers())}. Models are "provider:name".')
@@ -211,6 +218,47 @@ def _openai(messages, system, name, max_tokens, timeout):
               _chat_payload(messages, system, name or 'gpt-4o-mini', max_tokens),
               {'authorization': f'Bearer {key}'}, timeout)
     return _pick_chat(d)
+
+
+VENICE_BASE = 'https://api.venice.ai/api/v1'
+
+
+def _venice(messages, system, name, max_tokens, timeout):
+    key = _key('VENICE_API_KEY', ['~/.mod/venice/key', '~/.mod/rvb/venice.key'])
+    if not key:
+        raise ModelError('no Venice key — set VENICE_API_KEY or write '
+                         '~/.mod/rvb/venice.key')
+    d = _post(f'{VENICE_BASE}/chat/completions',
+              _chat_payload(messages, system, name or 'llama-3.3-70b',
+                            max_tokens),
+              {'authorization': f'Bearer {key}'}, timeout)
+    return _pick_chat(d)
+
+
+def venice_models():
+    """Venice's text-model catalogue — the choices for a `venice:<slug>` target.
+
+    Public: Venice serves `/models` without a key, so the console can populate
+    the picker before anyone has saved one. Text models only (the target under
+    attack produces text). Returns [{id, name}] sorted by id, and [] rather
+    than raising if Venice is unreachable — a missing picker, not a broken page.
+    """
+    try:
+        req = urllib.request.Request(f'{VENICE_BASE}/models?type=text',
+                                     headers={'accept': 'application/json'})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read())
+    except Exception:
+        return []
+    out = []
+    for m in d.get('data', []):
+        mid = m.get('id')
+        if not mid:
+            continue
+        spec = m.get('model_spec') or {}
+        out.append({'id': mid, 'name': spec.get('name') or mid})
+    out.sort(key=lambda x: x['id'])
+    return out
 
 
 def _pick_chat(d):

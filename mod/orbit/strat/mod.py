@@ -77,13 +77,40 @@ class {cls}(Strat):
         return orders
 '''
 
+VENUE_TEMPLATE = '''"""{name} venue — a client of the {module} module.
+
+The defi-desk rule applies: this adapter holds no key and mints no
+credential; a caller\'s bearer token is forwarded verbatim to the peer.
+RestVenue speaks the common fleet conventions out of the box:
+
+    GET  /quote?input=&output=&amount=   -> {{buy: {{amount}}}}
+    GET  /history?address=&limit=        -> [trades]
+    POST /swap {{input, output, amount, dry_run, confirm}}
+
+If the {module} module speaks differently, override quote() / trades() /
+_place() below (see strat/venues.py for the five builtin adapters).
+"""
+
+from protocol import ExecutionResult, OrderSide, VenueTrade
+from strat_venues import Peer, RestVenue
+
+
+class {cls}(RestVenue):
+    name = "{name}"
+    mod = "{module}"
+    currency = "{currency}"
+'''
+
 
 class Mod:
     description = ("Marketplace of trading strategies as mods — one class-defined "
-                   "Strat protocol across raydium, uniswap, hyperliquid, "
-                   "bittensor and polymarket. Strats are discovered, verified, "
-                   "forked, backtested and boarded; execution is delegated to "
-                   "the module that owns each chain, keys never held here.")
+                   "Strat protocol across an OPEN set of venues: raydium, "
+                   "uniswap, hyperliquid, bittensor, polymarket builtin, plus "
+                   "any chain another orbit module declares via a strat_venue "
+                   "block (new_venue scaffolds one). Strats are discovered, "
+                   "verified, forked, backtested and boarded; execution is "
+                   "delegated to the module that owns each chain, keys never "
+                   "held here.")
     path = SELF
 
     # ── Overview ────────────────────────────────────────────────────
@@ -97,26 +124,44 @@ class Mod:
             "name": "strat",
             "protocol_version": proto.PROTOCOL_VERSION,
             "description": self.description,
-            "venues": proto.VENUES,
+            "venues": self._venue_names(),
             "strats": sorted(reg.keys()),
             "count": len(reg),
             "methods": proto.METHODS,
             "sources": sorted(bridge.SOURCES),
             "fns": ["info", "schema", "venues", "sources", "catalog", "strats",
-                    "strat", "code", "verify", "new", "fork", "publish",
-                    "backtest", "tick", "plan", "board", "readme",
+                    "strat", "code", "verify", "new", "new_venue", "fork",
+                    "publish", "backtest", "tick", "plan", "board", "readme",
                     "whitepaper"],
         }
 
     def schema(self):
-        """The machine-readable strat protocol contract."""
-        return proto.schema()
+        """The machine-readable strat protocol contract. `venues` is the LIVE
+        set (builtins + every strat_venue declared across orbit)."""
+        s = proto.schema()
+        s["builtin_venues"] = list(proto.VENUES)
+        s["venues"] = self._venue_names()
+        return s
+
+    # ── Venues: an open set, discovered like strats ─────────────────
+
+    def _venues(self, errors=None):
+        return venues_mod.registry(errors)
+
+    def _venue_names(self):
+        return sorted(self._venues().keys())
 
     def venues(self, check=False):
-        """The five venues, which fleet module signs for each, and (check=True)
-        whether that module is reachable right now."""
-        return {name: v.info(check=bool(check))
-                for name, v in venues_mod.registry().items()}
+        """Every venue this node can route to — the five builtins plus any
+        venue another orbit module declares via a `strat_venue` block — and
+        which fleet module signs for each. check=True pings each module.
+        Broken declarations are surfaced under `_errors`, never fatal."""
+        errors = []
+        out = {name: v.info(check=bool(check))
+               for name, v in self._venues(errors).items()}
+        if errors:
+            out["_errors"] = errors
+        return out
 
     def sources(self):
         """The modules whose own strat packages are bridged onto this
@@ -239,9 +284,10 @@ class Mod:
                     issues.append(f"missing method {m_name}()")
             if getattr(cls.signal, "__isabstractmethod__", False):
                 issues.append("signal() not implemented")
-        bad = [v for v in e["strat"].get("venues", []) if v not in proto.VENUES]
+        known = set(self._venue_names())
+        bad = [v for v in e["strat"].get("venues", []) if v not in known]
         if bad:
-            issues.append(f"unknown venues: {bad}")
+            issues.append(f"unknown venues: {bad} — known: {sorted(known)}")
         if e["origin"] == "bridge":
             issues += [f"drift: {d}" for d in
                        bridge.SOURCES[e["strat"]["source"]].drift()]
@@ -261,9 +307,11 @@ class Mod:
             raise ValueError(f"strat {name!r} already exists")
         venues = venues if isinstance(venues, list) else \
             [venues] if venues else list(proto.VENUES)
-        bad = [v for v in venues if v not in proto.VENUES]
+        known = self._venue_names()
+        bad = [v for v in venues if v not in known]
         if bad:
-            raise ValueError(f"unknown venues {bad} — pick from {proto.VENUES}")
+            raise ValueError(f"unknown venues {bad} — pick from {known} "
+                             f"(or declare the chain first with new_venue)")
         target = os.path.join(ORBIT if orbit else os.path.join(SELF, "strats"), name)
         if os.path.exists(target):
             raise ValueError(f"{target} already exists")
@@ -286,6 +334,59 @@ class Mod:
                 f.write(self._orbit_mod_py(name))
         return {"created": name, "dir": target, "orbit": bool(orbit),
                 "verify": self.verify(name)}
+
+    def new_venue(self, name, module=None, currency="USD", symbol="",
+                  description="", rest_only=False):
+        """Scaffold a venue mod for a NEW chain, making it available to every
+        strat by name. module= is the fleet module that owns that chain
+        (default: the venue's own name) — the adapter is a CLIENT of it and
+        holds no keys. Default writes a venue.py subclassing RestVenue (the
+        common /quote /history /swap conventions, override where the module
+        speaks differently); rest_only=True declares a pure-config RestVenue
+        with no code at all."""
+        name = str(name).strip().lower().replace(" ", "-")
+        if not name.replace("-", "").replace("_", "").isalnum():
+            raise ValueError(f"bad venue name {name!r}")
+        if name in self._venues():
+            raise ValueError(f"venue {name!r} already exists")
+        module = str(module or name)
+        target = os.path.join(ORBIT, name)
+        if os.path.exists(target):
+            # The chain-owning module may already hold that dir name — the
+            # venue declaration then lives in its own small mod next to it.
+            target = os.path.join(ORBIT, f"{name}-venue")
+        if os.path.exists(target):
+            raise ValueError(f"{target} already exists")
+        block = {"name": name, "module": module, "currency": currency}
+        if symbol:
+            block["symbol"] = symbol
+        cls_name = "".join(p.capitalize() for p in name.replace("_", "-").split("-"))
+        if not rest_only:
+            block["class"] = f"venue.py:{cls_name}"
+        os.makedirs(target)
+        with open(os.path.join(target, "config.json"), "w") as f:
+            json.dump({
+                "name": os.path.basename(target),
+                "description": description or
+                    f"{name} venue adapter for the strat protocol — "
+                    f"execution delegated to the {module} module",
+                "version": "0.1.0",
+                "strat_venue": block,
+            }, f, indent=4)
+        if not rest_only:
+            with open(os.path.join(target, "venue.py"), "w") as f:
+                f.write(VENUE_TEMPLATE.format(name=name, module=module,
+                                              currency=currency, cls=cls_name))
+        v = self._venues().get(name)
+        module_found = os.path.isfile(
+            os.path.join(venues_mod.module_dir(module), "config.json"))
+        return {"created": name, "dir": target, "module": module,
+                "module_found": module_found,
+                "venue": v.info() if v else None,
+                "note": None if module_found else
+                    f"no orbit module named {module!r} found — the adapter "
+                    f"will knock on the activator until one exists (or set "
+                    f"STRAT_{name.upper()}_URL)"}
 
     def fork(self, name, new_name, orbit=False):
         """Copy an existing strat mod under a new name — the marketplace's
@@ -470,9 +571,10 @@ class Mod:
                     "note": "no upstream history — pass traders=['venue:address', ...] "
                             "and make sure that venue's module is running"}
         r = strat.backtest(history)
+        only = venues_mod.registry().get(strat.config.venues[0]) \
+            if len(strat.config.venues) == 1 else None
         return {"strat": name, "days": days, "capital": capital,
-                "currency": (venues_mod.registry()[strat.config.venues[0]].currency
-                             if len(strat.config.venues) == 1 else "mixed"),
+                "currency": only.currency if only else "mixed",
                 "leaders": [w["address"] for w in strat.config.watchlist],
                 "trades_seen": len(history), "trades_simulated": r.trades_simulated,
                 "final_pnl": round(r.final_pnl, 4), "roi_pct": round(r.roi_pct, 4),
@@ -571,7 +673,7 @@ class Mod:
             roi = perf.get("roi_pct") if isinstance(perf, dict) else None
             return -(roi if isinstance(roi, (int, float)) else -1e9)
         rows.sort(key=_roi)
-        return {"protocol": proto.PROTOCOL_VERSION, "venues": proto.VENUES,
+        return {"protocol": proto.PROTOCOL_VERSION, "venues": self._venue_names(),
                 "strats": rows}
 
     # ── Misc ────────────────────────────────────────────────────────

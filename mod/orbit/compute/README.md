@@ -51,8 +51,8 @@ is 2× the price. So the markets are normalized down to two nouns and eight verb
 | **instance** | something rented and running, priced in USD/hr | `provider:ref` |
 
 **search · quote · rent · instances · status · logs · exec · stop · balance** —
-twenty-two MCP tools total (fifteen for the markets, seven for the nodes you
-put on them), for every market, forever. New market = one adapter file; nothing
+twenty-seven MCP tools total across the markets, the nodes you put on them
+and the console's two display tools, for every market, forever. New market = one adapter file; nothing
 else in the module changes.
 
 ## Three rules
@@ -194,10 +194,18 @@ The machinery is three layers (`chat.py`, same shape as orbit/nyc's ASK):
   subprocess runs with `COMPUTE_MCP_READONLY=1`, so a typed message can
   search, quote and map every market but can never rent, stop, exec or touch
   a node; the CLI's allow/deny lists say the same thing a second time.
-- `compute_show_map` is the **display tool**: the same fan-out as
+- `compute_show_map` is a **display tool**: the same fan-out as
   `compute_map`, returned as a validated `directive` — points for the
   landmask, a camera move (`focus` geocoded against the baked gazetteer, so a
   made-up place is an error back to the model, never a draw), a caption.
+- `compute_show_offers` is the other display tool, and the MARKET tab's FIND
+  bar is built on it: type what you need in plain words and the agent runs
+  the comparing itself, then hands back a shortlist of 2–5 picks, each
+  re-read live from its own provider before it is allowed to render — a
+  stale or invented id is dropped and reported back to the model, never
+  shown. The picks land as cards (quote / deploy on each) and the filters
+  the agent searched with fill the manual bar, which stays folded behind a
+  FILTERS toggle for anyone who'd rather drive by hand.
 - `POST /chat` streams SSE (`session` / `text` / `tool` / `display` / `done`)
   and forwards only tool_results from the display tool as `display` events,
   so nothing unvalidated ever reaches the page. Each turn is prefixed with

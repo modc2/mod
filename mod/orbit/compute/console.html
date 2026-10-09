@@ -408,6 +408,31 @@
   .fchip b{font-weight:400;color:var(--gold-hi)} .fchip:hover{color:var(--badv)}
   .fchip.clear{background:linear-gradient(180deg,var(--btn1),var(--btn2))}
   .more{margin:10px 0 0}
+  /* ── the agent's lane in MARKET: its running commentary, then its picks ── */
+  .agentstrip{margin:0 0 10px;padding:9px 12px;background:var(--well);
+              box-shadow:inset 0 0 0 1px var(--rule);display:flex;
+              flex-direction:column;gap:6px;max-height:30vh;overflow-y:auto;
+              scrollbar-width:thin}
+  .agentstrip .atext{font-size:11px;line-height:1.55;color:var(--dim);
+                     white-space:pre-wrap;word-break:break-word}
+  .agentstrip .achip{font:7px/1.9 var(--px);color:var(--faint);
+                     align-self:flex-start;padding:1px 7px;
+                     box-shadow:inset 0 0 0 1px var(--rule)}
+  .agentstrip .aerr{font-size:11px;color:var(--badv)}
+  .apicks{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+  .apick{flex:1 1 200px;max-width:300px;padding:9px 11px;background:var(--well);
+         box-shadow:inset 0 0 0 1px var(--rule);display:flex;
+         flex-direction:column;gap:4px}
+  .apick.best{box-shadow:inset 0 0 0 2px var(--gold)}
+  .apick .aprice{font:14px/1 var(--px);color:var(--gold-hi)}
+  .apick .aprice span{font-size:8px;color:var(--faint);margin-left:3px}
+  .apick .aspec{font-size:11px;color:var(--ink)}
+  .apick .awhere{font-size:10px;color:var(--dim)}
+  .apick .awhy{font-size:10px;color:var(--faint);font-style:italic}
+  .apick .aact{display:flex;gap:6px;align-items:center;margin-top:3px}
+  .apick .aact code{font-size:9px;color:var(--faint);flex:1;overflow:hidden;
+                    text-overflow:ellipsis;white-space:nowrap}
+  #m-ftoggle.lit{color:var(--gold-hi)}
   /* ── CHAT: the desk talks back, and draws on the world as it does ── */
   .askgrid{display:grid;grid-template-columns:minmax(300px,5fr) minmax(320px,7fr);
            gap:14px;align-items:start}
@@ -621,6 +646,14 @@
 <!-- ── MARKET ─────────────────────────────────────────────────────────── -->
 <section id="market" class="on">
   <div class="bar">
+    <input id="m-ask" style="flex:1;min-width:220px" autocomplete="off"
+           placeholder='say what you need — "cheapest 8x H100, no KYC" · "best value 24GB card for SDXL" — the agent reads every market and picks'>
+    <button class="go" id="m-find" onclick="marketAsk()">FIND</button>
+    <button class="ghost" id="m-ftoggle" onclick="marketFilters()"
+            title="the manual filter bar, if you'd rather drive yourself">FILTERS</button>
+    <span class="flash" id="m-flash"></span>
+  </div>
+  <div class="bar" id="m-filterbar" style="display:none">
     <select id="q-gpu" style="width:200px" onchange="gpuPicked()"
             title="every GPU model on the board right now"><option value="">any gpu</option></select>
     <input id="q-gpu-text" placeholder="model, e.g. H200" style="width:130px;display:none">
@@ -644,8 +677,9 @@
     <select id="q-sort"><option value="price">by price</option>
       <option value="vram">by vram</option><option value="gpus">by gpus</option></select>
     <button class="go" onclick="search()">SEARCH</button>
-    <span class="flash" id="m-flash"></span>
   </div>
+  <div class="agentstrip" id="m-agent" style="display:none"></div>
+  <div class="apicks" id="m-apicks"></div>
   <div id="m-dist" class="dist"></div>
   <div id="m-picks" class="picks"></div>
   <table><thead><tr>
@@ -1469,6 +1503,34 @@ function askState() {
           camera: d.focus && !d.focus.world && d.focus.label ? d.focus.label : 'world'};
 }
 
+// one turn with the desk agent over SSE — both chat lanes (the CHAT tab and
+// the MARKET tab's FIND bar) read the same stream shape through here
+async function chatStream(body, onEv) {
+  const h = {'content-type': 'application/json'};
+  if (token) h['authorization'] = 'Bearer ' + token;
+  const r = await fetch(API + '/chat', {method: 'POST', headers: h,
+    body: JSON.stringify(body)});
+  if (!r.ok) {
+    const b = await r.json().catch(() => ({}));
+    throw new Error((b.error || 'http ' + r.status) +
+      (r.status === 401 ? ' - press the owner chip up top to set it' : ''));
+  }
+  const rd = r.body.getReader(), dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const {done, value} = await rd.read();
+    if (done) break;
+    buf += dec.decode(value, {stream: true});
+    let i;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
+      if (!line.startsWith('data:')) continue;
+      let ev; try { ev = JSON.parse(line.slice(5)) } catch { continue }
+      onEv(ev);
+    }
+  }
+}
+
 async function askSend() {
   const inp = document.getElementById('a-input');
   const msg = inp.value.trim();
@@ -1480,42 +1542,41 @@ async function askSend() {
   document.getElementById('a-status').textContent = 'thinking...';
   let cur = null;                       // the ai bubble being streamed into
   try {
-    const h = {'content-type': 'application/json'};
-    if (token) h['authorization'] = 'Bearer ' + token;
-    const r = await fetch(API + '/chat', {method: 'POST', headers: h,
-      body: JSON.stringify({message: msg, session_id: ASK.sid, map_state: askState()})});
-    if (!r.ok) {
-      const b = await r.json().catch(() => ({}));
-      throw new Error((b.error || 'http ' + r.status) +
-        (r.status === 401 ? ' - press the owner chip up top to set it' : ''));
-    }
-    const rd = r.body.getReader(), dec = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const {done, value} = await rd.read();
-      if (done) break;
-      buf += dec.decode(value, {stream: true});
-      let i;
-      while ((i = buf.indexOf('\n\n')) >= 0) {
-        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
-        if (!line.startsWith('data:')) continue;
-        let ev; try { ev = JSON.parse(line.slice(5)) } catch { continue }
-        if (ev.type === 'session') ASK.sid = ev.id || ASK.sid;
-        else if (ev.type === 'text') {
-          if (!cur) cur = askMsg('ai', '');
-          cur.textContent += (cur.textContent ? '\n\n' : '') + ev.text;
-          askScroll();
-        } else if (ev.type === 'tool') { askChip(ev.name, ev.input); cur = null }
-        else if (ev.type === 'display') askDraw(ev.directive);
-        else if (ev.type === 'error') askErr(ev.error || 'agent failed');
-        else if (ev.type === 'done') ASK.sid = ev.session_id || ASK.sid;
+    await chatStream({message: msg, session_id: ASK.sid, map_state: askState()}, ev => {
+      if (ev.type === 'session') ASK.sid = ev.id || ASK.sid;
+      else if (ev.type === 'text') {
+        if (!cur) cur = askMsg('ai', '');
+        cur.textContent += (cur.textContent ? '\n\n' : '') + ev.text;
+        askScroll();
+      } else if (ev.type === 'tool') { askChip(ev.name, ev.input); cur = null }
+      else if (ev.type === 'display') {
+        if (ev.directive && Array.isArray(ev.directive.offers)) askOffers(ev.directive);
+        else askDraw(ev.directive);
       }
-    }
+      else if (ev.type === 'error') askErr(ev.error || 'agent failed');
+      else if (ev.type === 'done') ASK.sid = ev.session_id || ASK.sid;
+    });
   } catch (e) { askErr(e.message); blip('bad') }
   ASK.busy = false;
   document.getElementById('a-send').disabled = false;
   document.getElementById('a-status').textContent = '';
   inp.focus();
+}
+
+// picks in the CHAT tab read as a list; the cards live in the MARKET tab,
+// which also gets them so they are waiting there
+function askOffers(d) {
+  const lines = d.offers.map(o =>
+    `${o.usd_hr === 0 ? 'free' : o.usd_hr != null ? usd(o.usd_hr) + '/hr' : 'unpriced'}` +
+    ` · ${o.gpu || o.kind || '?'}${o.gpus > 1 ? ' x' + o.gpus : ''}` +
+    ` · ${o.provider} · ${o.id}` + (o.why ? `\n   ${o.why}` : ''));
+  askMsg('ai', (d.caption ? d.caption + '\n\n' : '') + lines.join('\n'));
+  if (d.filters && Object.keys(d.filters).length) {
+    ASK.dir = ASK.dir || {};
+    ASK.dir.filters = d.filters;        // OPEN IN MARKET carries these
+  }
+  marketShow(d);
+  blip('coin');
 }
 
 function askDraw(d) {
@@ -1566,20 +1627,123 @@ function askFly(f) {
 
 function askWorld() { askFly(null); if (ASK.dir) ASK.dir.focus = {world: true} }
 
-// carry the drawn filters into the MARKET tab's own search bar
-function askToMarket() {
-  const f = (ASK.dir && ASK.dir.filters) || {};
+// write a filters object into the MARKET bar's own inputs
+function applyFilters(f) {
   const set = (id, v) => { document.getElementById(id).value = v == null ? '' : v };
-  const sel = document.getElementById('q-gpu');
+  const sel = document.getElementById('q-gpu'), t = document.getElementById('q-gpu-text');
   sel.value = f.gpu ? '__other' : '';
-  gpuPicked();
+  t.style.display = f.gpu ? '' : 'none';
   set('q-gpu-text', f.gpu || '');
   set('q-gpus', f.min_gpus); set('q-vram', f.min_vram_gb);
   set('q-min', f.min_usd_hr); set('q-max', f.max_usd_hr);
   set('q-region', f.region); set('q-kyc', f.kyc || ''); set('q-kind', f.kind || '');
+}
+
+// carry the drawn filters into the MARKET tab's own search bar
+function askToMarket() {
+  applyFilters((ASK.dir && ASK.dir.filters) || {});
   document.querySelector('nav button[data-tab="market"]').click();
   search();
 }
+
+// ── the MARKET tab's FIND bar: the agent is the default way in; the manual
+//    filter bar sits folded behind FILTERS for anyone who'd rather drive ──
+const FIND = {sid: null, busy: false};
+
+function marketFilters() {
+  const b = document.getElementById('m-filterbar');
+  const on = b.style.display === 'none';
+  b.style.display = on ? '' : 'none';
+  document.getElementById('m-ftoggle').classList.toggle('lit', on);
+}
+
+// what the agent is told the MARKET tab shows, so "cheaper than these" and
+// "same but in europe" resolve against the bar as it stands
+function marketState() {
+  const v = id => document.getElementById(id).value.trim();
+  const f = {};
+  const gpu = gpuWanted(); if (gpu) f.gpu = gpu;
+  if (v('q-gpus')) f.min_gpus = +v('q-gpus');
+  if (v('q-vram')) f.min_vram_gb = +v('q-vram');
+  if (v('q-min')) f.min_usd_hr = +v('q-min');
+  if (v('q-max')) f.max_usd_hr = +v('q-max');
+  if (v('q-region')) f.region = v('q-region');
+  if (v('q-kyc')) f.kyc = v('q-kyc');
+  if (v('q-kind')) f.kind = v('q-kind');
+  return {view: 'market tab', filters: f, offers_on_board: ALL.length,
+          note: 'the user is shopping — answer with compute_show_offers picks'};
+}
+
+async function marketAsk() {
+  const inp = document.getElementById('m-ask');
+  const msg = inp.value.trim();
+  if (!msg || FIND.busy) return;
+  FIND.busy = true;
+  document.getElementById('m-find').disabled = true;
+  const flash = document.getElementById('m-flash');
+  flash.textContent = 'the agent is reading the markets...';
+  const strip = document.getElementById('m-agent');
+  strip.style.display = ''; strip.innerHTML = '';
+  const say = (cls, t) => {
+    const d = document.createElement('div');
+    d.className = cls; d.textContent = t;
+    strip.appendChild(d); strip.scrollTop = strip.scrollHeight;
+    return d;
+  };
+  let cur = null;
+  try {
+    await chatStream({message: msg, session_id: FIND.sid, map_state: marketState()}, ev => {
+      if (ev.type === 'session') FIND.sid = ev.id || FIND.sid;
+      else if (ev.type === 'text') {
+        if (!cur) cur = say('atext', '');
+        cur.textContent += (cur.textContent ? '\n\n' : '') + ev.text;
+        strip.scrollTop = strip.scrollHeight;
+      } else if (ev.type === 'tool') {
+        const args = Object.entries(ev.input || {})
+          .filter(([k]) => k !== 'caption' && k !== 'picks')
+          .map(([k, v]) => `${k}=${v}`).join(' ');
+        say('achip', '▸ ' + ev.name.replace('compute_', '') + (args ? ' ' + args.slice(0, 90) : ''));
+        cur = null;
+      } else if (ev.type === 'display') marketShow(ev.directive);
+      else if (ev.type === 'error') { say('aerr', ev.error || 'agent failed'); blip('bad') }
+      else if (ev.type === 'done') FIND.sid = ev.session_id || FIND.sid;
+    });
+    flash.textContent = '';
+  } catch (e) {
+    say('aerr', e.message);
+    flash.textContent = '';
+    // no agent (not the owner, or no CLI) — hand the user the manual bar
+    if (document.getElementById('m-filterbar').style.display === 'none') marketFilters();
+    blip('bad');
+  }
+  FIND.busy = false;
+  document.getElementById('m-find').disabled = false;
+  inp.focus();
+}
+
+// a directive landing in the MARKET tab: picks become cards, filters fill the
+// bar and re-run the board underneath, so the full market sits behind them
+function marketShow(d) {
+  if (!d) return;
+  if (Array.isArray(d.offers)) {
+    document.getElementById('m-apicks').innerHTML =
+      (d.caption ? `<span class="fchip clear" onclick="clearPicksRow()" ` +
+                   `title="dismiss the agent's picks">${esc(d.caption)} x</span>` : '') +
+      d.offers.map((o, i) => `
+      <div class="apick${i === 0 ? ' best' : ''}">
+        <div class="aprice">${o.usd_hr === 0 ? 'free' : o.usd_hr != null ? usd(o.usd_hr) : '?'}<span>/hr</span></div>
+        <div class="aspec">${esc(o.gpu || o.kind || '?')}${o.gpus > 1 ? ' ×' + o.gpus : ''}${o.vram_gb ? ' · ' + o.vram_gb + 'G' : ''}</div>
+        <div class="awhere">${esc(o.region || 'region unlisted')} · ${esc(o.provider)}</div>
+        ${o.why ? `<div class="awhy">${esc(o.why)}</div>` : ''}
+        <div class="aact"><code title="${esc(o.id)}">${esc(o.id)}</code>
+          <button class="ghost" onclick="quote('${esc(o.id)}')">quote</button>
+          <button class="ghost" onclick="deployOffer('${esc(o.id)}')">deploy</button></div>
+      </div>`).join('');
+  }
+  if (d.filters && Object.keys(d.filters).length) { applyFilters(d.filters); search() }
+}
+
+function clearPicksRow() { document.getElementById('m-apicks').innerHTML = '' }
 
 function askWireTips() {
   const m = document.getElementById('amap');
@@ -2477,6 +2641,9 @@ for (const id of ['q-gpu-text', 'q-gpus', 'q-vram', 'q-min', 'q-max', 'q-region'
 for (const id of ['q-kyc', 'q-kind', 'q-sort']) {
   document.getElementById(id).addEventListener('change', search);
 }
+document.getElementById('m-ask').addEventListener('keydown', e => {
+  if (e.key === 'Enter') marketAsk();
+});
 
 deployTarget();
 stats();

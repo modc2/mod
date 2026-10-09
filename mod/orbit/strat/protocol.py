@@ -25,6 +25,10 @@ Instruments are addressed as (venue, symbol):
     bittensor    symbol = "SN<netuid>" — the subnet alpha pool
     polymarket   symbol = CLOB outcome token id
 
+Those five are the builtins; the venue set itself is OPEN. Any orbit module
+can declare a `strat_venue` block in its config.json (venues.discover()) and
+strats can then target that chain by name — same discovery rule as strats.
+
 A strat is a MOD: a directory with a config.json declaring a `strat` block
 and a strat.py defining exactly one subclass of Strat. The strat module's
 registry (mod.py) discovers, verifies, forks and boards them.
@@ -40,6 +44,10 @@ from typing import Any, Callable, Optional
 
 PROTOCOL_VERSION = 1
 
+# The BUILTIN venues. The full venue set is open and dynamic: any orbit
+# module may declare a `strat_venue` block (see venues.discover()), and
+# validation everywhere runs against venues.registry(), not this list.
+# This list stays what it is for defaults and the cross-module parity tests.
 VENUES = ["raydium", "uniswap", "hyperliquid", "bittensor", "polymarket"]
 
 # The canonical method surface. Per-venue strat layers and the parity test

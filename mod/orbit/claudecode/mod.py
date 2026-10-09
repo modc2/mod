@@ -41,6 +41,47 @@ except ImportError:
 MAX_RESULT = 4000
 # wall-clock cap on one run; the CLI is killed when it expires
 DEFAULT_TIMEOUT = 1800
+# and the hard ceiling a caller can raise it to over HTTP
+MAX_TIMEOUT = 7200
+
+# The spawn spec lives in config.json's "harness" block so that EVERY
+# consumer — this module, orbit/agent's Harness, and orbit/build's Rust job
+# server — reads the same declaration of how Claude Code is driven. The
+# values here are the fallback for a config that predates a field.
+SPEC_DEFAULTS: Dict[str, Any] = {
+    "name": "claude",
+    "label": "Claude Code",
+    "bin": "claude",
+    "install": "npm install -g @anthropic-ai/claude-code",
+    "args": ["--print", "--verbose", "--output-format", "stream-json",
+             "--dangerously-skip-permissions"],
+    "stream_input_args": ["--input-format", "stream-json"],
+    "model_flag": "--model",
+    "resume_flag": "--resume",
+    "agent_flag": "--agent",
+    "system_prompt_flag": "--append-system-prompt",
+    "env": {
+        "oauth_token": "CLAUDE_CODE_OAUTH_TOKEN",
+        "oauth_prefix": "sk-ant-oat",
+        "api_key": "ANTHROPIC_API_KEY",
+        "cred_file": "~/.claude/.credentials.json",
+    },
+}
+
+
+def load_spec() -> Dict[str, Any]:
+    """The harness spec: config.json's block over the defaults, never raises."""
+    spec = dict(SPEC_DEFAULTS)
+    try:
+        cfg = json.loads((Path(__file__).parent / "config.json").read_text())
+        block = cfg.get("harness") or {}
+        if isinstance(block, dict):
+            env = {**spec["env"], **(block.get("env") or {})}
+            spec.update({k: v for k, v in block.items() if v is not None})
+            spec["env"] = env
+    except Exception:
+        pass
+    return spec
 
 
 def clip(text: Any, limit: int = MAX_RESULT) -> str:
@@ -192,13 +233,26 @@ class Session:
 class Mod:
     description = "Claude Code CLI as a harness — hand it a run, get back a step trace"
 
-    # what the fleet knows this harness by
-    name = "claude"
-    label = "Claude Code"
-    bin = "claude"
-    install = "npm install -g @anthropic-ai/claude-code"
+    endpoints = ["forward", "harness", "spec", "agents", "run", "available",
+                 "command", "session"]
 
-    endpoints = ["forward", "harness", "run", "available", "command", "session"]
+    def __init__(self, **kwargs):
+        s = load_spec()
+        # what the fleet knows this harness by
+        self.name = s["name"]
+        self.label = s["label"]
+        self.bin = s["bin"]
+        self.install = s["install"]
+        self._spec = s
+
+    def spec(self) -> Dict[str, Any]:
+        """The full spawn spec — bin, args, flags, credential env mapping.
+
+        This is the module's contract with its consumers: orbit/build's Rust
+        job server reads the same block straight out of config.json, so a
+        CLI flag change lands here once and every console follows.
+        """
+        return dict(self._spec)
 
     # ── availability ─────────────────────────────────────────────────
 
@@ -224,17 +278,31 @@ class Mod:
         return Session()
 
     def command(self, query: str, goal: str = None, model: str = None,
-                path: str = None) -> List[str]:
-        """The argv this harness runs. `path` is the cwd, not a flag."""
-        cmd = [self.bin, "--print", "--verbose",
-               "--output-format", "stream-json",
-               # no human is watching a server-side run to answer prompts
-               "--dangerously-skip-permissions"]
+                path: str = None, agent_type: str = None,
+                resume: str = None, stream_input: bool = False) -> List[str]:
+        """The argv this harness runs, built from the spec. `path` is the
+        cwd, not a flag.
+
+        stream_input=True keeps stdin open as a stream-json message feed
+        (the prompt then travels over stdin, not argv — that's how a console
+        steers a run mid-flight); resume= continues a persisted CLI session.
+        """
+        s = self._spec
+        # base args include --dangerously-skip-permissions: no human is
+        # watching a server-side run to answer approval prompts
+        cmd = [self.bin] + list(s["args"])
+        if stream_input:
+            cmd += list(s["stream_input_args"])
         if model:
-            cmd += ["--model", model]
+            cmd += [s["model_flag"], model]
+        if resume:
+            cmd += [s["resume_flag"], resume]
+        if agent_type and not goal:
+            cmd += [s["agent_flag"], agent_type]
         if goal:
-            cmd += ["--append-system-prompt", goal]
-        cmd.append(query)
+            cmd += [s["system_prompt_flag"], goal]
+        if not stream_input:
+            cmd.append(query)
         return cmd
 
     def run(self, query: str, path: str = None, goal: str = None,
@@ -312,6 +380,167 @@ class Mod:
                     sink.append(line)
         except Exception:
             pass
+
+    # ── the agent contract ───────────────────────────────────────────
+    # GET /agents + POST /run/stream (SSE) — the orbit/agent shape. Any
+    # console that mounts agent mods (orbit/build's roster does) can mount
+    # this module and run Claude Code over HTTP without knowing a CLI flag.
+
+    def agents(self) -> Dict[str, Any]:
+        """The contract's roster: this module hosts exactly one agent."""
+        card = self.harness()
+        return {"agents": [{
+            "name": self.name,
+            "label": self.label,
+            "description": card["description"],
+            "module": "claudecode",
+            "available": card["available"],
+            "harness": True,
+        }]}
+
+    def serve(self, port: int = None, host: str = "127.0.0.1"):
+        """Serve the agent contract. Loopback-only by default: a run here
+        drives the CLI with approval prompts off under this process's own
+        credentials, so who gets to reach the port IS the access control.
+        """
+        import queue as _queue
+        import time
+        import uuid
+
+        from fastapi import FastAPI, Request
+        from fastapi.responses import JSONResponse, StreamingResponse
+        import uvicorn
+
+        if port is None:
+            try:
+                cfg = json.loads((Path(__file__).parent / "config.json").read_text())
+                port = int(cfg.get("port") or 51260)
+            except Exception:
+                port = 51260
+
+        mod_self = self
+        # task ledger: id -> {status, cost, started_at, finished_at} so a
+        # console that saw no bill can read back what the run actually cost
+        tasks: Dict[str, Dict[str, Any]] = {}
+
+        app = FastAPI(title="claudecode", docs_url=None, redoc_url=None)
+
+        @app.get("/agents")
+        def agents():
+            return mod_self.agents()
+
+        @app.get("/harness")
+        def harness():
+            return mod_self.harness()
+
+        @app.get("/spec")
+        def spec():
+            return mod_self.spec()
+
+        @app.get("/tasks/{task_id}")
+        def task(task_id: str):
+            t = tasks.get(task_id)
+            if not t:
+                return JSONResponse({"error": "no such task"}, status_code=404)
+            return t
+
+        def run_params(body: Dict[str, Any]) -> Dict[str, Any]:
+            timeout = min(int(body.get("timeout") or DEFAULT_TIMEOUT), MAX_TIMEOUT)
+            # a mounting console sends the system prompt as `prompt`
+            # (orbit/agent's field); direct callers may say `goal`
+            goal = body.get("goal") or body.get("prompt") or None
+            path = body.get("path") or body.get("work_dir") or None
+            return {
+                "query": str(body.get("query") or ""),
+                "goal": goal,
+                "model": body.get("model") or None,
+                "path": path,
+                "timeout": timeout,
+            }
+
+        def scratch_dir(task_id: str) -> str:
+            # no cwd named: a run still needs somewhere writable to stand.
+            # The mounting console's preamble tells the agent to use absolute
+            # paths, so where it stands doesn't decide what it can edit.
+            home = os.path.expanduser("~")
+            d = Path(home) / ".mod" / "claudecode" / "runs" / task_id
+            d.mkdir(parents=True, exist_ok=True)
+            return str(d)
+
+        @app.post("/run/stream")
+        async def run_stream(request: Request):
+            body = await request.json()
+            if not isinstance(body, dict):
+                body = {}
+            p = run_params(body)
+            if not p["query"]:
+                return JSONResponse({"error": "query is required"}, status_code=400)
+            task_id = uuid.uuid4().hex[:12]
+            tasks[task_id] = {"id": task_id, "status": "running", "cost": 0.0,
+                              "started_at": time.time(), "finished_at": None}
+            q: "_queue.Queue" = _queue.Queue()
+
+            def worker():
+                steps: List[dict] = []
+
+                def on_step(s):
+                    steps.append(s)
+                    q.put({"type": "step", "step": s})
+
+                t = tasks[task_id]
+                try:
+                    mod_self.run(p["query"],
+                                 path=p["path"] or scratch_dir(task_id),
+                                 goal=p["goal"], model=p["model"],
+                                 timeout=p["timeout"], on_step=on_step)
+                    # the CLI reports its exact spend on the terminal step
+                    usage = next((s.get("params", {}).get("usage") for s in reversed(steps)
+                                  if s.get("params", {}).get("usage")), {}) or {}
+                    t["cost"] = float(usage.get("cost") or 0.0)
+                    t["status"] = "done"
+                    # charged: null — this host bills nobody; the console's
+                    # meter reads the cost back from GET /tasks/{id}
+                    q.put({"type": "done", "result": steps, "task_id": task_id,
+                           "charged": None, "usage": usage})
+                except Exception as e:
+                    t["status"] = "error"
+                    q.put({"type": "error", "error": str(e), "task_id": task_id})
+                finally:
+                    t["finished_at"] = time.time()
+                    q.put(None)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+            def gen():
+                while True:
+                    ev = q.get()
+                    if ev is None:
+                        break
+                    yield f"data: {json.dumps(ev)}\n\n"
+
+            return StreamingResponse(gen(), media_type="text/event-stream",
+                                     headers={"Cache-Control": "no-cache",
+                                              "X-Accel-Buffering": "no"})
+
+        @app.post("/run")
+        async def run_blocking(request: Request):
+            body = await request.json()
+            if not isinstance(body, dict):
+                body = {}
+            p = run_params(body)
+            if not p["query"]:
+                return JSONResponse({"error": "query is required"}, status_code=400)
+            task_id = uuid.uuid4().hex[:12]
+            try:
+                steps = await __import__("asyncio").to_thread(
+                    mod_self.run, p["query"],
+                    path=p["path"] or scratch_dir(task_id),
+                    goal=p["goal"], model=p["model"], timeout=p["timeout"])
+                return {"result": steps, "task_id": task_id}
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
+
+        uvicorn.run(app, host=host, port=port, log_level="warning")
 
     # ── mod protocol ─────────────────────────────────────────────────
 

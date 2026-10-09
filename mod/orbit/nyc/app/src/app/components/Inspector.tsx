@@ -260,7 +260,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
             <Meta rows={[
               ['Name', p.name],
               ['Description', p.desc],
-              ['Direction', p.direction === 0 || p.direction === '0' ? 'Uptown / Bronx-bound' : 'Downtown / Brooklyn-bound'],
+              ['Direction', p.headsign || (p.direction === 0 || p.direction === '0' ? 'Direction 0' : 'Direction 1')],
             ]} />
           </div>
         )}

@@ -14,6 +14,12 @@ STRAT_<VENUE>_URL.
     bittensor    -> bt module      (dTAO subnet pools, MCP tools)
     polymarket   -> polymarket module (REST, owner-gated upstream)
 
+The venue set is OPEN, the same way the strat set is: any orbit module may
+declare a `strat_venue` block in its config.json and discover() mounts it —
+`class: "venue.py:Cls"` loads a Venue subclass from that module's dir, and
+a class-less block gets a generic RestVenue speaking the common fleet
+conventions (/quote, /history, /swap). Builtins win name collisions.
+
 Live placement is guarded twice: place() returns needs_confirm until the
 caller passes confirm=True (dry runs always pass), and the peer module's
 own gate still applies underneath.
@@ -21,8 +27,10 @@ own gate still applies underneath.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
+import sys
 import time
 import urllib.request
 import urllib.error
@@ -156,13 +164,17 @@ class Venue:
     name = ""
     mod = ""            # backing fleet module
     currency = "USD"
+    symbol = ""         # how instruments are addressed, for humans
+    origin = "builtin"  # "builtin" or the declaring module's name
 
     def __init__(self):
         self.peer = Peer(self.mod, f"STRAT_{self.name.upper()}_URL")
 
     def info(self, check: bool = False) -> dict:
         d = {"venue": self.name, "module": self.mod, "url": self.peer.base(),
-             "currency": self.currency}
+             "currency": self.currency, "origin": self.origin}
+        if self.symbol:
+            d["symbol"] = self.symbol
         if check:
             d["reachable"] = self.peer.alive()
         return d
@@ -507,6 +519,168 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def registry() -> dict[str, Venue]:
+class RestVenue(Venue):
+    """Generic REST adapter for a chain whose fleet module speaks the common
+    conventions (the solana module's shape):
+
+        GET  <quote>?input=&output=&amount=   -> {buy: {amount}} | {out_amount}
+        GET  <history>?address=&limit=        -> [trades] | {history|items: []}
+        POST <swap> {input, output, amount, slippage_bps, dry_run, confirm}
+
+    A `strat_venue` block with no `class` gets one of these, so declaring a
+    new chain can be pure config. A module that speaks differently ships a
+    venue.py subclassing this (or Venue) and overrides what it must.
+    """
+    paths = {"quote": "/quote", "history": "/history", "swap": "/swap"}
+
+    def __init__(self, name: str = "", mod: str = "", currency: str = "",
+                 paths: Optional[dict] = None):
+        if name:
+            self.name = name
+        if mod:
+            self.mod = mod
+        if currency:
+            self.currency = currency
+        self.paths = {**type(self).paths, **(paths or {})}
+        super().__init__()
+
+    def quote(self, symbol, side, size):
+        base, quote = self._pair(symbol)
+        inp, out, amt = (quote, base, size) if side == OrderSide.BUY else (base, quote, size)
+        try:
+            q = self.peer.get(f"{self.paths['quote']}?input={inp}&output={out}&amount={amt}")
+            out_amt = float((q.get("buy") or {}).get("amount")
+                            or q.get("out_amount") or 0)
+            return (size / out_amt) if side == OrderSide.BUY and out_amt else \
+                   (out_amt / size) if out_amt else None
+        except Exception:
+            return None
+
+    def trades(self, trader, since_ms, token=None):
+        try:
+            h = self.peer.get(f"{self.paths['history']}?address={trader}&limit=50",
+                              token=token)
+            items = h if isinstance(h, list) else h.get("history") or h.get("items") or []
+            out = []
+            for i, t in enumerate(items):
+                ts = int(t.get("block_time") or t.get("timestamp") or 0)
+                ts = ts * 1000 if ts and ts < 10**12 else ts
+                if ts < since_ms:
+                    continue
+                out.append(VenueTrade(
+                    id=str(t.get("signature") or t.get("hash") or t.get("id")
+                           or f"{trader}:{i}"),
+                    venue=self.name, trader=trader, timestamp=ts,
+                    symbol=str(t.get("symbol") or t.get("mint") or t.get("token")
+                               or self.currency),
+                    side=OrderSide.BUY if str(t.get("side", "buy")).lower() == "buy"
+                         else OrderSide.SELL,
+                    size=float(t.get("amount") or t.get("size") or 0),
+                    price=float(t.get("price") or 0),
+                    extras={"raw": t.get("type")}))
+            return out
+        except Exception:
+            return []
+
+    def _place(self, order, token, dry_run):
+        base, quote = self._pair(order.symbol)
+        inp, out = (quote, base) if order.side == OrderSide.BUY else (base, quote)
+        amount = order.size * order.price if order.side == OrderSide.BUY else order.size
+        r = self.peer.post(self.paths["swap"], {
+            "input": inp, "output": out, "amount": amount,
+            "slippage_bps": 300, "dry_run": dry_run, "confirm": not dry_run,
+        }, token)
+        ok = bool(r.get("signature") or r.get("tx") or r.get("dry_run")
+                  or r.get("success"))
+        return ExecutionResult(order=order, success=ok,
+                               order_id=r.get("signature") or r.get("tx"),
+                               error=None if ok else str(r),
+                               filled_size=order.size if ok else 0.0,
+                               filled_price=order.price if ok else 0.0)
+
+
+def _load_by_path(path: str, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _venue_from_block(block: dict, d: str, cfg: dict) -> Venue:
+    name = str(block.get("name") or "").strip().lower()
+    if not name:
+        raise VenueError(f"{d}: strat_venue block without a name")
+    cls_ref = block.get("class")
+    mod = block.get("module") or cfg.get("name") or os.path.basename(d)
+    if cls_ref:
+        file_name, _, cls_name = cls_ref.partition(":")
+        path = os.path.join(d, file_name or "venue.py")
+        module = _load_by_path(path, f"strat_venue_{name}_{abs(hash(path)) % 10**6}")
+        cls = getattr(module, cls_name)
+        if not (isinstance(cls, type) and issubclass(cls, Venue)):
+            raise VenueError(f"{cls_ref} is not a Venue subclass")
+        v = cls()
+    else:
+        v = RestVenue(name=name, mod=mod, currency=block.get("currency") or "USD",
+                      paths=block.get("paths"))
+    v.origin = cfg.get("name") or os.path.basename(d)
+    if block.get("symbol"):
+        v.symbol = block["symbol"]
+    return v
+
+
+def discover(errors: Optional[list] = None) -> dict[str, Venue]:
+    """Venues declared by OTHER orbit modules — the exact discovery rule
+    strats use: any orbit/<mod>/config.json with a `strat_venue` block (one
+    dict or a list of them) contributes venues. A broken declaration never
+    takes the registry down; it lands in `errors` for venues() to surface."""
+    found: dict[str, Venue] = {}
+    try:
+        entries = sorted(os.listdir(ORBIT))
+    except OSError:
+        return found
+    for entry in entries:
+        d = os.path.join(ORBIT, entry)
+        cfg_path = os.path.join(d, "config.json")
+        if not os.path.isfile(cfg_path):
+            continue
+        try:
+            with open(cfg_path) as f:
+                cfg = json.load(f)
+        except Exception:
+            continue
+        blocks = cfg.get("strat_venue")
+        blocks = [blocks] if isinstance(blocks, dict) else blocks
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            try:
+                v = _venue_from_block(block, d, cfg)
+            except Exception as exc:
+                if errors is not None:
+                    errors.append(f"{entry}: {exc}")
+                continue
+            found.setdefault(v.name, v)
+    return found
+
+
+def builtins() -> dict[str, Venue]:
     return {v.name: v for v in (Raydium(), Uniswap(), Hyperliquid(),
                                 Bittensor(), Polymarket())}
+
+
+def registry(errors: Optional[list] = None) -> dict[str, Venue]:
+    """Every venue this node can route to: the five builtins plus every
+    strat_venue declared across orbit. Builtins win name collisions — the
+    same rule the strat registry applies."""
+    out = discover(errors)
+    out.update(builtins())
+    return out
+
+
+# Custom venue.py files do `from strat_venues import Venue, Peer, RestVenue`;
+# keep that import working no matter what name THIS file was loaded under.
+_self = sys.modules.get(__name__)
+if _self is not None:
+    sys.modules.setdefault("strat_venues", _self)

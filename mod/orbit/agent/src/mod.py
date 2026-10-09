@@ -140,6 +140,14 @@ def _call_sig(name: str, params: dict) -> str:
     return name + '|' + json.dumps(params or {}, sort_keys=True, default=str)
 
 
+def _is_cancel(e: BaseException) -> bool:
+    """True for the API layer's RunCancelled — the one exception a step
+    callback may raise on purpose (the background panel's stop button).
+    Matched by name so this file needs no import from the HTTP layer above
+    it; every other callback exception is still swallowed."""
+    return type(e).__name__ == 'RunCancelled'
+
+
 def _step_failed(step: dict) -> bool:
     """True if a step didn't do what it was asked.
 
@@ -1336,6 +1344,8 @@ RULES:
                 )
                 plan = self.plan(output, safety=safety)
             except Exception as e:
+                if _is_cancel(e):
+                    raise          # a stopped run, not a model error
                 # parens, not brackets: the log printer treats [x/y] as markup
                 # and drops it, and the line read "Model error :"
                 print(f"Model error ({short}/{model}): {e}")
@@ -1552,6 +1562,8 @@ RULES:
             self._emit_step(step)
             return step
         except Exception as e:
+            if _is_cancel(e):
+                raise
             print(f"Final-answer error: {e}")
             return None
 
@@ -1602,7 +1614,11 @@ RULES:
         if cb:
             try:
                 cb(step)
-            except Exception:
+            except Exception as e:
+                # a watcher raising RunCancelled IS the stop button — let it
+                # stop the loop; anything else stays a watcher's own problem
+                if _is_cancel(e):
+                    raise
                 pass
 
     def _emit_live(self, ev: dict):

@@ -1256,7 +1256,10 @@ class Mod:
                 price = float(t['home_price'])
                 if price > 0 and self._principal_paid_total() >= price:
                     return {'error': 'Home already paid off'}
-                return {'success': True, 'dry_run': True, 'renter': renter}
+                return {'success': True, 'dry_run': True, 'renter': renter,
+                        'fee': split['fee'], 'credit': split['credit'],
+                        'owner_income': split['owner_income'],
+                        'fee_pct': split['fee_pct'], 'credit_pct': split['credit_pct']}
             record_fn = _record_dry
         else:
             record_fn = lambda renter, units, kind, source: self.pay_rent(renter, units, kind=kind, source=source)

@@ -191,6 +191,11 @@ def t_targets(a):
             'providers': models.providers()}
 
 
+def t_models(a):
+    ms = models.venice_models()
+    return {'provider': 'venice', 'count': len(ms), 'models': ms}
+
+
 def t_delete(a):
     kind = a.get('kind') or 'attack'
     if kind == 'defense' and a['id'] in _builtins():
@@ -346,6 +351,12 @@ TOOLS = {
                        'the rest.',
         'inputSchema': {'type': 'object', 'properties': {}},
         'handler': t_targets,
+    },
+    'rvb_models': {
+        'description': 'Venice model catalogue — the text models you can name as '
+                       'a venice:<slug> target. Public, no key needed to list.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': t_models,
     },
     'rvb_delete': {
         'description': 'Delete an attack or a defense (kind=attack|defense). '

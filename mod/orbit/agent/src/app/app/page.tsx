@@ -285,9 +285,10 @@ function addrColors(addr: string): { from: string; to: string } {
 // a run registered in the server-side task registry (GET /tasks)
 type ServerTask = {
   id: string; query: string; agent_type: string; provider?: string; model?: string | null
-  user?: string | null; status: 'running' | 'done' | 'error'; steps: number
+  user?: string | null; status: 'running' | 'done' | 'error' | 'cancelled'; steps: number
   tool?: string | null; path?: string | null; started_at: number; finished_at?: number | null
   summary?: string | null; chain?: boolean
+  cancelling?: boolean       // stop flag set — the run ends at its next step
   images?: number            // attachments the run carried — previews are a separate fetch
 }
 
@@ -513,7 +514,7 @@ export default function Home() {
 
   // server-side task registry (background runs)
   const [serverTasks, setServerTasks] = useState<ServerTask[]>([])
-  const [taskFilter, setTaskFilter] = useState<'all' | 'running' | 'done' | 'error'>('all')
+  const [taskFilter, setTaskFilter] = useState<'all' | 'running' | 'done' | 'error' | 'cancelled'>('all')
   const [taskSearch, setTaskSearch] = useState('')
   const [expandedServerTasks, setExpandedServerTasks] = useState<Record<string, boolean>>({})
   // attachment previews per task id — base64, so they're fetched only when a
@@ -1513,6 +1514,18 @@ export default function Home() {
       .catch(() => {}).finally(fetchServerTasks)
   }, [fetchServerTasks])
 
+  // Stopping a running run. The server sets a stop flag the run's own thread
+  // reads at its next step boundary — a model call in flight finishes first,
+  // so the row shows "stopping…" until the run actually unwinds.
+  const stopServerTask = useCallback((id: string) => {
+    setServerTasks(ts => ts.map(t => t.id === id ? { ...t, cancelling: true } : t))
+    fetch(`${API_URL}/tasks/${id}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: auth?.token || null }),
+    }).catch(() => {}).finally(fetchServerTasks)
+  }, [fetchServerTasks, auth?.token])
+
   const clearServerTasks = useCallback((status: 'error' | 'done' | 'finished') => {
     setServerTasks(ts => ts.filter(t => t.status === 'running'
       || (status !== 'finished' && t.status !== status)))
@@ -2128,12 +2141,13 @@ export default function Home() {
     return () => window.removeEventListener('keydown', onKey)
   }, [lightbox])
 
-  const statusIcon = (s: TaskEntry['status']) =>
+  const statusIcon = (s: TaskEntry['status'] | ServerTask['status']) =>
     s === 'running' ? 'animate-spin text-emerald-300' :
-    s === 'done' ? 'text-emerald-400' : 'text-red-400'
+    s === 'done' ? 'text-emerald-400' :
+    s === 'cancelled' ? 'text-gray-500' : 'text-red-400'
 
-  const statusDot = (s: TaskEntry['status']) =>
-    s === 'running' ? '◐' : s === 'done' ? '●' : '✕'
+  const statusDot = (s: TaskEntry['status'] | ServerTask['status']) =>
+    s === 'running' ? '◐' : s === 'done' ? '●' : s === 'cancelled' ? '■' : '✕'
 
   // elapsed / duration label for a task ("12s", "2m 05s")
   const taskTime = (t: TaskEntry) => {
@@ -2733,6 +2747,7 @@ export default function Home() {
     running: runningCount,
     done: serverTasks.filter(t => t.status === 'done').length,
     error: serverTasks.filter(t => t.status === 'error').length,
+    cancelled: serverTasks.filter(t => t.status === 'cancelled').length,
   }
   const visibleServerTasks = serverTasks.filter(t => {
     if (taskFilter !== 'all' && t.status !== taskFilter) return false
@@ -2748,7 +2763,7 @@ export default function Home() {
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8">
         <div className="flex items-baseline gap-3 flex-wrap">
-          <h2 className="text-lg font-semibold tracking-tight text-gray-100">Background tasks</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-gray-100">Background agents</h2>
           <span className="text-xs text-gray-500 font-mono">
             {runningCount > 0 ? `${runningCount} running` : 'idle'}
           </span>
@@ -2756,7 +2771,9 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-2 mt-5 flex-wrap">
-          {(['all', 'running', 'done', 'error'] as const).map(f => (
+          {(['all', 'running', 'done', 'error', 'cancelled'] as const)
+            .filter(f => f === 'all' || f === 'running' || f === 'done' || f === 'error' || taskCounts.cancelled > 0)
+            .map(f => (
             <button key={f} onClick={() => setTaskFilter(f)}
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition border ${
                 taskFilter === f
@@ -2831,6 +2848,17 @@ export default function Home() {
                   <span className="text-[11px] text-gray-500 shrink-0 font-mono" title={`${t.steps} steps`}>
                     {t.steps} step{t.steps !== 1 ? 's' : ''} · {serverTaskTime(t)}
                   </span>
+                  {t.status === 'running' && (
+                    <button
+                      onClick={e => { e.stopPropagation(); if (!t.cancelling) stopServerTask(t.id) }}
+                      disabled={t.cancelling}
+                      title={t.cancelling
+                        ? 'Stop flag set — the run unwinds at its next step (a model call in flight finishes first)'
+                        : 'Stop this run — it ends at its next step'}
+                      className="shrink-0 px-2 py-0.5 rounded-md text-[10px] font-medium uppercase tracking-wider border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/25 disabled:opacity-50 disabled:cursor-default transition">
+                      {t.cancelling ? 'stopping…' : 'stop'}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 mt-1.5 pl-8 min-w-0">
                   {t.status === 'running' && t.tool && (
@@ -4827,13 +4855,17 @@ export default function Home() {
         </div>
 
         <nav className="tab-strip min-w-0 gap-px">
-          {/* Two named tabs — AGENTS and ARENA — plus chat as an icon. AGENTS
-              is the door into the hub (roster shelf first); the library and
-              the runs stay one press further via the hub's own shelf strip.
-              The chat icon owns the transcript. */}
-          {(['chat', 'agents', 'arena'] as const).map(v => {
+          {/* Three named tabs — AGENTS, BACKGROUND and ARENA — plus chat as an
+              icon. AGENTS is the door into the hub (roster shelf first);
+              BACKGROUND is a door too, straight to the hub's runs shelf —
+              every run on the server, live, stoppable — so it wears the
+              running-count badge (and nothing else does: one count, one
+              place). The library stays one press further via the hub's own
+              shelf strip. The chat icon owns the transcript. */}
+          {(['chat', 'agents', 'background', 'arena'] as const).map(v => {
             const lit = v === 'chat' ? view === 'chat'
-              : v === 'agents' ? view === 'hub'
+              : v === 'agents' ? view === 'hub' && hubPane !== 'tasks'
+              : v === 'background' ? view === 'hub' && hubPane === 'tasks'
               : view === 'arena'
             return (
               <button key={v}
@@ -4841,6 +4873,7 @@ export default function Home() {
                   // entering the hub from the top bar shows the agents, not a
                   // canvas someone left up — "show agents" is the shelf's job
                   if (v === 'agents') { setBuilderMode('browse'); openHub('agents') }
+                  else if (v === 'background') openHub('tasks')
                   else if (v === 'chat') {
                     setView('chat')
                     // CHAT reopens on the transcript, its tools, or memory —
@@ -4856,7 +4889,8 @@ export default function Home() {
                   lit ? 'nav-tab--on text-emerald-200' : 'text-gray-600 hover:text-gray-300'
                 }`}
                 title={v === 'chat' ? 'The console — talk to an agent'
-                  : v === 'agents' ? 'Agents, the library and the runs'
+                  : v === 'agents' ? 'Agents and the library'
+                  : v === 'background' ? 'Background agents — every run on the server, live, stoppable'
                   : 'Every agent on the same tasks, one ranked board'}>
                 {v === 'chat' ? (
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -4867,22 +4901,20 @@ export default function Home() {
                 {v === 'agents' && agentOptions.length > 0 && (
                   <span className="font-mono text-[10px] text-gray-500">{agentOptions.length}</span>
                 )}
+                {v === 'background' && runningCount > 0 && (
+                  <span className="flex items-center gap-1 font-mono text-[10px] text-emerald-300">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {runningCount}
+                  </span>
+                )}
               </button>
             )
           })}
         </nav>
 
         <div className="flex items-center gap-3 ml-auto shrink-0">
-          {/* live runs kept one press away even without a TASKS tab — the
-              chip only appears while something is actually running */}
-          {runningCount > 0 && (
-            <button onClick={() => openHub('tasks')}
-              title={`${runningCount} running — open one to watch its edits land`}
-              className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md hover:bg-emerald-500/20 transition-colors">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              {runningCount}
-            </button>
-          )}
+          {/* the running count lives on the BACKGROUND tab now — one count,
+              one place */}
           {loading && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-300">
               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />

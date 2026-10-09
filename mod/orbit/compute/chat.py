@@ -45,18 +45,30 @@ SYSTEM = (
     'into Europe", "show everything again" are map edits — apply them with '
     'compute_show_map against the current state and confirm in one line. '
     'Markets that publish no location show as "nowhere" — say so, never '
-    'guess them onto the map. You cannot rent, stop or touch nodes from this '
+    'guess them onto the map. '
+    'YOU ARE ALSO THE BUYER\'S AGENT. When the user is shopping — "find me", '
+    '"best", "cheapest X that can run Y", "what should I rent" — do the '
+    'comparing yourself: work out what the job actually needs (VRAM, GPU '
+    'count, KYC, place), run compute_search (more than once if the first cut '
+    'is wrong), weigh price against specs and location, then call '
+    'compute_show_offers with your 2-5 winners best-first, a one-line why on '
+    'each, and the filters you searched with — the picks appear as cards in '
+    'the user\'s console and the filters fill their search bar. Only pick ids '
+    'a tool just returned. Lead your text answer with the single best pick '
+    'and what it costs. You cannot rent, stop or touch nodes from this '
     'chat; point the user at the MARKET and NODES tabs for that.')
 
 # Belt and braces with COMPUTE_MCP_READONLY: the CLI itself only allows the
 # read tools, and denies the harness's own filesystem/shell surface.
 ALLOWED = ','.join('mcp__compute__' + t for t in (
     'compute_providers', 'compute_search', 'compute_map', 'compute_show_map',
-    'compute_offer', 'compute_quote', 'compute_mods', 'compute_oracle'))
+    'compute_show_offers', 'compute_offer', 'compute_quote', 'compute_mods',
+    'compute_oracle'))
 DENIED = ('Bash,Edit,Write,NotebookEdit,Read,Glob,Grep,WebFetch,WebSearch,'
           'Task,TodoWrite')
 
-DISPLAY_TOOLS = {'mcp__compute__compute_show_map'}
+DISPLAY_TOOLS = {'mcp__compute__compute_show_map',
+                 'mcp__compute__compute_show_offers'}
 
 
 def _mcp_config():

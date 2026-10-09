@@ -90,6 +90,19 @@ The choice of what to delegate is deliberate. **Decisions** (signal, backtest, s
 
 Bridged strategies are named `<module>.<strat>`, for example `hyperliquid.top_n` and `copytensor.top_n`. The dot never appears in a scaffolded mod name, so bridged names cannot collide with builtin or orbit strategy mods. The registry merges three origins: `builtin` (this module's `strats/`), `orbit` (any module with a `strat` block) and `bridge`.
 
+### 2.5 The venue layer is open (v1.3)
+
+Strategies were always an open set; as of v1.3 venues are too, under the same discovery rule. Any orbit module may declare a `strat_venue` block in its `config.json`:
+
+```json
+{ "strat_venue": { "name": "sui", "module": "sui", "currency": "SUI",
+                   "class": "venue.py:Sui" } }
+```
+
+`class` loads a `Venue` subclass from that module's directory (it imports `from strat_venues import Venue, Peer, RestVenue`); a class-less block mounts a generic `RestVenue` that speaks the common fleet conventions (`GET /quote`, `GET /history`, `POST /swap` — the solana module's shape), so a conventions-following chain is pure config. Builtin names win collisions, exactly as they do for strats, and a broken declaration is surfaced in `venues()._errors` rather than taking the registry down. `new_venue()` scaffolds the whole thing, and `verify()` / `new()` validate strat venue lists against the live registry, so a strat targeting a chain whose declaring module disappears fails loudly.
+
+The trust model (§4) is not relaxed for custom venues: an adapter is a client of the fleet module named by `module` (`Peer` discovery, `STRAT_<VENUE>_URL` override), holds no keys, and inherits the double guard on `place()` — `needs_confirm` here, the peer's own gate underneath.
+
 ## 3. Drift is a test failure, not a production bug
 
 The danger with adapters is silent data loss. If hyperliquid adds a field to `TraderTrade` tomorrow, a careless adapter keeps working and quietly drops it.
@@ -176,6 +189,6 @@ class MyTopN(Base):
 
 ## 9. Verification
 
-- `python3 tests/test_strat.py`: 24 offline checks, no network. They cover protocol parity, the 11 bridged strategies verifying, codec round-trips per venue, native signal and backtest per source (hyperliquid `closed_pnl` arithmetic exact; copytensor ss58 case preserved; polymarket FIFO profitable round trip), native dedupe kept in step after execute, bridged fork, drift detection.
+- `python3 tests/test_strat.py`: 29 offline checks, no network. They cover protocol parity, the 11 bridged strategies verifying, codec round-trips per venue, native signal and backtest per source (hyperliquid `closed_pnl` arithmetic exact; copytensor ss58 case preserved; polymarket FIFO profitable round trip), native dedupe kept in step after execute, bridged fork, drift detection, and the open venue layer (declarative discovery, builtin precedence, a custom chain scaffolded + verified + backtested end-to-end, broken declarations surfaced non-fatally).
 - The source modules' own suites are unaffected (hyperliquid `tests/test_strats.py` 29/29, copytensor `tests/test_strats.py` 22/22), and `git status` shows no change under `polymarket/`, `hyperliquid/` or `copytensor/`.
 - Live, against the running modules (7-day window, 3 self-selected leaders): see the board snapshot in the README.

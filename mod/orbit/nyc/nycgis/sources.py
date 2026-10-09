@@ -428,10 +428,10 @@ def subway_lines(url: str = GTFS_SUBWAY, tol: float = 0.00008) -> dict:
         k = (t.get('route_id', ''), str(t.get('direction_id', '0')))
         n = len(shape_pts[sid])
         if k not in best or n > best[k][0]:
-            best[k] = (n, sid)
+            best[k] = (n, sid, t.get('trip_headsign', ''))
 
     feats = []
-    for (route_id, direction), (_, sid) in sorted(best.items()):
+    for (route_id, direction), (_, sid, headsign) in sorted(best.items()):
         pts = [p for _, p in sorted(shape_pts[sid], key=lambda x: x[0])]
         line = _simplify_ring(pts, tol, 5, closed=False)
         if not line:
@@ -447,6 +447,7 @@ def subway_lines(url: str = GTFS_SUBWAY, tol: float = 0.00008) -> dict:
                 'name': r.get('route_long_name') or '',
                 'desc': (r.get('route_desc') or '').strip(),
                 'color': f'#{color}' if color else '#8b93a7',
+                'headsign': headsign,
             },
             'geometry': {'type': 'LineString', 'coordinates': line},
         })

@@ -255,7 +255,7 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
   onTabChange?: (t: LiveTab) => void;
 } = {}) {
   const { auth, authenticate, loading: authLoading } = useAuth();
-  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, backendDryRuns, autoExecute, setAutoExecute, attachStrategy, catchUp } = useCopyEngine();
+  const { engineState, isLive, startLive, stopLive, pauseLive, resumeLive, backendRunning, backendTraderSync, backendIntervalMs, backendGates, backendDryRuns, autoExecute, setAutoExecute, attachStrategy, catchUp, backendPositions } = useCopyEngine();
   const [pendingGoLive, setPendingGoLive] = useState<{
     subject: string;
     amountUsd: number | null;
@@ -1547,6 +1547,21 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
               value={String(engineState.cycleCount)}
               tone="white"
             />
+            {(() => {
+              const openCount = Object.keys(backendPositions).length;
+              const maxPos = activeStrat?.maxOpenPositions ?? 10;
+              const ratio = maxPos > 0 ? openCount / maxPos : 0;
+              const posTone: "green" | "amber" | "red" =
+                ratio >= 1 ? "red" : ratio >= 0.7 ? "amber" : "green";
+              return (
+                <StatCard
+                  label="POSITIONS"
+                  value={`${openCount} / ${maxPos}`}
+                  tone={posTone}
+                  title={`Open position slots in use. When this hits the cap the engine emits the MAX_POSITIONS skip code and stops entering new positions. Raise MAX OPEN POSITIONS in the RISK panel to unblock it.`}
+                />
+              );
+            })()}
             {(() => {
               const money = stratMoney[activeStrat?.id ?? ""];
               const pnl = money?.totalPnl ?? 0;

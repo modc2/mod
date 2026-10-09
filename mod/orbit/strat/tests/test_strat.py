@@ -81,8 +81,10 @@ def test_parity_with_polymarket_canon():
 def test_schema_fn():
     s = MOD.schema()
     assert s["version"] == proto.PROTOCOL_VERSION
-    assert s["venues"] == ["raydium", "uniswap", "hyperliquid",
-                           "bittensor", "polymarket"]
+    # The venue set is open: builtins always present, customs may join.
+    assert s["builtin_venues"] == ["raydium", "uniswap", "hyperliquid",
+                                   "bittensor", "polymarket"]
+    assert set(s["builtin_venues"]) <= set(s["venues"])
     assert "Order" in s["types"] and "venue" in s["types"]["Order"]
 
 
@@ -211,10 +213,146 @@ def test_info_and_board_offline():
 
 def test_venues_registry_shape():
     vs = MOD.venues(check=False)   # no network
-    assert set(vs) == set(proto.VENUES)
+    names = {k for k in vs if not k.startswith("_")}
+    assert set(proto.VENUES) <= names      # builtins always present
     assert vs["raydium"]["module"] == "solana"
     assert vs["uniswap"]["module"] == "defi"
     assert vs["bittensor"]["module"] == "bt"
+    assert all(vs[v]["origin"] == "builtin" for v in proto.VENUES)
+
+
+# ── Open venue set: custom chains as mods ──────────────────────────
+
+ORBIT = os.path.dirname(SELF)
+venues_m = sys.modules["strat_venues"]
+
+
+def _tmp_orbit_mod(dirname, cfg, files=None):
+    d = os.path.join(ORBIT, dirname)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    with open(os.path.join(d, "config.json"), "w") as f:
+        json.dump(cfg, f, indent=2)
+    for fname, body in (files or {}).items():
+        with open(os.path.join(d, fname), "w") as f:
+            f.write(body)
+    return d
+
+
+def test_custom_venue_declarative_and_builtin_precedence():
+    """A class-less strat_venue block mounts as a RestVenue; a block trying
+    to claim a builtin name loses the collision (same rule as strats)."""
+    d = _tmp_orbit_mod("tmpvdecl", {
+        "name": "tmpvdecl",
+        "strat_venue": [
+            {"name": "tmpdeclchain", "module": "solana", "currency": "DCL",
+             "symbol": "<mint>/<mint> pair"},
+            {"name": "raydium", "module": "evil"},     # must NOT shadow
+        ]})
+    try:
+        reg = venues_m.registry()
+        assert "tmpdeclchain" in reg
+        v = reg["tmpdeclchain"]
+        assert isinstance(v, venues_m.RestVenue)
+        assert v.mod == "solana" and v.currency == "DCL"
+        assert v.info()["origin"] == "tmpvdecl"
+        assert reg["raydium"].mod == "solana"           # builtin won
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+CUSTOM_VENUE_PY = '''
+import time
+from protocol import ExecutionResult, OrderSide, VenueTrade
+from strat_venues import RestVenue
+
+
+class Tmpchain(RestVenue):
+    name = "tmpchain"
+    mod = "tmpchain-mod"
+    currency = "TMP"
+
+    def quote(self, symbol, side, size):
+        return 42.0
+
+    def trades(self, trader, since_ms, token=None):
+        now = int(time.time() * 1000)
+        return [VenueTrade(id=f"tc{i}", venue=self.name, trader=trader,
+                           timestamp=now - 1000 + i, symbol="TMP/USDC",
+                           side=OrderSide.BUY, size=2.0, price=10.0 + i)
+                for i in range(3)]
+
+    def _place(self, order, token, dry_run):
+        return ExecutionResult(order=order, success=True, order_id="offline",
+                               filled_size=order.size, filled_price=order.price)
+'''
+
+
+def test_custom_venue_class_end_to_end():
+    """The whole promise in one pass: declare a NEW chain as a mod, scaffold
+    a strat targeting it, verify it, and backtest it — all offline."""
+    d = _tmp_orbit_mod("tmpvchain", {
+        "name": "tmpvchain",
+        "strat_venue": {"name": "tmpchain",
+                        "class": "venue.py:Tmpchain", "currency": "TMP"},
+    }, files={"venue.py": CUSTOM_VENUE_PY})
+    strat_dir = os.path.join(SELF, "strats", "tmpchainstrat")
+    shutil.rmtree(strat_dir, ignore_errors=True)
+    try:
+        reg = venues_m.registry()
+        assert reg["tmpchain"].quote("TMP/USDC", proto.OrderSide.BUY, 1) == 42.0
+        r = MOD.new("tmpchainstrat", venues=["tmpchain"])
+        assert r["verify"]["ok"], r["verify"]
+        bt = MOD.backtest("tmpchainstrat", days=1, capital=1000.0,
+                          traders=["tmpchain:0xabc"])
+        assert bt["trades_seen"] == 3 and bt["trades_simulated"] > 0, bt
+        assert bt["currency"] == "TMP"
+        # A live dry-run order routes through the custom adapter too.
+        t = MOD.tick("tmpchainstrat", capital=1000.0, traders=["tmpchain:0xabc"])
+        assert t["orders"] and all(x["success"] for x in t["results"]), t
+    finally:
+        shutil.rmtree(strat_dir, ignore_errors=True)
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_new_venue_scaffold():
+    """new_venue() writes a venue mod whose generated adapter loads and
+    registers; strats can target the new chain by name."""
+    created = None
+    try:
+        r = MOD.new_venue("tmpscafchain", module="solana", currency="XYZ",
+                          symbol="<mint>/<mint> pair")
+        created = r["dir"]
+        assert r["module_found"], r
+        reg = venues_m.registry()
+        assert "tmpscafchain" in reg
+        assert isinstance(reg["tmpscafchain"], venues_m.RestVenue)
+        assert reg["tmpscafchain"].currency == "XYZ"
+        assert reg["tmpscafchain"].info()["symbol"] == "<mint>/<mint> pair"
+        # Taken names are refused — builtin and just-created alike.
+        for dup in ("raydium", "tmpscafchain"):
+            try:
+                MOD.new_venue(dup)
+                assert False, f"new_venue({dup!r}) should have raised"
+            except ValueError:
+                pass
+    finally:
+        if created:
+            shutil.rmtree(created, ignore_errors=True)
+
+
+def test_broken_venue_declaration_is_surfaced_not_fatal():
+    d = _tmp_orbit_mod("tmpvbroken", {
+        "name": "tmpvbroken",
+        "strat_venue": {"name": "brokechain", "class": "venue.py:Nope"},
+    })  # venue.py doesn't exist
+    try:
+        vs = MOD.venues(check=False)
+        assert "brokechain" not in vs
+        assert any("tmpvbroken" in e for e in vs.get("_errors", [])), vs.get("_errors")
+        assert "raydium" in vs                 # registry survived
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 

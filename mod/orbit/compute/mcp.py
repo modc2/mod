@@ -166,6 +166,57 @@ def _t_show_map(a):
     }
 
 
+# `compute_show_offers` is the other display tool: the agent's shortlist.
+# Each picked id is re-read from its own provider before anything reaches the
+# page — a stale or invented id is dropped and reported back to the model, so
+# the cards the user sees are always offers that exist at that price right now.
+
+_PICK_FIELDS = ('id', 'provider', 'kind', 'gpu', 'gpus', 'vram_gb', 'cpu',
+                'ram_gb', 'disk_gb', 'usd_hr', 'region', 'available', 'note')
+
+
+def _t_show_offers(a):
+    picks = a.get('picks')
+    if not isinstance(picks, list) or not picks:
+        raise ProviderError('picks must be a non-empty list of {id, why}')
+    if len(picks) > 8:
+        raise ProviderError('at most 8 picks — this is a shortlist the user '
+                            'reads as cards, not another table')
+    filters = {k: a[k] for k in ('gpu', 'provider', 'kyc', 'min_gpus',
+                                 'min_vram_gb', 'max_usd_hr', 'min_usd_hr',
+                                 'region', 'kind')
+               if a.get(k) not in (None, '')}
+    hub = _hub(a)
+    offers, dropped = [], []
+    for p in picks:
+        if not isinstance(p, dict):
+            p = {'id': p}
+        oid = str(p.get('id') or '')
+        try:
+            o = hub.offer(oid)
+        except ProviderError as e:
+            dropped.append({'id': oid, 'error': str(e)})
+            continue
+        row = {k: o.get(k) for k in _PICK_FIELDS}
+        row['why'] = str(p.get('why') or '')[:140]
+        offers.append(row)
+    if not offers:
+        raise ProviderError(
+            'none of the picked offers could be re-read from their provider — '
+            'they may have been rented out from under you; re-run '
+            'compute_search and pick fresh ids. ' + json.dumps(dropped))
+    directive = {
+        'offers': offers,
+        'filters': filters,
+        'caption': str(a.get('caption') or '')[:200],
+    }
+    return {
+        'directive': directive,
+        'shown': [{'id': o['id'], 'usd_hr': o['usd_hr']} for o in offers],
+        'dropped': dropped,
+    }
+
+
 def _t_offer(a):
     return _hub(a).offer(a['id'])
 
@@ -417,6 +468,40 @@ TOOLS = {
                             'e.g. "H100s under $2/hr"'),
         }},
         'handler': _t_show_map,
+    },
+    'compute_show_offers': {
+        'description': 'DISPLAY TOOL — put your picks in front of the user as '
+                       'cards in their MARKET tab, each with a one-line why. '
+                       'Use it to answer "find me…" / "what should I rent": '
+                       'search first, weigh the candidates yourself, then show '
+                       '2-5 winners (best first). Every picked id is re-read '
+                       'from its provider before it is shown — a vanished '
+                       'offer is dropped and reported back, so only pick ids '
+                       'that came from a tool. Pass the filters you searched '
+                       'with and they fill the user\'s own search bar, so the '
+                       'full board behind your picks is one click away.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'picks': {'type': 'array', 'description':
+                      'the shortlist, best first (max 8)',
+                      'items': {'type': 'object', 'properties': {
+                          'id': _ID,
+                          'why': _str('one short line on why this one — the '
+                                      'user reads it on the card'),
+                      }, 'required': ['id']}},
+            'gpu': _str('the GPU filter the picks came from'),
+            'min_gpus': _num('at least this many GPUs on one node'),
+            'min_vram_gb': _num('at least this much VRAM per GPU'),
+            'max_usd_hr': _num('price ceiling per hour'),
+            'min_usd_hr': _num('price floor per hour'),
+            'region': _str('substring of the region/country'),
+            'provider': _str('comma-separated providers searched'),
+            'kyc': _str('only markets at this KYC level',
+                        enum=['none', 'email', 'account', 'full']),
+            'kind': _str('gpu | cpu | confidential | job | storage | all'),
+            'caption': _str('one line over the cards, e.g. "best value '
+                            '80GB under $2/hr"'),
+        }, 'required': ['picks']},
+        'handler': _t_show_offers,
     },
     'compute_offer': {
         'description': 'Re-read one offer from its provider — confirms it still exists '

@@ -117,6 +117,7 @@
         spends real model calls — <span id="cost-hint">pick a target</span>.</p>
       <div class="row">
         <label>target</label><input type="text" id="r-model" value="claude:haiku" size="22">
+        <select id="r-venice" class="venice-pick" title="pick a Venice model as the target"><option value="">Venice ▾</option></select>
         <label>judge</label>
         <select id="r-judge"><option>heuristic</option><option>model</option></select>
         <label>parallel</label><input type="text" class="sm" id="r-par" value="6">
@@ -216,6 +217,7 @@
         <label>defense</label><select id="f-defense"></select>
         <span id="f-cost-hint"></span>
         <label>target</label><input type="text" id="f-model" value="claude:haiku" size="20">
+        <select id="f-venice" class="venice-pick" title="pick a Venice model as the target"><option value="">Venice ▾</option></select>
         <label>judge</label>
         <select id="f-judge"><option>heuristic</option><option>model</option></select>
         <button class="go" id="f-go">FIGHT</button>
@@ -300,10 +302,12 @@ async function recomputeCostHint() {
     const atkSel = $('#r-attacks'), defSel = $('#r-defenses');
     const atk = (atkSel && atkSel.options.length) ? atkSel.selectedOptions.length : attacks.length;
     const def = (defSel && defSel.options.length) ? defSel.selectedOptions.length : defenses.length;
-    const ctl = controls.length;
+    const ctlEnabled = $('#r-ctl') && $('#r-ctl').checked;
+    const ctl = ctlEnabled ? controls.length : 0;
     const total = atk * def + ctl * def;
-    $('#cost-hint').textContent =
-      `${atk} attacks × ${def} defenses + ${ctl} controls × ${def} defenses = ${total} matches`;
+    $('#cost-hint').textContent = ctlEnabled
+      ? `${atk} attacks × ${def} defenses + ${ctl} controls × ${def} defenses = ${total} matches`
+      : `${atk} attacks × ${def} defenses = ${total} matches`;
   } catch (_) {}
 }
 
@@ -484,6 +488,10 @@ $('#r-go').onclick = async () => {
     $('#r-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
   } finally { btn.disabled = false; }
 };
+
+['#r-attacks', '#r-defenses', '#r-ctl'].forEach(id => {
+  const el = $(id); if (el) el.addEventListener('change', recomputeCostHint);
+});
 
 async function poll(id, total) {
   const r = await api('/rounds?id=' + encodeURIComponent(id)).catch(() => null);
@@ -814,6 +822,29 @@ api('/targets').then(t => {
   // mock:* stays one keystroke away for anyone testing the harness.
   if (t.default) { $('#r-model').value = t.default; $('#f-model').value = t.default; }
 }).catch(() => {});
+
+// ── Venice model picker ────────────────────────────────────────
+// The target is any "provider:name"; Venice's catalogue is public, so we can
+// list it without a key and let picking one write "venice:<slug>" into the
+// target box. Typing another provider still works — the box is the source of
+// truth, the picker is a shortcut.
+function wireVenice(selId, inputId) {
+  const sel = $(selId);
+  sel.addEventListener('change', () => {
+    if (sel.value) { $(inputId).value = 'venice:' + sel.value; }
+  });
+}
+wireVenice('#r-venice', '#r-model');
+wireVenice('#f-venice', '#f-model');
+api('/models').then(m => {
+  const opts = (m.models || []).map(x =>
+    `<option value="${esc(x.id)}">${esc(x.name || x.id)}</option>`).join('');
+  if (!opts) return;
+  ['#r-venice', '#f-venice'].forEach(id => {
+    $(id).insertAdjacentHTML('beforeend', opts);
+  });
+}).catch(() => {});
+
 loadBoard();
 </script>
 </body>

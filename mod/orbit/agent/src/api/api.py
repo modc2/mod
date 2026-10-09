@@ -117,6 +117,7 @@ Endpoints:
     POST /arena/openarena/enter - owner: our agent on openarena's own board
     GET  /tasks        - server-side task registry (running + recent runs)
     GET  /tasks/{id}   - one task with its step trace
+    POST /tasks/{id}/cancel - stop a running run (its starter, or the host)
     GET  /tasks/{id}/images - thumbnails of the images attached to that run
     POST /mcp          - MCP (Model Context Protocol) over Streamable HTTP:
                         the same handlers as JSON-RPC 2.0, 20 tools + resources
@@ -659,6 +660,16 @@ def signed_in(key) -> bool:
 TASKS: "OrderedDict[str, dict]" = OrderedDict()
 TASKS_LOCK = threading.Lock()
 MAX_TASKS = 100        # registry entries kept
+
+# Stop flags live beside the registry, not on the task dict — /tasks
+# serializes every task key, and a threading.Event doesn't JSON. The run's
+# own thread checks its flag at each step boundary and unwinds itself;
+# nothing is killed from outside, so a model call in flight finishes first.
+CANCELS: dict = {}     # task id -> threading.Event
+
+
+class RunCancelled(Exception):
+    """A run noticing its stop flag — ends the run as 'cancelled', not 'error'."""
 MAX_TRACE = 60         # trimmed steps kept per task
 MAX_TASK_THUMBS = 4    # attachment previews kept per task
 MAX_THUMB_BYTES = 96_000   # one preview — a thumbnail, never the full-size image
@@ -749,8 +760,10 @@ def _task_create(req: "RunRequest", chain: bool = False, agent: str = None) -> d
     }
     with TASKS_LOCK:
         TASKS[t["id"]] = t
+        CANCELS[t["id"]] = threading.Event()
         while len(TASKS) > MAX_TASKS:
-            TASKS.popitem(last=False)
+            old_id, _ = TASKS.popitem(last=False)
+            CANCELS.pop(old_id, None)
     return t
 
 
@@ -771,6 +784,11 @@ def _task_step(t: dict, step) -> None:
         t["trace"].append(entry)
         if len(t["trace"]) > MAX_TRACE:
             t["trace"] = t["trace"][-MAX_TRACE:]
+    # the stop check rides the step callback because it is the one point every
+    # kind of run passes through — native loop, chain, harness CLI alike
+    ev = CANCELS.get(t["id"])
+    if ev is not None and ev.is_set():
+        raise RunCancelled("stopped from the background panel")
 
 
 MAX_CALLS = 60         # per-call cost rows kept on a task
@@ -846,6 +864,8 @@ def _task_finish(t: dict, status: str, summary: str = "") -> None:
     with TASKS_LOCK:
         t["status"] = status
         t["finished_at"] = time.time()
+        t.pop("cancelling", None)
+        CANCELS.pop(t["id"], None)
         if summary:
             t["summary"] = summary[:400]
 
@@ -1389,6 +1409,46 @@ def get_task(task_id: str):
         return {**{k: v for k, v in t.items() if k != "thumbs"},
                 "images": len(t.get("thumbs") or [])}
 
+class CancelRequest(BaseModel):
+    key: Optional[str] = None      # signed token — who is asking
+
+
+@app.post("/tasks/{task_id}/cancel")
+def cancel_task(task_id: str, req: CancelRequest = None):
+    """Stop a running background run.
+
+    Sets the run's stop flag; the run's own thread notices it at the next
+    step boundary and unwinds as 'cancelled' — a model call already in
+    flight finishes first, so this is a stop, not a kill. A signed run can
+    be stopped by whoever started it or by the host; an anonymous run is
+    stoppable by anyone, same standing as dismissing its row.
+    """
+    key = req.key if req else None
+    with TASKS_LOCK:
+        t = TASKS.get(task_id)
+        if not t:
+            return {"error": f"unknown task: {task_id}"}
+        if t.get("status") != "running":
+            return {"error": f"task is not running (status: {t.get('status')})",
+                    "code": 409}
+    if t.get("user"):
+        caller = _caller_address(key)
+        owner = False
+        try:
+            owner = bool(get_mod().is_owner(key))
+        except Exception:
+            pass
+        if not owner and (not caller or caller != t["user"].lower()):
+            return {"error": "only the run's owner or the host can stop it",
+                    "code": 403}
+    ev = CANCELS.setdefault(task_id, threading.Event())
+    ev.set()
+    with TASKS_LOCK:
+        t["cancelling"] = True
+    return {"cancelling": task_id,
+            "note": "the run stops at its next step — a model call in flight finishes first"}
+
+
 @app.delete("/tasks")
 def clear_tasks(status: str = "finished"):
     """Drop task rows from the registry: 'error', 'done', 'finished' or 'all'.
@@ -1400,7 +1460,8 @@ def clear_tasks(status: str = "finished"):
     """
     keep = {"running"}
     wanted = {"error": {"error"}, "done": {"done"},
-              "finished": {"done", "error"},
+              "cancelled": {"cancelled"},
+              "finished": {"done", "error", "cancelled"},
               "all": {"done", "error", "cancelled"}}.get(status)
     if wanted is None:
         return {"error": f"unknown status {status!r}",
@@ -3213,6 +3274,10 @@ def _run_chain(mod, req: RunRequest, on_step=None, on_chain_step=None, budget=No
                     if isinstance(s, dict) and s.get("tool") == "finish":
                         summary = s.get("params", {}).get("summary", "")
             chain_results.append({"step": i, "agent": step_agent, "result": result, "summary": summary})
+        except RunCancelled:
+            # a stopped run must stop the whole chain, not fail one link and
+            # hand the query to the next agent
+            raise
         except Exception as e:
             chain_results.append({"step": i, "agent": step_agent, "error": str(e), "summary": f"Error: {e}"})
     return chain_results
@@ -3276,6 +3341,10 @@ def run_agent(req: RunRequest):
         charge = _charge_run(req, task)
         return {"query": req.query, "agent_type": resolved_agent, "task_id": task["id"],
                 "result": result, "charged": charge, "usage": _usage_of(task)}
+    except RunCancelled as e:
+        _task_finish(task, 'cancelled', str(e))
+        return {"query": req.query, "task_id": task["id"],
+                "cancelled": True, "error": str(e)}
     except PermissionError as e:
         _task_finish(task, 'error', str(e))
         return {"query": req.query, "error": str(e), "code": 403}
@@ -3437,6 +3506,9 @@ def run_agent_stream(req: RunRequest):
                 charge = _charge_run(req, task)
                 emit({"type": "done", "task_id": task["id"], "result": result,
                       "charged": charge, "usage": _usage_of(task)})
+        except RunCancelled as e:
+            _task_finish(task, 'cancelled', str(e))
+            emit({"type": "error", "error": str(e), "cancelled": True})
         except PermissionError as e:
             _task_finish(task, 'error', str(e))
             emit({"type": "error", "error": str(e), "code": 403})

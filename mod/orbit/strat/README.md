@@ -1,10 +1,13 @@
 # strat — a marketplace of strategies, where strats are mods
 
-One unified, class-defined strategy protocol across five venues, and a
-marketplace built out of the mod system itself: **a strategy is a mod** — a
-directory with a `config.json` declaring a `strat` block and a `strat.py`
-defining one subclass of the canonical `Strat` class. Anything that honors
-the contract shows up on the board, can be forked, backtested and run.
+One unified, class-defined strategy protocol across an **open set of
+venues**, and a marketplace built out of the mod system itself: **a strategy
+is a mod** — a directory with a `config.json` declaring a `strat` block and a
+`strat.py` defining one subclass of the canonical `Strat` class. Anything
+that honors the contract shows up on the board, can be forked, backtested
+and run. **A venue is a mod too**: five chains ship builtin, and any orbit
+module can add another with a `strat_venue` block (see
+[Adding a chain](#adding-a-chain-custom-venues)).
 
 ## The protocol (`protocol.py`)
 
@@ -21,7 +24,7 @@ setup / sync / signal / execute / tick / backtest / teardown / state
 watchlist-driven `sync()`, a guarded `execute()`, and a mark-to-market
 `backtest()`.
 
-Instruments are `(venue, symbol)` pairs:
+Instruments are `(venue, symbol)` pairs. The builtins:
 
 | venue | executed by | symbol |
 |---|---|---|
@@ -30,6 +33,43 @@ Instruments are `(venue, symbol)` pairs:
 | hyperliquid | hyperliquid module (`:8919`, MCP) | coin, e.g. `BTC` |
 | bittensor | bt module (`:50280`, dTAO pools) | `SN<netuid>` |
 | polymarket | polymarket module (`:50091`, live-engine sessions) | CLOB token id |
+
+`m strat/venues` lists the live set — these five plus every custom venue
+declared across orbit.
+
+## Adding a chain (custom venues)
+
+Venues are discovered exactly the way strats are: any orbit module whose
+`config.json` carries a `strat_venue` block (one dict or a list of them)
+contributes a venue, and every strat can then target that chain by name.
+Builtins win name collisions; a broken declaration is reported under
+`venues()._errors`, never fatal.
+
+```
+m strat/new_venue name=sui module=sui currency=SUI symbol='coin type'
+m strat/new name=sui-mirror venues='["sui"]'       # a strat on the new chain
+m strat/backtest name=sui-mirror traders='["sui:0x..."]'
+```
+
+`new_venue` scaffolds a small venue mod in orbit:
+
+```
+sui/  (or sui-venue/ when the chain-owning module already holds the name)
+  config.json   { "strat_venue": { "name": "sui", "module": "sui",
+                                   "currency": "SUI",
+                                   "class": "venue.py:Sui" } }
+  venue.py      class Sui(RestVenue): ...
+```
+
+The adapter is a **client of the fleet module that owns the chain**
+(`module=`) — the defi-desk rule holds for custom venues too: no keys here,
+bearer forwarded verbatim, dry-run default. `RestVenue` speaks the common
+fleet conventions out of the box (`GET /quote?input=&output=&amount=`,
+`GET /history?address=`, `POST /swap {dry_run, confirm}` — the solana
+module's shape), so for a conventions-following module the scaffold works
+unedited, and `rest_only=true` skips the code entirely (pure-config venue).
+For anything else, override `quote()` / `trades()` / `_place()` — the five
+builtin adapters in `venues.py` are the reference implementations.
 
 ## Bridged strats: polymarket, hyperliquid and copytensor on one framework (`bridge.py`)
 
@@ -137,7 +177,7 @@ board picks it up automatically.
 ## Tests
 
 ```
-python3 tests/test_strat.py     # 24 offline checks, no network, no wallets
+python3 tests/test_strat.py     # 29 offline checks, no network, no wallets
 ```
 
 Includes the fleet-style parity test pinning this protocol to the canonical

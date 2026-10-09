@@ -323,6 +323,7 @@ def test_the_map_is_open_and_spends_nothing():
     import auth
     assert '/map' in auth.OPEN and 'compute_map' in auth.OPEN_TOOLS
     assert 'compute_show_map' in auth.OPEN_TOOLS   # the chat's display tool reads only
+    assert 'compute_show_offers' in auth.OPEN_TOOLS
 
 
 # ── the chat's display tool: what reaches the page is validated here ──
@@ -356,6 +357,34 @@ def test_show_map_focus_rules(monkeypatch):
         mcp._focus_point('narnia-on-sea')
 
 
+def test_show_offers_validates_every_pick_before_it_reaches_the_page(monkeypatch):
+    """The agent's shortlist: each id is re-read from its provider, a vanished
+    id is dropped and reported, and the heavy `raw` never reaches the page."""
+    class Fake:
+        name, caps, kyc = 'f', ('search',), 'none'
+
+        def search(self, f):
+            return [mk_offer('f', 'a', usd_hr=1.5, gpu='H100 80GB', gpus=8,
+                             vram_gb=80, region='Germany', raw={'huge': 'x'})]
+
+    monkeypatch.setattr(P, 'get', lambda name, keys=None: Fake())
+    out = mcp.TOOLS['compute_show_offers']['handler'](
+        {'picks': [{'id': 'f:a', 'why': 'cheapest live 8x H100'},
+                   {'id': 'f:gone'}],
+         'gpu': 'H100', 'caption': 'the board'})
+    d = out['directive']
+    assert [o['id'] for o in d['offers']] == ['f:a']
+    assert d['offers'][0]['why'] == 'cheapest live 8x H100'
+    assert 'raw' not in d['offers'][0]
+    assert d['filters'] == {'gpu': 'H100'} and d['caption'] == 'the board'
+    assert out['dropped'] and out['dropped'][0]['id'] == 'f:gone'
+    # every pick dead = an error back to the model, nothing drawn
+    with pytest.raises(ProviderError):
+        mcp.TOOLS['compute_show_offers']['handler']({'picks': [{'id': 'f:gone'}]})
+    with pytest.raises(ProviderError):
+        mcp.TOOLS['compute_show_offers']['handler']({'picks': []})
+
+
 def test_the_chat_mcp_lane_is_read_only():
     """COMPUTE_MCP_READONLY drops stdio to the open tier: a typed message
     must never be able to rent a box or open a shell on a node."""
@@ -372,7 +401,7 @@ def test_the_chat_mcp_lane_is_read_only():
 # ── mcp wire ──
 
 def test_every_tool_is_declared_and_callable():
-    assert len(mcp.TOOLS) == 26
+    assert len(mcp.TOOLS) == 27
     for name, t in mcp.TOOLS.items():
         assert name.startswith('compute_')
         assert t['description'] and t['inputSchema']['type'] == 'object'

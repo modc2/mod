@@ -466,7 +466,9 @@ class Bank:
                 held.append({**row, 'reason': res['error']})
                 continue
             if dry_run:
-                booked.append(row)
+                _split_keys = ('fee', 'credit', 'owner_income', 'fee_pct', 'credit_pct')
+                extra = {k: res[k] for k in _split_keys if isinstance(res, dict) and k in res}
+                booked.append({**row, **extra})
                 continue
             done[key] = {'renter': hit['address'], 'units': conv['units'],
                          'fiat': t['amount'], 'currency': t['currency'],

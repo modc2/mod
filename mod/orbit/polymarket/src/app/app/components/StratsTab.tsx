@@ -83,6 +83,7 @@ import StratVibe, { focusVibe } from "./StratVibe";
 import UserStratsPanel, { USER_STRATS_CHANGED_EVENT } from "./UserStratsPanel";
 import WindowStrip from "./WindowStrip";
 import { HUB_WINDOWS, useStratWindows } from "../lib/hubBacktest";
+import { computeStratVerdict, type StratVerdict, type VerdictTier } from "../lib/stratVerdict";
 
 function timeSince(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -148,6 +149,48 @@ export default function StratsTab() {
   const pnlHistory = useStratPnlHistory();
   // Every strat backtested over 1/3/7/14/30 days (the worker's ladder).
   const ladder = useStratWindows(indexes);
+
+  // ── The verdict layer: which of these is actually working? ──
+  // One tier per strat, folded from the ladder + the live book + the holdout
+  // check (lib/stratVerdict.ts). MY STRATS defaults to showing ONLY the
+  // consistent ones ("i only have time to see the strats that are doing well
+  // and are consistently good") — ALL is one click away, and hidden strats
+  // that hold money are called out so the filter can never bury a bleed.
+  const [stratShow, setStratShowState] = useState<"working" | "all">("working");
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("poly_strats_show");
+      if (v === "all" || v === "working") setStratShowState(v);
+    } catch {}
+  }, []);
+  const setStratShow = useCallback((v: "working" | "all") => {
+    setStratShowState(v);
+    try { localStorage.setItem("poly_strats_show", v); } catch {}
+  }, []);
+  const verdictById: Record<string, StratVerdict> = {};
+  for (const idx of indexes) {
+    // The card's saved backtest is evidence too — and when it was an OOS run
+    // (score-fn strats), it carries holdout weight in the verdict.
+    const last = idx.lastBacktestAt != null
+      ? {
+          pnl: idx.lastPnl ?? 0,
+          trades: idx.lastTradeCount ?? 0,
+          oos: !!(idx.scoreFn?.oos && idx.lastBacktestAt === idx.scoreFn.oos.at),
+        }
+      : null;
+    verdictById[idx.id] = computeStratVerdict(ladder.byId[idx.id], liveStats[idx.id], last);
+  }
+  // Best first: tier, then evidence quality, then money as the tiebreak.
+  const sortedStrats = [...indexes].sort((a, b) =>
+    (verdictById[b.id].score - verdictById[a.id].score) || (moneyOn(b.id) - moneyOn(a.id)));
+  const workingStrats = sortedStrats.filter((i) => verdictById[i.id].tier === "consistent");
+  const shownStrats = stratShow === "working" ? workingStrats : sortedStrats;
+  // Money the WORKING filter would hide — never let "doing well only" mean
+  // "didn't notice the funded strat that's bleeding".
+  const hiddenFunded = stratShow === "working"
+    ? sortedStrats.filter((i) => verdictById[i.id].tier !== "consistent" && (moneyOn(i.id) > 0 || liveStratIds.has(i.id)))
+    : [];
+  const hiddenMoney = hiddenFunded.reduce((t, i) => t + moneyOn(i.id), 0);
 
   // STRATS = the manager (everything below) · TRADES = the account's actual
   // fills as positions, each with its own P&L (PositionsHistoryPanel — the
@@ -540,7 +583,29 @@ export default function StratsTab() {
 
       {/* ── MY STRATS — the management list ── */}
       <section className={`space-y-1 ${sec === "mine" ? "" : "hidden"}`}>
-        <SectionHeader label="MY STRATS" hint="every strat you saved · money on it first · click = active" />
+        <div className="flex items-center gap-2 pr-1">
+          <SectionHeader label="MY STRATS" hint="best first · click = active" />
+          {/* WORKING = only the strats earning a ✓ CONSISTENT verdict —
+              green across the ladder windows that traded, green on the live
+              book if it has traded, and not flagged as a selection leak by
+              the holdout check. The default, because that's the only list
+              most visits are here for. */}
+          <div className="ml-auto flex shrink-0 gap-1 border border-pixel-border rounded-full overflow-hidden">
+            {([["working", `✓ WORKING (${workingStrats.length})`, "Only strats that are consistently green — ladder, live book and holdout all agree"],
+               ["all", `ALL (${indexes.length})`, "Every strat you saved, best first"]] as const).map(([v, label, hint]) => (
+              <button
+                key={v}
+                onClick={() => setStratShow(v)}
+                title={hint}
+                className={`px-2 py-0.5 text-[9px] font-mono font-semibold tracking-[0.1em] transition-colors ${
+                  stratShow === v ? "bg-pixel-border-light text-pixel-white" : "text-pixel-gray hover:text-pixel-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         {/* Cards: each strat is a self-contained card. Columns come from the
             CONTAINER's width (auto-fill), not a viewport breakpoint — this tab
             renders inside frames (modc2, the phone view) whose width has
@@ -557,8 +622,21 @@ export default function StratsTab() {
               No strats yet — <span className="text-pixel-gray-light">+ NEW STRAT</span> makes the default copy-trading one.
             </div>
           )}
+          {/* An honest empty WORKING view — "none qualify" is the answer, not
+              a blank page, and the way out (ALL) is in the sentence. */}
+          {indexes.length > 0 && stratShow === "working" && workingStrats.length === 0 && (
+            <div style={{ gridColumn: "1 / -1" }} className="px-1.5 py-2 text-[10.5px] font-mono leading-relaxed text-pixel-gray">
+              None of your {indexes.length} strats is <span className="text-green-400">consistently green</span> right
+              now — a strat earns ✓ when its backtest windows and live book agree it&apos;s winning, and the holdout
+              check doesn&apos;t flag the gains as hindsight.{" "}
+              <button onClick={() => setStratShow("all")} className="text-pixel-white underline underline-offset-2 hover:text-green-400">
+                Show all {indexes.length}
+              </button>
+              {" "}· or try SCORES — its strats are ranked out-of-sample.
+            </div>
+          )}
 
-          {[...indexes].sort((a, b) => moneyOn(b.id) - moneyOn(a.id)).map((idx) => {
+          {shownStrats.map((idx) => {
             const isActive = idx.id === activeId;
             const isRunning = liveStratIds.has(idx.id);
             const onIt = moneyOn(idx.id);
@@ -637,6 +715,27 @@ export default function StratsTab() {
                       )}
                     </span>
                   )}
+                  {/* The verdict, said once — the ladder/live/holdout fold
+                      from lib/stratVerdict.ts. UNKNOWN renders nothing: a
+                      chip saying "no data" on every new card is noise. */}
+                  {(() => {
+                    const v = verdictById[idx.id];
+                    if (!v || v.tier === "unknown") return null;
+                    const look: Record<Exclude<VerdictTier, "unknown">, [string, string]> = {
+                      consistent: ["✓ CONSISTENT", "border-green-400/60 text-green-400"],
+                      mixed: ["~ MIXED", "border-amber-300/50 text-amber-300"],
+                      bleeding: ["✗ BLEEDING", "border-red-400/60 text-red-400"],
+                    };
+                    const [label, cls] = look[v.tier];
+                    return (
+                      <span
+                        title={v.reason}
+                        className={`shrink-0 px-1.5 py-0.5 rounded border text-[8.5px] font-mono font-semibold tracking-[0.1em] ${cls}`}
+                      >
+                        {label}
+                      </span>
+                    );
+                  })()}
                   <button
                     onClick={(e) => { e.stopPropagation(); void toggleVisibility(idx.id, idx.name, !isPublic); }}
                     disabled={visBusy === idx.id}
@@ -882,6 +981,20 @@ export default function StratsTab() {
             </span>
           </button>
         </div>
+
+        {/* The filter must never bury a bleed: if WORKING hides strats that
+            hold money or have an engine running, say so where it can be seen. */}
+        {hiddenFunded.length > 0 && (
+          <div className="px-1.5 text-[9.5px] font-mono leading-snug text-amber-300/90">
+            ⚠ {fmtUsd(hiddenMoney)} of your money is on {hiddenFunded.length} strat{hiddenFunded.length === 1 ? "" : "s"} that
+            {hiddenFunded.length === 1 ? " isn't" : " aren't"} making the cut
+            {" "}({hiddenFunded.slice(0, 3).map((i) => i.name).join(", ")}{hiddenFunded.length > 3 ? ", …" : ""}) —{" "}
+            <button onClick={() => setStratShow("all")} className="text-pixel-white underline underline-offset-2 hover:text-amber-300">
+              show all
+            </button>
+            {" "}or stop them on <button onClick={() => setSec("invested")} className="text-pixel-white underline underline-offset-2 hover:text-amber-300">INVESTED</button>.
+          </div>
+        )}
 
         {/* Curated starting points, folded — a first-time user meeting eleven
             recipes has not been helped. */}

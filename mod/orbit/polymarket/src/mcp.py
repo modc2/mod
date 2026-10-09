@@ -205,7 +205,7 @@ def _api(endpoint: str, **params) -> object:
 
 
 def _hub(path: str = '') -> str:
-    return f'{APP_URL}{BASE_PATH}/api/hub{path}'
+    return f'{APP_URL}{BASE_PATH}/_api/hub{path}'
 
 
 def _req(args: dict, key: str) -> str:
@@ -460,7 +460,7 @@ def _t_backtest_run(args):
 
 
 def _lab(path: str = '') -> str:
-    return f'{APP_URL}{BASE_PATH}/api/lab{path}'
+    return f'{APP_URL}{BASE_PATH}/_api/lab{path}'
 
 
 def _t_lab_backtest(args):
@@ -486,7 +486,7 @@ def _t_lab_runs(args):
 
 
 def _autostrat(path: str = '') -> str:
-    return f'{APP_URL}{BASE_PATH}/api/autostrat{path}'
+    return f'{APP_URL}{BASE_PATH}/_api/autostrat{path}'
 
 
 def _t_autostrat(args):
@@ -756,7 +756,7 @@ def _t_copy_backtest(args):
 
 
 def _copytrades(path: str = '') -> str:
-    return f'{APP_URL}{BASE_PATH}/api/copytrades{path}'
+    return f'{APP_URL}{BASE_PATH}/_api/copytrades{path}'
 
 
 def _t_copy_trades(args):
@@ -818,7 +818,7 @@ def _t_copy_trades(args):
 
 
 def _basket(path: str = '') -> str:
-    return f'{APP_URL}{BASE_PATH}/api/basket{path}'
+    return f'{APP_URL}{BASE_PATH}/_api/basket{path}'
 
 
 def _t_copy_basket(args):

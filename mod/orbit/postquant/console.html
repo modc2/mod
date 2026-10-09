@@ -1078,7 +1078,7 @@ async function loadHistory() {
         const h = esc(item.hash || '');
         const kt = esc(item.key || item.to || '');
         return `<tr>` +
-          `<td class="num">${esc(item.height)}</td>` +
+          `<td class="num"><a href="#" class="hist-blk" data-b="${esc(item.height)}">${esc(item.height)}</a></td>` +
           `<td class="mono"><a href="#" class="hist-tx" data-h="${h}">${short(item.hash, 12)}</a></td>` +
           `<td class="pill">${esc(item.kind)}</td>` +
           `<td class="mono addr">${short(item.from, 12)}</td>` +
@@ -1090,6 +1090,10 @@ async function loadHistory() {
     document.querySelectorAll('#hist-out .hist-tx').forEach(a => a.onclick = ev => {
       ev.preventDefault();
       goInspect(a.dataset.h);
+    });
+    document.querySelectorAll('#hist-out .hist-blk').forEach(a => a.onclick = ev => {
+      ev.preventDefault();
+      goBlock(+a.dataset.b);
     });
   } catch (e) { err('hist-out', e); }
 }

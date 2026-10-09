@@ -56,6 +56,7 @@
         "rvb_rounds",
         "rvb_board",
         "rvb_targets",
+        "rvb_models",
         "rvb_delete"
     ],
     "endpoints": {
