@@ -73,6 +73,7 @@ class RecordActionRequest(BaseModel):
 
 class TransferAuthorityRequest(BaseModel):
     new_authority: str
+    caller: Optional[str] = None
 
 class DeployRequest(BaseModel):
     network: str = "testnet"
@@ -122,6 +123,14 @@ class CivicOverrideRequest(BaseModel):
 
 class CivicResignRequest(BaseModel):
     key: str
+
+class PoolCloseRequest(BaseModel):
+    caller: str = ""
+    force: bool = False
+
+class PoolClaimRequest(BaseModel):
+    address: str
+    quarter: Optional[int] = None
 
 
 # ── Health / Status ─────────────────────────────────────────────
@@ -415,6 +424,38 @@ def equity(address: str):
     return get_openhouse().equity(address)
 
 
+# ── Pool / bloctime ─────────────────────────────────────────────
+
+@app.get("/pool")
+def pool():
+    return get_openhouse().pool()
+
+@app.get("/pool/history")
+def pool_history():
+    return get_openhouse().pool_history()
+
+@app.post("/pool/close")
+def pool_close(req: PoolCloseRequest):
+    result = get_openhouse().close_quarter(req.caller, req.force)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.post("/pool/claim")
+def pool_claim(req: PoolClaimRequest):
+    result = get_openhouse().pool_claim(req.address, req.quarter)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+@app.get("/bloctime/{address}")
+def bloctime(address: str):
+    result = get_openhouse().bloctime(address)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
 # ── Shareholders ────────────────────────────────────────────────
 
 @app.get("/shareholders")
@@ -470,7 +511,7 @@ def record_action(req: RecordActionRequest):
 
 @app.post("/transfer_authority")
 def transfer_authority(req: TransferAuthorityRequest):
-    result = get_openhouse().transfer_authority(req.new_authority)
+    result = get_openhouse().transfer_authority(req.new_authority, caller=req.caller or '')
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

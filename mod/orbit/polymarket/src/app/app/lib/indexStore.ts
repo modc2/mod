@@ -153,7 +153,7 @@ export function forkIndex(id: string, name?: string): SavedIndex | null {
     // is a per-strat act, so a fork of a public strat starts private and
     // unattributed until its new owner publishes it themselves.
     lastPnl: _p, lastPnlAfterCosts: _pc, lastRoi1k: _r,
-    lastTradeCount: _tc, lastBacktestAt: _ba,
+    lastTradeCount: _tc, lastBacktestAt: _ba, lastBacktestDays: _bd,
     visibility: _v, owner: _o,
     ...strategy
   } = source;

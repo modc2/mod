@@ -54,7 +54,12 @@ INSTRUCTIONS = (
     'pain.001 out), Open Banking APIs (Berlin Group PSD2, UK OBIE) or a '
     'bank\'s own MCP server — and openhouse_bank_reconcile books every '
     'transfer carrying a renter\'s reference code onto the rent ledger once. '
-    'Anything but the sandbox is a real bank and needs the operator\'s key.'
+    'Anything but the sandbox is a real bank and needs the operator\'s key. '
+    'Fee pool: openhouse_pool shows the quarter accruing now; '
+    'openhouse_pool_history lists closed quarters; '
+    'openhouse_close_quarter freezes a quarter once the 90 days are up; '
+    'openhouse_pool_claim pulls an address\'s share; '
+    'openhouse_bloctime shows one address\'s locked liquidity and earned weight.'
 )
 
 
@@ -295,6 +300,33 @@ def _t_bank_pay(args, oh):
                            connection=str(args.get('connection') or ''),
                            currency=str(args.get('currency') or ''),
                            reference=str(args.get('reference') or ''), key=_key(args)))
+
+
+# ── pool / bloctime handlers ──
+
+def _t_pool(args, oh):
+    return oh.pool()
+
+
+def _t_pool_history(args, oh):
+    history = oh.pool_history()
+    return {'quarters': len(history), 'history': history}
+
+
+def _t_close_quarter(args, oh):
+    return _ok(oh.close_quarter(
+        caller=str(args.get('caller') or ''),
+        force=bool(args.get('force'))))
+
+
+def _t_pool_claim(args, oh):
+    raw = args.get('quarter')
+    quarter = int(_num(args, 'quarter')) if raw not in (None, '') else None
+    return _ok(oh.pool_claim(_req(args, 'address'), quarter))
+
+
+def _t_bloctime(args, oh):
+    return oh.bloctime(_req(args, 'address'))
 
 
 _KEY = {'type': 'string', 'description': 'operator bank key — required for any connection that is not the sandbox'}
@@ -666,6 +698,54 @@ TOOLS = {
             'connection': _CONN, 'key': _KEY,
         }, 'required': ['amount', 'to_iban']},
         'handler': _t_bank_pay,
+    },
+    'openhouse_pool': {
+        'description': 'The quarter now accruing: pool balance, bloctime '
+                       'earned per address, projected shares at close, and '
+                       'when the quarter window ends. Start here before '
+                       'calling openhouse_close_quarter.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_pool,
+    },
+    'openhouse_pool_history': {
+        'description': 'Every closed quarter, newest first: pool amount, '
+                       'total weight, per-address allocations and whether '
+                       'each was claimed.',
+        'inputSchema': {'type': 'object', 'properties': {}},
+        'handler': _t_pool_history,
+    },
+    'openhouse_close_quarter': {
+        'description': 'WRITES. Freeze the current quarter and lock in the '
+                       'bloctime split. Permissionless once the 90-day window '
+                       'has elapsed — anyone can call it. force=true cuts a '
+                       'quarter short (owner only, pass caller). Testnet '
+                       'bookkeeping — no funds move.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'caller': {'type': 'string', 'description': '0x address closing the quarter (required to force)'},
+            'force': {'type': 'boolean', 'description': 'cut the quarter short before 90 days — owner only (default false)'},
+        }},
+        'handler': _t_close_quarter,
+    },
+    'openhouse_pool_claim': {
+        'description': "WRITES. Claim an address's share of one closed "
+                       'quarter or all unclaimed quarters. Pull model — '
+                       'nothing is distributed until this is called. Testnet '
+                       'bookkeeping — no funds move.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x address claiming their share'},
+            'quarter': {'type': 'integer', 'description': 'quarter index to claim (default: all unclaimed)'},
+        }, 'required': ['address']},
+        'handler': _t_pool_claim,
+    },
+    'openhouse_bloctime': {
+        'description': "One address's locked liquidity and earned bloctime: "
+                       'current-quarter weight, projected payout at next '
+                       'close, lifetime weight, and a record of every '
+                       'quarter earned.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'address': {'type': 'string', 'description': '0x address to look up'},
+        }, 'required': ['address']},
+        'handler': _t_bloctime,
     },
 }
 

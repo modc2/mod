@@ -747,7 +747,7 @@ export default function StratsTab() {
                       className="text-[8.5px] font-semibold tracking-[0.18em] text-pixel-gray mb-1"
                       title={idx.scoreFn?.oos ? `Out of sample: traders picked by "${idx.scoreFn.fnName}" on the board from ${idx.scoreFn.oos.testDays}d ago, traded the ${idx.scoreFn.oos.testDays}d since` : undefined}
                     >
-                      BACKTEST{idx.scoreFn?.oos && idx.lastBacktestAt === idx.scoreFn.oos.at ? ` · OOS ${idx.scoreFn.oos.testDays}D` : ""}
+                      BACKTEST{idx.scoreFn?.oos && idx.lastBacktestAt === idx.scoreFn.oos.at ? ` · OOS ${idx.scoreFn.oos.testDays}D` : idx.lastBacktestDays ? ` · ${idx.lastBacktestDays}D` : ""}
                     </div>
                     {hasBt ? (
                       <>

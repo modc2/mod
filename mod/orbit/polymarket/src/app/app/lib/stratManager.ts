@@ -233,7 +233,7 @@ export function useStratManager(): StratManager {
     const now = Date.now();
     const {
       lastPnl: _p, lastPnlAfterCosts: _pc, lastRoi1k: _r,
-      lastTradeCount: _tc, lastBacktestAt: _ba,
+      lastTradeCount: _tc, lastBacktestAt: _ba, lastBacktestDays: _bd,
       visibility: _v, owner: _o,
       ...strategy
     } = src;

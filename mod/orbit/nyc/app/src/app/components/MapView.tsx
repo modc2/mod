@@ -697,6 +697,19 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
       })
       return ids
 
+    case 'affordable_rents':
+      add({
+        id: `${def.id}--circle`, type: 'circle', source: src,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 3.4, 17, 7],
+          'circle-color': stepExpression('rent_min', AFFORDABLE_RENT_BREAKS, SEQUENTIAL) as any,
+          'circle-opacity': 0.85 * alpha,
+          'circle-stroke-width': 0.4,
+          'circle-stroke-color': 'rgba(11,14,20,0.7)',
+        },
+      })
+      return [`${def.id}--circle`]
+
     case 'boroughs':
     case 'neighborhoods':
       add({
@@ -778,7 +791,9 @@ function addOverlay(m: MLMap, def: LayerDef, data: GeoJSON.FeatureCollection,
 
 /** Fixed price classes for the sales point layer, in dollars. */
 const SALE_BREAKS = [0, 400_000, 700_000, 1_000_000, 1_500_000, 2_500_000, 5_000_000]
-export { SALE_BREAKS }
+/** Monthly rent breaks for the affordable_rents layer, in dollars. */
+const AFFORDABLE_RENT_BREAKS = [0, 800, 1_200, 1_600, 2_000, 2_500, 3_200]
+export { SALE_BREAKS, AFFORDABLE_RENT_BREAKS }
 
 // ── the agent's view ──────────────────────────────────────────────────────
 

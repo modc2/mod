@@ -1374,6 +1374,8 @@ let kinds = ["wasm", "class", "model", "agent_mod", "mcp", "http"];
 
 const games = () => modules.filter((m) => m.role === "game");
 const playerModules = () => modules.filter((m) => m.role === "player");
+// Minimum players a game requires; falls back to 2 if the game doesn't declare it.
+const minFor = (g) => (g.min_players > 0 ? g.min_players : 2);
 
 // ── views ────────────────────────────────────────────────────────────────
 // The tabs are the same list twice: along the top on a desk, along the bottom
@@ -3350,9 +3352,9 @@ function renderLobby() {
     return t;
   }) : [el("p", { className: "dim", textContent: "no games yet — + add one" })]));
 
-  // the game picker for the next match: only games with two players on their board
+  // the game picker for the next match: only games with enough players on their board
   const sel = $("st-game"), was = sel.value;
-  const playable = gs.filter((g) => (boards.get(g.id) || []).length >= 2);
+  const playable = gs.filter((g) => (boards.get(g.id) || []).length >= minFor(g));
   sel.replaceChildren(el("option", { value: "", textContent: "any game" }),
     ...playable.map((g) => el("option", { value: g.id, textContent: g.name })));
   if (playable.some((g) => g.id === was)) sel.value = was;
@@ -3500,18 +3502,23 @@ $("st-play").onclick = () => {
   drawStage(); tickStage();
 };
 
-// A new match: a game (picked, or any with two on its board), two of the
-// players already on that board, POST /run. A model seat is slow, so the
-// stage says so and counts while it waits.
+// A new match: a game (picked, or any with enough players on its board),
+// minFor(g) of the players already on that board, POST /run. A model seat is
+// slow, so the stage says so and counts while it waits.
 $("st-new").onclick = async () => {
   if (stageBusy) return;
-  const pool = games().filter((g) => (boards.get(g.id) || []).length >= 2);
+  const pool = games().filter((g) => (boards.get(g.id) || []).length >= minFor(g));
   const g = pool.find((x) => x.id === $("st-game").value) || pool[Math.floor(Math.random() * pool.length)];
-  if (!g) return toast("no game has two players on its board yet — play one from its page", true);
+  if (!g) return toast("no game has enough players on its board yet — play one from its page", true);
   const board = [...(boards.get(g.id) || [])].filter((p) => players.some((q) => q.id === p.id));
-  const a = board.splice(Math.floor(Math.random() * board.length), 1)[0];
-  const b = board[Math.floor(Math.random() * board.length)];
-  if (!a || !b) return toast(`${g.name} needs two players still entered`, true);
+  const need = minFor(g);
+  const selected = [];
+  for (let i = 0; i < need; i++) {
+    const pick = board.splice(Math.floor(Math.random() * board.length), 1)[0];
+    if (!pick) break;
+    selected.push(pick);
+  }
+  if (selected.length < need) return toast(`${g.name} needs ${need} player${need === 1 ? "" : "s"} still entered`, true);
   stageBusy = true; stagePaused = false; clearTimeout(stageTimer);
   const btn = $("st-new"), t0 = Date.now();
   btn.disabled = true;
@@ -3519,14 +3526,14 @@ $("st-new").onclick = async () => {
   $("st-meta").textContent = "";
   $("st-verdict").hidden = true;
   $("st-mv").textContent = "—"; $("st-note").textContent = "";
-  $("st-seats").replaceChildren(...[a, b].map((p, i) => el("div", { className: "seatline" },
+  $("st-seats").replaceChildren(...selected.map((p, i) => el("div", { className: "seatline" },
     [monogram(p.name), el("span", { className: "who", textContent: p.name }), el("span", { className: "dim small", textContent: `seat ${i}` })])));
   const clock = setInterval(() => {
     $("st-board").replaceChildren(el("span", { className: "pulse" }),
-      `${a.name} vs ${b.name} are playing ${g.name}… ${Math.round((Date.now() - t0) / 1000)}s`);
+      `${selected.map((p) => p.name).join(" vs ")} are playing ${g.name}… ${Math.round((Date.now() - t0) / 1000)}s`);
   }, 250);
   try {
-    const m = await post("/run", { game: g.id, players: [a.id, b.id] });
+    const m = await post("/run", { game: g.id, players: selected.map((p) => p.id) });
     await loadFeed();
     await watch(m.id);
     refresh().catch(() => {});

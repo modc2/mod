@@ -471,4 +471,5 @@ export interface SavedIndex {
   lastRoi1k?: number;
   lastTradeCount?: number;
   lastBacktestAt?: number;
+  lastBacktestDays?: number;
 }

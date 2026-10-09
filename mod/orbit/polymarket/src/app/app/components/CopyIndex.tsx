@@ -1492,6 +1492,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
       lastRoi1k: undefined,
       lastTradeCount: undefined,
       lastBacktestAt: undefined,
+      lastBacktestDays: undefined,
     });
   };
 
@@ -1837,6 +1838,7 @@ export default function CopyIndex({ searchFilter, compact, forcedMode }: CopyInd
       lastRoi1k: Math.round(backtestRoi * 100) / 100,
       lastTradeCount: backtestSim.rows.length,
       lastBacktestAt: Date.now(),
+      lastBacktestDays: backtestDays,
     });
   }, [activeIndex, backtestSim, backtestRoi, loading, backtests.length]);
 

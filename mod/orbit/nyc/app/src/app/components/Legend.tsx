@@ -6,7 +6,7 @@ import {
   DIVERGING, LAYER_COLOR, NEWS_TOPIC, NEWS_TOPIC_LABEL, NO_DATA, SEQUENTIAL,
   SPEED_BAND, SPEED_BAND_LABEL, ZONE_COLOR, rampOf,
 } from '@/lib/palette'
-import { SALE_BREAKS } from './MapView'
+import { AFFORDABLE_RENT_BREAKS, SALE_BREAKS } from './MapView'
 
 /** A layer payload that carries its own quantile breaks (crime, forsale, …). */
 type SelfDescribing = GeoJSON.FeatureCollection & { breaks?: Breaks; meta?: any }
@@ -147,6 +147,21 @@ export default function Legend({
     )
   }
 
+  if (active.includes('affordable_rents')) {
+    rows.push(
+      <Row key="affordable_rents" title="Affordable rent (min/mo)">
+        <div className="flex h-3 overflow-hidden rounded-md border border-white/10">
+          {rampOf(AFFORDABLE_RENT_BREAKS.length, SEQUENTIAL).map((c, i) => (
+            <div key={i} className="flex-1" style={{ background: c }} />
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[11.5px] tabular-nums text-nes-ink3">
+          <span>under $800</span><span>$1,600</span><span>$3,200+</span>
+        </div>
+      </Row>,
+    )
+  }
+
   if (active.includes('evacuation_zones')) {
     rows.push(
       <Row key="evac" title="Evacuation zone">
@@ -214,8 +229,6 @@ export default function Legend({
     dots.push(['subway_ridership', 'Station ridership', 'circle size = riders'])
   if (active.includes('affordable_housing'))
     dots.push(['affordable_housing', 'Affordable housing', 'circle size = units'])
-  if (active.includes('affordable_rents'))
-    dots.push(['affordable_rents', 'Affordable rents', 'click to see rent range'])
   if (active.includes('subway_stations'))
     dots.push(['subway_stations', 'Subway station', ''])
   if (active.includes('bike_routes'))

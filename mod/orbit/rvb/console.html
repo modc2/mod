@@ -309,7 +309,15 @@ async function loadRounds() {
 }
 
 async function showRound(id) {
-  const r = await api('/rounds?id=' + encodeURIComponent(id));
+  const [r, defs, atks] = await Promise.all([
+    api('/rounds?id=' + encodeURIComponent(id)),
+    api('/defenses'),
+    api('/attacks'),
+  ]);
+  const defName = {};
+  (Array.isArray(defs) ? defs : []).forEach(d => { defName[d.id] = d.name || d.id; });
+  const atkName = {};
+  (Array.isArray(atks) ? atks : []).forEach(a => { atkName[a.id] = a.name || a.id; });
   $('#round-detail').style.display = 'block';
   const scores = r.scores || [];
   $('#round-body').innerHTML = `
@@ -324,7 +332,7 @@ async function showRound(id) {
       <tr><th>defense</th><th class="num">safety</th><th class="num">refusal</th>
           <th class="num">over-refusal</th><th class="num">breach</th>
           <th class="num">leak</th><th>first block</th><th class="num">calls</th></tr>
-      ${scores.map(s => `<tr><td>${esc(s.defense)}</td>
+      ${scores.map(s => `<tr><td>${esc(defName[s.defense] || s.defense)}</td>
         <td class="num">${s.safety_score.toFixed(2)}</td>
         <td class="num">${pct(s.refusal_rate)}</td>
         <td class="num">${pct(s.over_refusal)}</td>
@@ -336,8 +344,8 @@ async function showRound(id) {
     <h2 style="margin-top:14px">matches</h2>
     <table><tr><th>attack</th><th>defense</th><th>verdict</th><th>stopped at</th>
       <th>why</th></tr>
-      ${(r.matches || []).map((m, i) => `<tr class="click" data-idx="${i}"><td>${esc(m.attack)}</td>
-        <td>${esc(m.defense)}</td>
+      ${(r.matches || []).map((m, i) => `<tr class="click" data-idx="${i}"><td>${esc(atkName[m.attack] || m.attack)}</td>
+        <td>${esc(defName[m.defense] || m.defense)}</td>
         <td><span class="v ${esc(m.verdict)}">${esc(m.verdict)}</span></td>
         <td class="muted">${esc(m.blocked_at || 'model')}</td>
         <td class="muted">${esc(m.reason || m.error || '')}</td></tr>`).join('')}

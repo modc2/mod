@@ -125,6 +125,7 @@ impl WasmModule {
                     .map(String::from).collect::<Vec<_>>())
                 .unwrap_or_default(),
             "host_needs": self.info.get("host_needs").cloned().unwrap_or(json!([])),
+            "min_players": self.min_players(),
             // Whose it is. An unclaimed module belongs to the box.
             "owner": if self.owner.is_empty() { crate::ident::host() } else { self.owner.clone() },
             "owner_is_host": self.owner.is_empty() || crate::ident::is_owner(&self.owner),
@@ -154,6 +155,20 @@ impl WasmModule {
 
     pub fn short(&self) -> String {
         self.id.chars().take(12).collect()
+    }
+
+    pub fn min_players(&self) -> usize {
+        let raw = self.info.get("attributes")
+            .and_then(|a| a.as_array())
+            .and_then(|a| a.iter()
+                .find(|x| x["name"].as_str().map_or(false, |n| n.eq_ignore_ascii_case("players")))
+                .and_then(|x| x["value"].as_str()))
+            .unwrap_or("");
+        let first: usize = raw.split(|c: char| !c.is_ascii_digit())
+            .find(|t: &&str| !t.is_empty())
+            .and_then(|t| t.parse().ok())
+            .unwrap_or(2);
+        first.clamp(1, 16)
     }
 
     /// The URL the browser fetches the bytes from — relative, so it works

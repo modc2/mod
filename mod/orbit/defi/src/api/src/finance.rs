@@ -2200,9 +2200,15 @@ impl Finance {
         let days = (crate::auth::now().saturating_sub(p.entered_at)) as f64 / 86_400.0;
         let amount: f64 = p.amount.parse().unwrap_or(0.0);
         v["days_in"] = json!(round2(days));
-        if p.adapter == "pm_copy" {
+        if p.adapter == "pm_copy" || p.adapter == "tao_subnet" || p.adapter == "hl_vault" {
             v["projected_earned"] = Value::Null;
-            v["projected_basis"] = json!("copy session — earnings are the trader's PnL, not a rate projection");
+            v["projected_basis"] = if p.adapter == "tao_subnet" {
+                json!("alpha emission accrues to stakers, and the TAO value of alpha floats with the pool price — no rate projection applies")
+            } else if p.adapter == "hl_vault" {
+                json!("vault equity — earnings are the vault's realized PnL; the all-time APR at entry is not a reliable basis for forward projection")
+            } else {
+                json!("copy session — earnings are the trader's PnL, not a rate projection")
+            };
         } else {
             v["projected_earned"] = json!(round4(amount * (p.apy_at_entry / 100.0) * days / 365.0));
             v["projected_basis"] = json!("amount × APY at entry × days/365 — a projection off the rate when you entered, not a balance");

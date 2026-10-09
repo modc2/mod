@@ -278,6 +278,9 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
               ['Extremely low income', count(p.extremely_low)],
               ['Very low income', count(p.very_low)],
               ['Low income', count(p.low)],
+              ['Moderate income (81–120% AMI)', count(p.moderate)],
+              ['Middle income (121–165% AMI)', count(p.middle)],
+              ['Other / not banded', count(p.other)],
             ]} />
           </div>
         )}

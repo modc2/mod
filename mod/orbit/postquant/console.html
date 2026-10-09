@@ -1259,8 +1259,14 @@ async function manage(path, extra) {
   try {
     const r = await api(path, {key: $('m-key').value.trim(),
                                wallet: $('m-wallet').value || undefined, ...extra});
-    out('m-out', `<span class="good">${r.status}</span> ` +
-      (r.receipt ? `<span class="mono muted">${esc(JSON.stringify(r.receipt))}</span>` : ''));
+    out('m-out', `<div class="good">${r.status.toUpperCase()} in block ${r.height ?? '—'}</div>` +
+      `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash ?? '—')}</span>` +
+      (r.receipt?.fee    ? `<b>fee</b><span class="amt">${esc(pq(r.receipt.fee))} PQ</span>` : '') +
+      (r.receipt?.refund ? `<b>refund</b><span class="amt">${esc(pq(r.receipt.refund))} PQ</span>` : '') +
+      (r.receipt?.bounty ? `<b>bounty</b><span class="amt">${esc(pq(r.receipt.bounty))} PQ</span>` : '') +
+      (r.receipt?.price  ? `<b>price</b><span class="amt">${esc(pq(r.receipt.price))} PQ</span>` : '') +
+      (r.receipt?.escrow ? `<b>escrow</b><span class="amt">${esc(pq(r.receipt.escrow))} PQ</span>` : '') +
+      `</div>`);
     loadKeys();
   } catch (e) { err('m-out', e); }
 }
