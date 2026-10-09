@@ -1,12 +1,16 @@
 # sn82 — uruz ᚢ
 
-Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **82** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004456 | +0.00% | +0.00% | +0.00% | 630.6429 | 629.7015 | 0.00 |
+| 0.024681 | +0.00% | +453.86% | +453.86% | 3,393 | 1,482 | 852.69 |
+
+## Last 24h flow
+
+59 trades by 4 coldkeys · 59 buys (810.05 τ) / 0 sells (0.00 τ) · net 810.05 τ
 
 ## Use
 

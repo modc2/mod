@@ -2,7 +2,7 @@
 
 Powered by NATIX’s Internet of Cameras, StreetVision is advancing autonomous driving, Physical AI, and map-making.
 
-Bittensor subnet **72** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **72** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/natixnetwork/streetvision-subnet) · [url](https://www.natix.network/?utm_source=bittensor) · [discord](https://discord.com/channels/799672011265015819/1349122541754515538)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/natixnetwork/streetvision-subnet) · [url](ht
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002056 | -0.00% | -4.24% | -0.34% | 11,397 | 6,081 | 551.45 |
+| 0.002008 | -0.00% | -2.30% | -3.78% | 11,149 | 6,010 | 74.71 |
 
 ## Last 24h flow
 
-51 trades by 28 coldkeys · 26 buys (209.16 τ) / 25 sells (341.80 τ) · net -132.63 τ
+13 trades by 13 coldkeys · 3 buys (2.15 τ) / 10 sells (72.29 τ) · net -70.14 τ
 
 ## Use
 

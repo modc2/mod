@@ -924,12 +924,21 @@ pub fn get_player(key: &str) -> Result<Value, String> {
         card["best_game"] = best["game_name"].clone();
     }
     card["by_game"] = json!(by_game.into_iter().map(|(_, v)| v).collect::<Vec<_>>());
+    let opponent_kinds: HashMap<String, String> = store::read(|s| {
+        opponents
+            .keys()
+            .map(|id| (id.clone(), s.players.get(id).map(|p| p.kind.clone()).unwrap_or_default()))
+            .collect()
+    });
     let mut rivals = opponents
         .into_iter()
-        .map(|(id, (name, n, w, d, l))| json!({
-            "id": id, "name": name, "matches": n, "wins": w, "draws": d, "losses": l,
-            "win_rate": round3(w as f64 / n.max(1) as f64),
-        }))
+        .map(|(id, (name, n, w, d, l))| {
+            let kind = opponent_kinds.get(&id).cloned().unwrap_or_default();
+            json!({
+                "id": id, "name": name, "kind": kind, "matches": n, "wins": w, "draws": d, "losses": l,
+                "win_rate": round3(w as f64 / n.max(1) as f64),
+            })
+        })
         .collect::<Vec<_>>();
     rivals.sort_by(|a, b| b["matches"].as_u64().cmp(&a["matches"].as_u64()));
     card["opponents"] = json!(rivals);

@@ -202,7 +202,7 @@ async function load() {
       td({ className: "dim", style: "white-space:nowrap" }, when(m.created)),
       td({}, seats.flatMap((s, i) => [i ? " vs " : "", el("span", { textContent: s.player_name })])),
       td({ className: "n" }, seats.map((s) => s.score).join(" : ")),
-      td({ className: "dim" }, winners.length === seats.length ? "draw" : `${winners.map((s) => s.player_name).join(", ")} won`),
+      td({ className: "dim" }, seats.length <= 1 ? "—" : winners.length === seats.length ? "draw" : `${winners.map((s) => s.player_name).join(", ")} won`),
     ]);
   }) : [el("tr", {}, td({ className: "dim", colSpan: 4 }, "no matches on record"))]));
 }

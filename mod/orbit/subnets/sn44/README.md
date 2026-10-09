@@ -2,7 +2,7 @@
 
 Making every camera intelligent
 
-Bittensor subnet **44** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **44** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/score-technologies/turbovision) · [url](https://www.wearescore.com/)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/score-technologies/turbovision) · [url](http
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.035919 | +0.01% | -0.58% | +10.15% | 220,730 | 66,452 | 2,843 |
+| 0.036101 | -0.02% | +0.51% | -1.38% | 222,142 | 66,656 | 1,069 |
 
 ## Last 24h flow
 
-276 trades by 134 coldkeys · 116 buys (1,193 τ) / 160 sells (1,508 τ) · net -315.67 τ
+196 trades by 106 coldkeys · 108 buys (483.65 τ) / 88 sells (444.71 τ) · net 38.94 τ
 
 ## News
 

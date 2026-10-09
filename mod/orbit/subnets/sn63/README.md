@@ -2,7 +2,7 @@
 
 Breaking today to build tomorrow
 
-Bittensor subnet **63** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **63** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/qbittensor-labs/enigma) · [url](https://www.qbittensorlabs.com/) · discord `qbittensorlabs`
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/qbittensor-labs/enigma) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003957 | +0.00% | +0.04% | -1.46% | 24,254 | 10,787 | 8.42 |
+| 0.003949 | -0.00% | -0.19% | -1.01% | 24,239 | 10,779 | 10.21 |
 
 ## Last 24h flow
 
-5 trades by 5 coldkeys · 3 buys (5.17 τ) / 2 sells (2.49 τ) · net 2.68 τ
+15 trades by 11 coldkeys · 3 buys (0.01 τ) / 12 sells (9.83 τ) · net -9.82 τ
 
 ## News
 
@@ -22,7 +22,6 @@ Links: [github](https://github.com/qbittensor-labs/enigma) · [url](https://www.
 - 2026-09-14 · commit · [[create-pull-request] automated change (#43)](https://github.com/qbittensor-labs/enigma/commit/2d5efee5460e3a68493cca0019964e78114324ee) — qbittensor-labs/enigma
 - 2026-09-11 · commit · [Add initial burn sync code and adjust when weights are set](https://github.com/qbittensor-labs/enigma/commit/b1fbd3548149400fab530cc034bbc5eccde1fac3) — qbittensor-labs/enigma
 - 2026-09-10 · commit · [Fix issue with migrated validator db](https://github.com/qbittensor-labs/enigma/commit/6863ee28db97b7f6591a51f7d8e2cc9b752f09a9) — qbittensor-labs/enigma
-- 2026-09-09 · commit · [Test hardening and cleanup](https://github.com/qbittensor-labs/enigma/commit/343a5d091b1336f41012fcd9e816553533aeea2b) — qbittensor-labs/enigma
 
 ## Use
 

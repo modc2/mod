@@ -2,7 +2,7 @@
 
 Deep research as a commodity. Faster, cheaper, traceable research — produced by a competitive swarm of miners on Bittensor SN67.
 
-Bittensor subnet **67** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **67** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/harnyx/harnyx) · [url](https://harnyx.ai/) · [discord](https://discord.com/channels/799672011265015819/1457737666316472351)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/harnyx/harnyx) · [url](https://harnyx.ai/) �
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.003435 | -0.03% | -0.91% | -5.66% | 6,095 | 2,651 | 14.95 |
+| 0.003393 | -0.07% | -1.22% | -6.54% | 6,046 | 2,636 | 48.34 |
 
 ## Last 24h flow
 
-77 trades by 18 coldkeys · 2 buys (0.07 τ) / 75 sells (12.12 τ) · net -12.06 τ
+87 trades by 21 coldkeys · 8 buys (15.07 τ) / 79 sells (31.46 τ) · net -16.39 τ
 
 ## News
 

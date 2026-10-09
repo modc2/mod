@@ -210,7 +210,10 @@
         <button class="go" id="f-go">FIGHT</button>
         <span id="f-status" class="flash"></span>
       </div>
-      <textarea id="f-custom" placeholder="ad-hoc prompt — skips the corpus" style="min-height:56px"></textarea>
+      <div class="row" style="align-items:flex-start">
+        <textarea id="f-custom" placeholder="ad-hoc attack — skips the corpus" style="min-height:56px;flex:1"></textarea>
+        <textarea id="f-custom-def" placeholder="ad-hoc system prompt — skips the defense corpus" style="min-height:56px;flex:1"></textarea>
+      </div>
       <div id="f-out"></div>
     </div>
   </section>
@@ -582,6 +585,10 @@ async function loadPickers() {
   $('#f-defense').innerHTML = defenses.map(
     d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
   async function updateCostHint() {
+    if ($('#f-custom-def').value.trim()) {
+      $('#f-cost-hint').innerHTML = '<span class="pill">1 model call</span>';
+      return;
+    }
     const val = $('#f-defense').value;
     if (!val) { $('#f-cost-hint').textContent = ''; return; }
     try {
@@ -592,6 +599,7 @@ async function loadPickers() {
     } catch { $('#f-cost-hint').textContent = ''; }
   }
   $('#f-defense').addEventListener('change', updateCostHint);
+  $('#f-custom-def').addEventListener('input', updateCostHint);
   updateCostHint();
 }
 
@@ -599,12 +607,16 @@ $('#f-go').onclick = async () => {
   $('#f-status').textContent = 'firing…'; $('#f-out').innerHTML = '';
   try {
     const customText = $('#f-custom').value.trim();
+    const customDefText = $('#f-custom-def').value.trim();
     const attackId = $('#f-attack').value;
     const attackArg = customText
       ? {prompt: customText, name: 'ad-hoc', goal: '', markers: []}
       : attackId;
+    const defenseArg = customDefText
+      ? {name: 'ad-hoc', system_prompt: customDefText, input_rules: [], output_rules: []}
+      : $('#f-defense').value;
     const m = await post('/fight', {
-      attack: attackArg, defense: $('#f-defense').value,
+      attack: attackArg, defense: defenseArg,
       model: $('#f-model').value.trim(), judge: $('#f-judge').value});
     const atk = customText ? null : fightAttacks.find(a => a.id === attackId);
     const attackPrompt = atk

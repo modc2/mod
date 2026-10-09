@@ -2,7 +2,7 @@
 
 Reason Mining
 
-Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **120** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www.affine.io) · discord `consttt`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/AffineFoundation/affine) · [url](https://www
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.045366 | -0.00% | -2.48% | -2.61% | 200,477 | 76,474 | 4,265 |
+| 0.045209 | +0.00% | -0.35% | -2.94% | 200,124 | 76,400 | 1,146 |
 
 ## Last 24h flow
 
-714 trades by 453 coldkeys · 90 buys (1,439 τ) / 624 sells (2,600 τ) · net -1,160 τ
+515 trades by 380 coldkeys · 55 buys (311.65 τ) / 460 sells (632.05 τ) · net -320.40 τ
 
 ## News
 
-- 2026-10-08 · commit · [Document verifier checkpoint lifetime and measured warm audit reuse](https://github.com/AffineFoundation/affine/commit/e41d423ec37bf1299e7277e093d28d7b1252fe65) — AffineFoundation/affine
-- 2026-10-08 · commit · [Reuse verifier GPU runtime and retain checkpoints across audit jobs](https://github.com/AffineFoundation/affine/commit/594f9409d3f244723088b4d817b2ee852f98aa1b) — AffineFoundation/affine
-- 2026-10-08 · commit · [Activate eight-rollout miner contract in epoch 59](https://github.com/AffineFoundation/affine/commit/2ca8bf15f1867e5443a284b9ff499bec259d7933) — AffineFoundation/affine
-- 2026-10-08 · commit · [Admit manifest-sized miner-bound batches through the CPU training peer](https://github.com/AffineFoundation/affine/commit/978fdc1d4f019d5c66d1a6e42b006b948e3af683) — AffineFoundation/affine
-- 2026-10-08 · commit · [Drive balanced rollout quotas and grading budgets from one batch-size…](https://github.com/AffineFoundation/affine/commit/2adf1379238d772e09230987f79b6e4e5924bfd0) — AffineFoundation/affine
-- 2026-10-07 · commit · [Admit explicitly signed source-bound verifier capacity sidecars](https://github.com/AffineFoundation/affine/commit/ef6720f96454862c56d9965892defb08d077a547) — AffineFoundation/affine
-- 2026-10-07 · commit · [Reserve audit capacity for current epochs while retaining history](https://github.com/AffineFoundation/affine/commit/8c051eb9e68aa5d2dd21c0302c5932c4e94033aa) — AffineFoundation/affine
-- 2026-10-07 · commit · [Authenticate miner checkpoints without optimistic cache hints](https://github.com/AffineFoundation/affine/commit/39d2625257c1e955e747b83921f67c01e4ac8bde) — AffineFoundation/affine
+- 2026-10-08 · commit · [Handle fresh-run null trainer state](https://github.com/AffineFoundation/affine/commit/5ea505fed2c36dfa2ef05a11dd6e36537d86580a) — AffineFoundation/affine
+- 2026-10-08 · commit · [Skip unresolved math attempts during mining](https://github.com/AffineFoundation/affine/commit/a88d0e4ec20bbc4aafb67b35fd3e52b80b4ef86f) — AffineFoundation/affine
+- 2026-10-08 · commit · [Confirm fresh public epoch and authenticated base evaluation](https://github.com/AffineFoundation/affine/commit/6ffee74f5e9c1b223ceb8cc72daccb5115b995be) — AffineFoundation/affine
+- 2026-10-08 · commit · [Record observed base restart and verifier handover status](https://github.com/AffineFoundation/affine/commit/c738712f07473d85fbee81b44618c053552e9f07) — AffineFoundation/affine
+- 2026-10-08 · commit · [Reuse authenticated hourly audit assessment during calibration retries](https://github.com/AffineFoundation/affine/commit/7739056e108d703a891fb8dc41b9856446007bba) — AffineFoundation/affine
+- 2026-10-08 · commit · [Activate completed-answer base restart and isolate new-run diagnostics](https://github.com/AffineFoundation/affine/commit/148ada720c962c387b17eeb5f862e2bf733ea4f7) — AffineFoundation/affine
+- 2026-10-08 · commit · [Classify incomplete math answers as unresolved under a versioned cont…](https://github.com/AffineFoundation/affine/commit/96ab5e7948c85b36f46965c9b1e3648245b52119) — AffineFoundation/affine
+- 2026-10-08 · commit · [Admit prospective 2048-token math harness cutover without changing ac…](https://github.com/AffineFoundation/affine/commit/c0f7d1f063e091ebb3e309782fa8046eb0a97892) — AffineFoundation/affine
 
 ## Use
 

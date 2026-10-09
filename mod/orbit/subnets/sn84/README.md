@@ -1,16 +1,16 @@
 # sn84 — ansuz ᚨ
 
-Bittensor subnet **84** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **84** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002346 | +0.04% | -0.15% | -6.86% | 3,610 | 1,443 | 2.17 |
+| 0.002342 | -0.00% | -0.16% | -5.13% | 3,621 | 1,442 | 1.16 |
 
 ## Last 24h flow
 
-4 trades by 4 coldkeys · 2 buys (0.53 τ) / 2 sells (0.51 τ) · net 0.02 τ
+5 trades by 4 coldkeys · 0 buys (0.00 τ) / 5 sells (0.85 τ) · net -0.85 τ
 
 ## Use
 

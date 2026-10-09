@@ -2,7 +2,7 @@
 
 The peer to peer privacy network and encryption layer for the internet
 
-Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **25** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) · discord `xcolwell`
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/urfoundation/sn) · [url](https://ur.xyz/) ·
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.006849 | +0.09% | -0.01% | +0.96% | 41,955 | 13,380 | 1,974 |
+| 0.006603 | +0.23% | -3.59% | -1.12% | 40,501 | 13,144 | 1,290 |
 
 ## Last 24h flow
 
-82 trades by 44 coldkeys · 38 buys (986.03 τ) / 44 sells (985.68 τ) · net 0.35 τ
+68 trades by 37 coldkeys · 34 buys (518.34 τ) / 34 sells (765.43 τ) · net -247.09 τ
 
 ## News
 
-- 2026-10-07 · commit · [Merge the accelerated first-epoch mainnet policy](https://github.com/urfoundation/sn/commit/baebe0e526cf427c5f560f45f6a142e6468d1f69) — urfoundation/sn
-- 2026-10-07 · commit · [Merge the runtime 473 review record](https://github.com/urfoundation/sn/commit/163c07b6516364495c6f751325889d1088d532f3) — urfoundation/sn
-- 2026-10-07 · commit · [Add the runtime 473 source and interface review record](https://github.com/urfoundation/sn/commit/768634402f6c4b7007efced13a33c39a28f22818) — urfoundation/sn
-- 2026-10-07 · commit · [Assert the owner-validator's root seat keeps its own coldkey](https://github.com/urfoundation/sn/commit/b8b59a1d35b80957452624066396fc989ef6b3f6) — urfoundation/sn
-- 2026-10-07 · commit · [Accelerate the mainnet policy's first epoch to one day](https://github.com/urfoundation/sn/commit/6eabad620c8546b3ca1987abdeec86a2f1f7b5ac) — urfoundation/sn
-- 2026-10-07 · commit · [Merge the sole validator's activation-pending config path](https://github.com/urfoundation/sn/commit/86c3ff7d37c5916aa5ba57ac502535dc9c1b792d) — urfoundation/sn
-- 2026-10-07 · commit · [Admit the v5 sole validator's activation-pending config at bootstrap](https://github.com/urfoundation/sn/commit/6829187427cccd0c34435c0dd7c5ed3392cdff27) — urfoundation/sn
-- 2026-10-07 · commit · [Render a signed production config's pending evidence into a re-approv…](https://github.com/urfoundation/sn/commit/dc7e01b48392f9f1de3d2d1566227bc338d41925) — urfoundation/sn
+- 2026-10-09 · commit · [Merge the SN25 launch record and momentum terms](https://github.com/urfoundation/sn/commit/0f525b115eea7659ef03fc1ca4efa8076c72301b) — urfoundation/sn
+- 2026-10-09 · commit · [Merge shape-only bootstrap custody checks and untraversable approval …](https://github.com/urfoundation/sn/commit/e1500f150584a3b39ba9753b20f7e2eeb50f1147) — urfoundation/sn
+- 2026-10-09 · commit · [Document shape-only v5 custody checks and untraversable approval sources](https://github.com/urfoundation/sn/commit/4a8d6f9bc35ea9e52e7cfe547f412a397d9180cb) — urfoundation/sn
+- 2026-10-09 · commit · [Read retained production inputs when a signed source is untraversable](https://github.com/urfoundation/sn/commit/6f1997a3adf0bc04593725d74bda52c5089ddce9) — urfoundation/sn
+- 2026-10-09 · commit · [Inspect pre-activation bootstrap custody paths by shape only](https://github.com/urfoundation/sn/commit/de00ed187a6e3bd3cfd663ef485f6db74b515713) — urfoundation/sn
+- 2026-10-08 · release · [v2026.10.8-1066946420](https://github.com/urfoundation/sn/releases/tag/v2026.10.8-1066946420) — urfoundation/sn
+- 2026-10-08 · release · [v2026.10.8-1066912010](https://github.com/urfoundation/sn/releases/tag/v2026.10.8-1066912010) — urfoundation/sn
+- 2026-10-08 · commit · [Preserve regression fixes, memory diagnostics, and test harness evidence](https://github.com/urfoundation/sn/commit/6c322bf6165f22b5636c514f8e3a33b494f766d6) — urfoundation/sn
 
 ## Use
 

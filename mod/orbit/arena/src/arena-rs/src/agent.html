@@ -150,6 +150,9 @@ async function call(p) {
 }
 const wdl = (p) => `${p.wins ?? 0}-${p.draws ?? 0}-${p.losses ?? 0}`;
 const pct = (x) => `${Math.round((x || 0) * 100)}%`;
+const agentLink = (p) => p.kind === "agent_mod"
+  ? el("a", { href: `${ROOT}/agent/${encodeURIComponent(p.name)}` }, [el("strong", { textContent: p.name })])
+  : el("strong", { textContent: p.name });
 const when = (t) => t ? new Date(t * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—";
 const stat = (label, value, cls = "") => el("div", { className: "stat" }, [
   el("b", { className: cls, textContent: String(value) }), el("span", { textContent: label })]);
@@ -229,8 +232,7 @@ async function load() {
   ])) : [el("tr", {}, td({ className: "dim", colSpan: 8 }, "no games played yet"))]));
 
   $("rivals").replaceChildren(...((p.opponents || []).length ? p.opponents.map((o) => el("tr", {}, [
-    td({}, el("a", { href: `${ROOT}/agent/${encodeURIComponent(o.name)}` },
-      [el("strong", { textContent: o.name })])),
+    td({}, agentLink(o)),
     td({ className: "n" }, String(o.matches)),
     td({ className: "n" }, wdl(o)),
     td({ className: `n ${o.win_rate >= 0.5 ? "ok" : "bad"}` }, pct(o.win_rate)),
@@ -255,7 +257,7 @@ async function load() {
       td({}, gameLink(m.game, m.game_name)),
       td({}, seats.flatMap((s, i) => [i ? " vs " : "", el("span", { textContent: s.player_name })])),
       td({ className: "n" }, seats.map((s) => s.score).join(" : ")),
-      td({ className: "dim" }, winners.length === seats.length ? "draw" : `${winners.map((s) => s.player_name).join(", ")} won`),
+      td({ className: "dim" }, seats.length <= 1 ? "—" : winners.length === seats.length ? "draw" : `${winners.map((s) => s.player_name).join(", ")} won`),
     ]);
   }) : [el("tr", {}, td({ className: "dim", colSpan: 5 }, "no matches on record"))]));
 }

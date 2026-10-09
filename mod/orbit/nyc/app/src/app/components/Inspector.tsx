@@ -400,7 +400,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
                 profile={profileOf(p.profile)}
                 peakHour={Number(p.peak_hour)}
                 calmHour={Number(p.calm_hour)}
-                now={new Date().getHours()}
+                now={new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getHours()}
               />
             </div>
             <Meta rows={[

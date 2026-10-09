@@ -1,18 +1,16 @@
-# sn113 — LongShort Ѓ
+# sn113 — gje Ѓ
 
-pivoting to long-short DEX of alpha token
-
-Bittensor subnet **113** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **113** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002544 | -0.00% | -11.78% | +31.38% | 6,437 | 1,834 | 452.11 |
+| 0.002014 | -0.00% | -20.84% | +6.35% | 5,110 | 1,632 | 1,427 |
 
 ## Last 24h flow
 
-50 trades by 31 coldkeys · 16 buys (166.76 τ) / 34 sells (284.45 τ) · net -117.70 τ
+191 trades by 67 coldkeys · 103 buys (612.42 τ) / 88 sells (813.56 τ) · net -201.14 τ
 
 ## Use
 

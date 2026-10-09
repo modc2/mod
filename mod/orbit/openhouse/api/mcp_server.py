@@ -223,6 +223,15 @@ def _t_civic_resign(args, oh):
     return _ok(oh.civic_resign(_req(args, 'key')))
 
 
+def _t_toggle_active(args, oh):
+    return _ok(oh.toggle_active(owner=str(args.get('owner') or '')))
+
+
+def _t_transfer_authority(args, oh):
+    return _ok(oh.transfer_authority(_req(args, 'new_authority'),
+                                     caller=str(args.get('caller') or '')))
+
+
 # ── testnet examples ──
 
 def _t_examples(args, oh):
@@ -559,6 +568,25 @@ TOOLS = {
             'address': {'type': 'string', 'description': '0x address to record as owner'},
         }, 'required': ['address']},
         'handler': _t_claim_owner,
+    },
+    'openhouse_toggle_active': {
+        'description': 'WRITES. Toggle the property active/inactive. When '
+                       'inactive, pay_rent and purchase are blocked. '
+                       'Owner-only once an owner is recorded.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'owner': {'type': 'string', 'description': '0x owner address — required once an owner is recorded'},
+        }},
+        'handler': _t_toggle_active,
+    },
+    'openhouse_transfer_authority': {
+        'description': 'WRITES. Transfer the owner seat to a new address. '
+                       'The current owner must pass their address as `caller`. '
+                       'After this only the new address can change the terms.',
+        'inputSchema': {'type': 'object', 'properties': {
+            'new_authority': {'type': 'string', 'description': '0x address to receive the owner seat'},
+            'caller': {'type': 'string', 'description': '0x current owner address'},
+        }, 'required': ['new_authority']},
+        'handler': _t_transfer_authority,
     },
     'openhouse_civic_charter': {
         'description': 'WRITES. The owner charters a government (city housing '

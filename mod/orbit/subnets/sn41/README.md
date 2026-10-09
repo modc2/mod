@@ -2,7 +2,7 @@
 
 Prediction market research and intelligence.
 
-Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **41** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
@@ -10,19 +10,22 @@ Links: [github](https://github.com/corvxai/almanac) · [url](https://almnc.ai)
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.007802 | +0.50% | +7.75% | +0.99% | 46,155 | 15,801 | 6,053 |
+| 0.007569 | -0.94% | -2.99% | -4.81% | 44,836 | 15,571 | 1,996 |
 
 ## Last 24h flow
 
-411 trades by 161 coldkeys · 196 buys (3,309 τ) / 215 sells (2,764 τ) · net 544.97 τ
+278 trades by 173 coldkeys · 104 buys (870.04 τ) / 174 sells (1,086 τ) · net -215.47 τ
 
 ## News
 
+- 2026-10-08 · commit · [Merge pull request #55 from corvxai/forecasting_scoring_v2](https://github.com/corvxai/almanac/commit/a3a5091708cc965c80de1cdfa1f040ad21555dfc) — corvxai/almanac
+- 2026-10-07 · commit · [Proper scaling](https://github.com/corvxai/almanac/commit/52c60e6f14dae96844acf79a240b01221802f4a2) — corvxai/almanac
+- 2026-10-07 · commit · [Fixing audit items for forecast scoring. minimum predictions to be sk…](https://github.com/corvxai/almanac/commit/24171459991eb929d2e1c44d112e0499d70c6098) — corvxai/almanac
+- 2026-10-06 · commit · [Fixing comment](https://github.com/corvxai/almanac/commit/7e2a78ca0f554c3fa04e9d26a86f4816c6c4a672) — corvxai/almanac
+- 2026-10-06 · commit · [Updating forecast scoring to a v2. Drops the calibration pillar and i…](https://github.com/corvxai/almanac/commit/4c9f942136d90a93351120b352e7b68febeb7fd2) — corvxai/almanac
 - 2026-09-30 · commit · [Merge pull request #54 from corvxai/remove_gen_pool_logging](https://github.com/corvxai/almanac/commit/31a4378cb4f9ba49c957f0790cfd16ba4cf284b4) — corvxai/almanac
 - 2026-09-30 · commit · [Merge pull request #53 from corvxai/burn_updates](https://github.com/corvxai/almanac/commit/228278c8f4528b1565bd2b006126433defc9e609) — corvxai/almanac
 - 2026-09-30 · commit · [If general pool trading is disabled, don't print the tables in the logs](https://github.com/corvxai/almanac/commit/523d459f5ece4038b3b7a930f9d722941ce5f23a) — corvxai/almanac
-- 2026-09-30 · commit · [Updates to handling excess miner emissions and burn](https://github.com/corvxai/almanac/commit/281009a43dc4a9c72d6f2a8657b0c5fca9d6ead1) — corvxai/almanac
-- 2026-09-30 · commit · [Merge pull request #52 from corvxai/hotfix/forecast_miner_check](https://github.com/corvxai/almanac/commit/69ebadcff5cb17bd1fd8e443f145fe56b8d992ad) — corvxai/almanac
 
 ## Use
 

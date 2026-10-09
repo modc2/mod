@@ -14,6 +14,7 @@
 // 2 weeks of running you'll see the full 2-week curve.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useAuth } from "../context/AuthContext";
 import { getOwnerAddress } from "../lib/access";
 import { fetchPositions, fetchUserTrades, type GlobalTrade } from "../lib/polymarket";
@@ -193,6 +194,7 @@ export default function PortfolioPanel({ strategyId }: { strategyId?: string }) 
   // several strats — so without this the table shows another strat's trades
   // under this strat's header with nothing to say so.
   const [posOwners, setPosOwners] = useState<Record<string, string>>({});
+  const [confirmPending, setConfirmPending] = useState<{ msg: string; onOk: () => void } | null>(null);
 
   // Owner-only console: the funded wallet is the signed-in owner (from the
   // access token), which is authoritative. Fall back to the connected wallet

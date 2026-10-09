@@ -2,7 +2,7 @@
 
 Inference optimization
 
-Bittensor subnet **29** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **29** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/coldint/hotfloat) · [url](http://hotfloat.io)
 
@@ -10,11 +10,11 @@ Links: [github](https://github.com/coldint/hotfloat) · [url](http://hotfloat.io
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.002534 | +0.00% | -0.03% | -9.53% | 15,556 | 7,940 | 1.25 |
+| 0.002533 | -0.00% | -0.02% | -0.24% | 15,571 | 7,939 | 0.95 |
 
 ## Last 24h flow
 
-7 trades by 3 coldkeys · 3 buys (0.10 τ) / 4 sells (0.65 τ) · net -0.55 τ
+16 trades by 7 coldkeys · 3 buys (0.02 τ) / 13 sells (0.70 τ) · net -0.68 τ
 
 ## Use
 

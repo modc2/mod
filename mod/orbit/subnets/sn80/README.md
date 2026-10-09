@@ -2,7 +2,7 @@
 
 An open competition on Bittensor for continuously improving robotics models and collecting egocentric data
 
-Bittensor subnet **80** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **80** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/openroboto-ai/openroboto-subnet) · [url](https://www.openroboto.ai/) · [discord](https://discord.gg/N4F7UhEBY)
 
@@ -10,17 +10,16 @@ Links: [github](https://github.com/openroboto-ai/openroboto-subnet) · [url](htt
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.024029 | +0.25% | +5.91% | -12.86% | 59,570 | 5,411 | 2,632 |
+| 0.023673 | -1.60% | -1.48% | -9.35% | 58,907 | 5,420 | 3,308 |
 
 ## Last 24h flow
 
-565 trades by 141 coldkeys · 336 buys (1,344 τ) / 229 sells (1,231 τ) · net 112.73 τ
+591 trades by 167 coldkeys · 359 buys (1,579 τ) / 232 sells (1,685 τ) · net -106.63 τ
 
 ## News
 
 - 2026-10-05 · commit · [docs: synchronize allocation rules and simulation fee](https://github.com/openroboto-ai/openroboto-subnet/commit/822e3b668c05ff5cfa2328ed2ff6b4a6cd5dfc70) — openroboto-ai/openroboto-subnet
 - 2026-09-22 · news · [OpenRoboto launches Shift, a platform paying us...](https://news.google.com/rss/articles/CBMirwFBVV95cUxONDgzQTE0SmdHVlYybFBTcDE2Y2ViR1lUQ2VVSEE1Z3lKa3ZaNVg0aEVDaEt6UVVDb01yU0lBMDI1QlJONlJOSloxM0dZdW1EQ3ZXU0Y4eFVQMTB1R1Q0eExDRHE0NEhuTkp6ZExPUHFWVnNrcVF2SWtMM1VTeXBidUNHUjc5MDc0VEZldUhPWnJES01Zajd0Tjk2YlRSWmhuUFJZa3h5RmQ1WkNPVWI4?oc=5) — Pluang
-- 2026-09-08 · commit · [docs: link shared real-robot task catalog and training data](https://github.com/openroboto-ai/openroboto-subnet/commit/726e42aea3a8901dc2f431ab8d17c7d5c46594a4) — openroboto-ai/openroboto-subnet
 
 ## Use
 

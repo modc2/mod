@@ -1292,8 +1292,12 @@ $('x-send').onclick = async () => {
   try {
     const r = await api('/transfer', {wallet: $('x-wallet').value || undefined,
       to: $('x-to').value.trim(), amount: $('x-amount').value.trim()});
-    out('x-out', `<span class="good">${r.status}</span> ` +
-      `<span class="mono muted">${short(r.hash, 20)}</span>`);
+    out('x-out', `<div class="good">${r.status.toUpperCase()} in block ${r.height ?? '—'}</div>` +
+      `<div class="kv"><b>tx</b><span class="mono">${esc(r.hash ?? '—')}</span>` +
+      (r.receipt?.fee    ? `<b>fee</b><span class="amt">${esc(pq(r.receipt.fee))} PQ</span>` : '') +
+      (r.receipt?.amount ? `<b>amount</b><span class="amt">${esc(pq(r.receipt.amount))} PQ</span>` : '') +
+      (r.receipt?.to     ? `<b>to</b><span class="mono">${esc(r.receipt.to)}</span>` : '') +
+      `</div>`);
     loadWallets();
   } catch (e) { err('x-out', e); }
 };

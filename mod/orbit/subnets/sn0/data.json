@@ -11,17 +11,17 @@
   "registered_at": 0,
   "tempo": 100,
   "active": true,
-  "block": 9236282,
+  "block": 9243466,
   "related": [],
   "market": {
     "price": 1.0,
     "moving_price": 0.0,
-    "market_cap": 6870700.2047140105,
-    "tao_in": 5458934.56809371,
-    "alpha_in": 1411765.636620301,
-    "alpha_out": 5458934.56809371,
-    "volume": 58885397.58256831,
-    "vol_24h": 34349.034164913,
+    "market_cap": 6870903.1063434,
+    "tao_in": 5453406.230670615,
+    "alpha_in": 1417496.875672785,
+    "alpha_out": 5453406.230670615,
+    "volume": 58928144.20615354,
+    "vol_24h": 42746.6235852316,
     "emission": 0.0,
     "change_1h": 0.0,
     "change_24h": 0.0,
@@ -81,6 +81,30 @@
   "top_traders_24h": [],
   "news": [
     {
+      "ts": 1791496519,
+      "kind": "release",
+      "source": "feeds",
+      "title": "Runtime 477 (proposed)",
+      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v477",
+      "publisher": "subtensor releases"
+    },
+    {
+      "ts": 1791486054,
+      "kind": "release",
+      "source": "feeds",
+      "title": "Runtime 476 (proposed)",
+      "url": "https://github.com/RaoFoundation/subtensor/releases/tag/v476",
+      "publisher": "subtensor releases"
+    },
+    {
+      "ts": 1791446640,
+      "kind": "news",
+      "source": "gnews",
+      "title": "Bittensor Drops 5.5% Amid Broad Crypto Sell-Off",
+      "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9QR2tPaS16V2tVVnhNUmNuWkRJYVh4a01GMjlFRWlZTXpWcWh6VHV0UTVna3FjR3ZHSlNYU1IxS2FsMnFJTzBjdkYwMXZ5VmpPbFV5UjVUUnpCSGZzT3J4Tm9mcHZsVkQ3bmtUdWltb0Y?oc=5",
+      "publisher": "CoinMarketCap"
+    },
+    {
       "ts": 1791389295,
       "kind": "release",
       "source": "feeds",
@@ -119,32 +143,8 @@
       "title": "Distributed AI Takes Center Stage as Exploit Summit Charts Bittensor's Next Chapter in Montreal",
       "url": "https://news.google.com/rss/articles/CBMingFBVV95cUxQRkJRNXZVTnh0Vmx5bFgyS3lKb2llMk9RVFdXYWRuN0FBSjh1dV91NzloX1pSb2pZVlROMExaOEdLcGlsdlNUdlhPaHlTNkxybHNvdUd3OHQyenRvUUdNVU4wS0hqWTJnWmFZeTZTV091blZDVWYyZFBWZXB5T1NVN3lKVm1mZ0hxajV2MXNpOTZhOFRXLWZtSGUxNWk1dw?oc=5",
       "publisher": "Yahoo Finance"
-    },
-    {
-      "ts": 1791294071,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Bittensor consolidates near $302 after AI-drive...",
-      "url": "https://news.google.com/rss/articles/CBMijAFBVV95cUxOeGtLR01ITDNKUG1Cd2FYSk1kVkh1azlwM1FiN0xNcXk1MlUwYk1RenFjRmxMUHdYQUlsU3dFX0liemNXc2hQQVpRc21CSUJGTlRQb09OUTVodlVqbmZsdHEtcWVkMTYxYmdTODFYT3M0azJvcHdJMUtPWVpPTWdmMW9Od0RrVXBHNmpOUg?oc=5",
-      "publisher": "Pluang"
-    },
-    {
-      "ts": 1791291612,
-      "kind": "news",
-      "source": "gnews",
-      "title": "TAO crypto price consolidates – Why $318 is Bittensor’s next big test",
-      "url": "https://news.google.com/rss/articles/CBMikgFBVV95cUxQU1REVzVYVjJwLWVIUnl5YzRydGo4SlJ2NFZLcnZwQlFycVNydWUyNGtGelMyVmFpTU9ING83WXlKR0Y5SThTTTlTYXZfNWJpcUVDeTV6eEFtMTVKbnJBVi1UMjFLS29uMnBTdmM4eEExSUF0a242Ny1COFgtNXItQjVnNjBsTS03XzZzTVoyR1BxQQ?oc=5",
-      "publisher": "AMBCrypto"
-    },
-    {
-      "ts": 1791236003,
-      "kind": "news",
-      "source": "gnews",
-      "title": "Grayscale Bittensor Trust (Tao) - Enters Amendment To Bitgo Custodial Services Agreement On Sept 30, 2026 - SEC Filing",
-      "url": "https://news.google.com/rss/articles/CBMijgJBVV95cUxOelk0REpuTUtxYWJpbGlfSjFUV3BDZzRkRS1TazdLX3Q3YlhQc216bzdmX3k4RmJlN2dVTy1hcGhnVDE5NlE0djNUMTYzakVJYU1TZHJjT3hUQ1ppOEZHX0xkQVVuczMxSGVOTkJlLTdjZnBpYlo4d1ExWE9WU0Jaa1FKal9jZHZQR0s4UUltQ3JCYzNVVG96Qm9VWDNIdjh3UVBUNlU2TGJMSTZLMzExUUh3WU9QeVhPdEwwY1V2VkotNXowSzZHTVRKSEhmbF9qMHV0SUJ4V3p0Y0hFbzZqWEtIVXA4NmFMdHM3WWwzMG9TWC1WMEJVY2xxU1FXX3NQS0I5UEpZa0xPWTdVUnc?oc=5",
-      "publisher": "TradingView"
     }
   ],
-  "updated": 1791438061,
-  "updated_day": "2026-10-08"
+  "updated": 1791524461,
+  "updated_day": "2026-10-09"
 }

@@ -1,16 +1,16 @@
 # sn92 — Available ᚂ
 
-Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **92** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 ## Market
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.001366 | -0.00% | -2.78% | -5.16% | 1,453 | 591.0932 | 22.99 |
+| 0.001338 | -0.00% | -2.07% | -6.45% | 1,433 | 584.9784 | 1,090 |
 
 ## Last 24h flow
 
-16 trades by 11 coldkeys · 6 buys (7.30 τ) / 10 sells (14.70 τ) · net -7.40 τ
+63 trades by 35 coldkeys · 32 buys (542.28 τ) / 31 sells (547.51 τ) · net -5.24 τ
 
 ## Use
 

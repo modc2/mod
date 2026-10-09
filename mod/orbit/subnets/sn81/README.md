@@ -2,7 +2,7 @@
 
 The RL layer of Bittensor
 
-Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **81** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.reliqua.ai/) · [discord](https://discord.com/channels/799672011265015819/1493247592551678012)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/reliquadotai/reliquary) · [url](https://www.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.005853 | +0.13% | -0.29% | -4.67% | 32,784 | 17,552 | 1,250 |
+| 0.005826 | -0.01% | -0.45% | -3.17% | 32,679 | 17,513 | 582.65 |
 
 ## Last 24h flow
 
-98 trades by 52 coldkeys · 40 buys (612.30 τ) / 58 sells (636.00 τ) · net -23.70 τ
+68 trades by 39 coldkeys · 15 buys (271.68 τ) / 53 sells (310.37 τ) · net -38.70 τ
 
 ## News
 
-- 2026-10-08 · commit · [fix: preserve accepted records across interrupted storage writes (#339)](https://github.com/reliquadotai/reliquary/commit/c6c0a34442a1c84b20e5f437aa684e77b00430ed) — reliquadotai/reliquary
-- 2026-10-07 · commit · [Fix operator generation classification](https://github.com/reliquadotai/reliquary/commit/38351defbd179e62dbeee419ff46ef4250f9d526) — reliquadotai/reliquary
-- 2026-10-07 · commit · [Fix pinned operator generation task admission](https://github.com/reliquadotai/reliquary/commit/9c0dddd0feacdb6fedbcf072b73fe0c1c9e30e99) — reliquadotai/reliquary
-- 2026-10-07 · commit · [Merge pull request #337 from reliquadotai/fix/refresh-index-grade-only](https://github.com/reliquadotai/reliquary/commit/234b7c7ddcd7ba68b6fe5577d5dcfc32e6e77262) — reliquadotai/reliquary
-- 2026-10-07 · commit · [fix(corpus): refresh the git index in grade boxes only, never in repl…](https://github.com/reliquadotai/reliquary/commit/f6734803d0df91236a9c9b77d2a2f3bf07fcc389) — reliquadotai/reliquary
-- 2026-10-07 · commit · [Merge pull request #336 from reliquadotai/fix/grade-box-refresh-index](https://github.com/reliquadotai/reliquary/commit/3c1ecf0269ed836187fc556f8225f5c78ec84760) — reliquadotai/reliquary
-- 2026-10-07 · commit · [perf(corpus): refresh a grade box's git index before the env prepares it](https://github.com/reliquadotai/reliquary/commit/f062b8f784e2de959e657b978290b3d9fe612471) — reliquadotai/reliquary
-- 2026-10-07 · commit · [Merge pull request #335 from reliquadotai/feat/register-reliquary-har…](https://github.com/reliquadotai/reliquary/commit/f32b9c4613f3faf9adf760704b19a13f9554882e) — reliquadotai/reliquary
+- 2026-10-09 · commit · [Merge pull request #342 from reliquadotai/fix/task-catalog-artifact-r…](https://github.com/reliquadotai/reliquary/commit/3d45493915cfdd87124e4dfc9ef7208d906703d3) — reliquadotai/reliquary
+- 2026-10-09 · commit · [Merge pull request #341 from reliquadotai/feat/corpus-period-only-aut…](https://github.com/reliquadotai/reliquary/commit/c356b073a087a07ef98c5a52f4eb0c3b439ae7f2) — reliquadotai/reliquary
+- 2026-10-09 · commit · [ci: allow setup and authenticity checks after the full CPU suite](https://github.com/reliquadotai/reliquary/commit/2955e096c14c962ed7a370de49380e42b19c9087) — reliquadotai/reliquary
+- 2026-10-09 · commit · [Verify environment artifacts before advertising task availability](https://github.com/reliquadotai/reliquary/commit/db4df87e631a7c718f2e7ec5d7069f87dd2408bb) — reliquadotai/reliquary
+- 2026-10-08 · commit · [style(weights): wrap a docstring line](https://github.com/reliquadotai/reliquary/commit/0c7ecbd8860c8926d2cc1f40c3ae3ff5e6f2e899) — reliquadotai/reliquary
+- 2026-10-08 · commit · [Merge pull request #340 from reliquadotai/feat/corpus-open-prompts](https://github.com/reliquadotai/reliquary/commit/d30b9fd7cd80cadfcfc3f3a4b7ccc2d24b85375e) — reliquadotai/reliquary
+- 2026-10-08 · commit · [docs(corpus): the open route and the agentic miner's use of it](https://github.com/reliquadotai/reliquary/commit/7f942a4bb927a70a45ab5cfc441f9418253d56f3) — reliquadotai/reliquary
+- 2026-10-08 · commit · [feat(miner): the agentic miner skips prompts with no slot left](https://github.com/reliquadotai/reliquary/commit/69b4de9605710eb715c07a7b76e19072c0461e0c) — reliquadotai/reliquary
 
 ## Use
 

@@ -34,7 +34,7 @@ import SemanticFilterBar from "./SemanticFilterBar";
 const WINDOWS = [1, 3, 7, 14, 30] as const;
 export type CopyTradesView = "all" | "mine" | "missed";
 
-type SortCol = "trades" | "copied" | "coverage" | "medianLagSec" | "myNotional" | "myPnl";
+type SortCol = "trades" | "notional" | "copied" | "coverage" | "medianLagSec" | "myNotional" | "myPnl";
 type SortDir = "asc" | "desc";
 
 function usd(n: number, digits = 2): string {
@@ -300,6 +300,7 @@ export default function CopyTradesPanel({
                 {(
                   [
                     { col: "trades" as SortCol, label: "THEIR TRADES", cls: "num w-[14%]" },
+                    { col: "notional" as SortCol, label: "THEIR $", cls: "num w-[10%]" },
                     { col: "copied" as SortCol, label: "I GOT", cls: "num w-[14%]" },
                     { col: "coverage" as SortCol, label: "COVERAGE", cls: "num w-[12%]" },
                     { col: "medianLagSec" as SortCol, label: "LAG", cls: "num w-[12%]" },
@@ -328,6 +329,7 @@ export default function CopyTradesPanel({
                     </Link>
                   </td>
                   <td className="num tabular-nums">{l.trades}</td>
+                  <td className="num tabular-nums">{usd(l.notional, 0)}</td>
                   <td className="num tabular-nums">{l.copied}</td>
                   <td
                     className={`num tabular-nums ${

@@ -20,6 +20,8 @@
 // traders a place to publish, discover, and fork strategies.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import ConfirmDeleteStrat from "./ConfirmDeleteStrat";
 
 type StratKind = "py" | "rs" | "ts";
 
@@ -116,6 +118,9 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
   // Import-by-CID box.
   const [importCid, setImportCid] = useState("");
   const [importing, setImporting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<UserStratEntry | null>(null);
+  const [forkTarget, setForkTarget] = useState<UserStratEntry | null>(null);
+  const [forkIdInput, setForkIdInput] = useState("");
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -208,8 +213,14 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     }
   }, [id, kind, content, owner, title, description, makePublic, refresh]);
 
-  const handleDelete = useCallback(async (s: UserStratEntry) => {
-    if (!confirm(`Delete strat "${s.id}"? This removes the file from disk.`)) return;
+  const handleDelete = useCallback((s: UserStratEntry) => {
+    setDeleteConfirm(s);
+  }, []);
+
+  const doDelete = useCallback(async () => {
+    if (!deleteConfirm) return;
+    const s = deleteConfirm;
+    setDeleteConfirm(null);
     setError(null);
     try {
       const r = await fetch(
@@ -221,7 +232,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [refresh, owner]);
+  }, [deleteConfirm, refresh, owner]);
 
   const handleTogglePublic = useCallback(async (s: UserStratEntry) => {
     setError(null);
@@ -330,15 +341,21 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     }
   }, [importCid, owner, refresh]);
 
-  const handleFork = useCallback(async (s: UserStratEntry) => {
+  const handleFork = useCallback((s: UserStratEntry) => {
     if (!owner) {
       setError("Connect a wallet to fork strats.");
       return;
     }
     const suggested = `${s.id}-fork`.slice(0, 64).replace(/[^a-zA-Z0-9_-]/g, "-");
-    const newId = prompt(`Fork "${s.title}" — pick an ID for your copy:`, suggested);
-    if (!newId) return;
-    const cleaned = newId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+    setForkTarget(s);
+    setForkIdInput(suggested);
+  }, [owner]);
+
+  const doFork = useCallback(async () => {
+    if (!forkTarget) return;
+    const s = forkTarget;
+    const cleaned = forkIdInput.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+    setForkTarget(null);
     if (!cleaned) {
       setError("Fork ID must be a-z, 0-9, -, _.");
       return;
@@ -360,7 +377,7 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [owner, refresh]);
+  }, [forkTarget, forkIdInput, owner, refresh]);
 
   return (
     <div className="pixel-panel border-2 border-pixel-border p-3 space-y-3">
@@ -795,6 +812,74 @@ export default function UserStratsPanel({ eoa }: { eoa?: string }) {
           </p>
         </div>
       </details>
+
+      <ConfirmDeleteStrat
+        name={deleteConfirm?.id ?? null}
+        onConfirm={doDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
+
+      {forkTarget && createPortal(
+        <div
+          className="fixed inset-0 z-[70] grid place-items-center p-4"
+          onClick={() => setForkTarget(null)}
+        >
+          <div className="absolute inset-0" style={{ background: "rgb(var(--pixel-black-rgb)/0.6)" }} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setForkTarget(null);
+              if (e.key === "Enter") void doFork();
+            }}
+            tabIndex={-1}
+            ref={(el) => el?.focus()}
+            className="relative w-full max-w-[360px] rounded-[var(--radius)] backdrop-blur-md p-4 outline-none"
+            style={{
+              background: "linear-gradient(180deg, rgb(var(--pixel-black-rgb)/0.98), rgb(var(--pixel-bg-rgb)/0.96))",
+              border: "1px solid var(--border)",
+              boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
+              animation: "drawer-in-left 0.14s ease-out",
+            }}
+          >
+            <div className="text-[11px] font-mono font-bold tracking-[0.16em] text-blue-400/90">
+              FORK STRAT
+            </div>
+            <div className="mt-2 text-[12.5px] font-mono text-pixel-white leading-relaxed">
+              Fork <span className="text-green-400 font-semibold">&ldquo;{forkTarget.title}&rdquo;</span>
+            </div>
+            <div className="mt-1 text-[10.5px] font-mono text-pixel-gray">
+              Pick an ID for your private copy (a-z, 0-9, -, _).
+            </div>
+            <input
+              type="text"
+              value={forkIdInput}
+              onChange={(e) => setForkIdInput(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ""))}
+              maxLength={64}
+              placeholder="new-strat-id"
+              className="mt-3 w-full bg-pixel-bg border border-pixel-border rounded px-2 py-1.5 font-mono text-xs outline-none"
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setForkTarget(null)}
+                className="rounded-[var(--radius-sm)] border border-pixel-border px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-pixel-gray hover:text-pixel-white hover:border-pixel-white/40 transition-colors"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={() => void doFork()}
+                disabled={!forkIdInput.replace(/[^a-zA-Z0-9_-]/g, "")}
+                className="rounded-[var(--radius-sm)] border border-blue-400/50 bg-blue-400/10 px-3 py-1.5 text-[11px] font-mono font-semibold tracking-[0.06em] text-blue-400 hover:bg-blue-400/20 hover:border-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                FORK
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

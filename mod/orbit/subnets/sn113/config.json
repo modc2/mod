@@ -1,11 +1,11 @@
 {
   "name": "sn113",
   "version": "1.0.0",
-  "description": "SN113 LongShort — pivoting to long-short DEX of alpha token. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
+  "description": "SN113 gje — Bittensor subnet. Daily snapshot + live reads (price, news, trades, candles, validators) from the local bt index.",
   "icon": "Ѓ",
   "chain": "bittensor",
   "netuid": 113,
-  "subnet": "LongShort",
+  "subnet": "gje",
   "symbol": "Ѓ",
   "owner": "5GndoVhMAr8mF5zv1gPVLQYbXzmXe3Xh3kF37nt8qy5CaXTP",
   "github": null,
@@ -16,7 +16,7 @@
   "active": true,
   "route": false,
   "generated_by": "subnets",
-  "updated": "2026-10-08",
+  "updated": "2026-10-09",
   "urls": {
     "bt": "/bt/markets?sn=113",
     "news": "/bt/news?netuid=113"

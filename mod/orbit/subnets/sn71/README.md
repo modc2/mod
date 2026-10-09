@@ -2,7 +2,7 @@
 
 Intent-driven AI for modern sales teams.
 
-Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-08 (block 9236282).
+Bittensor subnet **71** · generated daily by `orbit/subnets` from the local `orbit/bt` index · updated 2026-10-09 (block 9243466).
 
 Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.com)
 
@@ -10,22 +10,22 @@ Links: [github](https://github.com/leadpoet/leadpoet) · [url](https://leadpoet.
 
 | price (τ) | 1h | 24h | 7d | mcap (τ) | pool τ | 24h vol (τ) |
 |---|---|---|---|---|---|---|
-| 0.004146 | -0.57% | +0.86% | +9.72% | 24,387 | 5,127 | 2,745 |
+| 0.004874 | +0.78% | +17.55% | +27.30% | 28,702 | 5,559 | 5,725 |
 
 ## Last 24h flow
 
-387 trades by 111 coldkeys · 221 buys (1,384 τ) / 166 sells (1,360 τ) · net 23.78 τ
+507 trades by 171 coldkeys · 293 buys (3,079 τ) / 214 sells (2,644 τ) · net 435.21 τ
 
 ## News
 
-- 2026-10-08 · commit · [Preserve Deepline rejections across concurrent settlement (#270)](https://github.com/leadpoet/leadpoet/commit/cded1fdae9bb4c3e97418e8c2ad312c0d6a4e485) — leadpoet/leadpoet
-- 2026-10-08 · commit · [Preserve Deepline rejection status and billing across replay (#268)](https://github.com/leadpoet/leadpoet/commit/0323492ab9144cf456ea9aa2fda95fae4839bba6) — leadpoet/leadpoet
-- 2026-10-08 · commit · [Merge pull request #269 from leadpoet/codex/arena-stage-creation-time…](https://github.com/leadpoet/leadpoet/commit/affdc8af6b1ea83fd73b16d68c5f59fe96671abc) — leadpoet/leadpoet
-- 2026-10-08 · commit · [Bound bulk Arena queue creation with scoped database timeouts](https://github.com/leadpoet/leadpoet/commit/32c08b97895632749b8e3f6bb096990bf65337e8) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Merge pull request #267 from leadpoet/codex/arena-admission-ceiling-o…](https://github.com/leadpoet/leadpoet/commit/8df8ad8524b585f1077c6c35cf1f8a91556d98e7) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Merge PR #264: preserve locality verdicts and free response recovery](https://github.com/leadpoet/leadpoet/commit/fedb11681fd6c612a7208823592a9dd846340448) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Keep historical migration fixtures pinned while updating current flows](https://github.com/leadpoet/leadpoet/commit/372053bfdfab5b795921e59632176b0ccae980e5) — leadpoet/leadpoet
-- 2026-10-07 · commit · [Keep service flow fixtures on current billing schema](https://github.com/leadpoet/leadpoet/commit/8a05750542db8f8b7cd78ef2bdd3b5c196a6e6dd) — leadpoet/leadpoet
+- 2026-10-09 · commit · [Merge pull request #296 from leadpoet/fix/judge-completion-reason](https://github.com/leadpoet/leadpoet/commit/cd16d8bd7d48f1c8aa758b3a9d5ece290775562e) — leadpoet/leadpoet
+- 2026-10-09 · commit · [Accept fixed admission interruption reason at Arena completion](https://github.com/leadpoet/leadpoet/commit/339c0883bf8eb0fbd92605d214c23f055a0ae9c7) — leadpoet/leadpoet
+- 2026-10-09 · commit · [Merge pull request #295 from leadpoet/fix/host-score-closed-billing](https://github.com/leadpoet/leadpoet/commit/e60478e9514879cbccd7f3f885babe923db10466) — leadpoet/leadpoet
+- 2026-10-09 · commit · [Reconcile exact closed host judge Deepline bills](https://github.com/leadpoet/leadpoet/commit/a0e4227163b1db35d001c2f2971fee5c8d4a57b2) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Verify host payment refusal ledger transitions in PostgreSQL](https://github.com/leadpoet/leadpoet/commit/3a19a08e7e2a243faa38dd90e6d1bbf3ac4367e1) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Clear stale provider refusal guard after definitive response (#293)](https://github.com/leadpoet/leadpoet/commit/58260206f5c92a6d2b0f988f1cf12b536cac3b88) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Recover provider refusal guards and reject empty failed research (#292)](https://github.com/leadpoet/leadpoet/commit/258976a18edbb4b047cae1f77084b4c4edb65226) — leadpoet/leadpoet
+- 2026-10-08 · commit · [Merge pull request #291 from leadpoet/codex/judge-deadline-return-oct08](https://github.com/leadpoet/leadpoet/commit/a65e45520335cf974db739d07daa16f59b89b15b) — leadpoet/leadpoet
 
 ## Use
 
