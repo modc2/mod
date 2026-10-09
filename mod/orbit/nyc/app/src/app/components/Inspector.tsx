@@ -460,6 +460,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
             )}
             <Stat label="Shootings this year" value={count(p.shootings)} />
             <Meta rows={[
+              ['Last year total', count(p.prior_total)],
               ['Precinct', p.precinct],
               ['Borough', p.borough],
             ]} />

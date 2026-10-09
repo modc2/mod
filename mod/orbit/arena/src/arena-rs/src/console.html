@@ -1790,6 +1790,8 @@ function runInWorker(message, timeoutMs, onEvent) {
  *  last two enters it when play starts — a module that defines play *is* a
  *  player, so being made to enter it first was a step that need not exist. */
 function renderSeats() {
+  const current = {};
+  $("g-seats").querySelectorAll("select").forEach((s) => { current[s.id] = s.value; });
   const attrs = openGame?.info?.attributes || [];
   const playersAttr = attrs.find((a) => a.name?.toLowerCase() === "players");
   let seats = 2;
@@ -1824,7 +1826,8 @@ function renderSeats() {
                        textContent: `${m.name}${m.tools ? ` · ${m.tools} tools` : ""}` }))));
     }
     sel.replaceChildren(...groups);
-    if (players[i]) sel.value = players[i].id;
+    const saved = current[`g-seat-${i}`];
+    sel.value = saved || (players[i] ? players[i].id : "");
     return el("div", { className: "row", style: "margin-bottom:7px" }, [
       el("span", { className: "dim", style: "width:52px", textContent: `seat ${i}` }), sel,
     ]);

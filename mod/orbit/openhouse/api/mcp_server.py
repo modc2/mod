@@ -356,7 +356,7 @@ def _t_close_quarter(args, oh):
 def _t_pool_claim(args, oh):
     raw = args.get('quarter')
     quarter = int(_num(args, 'quarter')) if raw not in (None, '') else None
-    return _ok(oh.pool_claim(_req(args, 'address'), quarter))
+    return _ok(oh.pool_claim(_req(args, 'address'), quarter, caller=str(args.get('caller') or '')))
 
 
 def _t_bloctime(args, oh):
@@ -835,6 +835,7 @@ TOOLS = {
         'inputSchema': {'type': 'object', 'properties': {
             'address': {'type': 'string', 'description': '0x address claiming their share'},
             'quarter': {'type': 'integer', 'description': 'quarter index to claim (default: all unclaimed)'},
+            'caller': {'type': 'string', 'description': '0x address calling — must match address'},
         }, 'required': ['address']},
         'handler': _t_pool_claim,
     },

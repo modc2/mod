@@ -99,6 +99,11 @@ const GATE_LABELS: Record<string, { name: string; fix: string; off: string }> = 
     fix: "this strat only copies the buys — leader sells are ignored and positions ride to resolution, with stop-loss / take-profit / redeem as the exits. That's usually the point of the strat.",
     off: "COPY SELLS TOO",
   },
+  sentiment: {
+    name: "Sentiment gate",
+    fix: "the market's sentiment reading doesn't match this strat's mood filter. Set SENTIMENT → Unknown: pass in the strat risk settings, or clear the mood filter.",
+    off: "CLEAR MOOD FILTER",
+  },
 };
 
 // The cadence the engine will actually run at for `traderCount` traders —
@@ -691,6 +696,9 @@ export default function LivePanel({ onFundNow, tab, onTabChange }: {
         break;
       case "copy sells off":
         patchStrat({ copySells: true });
+        break;
+      case "sentiment":
+        patchStrat({ tradeFilters: { ...tf, sentiment: undefined } });
         break;
       default:
         break;

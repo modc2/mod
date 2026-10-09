@@ -843,7 +843,7 @@ class Mod:
         self._save_pool(state)
         return {'success': True, 'quarter': record}
 
-    def pool_claim(self, address: str, quarter=None) -> dict:
+    def pool_claim(self, address: str, quarter=None, caller: str = '') -> dict:
         """Claim an address's share of one closed quarter, or of all of them.
 
         Pull, not push — the same shape as the contract, where a payout nobody
@@ -852,6 +852,9 @@ class Mod:
         address = (address or '').strip()
         if not address:
             return {'error': 'Address required'}
+        caller = (caller or '').strip()
+        if caller and caller.lower() != address.lower():
+            return {'error': 'Only the claimant address can claim their own share'}
         state = self._load_pool()
         quarters = state.get('quarters') or []
         if not quarters:
@@ -2000,6 +2003,7 @@ class Mod:
             'pool_claim': lambda: self.pool_claim(
                 kwargs.get('address', ''),
                 quarter=kwargs.get('quarter'),
+                caller=kwargs.get('caller', ''),
             ),
             'bloctime': lambda: self.bloctime(kwargs.get('address', '')),
             'peers': lambda: self.peers(refresh=bool(kwargs.get('refresh'))),

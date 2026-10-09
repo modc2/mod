@@ -72,11 +72,14 @@ export default function HourChart({
           )
         })}
 
-        {/* Current hour: a tick under the axis rather than a fill, so it can
-            coincide with the peak or calm bar without hiding either. */}
+        {/* Current hour: a full-height dashed line so the "now" marker is
+            readable against any bar height without covering it. */}
         {now !== undefined && (
-          <rect x={now * bw + bw / 2 - 1} y={H - PB + 1} width="2" height="3"
-                fill="#e8b64c" />
+          <line
+            x1={now * bw + bw / 2} y1={PT - 2}
+            x2={now * bw + bw / 2} y2={H - PB}
+            stroke="#e8b64c" strokeWidth="1" strokeDasharray="2 2"
+          />
         )}
 
         <line x1="0" y1={H - PB} x2={W} y2={H - PB} stroke="#000000" strokeWidth="1" />

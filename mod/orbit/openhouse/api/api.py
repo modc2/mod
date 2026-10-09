@@ -131,6 +131,7 @@ class PoolCloseRequest(BaseModel):
 class PoolClaimRequest(BaseModel):
     address: str
     quarter: Optional[int] = None
+    caller: Optional[str] = None
 
 
 # ── Health / Status ─────────────────────────────────────────────
@@ -451,7 +452,7 @@ def pool_close(req: PoolCloseRequest):
 
 @app.post("/pool/claim")
 def pool_claim(req: PoolClaimRequest):
-    result = get_openhouse().pool_claim(req.address, req.quarter)
+    result = get_openhouse().pool_claim(req.address, req.quarter, caller=req.caller or '')
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

@@ -325,7 +325,9 @@ async function populateRoundSelects() {
 async function loadRounds() {
   populateRoundSelects();
   recomputeCostHint();
-  const {rounds} = await api('/rounds?limit=20');
+  const [{rounds}, {defenses}] = await Promise.all([api('/rounds?limit=20'), api('/defenses')]);
+  const defName = {};
+  (defenses || []).forEach(d => { defName[d.id] = d.name || d.id; });
   $('#round-list').innerHTML = rounds.length ? `<table>
     <tr><th>round</th><th>when</th><th>status</th><th>target</th><th class="num">matches</th>
         <th>leader</th></tr>
@@ -336,7 +338,7 @@ async function loadRounds() {
             : `<span class="flash">${esc(r.status)} ${r.done || 0}/${r.matches || 0}</span>`}</td>
       <td class="muted">${esc(r.model)}</td>
       <td class="num">${r.matches || 0}</td>
-      <td>${r.winner ? esc(r.winner.defense) + ' · ' +
+      <td>${r.winner ? esc(defName[r.winner.defense] || r.winner.defense) + ' · ' +
             r.winner.safety_score.toFixed(2) : '—'}</td></tr>`).join('')}</table>`
     : '<span class="muted">no rounds yet.</span>';
   document.querySelectorAll('#round-list tr.click').forEach(
@@ -720,6 +722,20 @@ $('#f-go').onclick = async () => {
         <span>${esc(s.rule || s.action)}</span>
         <span class="muted">${esc(s.hit || '')}</span></div>`).join('')}
       <pre>${esc(m.response || m.error || '')}</pre>`;
+    if (m.verdict === 'BREACHED' || m.verdict === 'LEAKED') {
+      const btn = document.createElement('button');
+      btn.textContent = '→ SAVE TO CORPUS';
+      btn.style.cssText = 'margin-top:10px;border-color:#2e4a63;background:#12202c';
+      btn.onclick = () => {
+        document.querySelector('nav button[data-tab="attacks"]').click();
+        $('#a-name').value = atk ? (atk.name || '') : 'ad-hoc';
+        $('#a-prompt').value = attackPrompt || '';
+        $('#a-goal').value = atk ? (atk.goal || '') : '';
+        $('#a-markers').value = atk && Array.isArray(atk.markers)
+          ? atk.markers.join(', ') : '';
+      };
+      $('#f-out').appendChild(btn);
+    }
   } catch (e) {
     $('#f-status').innerHTML = '<span class="err">' + esc(e.message) + '</span>';
   }

@@ -248,6 +248,9 @@ export default function Book({ say, onOpenModules }: Props) {
                         {p.adapter !== "pm_copy" && p.signer !== "browser" && (
                           <input value={auth} onChange={(e) => setAuth(e.target.value)} type="password" placeholder="bearer for the chain module (optional)" style={{ marginTop: 6 }} />
                         )}
+                        {p.adapter === "pm_copy" && (
+                          <input value={auth} onChange={(e) => setAuth(e.target.value)} type="password" placeholder="bearer for the polymarket module" style={{ marginTop: 6 }} />
+                        )}
                         <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "center" }}>
                           {p.adapter !== "pm_copy" && p.signer !== "browser" && (
                             <label className="tick">

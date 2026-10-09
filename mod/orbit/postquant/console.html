@@ -1117,7 +1117,10 @@ async function loadMarket() {
       `${esc(pq(m.example.write))} + deposit ${esc(pq(m.example.deposit))} ` +
       `= ${esc(pq(m.example.total))} PQ</span>`;
     document.querySelectorAll('#listings tr.click, #expiring tr.click')
-      .forEach(tr => tr.onclick = () => { $('m-key').value = tr.dataset.k; });
+      .forEach(tr => tr.onclick = () => {
+        $('m-key').value = tr.dataset.k;
+        document.querySelector('nav button[data-tab="write"]').click();
+      });
   } catch (e) { out('market-stats', esc(e.message), 'err'); }
 }
 
