@@ -34,6 +34,9 @@ import SemanticFilterBar from "./SemanticFilterBar";
 const WINDOWS = [1, 3, 7, 14, 30] as const;
 export type CopyTradesView = "all" | "mine" | "missed";
 
+type SortCol = "trades" | "copied" | "coverage" | "medianLagSec" | "myNotional" | "myPnl";
+type SortDir = "asc" | "desc";
+
 function usd(n: number, digits = 2): string {
   if (!Number.isFinite(n)) return "—";
   return `$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
@@ -101,6 +104,30 @@ export default function CopyTradesPanel({
     () => applySemanticQuery(viewed, q, { now: Date.now(), rank: false, sentiment: sentiment.book.lookup }),
     [viewed, q, sentiment.book],
   );
+
+  const [sortCol, setSortCol] = useState<SortCol>("trades");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const handleLeaderSort = (col: SortCol) => {
+    if (col !== sortCol) {
+      setSortCol(col);
+      setSortDir("desc");
+    } else if (sortDir === "desc") {
+      setSortDir("asc");
+    } else {
+      setSortCol("trades");
+      setSortDir("desc");
+    }
+  };
+
+  const sortedLeaders = useMemo(() => {
+    if (!data?.leaders) return [];
+    return [...data.leaders].sort((a, b) => {
+      const av = a[sortCol] ?? (sortDir === "desc" ? -Infinity : Infinity);
+      const bv = b[sortCol] ?? (sortDir === "desc" ? -Infinity : Infinity);
+      return sortDir === "desc" ? (bv as number) - (av as number) : (av as number) - (bv as number);
+    });
+  }, [data?.leaders, sortCol, sortDir]);
 
   const s = data?.summary;
   const topReason = useMemo(() => {
@@ -270,15 +297,30 @@ export default function CopyTradesPanel({
             <thead>
               <tr>
                 <th className="w-[36%]">LEADER</th>
-                <th className="num w-[14%]">THEIR TRADES</th>
-                <th className="num w-[14%]">I GOT</th>
-                <th className="num w-[12%]">COVERAGE</th>
-                <th className="num w-[12%]">LAG</th>
-                <th className="num w-[12%]">MY $</th>
+                {(
+                  [
+                    { col: "trades" as SortCol, label: "THEIR TRADES", cls: "num w-[14%]" },
+                    { col: "copied" as SortCol, label: "I GOT", cls: "num w-[14%]" },
+                    { col: "coverage" as SortCol, label: "COVERAGE", cls: "num w-[12%]" },
+                    { col: "medianLagSec" as SortCol, label: "LAG", cls: "num w-[12%]" },
+                    { col: "myNotional" as SortCol, label: "MY $", cls: "num w-[10%]" },
+                    { col: "myPnl" as SortCol, label: "MY PNL", cls: "num w-[10%]" },
+                  ] as const
+                ).map(({ col, label, cls }) => (
+                  <th key={col} className={cls}>
+                    <button
+                      onClick={() => handleLeaderSort(col)}
+                      className="w-full text-right font-mono"
+                      title={`Sort by ${label}`}
+                    >
+                      {label}{sortCol === col ? (sortDir === "desc" ? " ▼" : " ▲") : ""}
+                    </button>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {data.leaders.map((l) => (
+              {sortedLeaders.map((l) => (
                 <tr key={l.address}>
                   <td className="truncate">
                     <Link href={`/copy/${l.address}`} className="hover:text-green-400" title={l.address}>
@@ -296,6 +338,9 @@ export default function CopyTradesPanel({
                   </td>
                   <td className="num tabular-nums">{lagText(l.medianLagSec)}</td>
                   <td className="num tabular-nums">{usd(l.myNotional, 0)}</td>
+                  <td className={`num tabular-nums ${l.myPnl > 0 ? "text-green-400" : l.myPnl < 0 ? "text-red-400" : "text-pixel-gray"}`}>
+                    {l.myPnl >= 0 ? "+" : ""}{l.myPnl.toFixed(2)}
+                  </td>
                 </tr>
               ))}
               {data.warming
@@ -307,7 +352,7 @@ export default function CopyTradesPanel({
                         {shortAddress(addr)}
                       </Link>
                     </td>
-                    <td colSpan={5} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
+                    <td colSpan={6} className="num text-amber-400/90 text-left font-mono text-[9.5px]">
                       &#x29D7; warming — no history cached yet
                     </td>
                   </tr>

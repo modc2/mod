@@ -288,8 +288,8 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
           return (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
-                <Stat label="Rent range" value={`$${p.rent_min}–$${p.rent_max}/mo`} big />
-                <Stat label="Median rent" value={`$${p.rent_median}`} big />
+                <Stat label="Rent range" value={p.rent_min != null && p.rent_max != null ? `${usdExact(p.rent_min)}–${usdExact(p.rent_max)}/mo` : '—'} big />
+                <Stat label="Median rent" value={p.rent_median != null ? `${usdExact(p.rent_median)}/mo` : '—'} big />
               </div>
               <Meta rows={[
                 ['Address', p.address],
@@ -317,7 +317,7 @@ export default function Inspector({ selection, catalog, propertyType, onClose }:
                           <tr key={i} className="border-b border-white/5 last:border-0">
                             <td className="px-2 py-1 text-white">{r.bedrooms}</td>
                             <td className="px-2 py-1 text-right text-white tabular-nums">
-                              {r.rent != null ? `$${r.rent}` : '—'}
+                              {r.rent != null ? usdExact(r.rent) : '—'}
                             </td>
                             <td className="px-2 py-1 text-right text-nes-ink3">
                               {r.ami_range || (r.max_ami != null ? `${r.max_ami}% AMI` : '—')}

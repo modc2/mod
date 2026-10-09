@@ -1787,7 +1787,20 @@ function runInWorker(message, timeoutMs, onEvent) {
  *  last two enters it when play starts — a module that defines play *is* a
  *  player, so being made to enter it first was a step that need not exist. */
 function renderSeats() {
-  const seats = 2;   // every shipped game seats two; a game that seats more shows more
+  const attrs = openGame?.info?.attributes || [];
+  const playersAttr = attrs.find((a) => a.name?.toLowerCase() === "players");
+  let seats = 2;
+  if (playersAttr?.value) {
+    const raw = String(playersAttr.value).trim();
+    if (raw.startsWith("[")) {
+      // array literal like "[2, 4]" — take the max
+      const nums = raw.replace(/[\[\]\s]/g, "").split(",").map(Number).filter(Number.isFinite);
+      if (nums.length) seats = Math.max(...nums);
+    } else {
+      const n = parseInt(raw, 10);
+      if (n > 0) seats = n;
+    }
+  }
   const entered = new Set(players.flatMap((p) => [p.module, p.via].filter(Boolean)));
   $("g-seats").replaceChildren(...Array.from({ length: seats }, (_, i) => {
     const sel = el("select", { id: `g-seat-${i}`, className: "grow" });
@@ -1846,7 +1859,8 @@ $("g-play").onclick = async () => {
   $("g-play").disabled = true;
   try {
     const seated = [];
-    for (const i of [0, 1]) {
+    const seatCount = $("g-seats").querySelectorAll("select").length;
+    for (let i = 0; i < seatCount; i++) {
       const p = await seatPlayer($(`g-seat-${i}`)?.value);
       if (p) seated.push(p);
     }

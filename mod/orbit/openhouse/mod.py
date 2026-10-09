@@ -664,10 +664,23 @@ class Mod:
 
         for addr, info in self._load_shareholders().items():
             contribution = float(info.get('contribution', 0) or 0)
-            joined = int(info.get('joined', 0) or 0)
-            if contribution <= 0 or joined >= end:
+            if contribution <= 0:
                 continue
-            add(addr, 'shareholder', contribution * (end - max(joined, start)), contribution)
+            events = info.get('contribution_events') or []
+            if events:
+                weight = sum(
+                    float(e.get('amount', 0)) * (end - max(int(e.get('timestamp', 0)), start))
+                    for e in events
+                    if float(e.get('amount', 0)) > 0 and int(e.get('timestamp', 0)) < end
+                )
+                if weight > 0:
+                    add(addr, 'shareholder', weight, contribution)
+            else:
+                # Backward compat: shareholder record predates contribution_events
+                joined = int(info.get('joined', 0) or 0)
+                if joined >= end:
+                    continue
+                add(addr, 'shareholder', contribution * (end - max(joined, start)), contribution)
 
         t = self.terms()
         price = float(t.get('home_price') or 0)
@@ -1423,15 +1436,20 @@ class Mod:
             return {'error': f'Insufficient payment. Required: {cost}, Provided: {payment}'}
 
         shareholders = self._load_shareholders()
+        now = int(time.time())
+        event = {'amount': cost, 'timestamp': now}
         if buyer in shareholders:
             shareholders[buyer]['shares'] = int(shareholders[buyer].get('shares', 0)) + share_count
             shareholders[buyer]['contribution'] = float(shareholders[buyer].get('contribution', 0)) + cost
+            events = shareholders[buyer].get('contribution_events') or []
+            shareholders[buyer]['contribution_events'] = events + [event]
         else:
             shareholders[buyer] = {
                 'shares': share_count,
                 'contribution': cost,
                 'dividends_claimed': 0,
-                'joined': int(time.time()),
+                'joined': now,
+                'contribution_events': [event],
             }
         self._save_shareholders(shareholders)
 

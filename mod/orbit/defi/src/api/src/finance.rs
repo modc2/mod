@@ -2200,8 +2200,13 @@ impl Finance {
         let days = (crate::auth::now().saturating_sub(p.entered_at)) as f64 / 86_400.0;
         let amount: f64 = p.amount.parse().unwrap_or(0.0);
         v["days_in"] = json!(round2(days));
-        v["projected_earned"] = json!(round4(amount * (p.apy_at_entry / 100.0) * days / 365.0));
-        v["projected_basis"] = json!("amount × APY at entry × days/365 — a projection off the rate when you entered, not a balance");
+        if p.adapter == "pm_copy" {
+            v["projected_earned"] = Value::Null;
+            v["projected_basis"] = json!("copy session — earnings are the trader's PnL, not a rate projection");
+        } else {
+            v["projected_earned"] = json!(round4(amount * (p.apy_at_entry / 100.0) * days / 365.0));
+            v["projected_basis"] = json!("amount × APY at entry × days/365 — a projection off the rate when you entered, not a balance");
+        }
         if let Some(m) = live {
             v["apy_now"] = m.pointer("/returns/apy").cloned().unwrap_or(Value::Null);
             v["apy_drift"] = m

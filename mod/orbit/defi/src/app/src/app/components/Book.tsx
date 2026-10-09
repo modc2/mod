@@ -186,19 +186,28 @@ export default function Book({ say, onOpenModules }: Props) {
                       {p.signer === "browser" ? " · ◈ browser wallet" : ""}
                     </div>
                   </div>
-                  <div className="pos-nums">
-                    <div><span className="dim">at entry</span> {pct(p.apy_at_entry)}</div>
-                    <div>
-                      <span className="dim">now</span> {p.apy_now == null ? "—" : pct(p.apy_now)}
-                      {drift != null && (
-                        <span style={{ color: drift < 0 ? "var(--danger)" : "var(--accent)" }}> {drift > 0 ? "+" : ""}{Number(drift).toFixed(2)}</span>
-                      )}
+                  {p.adapter === "pm_copy" ? (
+                    <div className="pos-nums">
+                      <div><span className="dim">copy session</span> active</div>
+                      <div><span className="dim">days in</span> {p.days_in}</div>
                     </div>
-                  </div>
-                  <div className="pos-nums">
-                    <div><span className="dim">days in</span> {p.days_in}</div>
-                    <div><span className="dim">projected</span> {p.projected_earned} {p.asset}</div>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="pos-nums">
+                        <div><span className="dim">at entry</span> {pct(p.apy_at_entry)}</div>
+                        <div>
+                          <span className="dim">now</span> {p.apy_now == null ? "—" : pct(p.apy_now)}
+                          {drift != null && (
+                            <span style={{ color: drift < 0 ? "var(--danger)" : "var(--accent)" }}> {drift > 0 ? "+" : ""}{Number(drift).toFixed(2)}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="pos-nums">
+                        <div><span className="dim">days in</span> {p.days_in}</div>
+                        <div><span className="dim">projected</span> {p.projected_earned} {p.asset}</div>
+                      </div>
+                    </>
+                  )}
                   <span className={`pill ${p.status === "open" ? "ok" : ""}`}>{p.status}</span>
                 </div>
 

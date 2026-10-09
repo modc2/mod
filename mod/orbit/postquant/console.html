@@ -333,6 +333,17 @@
         <div id="check-out" class="muted">—</div>
       </div>
     </div>
+    <div class="panel">
+      <h2>tx history</h2>
+      <p class="note">Transactions touching an address or a key, newest first.
+        Leave both blank for the most recent chain-wide activity.</p>
+      <div class="row">
+        <input type="text" id="hist-address" placeholder="address pq…">
+        <input type="text" id="hist-key" placeholder="key">
+        <button class="go" id="hist-btn">LOAD</button>
+      </div>
+      <div id="hist-out" class="muted">—</div>
+    </div>
   </section>
 
   <!-- MARKET ------------------------------------------------------------- -->
@@ -1010,6 +1021,8 @@ $('get-btn').onclick = async () => {
         'EXPIRED — sweepable' : ago(e.expires_in) + ' left'}</span>` +
       (e.listed ? `<b>for sale</b><span class="amt">${esc(pq(e.price))} PQ</span>` : '') +
       `</div>` + (e.commitment ? `<p class="note" style="margin-top:8px">${esc(e.commitment)}</p>` : ''));
+    const k = $('get-key').value.trim();
+    if (k) $('hist-key').value = k;
   } catch (e) { err('get-out', e); }
 };
 $('prove-btn').onclick = async () => {
@@ -1034,6 +1047,38 @@ $('check-btn').onclick = async () => {
       `<p class="note" style="margin-top:8px">${esc(r.note)}</p>`);
   } catch (e) { err('check-out', e); }
 };
+async function loadHistory() {
+  const p = new URLSearchParams();
+  const addr = $('hist-address').value.trim();
+  const key  = $('hist-key').value.trim();
+  if (addr) p.set('address', addr);
+  if (key)  p.set('key', key);
+  try {
+    const r = await api('/history?' + p);
+    const items = r.history || [];
+    if (!items.length) { out('hist-out', '<span class="muted">no transactions found.</span>'); return; }
+    out('hist-out',
+      '<table><tr><th class="num">height</th><th>tx hash</th><th>kind</th>' +
+      '<th>from</th><th>key / to</th><th class="num">fee</th></tr>' +
+      items.map(item => {
+        const h = esc(item.hash || '');
+        const kt = esc(item.key || item.to || '');
+        return `<tr>` +
+          `<td class="num">${esc(item.height)}</td>` +
+          `<td class="mono"><a href="#" class="hist-tx" data-h="${h}">${short(item.hash, 12)}</a></td>` +
+          `<td class="pill">${esc(item.kind)}</td>` +
+          `<td class="mono addr">${short(item.from, 12)}</td>` +
+          `<td class="mono muted">${short(kt, 14)}</td>` +
+          `<td class="num amt">${esc(pq(item.receipt?.fee) ?? '')}</td>` +
+          `</tr>`;
+      }).join('') + '</table>');
+    document.querySelectorAll('#hist-out .hist-tx').forEach(a => a.onclick = ev => {
+      ev.preventDefault();
+      $('insp-q').value = a.dataset.h; $('insp-btn').click();
+    });
+  } catch (e) { err('hist-out', e); }
+}
+$('hist-btn').onclick = loadHistory;
 
 // ── MARKET ──
 async function loadMarket() {

@@ -50,6 +50,9 @@ export interface CopyTradeRow extends SemanticTrade {
       theirs − mine on a SELL. Positive = worse than the leader. */
   slipCents?: number | null;
 
+  /** Realized P&L from my fill (from the data-api). Null ⇒ unattributed or not reported. */
+  pnl?: number | null;
+
   // ── leader ──
   /** Leader rows only: a fill of mine was matched to it. */
   copied?: boolean;
@@ -258,6 +261,7 @@ export function buildCopyTrades(input: BuildInput, opts: BuildOptions = {}): {
       leaderLabel: best?.leaderLabel ?? null,
       lagSec,
       slipCents,
+      pnl: (t as PolymarketTrade & { pnl?: number }).pnl ?? null,
       count: (t as PolymarketTrade & { count?: number }).count ?? 1,
       firstTs: (t as PolymarketTrade & { firstTs?: number }).firstTs ?? t.timestamp,
     });
@@ -308,6 +312,7 @@ export interface LeaderScore {
   coverage: number;
   notional: number;
   myNotional: number;
+  myPnl: number;
   medianLagSec: number | null;
 }
 
@@ -317,7 +322,7 @@ export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
     let e = by.get(address);
     if (!e) {
       e = { address, label: name, trades: 0, copied: 0, coverage: 0, notional: 0,
-        myNotional: 0, medianLagSec: null, lags: [] };
+        myNotional: 0, myPnl: 0, medianLagSec: null, lags: [] };
       by.set(address, e);
     }
     return e;
@@ -331,6 +336,7 @@ export function scoreLeaders(rows: CopyTradeRow[]): LeaderScore[] {
       if (r.copied) e.copied += 1;
     } else {
       e.myNotional += r.notional;
+      e.myPnl += r.pnl ?? 0;
       if (r.lagSec != null) e.lags.push(r.lagSec);
     }
   }

@@ -651,10 +651,14 @@ class Node:
                     continue
                 if key and body.get("key") != key:
                     continue
-                out.append({"hash": tx["hash"], "height": b["header"]["height"],
-                            "timestamp": b["header"]["timestamp"],
-                            "kind": body["kind"], "from": body["from"],
-                            "receipt": receipt})
+                out.append({
+                    "hash": tx["hash"], "block": b["hash"],
+                    "height": b["header"]["height"],
+                    "timestamp": b["header"]["timestamp"],
+                    "kind": body["kind"], "from": body["from"],
+                    **{k: body[k] for k in ("key", "to") if k in body},
+                    "receipt": receipt,
+                })
                 if len(out) >= limit:
                     return out
         return out

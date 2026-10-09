@@ -258,7 +258,7 @@ async function loadBoard() {
   $('#blue-board').innerHTML = (b.blue || []).length ? `<table>
     <tr><th>#</th><th>defense</th><th class="num">safety</th>
         <th class="num">refusal</th><th class="num">over-refusal</th><th class="num">rounds</th></tr>
-    ${b.blue.map(d => `<tr><td>${d.rank}</td><td>${esc(d.defense)}
+    ${b.blue.map(d => `<tr><td>${d.rank}</td><td>${esc(d.name || d.defense)}
       ${barRow(d.safety_score, 'var(--blue)')}</td>
       <td class="num">${d.safety_score.toFixed(2)}</td>
       <td class="num">${pct(d.refusal_rate)}</td>
@@ -267,7 +267,7 @@ async function loadBoard() {
     : '<span class="muted">no completed rounds yet — run one.</span>';
   $('#red-board').innerHTML = (b.red || []).length ? `<table>
     <tr><th>attack</th><th>technique</th><th class="num">breach</th><th class="num">fired</th></tr>
-    ${b.red.map(a => `<tr><td>${esc(a.attack)}
+    ${b.red.map(a => `<tr><td>${esc(a.name || a.attack)}
       ${barRow(a.breach_rate, 'var(--red)')}</td>
       <td class="muted">${esc(a.technique || a.category || '')}</td>
       <td class="num">${pct(a.breach_rate)}</td>
@@ -292,10 +292,11 @@ async function loadRounds() {
   recomputeCostHint();
   const {rounds} = await api('/rounds?limit=20');
   $('#round-list').innerHTML = rounds.length ? `<table>
-    <tr><th>round</th><th>status</th><th>target</th><th class="num">matches</th>
+    <tr><th>round</th><th>when</th><th>status</th><th>target</th><th class="num">matches</th>
         <th>leader</th></tr>
     ${rounds.map(r => `<tr class="click" data-id="${esc(r.id)}">
       <td>${esc(r.id)}</td>
+      <td class="muted">${r.started ? new Date(r.started * 1000).toLocaleString() : '—'}</td>
       <td>${r.status === 'done' ? 'done'
             : `<span class="flash">${esc(r.status)} ${r.done || 0}/${r.matches || 0}</span>`}</td>
       <td class="muted">${esc(r.model)}</td>
@@ -316,7 +317,9 @@ async function showRound(id) {
       <span class="pill">${esc(r.model)}</span>
       <span class="pill">judge: ${esc(r.judge)}</span>
       <span class="pill">${r.done}/${r.total_matches}</span>
-      <span class="pill">${esc(r.status)}</span></div>
+      <span class="pill">${esc(r.status)}</span>
+      ${r.started ? `<span class="pill muted">${new Date(r.started * 1000).toLocaleString()}</span>` : ''}
+      ${r.status === 'done' && r.finished && r.started ? `<span class="pill muted">${Math.round(r.finished - r.started)}s</span>` : ''}</div>
     ${scores.length ? `<table>
       <tr><th>defense</th><th class="num">safety</th><th class="num">refusal</th>
           <th class="num">over-refusal</th><th class="num">breach</th>

@@ -177,7 +177,8 @@ def t_rounds(a):
         lb = r.get('leaderboard') or []
         out.append({'id': r['id'], 'status': r.get('status'),
                     'model': r.get('model'), 'matches': r.get('total_matches'),
-                    'done': r.get('done'), 'winner': lb[0] if lb else None})
+                    'done': r.get('done'), 'winner': lb[0] if lb else None,
+                    'started': r.get('started'), 'finished': r.get('finished')})
     return {'rounds': out}
 
 

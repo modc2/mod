@@ -125,5 +125,14 @@ def board_across(rounds=8):
         key=lambda x: x['safety_score'], reverse=True)
     for i, b in enumerate(blue_board):
         b['rank'] = i + 1
-    return {'rounds_counted': len(recs), 'blue': blue_board,
-            'red': arena.attack_board(recs)}
+    defense_names = {d['id']: d.get('name', d['id']) for d in BUILTIN_DEFENSES}
+    defense_names.update({a['id']: a.get('name', a['id'])
+                          for a in store.listing('defense', limit=0)})
+    for b in blue_board:
+        b['name'] = defense_names.get(b['defense'], b['defense'])
+    red_board = arena.attack_board(recs)
+    attack_names = {a['id']: a.get('name', a['id'])
+                    for a in store.listing('attack', limit=0)}
+    for a in red_board:
+        a['name'] = attack_names.get(a['attack'], a['attack'])
+    return {'rounds_counted': len(recs), 'blue': blue_board, 'red': red_board}
