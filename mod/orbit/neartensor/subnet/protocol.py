@@ -120,7 +120,7 @@ def ground_truth(task_req, answer, near):
         gp = near.gas_price(anchor)
         truth = {"block_hash": anchor, "gas_price": str(gp["gas_price"])}
     elif name == "account_state":
-        account_id = answer.get("account_id", "")
+        account_id = task_req["params"].get("account_id", "")
         acct = near.view_account(account_id, block_hash=anchor)
         truth = {
             "block_hash": anchor,

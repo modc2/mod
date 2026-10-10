@@ -35,7 +35,9 @@ export default function LivePanel() {
   const [minOrder, setMinOrder] = useState(10);
   const [slipBps, setSlipBps] = useState(100);
   const [coinsAllow, setCoinsAllow] = useState("");
+  const [coinsDeny, setCoinsDeny] = useState("");
   const [vault, setVault] = useState("");
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   const [status, setStatus] = useState<LiveStatusResp | null>(null);
   const [busy, setBusy] = useState(false);
@@ -63,6 +65,24 @@ export default function LivePanel() {
     const h = setInterval(tick, 3000);
     return () => { live = false; clearInterval(h); };
   }, [eoa]);
+
+  // Pre-populate form from the running engine config on first status load.
+  useEffect(() => {
+    if (configLoaded || !status?.config) return;
+    const c = status.config;
+    if (Array.isArray(c.traders) && c.traders.length > 0) {
+      setTradersRaw(c.traders.map((t: any) => t.address).join(" "));
+    }
+    if (c.intervalMs != null) setIntervalMs(c.intervalMs);
+    if (c.sizePct != null) setSizePct(c.sizePct);
+    if (c.maxPerTradeUsd != null) setMaxPerTrade(c.maxPerTradeUsd);
+    if (c.minOrderSizeUsd != null) setMinOrder(c.minOrderSizeUsd);
+    if (c.maxSlippageBps != null) setSlipBps(c.maxSlippageBps);
+    if (Array.isArray(c.coinsAllow)) setCoinsAllow(c.coinsAllow.join(", "));
+    if (Array.isArray(c.coinsDeny)) setCoinsDeny(c.coinsDeny.join(", "));
+    if (c.vaultAddress != null) setVault(c.vaultAddress);
+    setConfigLoaded(true);
+  }, [status, configLoaded]);
 
   const onApproveAgent = async () => {
     if (!eoa || !cfg) return;
@@ -94,6 +114,7 @@ export default function LivePanel() {
         min_order_size_usd: minOrder,
         max_slippage_bps: slipBps,
         coins_allow: coinsAllow.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+        coins_deny: coinsDeny.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
         vault_address: vault.trim() || undefined,
       });
     } catch (e: any) {
@@ -149,7 +170,10 @@ export default function LivePanel() {
 
       {/* ── Config ── */}
       <section className="card p-4 space-y-3">
-        <div className="text-xs uppercase tracking-wider text-muted">Copy-trade config</div>
+        <div className="flex items-center justify-between">
+          <div className="text-xs uppercase tracking-wider text-muted">Copy-trade config</div>
+          {running && <span className="text-[11px] text-accent2">live — fields show running values</span>}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <label className="block col-span-2">
             <span className="text-[11px] text-muted">Leader wallets (comma/space-separated 0x…)</span>
@@ -190,10 +214,15 @@ export default function LivePanel() {
             <input className="input w-full" value={vault} onChange={(e) => setVault(e.target.value)}
               placeholder="0x… vault" />
           </label>
-          <label className="block col-span-2">
+          <label className="block">
             <span className="text-[11px] text-muted">Coins allow-list (optional, comma-separated)</span>
             <input className="input w-full" value={coinsAllow}
               onChange={(e) => setCoinsAllow(e.target.value)} placeholder="BTC, ETH, SOL" />
+          </label>
+          <label className="block">
+            <span className="text-[11px] text-muted">Coins deny-list (optional, comma-separated)</span>
+            <input className="input w-full" value={coinsDeny}
+              onChange={(e) => setCoinsDeny(e.target.value)} placeholder="BTC, ETH, SOL" />
           </label>
         </div>
         <div className="flex items-start gap-2 pt-2">

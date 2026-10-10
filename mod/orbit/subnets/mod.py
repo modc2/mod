@@ -77,7 +77,7 @@ def _dumps(obj):
 def _strip_volatile(obj):
     """Compare snapshots without the timestamps that change every run."""
     if isinstance(obj, dict):
-        return {k: _strip_volatile(v) for k, v in obj.items() if k not in ('updated', 'updated_day')}
+        return {k: _strip_volatile(v) for k, v in obj.items() if k not in ('updated', 'updated_day', 'block')}
     return obj
 
 

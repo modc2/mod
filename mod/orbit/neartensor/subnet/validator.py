@@ -71,6 +71,13 @@ class Validator:
         # A miner must answer as the hotkey it registered under.
         if resp.get("hotkey") != miner["hotkey"]:
             sig_ok = False
+        # A miner must answer about the account the validator asked about.
+        if (task_req["task"] == "account_state" and
+                answer.get("account_id") != task_req["params"].get("account_id")):
+            sig_ok = False
+
+        if not sig_ok:
+            return {"score": 0.0, "error": "bad signature", "task": task_req["task"]}
 
         try:
             truth, final_height = protocol.ground_truth(task_req, answer, self.near)

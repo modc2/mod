@@ -157,6 +157,39 @@ def test_weighted_median():
     assert _weighted_median([(10, 0.1), (1, 0.9)]) == 0.1
 
 
+# ── validator query_one exploit prevention ──────────────────────────────
+
+def test_bad_sig_with_unprovable_hash_scores_zero_not_skip(cfg, monkeypatch):
+    """Bad-sig response with an unprovable block_hash must score 0.0, not None."""
+    from unittest.mock import patch, MagicMock
+    from subnet.validator import Validator
+
+    monkeypatch.setattr("subnet.validator.NearClient", lambda *a, **k: FakeNear())
+    val = Validator(cfg)
+    miner = {"uid": 0, "hotkey": "real-hotkey", "url": "http://fake-miner"}
+    task_req = protocol.make_task("block_header")
+
+    # "not-a-real-hash" causes FakeNear.block_by_hash to raise ValueError
+    answer = {"block_hash": "not-a-real-hash", "height": 1,
+              "prev_hash": "x", "epoch_id": "ep1", "timestamp_ns": 1}
+    digest = protocol.answer_digest(task_req["task"], task_req["nonce"], answer)
+
+    fake_resp = MagicMock()
+    fake_resp.raise_for_status.return_value = None
+    fake_resp.json.return_value = {
+        "answer": answer,
+        "digest": digest,
+        "hotkey": "wrong-hotkey",   # != miner["hotkey"] -> sig_ok=False
+        "signature": "",
+    }
+
+    with patch("subnet.validator.requests.post", return_value=fake_resp):
+        result = val.query_one(miner, task_req)
+
+    assert result["score"] == 0.0, f"expected 0.0 but got {result['score']!r}"
+    assert result["score"] is not None  # not skipped
+
+
 # ── end-to-end offline epoch ────────────────────────────────────────────
 
 def test_offline_epoch_scores_and_sets_weights(cfg, monkeypatch):

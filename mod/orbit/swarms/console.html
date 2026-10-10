@@ -154,6 +154,7 @@ before paying to run it.</pre>
         <button class="go" id="a-run">RUN AGENT</button>
         <span class="flash" id="f-agent"></span>
       </div>
+      <div id="a-estimate"></div>
       <pre id="out-agent">One agent, one task.</pre>
     </div>
   </div>
@@ -354,6 +355,21 @@ function showEstimate(q) {
   n.append(d);
 }
 
+// Returns a Promise<boolean>. Appends CONFIRM/CANCEL buttons to container;
+// removes only the button row on resolve (leaves any estimate text visible).
+function waitConfirm(container) {
+  return new Promise(resolve => {
+    const row = el('div', 'bar');
+    row.style.marginTop = '8px';
+    const yes = el('button', 'go', 'CONFIRM RUN');
+    const no  = el('button', 'ghost', 'CANCEL');
+    yes.onclick = () => { row.remove(); resolve(true); };
+    no.onclick  = () => { row.remove(); resolve(false); };
+    row.append(yes, no);
+    container.append(row);
+  });
+}
+
 $('#estimatebtn').onclick = async () => {
   const agents = rosterFromInput();
   try {
@@ -408,12 +424,11 @@ $('#run').onclick = async () => {
     let out = await call('/run', {method: 'POST', body: JSON.stringify(body)});
     if (out.needs_confirm) {
       showEstimate(out.estimate);
-      if (confirm(`${out.reason}\n\nRun it anyway?`)) {
+      if (await waitConfirm($('#estimate'))) {
         $('#out-swarm').textContent = 'confirmed — running…';
         out = await call('/run', {method: 'POST',
                                   body: JSON.stringify({...body, confirm: true})});
-      } else { flash('#f-swarm', 'held'); b.disabled = false;
-               $('#out-swarm').textContent = j(out); return; }
+      } else { flash('#f-swarm', 'held'); b.disabled = false; return; }
     }
     $('#out-swarm').textContent = j(out);
     flash('#f-swarm', 'done');
@@ -448,9 +463,15 @@ $('#a-run').onclick = async () => {
   $('#out-agent').textContent = 'running…';
   try {
     let out = await call('/agent', {method: 'POST', body: JSON.stringify(body)});
-    if (out.needs_confirm && confirm(`${out.reason}\n\nRun it anyway?`))
-      out = await call('/agent', {method: 'POST',
-                                  body: JSON.stringify({...body, confirm: true})});
+    if (out.needs_confirm) {
+      const aEst = $('#a-estimate');
+      aEst.innerHTML = '';
+      const d = el('div', 'guard'); d.textContent = out.reason; aEst.append(d);
+      if (await waitConfirm(aEst)) {
+        out = await call('/agent', {method: 'POST',
+                                    body: JSON.stringify({...body, confirm: true})});
+      } else { flash('#f-agent', 'held'); b.disabled = false; return; }
+    }
     $('#out-agent').textContent = j(out);
     flash('#f-agent', 'done');
   } catch (e) { $('#out-agent').textContent = j(e.body || e.message);

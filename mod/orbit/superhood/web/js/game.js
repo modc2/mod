@@ -664,7 +664,7 @@
     this.titleT++;
     if (consume('start') || consume('jump')) {
       SND.sfx('select');
-      this.score = 0; this.tokens = 0; this.lives = 3;
+      this.score = 0; this.tokens = 0; this.lives = 3; this.newHigh = false;
       this.player = null;
       clearEdges();          // don't carry the start press into the first step
       this.loadLevel(LEVELS.order[0]);
@@ -857,6 +857,7 @@
       this.overT = 210;
       if (this.score > this.high) {
         this.high = this.score;
+        this.newHigh = true;
         try { localStorage.setItem('superhood.high', String(this.high)); } catch (e) {}
       }
       SND.play('gameover');
@@ -1212,6 +1213,7 @@
         this.overT = 400;
         if (this.score > this.high) {
           this.high = this.score;
+          this.newHigh = true;
           try { localStorage.setItem('superhood.high', String(this.high)); } catch (e) {}
         }
         SND.play('clear');
@@ -1646,6 +1648,7 @@
       textCentered(g, 'SCORE ' + pad(this.score, 6), 130, '#ffffff', 1);
     }
     textCentered(g, 'TOP ' + pad(this.high, 6), 146, '#9ad0ff', 1);
+    if (this.newHigh) textCentered(g, 'NEW RECORD', 160, '#f7d51d', 1);
   };
 
   Game.prototype.renderTitle = function (g) {

@@ -287,7 +287,7 @@
       if (rec && rec.bytes) {
         self.loadROM(rec.bytes, rec.name);
         self.pause();               // waiting for a gesture before making noise
-        self.toast('resumed ' + rec.name + ' — press PAUSE to play');
+        self.toast('resumed ' + rec.name + ' — press PLAY to continue');
       }
     }).catch(noop);
   };

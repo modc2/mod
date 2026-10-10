@@ -1076,8 +1076,13 @@ async function loadKeys() {
     if ($('keys-owner').value) p.set('owner', $('keys-owner').value);
     if ($('keys-expired').checked) p.set('include_expired', 'true');
     const r = await api('/keys?' + p);
-    $('keys-meta').textContent = r.count + ' keys · ' + r.state_bytes + ' state bytes';
-    out('keys', r.count ? entryRows(r.keys)
+    $('keys-meta').textContent = r.truncated
+      ? r.keys.length + ' of ' + r.count + ' keys · ' + r.state_bytes + ' state bytes'
+      : r.count + ' keys · ' + r.state_bytes + ' state bytes';
+    const truncNote = r.truncated
+      ? '<p class="note">Showing first 100 of ' + r.count + ' — use the prefix or owner filters above to narrow the list.</p>'
+      : '';
+    out('keys', r.count ? entryRows(r.keys) + truncNote
       : '<span class="muted">the store is empty — WRITE claims the first key.</span>');
     document.querySelectorAll('#keys tr.click').forEach(tr => tr.onclick = () => {
       $('get-key').value = tr.dataset.k; $('check-key').value = tr.dataset.k;
