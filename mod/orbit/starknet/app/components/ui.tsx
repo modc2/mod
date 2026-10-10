@@ -59,7 +59,7 @@ export function Addr({ a, full = false, link = true }: { a: string; full?: boole
 }
 
 export function TxLink({ h, full = false }: { h: string; full?: boolean }) {
-  return <Link href={`/tx?h=${h}`} className="hash mono" title={h}>{full ? h : short(h)}</Link>;
+  return <Link href={`/tx?h=${h}`} className="hash mono nowrap" title={h}>{full ? h : short(h, 4)}</Link>;
 }
 
 export function BlockLink({ n }: { n: number | string }) {

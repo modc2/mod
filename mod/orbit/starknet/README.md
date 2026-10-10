@@ -15,7 +15,7 @@ an app and an MCP server, local first, zero dependencies.
   `strk20_invoke_action` ABI-encodes the `InvokeExternal` client action for
   a helper. Nothing proves, signs or submits — that needs the user's viewing
   key, which belongs in their wallet / the Privacy SDK.
-- **MCP**: 20 read-only tools over stdio (`python3 mcp.py`) and Streamable
+- **MCP**: 20 read-only tools over stdio (`python3 api/mcp.py`) and Streamable
   HTTP (`POST /mcp` on the same port).
 
 - **Reads everything**: blocks, transactions, receipts, account balances
@@ -36,20 +36,30 @@ an app and an MCP server, local first, zero dependencies.
 ## Layout
 
 ```
-chain.py       the Starknet client as plain importable functions (reusable alone)
-abi.py         Cairo ABI codec: iface / read / encode / events for any contract
-strk20.py      the STRK20 privacy pool: state, activity, users, notes, helpers, docs
-mcp.py         MCP server (JSON-RPC 2.0, stdio + mounted at POST /mcp)
-api.py         REST API + console server (http.server, one port)
-console.html   the app — status, account lookup, contract calls
-mod.py         module anchor: every fn callable through the mod protocol
-config.json    ports, endpoints, fns, env
+api/                 the backend — Python stdlib only, zero dependencies
+  api.py             REST API + MCP + serves the app, one port (51020)
+  chain.py           the Starknet client as plain importable functions
+  abi.py             Cairo ABI codec: iface / read / encode / events for any contract
+  strk20.py          the STRK20 privacy pool: state, activity, users, notes, helpers, docs
+  mcp.py             MCP server (JSON-RPC 2.0, stdio + mounted at POST /mcp)
+app/                 the explorer — Next.js 14, static export
+  app/               pages: / (live blocks) · /block · /tx · /address · /privacy · /developers
+  build.sh           next build -> releases/<t>, dist -> releases/<t> (atomic, no restart)
+  legacy.html        the old single-file console; served only if dist/ was never built
+mod.py               module anchor: every fn callable through the mod protocol
+config.json          ports, endpoints, fns, env
 ```
+
+The app has no node process at runtime: `api/api.py` serves `app/dist`. It
+calls the API at `/starknet/_api/<route>` (the gateway owns
+`/starknet/api/*`). A browser navigation to a path that is both a page and
+an API route (`/block`, `/tx`) gets the page; anything else gets JSON.
 
 ## Run
 
 ```bash
-python3 mod.py serve          # foreground
+python3 mod.py serve          # foreground: API + MCP + app on :51020
+bash app/build.sh             # rebuild the app after editing app/ (no restart needed)
 # or through the protocol: Mod().serve(background=True)
 ```
 
@@ -64,6 +74,8 @@ unchanged behind the gateway (`/{mod}` → app, prefix kept).
 | endpoint | what |
 | --- | --- |
 | `GET /status` | network, chain id, head block, active RPC |
+| `GET /blocks?limit=10` | newest blocks as one-line summaries |
+| `GET /search?q=` | what is it? block number / tx / block hash / address / token |
 | `GET /block?id=latest\|<n>\|<hash>&full=1` | block (full=1 includes txs) |
 | `GET /tx?hash=` · `GET /receipt?hash=` | transaction / receipt |
 | `GET /account?address=` | ETH+STRK balances, nonce, class hash in one view |

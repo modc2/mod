@@ -5,7 +5,7 @@ import { norm, num, TOKENS, units } from './format';
 export const EV_LABEL: Record<string, string> = {
   Deposit: 'Deposit', Withdrawal: 'Withdrawal', NoteUsed: 'Note spent',
   EncNoteCreated: 'Private note', OpenNoteDeposited: 'Open note',
-  ExternalContractInvoked: 'Helper call',
+  ExternalContractInvoked: 'Helper call', OpenNoteCreated: 'Open note made', ViewingKeySet: 'Registered',
 };
 
 export function evTone(name: string): 'ok' | 'err' | 'warn' | 'dim' | 'accent' {

@@ -1,7 +1,7 @@
 {
     "name": "starknet",
-    "version": "0.2.0",
-    "description": "Starknet as one mod, MCP-native: JSON-RPC reads over a failover pool of free public endpoints (your own node first via STARKNET_RPC), every contract readable by its own on-chain ABI (typed args in, decoded structs/enums/u256/events out), and the STRK20 privacy pool \u2014 pool state, public tape, registrations, notes, nullifiers, and the privacy_invoke anonymizer contracts private DeFi runs through. 20 MCP tools over stdio and POST /mcp. Python stdlib only, zero dependencies.",
+    "version": "0.3.0",
+    "description": "Starknet explorer app + API, one port. The app: live blocks, transactions, wallets, any contract read through its own on-chain ABI, and the STRK20 privacy pool's public side. The API: JSON-RPC reads over a failover pool of free public endpoints (your node first via STARKNET_RPC), Cairo ABI codec, STRK20 pool tools, and 20 MCP tools over stdio and POST /mcp. Backend is Python stdlib only.",
     "icon": "S",
     "anchor": "mod.py",
     "port": 51020,
@@ -13,7 +13,8 @@
         "app": "http://localhost:51020/starknet",
         "explorer": "https://voyager.online",
         "mcp": "http://localhost:51020/mcp",
-        "strk20_docs": "https://strk20.starknet.io/docs"
+        "strk20_docs": "https://strk20.starknet.io/docs",
+        "app_api": "http://localhost:51020/starknet/_api"
     },
     "networks": {
         "mainnet": "https://starknet-rpc.publicnode.com",
@@ -24,6 +25,8 @@
         "health": "GET /health",
         "status": "GET /status?network=",
         "block_number": "GET /block_number",
+        "blocks": "GET /blocks?limit=",
+        "search": "GET /search?q=  (block number | tx | block hash | address | token alias)",
         "block": "GET /block?id=latest|<n>|<hash>&full=1",
         "tx": "GET /tx?hash=",
         "receipt": "GET /receipt?hash=",
@@ -50,7 +53,7 @@
         "strk20_docs": "GET /strk20/docs?page=&q=",
         "mcp": "POST /mcp",
         "tools": "GET /tools \u00b7 POST /tools/<name>",
-        "app": "GET /starknet/"
+        "app": "GET /starknet/  (pages: /, /block?n=, /tx?h=, /address?a=, /privacy, /developers)"
     },
     "fns": [
         "info",
@@ -58,6 +61,8 @@
         "status",
         "chain_id",
         "block_number",
+        "blocks",
+        "search",
         "block",
         "tx",
         "receipt",
@@ -84,12 +89,13 @@
         "strk20_docs",
         "mcp",
         "tools",
+        "build",
         "serve",
         "kill",
         "test",
         "readme"
     ],
-    "backend": "python stdlib only (http.server + urllib); keccak-256 and starknet_keccak selectors in-tree; Cairo ABI codec in-tree (abi.py); MCP server in-tree (mcp.py, no mcp package)",
+    "backend": "python stdlib only (http.server + urllib) in api/; keccak-256 and starknet_keccak in-tree; Cairo ABI codec in-tree (api/abi.py); MCP server in-tree (api/mcp.py). App: Next 14 static export in app/, no node process at runtime.",
     "auth": "read-only \u2014 no keys are held, nothing to leak. STRK20 private transactions need the user's viewing key and a STARK proof; this module encodes actions (strk20_invoke_action) but never asks for a viewing key, proves, signs or submits.",
     "env": {
         "PORT": "port for API and console (default 51020)",
@@ -103,7 +109,7 @@
     "mcp": {
         "endpoint": "POST /mcp",
         "transport": "Streamable HTTP (JSON-RPC 2.0)",
-        "stdio": "python3 mcp.py",
+        "stdio": "python3 api/mcp.py",
         "tools": [
             "starknet_status",
             "starknet_block",
@@ -132,5 +138,9 @@
         "mainnet": {
             "strk20_pool": "0x040337b1af3c663e86e333bab5a4b28da8d4652a15a69beee2b677776ffe812a"
         }
+    },
+    "layout": {
+        "api": "api/ \u2014 api.py (server), chain.py, abi.py, strk20.py, mcp.py (python stdlib)",
+        "app": "app/ \u2014 Next.js static export, built by app/build.sh into app/dist, served by api/api.py"
     }
 }

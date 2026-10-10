@@ -10,7 +10,7 @@ const EXAMPLES = ['status', 'blocks?limit=5', 'balance?address=0x040337b1af3c663
 
 export default function Developers() {
   const { net } = useNet();
-  const info = useApi<any>('');
+  const info = useApi<any>('/');
   const tools = useApi<any>('tools');
   const [origin, setOrigin] = useState('');
   useEffect(() => setOrigin(window.location.origin), []);

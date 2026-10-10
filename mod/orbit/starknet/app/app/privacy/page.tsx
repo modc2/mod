@@ -14,7 +14,7 @@ export default function Privacy() {
   const main = net === 'mainnet';
   const pool = useApi<any>(main ? 'strk20/pool' : null, 60000);
   const [ev, setEv] = useState('');
-  const tape = useApi<any>(main ? `strk20/activity?limit=40${ev ? `&event=${ev}` : ''}` : null, 30000);
+  const tape = useApi<any>(main ? `strk20/activity?limit=25${ev ? `&event=${ev}` : ''}` : null, 30000);
   const helpers = useApi<any>(main ? 'strk20/helpers' : null);
 
   if (!main) return <Empty>The STRK20 privacy pool is deployed on mainnet only — switch network at the top right.</Empty>;

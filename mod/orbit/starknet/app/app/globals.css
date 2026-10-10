@@ -182,3 +182,5 @@ pre { background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
   .tokens { grid-template-columns: 1fr; }
 }
 pre.err { border-color: rgba(248, 81, 73, .45); color: var(--err); }
+.nowrap { white-space: nowrap; }
+.snip pre { padding-right: 64px; }
